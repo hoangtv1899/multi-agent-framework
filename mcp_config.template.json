@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy this to mcp_config.json and update paths for your system",
+  "mcp_servers": {
+    "usgs_water": {
+      "command": "/path/to/your/python3",
+      "args": ["/path/to/RCSFA/mcp/usgs-water-mcp/main.py"],
+      "timeout": 30.0
+    },
+    "weather": {
+      "command": "/path/to/your/python3",
+      "args": ["/path/to/RCSFA/mcp/weather-mcp/main.py"],
+      "timeout": 60.0
+    },
+    "geology": {
+      "command": "/path/to/your/python3",
+      "args": ["/path/to/RCSFA/mcp/geology-mcp/main.py"],
+      "timeout": 30.0
+    }
+  }
+}

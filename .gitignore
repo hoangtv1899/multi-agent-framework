@@ -1,0 +1,28 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Workflow outputs (generated data - too large for git)
+workflow_outputs/
+
+# MCP config with absolute paths (use template instead)
+mcp_config.json
+
+# OS files
+.DS_Store
+*.swp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log

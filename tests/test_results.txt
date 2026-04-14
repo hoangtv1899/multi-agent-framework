@@ -1,0 +1,45 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.11, pytest-8.4.2, pluggy-1.6.0 -- /global/common/software/nersc9/pytorch/2.8.0/bin/python3.12
+cachedir: .pytest_cache
+rootdir: /global/u2/h/hvtran/RCSFA/multi-agent
+plugins: anyio-4.12.1
+collecting ... collected 36 items
+
+tests/test_reception_agent.py::TestMultipleLocations::test_full_pipeline_each_location[richland_wa] PASSED [  2%]
+tests/test_reception_agent.py::TestMultipleLocations::test_full_pipeline_each_location[moscow_id] PASSED [  5%]
+tests/test_reception_agent.py::TestMultipleLocations::test_full_pipeline_each_location[phoenix_az] PASSED [  8%]
+tests/test_reception_agent.py::TestMultipleLocations::test_full_pipeline_each_location[miami_fl] PASSED [ 11%]
+tests/test_reception_agent.py::TestMultipleLocations::test_correct_soil_layers_per_location[richland_wa] PASSED [ 13%]
+tests/test_reception_agent.py::TestMultipleLocations::test_correct_soil_layers_per_location[moscow_id] PASSED [ 16%]
+tests/test_reception_agent.py::TestMultipleLocations::test_correct_soil_layers_per_location[phoenix_az] PASSED [ 19%]
+tests/test_reception_agent.py::TestMultipleLocations::test_correct_soil_layers_per_location[miami_fl] PASSED [ 22%]
+tests/test_reception_agent.py::TestMultipleLocations::test_planner_brief_has_all_fields[richland_wa] PASSED [ 25%]
+tests/test_reception_agent.py::TestMultipleLocations::test_planner_brief_has_all_fields[moscow_id] PASSED [ 27%]
+tests/test_reception_agent.py::TestMultipleLocations::test_planner_brief_has_all_fields[phoenix_az] PASSED [ 30%]
+tests/test_reception_agent.py::TestMultipleLocations::test_planner_brief_has_all_fields[miami_fl] PASSED [ 33%]
+tests/test_reception_agent.py::TestClimateScenarios::test_climate_scenario_passes_correct_years[normal] PASSED [ 36%]
+tests/test_reception_agent.py::TestClimateScenarios::test_climate_scenario_passes_correct_years[drought] PASSED [ 38%]
+tests/test_reception_agent.py::TestClimateScenarios::test_climate_scenario_passes_correct_years[wet] PASSED [ 41%]
+tests/test_reception_agent.py::TestClimateScenarios::test_climate_scenario_passes_correct_years[recent] PASSED [ 44%]
+tests/test_reception_agent.py::TestClimateScenarios::test_historical_scenarios_use_correct_tool[drought] PASSED [ 47%]
+tests/test_reception_agent.py::TestClimateScenarios::test_historical_scenarios_use_correct_tool[wet] PASSED [ 50%]
+tests/test_reception_agent.py::TestClimateScenarios::test_historical_scenarios_use_correct_tool[recent] PASSED [ 52%]
+tests/test_reception_agent.py::TestClimateScenarios::test_normal_scenario_uses_summary_tool PASSED [ 55%]
+tests/test_reception_agent.py::TestClimateScenarios::test_location_scenario_combinations[richland_wa-drought] PASSED [ 58%]
+tests/test_reception_agent.py::TestClimateScenarios::test_location_scenario_combinations[moscow_id-normal] PASSED [ 61%]
+tests/test_reception_agent.py::TestClimateScenarios::test_location_scenario_combinations[phoenix_az-recent] PASSED [ 63%]
+tests/test_reception_agent.py::TestClimateScenarios::test_location_scenario_combinations[miami_fl-wet] PASSED [ 66%]
+tests/test_reception_agent.py::TestClimateContrast::test_miami_wetter_than_richland PASSED [ 69%]
+tests/test_reception_agent.py::TestClimateContrast::test_phoenix_driest_recharge PASSED [ 72%]
+tests/test_reception_agent.py::TestClimateContrast::test_miami_most_soil_layers PASSED [ 75%]
+tests/test_reception_agent.py::TestEdgeCases::test_mcp_failure_does_not_crash[richland_wa] PASSED [ 77%]
+tests/test_reception_agent.py::TestEdgeCases::test_mcp_failure_does_not_crash[moscow_id] PASSED [ 80%]
+tests/test_reception_agent.py::TestEdgeCases::test_mcp_failure_does_not_crash[phoenix_az] PASSED [ 83%]
+tests/test_reception_agent.py::TestEdgeCases::test_mcp_failure_does_not_crash[miami_fl] PASSED [ 86%]
+tests/test_reception_agent.py::TestEdgeCases::test_user_cancels_any_location[richland_wa] PASSED [ 88%]
+tests/test_reception_agent.py::TestEdgeCases::test_user_cancels_any_location[moscow_id] PASSED [ 91%]
+tests/test_reception_agent.py::TestEdgeCases::test_user_cancels_any_location[phoenix_az] PASSED [ 94%]
+tests/test_reception_agent.py::TestEdgeCases::test_user_cancels_any_location[miami_fl] PASSED [ 97%]
+tests/test_reception_agent.py::TestEdgeCases::test_no_location_skips_mcp PASSED [100%]
+
+============================== 36 passed in 2.02s ==============================
