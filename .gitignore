@@ -26,3 +26,4 @@ mcp_config.json
 
 # Logs
 *.log
+slurm_logs/
