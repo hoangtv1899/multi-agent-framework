@@ -25,6 +25,7 @@ from core.mcp_manager import MCPManager
 from agents.reception_llm import LLMReceptionAgent
 from agents.llm_agent import SimpleLLMClient
 from agents.prompts import load_prompt
+from agents.validate import check_brief, check_plan
 
 DEFAULT_MODEL = "claude-opus-4-8-project"
 
@@ -140,6 +141,8 @@ def main():
     print(f"\nreception: intent={brief.get('intent')} "
           f"archetype={brief.get('design_archetype', '-')} "
           f"({rec['rounds']} rounds, {len(rec['trace'])} tool calls)")
+    for w in check_brief(brief):
+        print(f"  ⚠️  brief check: {w}")
 
     intent = brief.get("intent")
     if intent == "clarification_needed":
@@ -164,6 +167,8 @@ def main():
         print("[pipeline] planner produced no parseable JSON — see plan_raw.md")
     else:
         (out_dir / "plan.json").write_text(json.dumps(plan, indent=2))
+        for w in check_plan(plan, brief):
+            print(f"  ⚠️  plan check: {w}")
         print_plan(plan)
 
     print(f"\nDry pipeline complete. Transcripts in: {out_dir}\n")

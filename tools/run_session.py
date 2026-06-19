@@ -24,6 +24,7 @@ from core.mcp_manager import MCPManager
 from agents.reception_llm import LLMReceptionAgent
 from agents.llm_agent import SimpleLLMClient
 from agents.prompts import load_prompt
+from agents.validate import check_brief, check_plan
 
 DEFAULT_MODEL = "claude-opus-4-8-project"
 
@@ -125,6 +126,8 @@ def main():
               f"({rec['rounds']} rounds, {len(rec['trace'])} tool calls)")
         if brief.get("coupling"):
             print("  coupling:", json.dumps(brief["coupling"])[:220])
+        for w in check_brief(brief):
+            print(f"  ⚠️  brief check: {w}")
         if brief.get("intent") != "design":
             print("  (not a design turn — stopping carry-forward)")
             continue
@@ -133,6 +136,8 @@ def main():
         plan = _parse_json(raw)
         if plan:
             (out_dir / f"turn{i}_plan.json").write_text(json.dumps(plan, indent=2))
+        for w in check_plan(plan, brief):
+            print(f"  ⚠️  plan check: {w}")
         show(plan)
         context = context_from(req, brief, plan)        # carry forward
 
