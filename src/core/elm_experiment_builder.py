@@ -228,9 +228,11 @@ class ELMExperimentBuilder:
             'REST_OPTION':           elm_cfg.get('base_rest_option', 'nyears'),
         }
 
-        # Generate domain + surface files if lat/lon provided
-        lat = elm_cfg.get('lat')
-        lon = elm_cfg.get('lon')
+        # Generate domain + surface files — per-coupler lat/lon/soil (spatial
+        # columns), falling back to ELM_CONFIG (legacy single-site).
+        lat = coupler.get('lat', elm_cfg.get('lat'))
+        lon = coupler.get('lon', elm_cfg.get('lon'))
+        soil_profile = coupler.get('soil_profile', elm_cfg.get('soil_profile', {}))
 
         if lat and lon and GENERATORS_AVAILABLE:
             runtime_config.update(
@@ -239,7 +241,7 @@ class ELMExperimentBuilder:
                     lon         = float(lon),
                     soil_config = soil_config,
                     substrate   = substrate,
-                    mcp_data    = elm_cfg.get('soil_profile', {}),
+                    mcp_data    = soil_profile,
                 )
             )
 
