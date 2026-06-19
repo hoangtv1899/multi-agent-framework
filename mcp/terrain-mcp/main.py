@@ -106,7 +106,7 @@ def _sample_grid(min_lon, min_lat, max_lon, max_lat, n):
     pts = _grid_points(min_lon, min_lat, max_lon, max_lat, n)
 
     results = [None] * len(pts)
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=16) as pool:
         futs = {pool.submit(_get_elevation, lat, lon): k
                 for k, (lat, lon) in enumerate(pts)}
         for fut in as_completed(futs):
@@ -171,6 +171,26 @@ def _wbd_get(layer, params):
                      timeout=_HTTP_TIMEOUT, verify=False)
     r.raise_for_status()
     return r.json()
+
+
+def _watershed_boundary(huc, huc_level=8, simplify_deg=0.005):
+    """Simplified polygon outline (lon/lat rings) of a HUC watershed."""
+    huc_level = int(huc_level)
+    if huc_level not in WBD_LAYER:
+        return {"error": f"huc_level must be one of {sorted(WBD_LAYER)}"}
+    field = f"huc{huc_level}"
+    try:
+        d = _wbd_get(WBD_LAYER[huc_level],
+                     {"where": f"{field}='{huc}'", "returnGeometry": "true",
+                      "outSR": "4326", "maxAllowableOffset": str(simplify_deg),
+                      "outFields": field})
+    except Exception as e:
+        return {"error": f"WBD geometry query failed: {e}"}
+    feats = d.get("features", [])
+    if not feats:
+        return {"error": f"no geometry for {field}={huc}"}
+    rings = feats[0].get("geometry", {}).get("rings", [])
+    return {"huc": huc, "huc_level": huc_level, "n_rings": len(rings), "rings": rings}
 
 
 def _resolve_watershed(huc="", name="", huc_level=8):
@@ -275,6 +295,12 @@ def resolve_watershed(huc: str = "", name: str = "", huc_level: int = 8) -> str:
     """Resolve a watershed by HUC code or name to a bbox + area (USGS WBD)."""
     return json.dumps(_resolve_watershed(huc=huc, name=name,
                                          huc_level=huc_level))
+
+
+@mcp.tool()
+def get_watershed_boundary(huc: str, huc_level: int = 8) -> str:
+    """Simplified polygon outline (lon/lat rings) of a HUC watershed (USGS WBD)."""
+    return json.dumps(_watershed_boundary(huc, huc_level))
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@
     "terrain": {
       "command": "/path/to/your/python3",
       "args": ["/path/to/RCSFA/mcp/terrain-mcp/main.py"],
-      "timeout": 90.0
+      "timeout": 150.0
     },
     "fan_wtd": {
       "_note": "needs a Fan 2013 NetCDF tile; set FAN_WTD_NC or place it in data/fan_wtd/",

@@ -225,3 +225,48 @@ class TestExpander:
         sel = exp._farthest_point_select(pts, 2)
         assert len(sel) == 2
         assert all(s in pts for s in sel)
+
+    def test_clip_to_polygon(self):
+        pytest.importorskip("shapely")
+        ring = [[[-121.0, 46.0], [-120.0, 46.0], [-120.0, 47.0],
+                 [-121.0, 47.0], [-121.0, 46.0]]]               # 1°x1° box
+        pts = [{"lat": 46.5, "lon": -120.5, "elevation_m": 100},   # inside
+               {"lat": 46.5, "lon": -119.5, "elevation_m": 200}]   # outside
+        kept = exp._clip_to_polygon(pts, ring)
+        assert len(kept) == 1 and kept[0]["lon"] == -120.5
+
+    def test_clip_to_polygon_never_drops_all(self):
+        pytest.importorskip("shapely")
+        ring = [[[-121.0, 46.0], [-120.9, 46.0], [-120.9, 46.1],
+                 [-121.0, 46.1], [-121.0, 46.0]]]
+        pts = [{"lat": 48.0, "lon": -110.0, "elevation_m": 1}]      # none inside
+        assert exp._clip_to_polygon(pts, ring) == pts              # fallback
+
+    def test_plot_columns_renders(self, tmp_path):
+        pytest.importorskip("matplotlib")
+        res = {
+            "bbox": {"min_lon": -121.5, "min_lat": 46.5, "max_lon": -120.5, "max_lat": 47.1},
+            "n_columns": 3,
+            "bands": [
+                {"band": 1, "elev_lo_m": 300, "elev_hi_m": 900, "grid_points": 40, "allocated": 2},
+                {"band": 2, "elev_lo_m": 900, "elev_hi_m": 1500, "grid_points": 30, "allocated": 1},
+            ],
+            "columns": [
+                {"id": "col_01", "lat": 46.7, "lon": -120.7, "elevation_m": 450,
+                 "band": 1, "fan_wtd_m": 0.7, "soil_top_texture": "loam"},
+                {"id": "col_02", "lat": 46.6, "lon": -121.2, "elevation_m": 800,
+                 "band": 1, "fan_wtd_m": 5.0, "soil_top_texture": "sandy loam"},
+                {"id": "col_03", "lat": 46.9, "lon": -120.9, "elevation_m": 1200,
+                 "band": 2, "fan_wtd_m": None, "soil_top_texture": None},  # missing data path
+            ],
+            "grid": [{"lat": 46.55, "lon": -121.4, "elevation_m": 400},
+                     {"lat": 47.05, "lon": -121.4, "elevation_m": 900},
+                     {"lat": 46.55, "lon": -120.6, "elevation_m": 1300},
+                     {"lat": 47.05, "lon": -120.6, "elevation_m": 1800},
+                     {"lat": 46.80, "lon": -121.0, "elevation_m": 1100}],
+            "boundary": [[[-121.4, 46.55], [-120.6, 46.55], [-120.6, 47.05],
+                          [-121.4, 47.05], [-121.4, 46.55]]],
+        }
+        out = tmp_path / "p.png"
+        exp.plot_columns(res, str(out))
+        assert out.exists() and out.stat().st_size > 1000
