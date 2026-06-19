@@ -43,7 +43,8 @@ class LLMReceptionAgent:
                  mcp_clients: Dict[str, Any],
                  allowlist: set = None,
                  max_rounds: int = 10,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 interactive: bool = False):
         self.system = load_prompt("reception_agentic")
         self.loop = ToolLoopAgent(
             model=model,
@@ -51,6 +52,7 @@ class LLMReceptionAgent:
             allowlist=allowlist if allowlist is not None else DEFAULT_ALLOWLIST,
             max_rounds=max_rounds,
             verbose=verbose,
+            interactive=interactive,
         )
 
     @property

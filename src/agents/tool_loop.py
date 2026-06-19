@@ -29,6 +29,35 @@ def _short(obj: Any, n: int = 140) -> str:
     return s if len(s) <= n else s[:n] + "…"
 
 
+# Human-in-the-loop tool — only exposed when interactive=True.
+ASK_USER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "ask_user",
+        "description": ("Ask the human one clarifying question and get their "
+                        "answer. Use ONLY for material ambiguity you cannot "
+                        "resolve from the request + tools (which of several "
+                        "watersheds, HUC scale, vague location). Present concrete "
+                        "candidates when you have them."),
+        "parameters": {"type": "object",
+                       "properties": {"question": {"type": "string"}},
+                       "required": ["question"]},
+    },
+}
+
+
+def _human_answer(question: str, interactive: bool) -> Dict[str, Any]:
+    """Prompt the human (interactive) or return a batch-mode sentinel."""
+    print(f"\n  ❓ {question}")
+    if interactive:
+        try:
+            return {"answer": input("  your answer> ").strip() or "(no answer given)"}
+        except EOFError:
+            pass
+    return {"answer": "(non-interactive — no human available; use your best "
+                      "judgment and record the assumption in the brief)"}
+
+
 class ToolLoopAgent:
     """Runs an LLM <-> MCP tool-calling loop. Domain-agnostic."""
 
@@ -38,13 +67,17 @@ class ToolLoopAgent:
                  allowlist: Optional[set] = None,
                  max_rounds: int = 8,
                  max_tokens: int = 4000,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 interactive: bool = False):
         self.llm = SimpleLLMClient(model=model)
         self.mcp_clients = mcp_clients
         self.max_rounds = max_rounds
         self.max_tokens = max_tokens
         self.verbose = verbose
+        self.interactive = interactive
         self.tools, self.dispatch = self._build_tools(mcp_clients, allowlist)
+        if interactive:                       # expose the human-in-the-loop tool
+            self.tools.append(ASK_USER_TOOL)
 
     # ── build OpenAI tool schemas from MCP servers ───────────────────────
     @staticmethod
@@ -111,7 +144,9 @@ class ToolLoopAgent:
                     args = json.loads(tc.function.arguments or "{}")
                 except Exception:
                     args = {}
-                if fq not in self.dispatch:
+                if fq == "ask_user":
+                    result = _human_answer(args.get("question", ""), self.interactive)
+                elif fq not in self.dispatch:
                     result = {"error": f"unknown tool {fq}"}
                 else:
                     server, tool = self.dispatch[fq]

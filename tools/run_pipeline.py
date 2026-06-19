@@ -109,6 +109,8 @@ def main():
     ap.add_argument("--planner-model", default=DEFAULT_MODEL)
     ap.add_argument("--max-rounds", type=int, default=10)
     ap.add_argument("--quiet", action="store_true", help="hide the live tool trace")
+    ap.add_argument("--interactive", "-i", action="store_true",
+                    help="let reception ask clarifying questions on ambiguity")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     request = " ".join(args.request)
@@ -130,7 +132,7 @@ def main():
     print("RECEPTION  (agentic — driving MCP tools)")
     print("-" * 72)
     rx = LLMReceptionAgent(args.reception_model, clients, verbose=not args.quiet,
-                           max_rounds=args.max_rounds)
+                           max_rounds=args.max_rounds, interactive=args.interactive)
     rec = rx.process(request)
     brief = rec["brief"]
     (out_dir / "reception_brief.json").write_text(json.dumps(brief, indent=2))

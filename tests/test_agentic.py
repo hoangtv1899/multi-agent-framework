@@ -18,7 +18,8 @@ pytest.importorskip("openai")   # tool_loop imports SimpleLLMClient -> openai
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from agents.tool_loop import ToolLoopAgent          # noqa: E402
+from agents.tool_loop import (ToolLoopAgent, _human_answer,  # noqa: E402
+                              ASK_USER_TOOL)
 from agents.reception_llm import LLMReceptionAgent  # noqa: E402
 
 
@@ -76,3 +77,13 @@ class TestReceptionParse:
     def test_parse_error_when_no_json(self):
         b = LLMReceptionAgent._parse("no json at all here")
         assert b["intent"] == "parse_error"
+
+
+class TestAskUser:
+    def test_batch_returns_sentinel(self):
+        r = _human_answer("CA or WA American River?", interactive=False)
+        assert "non-interactive" in r["answer"].lower()
+
+    def test_ask_user_tool_schema(self):
+        assert ASK_USER_TOOL["function"]["name"] == "ask_user"
+        assert "question" in ASK_USER_TOOL["function"]["parameters"]["properties"]

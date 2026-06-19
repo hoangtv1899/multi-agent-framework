@@ -74,6 +74,14 @@ RULES
   • ONLY state numbers/locations a tool actually returned. NEVER invent
     coordinates, areas, counts, elevations, or observation records.
   • Cite the source for each datum (which tool / dataset).
+  • CLARIFY material ambiguity: if an `ask_user` tool is available and you hit an
+    ambiguity you cannot resolve from the request + tools (WHICH of several
+    watersheds, HUC scale, a vague location), CALL ask_user with concrete
+    candidates — e.g. the matches resolve_watershed returned, or note that a
+    small tributary may only exist at HUC12. When resolve_watershed returns
+    "ambiguous", ask rather than guess. Ask only when the choice materially
+    changes the design; otherwise pick a sensible default and record the
+    assumption in notes.
   • Stop calling tools once you have enough to frame the brief.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
