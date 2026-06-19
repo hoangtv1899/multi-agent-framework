@@ -59,6 +59,16 @@ DESIGN ARCHETYPE — READ FIRST (from the brief's design_archetype)
   steps below: stratify across the real heterogeneity, and pin validation to the
   observations reception actually found (observations_available).
 
+• "coupling" — design a one-way CROSS-MODEL experiment from the brief's coupling
+  block. Describe, in a "coupling_design" object: which prior-model output drives
+  the receiving model's boundary condition (e.g. ELM sub-surface drainage /
+  recharge QDRAI -> PFLOTRAN top recharge flux BC), the temporal mapping (ELM
+  flux time series -> PFLOTRAN transient BC), the receiving-model domain/setup,
+  and crucially WHAT TO COMPARE (coupled vs standalone — where the standalone
+  model's assumptions break: lateral groundwater flow, regional water table,
+  water-table feedback on the root zone). sampling_strategy/sampling_plan may be
+  null. List the coupler itself (the unbuilt mechanism) under requires_capabilities.
+
 Echo the archetype as model_choice.design_archetype. The rest of this guidance
 is written for the "site" archetype; apply the conceptual variant above when set.
 
@@ -124,10 +134,17 @@ read and critiqued). THEN output one JSON object with this shape:
   },
   "model_choice": {
     "primary_model":   "ELM",
-    "design_archetype":"conceptual|site",
+    "design_archetype":"conceptual|site|coupling",
     "rationale":       "<why>",
     "coupling_needed": <true|false>,
     "coupling_note":   "<if true, what and why — also list in requires_capabilities>"
+  },
+  "coupling_design": {     // ONLY for archetype "coupling", else omit
+    "from_model": "ELM", "to_model": "PFLOTRAN",
+    "driver": "<which prior output -> which receiving BC, e.g. ELM QDRAI -> PFLOTRAN top recharge flux>",
+    "temporal_mapping": "<e.g. ELM monthly drainage time series -> PFLOTRAN transient recharge BC>",
+    "receiving_setup": "<PFLOTRAN domain / mesh / what it solves>",
+    "compare": "<coupled vs standalone: where standalone ELM is expected to fail>"
   },
   "sampling_strategy": {
     "approach":        "<stratified | clustered | ...>",

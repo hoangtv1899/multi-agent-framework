@@ -61,18 +61,22 @@ class LLMReceptionAgent:
     def exposed_tools(self):
         return [t["function"]["name"] for t in self.loop.tools]
 
-    def process(self, user_request: str) -> Dict[str, Any]:
+    def process(self, user_request: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Run the agentic loop and parse the brief.
+
+        `context` (optional) is a prior experiment in this session — for
+        cross-model follow-ups ("run PFLOTRAN with that ELM output").
 
         Returns {brief, trace, rounds, raw}. `brief` is the parsed JSON dict
         (intent = design | clarification_needed | analyze_existing), or
         {"intent": "parse_error", ...} if the final message had no JSON.
         """
-        out = self.loop.run(
-            self.system,
-            f"User request: {user_request}\n\n"
-            "Gather what you need with the tools, then emit ONLY your final JSON.",
-        )
+        msg = f"User request: {user_request}\n\n"
+        if context:
+            msg += ("CONVERSATION CONTEXT (a prior experiment this session):\n"
+                    + json.dumps(context, indent=2) + "\n\n")
+        msg += "Gather what you need with the tools, then emit ONLY your final JSON."
+        out = self.loop.run(self.system, msg)
         brief = self._parse(out["content"])
         return {"brief": brief, "trace": out["trace"],
                 "rounds": out["rounds"], "raw": out["content"]}

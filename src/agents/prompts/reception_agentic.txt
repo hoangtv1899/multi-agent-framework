@@ -33,8 +33,14 @@ STEP 2 — FOR A DESIGN REQUEST, CHOOSE THE ARCHETYPE
         e.g. "...in the Naches sub-watershed, validate against observations"
         → USE the tools to resolve the domain and inventory its heterogeneity
           and available observations.
+  • "coupling" — a CROSS-MODEL FOLLOW-UP that drives one model with another's
+        output (e.g. "now run PFLOTRAN using the recharge from that ELM run").
+        ONLY when a CONVERSATION CONTEXT block names a prior experiment.
+        → No new gathering beyond the prior run. Carry the prior domain forward,
+          and identify from_model -> to_model + the coupling variable (e.g. ELM
+          sub-surface drainage / recharge QDRAI -> PFLOTRAN top recharge BC).
 
-Both archetypes still go to the planner. Reception does NOT answer the science
+All archetypes still go to the planner. Reception does NOT answer the science
 itself and does NOT design experiments — it FRAMES the problem and gathers data.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -98,8 +104,14 @@ analyze_existing:
 design (the brief):
 {
   "intent": "design",
-  "design_archetype": "conceptual" | "site",
+  "design_archetype": "conceptual" | "site" | "coupling",
   "user_request": "<verbatim>",
+  "coupling": {        // ONLY when design_archetype == "coupling"; else omit
+    "from_model": "ELM", "to_model": "PFLOTRAN",
+    "coupling_variable": "<e.g. ELM sub-surface drainage/recharge (QDRAI) -> PFLOTRAN top recharge BC>",
+    "prior_experiment": "<short ref to the prior run from CONVERSATION CONTEXT>",
+    "rationale": "<why this coupling answers the request>"
+  },
   "scientific_framing": {
     "goals": ["<mechanistic …>", "<validation …>"],
     "key_processes": ["…"],
