@@ -31,8 +31,8 @@ class PFLOTRANCoordinator:
 	
 	def __init__(self,
 				 reception_model:      str = "gpt-5.5-project",
-				 planner_model:        str = "claude-opus-4-7-project",
-				 analyzer_model:       str = "claude-opus-4-7-project",
+				 planner_model:        str = "claude-opus-4-8-project",
+				 analyzer_model:       str = "claude-opus-4-8-project",
 				 default_pflotran_exe: str = "pflotran",
 				 default_output_dir:   str = "./workflow_outputs",
 				 mcp_config_file:      str = "mcp_config.json",
