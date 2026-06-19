@@ -156,7 +156,7 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, do_soil=True, boundary=N
                 layers = sp.get("layers") or []
                 col["soil_top_texture"] = layers[0].get("texture_class") if layers else None
                 col["soil_layers"] = sp.get("num_layers")
-                col["soil_profile"] = sp     # full profile for Tier-3 surface generation
+                col["soil_profile"] = sp if layers else None   # full profile (None if no SSURGO)
             columns.append(col)
             cid += 1
 
