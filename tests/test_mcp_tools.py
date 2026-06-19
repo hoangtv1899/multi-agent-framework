@@ -270,3 +270,41 @@ class TestExpander:
         out = tmp_path / "p.png"
         exp.plot_columns(res, str(out))
         assert out.exists() and out.stat().st_size > 1000
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SNOTEL — AWDB response parsing
+# ─────────────────────────────────────────────────────────────────────────────
+snotel = _load(MCP / "snotel-mcp" / "main.py", "snotel_main")
+
+
+class TestSnotel:
+    def test_filter_stations(self):
+        rows = [
+            {"networkCode": "SNTL", "stationTriplet": "375:WA:SNTL",
+             "name": "Bumping Ridge", "latitude": 46.9, "longitude": -121.4,
+             "elevation": 4600, "huc": "170300020106"},
+            {"networkCode": "SNTL", "stationTriplet": "1:CA:SNTL",
+             "name": "Far", "latitude": 39.0, "longitude": -120.0},   # outside bbox
+            {"networkCode": "USGS", "stationTriplet": "x",
+             "name": "NotSnotel", "latitude": 46.9, "longitude": -121.4},  # wrong net
+        ]
+        out = snotel._filter_stations(rows, (-121.6, 46.6, -121.2, 47.1))
+        assert len(out) == 1 and out[0]["triplet"] == "375:WA:SNTL"
+
+    def test_parse_swe(self):
+        data = [{"stationTriplet": "375:WA:SNTL", "data": [{
+            "stationElement": {"elementCode": "WTEQ"},
+            "values": [{"date": "2010-03-02", "value": 19.1},
+                       {"date": "2010-03-01", "value": 18.9},
+                       {"date": "2010-03-03", "value": None}]}]}]   # None skipped
+        obs, summary = snotel._parse_swe(data)
+        assert summary["n_obs"] == 2
+        assert obs[0]["date"] == "2010-03-01"                       # sorted
+        assert abs(obs[0]["swe_mm"] - 18.9 * 25.4) < 0.1            # in -> mm
+        assert summary["peak_swe_mm"] == round(19.1 * 25.4, 1)
+        assert summary["peak_date"] == "2010-03-02"
+
+    def test_parse_swe_empty(self):
+        obs, summary = snotel._parse_swe([])
+        assert obs == [] and summary["n_obs"] == 0 and summary["peak_swe_mm"] is None

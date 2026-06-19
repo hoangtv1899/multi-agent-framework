@@ -26,6 +26,11 @@
       "command": "/path/to/your/python3",
       "args": ["/path/to/RCSFA/mcp/fan-wtd-mcp/main.py"],
       "timeout": 30.0
+    },
+    "snotel": {
+      "command": "/path/to/your/python3",
+      "args": ["/path/to/RCSFA/mcp/snotel-mcp/main.py"],
+      "timeout": 90.0
     }
   }
 }

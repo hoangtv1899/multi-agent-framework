@@ -32,6 +32,8 @@ DEFAULT_ALLOWLIST = {
     "fan_wtd__data_status",
     "geology__get_soil_profile",
     "weather__get_climate_summary",
+    "snotel__get_snotel_stations",
+    "snotel__get_snotel_swe",
 }
 
 
