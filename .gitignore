@@ -14,6 +14,12 @@ env/
 # Workflow outputs (generated data - too large for git)
 workflow_outputs/
 
+# Local datasets (Fan 2013 WTD NetCDF tiles etc. — hundreds of MB)
+data/
+
+# pytest cache
+.pytest_cache/
+
 # MCP config with absolute paths (use template instead)
 mcp_config.json
 

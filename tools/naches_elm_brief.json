@@ -1,0 +1,99 @@
+{
+  "user_request": "Explore the partitioning of groundwater and soil moisture and their drivers and impacts in the Naches sub-watershed using ELM, and validate against observations.",
+  "intent": "design_and_run",
+  "scope": "watershed",
+  "experiment_focus": "Characterize how water partitions between soil moisture, sub-surface drainage/recharge, and runoff across the Naches sub-watershed; identify the drivers (elevation, soil, vegetation) of that partitioning; and validate against available observations.",
+
+  "domain": {
+    "name": "Naches River sub-watershed",
+    "state": "WA",
+    "huc8": "17030002",
+    "description": "Largest tributary of the Yakima River. Drains the east slope of the Cascade Range, east of Mt Rainier and NE of Mt Adams. Strong vertical ecohydrologic gradient: subalpine / mixed-conifer headwaters -> ponderosa pine -> shrub-steppe near the mouth.",
+    "bbox": {
+      "min_lon": -121.5227, "min_lat": 46.45506,
+      "max_lon": -120.5138, "max_lat": 47.14181,
+      "source": "USGS WBD via terrain MCP resolve_watershed (real HUC 17030002 extent)"
+    },
+    "elevation_range_m": {
+      "min": 300, "max": 2400,
+      "note": "Published ~1070 ft at the mouth to ~8000 ft in the headwaters. The terrain MCP elevation_summary samples 3DEP across the bbox for stratification bands at run time."
+    },
+    "area_km2": 2860.6
+  },
+
+  "heterogeneity": {
+    "elevation_relief": "High, ~2100 m span — primary driver candidate.",
+    "soil": "Spatially variable. SSURGO is available POINT-WISE only; no gridded/polygon coverage is wired.",
+    "land_cover": "Gradient with elevation: shrub-steppe (low) -> ponderosa pine (mid) -> mixed conifer / subalpine (high).",
+    "where_partitioning_concentrates": "Valley bottoms / riparian corridors and the rain-snow transition zone."
+  },
+
+  "candidate_drivers": ["elevation", "soil_texture", "land_cover_vegetation"],
+
+  "forcing_data": {
+    "available_start_year": 1948,
+    "available_end_year": 2004,
+    "source": "Qian DATM_CLMNCEP (T62, 6-hourly)"
+  },
+
+  "climate_baseline": {
+    "precip_mm_yr": null,
+    "temp_min_c": null,
+    "temp_max_c": null,
+    "period": "1981-1999",
+    "note": "Precip/temp NOT fetched in this stubbed brief. A strong orographic gradient is expected (wet headwaters, dry mouth) but should come from data, not assumption."
+  },
+  "climate_dry": {"precip_mm_yr": null, "period": null, "note": "not fetched in stub"},
+  "climate_wet": {"precip_mm_yr": null, "period": null, "note": "not fetched in stub"},
+
+  "soil_profile": {
+    "num_layers": null,
+    "source": "SSURGO (point query only)",
+    "depth_coverage_m": null,
+    "layers": null,
+    "note": "Point-only today. Watershed-scale heterogeneity requires gridded/polygon soil — a capability gap."
+  },
+
+  "observations_available": [
+    {
+      "variable": "streamflow",
+      "source": "USGS NWIS gages (live; bbox-queryable with the existing usgs-water MCP today)",
+      "examples": ["USGS-12499000 Naches nr North Yakima", "USGS-12494400 Naches at Naches", "USGS-12498690 Naches above diversion dam"],
+      "role": "Integrated water-balance constraint at the outlet / sub-basins."
+    },
+    {
+      "variable": "water_table_depth",
+      "source": "Fan et al. 2013 well compilation (static dataset; NOT yet wired)",
+      "in_domain": "likely present (US-wide compilation built from USGS + state well records)",
+      "role": "Primary groundwater validation target."
+    }
+  ],
+
+  "observations_missing": [
+    {
+      "variable": "soil_moisture",
+      "preferred_source": "FLUXNET / Ameriflux",
+      "in_domain": "NONE. Nearest WA towers (US-Wrc Wind River Crane, US-xWR NEON WREF) are west-slope wet Douglas-fir/hemlock — wrong side of the Cascade crest, not climatically analogous.",
+      "analog_option": "Metolius ponderosa cluster (US-Me family), central OR — east-Cascades semi-arid. Usable for PROCESS / parameterization validation only, NOT co-located validation.",
+      "status": "gap — acceptable to flag and proceed without it"
+    }
+  ],
+
+  "available_capabilities": [
+    "Watershed boundary + bbox + area via terrain MCP resolve_watershed (USGS WBD).",
+    "3DEP elevation: point queries + bbox grid sampling + elevation bands via terrain MCP (get_elevation, sample_elevation_grid, elevation_summary).",
+    "Observed water-table depth: USGS groundwater wells in a bbox + depth-to-water series via usgs_water MCP (get_groundwater_sites, get_water_table_depth). ~50+ GW wells in the Naches bbox.",
+    "Fan (2013) equilibrium water-table depth via fan_wtd MCP (get_fan_wtd, sample_fan_wtd) — LIVE: NAMERICA annual-mean tile loaded; returns positive depth_to_water_m below land surface."
+  ],
+
+  "known_data_gaps": [
+    "Soil is point-only; no gridded/polygon heterogeneity (SSURGO point query only).",
+    "FLUXNET soil-moisture not ingested; no in-domain tower (analog: Metolius US-Me)."
+  ],
+
+  "_meta": {
+    "stub": true,
+    "purpose": "Hand-written domain brief for the planner capability probe (tools/probe_planner.py). Simulates what an upgraded domain-mode reception agent would produce. NOT from live MCP. The schema it converges on becomes reception's output spec.",
+    "created": "2026-06-10"
+  }
+}

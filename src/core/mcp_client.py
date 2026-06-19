@@ -183,6 +183,17 @@ class MCPClient:
             print(f"⚠️  Could not list tools for {self.server_name}: {e}")
             return []
 
+    def list_tools_detailed(self) -> List[Dict[str, Any]]:
+        """Return full tool specs (name, description, parameters) in one session.
+
+        Used by the agentic tool-loop to build OpenAI tool schemas.
+        """
+        try:
+            return self._run_async(self._list_tools_async())
+        except Exception as e:
+            print(f"⚠️  Could not list detailed tools for {self.server_name}: {e}")
+            return []
+
     def get_tool_info(self, tool_name: str) -> Optional[Dict]:
         """Get schema/description for a specific tool."""
         try:
