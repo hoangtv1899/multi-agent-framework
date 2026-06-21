@@ -166,6 +166,7 @@ class GeneratedELMAgent:
             self._clone_case(ref_case_dir)
             self._configure_case(runtime_only=True)
             self._write_namelists()
+            self._setup_case()   # case.setup: run-dir namelists + env, NO compile
             # No _build_case — exe inherited from ref
         else:
             logger.info("Building new ELM case from scratch...")
@@ -183,8 +184,17 @@ class GeneratedELMAgent:
                 "Case not built. Call prepare_case() first."
             )
 
-        run_dir  = self.case_dir / "run"
-        exe_path = self.case_dir / "build" / "e3sm.exe"
+        run_dir = self.case_dir / "run"
+        # Resolve the exe via EXEROOT so --keepexe clones work (their exe lives
+        # in the reference case's build dir, not <case>/build).
+        try:
+            exeroot = subprocess.check_output(
+                ["./xmlquery", "EXEROOT", "--value"],
+                cwd=self.case_dir, text=True,
+            ).strip()
+            exe_path = Path(exeroot) / "e3sm.exe"
+        except Exception:
+            exe_path = self.case_dir / "build" / "e3sm.exe"
 
         if not exe_path.exists():
             raise RuntimeError(f"Executable not found: {exe_path}")
@@ -306,8 +316,8 @@ class GeneratedELMAgent:
             subprocess.run(
                 [
                     str(scripts_dir / "create_clone"),
-                    "--case",       str(self.case_dir),
-                    "--case2clone", str(ref_case_dir),
+                    "--case",  str(self.case_dir),
+                    "--clone", str(ref_case_dir),
                     "--keepexe",
                 ],
                 cwd            = scripts_dir,
@@ -395,6 +405,17 @@ class GeneratedELMAgent:
             nl_file = self.case_dir / f"user_nl_{name}"
             nl_file.write_text(content)
             logger.info(f"Wrote user_nl_{name}")
+
+    def _setup_case(self):
+        """case.setup only (regenerate run-dir namelists + .env_mach_specific,
+        no compile) — needed for --keepexe clones, which skip _build_case."""
+        subprocess.run(
+            ['./case.setup', '--reset'],
+            cwd            = self.case_dir,
+            check          = True,
+            capture_output = True,
+            text           = True,
+        )
 
     def _build_case(self):
         """Run case.setup followed by case.build."""
