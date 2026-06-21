@@ -36,6 +36,7 @@ def test_prepare_case_with_ref_calls_clone():
     with patch.object(w, '_clone_case') as clone, \
          patch.object(w, '_configure_case') as cfg, \
          patch.object(w, '_write_namelists'), \
+         patch.object(w, '_setup_case'), \
          patch.object(w, '_build_case') as build:
         w.case_dir = "/tmp/fake_case"
         w.prepare_case(ref_case_dir="/tmp/ref_case")
