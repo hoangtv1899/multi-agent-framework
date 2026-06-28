@@ -195,15 +195,22 @@ def plot_soil(soil, out_path):
     clay = [r["clay_max_pct"] for r in rows]
     ksat = [r["ksat_min_ums"] for r in rows]
     rech = [r["recharge_mm_yr"] for r in rows]
+    frac = [r["recharge_fraction"] for r in rows]
     sc = soil["soil_correlation"]
+    has_ksat = any(k is not None for k in ksat)
 
     fig, ax = plt.subplots(1, 2, figsize=(8.6, 3.8))
     ax[0].scatter(clay, rech, c="#8856a7", s=65, edgecolor="#222", zorder=3)
     ax[0].set_xlabel("max clay %  (impeding layer)"); ax[0].set_ylabel("recharge (mm/yr)")
     ax[0].set_title(f"Recharge vs clay  (r={sc['recharge_vs_clay_max']})", fontweight="bold")
-    ax[1].scatter(ksat, rech, c="#2c7fb8", s=65, edgecolor="#222", zorder=3)
-    ax[1].set_xlabel("min Ksat µm/s  (drainage bottleneck)"); ax[1].set_ylabel("recharge (mm/yr)")
-    ax[1].set_title(f"Recharge vs Ksat  (r={sc['recharge_vs_ksat_min']})", fontweight="bold")
+    if has_ksat:                                   # spatial run: Ksat available
+        ax[1].scatter(ksat, rech, c="#2c7fb8", s=65, edgecolor="#222", zorder=3)
+        ax[1].set_xlabel("min Ksat µm/s  (drainage bottleneck)"); ax[1].set_ylabel("recharge (mm/yr)")
+        ax[1].set_title(f"Recharge vs Ksat  (r={sc['recharge_vs_ksat_min']})", fontweight="bold")
+    else:                                          # synthetic sweep: show the partitioning flip
+        ax[1].scatter(clay, frac, c="#31a354", s=65, edgecolor="#222", zorder=3)
+        ax[1].set_xlabel("max clay %"); ax[1].set_ylabel("recharge fraction"); ax[1].set_ylim(0, 1)
+        ax[1].set_title("Recharge fraction vs clay", fontweight="bold")
     for a in ax:
         a.spines[["top", "right"]].set_visible(False); a.grid(alpha=.25)
     fig.suptitle(f"Soil control on recharge — forcing held at "
