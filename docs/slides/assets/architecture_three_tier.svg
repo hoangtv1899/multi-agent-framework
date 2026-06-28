@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L9,4 L0,8 z" fill="#334155"/>
+    </marker>
+    <marker id="arrm" markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L9,4 L0,8 z" fill="#c2410c"/>
+    </marker>
+  </defs>
+
+  <!-- input -->
+  <rect x="270" y="20" width="420" height="46" rx="10" fill="#0f172a"/>
+  <text x="480" y="49" fill="#fff" font-size="17" font-weight="700" text-anchor="middle">Natural-language scientific question</text>
+  <path d="M480,66 L480,96" stroke="#334155" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- TIER 1 -->
+  <rect x="40" y="100" width="700" height="150" rx="14" fill="#e6f3f7" stroke="#2c7fb8" stroke-width="2"/>
+  <text x="60" y="128" fill="#1d5e85" font-size="15" font-weight="800">TIER 1 · LLM reasoning</text>
+  <rect x="62" y="142" width="300" height="86" rx="10" fill="#fff" stroke="#41b6c4" stroke-width="1.6"/>
+  <text x="212" y="168" fill="#0f3d57" font-size="15" font-weight="700" text-anchor="middle">Reception agent</text>
+  <text x="212" y="190" fill="#475569" font-size="11.5" text-anchor="middle">frames the question · drives MCP tools</text>
+  <text x="212" y="208" fill="#475569" font-size="11.5" text-anchor="middle">gathers evidence · clarifies ambiguity</text>
+  <rect x="418" y="142" width="300" height="86" rx="10" fill="#fff" stroke="#41b6c4" stroke-width="1.6"/>
+  <text x="568" y="168" fill="#0f3d57" font-size="15" font-weight="700" text-anchor="middle">Planner agent</text>
+  <text x="568" y="190" fill="#475569" font-size="11.5" text-anchor="middle">designs the experiment strategy</text>
+  <text x="568" y="208" fill="#475569" font-size="11.5" text-anchor="middle">N, sampling, validation targets</text>
+  <path d="M362,185 L418,185" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- MCP tools (right) -->
+  <rect x="772" y="100" width="148" height="150" rx="14" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
+  <text x="846" y="128" fill="#c2410c" font-size="13.5" font-weight="800" text-anchor="middle">MCP data tools</text>
+  <text x="846" y="150" fill="#7c2d12" font-size="11" text-anchor="middle">terrain · soil</text>
+  <text x="846" y="167" fill="#7c2d12" font-size="11" text-anchor="middle">wells · Fan WTD</text>
+  <text x="846" y="184" fill="#7c2d12" font-size="11" text-anchor="middle">climate · SNOTEL</text>
+  <text x="846" y="222" fill="#9a3412" font-size="10.5" font-style="italic" text-anchor="middle">real geospatial</text>
+  <text x="846" y="236" fill="#9a3412" font-size="10.5" font-style="italic" text-anchor="middle">evidence</text>
+  <path d="M740,175 L772,175" stroke="#c2410c" stroke-width="2.2" marker-end="url(#arrm)"/>
+  <path d="M772,150 L744,150" stroke="#c2410c" stroke-width="2.2" marker-end="url(#arrm)"/>
+
+  <!-- T1 -> T2 -->
+  <path d="M390,250 L390,300" stroke="#334155" stroke-width="2.5" marker-end="url(#arr)"/>
+  <rect x="410" y="262" width="320" height="26" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text x="420" y="280" fill="#334155" font-size="12.5" font-weight="600">brief + strategy (JSON) — altitude only</text>
+
+  <!-- TIER 2 -->
+  <rect x="40" y="304" width="700" height="116" rx="14" fill="#efe7f5" stroke="#8856a7" stroke-width="2"/>
+  <text x="60" y="332" fill="#6b3fa0" font-size="15" font-weight="800">TIER 2 · deterministic expander (Python — no LLM)</text>
+  <g font-size="12" fill="#3b1f57" font-weight="600" text-anchor="middle">
+    <rect x="62"  y="350" width="118" height="50" rx="9" fill="#fff" stroke="#9c6fc0"/><text x="121" y="372">DEM sample</text><text x="121" y="389" font-size="10.5" font-weight="400" fill="#6b21a8">(terrain MCP)</text>
+    <rect x="196" y="350" width="118" height="50" rx="9" fill="#fff" stroke="#9c6fc0"/><text x="255" y="372">elevation</text><text x="255" y="389">bands</text>
+    <rect x="330" y="350" width="138" height="50" rx="9" fill="#fff" stroke="#9c6fc0"/><text x="399" y="372">proportional</text><text x="399" y="389">allocation</text>
+    <rect x="484" y="350" width="118" height="50" rx="9" fill="#fff" stroke="#9c6fc0"/><text x="543" y="372">spatial</text><text x="543" y="389">spread</text>
+    <rect x="618" y="350" width="104" height="50" rx="9" fill="#fff" stroke="#9c6fc0"/><text x="670" y="368">soil + WTD</text><text x="670" y="385">enrich</text>
+  </g>
+  <g stroke="#9c6fc0" stroke-width="1.8" marker-end="url(#arr)">
+    <path d="M180,375 L196,375"/><path d="M314,375 L330,375"/><path d="M468,375 L484,375"/><path d="M602,375 L618,375"/>
+  </g>
+
+  <!-- anti-hallucination boundary -->
+  <line x1="40" y1="436" x2="740" y2="436" stroke="#dc2626" stroke-width="1.6" stroke-dasharray="7 5"/>
+  <text x="744" y="440" fill="#dc2626" font-size="10.5" font-weight="700">anti-hallucination boundary</text>
+
+  <!-- T2 -> T3 -->
+  <path d="M390,420 L390,474" stroke="#334155" stroke-width="2.5" marker-end="url(#arr)"/>
+  <rect x="410" y="446" width="340" height="26" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text x="420" y="464" fill="#334155" font-size="12.5" font-weight="600">columns.json — concrete lat/lon + per-site soil</text>
+
+  <!-- TIER 3 -->
+  <rect x="40" y="478" width="700" height="120" rx="14" fill="#e7f4e7" stroke="#31a354" stroke-width="2"/>
+  <text x="60" y="506" fill="#217a3e" font-size="15" font-weight="800">TIER 3 · per-column ELM execution</text>
+  <g font-size="12" fill="#143d20" font-weight="600" text-anchor="middle">
+    <rect x="62"  y="524" width="150" height="52" rx="9" fill="#fff" stroke="#5cb85c"/><text x="137" y="546">per-column config</text><text x="137" y="563" font-size="10.5" font-weight="400" fill="#15803d">surface + domain NetCDF</text>
+    <rect x="232" y="524" width="170" height="52" rx="9" fill="#fff" stroke="#5cb85c"/><text x="317" y="546">CIME build / clone</text><text x="317" y="563" font-size="10.5" font-weight="400" fill="#15803d">--keepexe (~15s each)</text>
+    <rect x="422" y="524" width="140" height="52" rx="9" fill="#fff" stroke="#5cb85c"/><text x="492" y="546">srun per column</text><text x="492" y="563" font-size="10.5" font-weight="400" fill="#15803d">on salloc node</text>
+    <rect x="582" y="524" width="140" height="52" rx="9" fill="#fff" stroke="#5cb85c"/><text x="652" y="546">history files</text><text x="652" y="563" font-size="10.5" font-weight="400" fill="#15803d">→ analysis</text>
+  </g>
+  <g stroke="#5cb85c" stroke-width="1.8" marker-end="url(#arr)">
+    <path d="M212,550 L232,550"/><path d="M402,550 L422,550"/><path d="M562,550 L582,550"/>
+  </g>
+
+  <!-- output -->
+  <path d="M390,598 L390,624" stroke="#334155" stroke-width="2.5" marker-end="url(#arr)"/>
+  <rect x="210" y="628" width="360" height="44" rx="10" fill="#0f172a"/>
+  <text x="390" y="656" fill="#fff" font-size="16" font-weight="700" text-anchor="middle">Per-column simulation results</text>
+</svg>

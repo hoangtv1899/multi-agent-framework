@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <!-- spokes -->
+  <g stroke="#fdba74" stroke-width="2.2">
+    <line x1="480" y1="305" x2="480" y2="110"/>
+    <line x1="400" y1="270" x2="200" y2="200"/>
+    <line x1="560" y1="270" x2="760" y2="200"/>
+    <line x1="400" y1="340" x2="200" y2="452"/>
+    <line x1="560" y1="340" x2="760" y2="452"/>
+    <line x1="480" y1="360" x2="480" y2="505"/>
+  </g>
+
+  <!-- hub -->
+  <rect x="368" y="250" width="224" height="112" rx="14" fill="#e6f3f7" stroke="#2c7fb8" stroke-width="2.4"/>
+  <text x="480" y="284" fill="#1d5e85" font-size="16" font-weight="800" text-anchor="middle">Agentic clients</text>
+  <text x="480" y="308" fill="#0f3d57" font-size="12.5" text-anchor="middle">Reception · Planner</text>
+  <text x="480" y="326" fill="#0f3d57" font-size="12.5" text-anchor="middle">Tier-2 Expander</text>
+  <text x="480" y="348" fill="#64748b" font-size="11" font-style="italic" text-anchor="middle">OpenAI function-calling</text>
+
+  <!-- nodes -->
+  <g>
+    <!-- terrain (top) -->
+    <rect x="372" y="38" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
+    <text x="480" y="62" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">terrain</text>
+    <text x="480" y="81" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">USGS 3DEP · WBD</text>
+    <text x="480" y="99" fill="#475569" font-size="11" text-anchor="middle">elevation · DEM grid · basin polygon</text>
+
+    <!-- geology (top-left) -->
+    <rect x="40" y="150" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
+    <text x="148" y="174" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">geology</text>
+    <text x="148" y="193" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">USDA SSURGO</text>
+    <text x="148" y="211" fill="#475569" font-size="11" text-anchor="middle">soil profile · van Genuchten</text>
+
+    <!-- snotel (top-right) -->
+    <rect x="704" y="150" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
+    <text x="812" y="174" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">snotel</text>
+    <text x="812" y="193" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">NRCS AWDB</text>
+    <text x="812" y="211" fill="#475569" font-size="11" text-anchor="middle">snow water equivalent (SWE)</text>
+
+    <!-- usgs_water (bottom-left) -->
+    <rect x="40" y="416" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
+    <text x="148" y="440" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">usgs_water</text>
+    <text x="148" y="459" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">USGS OGC API</text>
+    <text x="148" y="477" fill="#475569" font-size="11" text-anchor="middle">GW wells · water-table depth</text>
+
+    <!-- weather (bottom-right) -->
+    <rect x="704" y="416" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
+    <text x="812" y="440" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">weather</text>
+    <text x="812" y="459" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">climate baseline</text>
+    <text x="812" y="477" fill="#475569" font-size="11" text-anchor="middle">precip · forcing period</text>
+
+    <!-- fan_wtd (bottom) -->
+    <rect x="372" y="505" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
+    <text x="480" y="529" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">fan_wtd</text>
+    <text x="480" y="548" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">Fan et al. 2013 (local NetCDF)</text>
+    <text x="480" y="566" fill="#475569" font-size="11" text-anchor="middle">equilibrium water-table depth</text>
+  </g>
+
+  <text x="480" y="612" fill="#94a3b8" font-size="11" text-anchor="middle" font-style="italic">stdio MCP servers (FastMCP) · config-driven · fresh session per call · pure-LLM tool selection</text>
+</svg>

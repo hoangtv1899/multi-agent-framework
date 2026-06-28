@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Multi-Agent LLM Framework — Autonomous Simulation Campaigns</title>
+<style>
+  :root{
+    --t1:#2c7fb8; --t2:#8856a7; --t3:#31a354; --mcp:#c2410c;
+    --ink:#0f172a; --mut:#475569; --line:#e2e8f0; --bg:#f8fafc;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:#334155}
+  .deck{height:100vh;overflow-y:scroll;scroll-snap-type:y mandatory;scroll-behavior:smooth}
+  .slide{height:100vh;scroll-snap-align:start;display:flex;flex-direction:column;
+    background:var(--bg);padding:46px 64px 56px;position:relative;border-bottom:3px solid #1e293b}
+  .slide h1{font-size:30px;margin:0 0 6px;line-height:1.15}
+  .slide h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:0 0 22px;font-weight:700}
+  .kicker{display:inline-block;font-size:12px;font-weight:800;letter-spacing:.08em;
+    text-transform:uppercase;padding:4px 11px;border-radius:20px;color:#fff;margin-bottom:14px}
+  .num{position:absolute;right:26px;bottom:18px;font-size:12px;color:#94a3b8;font-variant-numeric:tabular-nums}
+  .tag{position:absolute;left:26px;bottom:18px;font-size:12px;color:#94a3b8}
+  .fig{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}
+  .fig img{max-width:100%;max-height:100%;object-fit:contain;
+    filter:drop-shadow(0 6px 20px rgba(15,23,42,.12));background:#fff;border-radius:10px}
+  .grid{display:grid;gap:16px;flex:1;align-content:start}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;
+    box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .card h3{margin:0 0 8px;font-size:16px}
+  .card p,.card li{font-size:14.5px;color:var(--mut);line-height:1.5;margin:5px 0}
+  .card.t1{border-top:4px solid var(--t1)} .card.t2{border-top:4px solid var(--t2)}
+  .card.t3{border-top:4px solid var(--t3)} .card.mcp{border-top:4px solid var(--mcp)}
+  ul{margin:8px 0 0;padding-left:20px} li{font-size:15.5px;color:#1e293b;line-height:1.55;margin:7px 0}
+  .lead{font-size:20px;line-height:1.5;color:#1e293b;max-width:60ch}
+  .lead b{color:var(--ink)} code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-size:.88em;color:#0f3d57}
+  .stat{display:flex;gap:26px;flex-wrap:wrap;margin-top:10px}
+  .stat div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 20px;min-width:120px}
+  .stat b{display:block;font-size:30px;color:var(--t1);line-height:1} .stat span{font-size:12.5px;color:var(--mut)}
+  .pill{font-size:12px;font-weight:700;color:#fff;padding:2px 9px;border-radius:12px}
+  .title-slide{justify-content:center;background:linear-gradient(135deg,#0f172a,#1e3a5f)}
+  .title-slide *{color:#fff} .title-slide h1{font-size:46px;max-width:22ch}
+  .title-slide .sub{font-size:20px;color:#cbd5e1;margin-top:18px;max-width:60ch;line-height:1.5}
+  .title-slide .meta{margin-top:34px;font-size:14px;color:#94a3b8}
+  .hint{position:fixed;right:14px;top:12px;background:#0f172a;color:#cbd5e1;font-size:12px;
+    padding:6px 12px;border-radius:20px;opacity:.0;transition:.3s;z-index:10}
+  body:hover .hint{opacity:.85}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:6px}
+  th,td{border:1px solid var(--line);padding:7px 11px;text-align:left} th{background:#eef2f7;color:#0f3d57}
+  td.n{font-variant-numeric:tabular-nums;text-align:right}
+  .foot{font-size:13px;color:var(--mut);margin-top:12px;font-style:italic}
+</style>
+</head>
+<body>
+<div class="hint">◀ ▶ / Space to navigate · F fullscreen</div>
+<div class="deck" id="deck">
+
+  <!-- 1 TITLE -->
+  <section class="slide title-slide">
+    <h1>Multi-Agent LLM Framework for Autonomous Simulation Campaigns</h1>
+    <div class="sub">Turning a natural-language scientific question into a real, validated
+      ensemble of land-surface (ELM) and groundwater (PFLOTRAN) simulations — on NERSC Perlmutter.</div>
+    <div class="meta">Reception · Planner · MCP data tools · Tier-2 expander · Tier-3 ELM execution &nbsp;|&nbsp; technical overview &amp; Naches case study</div>
+  </section>
+
+  <!-- 2 PROBLEM -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--ink)">Motivation</span>
+    <h1>From a question to a campaign — the gap we close</h1>
+    <h2>why a multi-agent framework</h2>
+    <p class="lead">A scientist can <b>ask</b> “how is recharge vs. runoff partitioned across this
+      watershed?” in seconds. <b>Running it</b> takes days: pick sites, fetch terrain/soil/observations,
+      configure dozens of single-column models, build, run, validate.</p>
+    <div class="grid g3" style="flex:0;margin-top:24px">
+      <div class="card"><h3>Domain knowledge</h3><p>Which HUC? How many columns? What forcing, soil, validation data?</p></div>
+      <div class="card"><h3>Real data, not guesses</h3><p>Coordinates, soil profiles and water tables must come from authoritative datasets — never an LLM’s imagination.</p></div>
+      <div class="card"><h3>HPC execution</h3><p>CIME case creation, builds, SLURM, per-column configuration at scale.</p></div>
+    </div>
+    <p class="foot">The framework automates all three while keeping the scientist in the loop.</p>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">2</span>
+  </section>
+
+  <!-- 3 BIG IDEA -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t1)">Core idea</span>
+    <h1>Three tiers — the LLM reasons, Python materializes, ELM executes</h1>
+    <h2>separation of concerns &amp; anti-hallucination</h2>
+    <div class="grid g3">
+      <div class="card t1"><h3>Tier 1 · LLM reasoning</h3><p>Reception frames the question and gathers evidence via MCP tools; the planner designs the experiment <i>strategy</i>.</p><p><b>Never emits coordinates.</b></p></div>
+      <div class="card t2"><h3>Tier 2 · Expander</h3><p>Deterministic Python turns the strategy into concrete column points from the <i>real</i> DEM, soil and water-table data.</p></div>
+      <div class="card t3"><h3>Tier 3 · Execution</h3><p>Strict per-column ELM configuration, CIME build/clone, and SLURM execution → history files.</p></div>
+    </div>
+    <p class="foot">Key invariant: every latitude/longitude is <b>materialized from data in Tier 2</b>, so the LLM cannot hallucinate a location.</p>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">3</span>
+  </section>
+
+  <!-- 4 ARCHITECTURE SVG -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t1)">Architecture</span>
+    <h1>End-to-end pipeline</h1>
+    <div class="fig"><img src="assets/architecture_three_tier.svg" alt="three-tier architecture"/></div>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">4</span>
+  </section>
+
+  <!-- 5 AGENT INTERACTION SVG -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t1)">Agent interaction</span>
+    <h1>How the agents and tools talk to each other</h1>
+    <div class="fig"><img src="assets/agent_interaction.svg" alt="agent interaction sequence"/></div>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">5</span>
+  </section>
+
+  <!-- 6 MCP SVG -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--mcp)">Data layer</span>
+    <h1>Six MCP servers — real geospatial evidence on tap</h1>
+    <div class="fig"><img src="assets/mcp_topology.svg" alt="MCP topology"/></div>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">6</span>
+  </section>
+
+  <!-- 7 RECEPTION -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t1)">Tier 1 · agent</span>
+    <h1>Reception — an agentic, pure-LLM tool user</h1>
+    <h2>request → framed brief</h2>
+    <div class="grid g2">
+      <div class="card t1"><h3>What it does</h3><ul style="padding-left:18px">
+        <li>Classifies intent &amp; <b>archetype</b>: conceptual · site · coupling</li>
+        <li>Drives the MCP tools itself in a loop (no hard-coded domain logic)</li>
+        <li>Resolves the watershed, samples terrain, pulls soil / wells / WTD</li>
+        <li>Emits a compact JSON <b>brief</b> for the planner</li>
+      </ul></div>
+      <div class="card mcp"><h3>Human-in-the-loop</h3><ul style="padding-left:18px">
+        <li>On material ambiguity (<i>which</i> American River? what HUC scale?) it can <b>ask the user</b> — backed by MCP candidates</li>
+        <li><code>ask_user</code> tool, exposed only in interactive mode</li>
+        <li>Falls back to best-judgment + recorded assumption in batch mode</li>
+      </ul></div>
+    </div>
+    <p class="foot">Generic runtime: <code>ToolLoopAgent</code> exposes MCP tools as OpenAI functions and passes <code>tools=</code> every round (Bedrock/Claude requirement).</p>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">7</span>
+  </section>
+
+  <!-- 8 PLANNER -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t1)">Tier 1 · agent</span>
+    <h1>Planner — designs the experiment strategy</h1>
+    <h2>brief → strategy (altitude only)</h2>
+    <div class="grid g2">
+      <div class="card t1"><h3>Outputs a strategy, not coordinates</h3><ul style="padding-left:18px">
+        <li>Scientific decomposition &amp; goals</li>
+        <li>Model choice + design archetype (incl. coupling design)</li>
+        <li>Sampling strategy: <b>N</b>, stratification, approach</li>
+        <li>Validation design — variables &amp; observation sources</li>
+        <li>Required capabilities to run</li>
+      </ul></div>
+      <div class="card t2"><h3>Guard-rails</h3><ul style="padding-left:18px">
+        <li>Strategy <b>altitude only</b> — no per-column configs, no invented lat/lon</li>
+        <li>Deterministic <code>validate.py</code> checks the brief &amp; plan (report-only)</li>
+        <li>Everything downstream is materialized, never imagined</li>
+      </ul></div>
+    </div>
+    <p class="foot">Default model: <code>claude-opus-4-8-project</code> via the PNNL OpenAI-compatible gateway.</p>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">8</span>
+  </section>
+
+  <!-- 9 EXPANDER -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t2)">Tier 2 · expander</span>
+    <h1>Deterministic expansion — strategy → concrete columns</h1>
+    <h2>no LLM, no invented coordinates</h2>
+    <div class="grid g3" style="flex:0">
+      <div class="card t2"><h3>1 · Sample</h3><p>Sample the real DEM across the basin bbox (terrain/3DEP), clip to the watershed polygon.</p></div>
+      <div class="card t2"><h3>2 · Stratify</h3><p>Bin points into elevation bands; allocate the planner’s <b>N</b> proportional to occupied area (≥1 per band).</p></div>
+      <div class="card t2"><h3>3 · Enrich</h3><p>Farthest-point spread within each band; attach SSURGO soil profile + Fan equilibrium water-table depth per point.</p></div>
+    </div>
+    <p class="lead" style="margin-top:22px">Output: <code>columns.json</code> — every column carries a real <b>lat/lon, elevation band, soil profile (van Genuchten), and water-table depth</b>.</p>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">9</span>
+  </section>
+
+  <!-- 10 EXECUTION -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t3)">Tier 3 · execution</span>
+    <h1>Per-column ELM execution on Perlmutter</h1>
+    <h2>strict configuration · fast cloning · SLURM</h2>
+    <div class="grid g2">
+      <div class="card t3"><h3>Configuration bridge</h3><ul style="padding-left:18px">
+        <li><code>columns_to_elm_plan</code> → one coupler per column, each with its own lat/lon + soil</li>
+        <li>Generates per-column surface + domain NetCDF</li>
+      </ul></div>
+      <div class="card t3"><h3>Build &amp; run</h3><ul style="padding-left:18px">
+        <li>CIME <code>create_newcase</code> / <code>case.setup</code> / build once</li>
+        <li><b>Clone</b> columns with <code>--keepexe</code> (~15 s each, shared exe)</li>
+        <li><code>srun</code> per column on an <code>salloc</code> node → history files</li>
+      </ul></div>
+    </div>
+    <p class="foot">Repairing the <code>--keepexe</code> clone path (EXEROOT-resolved exe + <code>case.setup --reset</code>) cut per-column cost from a ~5-min rebuild to ~15 s.</p>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">10</span>
+  </section>
+
+  <!-- 11 CASE STUDY DESIGN -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t2)">Case study</span>
+    <h1>Naches sub-watershed — automated sampling design</h1>
+    <h2>HUC8 17030002 · 2,861 km² · 352–1,977 m · 10 columns / 4 elevation bands</h2>
+    <div class="fig"><img src="assets/naches_sampling.png" alt="Naches sampling design"/></div>
+    <span class="tag">From one question → 10 ELM columns, all from real data</span><span class="num">11</span>
+  </section>
+
+  <!-- 12 CASE STUDY RESULTS -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t3)">Case study · results</span>
+    <h1>Three columns run end-to-end — distinct per-column response</h1>
+    <h2>each cloned from a shared exe, run on Perlmutter (rc=0, 9 history files each)</h2>
+    <div class="fig"><img src="assets/phase3_results.png" alt="Phase 3 per-column results"/></div>
+    <p class="foot">Surface runoff rises and top-soil moisture falls with elevation — the per-column surfaces genuinely
+      differentiated the physics. (Recharge <code>QDRAI≈0</code> as expected for a 1-yr no-spin-up run.)</p>
+    <span class="tag">Naches case study</span><span class="num">12</span>
+  </section>
+
+  <!-- 13 TESTING -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--ink)">Engineering</span>
+    <h1>A tiered test suite keeps it trustworthy</h1>
+    <h2>plain <code>pytest</code> is fast, offline, deterministic — heavy tiers are opt-in</h2>
+    <div class="stat">
+      <div><b>165</b><span>offline tests (mocked LLM + MCP)</span></div>
+      <div><b>4</b><span>tiers: offline · live · llm · compute</span></div>
+      <div><b>6/6</b><span>MCP servers liveness-checked</span></div>
+      <div><b>0</b><span>failures in the default run</span></div>
+    </div>
+    <div class="grid g2" style="margin-top:20px">
+      <div class="card"><h3>Tiers</h3><p><code>pytest</code> · <code>--runlive</code> (MCP) · <code>--runllm</code> (endpoint + Bedrock <code>tools=</code>) · <code>--runcompute</code> (ELM build/run)</p></div>
+      <div class="card"><h3>Coverage</h3><p>Agentic loop, expander materialize, orchestration, validator, ELM wrapper &amp; clone routing. Retired PFLOTRAN tests quarantined for reference.</p></div>
+    </div>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">13</span>
+  </section>
+
+  <!-- 14 COUPLING -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--t2)">Beyond single-model</span>
+    <h1>Stateful follow-ups &amp; model coupling</h1>
+    <h2>“now run PFLOTRAN using the previous ELM output”</h2>
+    <div class="grid g2">
+      <div class="card t1"><h3>Multi-turn sessions</h3><p>Reception accepts <b>conversation context</b> — a prior experiment in the session — so a follow-up turn can build on the last design.</p></div>
+      <div class="card t3"><h3>ELM → PFLOTRAN (design)</h3><p>The coupling archetype maps ELM sub-surface drainage (<code>QDRAI</code>) into a PFLOTRAN recharge boundary condition — a designed, validated handoff between models.</p></div>
+    </div>
+    <p class="foot">Demonstrated as a design-only flow today; the physical coupler is on the roadmap.</p>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">14</span>
+  </section>
+
+  <!-- 15 ROADMAP -->
+  <section class="slide">
+    <span class="kicker" style="background:var(--ink)">Roadmap</span>
+    <h1>Where it goes next</h1>
+    <h2>productionize &amp; deepen the science</h2>
+    <div class="grid g2">
+      <div class="card t3"><h3>Execution</h3><ul style="padding-left:18px"><li>A one-command <code>--execute</code> runner (columns → build/clone → run → analysis)</li><li>Multi-year <b>spin-up</b> for real recharge</li><li>Scale to full N columns</li></ul></div>
+      <div class="card t2"><h3>Science &amp; agents</h3><ul style="padding-left:18px"><li>The physical ELM→PFLOTRAN coupler (2-D transects)</li><li>An <b>agentic analyzer</b> — fetch observations &amp; compare automatically</li><li>Heavier executability validation</li></ul></div>
+    </div>
+    <span class="tag">Multi-agent LLM framework</span><span class="num">15</span>
+  </section>
+
+  <!-- 16 SUMMARY -->
+  <section class="slide title-slide">
+    <span class="kicker" style="background:var(--t1)">Summary</span>
+    <h1>One question in, a validated simulation campaign out</h1>
+    <div class="sub">
+      LLMs reason and gather evidence · Python materializes real coordinates · ELM executes on HPC.<br/><br/>
+      Demonstrated end-to-end on the Naches: a single natural-language question became
+      10 data-grounded ELM columns, three of which ran on Perlmutter with distinct, physically sensible results.
+    </div>
+    <div class="meta">Reception · Planner · 6 MCP servers · Tier-2 expander · Tier-3 ELM · 165-test tiered suite</div>
+  </section>
+
+</div>
+<script>
+  const deck=document.getElementById('deck');
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  function go(n){i=Math.max(0,Math.min(slides.length-1,n));slides[i].scrollIntoView();}
+  addEventListener('keydown',e=>{
+    if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){e.preventDefault();go(i+1);}
+    else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){e.preventDefault();go(i-1);}
+    else if(e.key==='Home'){go(0);} else if(e.key==='End'){go(slides.length-1);}
+    else if(e.key==='f'||e.key==='F'){document.documentElement.requestFullscreen?.();}
+  });
+  // keep index in sync when scrolling manually
+  deck.addEventListener('scroll',()=>{i=Math.round(deck.scrollTop/innerHeight);},{passive:true});
+</script>
+</body>
+</html>
