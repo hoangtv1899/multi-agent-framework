@@ -29,13 +29,15 @@ except ImportError as e:
 # ─────────────────────────────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────
-TARGET_VARIABLES = ['QOVER', 'QCHARGE', 'TWS', 'SOILLIQ']
+TARGET_VARIABLES = ['QOVER', 'QCHARGE', 'TWS', 'SOILLIQ', 'ZWT', 'RAIN']
 
 VARIABLE_UNITS = {
     'QOVER':   'mm/s',
     'QCHARGE': 'mm/s',
     'TWS':     'mm',
     'SOILLIQ': 'kg/m2',
+    'ZWT':     'm',
+    'RAIN':    'mm/s',   # atmospheric forcing (rainfall flux) — surfaces the input
 }
 
 S_TO_YEAR = 86400.0 * 365.25
@@ -108,10 +110,12 @@ class ELMResultsAnalyzer:
             'model_type':      'elm',
             'experiments':     list(self.results.values()),
             'comparisons':     self._compute_comparisons(),
+            'spatial_summary': self._compute_spatial_summary(),
             'units':           VARIABLE_UNITS,
             'focus_variables': {
                 'QCHARGE': 'Primary — aquifer recharge',
                 'QOVER':   'Surface runoff',
+                'ZWT':     'Water-table depth',
                 'TWS':     'Total water storage',
                 'SOILLIQ': 'Soil moisture profile',
             },
@@ -201,11 +205,17 @@ class ELMResultsAnalyzer:
         Open NetCDF4 files using netCDF4 engine directly.
         ELM produces NetCDF4 format.
         """
+        # Explicit current defaults — silences the open_mfdataset FutureWarnings
+        # without changing the combine behavior (monthly files, concat on time).
         return xr.open_mfdataset(
             [str(f) for f in hist_files],
             combine      = 'by_coords',
             decode_times = True,
             engine       = 'netcdf4',
+            data_vars    = 'all',
+            coords       = 'different',
+            compat       = 'no_conflicts',
+            join         = 'outer',
         )
 
     def _extract_one(self,
@@ -235,6 +245,9 @@ class ELMResultsAnalyzer:
                 'forcing_period': exp['forcing_period'],
                 'forcing_start':  exp['forcing_start'],
                 'forcing_end':    exp['forcing_end'],
+                'lat':            exp.get('lat'),
+                'lon':            exp.get('lon'),
+                'elevation_m':    exp.get('elevation_m'),
                 'status':         'ok',
                 'variables':      variables,
                 'metrics':        metrics,
@@ -253,7 +266,7 @@ class ELMResultsAnalyzer:
         da  = da.squeeze()
         val = np.array(da.values, dtype=float)
 
-        if var_name in ('QOVER', 'QCHARGE'):
+        if var_name in ('QOVER', 'QCHARGE', 'RAIN'):
             val_yr = val * S_TO_YEAR
             return {
                 'units_raw':    VARIABLE_UNITS[var_name],
@@ -301,6 +314,16 @@ class ELMResultsAnalyzer:
                                       if val.ndim == 2 else 1,
             }
 
+        elif var_name == 'ZWT':
+            val_1d = val.flatten()
+            return {
+                'units':       VARIABLE_UNITS[var_name],
+                'mean_m':      round(float(np.nanmean(val_1d)), 4),
+                'min_m':       round(float(np.nanmin(val_1d)),  4),
+                'max_m':       round(float(np.nanmax(val_1d)),  4),
+                'n_timesteps': int(len(val_1d)),
+            }
+
         else:
             val_1d = val.flatten()
             return {
@@ -313,31 +336,34 @@ class ELMResultsAnalyzer:
 
     def _compute_metrics(self,
                           variables: Dict) -> Dict[str, Any]:
-        """Compute derived metrics."""
+        """Compute derived per-column metrics."""
         metrics = {}
         qc = variables.get('QCHARGE') or {}
         qo = variables.get('QOVER')   or {}
         tw = variables.get('TWS')     or {}
+        zw = variables.get('ZWT')     or {}
+        rn = variables.get('RAIN')    or {}
 
         if qc:
-            metrics['annual_recharge_mm_yr'] = (
-                qc.get('annual_mean')
-            )
+            metrics['annual_recharge_mm_yr'] = qc.get('annual_mean')
         if qo:
-            metrics['annual_runoff_mm_yr'] = (
-                qo.get('annual_mean')
-            )
+            metrics['annual_runoff_mm_yr'] = qo.get('annual_mean')
+        if rn:
+            metrics['precip_mm_yr'] = rn.get('annual_mean')   # forcing input per column
         if qc and qo:
             qc_m = qc.get('annual_mean', 0) or 0
             qo_m = qo.get('annual_mean', 0) or 0
             if abs(qo_m) > 1e-10:
-                metrics['recharge_to_runoff_ratio'] = round(
-                    qc_m / qo_m, 4
-                )
+                metrics['recharge_to_runoff_ratio'] = round(qc_m / qo_m, 4)
+            # recharge vs runoff partitioning — the core science question
+            total = qc_m + qo_m
+            if abs(total) > 1e-9:
+                metrics['recharge_fraction'] = round(qc_m / total, 4)
+                metrics['runoff_fraction']   = round(qo_m / total, 4)
         if tw:
-            metrics['tws_seasonal_range_mm'] = (
-                tw.get('seasonal_range')
-            )
+            metrics['tws_seasonal_range_mm'] = tw.get('seasonal_range')
+        if zw:
+            metrics['water_table_depth_m'] = zw.get('mean_m')
         return metrics
 
     def _compute_comparisons(self) -> List[Dict[str, Any]]:
@@ -371,15 +397,110 @@ class ELMResultsAnalyzer:
             })
         return comparisons
 
+    def _compute_spatial_summary(self) -> Dict[str, Any]:
+        """Cross-column summary for a SPATIAL ensemble that attributes the response
+        to its ACTUAL drivers rather than asserting a clean elevation gradient.
+
+        It surfaces per-column forcing (precip), how well a linear elevation fit
+        holds (fit_r2), and whether recharge tracks elevation or precip — so a
+        coarse, quantized forcing (which makes 'elevation' a confounded proxy)
+        can't masquerade as a smooth elevation effect."""
+        ok = [r for r in self.results.values()
+              if r.get('status') == 'ok' and r.get('elevation_m') is not None]
+        locs = {(r.get('lat'), r.get('lon')) for r in ok}
+        if len(ok) < 2 or len(locs) < 2:
+            return {}
+
+        ok.sort(key=lambda r: r['elevation_m'])
+        rows = [{
+            'case_name':           r['case_name'],
+            'elevation_m':         round(r['elevation_m'], 1),
+            'lat':                 r.get('lat'),
+            'lon':                 r.get('lon'),
+            'precip_mm_yr':        r['metrics'].get('precip_mm_yr'),
+            'recharge_mm_yr':      r['metrics'].get('annual_recharge_mm_yr'),
+            'runoff_mm_yr':        r['metrics'].get('annual_runoff_mm_yr'),
+            'recharge_fraction':   r['metrics'].get('recharge_fraction'),
+            'water_table_depth_m': r['metrics'].get('water_table_depth_m'),
+        } for r in ok]
+
+        elevs = np.array([r['elevation_m'] for r in ok], dtype=float)
+
+        def col(metric_key):
+            return np.array([r['metrics'].get(metric_key) for r in ok], dtype=float)
+
+        def fit_vs_elev(metric_key):
+            """Linear slope per 1000 m AND its r2 (how well a line vs elevation fits)."""
+            ys = col(metric_key)
+            mask = ~np.isnan(ys)
+            if mask.sum() < 2 or np.ptp(elevs[mask]) < 1e-6:
+                return None, None
+            x, y = elevs[mask], ys[mask]
+            a, b = np.polyfit(x, y, 1)
+            ss_tot = float(np.sum((y - y.mean()) ** 2))
+            r2 = (round(1 - float(np.sum((y - (a * x + b)) ** 2)) / ss_tot, 3)
+                  if ss_tot > 1e-12 else None)
+            return round(float(a) * 1000.0, 4), r2
+
+        def corr(metric_key, xs):
+            ys = col(metric_key)
+            mask = ~np.isnan(ys) & ~np.isnan(xs)
+            if mask.sum() < 3 or np.ptp(xs[mask]) < 1e-9 or np.ptp(ys[mask]) < 1e-9:
+                return None
+            return round(float(np.corrcoef(xs[mask], ys[mask])[0, 1]), 3)
+
+        precip = col('precip_mm_yr')
+        finite = precip[~np.isnan(precip)]
+        bins = sorted({round(float(p)) for p in finite})        # distinct forcing cells
+
+        slope, r2 = {}, {}
+        for key, name in [('annual_recharge_mm_yr', 'recharge_mm_yr'),
+                          ('annual_runoff_mm_yr', 'runoff_mm_yr'),
+                          ('recharge_fraction', 'recharge_fraction'),
+                          ('water_table_depth_m', 'water_table_m')]:
+            slope[name], r2[name] = fit_vs_elev(key)
+
+        r_elev = corr('annual_recharge_mm_yr', elevs)
+        r_prcp = corr('annual_recharge_mm_yr', precip)
+
+        notes = []
+        if bins and len(bins) <= 3 and len(ok) > len(bins):
+            notes.append(f"precip is quantized to {len(bins)} value(s) {bins} mm/yr — "
+                         f"coarse DATM forcing, NOT elevation-resolved")
+        if r_elev is not None and r_prcp is not None and abs(r_prcp) > abs(r_elev):
+            notes.append(f"recharge tracks precip (r={r_prcp}) more than elevation "
+                         f"(r={r_elev}) — response is forcing/soil-controlled")
+        if r2.get('recharge_mm_yr') is not None and r2['recharge_mm_yr'] < 0.5:
+            notes.append(f"linear elevation fit is weak (r2={r2['recharge_mm_yr']}) — "
+                         f"the elevation 'gradient' is not a reliable summary")
+
+        return {
+            'n_columns':         len(ok),
+            'elevation_range_m': [round(float(elevs.min()), 1), round(float(elevs.max()), 1)],
+            'forcing': {
+                'precip_mm_yr_distinct': bins,
+                'n_forcing_bins':        len(bins),
+                'elevation_resolved':    len(bins) > 3,
+            },
+            'by_elevation': rows,
+            'vs_elevation': {'slope_per_1000m': slope, 'fit_r2': r2},
+            'driver_correlation': {'recharge_vs_elevation_r': r_elev,
+                                   'recharge_vs_precip_r':    r_prcp},
+            'interpretation': notes or ['response varies smoothly with elevation'],
+            'note': 'check forcing.n_forcing_bins, vs_elevation.fit_r2 and '
+                    'driver_correlation before reading any slope as an elevation effect',
+        }
+
     def _save_hydro_summary(self):
         """Save hydro_summary.json."""
         hydro_file = self.analysis_dir / "hydro_summary.json"
         with open(hydro_file, 'w') as f:
             json.dump(
                 {
-                    'experiments': list(self.results.values()),
-                    'comparisons': self._compute_comparisons(),
-                    'units':       VARIABLE_UNITS,
+                    'experiments':     list(self.results.values()),
+                    'comparisons':     self._compute_comparisons(),
+                    'spatial_summary': self._compute_spatial_summary(),
+                    'units':           VARIABLE_UNITS,
                 },
                 f, indent=2, default=str
             )
@@ -395,6 +516,9 @@ class ELMResultsAnalyzer:
             'forcing_period': exp.get('forcing_period', 'unknown'),
             'forcing_start':  exp.get('forcing_start',  None),
             'forcing_end':    exp.get('forcing_end',    None),
+            'lat':            exp.get('lat'),
+            'lon':            exp.get('lon'),
+            'elevation_m':    exp.get('elevation_m'),
             'status':         'failed',
             'reason':         reason,
             'variables':      {v: None for v in TARGET_VARIABLES},
