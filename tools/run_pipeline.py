@@ -66,6 +66,17 @@ def print_plan(plan):
     for g in (plan.get("scientific_decomposition") or {}).get("goals", []):
         print(f"  goal: {g}")
 
+    fe = plan.get("feasibility") or {}
+    if fe:
+        print(f"\nFEASIBILITY: {fe.get('verdict', '?')}")
+        for a in fe.get("answerable", []) or []:
+            print(f"  ✓ {a}")
+        for x in fe.get("not_answerable", []) or []:
+            if isinstance(x, dict):
+                print(f"  ✗ {x.get('aspect')}  — needs: {x.get('needs')}")
+            else:
+                print(f"  ✗ {x}")
+
     samp = plan.get("sampling_strategy", {}) or {}
     rows = plan.get("sampling_plan") or []
     if rows:

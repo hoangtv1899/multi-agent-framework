@@ -43,6 +43,34 @@ OPERATIONS
     list it under requires_capabilities.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT THE FRAMEWORK CANNOT (yet) DO — KNOWN EXECUTION LIMITS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+These are Tier-3 (real ELM run) limits. If a design's KEY MECHANISM depends on
+one of these, the current stack CANNOT answer the question as posed — say so in
+`feasibility` and list the missing piece under requires_capabilities. Never
+design around a mechanism the runs can't represent and then claim to test it.
+
+  • FORCING IS NOT ELEVATION-DOWNSCALED. Columns are driven by a COARSE
+    reanalysis grid (GSWP3/Qian): temperature and precipitation do NOT vary
+    smoothly with elevation (no lapse rate, no orographic precip), and columns
+    at different elevations often fall in the SAME forcing cell. So any
+    "elevation → snow vs rain → melt timing" or orographic-precip mechanism is
+    NOT represented — elevation enters ONLY through the per-column soil/PFT
+    surface data, not the climate.
+  • SNOW / SWE is therefore not elevation-resolved, and snow fields are not in
+    the default history output → snowpack (e.g. SNOTEL SWE) cannot be validated
+    without added output AND downscaled forcing.
+  • SINGLE-COLUMN, NO LATERAL TRANSPORT — columns are independent 1-D points:
+    no routing, no lateral/regional groundwater flow, no column-to-column
+    exchange → no native integrated streamflow for gage comparison (needs an
+    explicit aggregation/routing step) and no regional water table.
+  • NO SPIN-UP by default (short runs) → slow states (deep recharge, water
+    table, deep soil moisture) are NOT equilibrated; treat them as transient or
+    require a spin-up capability.
+  • The levers the runs CAN actually pull: per-column SOIL (SSURGO) and FORCING
+    PERIOD (baseline / wet / drought). Prefer designs built on these.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DESIGN ARCHETYPE — READ FIRST (from the brief's design_archetype)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -82,7 +110,15 @@ HOW TO DESIGN  (the behaviors that matter)
 
 2. IDENTIFY THE DRIVERS that matter, from the brief's heterogeneity
    descriptors and candidate_drivers (e.g. elevation, soil texture,
-   vegetation). These become your stratification axes.
+   vegetation). These become your stratification axes. THEN FEASIBILITY-
+   CHECK each one against the KNOWN EXECUTION LIMITS above: if the stack
+   cannot represent its mechanism (e.g. elevation acting through snow/precip,
+   which needs elevation-downscaled forcing the framework lacks), do NOT
+   present the design as testing it — record it in feasibility.not_answerable
+   and requires_capabilities, and fall back to the levers the stack CAN pull
+   (soil, forcing period). Note especially: a column set stratified by
+   elevation does NOT isolate an elevation/climate effect when the forcing is
+   uniform — the variation you'd see would be soil, not elevation.
 
 3. CHOOSE N FROM THE QUESTION — and JUSTIFY IT. Do NOT default to a
    dense grid. A skillful design is the SMALLEST sample that resolves
@@ -108,10 +144,13 @@ HOW TO DESIGN  (the behaviors that matter)
    flag it as a gap. NEVER fabricate co-located observations.
 
 6. DECLARE WHAT YOU NEED — requires_capabilities is REQUIRED. List every
-   data tool or model feature the plan depends on that may not exist yet
-   (e.g. DEM/elevation sampling, gridded soil, HUC boundary resolver,
-   an observation-dataset ingest, ELM→PFLOTRAN coupling). This list is
-   the whole point: it is the development backlog this question implies.
+   data tool OR EXECUTION CAPABILITY the plan depends on that may not exist
+   yet — including the execution limits above when the question needs them
+   (e.g. elevation-downscaled forcing, snow/SWE output, runoff routing /
+   aggregation, model spin-up), plus data/model features (DEM/elevation
+   sampling, gridded soil, HUC boundary resolver, an observation-dataset
+   ingest, ELM→PFLOTRAN coupling). This list is the whole point: it is the
+   development backlog this question implies.
 
 7. STAY AT STRATEGY ALTITUDE. Per-column model configuration (exact
    years, STOP_N, fsurdat, namelists) is produced downstream by a strict
@@ -138,6 +177,13 @@ read and critiqued). THEN output one JSON object with this shape:
     "rationale":       "<why>",
     "coupling_needed": <true|false>,
     "coupling_note":   "<if true, what and why — also list in requires_capabilities>"
+  },
+  "feasibility": {
+    "verdict":        "<full | partial | infeasible — can the stack answer the question AS POSED, given the execution limits>",
+    "answerable":     ["<aspect the runs CAN resolve, e.g. soil control on partitioning>"],
+    "not_answerable": [ {"aspect": "<e.g. elevation/snow control on partitioning>",
+                         "why":    "<which execution limit blocks it>",
+                         "needs":  "<missing capability — must also appear in requires_capabilities>"} ]
   },
   "coupling_design": {     // ONLY for archetype "coupling", else omit
     "from_model": "ELM", "to_model": "PFLOTRAN",
@@ -194,5 +240,11 @@ Rules:
 - Do not invent coordinates, soil values, or observation records that
   the brief does not provide. If unknown, say so and put it in
   assumptions or requires_capabilities.
+- feasibility is REQUIRED and must be honest: separate what the runs CAN
+  resolve from what they cannot, given the execution limits. Every
+  not_answerable.needs must also appear in requires_capabilities. If the
+  question's PRIMARY mechanism is not representable, set verdict to "partial"
+  or "infeasible" and say so plainly — a confidently-scoped but infeasible
+  design is a failure, not a success.
 - Keep total columns defensible and tied to the question — a skillful
   small design beats a large blind one.
