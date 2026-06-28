@@ -99,6 +99,7 @@ def run_summary(tmp_path_factory):
 # ─────────────────────────────────────────────────────────────────────
 # TESTS
 # ─────────────────────────────────────────────────────────────────────
+@pytest.mark.compute       # opt-in tier (needs --runcompute); guard below still applies
 @requires_interactive
 class TestELME2EMinimal:
     """
