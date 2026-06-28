@@ -23,17 +23,22 @@ def _analyzer(tmp_path):
     return ELMResultsAnalyzer(experiments=[], analysis_dir=str(tmp_path / "an"))
 
 
-def _col(name, elev, rech, runf, wtd, lat=46.0, lon=-120.0, precip=1000.0):
+def _col(name, elev, rech, runf, wtd, lat=46.0, lon=-120.0, precip=1000.0, soil=None):
     total = rech + runf
     return {
         "status": "ok", "case_name": name, "scenario_name": name,
         "forcing_period": "baseline", "lat": lat, "lon": lon, "elevation_m": elev,
+        "soil": soil,
         "metrics": {
             "annual_recharge_mm_yr": rech, "annual_runoff_mm_yr": runf,
             "recharge_fraction": round(rech / total, 4) if total else None,
             "water_table_depth_m": wtd, "precip_mm_yr": precip,
         },
     }
+
+
+def _soil(clay, ksat, texture="loam"):
+    return {"texture_top": texture, "clay_max_pct": clay, "ksat_min_ums": ksat}
 
 
 # ── partitioning + WTD metric ────────────────────────────────────────────────
@@ -105,3 +110,38 @@ def test_spatial_summary_needs_two_columns(tmp_path):
     az = _analyzer(tmp_path)
     az.results = {"only": _col("only", 800, 100, 50, 8.5)}
     assert az._compute_spatial_summary() == {}
+
+
+# ── soil attribution (forcing held constant) ─────────────────────────────────
+def test_soil_attribution_holds_forcing_and_blames_clay(tmp_path):
+    az = _analyzer(tmp_path)
+    # all same precip (one forcing bin); recharge falls as max-clay rises
+    az.results = {  # clay monotonic with recharge; Ksat scrambled so clay clearly wins
+        "a": _col("a", 900,  648, 80, 8.1, precip=1373, soil=_soil(8, 28)),
+        "b": _col("b", 950,  507, 80, 8.3, precip=1373, soil=_soil(15, 5)),
+        "c": _col("c", 1000, 309, 80, 8.6, precip=1373, soil=_soil(25, 12)),
+    }
+    sa = az._compute_soil_attribution()
+    assert sa["forcing_held_mm_yr"] == 1373 and sa["n_columns"] == 3
+    assert sa["soil_correlation"]["recharge_vs_clay_max"] < -0.9   # clay impedes recharge
+    assert "clay" in sa["strongest_predictor"]
+    assert [r["case_name"] for r in sa["by_recharge"]] == ["a", "b", "c"]  # recharge desc
+
+
+def test_soil_attribution_picks_largest_forcing_bin(tmp_path):
+    az = _analyzer(tmp_path)
+    az.results = {
+        "lo":  _col("lo", 700,   0, 50, 8.8, precip=793, soil=_soil(30, 2)),
+        "h1":  _col("h1", 950, 600, 85, 8.2, precip=1373, soil=_soil(8, 28)),
+        "h2":  _col("h2", 1000, 500, 85, 8.3, precip=1373, soil=_soil(15, 12)),
+        "h3":  _col("h3", 1100, 350, 85, 8.5, precip=1373, soil=_soil(24, 4)),
+    }
+    sa = az._compute_soil_attribution()
+    assert sa["forcing_held_mm_yr"] == 1373        # the 3-column bin, not the singleton
+    assert sa["n_columns"] == 3
+
+
+def test_soil_attribution_empty_without_soil(tmp_path):
+    az = _analyzer(tmp_path)
+    az.results = {n: _col(n, 900, 500, 80, 8.3, precip=1373) for n in ("a", "b", "c")}
+    assert az._compute_soil_attribution() == {}     # no soil data -> nothing to attribute

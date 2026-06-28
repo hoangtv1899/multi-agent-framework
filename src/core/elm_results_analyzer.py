@@ -108,9 +108,10 @@ class ELMResultsAnalyzer:
         """Package results for AnalysisReportAgent."""
         return {
             'model_type':      'elm',
-            'experiments':     list(self.results.values()),
-            'comparisons':     self._compute_comparisons(),
-            'spatial_summary': self._compute_spatial_summary(),
+            'experiments':      list(self.results.values()),
+            'comparisons':      self._compute_comparisons(),
+            'spatial_summary':  self._compute_spatial_summary(),
+            'soil_attribution': self._compute_soil_attribution(),
             'units':           VARIABLE_UNITS,
             'focus_variables': {
                 'QCHARGE': 'Primary — aquifer recharge',
@@ -248,6 +249,7 @@ class ELMResultsAnalyzer:
                 'lat':            exp.get('lat'),
                 'lon':            exp.get('lon'),
                 'elevation_m':    exp.get('elevation_m'),
+                'soil':           exp.get('soil'),
                 'status':         'ok',
                 'variables':      variables,
                 'metrics':        metrics,
@@ -491,16 +493,74 @@ class ELMResultsAnalyzer:
                     'driver_correlation before reading any slope as an elevation effect',
         }
 
+    def _compute_soil_attribution(self) -> Dict[str, Any]:
+        """Attribute the partitioning to SOIL, holding forcing constant. Picks the
+        largest forcing bin (so precip is fixed) and correlates recharge / runoff
+        with per-column soil predictors (max clay %, min Ksat = the drainage
+        bottleneck). This is the soil-control answer the spatial run confounds."""
+        ok = [r for r in self.results.values()
+              if r.get('status') == 'ok' and r.get('soil')]
+        if len(ok) < 3:
+            return {}
+
+        # hold forcing constant: keep only the most-populated precip bin
+        bins: Dict[Any, list] = {}
+        for r in ok:
+            p = r['metrics'].get('precip_mm_yr')
+            bins.setdefault(round(p) if p is not None else None, []).append(r)
+        precip_bin, group = max(bins.items(), key=lambda kv: len(kv[1]))
+        if len(group) < 3:
+            return {}
+
+        group.sort(key=lambda r: -(r['metrics'].get('annual_recharge_mm_yr') or 0))
+        rows = [{
+            'case_name':         r['case_name'],
+            'texture_top':       r['soil'].get('texture_top'),
+            'clay_max_pct':      r['soil'].get('clay_max_pct'),
+            'ksat_min_ums':      r['soil'].get('ksat_min_ums'),
+            'recharge_mm_yr':    r['metrics'].get('annual_recharge_mm_yr'),
+            'runoff_mm_yr':      r['metrics'].get('annual_runoff_mm_yr'),
+            'recharge_fraction': r['metrics'].get('recharge_fraction'),
+        } for r in group]
+
+        def corr(feat, target):
+            xs = np.array([r['soil'].get(feat) for r in group], dtype=float)
+            ys = np.array([r['metrics'].get(target) for r in group], dtype=float)
+            mask = ~np.isnan(xs) & ~np.isnan(ys)
+            if mask.sum() < 3 or np.ptp(xs[mask]) < 1e-9 or np.ptp(ys[mask]) < 1e-9:
+                return None
+            return round(float(np.corrcoef(xs[mask], ys[mask])[0, 1]), 3)
+
+        soil_corr = {
+            'recharge_vs_clay_max': corr('clay_max_pct', 'annual_recharge_mm_yr'),
+            'recharge_vs_ksat_min': corr('ksat_min_ums', 'annual_recharge_mm_yr'),
+            'runoff_vs_clay_max':   corr('clay_max_pct', 'annual_runoff_mm_yr'),
+        }
+        ranked = sorted(((abs(v), k, v) for k, v in soil_corr.items() if v is not None),
+                        reverse=True)
+        best = (f"{ranked[0][1]} (r={ranked[0][2]})" if ranked else "no clear predictor")
+
+        return {
+            'forcing_held_mm_yr': precip_bin,
+            'n_columns':          len(group),
+            'by_recharge':        rows,
+            'soil_correlation':   soil_corr,
+            'strongest_predictor': best,
+            'note': f'precip held at {precip_bin} mm/yr across {len(group)} columns, '
+                    'so this spread is soil-driven (clay impedes, Ksat permits drainage)',
+        }
+
     def _save_hydro_summary(self):
         """Save hydro_summary.json."""
         hydro_file = self.analysis_dir / "hydro_summary.json"
         with open(hydro_file, 'w') as f:
             json.dump(
                 {
-                    'experiments':     list(self.results.values()),
-                    'comparisons':     self._compute_comparisons(),
-                    'spatial_summary': self._compute_spatial_summary(),
-                    'units':           VARIABLE_UNITS,
+                    'experiments':      list(self.results.values()),
+                    'comparisons':      self._compute_comparisons(),
+                    'spatial_summary':  self._compute_spatial_summary(),
+                    'soil_attribution': self._compute_soil_attribution(),
+                    'units':            VARIABLE_UNITS,
                 },
                 f, indent=2, default=str
             )
@@ -519,6 +579,7 @@ class ELMResultsAnalyzer:
             'lat':            exp.get('lat'),
             'lon':            exp.get('lon'),
             'elevation_m':    exp.get('elevation_m'),
+            'soil':           exp.get('soil'),
             'status':         'failed',
             'reason':         reason,
             'variables':      {v: None for v in TARGET_VARIABLES},

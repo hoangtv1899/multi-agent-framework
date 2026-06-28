@@ -27,6 +27,30 @@ sys.path.insert(0, "src")
 from core.elm_results_analyzer import ELMResultsAnalyzer
 
 
+def soil_features(sp):
+    """Per-column soil predictors from the SSURGO profile that drive drainage:
+    max clay % (the impeding layer) and min Ksat (the drainage bottleneck)."""
+    layers = (sp or {}).get("layers") or []
+    if not layers:
+        return None
+
+    def num(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    clays = [c for c in (num(l.get("clay_pct")) for l in layers) if c is not None]
+    ksats = [k for k in (num(l.get("ksat_ums")) for l in layers) if k is not None]
+    return {
+        "texture_top":  layers[0].get("texture_class"),
+        "clay_top_pct": num(layers[0].get("clay_pct")),
+        "clay_max_pct": max(clays) if clays else None,
+        "ksat_min_ums": min(ksats) if ksats else None,
+        "n_layers":     len(layers),
+    }
+
+
 def build_experiments(run_dir: Path, cases_file="phase3_cases.json",
                       plan_file="phase3_plan.json"):
     cases = json.load(open(run_dir / cases_file))
@@ -51,6 +75,7 @@ def build_experiments(run_dir: Path, cases_file="phase3_cases.json",
             "forcing_end":   int(cc.get("DATM_CLMNCEP_YR_END", 0) or 0),
             "lat": cc.get("lat"), "lon": cc.get("lon"),
             "elevation_m": elev.get(name),
+            "soil": soil_features(cc.get("soil_profile")),
         })
     return exps
 
@@ -138,6 +163,56 @@ def plot_gradient(spatial, out_path):
     print(f"\n   ✓ figure: {out_path}")
 
 
+def print_soil(soil):
+    if not soil:
+        print("\n(no soil attribution — need >=3 columns sharing a forcing bin with soil data)")
+        return
+    print("\n" + "=" * 84)
+    print(f"SOIL CONTROL  (forcing held at {soil['forcing_held_mm_yr']} mm/yr across "
+          f"{soil['n_columns']} columns — spread is soil-driven)")
+    print("=" * 84)
+    print(f"{'column':<9}{'top texture':>14}{'clay_max%':>11}{'ksat_min':>11}"
+          f"{'recharge':>11}{'runoff':>9}")
+    print(f"{'':9}{'':>14}{'':>11}{'µm/s':>11}{'mm/yr':>11}{'mm/yr':>9}")
+    print("-" * 84)
+    for r in soil["by_recharge"]:
+        print(f"{r['case_name']:<9}{str(r['texture_top']):>14}{_f(r['clay_max_pct'], 1):>11}"
+              f"{_f(r['ksat_min_ums'], 1):>11}{_f(r['recharge_mm_yr']):>11}{_f(r['runoff_mm_yr']):>9}")
+    print("-" * 84)
+    sc = soil["soil_correlation"]
+    print(f"recharge vs clay_max: r={sc['recharge_vs_clay_max']}   "
+          f"vs ksat_min: r={sc['recharge_vs_ksat_min']}   "
+          f"runoff vs clay_max: r={sc['runoff_vs_clay_max']}")
+    print(f"strongest soil predictor of recharge: {soil['strongest_predictor']}")
+    print("=" * 84)
+
+
+def plot_soil(soil, out_path):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    rows = soil["by_recharge"]
+    clay = [r["clay_max_pct"] for r in rows]
+    ksat = [r["ksat_min_ums"] for r in rows]
+    rech = [r["recharge_mm_yr"] for r in rows]
+    sc = soil["soil_correlation"]
+
+    fig, ax = plt.subplots(1, 2, figsize=(8.6, 3.8))
+    ax[0].scatter(clay, rech, c="#8856a7", s=65, edgecolor="#222", zorder=3)
+    ax[0].set_xlabel("max clay %  (impeding layer)"); ax[0].set_ylabel("recharge (mm/yr)")
+    ax[0].set_title(f"Recharge vs clay  (r={sc['recharge_vs_clay_max']})", fontweight="bold")
+    ax[1].scatter(ksat, rech, c="#2c7fb8", s=65, edgecolor="#222", zorder=3)
+    ax[1].set_xlabel("min Ksat µm/s  (drainage bottleneck)"); ax[1].set_ylabel("recharge (mm/yr)")
+    ax[1].set_title(f"Recharge vs Ksat  (r={sc['recharge_vs_ksat_min']})", fontweight="bold")
+    for a in ax:
+        a.spines[["top", "right"]].set_visible(False); a.grid(alpha=.25)
+    fig.suptitle(f"Soil control on recharge — forcing held at "
+                 f"{soil['forcing_held_mm_yr']} mm/yr", fontweight="bold", y=1.03)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    print(f"   ✓ soil figure: {out_path}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Analyze a completed ELM run (read-only)")
     ap.add_argument("--run-dir", required=True)
@@ -156,10 +231,14 @@ def main():
     az = ELMResultsAnalyzer(exps, str(analysis_dir))
     az.extract_all()
     spatial = az._compute_spatial_summary()
+    soil = az._compute_soil_attribution()
     print_summary(az.results, spatial)
+    print_soil(soil)
 
     if args.plot and spatial:
         plot_gradient(spatial, analysis_dir / "elevation_gradient.png")
+    if args.plot and soil:
+        plot_soil(soil, analysis_dir / "soil_control.png")
     print(f"\nanalysis written to {analysis_dir}/")
 
 
