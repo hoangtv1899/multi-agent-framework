@@ -68,6 +68,8 @@ Paths (overridable via env vars):
     ELM_SURFACE_TEMPLATE     — full path to template NetCDF
     ELM_SURFACE_OUTPUT_DIR   — directory for generated surfaces
 """
+import hashlib
+import json
 import os
 import re
 import logging
@@ -212,9 +214,14 @@ class ELMSurfaceGenerator:
                 f"Choose: {sorted(SUBSTRATE_OPTIONS.keys())}"
             )
 
+        # soil signature differentiates DIFFERENT soils at the SAME (lat,lon)
+        # — e.g. a controlled soil sweep at one site (else they'd share a file).
+        soil_sig = hashlib.md5(
+            json.dumps(mcp_data, sort_keys=True, default=str).encode()
+        ).hexdigest()[:6]
         output_path = (
             self.output_dir /
-            f"Surfacedata_{lat:.4f}_{lon:.4f}_native_{substrate}.nc"
+            f"Surfacedata_{lat:.4f}_{lon:.4f}_native_{substrate}_{soil_sig}.nc"
         )
 
         if output_path.exists() and not force:
