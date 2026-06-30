@@ -19,6 +19,24 @@ REF=/pscratch/sd/h/hvtran/E3SMv3/1D_ELM.3c13216be8.2026-06-19-150916.elm_phase0
 
 ---
 
+## One-command wrapper (recommended)
+`run_watershed.sh` chains the login-node steps (1–4) + the soil pre-flight, then
+prints the `salloc` run block and the resume command. Add `--execute` to also run
+on a node and analyze — the whole pipeline in one go.
+
+```bash
+# safe default: plan -> plot -> build -> pre-flight, then it prints steps 5 & 6
+bash tools/run_watershed.sh "Partitioning of runoff/recharge in the <WATERSHED> (HUC8 <CODE>), validate with observations"
+bash tools/run_watershed.sh --analyze workflow_outputs/pipeline_<TIMESTAMP>   # step 6, after the salloc run
+
+bash tools/run_watershed.sh --execute "…question…"   # all-in-one (also runs the salloc step)
+# -i = let reception clarify an ambiguous name;  override with  YR_START= YR_END= REF=
+```
+The manual steps below are exactly what the wrapper runs — use them to drive or
+debug any single stage.
+
+---
+
 ## Track A — spatial / site study
 
 ### 1 · Plan — question → strategy  *(login, LLM, ~2–3 min)*
