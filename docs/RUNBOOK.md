@@ -121,6 +121,23 @@ All `.png` files render directly in VS Code. The durable outputs live in `$RD/` 
 `$RD/04_analysis/`; raw ELM history files live on `$PSCRATCH` (purge-eligible), so the
 `04_analysis/` summaries are the record worth keeping.
 
+## Pick an observation-rich watershed first (optional)
+```bash
+python3 tools/scout_watersheds.py "Naches" "Walla Walla" 17090010
+```
+Resolves each (name or HUC8) and tallies SNOTEL / stream gages / GW wells + relief.
+**Lower relief ⇒ less coarse-forcing confound** (a cleaner spatial study).
+
+## Validate against observations (step 7)
+```bash
+python3 tools/validate_run.py --run-dir $RD     # after step 6
+```
+→ `$RD/04_analysis/validation.json` + `validation.png`. Does a **real** water-table
+comparison (model ZWT vs Fan 2013 regional WTD + USGS wells) and inventories
+SNOTEL / stream gages / wells, labelling **honestly** what is validated vs
+context-only and why (SWE needs snow output; streamflow needs routing). Hits live
+MCP sources.
+
 ## Where things run
 - **Login node:** steps 1, 2, 3, 4, 6 + all debug plots (planning, building, analysis).
 - **Compute node (`salloc`):** only step 5 (the ELM runs).
