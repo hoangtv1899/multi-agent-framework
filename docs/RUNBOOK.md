@@ -82,6 +82,15 @@ exit                                           # release the node
 ```
 Each line shows `rc=0  3min  history_files=9` on success.
 
+**Faster — one batch job, all columns concurrent (no interactive node):**
+```bash
+bash tools/submit_cases.sh $RD -q debug          # submit; returns a job id
+squeue -j <JID>                                  # watch ; tail -f $RD/run.log
+```
+Columns are tiny (1 task / 2 cores), so they all run *at once* on a single
+`debug` node — ~3 min wall regardless of N, submit-and-forget. `--dry` writes the
+sbatch script without submitting; `-t` sets the walltime.
+
 ### 6 · Analyze + 🖼 RESULT plots  *(login, ~30 s)*
 ```bash
 python3 tools/analyze_run.py --run-dir $RD --cases-file cases.json --plan-file run_plan.json --plot
