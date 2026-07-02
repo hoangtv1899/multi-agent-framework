@@ -20,14 +20,18 @@ analyze_run.py first). Writes 04_analysis/validation.json + validation.png.
     python3 tools/validate_run.py --run-dir <dir>
 """
 import argparse
+import glob
 import json
 import sys
+import warnings
 from pathlib import Path
 
+warnings.filterwarnings("ignore")
 sys.path.insert(0, "src")
 
 OGC_DAILY = "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items"
-CFS_TO_M3YR = 0.0283168 * 86400 * 365.25
+CFS_TO_M3S = 0.0283168
+CFS_TO_M3YR = CFS_TO_M3S * 86400 * 365.25
 MI2_TO_M2 = 2.58999e6
 
 
@@ -104,20 +108,79 @@ def fetch_gauge_yields(clients, bb, year, max_gauges=4):
                     "monitoring_location_id": sid, "parameter_code": "00060",
                     "datetime": f"{year}-01-01/{year}-12-31",
                     "limit": 400, "f": "json"})
-                vals = [_n(f["properties"].get("value"))
-                        for f in r.json().get("features", [])]
-                vals = [v for v in vals if v is not None]
-                if len(vals) < 300:                        # need (most of) the year
+                pairs = [(f["properties"].get("time"), _n(f["properties"].get("value")))
+                         for f in r.json().get("features", [])]
+                pairs = [(t, v) for t, v in pairs if v is not None and t]
+                if len(pairs) < 300:                       # need (most of) the year
                     continue
+                vals = [v for _, v in pairs]
                 q_mm = sum(vals) / len(vals) * CFS_TO_M3YR / (da_mi2 * MI2_TO_M2) * 1000
                 out["gauges"].append({"id": sid, "name": name.title()[:38],
                                       "drainage_mi2": da_mi2, "n_days": len(vals),
                                       "specific_discharge_mm_yr": round(q_mm, 1)})
+                if "daily_best" not in out:                # keep one daily series
+                    to_mm_day = CFS_TO_M3S * 86400 / (da_mi2 * MI2_TO_M2) * 1000
+                    out["daily_best"] = {
+                        "gauge": name.title()[:38], "id": sid, "drainage_mi2": da_mi2,
+                        "mm_day": {t[:10]: round(v * to_mm_day, 4) for t, v in pairs}}
                 if len(out["gauges"]) >= max_gauges:
                     break
     except Exception as e:
         out["error"] = str(e)[:100]
     return out
+
+
+def model_daily_runoff(run_dir: Path, cases_file: str):
+    """Column-mean daily total runoff (QOVER+QDRAI, mm/day) keyed by date string.
+    Returns None when the case dirs no longer exist (scratch purged)."""
+    import numpy as np
+    import xarray as xr
+    cf = run_dir / cases_file
+    if not cf.exists():
+        return None
+    per_day = {}
+    n_cols = 0
+    for cd in json.loads(cf.read_text()):
+        fs = sorted(glob.glob(cd + "/run/*.elm.h0.*.nc"))
+        if not fs:
+            continue
+        ds = xr.open_mfdataset(fs, combine="by_coords", decode_times=True,
+                               engine="netcdf4", data_vars="all",
+                               coords="different", compat="no_conflicts", join="outer")
+        q = ((ds["QOVER"] + ds["QDRAI"]) * 86400.0).squeeze()   # mm/day, 3-hourly
+        days = ds["time"].dt.strftime("%Y-%m-%d").values
+        vals = np.asarray(q.values, dtype=float)
+        ds.close()
+        agg = {}
+        for d, v in zip(days, vals):
+            agg.setdefault(d, []).append(v)
+        n_cols += 1
+        for d, vs in agg.items():
+            per_day.setdefault(d, []).append(float(np.mean(vs)))
+    if not per_day:
+        return None
+    return {"n_columns": n_cols,
+            "mm_day": {d: round(float(sum(v) / len(v)), 4)
+                       for d, v in sorted(per_day.items())}}
+
+
+def flow_metrics(obs: dict, mod: dict):
+    """NSE and KGE between two {date: mm/day} series on their common days."""
+    import numpy as np
+    days = sorted(set(obs) & set(mod))
+    if len(days) < 100:
+        return None
+    o = np.array([obs[d] for d in days], float)
+    m = np.array([mod[d] for d in days], float)
+    nse = 1 - float(np.sum((m - o) ** 2)) / float(np.sum((o - o.mean()) ** 2))
+    r = float(np.corrcoef(o, m)[0, 1])
+    alpha = float(m.std() / o.std()) if o.std() > 0 else np.nan
+    beta = float(m.mean() / o.mean()) if o.mean() > 0 else np.nan
+    kge = 1 - float(np.sqrt((r - 1) ** 2 + (alpha - 1) ** 2 + (beta - 1) ** 2))
+    return {"n_days": len(days), "NSE": round(nse, 3), "KGE": round(kge, 3),
+            "r": round(r, 3), "alpha_var_ratio": round(alpha, 3),
+            "beta_bias_ratio": round(beta, 3), "days": days,
+            "obs": o.tolist(), "mod": m.tolist()}
 
 
 def fetch_peak_swe(clients, bb, year):
@@ -161,7 +224,7 @@ def sim_year(rd: Path):
     return 1995
 
 
-def build_validation(run_dir: Path, clients):
+def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     import numpy as np
     brief = json.loads((run_dir / "reception_brief.json").read_text())
     dom = brief.get("domain", {})
@@ -192,6 +255,22 @@ def build_validation(run_dir: Path, clients):
     obs_q = [g["specific_discharge_mm_yr"] for g in gauges["gauges"]]
     peak_swes = [s["peak_swe_mm"] for s in swe["stations"]]
 
+    # daily hydrograph comparison (model total runoff vs best gauge), NSE/KGE
+    print("  building daily hydrograph comparison (NSE/KGE)…")
+    hydro = None
+    daily_best = gauges.get("daily_best")
+    mod_daily = model_daily_runoff(run_dir, cases_file)
+    if daily_best and mod_daily:
+        fm = flow_metrics(daily_best["mm_day"], mod_daily["mm_day"])
+        if fm:
+            hydro = {"gauge": daily_best["gauge"], "gauge_id": daily_best["id"],
+                     "drainage_mi2": daily_best["drainage_mi2"],
+                     "model_columns": mod_daily["n_columns"], **fm}
+
+    # model SWE (present in runs since H2OSNO joined hist_fincl1)
+    model_peak_swe = [_n(r["metrics"].get("peak_swe_mm")) for r in ok]
+    model_peak_swe = [s for s in model_peak_swe if s is not None]
+
     targets = [
         {"variable": "water-table depth", "status": "compared",
          "obs": f"Fan 2013 at columns + {len(obs_wtd)} USGS wells with records",
@@ -210,14 +289,32 @@ def build_validation(run_dir: Path, clients):
                  "subcatchments (which may drain the wetter headwaters); routing/area-"
                  "weighting would sharpen this.",
          "needs": None if obs_q else "runoff routing / column aggregation"},
-        {"variable": "snow water equivalent", "status": "context-only",
+        {"variable": "streamflow (daily hydrograph)",
+         "status": "compared" if hydro else "context-only",
+         "obs": (f"daily specific discharge at {hydro['gauge']} "
+                 f"({hydro['drainage_mi2']:.0f} mi²), {hydro['n_days']} common days"
+                 if hydro else "needs surviving history files + a gauge with daily records"),
+         "result": (f"NSE={hydro['NSE']}, KGE={hydro['KGE']} (r={hydro['r']}, "
+                    f"variability α={hydro['alpha_var_ratio']}, bias β={hydro['beta_bias_ratio']}) — "
+                    f"column-mean QOVER+QDRAI vs gauge"
+                    if hydro else "daily comparison unavailable"),
+         "note": "unrouted, unweighted columns vs an integrated gauge — timing errors are "
+                 "expected; poor NSE/KGE quantifies exactly what routing + snow + spin-up "
+                 "would need to fix." if hydro else None},
+        {"variable": "snow water equivalent",
+         "status": "compared" if (model_peak_swe and peak_swes) else "context-only",
          "obs": f"{len(peak_swes)} SNOTEL stations, water year {year}",
-         "result": (f"observed peak SWE {min(peak_swes):.0f}–{max(peak_swes):.0f} mm "
-                    f"across stations vs column forcing precip "
-                    f"{', '.join(str(round(p)) for p in sorted(set(round(p) for p in precip)))} mm/yr — "
-                    "the run has no SWE output to compare"
-                    if peak_swes else "no SNOTEL SWE retrieved"),
-         "needs": "snow/SWE history output + elevation-downscaled forcing"},
+         "result": ((f"model peak SWE {min(model_peak_swe):.0f}–{max(model_peak_swe):.0f} mm "
+                     f"across columns vs observed {min(peak_swes):.0f}–{max(peak_swes):.0f} mm "
+                     "across stations (coarse uniform forcing — expect underestimation)")
+                    if (model_peak_swe and peak_swes) else
+                    (f"observed peak SWE {min(peak_swes):.0f}–{max(peak_swes):.0f} mm "
+                     f"across stations vs column forcing precip "
+                     f"{', '.join(str(round(p)) for p in sorted(set(round(p) for p in precip)))} mm/yr — "
+                     "this run predates SWE (H2OSNO) in the history output"
+                     if peak_swes else "no SNOTEL SWE retrieved")),
+         "needs": None if (model_peak_swe and peak_swes)
+                  else "snow/SWE history output (default since 2026-07) + elevation-downscaled forcing"},
     ]
 
     return {"domain": {"name": dom.get("name"), "huc": dom.get("huc"),
@@ -232,7 +329,9 @@ def build_validation(run_dir: Path, clients):
                                "observed_wells_m": obs_wtd},
             "streamflow_comparison": {"modeled_yield_mm_yr": mean_yield,
                                       "gauges": gauges["gauges"]},
+            "hydrograph": hydro,
             "swe_context": swe["stations"],
+            "model_peak_swe_mm": model_peak_swe,
             "targets": targets}
 
 
@@ -241,9 +340,30 @@ def plot_validation(val, out_path):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    from datetime import datetime
     import numpy as np
 
-    fig, ax = plt.subplots(1, 3, figsize=(13.2, 4.3))
+    hydro = val.get("hydrograph")
+    if hydro:
+        fig = plt.figure(figsize=(13.2, 8.6))
+        gs = fig.add_gridspec(2, 3, height_ratios=[1.05, 1], hspace=.42, wspace=.3)
+        axh = fig.add_subplot(gs[0, :])
+        ax = [fig.add_subplot(gs[1, i]) for i in range(3)]
+        dates = [datetime.strptime(d, "%Y-%m-%d") for d in hydro["days"]]
+        axh.plot(dates, hydro["obs"], color="#d95f0e", lw=1.4,
+                 label=f"observed — {hydro['gauge']} ({hydro['drainage_mi2']:.0f} mi²)")
+        axh.plot(dates, hydro["mod"], color="#2c7fb8", lw=1.4,
+                 label=f"model — column-mean QOVER+QDRAI ({hydro['model_columns']} cols)")
+        axh.set_ylabel("specific discharge (mm/day)")
+        axh.set_title(f"Daily hydrograph — NSE={hydro['NSE']}  KGE={hydro['KGE']}  "
+                      f"(r={hydro['r']}, α={hydro['alpha_var_ratio']}, β={hydro['beta_bias_ratio']})",
+                      fontweight="bold")
+        axh.legend(frameon=False, fontsize=9)
+        axh.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
+        axh.spines[["top", "right"]].set_visible(False); axh.grid(alpha=.25)
+    else:
+        fig, ax = plt.subplots(1, 3, figsize=(13.2, 4.3))
 
     # 1 · WTD distributions: model vs Fan vs observed wells
     wtd = val["wtd_comparison"]
@@ -279,17 +399,26 @@ def plot_validation(val, out_path):
     ax[1].set_ylabel("mm / yr")
     ax[1].set_title(f"Water yield vs gauges ({val['sim_year']})", fontweight="bold")
 
-    # 3 · observed peak SWE (context)
+    # 3 · peak SWE — observed stations (+ model range when the run has H2OSNO)
     swe = val["swe_context"]
+    mswe = val.get("model_peak_swe_mm") or []
     if swe:
         names = [s["name"][:14] for s in swe]
         peaks = [s["peak_swe_mm"] for s in swe]
-        ax[2].bar(range(len(peaks)), peaks, color="#756bb1", edgecolor="#222")
+        ax[2].bar(range(len(peaks)), peaks, color="#756bb1", edgecolor="#222",
+                  label="SNOTEL observed")
         ax[2].set_xticks(range(len(names)))
         ax[2].set_xticklabels(names, fontsize=8, rotation=30, ha="right")
         ax[2].set_ylabel("peak SWE (mm)")
-    ax[2].set_title(f"Observed peak SWE, WY{val['sim_year']}\n"
-                    "(context — run has no SWE output)", fontweight="bold", fontsize=11)
+    if mswe:
+        ax[2].axhspan(min(mswe), max(mswe) + 1, color="#2c7fb8", alpha=.3,
+                      label="model columns (range)")
+        ax[2].legend(frameon=False, fontsize=8)
+        ax[2].set_title(f"Peak SWE, WY{val['sim_year']} — model vs SNOTEL",
+                        fontweight="bold", fontsize=11)
+    else:
+        ax[2].set_title(f"Observed peak SWE, WY{val['sim_year']}\n"
+                        "(context — run predates SWE output)", fontweight="bold", fontsize=11)
 
     for a in ax:
         a.spines[["top", "right"]].set_visible(False); a.grid(alpha=.25)
@@ -303,6 +432,8 @@ def plot_validation(val, out_path):
 def main():
     ap = argparse.ArgumentParser(description="Validate a run against in-domain observations")
     ap.add_argument("--run-dir", required=True)
+    ap.add_argument("--cases-file", default="cases.json",
+                    help="case-dir list, for the daily hydrograph (default cases.json)")
     ap.add_argument("--no-plot", action="store_true")
     args = ap.parse_args()
 
@@ -314,7 +445,7 @@ def main():
 
     from core.mcp_manager import MCPManager
     clients = MCPManager("mcp_config.json").get_all_clients()
-    val = build_validation(run_dir, clients)
+    val = build_validation(run_dir, clients, cases_file=args.cases_file)
 
     print("\n" + "=" * 80)
     print(f"OBSERVATION VALIDATION — {val['domain'].get('name')} "

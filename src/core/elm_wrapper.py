@@ -389,8 +389,9 @@ class GeneratedELMAgent:
             "mksrf_lsmlat = 1\n"
             "create_crop_landunit = .true.\n"
             "hist_fincl1 = "
-            "'RAIN','QOVER','QDRAI','QCHARGE',"
-            "'TWS','H2OSOI','SOILLIQ','ZWT','WA'\n"
+            "'RAIN','SNOW','QOVER','QDRAI','QCHARGE',"
+            "'TWS','H2OSOI','SOILLIQ','ZWT','WA',"
+            "'H2OSNO','QSNOMELT'\n"
             "hist_nhtfrq = -3\n"
             "hist_mfilt  = 365\n"
         )

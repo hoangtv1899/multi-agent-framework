@@ -29,7 +29,7 @@ except ImportError as e:
 # ─────────────────────────────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────
-TARGET_VARIABLES = ['QOVER', 'QCHARGE', 'TWS', 'SOILLIQ', 'ZWT', 'RAIN']
+TARGET_VARIABLES = ['QOVER', 'QCHARGE', 'TWS', 'SOILLIQ', 'ZWT', 'RAIN', 'H2OSNO']
 
 VARIABLE_UNITS = {
     'QOVER':   'mm/s',
@@ -38,6 +38,8 @@ VARIABLE_UNITS = {
     'SOILLIQ': 'kg/m2',
     'ZWT':     'm',
     'RAIN':    'mm/s',   # atmospheric forcing (rainfall flux) — surfaces the input
+    'H2OSNO':  'mm',     # snow water equivalent (absent in runs before 2026-07;
+                         # requested in hist_fincl1 by default since then)
 }
 
 S_TO_YEAR = 86400.0 * 365.25
@@ -326,6 +328,15 @@ class ELMResultsAnalyzer:
                 'n_timesteps': int(len(val_1d)),
             }
 
+        elif var_name == 'H2OSNO':
+            val_1d = val.flatten()
+            return {
+                'units':       VARIABLE_UNITS[var_name],
+                'peak_swe_mm': round(float(np.nanmax(val_1d)),  1),
+                'mean_swe_mm': round(float(np.nanmean(val_1d)), 1),
+                'n_timesteps': int(len(val_1d)),
+            }
+
         else:
             val_1d = val.flatten()
             return {
@@ -366,6 +377,9 @@ class ELMResultsAnalyzer:
             metrics['tws_seasonal_range_mm'] = tw.get('seasonal_range')
         if zw:
             metrics['water_table_depth_m'] = zw.get('mean_m')
+        sn = variables.get('H2OSNO') or {}
+        if sn:
+            metrics['peak_swe_mm'] = sn.get('peak_swe_mm')
         return metrics
 
     def _compute_comparisons(self) -> List[Dict[str, Any]]:
