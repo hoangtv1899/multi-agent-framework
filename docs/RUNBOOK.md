@@ -141,11 +141,13 @@ Resolves each (name or HUC8) and tallies SNOTEL / stream gages / GW wells + reli
 ```bash
 python3 tools/validate_run.py --run-dir $RD     # after step 6
 ```
-→ `$RD/04_analysis/validation.json` + `validation.png`. Does a **real** water-table
-comparison (model ZWT vs Fan 2013 regional WTD + USGS wells) and inventories
-SNOTEL / stream gages / wells, labelling **honestly** what is validated vs
-context-only and why (SWE needs snow output; streamflow needs routing). Hits live
-MCP sources.
+→ `$RD/04_analysis/validation.json` + `validation.png`. Three real confrontations:
+**water table** (model ZWT vs Fan 2013 vs observed USGS wells with records, as
+distributions), **streamflow** (modeled yield vs observed *specific discharge* —
+gauge mean flow ÷ drainage area — for in-domain gauges with daily records in the
+simulated year), and **snow** (observed peak SWE per SNOTEL station; context-only —
+the run has no SWE output). Honest per-target status + caveats. Hits live MCP
+sources + the USGS OGC daily API.
 
 ## Where things run
 - **Login node:** steps 1, 2, 3, 4, 6 + all debug plots (planning, building, analysis).
