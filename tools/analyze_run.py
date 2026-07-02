@@ -115,7 +115,7 @@ def print_summary(results, spatial):
     print("=" * 84)
 
 
-def plot_gradient(spatial, out_path):
+def plot_gradient(spatial, out_path, basin="Spatial ensemble"):
     """Honest scatter: points coloured by forcing bin, with recharge plotted
     against BOTH elevation (confounded proxy) and precip (the actual driver) —
     no connecting lines that would imply a smooth gradient."""
@@ -156,7 +156,7 @@ def plot_gradient(spatial, out_path):
     ax[1].legend(handles=handles, title="forcing bin", frameon=False, fontsize=8)
     for a in ax:
         a.spines[["top", "right"]].set_visible(False); a.grid(alpha=.25)
-    fig.suptitle("Naches ensemble — recharge is forcing/soil-controlled, "
+    fig.suptitle(f"{basin} — recharge is forcing/soil-controlled, "
                  "not a smooth elevation gradient", fontweight="bold", y=1.03)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -243,7 +243,11 @@ def main():
     print_soil(soil)
 
     if args.plot and spatial:
-        plot_gradient(spatial, analysis_dir / "elevation_gradient.png")
+        basin = "Spatial ensemble"
+        bf = run_dir / "reception_brief.json"
+        if bf.exists():
+            basin = (json.loads(bf.read_text()).get("domain") or {}).get("name") or basin
+        plot_gradient(spatial, analysis_dir / "elevation_gradient.png", basin=basin)
     if args.plot and soil:
         plot_soil(soil, analysis_dir / "soil_control.png")
     print(f"\nanalysis written to {analysis_dir}/")
