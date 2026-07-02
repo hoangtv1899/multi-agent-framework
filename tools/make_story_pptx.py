@@ -112,10 +112,25 @@ def gather(rd: Path):
         interp.append(f"soil control (forcing held at {sa.get('forcing_held_mm_yr')} mm/yr, "
                       f"{sa.get('n_columns')} columns): strongest predictor = "
                       f"{sa.get('strongest_predictor')}")
+    # evaluation vs observations (its own slide)
     val = load(rd / "04_analysis" / "validation.json")
-    for t in val.get("targets") or []:
-        tag = "COMPARED" if t.get("status") == "compared" else "context-only"
-        interp.append(f"[{tag}] {t.get('variable')}: {t.get('result')}")
+    evaluation = None
+    if val:
+        inv = val.get("observation_inventory") or {}
+        lines = [("in-domain obs",
+                  f"SNOTEL {inv.get('snotel', {}).get('n', '?')} · "
+                  f"stream gages {inv.get('streamgages', {}).get('n', '?')} · "
+                  f"GW wells {inv.get('gwwells', {}).get('n', '?')} "
+                  f"({inv.get('gwwells', {}).get('with_records', '?')}/"
+                  f"{inv.get('gwwells', {}).get('sampled', '?')} sampled have records)")]
+        for t in val.get("targets") or []:
+            tag = "✓ COMPARED" if t.get("status") == "compared" else "· context-only"
+            body = t.get("result", "")
+            if t.get("needs"):
+                body += f"  — needs: {t['needs']}"
+            lines.append((f"{tag} — {t.get('variable')}", body))
+        fig = rd / "04_analysis" / "validation.png"
+        evaluation = {"lines": lines, "fig": fig if fig.exists() else None}
 
     figs = [rd / f for f in ("sampling_design.png",) if (rd / f).exists()]
     rfigs = [rd / "04_analysis" / f
@@ -127,6 +142,7 @@ def gather(rd: Path):
             if r["metrics"].get("annual_recharge_mm_yr") is not None]
     return {"dir": rd, "name": name, "question": question, "subtitle": subtitle,
             "reasons": reasons, "execution": exec_summary(rd), "interp": interp,
+            "evaluation": evaluation,
             "plan_figs": figs, "result_figs": rfigs,
             "n_cols": len(ok),
             # single-location runs have no spatial summary — fall back to the
@@ -215,6 +231,16 @@ def study_slides(prs, s, idx):
     header(sl, f"{s['name']} — analyzer interpretation")
     text(sl, Inches(.5), Inches(1.3), W - Inches(1), Inches(5.8),
          [("finding", i) for i in s["interp"]] or ["(no interpretation recorded)"], size=14)
+
+    # 5 · evaluation vs observations
+    if s.get("evaluation"):
+        ev = s["evaluation"]
+        sl = blank(prs)
+        header(sl, f"{s['name']} — evaluation vs observations",
+               "what could be compared honestly, and what still blocks rigorous validation")
+        text(sl, Inches(.5), Inches(1.25), W - Inches(1), Inches(2.4), ev["lines"], size=13)
+        if ev["fig"]:
+            picture(sl, ev["fig"], Inches(3.85), max_h=Inches(3.5))
 
 
 def comparison_slide(prs, studies):
