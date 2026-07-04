@@ -30,7 +30,7 @@ except ImportError as e:
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────
 TARGET_VARIABLES = ['QOVER', 'QCHARGE', 'TWS', 'SOILLIQ', 'ZWT', 'RAIN', 'H2OSNO',
-                    'SNOW', 'QINFL', 'QDRAI', 'QFLX_EVAP_TOT']
+                    'SNOW', 'QINFL', 'QDRAI', 'QSOIL', 'QVEGE', 'QVEGT']
 
 VARIABLE_UNITS = {
     'QOVER':   'mm/s',
@@ -44,12 +44,16 @@ VARIABLE_UNITS = {
     'SNOW':    'mm/s',   # snowfall forcing
     'QINFL':   'mm/s',   # infiltration into the soil column
     'QDRAI':   'mm/s',   # sub-surface drainage (baseflow)
-    'QFLX_EVAP_TOT': 'mm/s',   # total evapotranspiration
+    # ET is the sum of ground evap + canopy evap + transpiration (this ELM build
+    # registers the components, not a single QFLX_EVAP_TOT):
+    'QSOIL':   'mm/s',   # ground evaporation
+    'QVEGE':   'mm/s',   # canopy evaporation
+    'QVEGT':   'mm/s',   # canopy transpiration
 }
 
 # treated as annual fluxes (mm/yr) in _summarize
 FLUX_VARIABLES = ('QOVER', 'QCHARGE', 'RAIN', 'SNOW', 'QINFL', 'QDRAI',
-                  'QFLX_EVAP_TOT')
+                  'QSOIL', 'QVEGE', 'QVEGT')
 
 S_TO_YEAR = 86400.0 * 365.25
 
@@ -404,11 +408,14 @@ class ELMResultsAnalyzer:
             p = rain + snow
             metrics['precip_total_mm_yr'] = round(p, 1)
             metrics['snowfall_mm_yr'] = round(snow, 1)
+            # ET = ground evap + canopy evap + transpiration
+            et_parts = [mean(k) for k in ('QSOIL', 'QVEGE', 'QVEGT')]
+            et = sum(v for v in et_parts if v is not None) \
+                if any(v is not None for v in et_parts) else None
             budget = {}
-            for label, key in (('runoff', 'QOVER'), ('infiltration', 'QINFL'),
-                               ('et', 'QFLX_EVAP_TOT'), ('recharge', 'QCHARGE'),
-                               ('drainage', 'QDRAI')):
-                v = mean(key)
+            for label, v in (('runoff', mean('QOVER')), ('infiltration', mean('QINFL')),
+                             ('et', et), ('recharge', mean('QCHARGE')),
+                             ('drainage', mean('QDRAI'))):
                 if v is not None:
                     budget[f'{label}_mm_yr'] = round(v, 1)
                     if p > 1e-6:
