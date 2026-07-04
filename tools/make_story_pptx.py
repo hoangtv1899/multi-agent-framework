@@ -103,15 +103,23 @@ def gather(rd: Path):
                                   "hold everything else fixed; the cleanest isolation of soil control"))
 
     # analyzer interpretation — prefer the LLM's (interpret_run.py), else the
-    # deterministic notes
+    # deterministic notes. Render markdown cleanly: **Section** -> bold header
+    # tuple, bullets -> plain lines (no stray ** / # / - markers).
     interp = []
     llm_md = rd / "04_analysis" / "interpretation.md"
     if llm_md.exists():
         for line in llm_md.read_text().splitlines():
-            t = line.strip().lstrip("#*- ").strip()
-            if t:
-                interp.append(t)
-        interp = interp[:16]
+            raw = line.strip()
+            if not raw:
+                continue
+            t = raw.replace("*", "").lstrip("#-• ").strip()
+            if not t:
+                continue
+            if t.rstrip(":") in ("Answer", "Why", "Trust", "Next"):
+                interp.append((t.rstrip(":"), ""))        # bold section header
+            else:
+                interp.append("•  " + t)
+        interp = interp[:18]
     ssum = hs.get("spatial_summary") or {}
     sa = hs.get("soil_attribution") or {}
     if not interp:
@@ -172,6 +180,7 @@ def gather(rd: Path):
     return {"dir": rd, "name": name, "question": question, "subtitle": subtitle,
             "reasons": reasons, "execution": exec_summary(rd), "interp": interp,
             "evaluation": evaluation, "column_rows": rows,
+            "driver_matrix": hs.get("driver_matrix"),
             "plan_figs": figs, "result_figs": rfigs,
             "n_cols": len(ok),
             # single-location runs have no spatial summary — fall back to the
@@ -195,12 +204,13 @@ def text(slide, x, y, w, h, runs, size=14, color=INK, bold=False, align=None):
     for r in (runs if isinstance(runs, list) else [runs]):
         p = tf.paragraphs[0] if first else tf.add_paragraph()
         first = False
-        if isinstance(r, tuple):                      # (label, body) bullet
+        if isinstance(r, tuple):                      # (label, body); empty body = header
             lab, body = r
-            ra = p.add_run(); ra.text = f"{lab}:  "
+            ra = p.add_run(); ra.text = f"{lab}:  " if body else str(lab)
             ra.font.bold = True; ra.font.size = Pt(size); ra.font.color.rgb = ACC
-            rb = p.add_run(); rb.text = str(body)
-            rb.font.size = Pt(size); rb.font.color.rgb = color
+            if body:
+                rb = p.add_run(); rb.text = str(body)
+                rb.font.size = Pt(size); rb.font.color.rgb = color
         else:
             ra = p.add_run(); ra.text = str(r)
             ra.font.size = Pt(size); ra.font.bold = bold; ra.font.color.rgb = color
@@ -269,11 +279,34 @@ def study_slides(prs, s, idx):
         header(sl, f"{s['name']} — results (continued)")
         picture(sl, f, Inches(1.3), max_h=Inches(5.9))
 
-    # 4 · analyzer interpretation
+    # 4 · driver x response matrix (the relationship structure)
+    dm = s.get("driver_matrix")
+    if dm and dm.get("pearson_r"):
+        sl = blank(prs)
+        header(sl, f"{s['name']} — driver × response (Pearson r)",
+               f"all {dm['n_columns']} columns · "
+               + (dm.get("note") or "")[:90])
+        drivers = ["elevation_m", "precip_mm_yr", "clay_max_pct", "ksat_min_ums"]
+        dlabel = {"elevation_m": "elevation", "precip_mm_yr": "precip",
+                  "clay_max_pct": "clay", "ksat_min_ums": "Ksat"}
+        rows = [["response"] + [dlabel[d] for d in drivers]]
+        for resp, row in dm["pearson_r"].items():
+            rows.append([resp] + [("—" if row.get(d) is None else f"{row[d]:+.2f}")
+                                  for d in drivers])
+        tbl = sl.shapes.add_table(len(rows), 5, Inches(1.2), Inches(1.9),
+                                  Inches(10.9), Inches(.55) * len(rows)).table
+        for r, row in enumerate(rows):
+            for c, v in enumerate(row):
+                cell = tbl.cell(r, c)
+                cell.text = v
+                pr = cell.text_frame.paragraphs[0]
+                pr.font.size = Pt(15); pr.font.bold = (r == 0 or c == 0)
+
+    # 5 · analyzer interpretation
     sl = blank(prs)
     header(sl, f"{s['name']} — analyzer interpretation")
     text(sl, Inches(.5), Inches(1.3), W - Inches(1), Inches(5.8),
-         [("finding", i) for i in s["interp"]] or ["(no interpretation recorded)"], size=14)
+         s["interp"] or ["(no interpretation recorded)"], size=13)
 
     # 5 · evaluation vs observations
     if s.get("evaluation"):
