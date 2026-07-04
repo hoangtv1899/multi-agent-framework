@@ -102,16 +102,25 @@ def gather(rd: Path):
         reasons.append(("design", "conceptual archetype — vary ONE factor (clay 5→55%), "
                                   "hold everything else fixed; the cleanest isolation of soil control"))
 
-    # analyzer interpretation
+    # analyzer interpretation — prefer the LLM's (interpret_run.py), else the
+    # deterministic notes
     interp = []
+    llm_md = rd / "04_analysis" / "interpretation.md"
+    if llm_md.exists():
+        for line in llm_md.read_text().splitlines():
+            t = line.strip().lstrip("#*- ").strip()
+            if t:
+                interp.append(t)
+        interp = interp[:16]
     ssum = hs.get("spatial_summary") or {}
-    for n in ssum.get("interpretation") or []:
-        interp.append(n)
     sa = hs.get("soil_attribution") or {}
-    if sa:
-        interp.append(f"soil control (forcing held at {sa.get('forcing_held_mm_yr')} mm/yr, "
-                      f"{sa.get('n_columns')} columns): strongest predictor = "
-                      f"{sa.get('strongest_predictor')}")
+    if not interp:
+        for n in ssum.get("interpretation") or []:
+            interp.append(n)
+        if sa:
+            interp.append(f"soil control (forcing held at {sa.get('forcing_held_mm_yr')} mm/yr, "
+                          f"{sa.get('n_columns')} columns): strongest predictor = "
+                          f"{sa.get('strongest_predictor')}")
     # evaluation vs observations (its own slide)
     val = load(rd / "04_analysis" / "validation.json")
     evaluation = None

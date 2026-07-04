@@ -29,7 +29,8 @@ except ImportError as e:
 # ─────────────────────────────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────
-TARGET_VARIABLES = ['QOVER', 'QCHARGE', 'TWS', 'SOILLIQ', 'ZWT', 'RAIN', 'H2OSNO']
+TARGET_VARIABLES = ['QOVER', 'QCHARGE', 'TWS', 'SOILLIQ', 'ZWT', 'RAIN', 'H2OSNO',
+                    'SNOW', 'QINFL', 'QDRAI', 'QFLX_EVAP_TOT']
 
 VARIABLE_UNITS = {
     'QOVER':   'mm/s',
@@ -40,7 +41,15 @@ VARIABLE_UNITS = {
     'RAIN':    'mm/s',   # atmospheric forcing (rainfall flux) — surfaces the input
     'H2OSNO':  'mm',     # snow water equivalent (absent in runs before 2026-07;
                          # requested in hist_fincl1 by default since then)
+    'SNOW':    'mm/s',   # snowfall forcing
+    'QINFL':   'mm/s',   # infiltration into the soil column
+    'QDRAI':   'mm/s',   # sub-surface drainage (baseflow)
+    'QFLX_EVAP_TOT': 'mm/s',   # total evapotranspiration
 }
+
+# treated as annual fluxes (mm/yr) in _summarize
+FLUX_VARIABLES = ('QOVER', 'QCHARGE', 'RAIN', 'SNOW', 'QINFL', 'QDRAI',
+                  'QFLX_EVAP_TOT')
 
 S_TO_YEAR = 86400.0 * 365.25
 
@@ -270,7 +279,7 @@ class ELMResultsAnalyzer:
         da  = da.squeeze()
         val = np.array(da.values, dtype=float)
 
-        if var_name in ('QOVER', 'QCHARGE', 'RAIN'):
+        if var_name in FLUX_VARIABLES:
             val_yr = val * S_TO_YEAR
             return {
                 'units_raw':    VARIABLE_UNITS[var_name],
@@ -294,6 +303,8 @@ class ELMResultsAnalyzer:
                     float(np.nanmax(val_1d) -
                           np.nanmin(val_1d)), 4
                 ),
+                # storage change over the run (last - first) — closes the budget
+                'delta_mm':       round(float(val_1d[-1] - val_1d[0]), 4),
                 'n_timesteps':    int(len(val_1d)),
             }
 
@@ -380,6 +391,39 @@ class ELMResultsAnalyzer:
         sn = variables.get('H2OSNO') or {}
         if sn:
             metrics['peak_swe_mm'] = sn.get('peak_swe_mm')
+
+        # ── per-column water budget (needs the post-2026-07 output fields) ──
+        # P = RAIN + SNOW partitions into runoff + infiltration at the surface;
+        # infiltration then goes to ET, recharge/drainage, or storage (ΔTWS).
+        def mean(key):
+            d = variables.get(key) or {}
+            return d.get('annual_mean')
+
+        rain, snow = mean('RAIN'), mean('SNOW')
+        if rain is not None and snow is not None:
+            p = rain + snow
+            metrics['precip_total_mm_yr'] = round(p, 1)
+            metrics['snowfall_mm_yr'] = round(snow, 1)
+            budget = {}
+            for label, key in (('runoff', 'QOVER'), ('infiltration', 'QINFL'),
+                               ('et', 'QFLX_EVAP_TOT'), ('recharge', 'QCHARGE'),
+                               ('drainage', 'QDRAI')):
+                v = mean(key)
+                if v is not None:
+                    budget[f'{label}_mm_yr'] = round(v, 1)
+                    if p > 1e-6:
+                        budget[f'{label}_frac_of_P'] = round(v / p, 3)
+            dtws = (variables.get('TWS') or {}).get('delta_mm')
+            if dtws is not None:
+                budget['storage_change_mm'] = round(dtws, 1)
+                # closure: P - runoff - drainage - ET - ΔS  (QCHARGE is internal
+                # to TWS, so it is not an export term here)
+                if all(k in budget for k in ('runoff_mm_yr', 'drainage_mm_yr', 'et_mm_yr')):
+                    resid = p - budget['runoff_mm_yr'] - budget['drainage_mm_yr'] \
+                            - budget['et_mm_yr'] - dtws
+                    budget['closure_residual_mm_yr'] = round(resid, 1)
+            if budget:
+                metrics['water_budget'] = budget
         return metrics
 
     def _compute_comparisons(self) -> List[Dict[str, Any]]:
