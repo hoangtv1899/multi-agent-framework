@@ -21,26 +21,23 @@ from pathlib import Path
 sys.path.insert(0, "src")
 
 SYSTEM = """You are the analysis agent of a hydrologic simulation framework
-(single-column ELM ensembles on real watershed data). You are given the study's
-question, the planner's design + feasibility verdict, the per-column results
-(including water-budget terms where present), and the observation-validation
-verdicts. Write the scientific interpretation a careful hydrologist would.
+(single-column ELM ensembles on real watershed data). Given the question, the
+planner's design + feasibility, the per-column results (with water-budget terms
+where present), and the observation-validation verdicts, write a SHORT, direct
+interpretation — an abstract, not a discussion section.
 
 Rules:
-- Reason from the NUMBERS given; cite them. Never invent values.
-- Separate what the experiment DEMONSTRATES from what it cannot (respect the
-  feasibility verdict and validation caveats: coarse uniform forcing, 1-yr
-  no-spin-up, no routing, single-column physics).
-- If water_budget terms exist, tell the budget story per regime: where does the
-  precipitation go (runoff / infiltration / ET / recharge / storage), and does
-  the closure residual look acceptable?
-- Interpret correlations mechanistically (WHY clay impedes recharge), not just
-  numerically. Call out leverage points / replicates when N is small.
-- End with 3-5 concrete next experiments, each tied to a limitation you found.
+- LEAD with a 1-2 sentence answer to the question, using the key numbers.
+- Reason only from the numbers given; cite them; never invent values.
+- Be mechanistic but brief (why clay impedes recharge in <=1 line) — no lecturing.
+- State the SINGLE most important caveat, not every limitation.
+- No throat-clearing, no restating the setup.
 
-Output MARKDOWN with sections: ## Key findings (numbered, one line each),
-## Water-balance story, ## What the validation says, ## Caveats,
-## Recommended next experiments. Keep it under ~500 words, dense and specific."""
+Output MARKDOWN, UNDER 180 WORDS, exactly these four sections:
+**Answer** — 1-2 sentences.
+**Why** — 3-4 bullets; each is  driver -> response (with the number) + a <=6-word mechanism.
+**Trust** — one line: what the observations confirm or contradict + the top caveat.
+**Next** — 1-2 experiments, each tied to a limitation found."""
 
 
 def load(p):
@@ -95,7 +92,7 @@ def main():
     llm = SimpleLLMClient(model=args.model)
     print(f"interpreting {rd.name} with {args.model} …")
     resp = llm.client.chat.completions.create(
-        model=llm.model, max_tokens=2000,
+        model=llm.model, max_tokens=1500,
         messages=[{"role": "system", "content": SYSTEM},
                   {"role": "user", "content": json.dumps(payload, indent=1, default=str)}])
     md = resp.choices[0].message.content or ""
