@@ -301,11 +301,16 @@ class ELMExperimentBuilder:
         try:
             surface_gen = ELMSurfaceGenerator()
 
-            if soil_config == 'native' and mcp_data:
+            # native ALWAYS goes through the generator, even with no MCP soil
+            # (it then writes template soils but CORRECTED lat/lon). Falling
+            # through to the raw template gives a surface whose coordinates
+            # can never match the per-column domain -> ELM aborts at init
+            # (surfdata/fatmgrid lon/lat mismatch).
+            if soil_config == 'native':
                 surface_path = surface_gen.generate_from_mcp(
                     lat       = lat,
                     lon       = lon,
-                    mcp_data  = mcp_data,
+                    mcp_data  = mcp_data or {},
                     substrate = substrate,
                 )
             elif soil_config in ('sandy', 'loamy', 'clayey'):

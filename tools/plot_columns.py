@@ -53,6 +53,7 @@ def plot_surfaces(cases, out_path):
 
     depth = np.array(ELM_LEVEL_NODE_DEPTH_M)
     fig, ax = plt.subplots(1, 2, figsize=(9.5, 5.2))
+    mismatches = 0
     for c, color in zip(cases, _colors(len(cases))):
         name = c.split(".")[-1]
         fs = _fsurdat(c)
@@ -60,6 +61,26 @@ def plot_surfaces(cases, out_path):
             print(f"  ! {name}: surface file not found")
             continue
         d = xr.open_dataset(fs, decode_times=False)
+
+        # coordinate consistency: the surface's lat/lon must match the case's
+        # domain file, or ELM aborts at init (surfdata/fatmgrid mismatch)
+        try:
+            dom = re.search(r"fatmlndfrc\s*=\s*'([^']+)'",
+                            (Path(c) / "run" / "lnd_in").read_text())
+            if dom and Path(dom.group(1)).exists():
+                dd = xr.open_dataset(dom.group(1), decode_times=False)
+                slat = float(np.asarray(d["LATIXY"].values).flat[0])
+                dlat = float(np.asarray(dd["yc"].values).flat[0])
+                slon = float(np.asarray(d["LONGXY"].values).flat[0]) % 360
+                dlon = float(np.asarray(dd["xc"].values).flat[0]) % 360
+                dd.close()
+                if abs(slat - dlat) > 0.01 or abs(slon - dlon) > 0.01:
+                    mismatches += 1
+                    print(f"  ✗ {name}: SURFACE/DOMAIN COORD MISMATCH — "
+                          f"surface ({slat:.2f},{slon:.2f}) vs domain ({dlat:.2f},{dlon:.2f}) "
+                          f"— this column WILL abort at init")
+        except Exception:
+            pass
 
         def prof(v):
             if v not in d:
@@ -85,6 +106,11 @@ def plot_surfaces(cases, out_path):
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"   ✓ {out_path}")
+    if mismatches:
+        print(f"   ✗ {mismatches} column(s) with surface/domain coordinate mismatch — "
+              f"FIX BEFORE RUNNING")
+    else:
+        print("   ✓ surface/domain coordinates consistent for all columns")
 
 
 def plot_timeseries(cases, out_path):
