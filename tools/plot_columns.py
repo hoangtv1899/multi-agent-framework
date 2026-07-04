@@ -121,27 +121,42 @@ def plot_timeseries(cases, out_path):
     import xarray as xr
 
     S = 86400.0
-    fig, ax = plt.subplots(1, 2, figsize=(11.5, 4.2))
+    # third panel (SWE) only when the runs carry H2OSNO (output since 2026-07)
+    probe = sorted(glob.glob(cases[0] + "/run/*.elm.h0.*.nc"))
+    has_swe = False
+    if probe:
+        d0 = xr.open_dataset(probe[0], decode_times=False)
+        has_swe = "H2OSNO" in d0
+        d0.close()
+    npan = 3 if has_swe else 2
+    fig, ax = plt.subplots(1, npan, figsize=(5.6 * npan, 4.2))
     for c, color in zip(cases, _colors(len(cases))):
         name = c.split(".")[-1]
         fhs = sorted(glob.glob(c + "/run/*.elm.h0.*.nc"))
         if not fhs:
             print(f"  ! {name}: no history files")
             continue
-        qc, qo = [], []
+        qc, qo, sw = [], [], []
         for f in fhs:
             d = xr.open_dataset(f, decode_times=False)
             qc.append(np.ravel(d["QCHARGE"].values) if "QCHARGE" in d else [])
             qo.append(np.ravel(d["QOVER"].values) if "QOVER" in d else [])
+            if has_swe:
+                sw.append(np.ravel(d["H2OSNO"].values) if "H2OSNO" in d else [])
             d.close()
         qc = np.concatenate(qc) * S
         qo = np.concatenate(qo) * S
         x = np.arange(len(qc))
         ax[0].plot(x, qc, color=color, lw=.8, label=name)
         ax[1].plot(x, qo, color=color, lw=.8)
+        if has_swe and sw:
+            ax[2].plot(np.arange(len(np.concatenate(sw))), np.concatenate(sw),
+                       color=color, lw=.8)
 
     ax[0].set_title("Recharge  QCHARGE (mm/day)", fontweight="bold")
     ax[1].set_title("Runoff  QOVER (mm/day)", fontweight="bold")
+    if has_swe:
+        ax[2].set_title("Snowpack  H2OSNO / SWE (mm)", fontweight="bold")
     for a in ax:
         a.set_xlabel("timestep"); a.grid(alpha=.25); a.spines[["top", "right"]].set_visible(False)
     ax[0].legend(fontsize=7, ncol=2, title="column")

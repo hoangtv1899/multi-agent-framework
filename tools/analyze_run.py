@@ -220,6 +220,58 @@ def plot_soil(soil, out_path):
     print(f"   ✓ soil figure: {out_path}")
 
 
+def plot_budget(results, out_path):
+    """Per-column water-budget closure: stacked export terms (runoff, drainage,
+    ET, Δstorage) vs the precipitation input, columns ordered by elevation.
+    Recharge sits INSIDE Δstorage here (the aquifer is part of TWS) — a large
+    Δstorage bar is the visible no-spin-up signature."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    ok = sorted((r for r in results.values()
+                 if r["status"] == "ok" and r["metrics"].get("water_budget")),
+                key=lambda r: (r.get("elevation_m") or 0))
+    if not ok:
+        return False
+    names = [f"{r['case_name']}\n{r.get('elevation_m') or 0:.0f} m" for r in ok]
+    wb = [r["metrics"]["water_budget"] for r in ok]
+    P = [r["metrics"].get("precip_total_mm_yr") or 0 for r in ok]
+    parts = [("runoff", "runoff_mm_yr", "#d95f0e"),
+             ("drainage", "drainage_mm_yr", "#fdae6b"),
+             ("ET", "et_mm_yr", "#31a354"),
+             ("Δstorage", "storage_change_mm", "#9ecae1")]
+
+    x = np.arange(len(ok))
+    fig, ax = plt.subplots(figsize=(12.8, 4.6))
+    bottom = np.zeros(len(ok))
+    for label, key, color in parts:
+        v = np.array([max(b.get(key) or 0, 0) for b in wb], float)
+        ax.bar(x, v, bottom=bottom, color=color, edgecolor="#222",
+               width=.72, label=label)
+        bottom += v
+    ax.scatter(x, P, marker="_", s=420, color="k", lw=2.2, zorder=4,
+               label="precipitation (P)")
+    rech = [b.get("recharge_mm_yr") for b in wb]
+    for xi, (rv, b) in enumerate(zip(rech, bottom)):
+        if rv is not None:
+            ax.text(xi, b + 28, f"R {rv:.0f}", ha="center", fontsize=7.5, color="#08519c")
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, fontsize=7.5)
+    ax.set_ylabel("mm / yr")
+    ax.set_title("Water budget per column — where the precipitation goes  "
+                 "(R = recharge, contained in Δstorage; big Δstorage = no spin-up)",
+                 fontweight="bold", fontsize=12)
+    ax.legend(frameon=False, ncol=5, fontsize=9, loc="upper left")
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(alpha=.25, axis="y")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    print(f"   ✓ budget figure: {out_path}")
+    return True
+
+
 def print_matrix(dm):
     if not dm:
         return
@@ -269,6 +321,8 @@ def main():
         plot_gradient(spatial, analysis_dir / "elevation_gradient.png", basin=basin)
     if args.plot and soil:
         plot_soil(soil, analysis_dir / "soil_control.png")
+    if args.plot:
+        plot_budget(az.results, analysis_dir / "water_budget.png")
     print(f"\nanalysis written to {analysis_dir}/")
 
 

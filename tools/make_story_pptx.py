@@ -151,7 +151,8 @@ def gather(rd: Path):
 
     figs = [rd / f for f in ("sampling_design.png",) if (rd / f).exists()]
     rfigs = [rd / "04_analysis" / f
-             for f in ("elevation_gradient.png", "soil_control.png", "debug_timeseries.png")
+             for f in ("elevation_gradient.png", "water_budget.png",
+                       "soil_control.png", "debug_timeseries.png")
              if (rd / "04_analysis" / f).exists()]
 
     ok = [r for r in hs.get("experiments", []) if r.get("status") == "ok"]
