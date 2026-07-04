@@ -391,7 +391,7 @@ class GeneratedELMAgent:
             "hist_fincl1 = "
             "'RAIN','SNOW','QOVER','QDRAI','QCHARGE',"
             "'TWS','H2OSOI','SOILLIQ','ZWT','WA',"
-            "'H2OSNO','QSNOMELT'\n"
+            "'H2OSNO','QSNOMELT','QINFL'\n"
             "hist_nhtfrq = -3\n"
             "hist_mfilt  = 365\n"
         )

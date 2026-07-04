@@ -140,9 +140,29 @@ def gather(rd: Path):
     ok = [r for r in hs.get("experiments", []) if r.get("status") == "ok"]
     rech = [r["metrics"].get("annual_recharge_mm_yr") for r in ok
             if r["metrics"].get("annual_recharge_mm_yr") is not None]
+
+    # per-column appendix rows: characteristics (columns.json) + run results
+    chars = {}
+    cj = load(rd / "columns.json")
+    for c in (cj.get("columns", cj) if isinstance(cj, (dict, list)) else []) or []:
+        if isinstance(c, dict):
+            chars[c.get("id")] = c
+    def fmt(x, d=1):
+        return f"{x:.{d}f}" if isinstance(x, (int, float)) else "—"
+    rows = []
+    for r in sorted(ok, key=lambda r: (r.get("elevation_m") or 0)):
+        ch = chars.get(r["case_name"], {})
+        so = r.get("soil") or {}
+        m = r["metrics"]
+        rows.append([r["case_name"], fmt(r.get("elevation_m"), 0),
+                     str(so.get("texture_top") or ch.get("soil_top_texture") or "—"),
+                     fmt(so.get("clay_max_pct"), 0), fmt(so.get("ksat_min_ums"), 1),
+                     fmt(ch.get("fan_wtd_m"), 1), fmt(m.get("precip_mm_yr"), 0),
+                     fmt(m.get("annual_recharge_mm_yr"), 1), fmt(m.get("annual_runoff_mm_yr"), 1),
+                     fmt(m.get("recharge_fraction"), 2), fmt(m.get("water_table_depth_m"), 2)])
     return {"dir": rd, "name": name, "question": question, "subtitle": subtitle,
             "reasons": reasons, "execution": exec_summary(rd), "interp": interp,
-            "evaluation": evaluation,
+            "evaluation": evaluation, "column_rows": rows,
             "plan_figs": figs, "result_figs": rfigs,
             "n_cols": len(ok),
             # single-location runs have no spatial summary — fall back to the
@@ -205,22 +225,36 @@ def study_slides(prs, s, idx):
          [("planner", "")] and s["reasons"] or ["(no plan.json — design-only artifacts absent)"],
          size=14)
 
-    # 2 · planning figure
+    # 2 · planning figure (+ panel definitions)
     for f in s["plan_figs"]:
         sl = blank(prs)
         header(sl, f"{s['name']} — sampling design (Tier-2 expander)")
-        picture(sl, f, Inches(1.15), max_h=Inches(6.1))
+        picture(sl, f, Inches(1.1), max_h=Inches(5.3))
+        text(sl, Inches(.5), Inches(6.5), W - Inches(1), Inches(.95),
+             ["Panels — top-left: chosen columns on the DEM, coloured by elevation band, "
+              "navy = watershed boundary.  top-right: histogram of the basin's DEM sample "
+              "(grey = how much terrain sits at each elevation); dashed lines = the equal-"
+              "interval band edges; coloured ticks = the chosen columns' elevations.  "
+              "bottom-left: Fan (2013) equilibrium water-table depth at each column.  "
+              "bottom-right: columns allocated per band — proportional to the band's share "
+              "of the basin's DEM points (annotated n / points), minimum 1 per band."],
+             size=10.5, color=MUT)
 
-    # 3 · execution + results figures
+    # 3 · execution + results figures (+ variable definitions)
     sl = blank(prs)
     header(sl, f"{s['name']} — execution & results")
     if s["execution"]:
-        text(sl, Inches(.5), Inches(1.1), W - Inches(1), Inches(.5),
-             [("execution", s["execution"])], size=14)
-    top = Inches(1.75)
+        text(sl, Inches(.5), Inches(1.05), W - Inches(1), Inches(.45),
+             [("execution", s["execution"])], size=13)
+    top = Inches(1.6)
     for f in s["result_figs"][:2]:
-        pic = picture(sl, f, top, max_h=Inches(2.75))
-        top = pic.top + pic.height + Inches(.15)
+        pic = picture(sl, f, top, max_h=Inches(2.6))
+        top = pic.top + pic.height + Inches(.1)
+    text(sl, Inches(.5), Inches(7.0), W - Inches(1), Inches(.45),
+         ["Definitions — recharge = ELM QCHARGE (flux from the soil column to the water "
+          "table); runoff = QOVER (surface runoff); recharge fraction = QCHARGE/(QCHARGE"
+          "+QOVER); WTD = ZWT (the column's own water-table depth); forcing = CLM_QIAN "
+          "(Qian 2006, T62 ≈ 1.9°) precip at the column."], size=9.5, color=MUT)
     for f in s["result_figs"][2:]:
         sl = blank(prs)
         header(sl, f"{s['name']} — results (continued)")
@@ -238,9 +272,15 @@ def study_slides(prs, s, idx):
         sl = blank(prs)
         header(sl, f"{s['name']} — evaluation vs observations",
                "what could be compared honestly, and what still blocks rigorous validation")
-        text(sl, Inches(.5), Inches(1.25), W - Inches(1), Inches(2.4), ev["lines"], size=13)
+        text(sl, Inches(.5), Inches(1.25), W - Inches(1), Inches(2.4), ev["lines"], size=12)
         if ev["fig"]:
-            picture(sl, ev["fig"], Inches(3.85), max_h=Inches(3.5))
+            picture(sl, ev["fig"], Inches(3.7), max_h=Inches(3.3))
+        text(sl, Inches(.5), Inches(7.05), W - Inches(1), Inches(.4),
+             ["Metrics — NSE: 1=perfect, 0=no better than the observed mean, <0 worse than "
+              "the mean.  KGE: 1=perfect; components r (timing correlation), α (variability "
+              "ratio σm/σo), β (volume ratio μm/μo).  Specific discharge = gauge flow ÷ "
+              "drainage area, making a gauge comparable to 1-D columns (mm/yr or mm/day)."],
+             size=9.5, color=MUT)
 
 
 def comparison_slide(prs, studies):
@@ -273,6 +313,31 @@ def comparison_slide(prs, studies):
                                "with everything else fixed")], size=14)
 
 
+APPENDIX_HDR = ["column", "elev m", "top soil", "clay%", "Ksat µm/s", "Fan WTD m",
+                "precip", "recharge", "runoff", "rech.frac", "ZWT m"]
+
+
+def appendix_slide(prs, s, idx):
+    """One appendix slide per study: every sampling point's characteristics
+    (location/soil/Fan WTD) next to its simulated water balance."""
+    if not s.get("column_rows"):
+        return
+    sl = blank(prs)
+    header(sl, f"Appendix A{idx} — {s['name']}: columns & results",
+           "characteristics from the real data (SSURGO soil, Fan 2013 WTD, Qian forcing) "
+           "· results are annual means (mm/yr)")
+    rows = [APPENDIX_HDR] + s["column_rows"]
+    tbl = sl.shapes.add_table(len(rows), len(APPENDIX_HDR), Inches(.4), Inches(1.45),
+                              W - Inches(.8), Inches(.42) * len(rows)).table
+    for r, row in enumerate(rows):
+        for c, v in enumerate(row):
+            cell = tbl.cell(r, c)
+            cell.text = str(v)
+            para = cell.text_frame.paragraphs[0]
+            para.font.size = Pt(11)
+            para.font.bold = (r == 0)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Build the storyline PPTX from executed runs")
     ap.add_argument("--out", default=None)
@@ -302,6 +367,8 @@ def main():
     for i, s in enumerate(studies, 1):
         study_slides(prs, s, i)
     comparison_slide(prs, studies)
+    for i, s in enumerate(studies, 1):          # appendix: per-study column tables
+        appendix_slide(prs, s, i)
 
     out = Path(args.out) if args.out else ROOT / "docs" / "slides" / f"story_{date.today():%Y%m%d}.pptx"
     out.parent.mkdir(parents=True, exist_ok=True)
