@@ -220,6 +220,24 @@ def plot_soil(soil, out_path):
     print(f"   ✓ soil figure: {out_path}")
 
 
+def print_matrix(dm):
+    if not dm:
+        return
+    drivers = ["elevation_m", "precip_mm_yr", "clay_max_pct", "ksat_min_ums"]
+    print("\n" + "=" * 76)
+    print(f"DRIVER × RESPONSE  (Pearson r, all {dm['n_columns']} columns)")
+    print("=" * 76)
+    print(f"{'response':<20}" + "".join(f"{d.split('_')[0]:>13}" for d in drivers))
+    print("-" * 76)
+    for resp, row in dm["pearson_r"].items():
+        cells = "".join(f"{row.get(d):>13.2f}" if row.get(d) is not None else f"{'—':>13}"
+                        for d in drivers)
+        print(f"{resp:<20}{cells}")
+    print("-" * 76)
+    print(f"note: {dm['note']}")
+    print("=" * 76)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Analyze a completed ELM run (read-only)")
     ap.add_argument("--run-dir", required=True)
@@ -241,6 +259,7 @@ def main():
     soil = az._compute_soil_attribution()
     print_summary(az.results, spatial)
     print_soil(soil)
+    print_matrix(az._compute_driver_matrix())
 
     if args.plot and spatial:
         basin = "Spatial ensemble"

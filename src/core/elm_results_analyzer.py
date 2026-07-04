@@ -127,6 +127,7 @@ class ELMResultsAnalyzer:
             'comparisons':      self._compute_comparisons(),
             'spatial_summary':  self._compute_spatial_summary(),
             'soil_attribution': self._compute_soil_attribution(),
+            'driver_matrix':    self._compute_driver_matrix(),
             'units':           VARIABLE_UNITS,
             'focus_variables': {
                 'QCHARGE': 'Primary — aquifer recharge',
@@ -600,6 +601,7 @@ class ELMResultsAnalyzer:
             'recharge_vs_clay_max': corr('clay_max_pct', 'annual_recharge_mm_yr'),
             'recharge_vs_ksat_min': corr('ksat_min_ums', 'annual_recharge_mm_yr'),
             'runoff_vs_clay_max':   corr('clay_max_pct', 'annual_runoff_mm_yr'),
+            'runoff_vs_ksat_min':   corr('ksat_min_ums', 'annual_runoff_mm_yr'),
         }
         ranked = sorted(((abs(v), k, v) for k, v in soil_corr.items() if v is not None),
                         reverse=True)
@@ -615,6 +617,60 @@ class ELMResultsAnalyzer:
                     'so this spread is soil-driven (clay impedes, Ksat permits drainage)',
         }
 
+    # response name -> where its value lives in a result's metrics
+    _RESPONSE_GETTERS = {
+        'runoff':            lambda m: m.get('annual_runoff_mm_yr'),
+        'infiltration':      lambda m: (m.get('water_budget') or {}).get('infiltration_mm_yr'),
+        'et':                lambda m: (m.get('water_budget') or {}).get('et_mm_yr'),
+        'recharge':          lambda m: m.get('annual_recharge_mm_yr'),
+        'recharge_fraction': lambda m: m.get('recharge_fraction'),
+    }
+    _DRIVER_GETTERS = {
+        'elevation_m':  lambda r: r.get('elevation_m'),
+        'precip_mm_yr': lambda r: r['metrics'].get('precip_mm_yr'),
+        'clay_max_pct': lambda r: (r.get('soil') or {}).get('clay_max_pct'),
+        'ksat_min_ums': lambda r: (r.get('soil') or {}).get('ksat_min_ums'),
+    }
+
+    def _compute_driver_matrix(self) -> Dict[str, Any]:
+        """Pearson r for EVERY response (runoff, infiltration, ET, recharge,
+        recharge fraction) against EVERY driver (elevation, forcing precip,
+        soil clay, soil Ksat) across the ok columns — so the interpreter sees
+        the full relationship structure, not cherry-picked pairs. Responses
+        missing from a run (e.g. infiltration/ET in pre-2026-07 output) are
+        simply omitted."""
+        ok = [r for r in self.results.values() if r.get('status') == 'ok']
+        if len(ok) < 3:
+            return {}
+
+        def corr(xs, ys):
+            x = np.array(xs, dtype=float)
+            y = np.array(ys, dtype=float)
+            mask = ~np.isnan(x) & ~np.isnan(y)
+            if mask.sum() < 3 or np.ptp(x[mask]) < 1e-9 or np.ptp(y[mask]) < 1e-9:
+                return None
+            return round(float(np.corrcoef(x[mask], y[mask])[0, 1]), 3)
+
+        nan = float('nan')
+        matrix: Dict[str, Any] = {}
+        for resp, rget in self._RESPONSE_GETTERS.items():
+            ys = [rget(r['metrics']) for r in ok]
+            ys = [nan if v is None else v for v in ys]
+            if all(np.isnan(v) for v in ys):
+                continue                     # response not in this run's output
+            row = {}
+            for drv, dget in self._DRIVER_GETTERS.items():
+                xs = [dget(r) for r in ok]
+                xs = [nan if v is None else v for v in xs]
+                row[drv] = corr(xs, ys)
+            matrix[resp] = row
+        if not matrix:
+            return {}
+        return {'n_columns': len(ok), 'pearson_r': matrix,
+                'note': 'correlations across ALL columns — when precip is quantized, '
+                        'elevation and precip are confounded; use soil_attribution '
+                        '(forcing held) for the clean soil signal'}
+
     def _save_hydro_summary(self):
         """Save hydro_summary.json."""
         hydro_file = self.analysis_dir / "hydro_summary.json"
@@ -625,6 +681,7 @@ class ELMResultsAnalyzer:
                     'comparisons':      self._compute_comparisons(),
                     'spatial_summary':  self._compute_spatial_summary(),
                     'soil_attribution': self._compute_soil_attribution(),
+                    'driver_matrix':    self._compute_driver_matrix(),
                     'units':            VARIABLE_UNITS,
                 },
                 f, indent=2, default=str

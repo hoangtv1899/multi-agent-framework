@@ -145,3 +145,34 @@ def test_soil_attribution_empty_without_soil(tmp_path):
     az = _analyzer(tmp_path)
     az.results = {n: _col(n, 900, 500, 80, 8.3, precip=1373) for n in ("a", "b", "c")}
     assert az._compute_soil_attribution() == {}     # no soil data -> nothing to attribute
+
+
+# ── driver × response matrix ─────────────────────────────────────────────────
+def test_driver_matrix_covers_all_responses(tmp_path):
+    az = _analyzer(tmp_path)
+    az.results = {}
+    # runoff/recharge rise with precip; infiltration+et carried via water_budget
+    for name, elev, prec, rech, runf, clay in (("a", 700, 800, 10, 40, 30),
+                                               ("b", 900, 1200, 300, 70, 15),
+                                               ("c", 1100, 1400, 550, 90, 8)):
+        c = _col(name, elev, rech, runf, 8.5, precip=prec, soil=_soil(clay, 30 - clay / 2))
+        c["metrics"]["water_budget"] = {"infiltration_mm_yr": prec * 0.7,
+                                        "et_mm_yr": prec * 0.35}
+        az.results[name] = c
+    dm = az._compute_driver_matrix()
+    assert dm["n_columns"] == 3
+    m = dm["pearson_r"]
+    assert set(m) == {"runoff", "infiltration", "et", "recharge", "recharge_fraction"}
+    assert m["recharge"]["precip_mm_yr"] > 0.9          # rises with forcing
+    assert m["recharge"]["clay_max_pct"] < -0.9         # impeded by clay
+    assert m["infiltration"]["precip_mm_yr"] == 1.0     # constructed proportional
+
+
+def test_driver_matrix_omits_missing_responses_and_constant_drivers(tmp_path):
+    az = _analyzer(tmp_path)
+    az.results = {n: _col(n, e, r, 50, 8.5, precip=1000, soil=_soil(c, 20))
+                  for n, e, r, c in (("a", 700, 10, 30), ("b", 900, 300, 15),
+                                     ("c", 1100, 550, 8))}
+    dm = az._compute_driver_matrix()
+    assert "infiltration" not in dm["pearson_r"]        # no water_budget in old runs
+    assert dm["pearson_r"]["recharge"]["precip_mm_yr"] is None   # constant driver

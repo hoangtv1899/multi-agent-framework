@@ -62,7 +62,8 @@ def compact_results(hs):
     return {"columns": cols,
             "spatial_summary": hs.get("spatial_summary"),
             "soil_attribution": {k: v for k, v in (hs.get("soil_attribution") or {}).items()
-                                 if k != "by_recharge"}}
+                                 if k != "by_recharge"},
+            "driver_matrix": hs.get("driver_matrix")}
 
 
 def main():
