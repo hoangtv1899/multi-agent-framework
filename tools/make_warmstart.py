@@ -132,6 +132,9 @@ def main():
         manifest[name] = {"finidat": str(dst.resolve()), "target_wtd_m": round(t, 3),
                           "applied_zwt_m": round(applied, 3), "source": args.source}
 
+    if not manifest:
+        sys.exit(f"no warm-start files produced (source={args.source}) — "
+                 "NOT overwriting any existing warmstart.json")
     (out_dir / "warmstart.json").write_text(json.dumps(manifest, indent=2))
     print(f"\n{len(manifest)}/{len(cases)} warm-start files -> {out_dir}/")
     print(f"use: columns_to_plan.py ... --finidat-map {out_dir}/warmstart.json")
