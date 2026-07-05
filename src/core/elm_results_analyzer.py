@@ -341,6 +341,10 @@ class ELMResultsAnalyzer:
                 'mean_m':      round(float(np.nanmean(val_1d)), 4),
                 'min_m':       round(float(np.nanmin(val_1d)),  4),
                 'max_m':       round(float(np.nanmax(val_1d)),  4),
+                # initial vs final expose the cold-start problem: all columns
+                # begin at ELM's default (~8.8 m) regardless of the real WTD
+                'first_m':     round(float(val_1d[0]),  4),
+                'last_m':      round(float(val_1d[-1]), 4),
                 'n_timesteps': int(len(val_1d)),
             }
 

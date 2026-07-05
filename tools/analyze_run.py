@@ -272,6 +272,110 @@ def plot_budget(results, out_path):
     return True
 
 
+def plot_relations(results, out_path):
+    """The full relationship grid: every response (runoff, infiltration, ET,
+    recharge) scattered against every driver (elevation, precip, clay, Ksat),
+    Pearson r annotated — the visual companion to the driver matrix."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    ok = [r for r in results.values() if r["status"] == "ok"]
+    if len(ok) < 3:
+        return False
+    drivers = [("elevation (m)", lambda r: r.get("elevation_m")),
+               ("precip P (mm/yr)", lambda r: r["metrics"].get("precip_total_mm_yr")
+                                              or r["metrics"].get("precip_mm_yr")),
+               ("max clay (%)", lambda r: (r.get("soil") or {}).get("clay_max_pct")),
+               ("min Ksat (µm/s)", lambda r: (r.get("soil") or {}).get("ksat_min_ums"))]
+    responses = [("runoff (mm/yr)", lambda m: m.get("annual_runoff_mm_yr")),
+                 ("infiltration (mm/yr)", lambda m: (m.get("water_budget") or {}).get("infiltration_mm_yr")),
+                 ("ET (mm/yr)", lambda m: (m.get("water_budget") or {}).get("et_mm_yr")),
+                 ("recharge (mm/yr)", lambda m: m.get("annual_recharge_mm_yr"))]
+    # keep only responses the run actually has (old runs lack budget terms)
+    responses = [(lab, g) for lab, g in responses
+                 if any(g(r["metrics"]) is not None for r in ok)]
+
+    nr, nc = len(responses), len(drivers)
+    fig, axes = plt.subplots(nr, nc, figsize=(3.1 * nc, 2.5 * nr),
+                             sharey="row", squeeze=False)
+    for i, (rlab, rget) in enumerate(responses):
+        for j, (dlab, dget) in enumerate(drivers):
+            a = axes[i][j]
+            x = np.array([dget(r) if dget(r) is not None else np.nan for r in ok], float)
+            y = np.array([rget(r["metrics"]) if rget(r["metrics"]) is not None
+                          else np.nan for r in ok], float)
+            m = ~np.isnan(x) & ~np.isnan(y)
+            a.scatter(x[m], y[m], s=26, color="#2c7fb8", edgecolor="#222",
+                      linewidth=.4, alpha=.85, zorder=3)
+            if m.sum() >= 3 and np.ptp(x[m]) > 1e-9 and np.ptp(y[m]) > 1e-9:
+                rr = float(np.corrcoef(x[m], y[m])[0, 1])
+                a.text(.04, .88, f"r={rr:+.2f}", transform=a.transAxes,
+                       fontsize=9, fontweight="bold",
+                       color="#b91c1c" if abs(rr) >= .5 else "#64748b")
+            if i == nr - 1:
+                a.set_xlabel(dlab, fontsize=9)
+            if j == 0:
+                a.set_ylabel(rlab, fontsize=9)
+            a.tick_params(labelsize=7.5)
+            a.grid(alpha=.25)
+            a.spines[["top", "right"]].set_visible(False)
+    fig.suptitle("Driver → response relations (each point = one column)",
+                 fontweight="bold", y=1.0)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    print(f"   ✓ relations figure: {out_path}")
+    return True
+
+
+def plot_wtd(results, run_dir, out_path):
+    """Per-column water table: model ZWT initial vs final vs the Fan (2013)
+    equilibrium WTD at the same point. Exposes the cold-start problem — every
+    column begins at ELM's default (~8.8 m) regardless of the real water table,
+    and barely moves in a 1-yr run."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    fan = {}
+    cj = run_dir / "columns.json"
+    if cj.exists():
+        cols = json.loads(cj.read_text())
+        cols = cols.get("columns", cols) if isinstance(cols, dict) else cols
+        fan = {c["id"]: c.get("fan_wtd_m") for c in cols}
+
+    ok = sorted((r for r in results.values() if r["status"] == "ok"),
+                key=lambda r: (r.get("elevation_m") or 0))
+    zwt = [(r["variables"].get("ZWT") or {}) for r in ok]
+    if not any(z.get("first_m") is not None for z in zwt):
+        return False
+    x = np.arange(len(ok))
+    names = [f"{r['case_name']}\n{r.get('elevation_m') or 0:.0f} m" for r in ok]
+
+    fig, ax = plt.subplots(figsize=(12.6, 4.2))
+    f = np.array([fan.get(r["case_name"]) or np.nan for r in ok], float)
+    ax.scatter(x, np.clip(f, .05, None), marker="o", s=48, color="#8856a7",
+               edgecolor="#222", label="Fan 2013 equilibrium WTD", zorder=3)
+    ax.scatter(x, [z.get("first_m") for z in zwt], marker="s", s=40,
+               color="#d95f0e", label="model ZWT — initial (cold start)", zorder=4)
+    ax.scatter(x, [z.get("last_m") for z in zwt], marker="x", s=48,
+               color="#2c7fb8", label="model ZWT — end of run", zorder=5)
+    ax.set_yscale("log"); ax.invert_yaxis()
+    ax.set_xticks(x); ax.set_xticklabels(names, fontsize=7)
+    ax.set_ylabel("water-table depth (m, log)")
+    ax.set_title("Water table per column — every column cold-starts at the SAME default "
+                 "and barely moves in 1 yr; the real (Fan) WTD varies by orders of magnitude",
+                 fontweight="bold", fontsize=11.5)
+    ax.legend(frameon=False, fontsize=9)
+    ax.grid(alpha=.25); ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    print(f"   ✓ WTD figure: {out_path}")
+    return True
+
+
 def print_matrix(dm):
     if not dm:
         return
@@ -323,6 +427,8 @@ def main():
         plot_soil(soil, analysis_dir / "soil_control.png")
     if args.plot:
         plot_budget(az.results, analysis_dir / "water_budget.png")
+        plot_relations(az.results, analysis_dir / "driver_response.png")
+        plot_wtd(az.results, run_dir, analysis_dir / "wtd_columns.png")
     print(f"\nanalysis written to {analysis_dir}/")
 
 
