@@ -402,6 +402,8 @@ def main():
     ap.add_argument("--plan-file", default="phase3_plan.json",
                     help="executable plan.json, relative to run-dir")
     ap.add_argument("--plot", action="store_true", help="also save the elevation-gradient figure")
+    ap.add_argument("--last-year", action="store_true",
+                    help="analyze only the final full simulated year (spin-up runs)")
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -409,7 +411,7 @@ def main():
     exps = build_experiments(run_dir, args.cases_file, args.plan_file)
     print(f"analyzing {len(exps)} column(s) from {run_dir}")
 
-    az = ELMResultsAnalyzer(exps, str(analysis_dir))
+    az = ELMResultsAnalyzer(exps, str(analysis_dir), last_year_only=args.last_year)
     az.extract_all()
     spatial = az._compute_spatial_summary()
     soil = az._compute_soil_attribution()

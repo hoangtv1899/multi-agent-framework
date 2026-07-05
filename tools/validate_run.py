@@ -218,7 +218,8 @@ def sim_year(rd: Path):
         p = rd / f
         if p.exists():
             cc = (json.loads(p.read_text()).get("CONDITIONS_COUPLERS") or [{}])[0]
-            y = _n(cc.get("DATM_CLMNCEP_YR_START"))
+            # science year = the LAST simulated year (spin-up years precede it)
+            y = _n(cc.get("DATM_CLMNCEP_YR_END")) or _n(cc.get("DATM_CLMNCEP_YR_START"))
             if y:
                 return int(y)
     return 1995

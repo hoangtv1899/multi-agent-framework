@@ -75,7 +75,8 @@ class ELMResultsAnalyzer:
 
     def __init__(self,
                  experiments:  List[Dict[str, Any]],
-                 analysis_dir: str):
+                 analysis_dir: str,
+                 last_year_only: bool = False):
         if not XARRAY_AVAILABLE:
             raise RuntimeError(
                 "xarray and netCDF4 required.\n"
@@ -84,6 +85,9 @@ class ELMResultsAnalyzer:
         self.experiments  = experiments
         self.analysis_dir = Path(analysis_dir)
         self.analysis_dir.mkdir(parents=True, exist_ok=True)
+        # spin-up runs: analyze only the final full simulated year, so the
+        # science year is not averaged together with the equilibration years
+        self.last_year_only = last_year_only
         self.results: Dict[str, Dict] = {}
         self.logger = logging.getLogger(__name__)
 
@@ -240,7 +244,15 @@ class ELMResultsAnalyzer:
                      hist_files: List[Path]) -> Dict[str, Any]:
         """Extract variables from one experiment."""
         try:
-            ds        = self._open_dataset(hist_files)
+            ds = self._open_dataset(hist_files)
+            if self.last_year_only:
+                years = np.asarray(ds['time'].dt.year.values)
+                uniq, counts = np.unique(years, return_counts=True)
+                full = uniq[counts >= 1000]      # a full 3-hourly year ≈ 2920 steps
+                yr = int(full.max()) if len(full) else int(uniq.max())
+                ds = ds.isel(time=(years == yr))
+                print(f"   (last-year analysis: {yr}, "
+                      f"{int(ds.sizes['time'])} timesteps)")
             variables = {}
 
             for var in TARGET_VARIABLES:

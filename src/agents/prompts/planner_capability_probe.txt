@@ -50,25 +50,34 @@ one of these, the current stack CANNOT answer the question as posed — say so i
 `feasibility` and list the missing piece under requires_capabilities. Never
 design around a mechanism the runs can't represent and then claim to test it.
 
-  • FORCING IS NOT ELEVATION-DOWNSCALED. Columns are driven by a COARSE
-    reanalysis grid (GSWP3/Qian): temperature and precipitation do NOT vary
-    smoothly with elevation (no lapse rate, no orographic precip), and columns
-    at different elevations often fall in the SAME forcing cell. So any
-    "elevation → snow vs rain → melt timing" or orographic-precip mechanism is
-    NOT represented — elevation enters ONLY through the per-column soil/PFT
-    surface data, not the climate.
-  • SNOW / SWE is therefore not elevation-resolved, and snow fields are not in
-    the default history output → snowpack (e.g. SNOTEL SWE) cannot be validated
-    without added output AND downscaled forcing.
+  • FORCING (CONUS): NLDAS-2 at 0.125° (~12 km, 1980-2018) is the DEFAULT —
+    each column gets its nearest 12 km cell, so precipitation/temperature DO
+    vary with location and (orographically) with elevation across a HUC8.
+    Verified: a 1625 m-relief basin spans ~15 distinct precip values (Qian T62
+    gave 2). LIMITS that remain: sub-12 km terrain is unresolved (no within-
+    cell lapse rate), coverage is CONUS-only (outside CONUS falls back to Qian
+    T62 ~1.9°, which is NOT elevation-resolved), and NLDAS runs cost ~10x Qian
+    (~30 min per simulated year per column).
+  • SNOW / SWE is simulated and IS in the default history output (H2OSNO,
+    QSNOMELT, SNOW) → SNOTEL peak-SWE comparison is possible. Expect
+    underestimation at ridgetop stations (12 km cells average over terrain).
   • SINGLE-COLUMN, NO LATERAL TRANSPORT — columns are independent 1-D points:
     no routing, no lateral/regional groundwater flow, no column-to-column
     exchange → no native integrated streamflow for gage comparison (needs an
     explicit aggregation/routing step) and no regional water table.
-  • NO SPIN-UP by default (short runs) → slow states (deep recharge, water
-    table, deep soil moisture) are NOT equilibrated; treat them as transient or
-    require a spin-up capability.
-  • The levers the runs CAN actually pull: per-column SOIL (SSURGO) and FORCING
-    PERIOD (baseline / wet / drought). Prefer designs built on these.
+  • SPIN-UP: multi-year runs ARE supported (specify the year span) but are NOT
+    the default. Without ~5+ spin-up years, slow states are initialization
+    artifacts: every column COLD-STARTS at the same default water table
+    (~8.8 m) regardless of the real WTD, recharge reads ~0 while storage
+    fills, and ZWT is meaningless. Designs whose target is recharge or water
+    table MUST include spin-up years (cost scales with years).
+  • WTD-INFORMED INITIALIZATION (Fan 2013 per-column water table as the
+    initial condition) is NOT implemented — you may PROPOSE it under
+    requires_capabilities as a spin-up accelerator, but note ELM's 1-D
+    equilibrium will still differ from Fan's lateral-flow equilibrium.
+  • The levers the runs CAN pull: per-column SOIL (SSURGO), FORCING PERIOD
+    (any years in 1980-2018), spin-up length, and location/elevation (via
+    NLDAS). Prefer designs built on these.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DESIGN ARCHETYPE — READ FIRST (from the brief's design_archetype)

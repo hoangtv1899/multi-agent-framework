@@ -29,12 +29,16 @@ def main():
     ap.add_argument("--ref", required=True, help="reference case dir to clone from (shared exe)")
     ap.add_argument("--out-dir", required=True, help="dir to write cases.json + exe_path.txt")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--forcing", choices=("nldas", "qian"), default="nldas",
+                    help="met forcing: nldas = NLDAS-2 0.125° (CONUS, default), "
+                         "qian = the Qian T62 streams the reference case carries")
     args = ap.parse_args()
 
     plan = json.loads(Path(args.plan).read_text())
     builder = ELMExperimentBuilder(plan)
     exps = builder.build_experiments()                  # generates per-column surfaces
-    print(f"cloning {len(exps)} columns from {Path(args.ref).name} ...", flush=True)
+    print(f"cloning {len(exps)} columns from {Path(args.ref).name} "
+          f"(forcing={args.forcing}) ...", flush=True)
 
     case_dirs = [None] * len(exps)
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -49,6 +53,16 @@ def main():
                 print(f"  ✗ {exps[i]['case_name']}: {exc}", flush=True)
 
     ok = [c for c in case_dirs if c]
+
+    if args.forcing == "nldas" and ok:
+        from set_nldas_forcing import apply_nldas       # sibling tool
+        cc = (plan.get("CONDITIONS_COUPLERS") or [{}])[0]
+        y0 = int(cc.get("DATM_CLMNCEP_YR_START", 1995))
+        y1 = int(cc.get("DATM_CLMNCEP_YR_END", y0))
+        for c in ok:
+            apply_nldas(c, y0, y1)
+        print(f"  ✓ NLDAS-2 forcing applied to {len(ok)} cases ({y0}-{y1})")
+
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "cases.json").write_text(json.dumps(ok, indent=2))
