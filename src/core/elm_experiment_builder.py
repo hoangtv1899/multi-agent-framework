@@ -227,6 +227,8 @@ class ELMExperimentBuilder:
             'REST_N':                elm_cfg.get('base_rest_n',     '1'),
             'REST_OPTION':           elm_cfg.get('base_rest_option', 'nyears'),
         }
+        if coupler.get('FINIDAT'):
+            runtime_config['FINIDAT'] = coupler['FINIDAT']   # warm-start initial state
 
         # Generate domain + surface files — per-coupler lat/lon/soil (spatial
         # columns), falling back to ELM_CONFIG (legacy single-site).

@@ -57,6 +57,8 @@ def main():
     ap.add_argument("--soil-config", default="native")
     ap.add_argument("--substrate", default="extrapolate")
     ap.add_argument("--limit", type=int, default=0, help="use only the first N columns")
+    ap.add_argument("--finidat-map", default=None,
+                    help="warmstart.json (make_warmstart.py): col id -> finidat path")
     args = ap.parse_args()
 
     data = json.loads(Path(args.columns).read_text())
@@ -65,6 +67,12 @@ def main():
         cols = cols[:args.limit]
     plan = columns_to_elm_plan(cols, args.forcing_period, args.yr_start,
                                args.yr_end, args.soil_config, args.substrate)
+    if args.finidat_map:
+        fmap = json.loads(Path(args.finidat_map).read_text())
+        for cc in plan["CONDITIONS_COUPLERS"]:
+            m = fmap.get(cc["EXPERIMENT"])
+            if m:
+                cc["FINIDAT"] = m["finidat"] if isinstance(m, dict) else m
     out = Path(args.out) if args.out else Path(args.columns).with_name("elm_plan.json")
     out.write_text(json.dumps(plan, indent=2))
     print(f"{len(plan['CONDITIONS_COUPLERS'])} columns -> {out}")

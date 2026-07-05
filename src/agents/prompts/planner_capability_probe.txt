@@ -71,10 +71,15 @@ design around a mechanism the runs can't represent and then claim to test it.
     (~8.8 m) regardless of the real WTD, recharge reads ~0 while storage
     fills, and ZWT is meaningless. Designs whose target is recharge or water
     table MUST include spin-up years (cost scales with years).
-  • WTD-INFORMED INITIALIZATION (Fan 2013 per-column water table as the
-    initial condition) is NOT implemented — you may PROPOSE it under
-    requires_capabilities as a spin-up accelerator, but note ELM's 1-D
-    equilibrium will still differ from Fan's lateral-flow equilibrium.
+  • WTD-INFORMED WARM START is AVAILABLE (preferred over multi-year spin-up —
+    it scales to any CONUS watershed): each column's initial water table /
+    aquifer storage is set from the Fan (2013) equilibrium WTD at that point
+    (clamped to ELM's aquifer range 0.05-28.8 m; deeper targets pin the
+    aquifer empty). Requires one completed short run per column as the
+    carrier state. Caveats: ELM's 1-D equilibrium still differs from Fan's
+    lateral-flow equilibrium (some drift is expected and is itself a
+    result); root-zone soil moisture is untouched (fast state). A ParFlow-
+    CONUS2 (1-km) prior is a possible future upgrade, not yet available.
   • The levers the runs CAN pull: per-column SOIL (SSURGO), FORCING PERIOD
     (any years in 1980-2018), spin-up length, and location/elevation (via
     NLDAS). Prefer designs built on these.

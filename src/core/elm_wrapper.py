@@ -91,11 +91,11 @@ RUNTIME_KEYS = {
     'RUN_STARTDATE', 'REST_N', 'REST_OPTION',
     'LND_DOMAIN_FILE', 'LND_DOMAIN_PATH',
     'ATM_DOMAIN_FILE', 'ATM_DOMAIN_PATH',
-    'FSURDAT',
+    'FSURDAT', 'FINIDAT',
 }
 
-# Subset that goes to xmlchange (vs namelist)
-XML_RUNTIME_KEYS = RUNTIME_KEYS - {'FSURDAT'}
+# Subset that goes to xmlchange (vs namelist — FSURDAT/FINIDAT are namelist keys)
+XML_RUNTIME_KEYS = RUNTIME_KEYS - {'FSURDAT', 'FINIDAT'}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -382,7 +382,10 @@ class GeneratedELMAgent:
         # NOTE: hist_nhtfrq = -3, hist_mfilt = 365 matches the reference
         # bash script (3-hourly output, 365 records per file).
         # Change if analyzer expects a different output frequency.
+        finidat = self.runtime_config.get('FINIDAT')
+        finidat_line = f"finidat = '{finidat}'\n" if finidat else ""
         elm_namelist = (
+            finidat_line +
             f"fsurdat = '{fsurdat}'\n"
             "hist_empty_htapes = .true.\n"
             "mksrf_lsmlon = 1\n"
