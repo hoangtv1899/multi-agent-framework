@@ -51,22 +51,32 @@ def fan_targets(run_dir):
 
 
 def parflow_targets(run_dir, plan_file):
-    """ParFlow-CONUS2 steady-state WTD at each column via hf_hydrodata."""
+    """ParFlow-CONUS2-based WTD (Ma et al. 2025, grid conus2_wtd.30) at each
+    column via the HydroFrame hf_hydrodata API. Dataset/option names verified
+    against the live catalog; gridded fetches need a registered account:
+        1. sign up:  https://hydrogen.princeton.edu/signup
+        2. get pin:  https://hydrogen.princeton.edu/pin
+        3. python3 -c "import hf_hydrodata; hf_hydrodata.register_api_pin('<email>','<pin>')"
+    """
     try:
         import hf_hydrodata as hf
     except ImportError:
-        sys.exit("pip install hf_hydrodata, register at hydrogen.princeton.edu, "
-                 "then hf_hydrodata.register_api_pin(<email>, <pin>)")
+        sys.exit("pip install --user hf_hydrodata, then register (see docstring)")
+    import numpy as np
     plan = json.loads((run_dir / plan_file).read_text())
     out = {}
+    d = 0.005                                   # ~500 m box around the column
     for cc in plan["CONDITIONS_COUPLERS"]:
-        opts = {"dataset": "conus2_domain", "variable": "water_table_depth",
-                "grid_bounds_lat_lon": [cc["lat"], cc["lon"], cc["lat"], cc["lon"]]}
+        opts = {"dataset": "ma_2025", "variable": "water_table_depth",
+                "period": "static",
+                "latlng_bounds": [cc["lat"] - d, cc["lon"] - d,
+                                  cc["lat"] + d, cc["lon"] + d]}
         try:
-            v = hf.get_gridded_data(opts)
-            out[cc["EXPERIMENT"]] = float(v.flat[0])
+            v = np.asarray(hf.get_gridded_data(opts), dtype=float)
+            if np.isfinite(v).any():
+                out[cc["EXPERIMENT"]] = float(np.nanmean(v))
         except Exception as e:
-            print(f"  ! {cc['EXPERIMENT']}: hf_hydrodata failed ({str(e)[:60]}) — skipped")
+            print(f"  ! {cc['EXPERIMENT']}: hf_hydrodata failed ({str(e)[:80]}) — skipped")
     return out
 
 
