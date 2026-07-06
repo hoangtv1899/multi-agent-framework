@@ -266,7 +266,8 @@ def gather_pflotran(rd: Path):
             "rates": st.get("scenarios_mm_yr", []), "rows": st.get("columns", []),
             "figs": [rd / f for f in ("sampling_design.png",) if (rd / f).exists()],
             "rfigs": [p for p in (rd / "r100" / "pflotran_profiles.png",
-                                  rd / "pflotran_scenarios.png") if p.exists()]}
+                                  rd / "pflotran_scenarios.png",
+                                  rd / "pflotran_relations.png") if p.exists()]}
 
 
 def pflotran_slides(prs, s, idx):
@@ -282,7 +283,8 @@ def pflotran_slides(prs, s, idx):
         sl = blank(prs)
         header(sl, f"{s['name']} — sampling design (same columns as the ELM studies)")
         sl.shapes.add_picture(str(f), Inches(1.2), Inches(1.25), height=Inches(5.7))
-    for cap, f in zip(("profiles & water tables (100 mm/yr)", "scenario sweep — the dynamics"),
+    for cap, f in zip(("profiles & water tables (100 mm/yr)", "scenario sweep — the dynamics",
+                       "driver → response relations (controls: water table + soil)"),
                       s["rfigs"]):
         sl = blank(prs)
         header(sl, f"{s['name']} — {cap}")

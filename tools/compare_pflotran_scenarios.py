@@ -15,6 +15,7 @@ scenario) and writes:
 import argparse
 import glob
 import json
+import math
 import shutil
 from pathlib import Path
 
@@ -27,6 +28,8 @@ def main():
     ap.add_argument("--study-dir", required=True)
     ap.add_argument("--sampling-fig", default=None)
     ap.add_argument("--question", default=QUESTION)
+    ap.add_argument("--columns", default=None,
+                    help="columns.json for soil drivers (clay, Ksat) — enables the relations grid")
     args = ap.parse_args()
 
     sd = Path(args.study_dir)
@@ -83,6 +86,61 @@ def main():
     fig.tight_layout()
     fig.savefig(sd / "pflotran_scenarios.png", dpi=150, bbox_inches="tight")
 
+    # driver -> response relations grid (the ELM-style figure, PFLOTRAN edition)
+    rel_facts = []
+    if args.columns and Path(args.columns).exists():
+        cj = json.loads(Path(args.columns).read_text())
+        cj = cj.get("columns", cj) if isinstance(cj, dict) else cj
+        soil = {}
+        for c in cj:
+            layers = (c.get("soil_profile") or {}).get("layers") or []
+            comp = layers[0].get("component") if layers else None
+            hz = [l for l in layers if l.get("component") == comp]
+            def num(x):
+                try: return float(x)
+                except (TypeError, ValueError): return None
+            clays = [v for v in (num(l.get("clay_pct")) for l in hz) if v is not None]
+            ks = [v for v in (num(l.get("ksat_ums")) for l in hz) if v is not None]
+            soil[c["id"]] = {"clay_max": max(clays) if clays else None,
+                             "ksat_min": min(ks) if ks else None}
+        drivers = [("elevation (m)", lambda c: base[c]["elevation_m"]),
+                   ("log10 Fan WTD (m)", lambda c: math.log10(max(base[c]["fan_wtd_m"], .05))),
+                   ("max clay (%)", lambda c: soil.get(c, {}).get("clay_max")),
+                   ("min Ksat (µm/s)", lambda c: soil.get(c, {}).get("ksat_min"))]
+        mid = rates[len(rates) // 2]
+        responses = [(f"vadose sat @{mid:.0f} mm/yr", lambda c: scen[mid][c].get("sat_vadose_mean")),
+                     (f"Δsat ({rates[-1]:.0f}−{rates[0]:.0f})", lambda c: sens.get(c)),
+                     (f"surface sat @{mid:.0f}", lambda c: scen[mid][c].get("sat_top"))]
+        import numpy as np
+        figR, axR = plt.subplots(len(responses), len(drivers),
+                                 figsize=(3.0 * len(drivers), 2.5 * len(responses)),
+                                 sharey="row", squeeze=False)
+        for i, (rlab, rget) in enumerate(responses):
+            for j, (dlab, dget) in enumerate(drivers):
+                a = axR[i][j]
+                x = np.array([dget(c) if dget(c) is not None else np.nan for c in cols], float)
+                y = np.array([rget(c) if rget(c) is not None else np.nan for c in cols], float)
+                m = ~np.isnan(x) & ~np.isnan(y)
+                a.scatter(x[m], y[m], s=26, color="#2c7fb8", edgecolor="#222",
+                          linewidth=.4, alpha=.85, zorder=3)
+                if m.sum() >= 3 and np.ptp(x[m]) > 1e-9 and np.ptp(y[m]) > 1e-9:
+                    rr = float(np.corrcoef(x[m], y[m])[0, 1])
+                    a.text(.04, .86, f"r={rr:+.2f}", transform=a.transAxes, fontsize=9,
+                           fontweight="bold", color="#b91c1c" if abs(rr) >= .5 else "#64748b")
+                    if abs(rr) >= .5:
+                        rel_facts.append((rlab, dlab, rr))
+                if i == len(responses) - 1:
+                    a.set_xlabel(dlab, fontsize=9)
+                if j == 0:
+                    a.set_ylabel(rlab, fontsize=9)
+                a.tick_params(labelsize=7.5); a.grid(alpha=.25)
+                a.spines[["top", "right"]].set_visible(False)
+        figR.suptitle("PFLOTRAN driver → response relations (uniform forcing — "
+                      "controls are the water table and the soil)", fontweight="bold", y=1.0)
+        figR.tight_layout()
+        figR.savefig(sd / "pflotran_relations.png", dpi=150, bbox_inches="tight")
+        print(f"✓ {sd}/pflotran_relations.png")
+
     # deterministic interpretation — facts only, no LLM
     hi = max(sens, key=sens.get) if sens else None
     lo = min(sens, key=sens.get) if sens else None
@@ -103,6 +161,12 @@ def main():
         "sweep isolates the UNSATURATED-zone response; transient forcing and a free water "
         "table are the ELM-coupling phase.",
     ]
+    if rel_facts:
+        strongest = sorted(rel_facts, key=lambda t: -abs(t[2]))[:3]
+        interp.append("Strongest controls (|r|≥0.5): " + " · ".join(
+            f"{r} vs {d} (r={v:+.2f})" for r, d, v in strongest)
+            + " — elevation matters only where it proxies the water table (no orographic "
+              "forcing exists in this design, unlike the ELM/NLDAS studies).")
     rows = [{**{k: base[c][k] for k in ("id", "elevation_m", "fan_wtd_m", "depth_m",
                                         "wtd_final_m")},
              **{f"sat_r{r:.0f}": scen[r][c].get("sat_vadose_mean") for r in rates}}
