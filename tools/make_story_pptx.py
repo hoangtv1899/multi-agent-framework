@@ -84,6 +84,9 @@ def gather(rd: Path):
     if brief:
         question = brief.get("user_request", "?")
         name = dom.get("name") or rd.name
+        rp = load(rd / "run_plan.json")
+        if any(cc.get("FINIDAT") for cc in (rp.get("CONDITIONS_COUPLERS") or [])):
+            name += " — Fan warm start"
         subtitle = (f"HUC {dom.get('huc', '?')} · {dom.get('area_km2', '?')} km² · "
                     f"elevation {dom.get('elevation_range_m', {}).get('min', '?')}–"
                     f"{dom.get('elevation_range_m', {}).get('max', '?')} m")
