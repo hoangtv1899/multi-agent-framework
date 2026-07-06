@@ -267,7 +267,8 @@ def gather_pflotran(rd: Path):
             "figs": [rd / f for f in ("sampling_design.png",) if (rd / f).exists()],
             "rfigs": [p for p in (rd / "r100" / "pflotran_profiles.png",
                                   rd / "pflotran_scenarios.png",
-                                  rd / "pflotran_relations.png") if p.exists()]}
+                                  rd / "pflotran_relations.png",
+                                  rd / "pflotran_coupled.png") if p.exists()]}
 
 
 def pflotran_slides(prs, s, idx):
@@ -283,9 +284,12 @@ def pflotran_slides(prs, s, idx):
         sl = blank(prs)
         header(sl, f"{s['name']} — sampling design (same columns as the ELM studies)")
         sl.shapes.add_picture(str(f), Inches(1.2), Inches(1.25), height=Inches(5.7))
-    for cap, f in zip(("profiles & water tables (100 mm/yr)", "scenario sweep — the dynamics",
-                       "driver → response relations (controls: water table + soil)"),
-                      s["rfigs"]):
+    caps = {"pflotran_profiles.png": "profiles & water tables (100 mm/yr)",
+            "pflotran_scenarios.png": "scenario sweep — the dynamics",
+            "pflotran_relations.png": "driver → response relations (controls: water table + soil)",
+            "pflotran_coupled.png": "ELM → PFLOTRAN coupling — lag & attenuation"}
+    for f in s["rfigs"]:
+        cap = caps.get(f.name, "results")
         sl = blank(prs)
         header(sl, f"{s['name']} — {cap}")
         sl.shapes.add_picture(str(f), Inches(1.0), Inches(1.35), width=Inches(11.3))
@@ -302,19 +306,21 @@ def pflotran_appendix(prs, s, idx):
     sl = blank(prs)
     header(sl, f"Appendix P{idx} — {s['name']}: columns & scenario wetness",
            "vadose-zone mean saturation per recharge rate · WTD from the hydrostatic prior")
-    rates = s["rates"]
-    hdr = ["column", "elev m", "Fan WTD m", "domain m", "WTD end m"] +           [f"sat @{r:.0f}" for r in rates]
+    base = [("id", "column", 0), ("elevation_m", "elev m", 0),
+            ("fan_wtd_m", "Fan WTD m", 1), ("depth_m", "domain m", 1)]
+    extra = [k for k in rows[0] if k not in {b[0] for b in base}]
+    hdr = [lab for _, lab, _ in base] + [k.replace("_", " ") for k in extra]
     tbl = sl.shapes.add_table(len(rows) + 1, len(hdr), Inches(.7), Inches(1.5),
                               Inches(12), Inches(.26) * (len(rows) + 1)).table
     def fmt(x, d=2):
-        return f"{x:.{d}f}" if isinstance(x, (int, float)) else ">cap"
+        return f"{x:.{d}f}" if isinstance(x, (int, float)) else "—"
     for c, h in enumerate(hdr):
         cell = tbl.cell(0, c); cell.text = h
         cell.text_frame.paragraphs[0].font.size = Pt(10)
         cell.text_frame.paragraphs[0].font.bold = True
     for r, row in enumerate(rows, 1):
-        vals = [row["id"], fmt(row["elevation_m"], 0), fmt(row["fan_wtd_m"], 1),
-                fmt(row["depth_m"], 1), fmt(row["wtd_final_m"])] +                [fmt(row.get(f"sat_r{ra:.0f}")) for ra in rates]
+        vals = [row["id"] if k == "id" else fmt(row.get(k), d)
+                for k, _, d in base] + [fmt(row.get(k)) for k in extra]
         for c, v in enumerate(vals):
             cell = tbl.cell(r, c); cell.text = str(v)
             cell.text_frame.paragraphs[0].font.size = Pt(9)

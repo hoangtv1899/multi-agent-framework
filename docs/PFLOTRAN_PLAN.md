@@ -62,7 +62,19 @@ Deliverable: `columns.json → per-column 1-D PFLOTRAN runs → results package`
 4. **Tests**: offline golden test on generated deck text + pedotransfer
    sanity; one-column live smoke test
 
-## Phase B — one-way ELM→PFLOTRAN coupling (the payoff)
+## Phase B — one-way ELM→PFLOTRAN coupling — **IMPLEMENTED 2026-07-06**
+
+`build_pflotran_cases.py --flux-from <elm_run>`: each column's daily-mean ELM
+QINFL becomes its PFLOTRAN transient top flux (10 y steady spin at the mean,
+then the daily year; MAXIMUM_TIMESTEP_SIZE ... AT schedule; MASS_BALANCE_FILE
+gives both boundary fluxes). `analyze_pflotran_coupled.py` extracts lag
+(cross-correlation) + attenuation (std ratio) per column. Result (18/20; two
+stiff columns diverged — known Richards challenge): lag 0 d at WTD<1 m,
+7–104 d at 5–35 m; attenuation ~1 → ~0.05 with depth — the vadose zone is a
+low-pass filter whose cutoff is the water-table depth. Deck case study
+"Naches groundwater — ELM-coupled".
+
+### original Phase B sketch
 
 - extract each column's transient QINFL from the completed NLDAS runs
   (daily means from the 3-hourly history — the expensive runs keep giving)

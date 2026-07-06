@@ -429,6 +429,10 @@ class PFLOTRANInputAgent:
 		times_str = ' '.join([fortran_format(t) for t in self.output_config['times']])
 		f.write(f"  TIMES {self.output_config['time_units']} {times_str}\n")
 		f.write(f"  FORMAT {self.output_config['format']}\n")
+		if self.output_config.get("mass_balance"):
+			f.write("  MASS_BALANCE_FILE\n")
+			f.write("    PERIODIC TIMESTEP 1\n")
+			f.write("  /\n")
 		f.write("END\n\n")
 	
 	def _write_time(self, f):
@@ -438,6 +442,8 @@ class PFLOTRANInputAgent:
 		f.write(f"  FINAL_TIME {fortran_format(self.time_config['final_time'])} {self.time_config['final_time_units']}\n")
 		f.write(f"  INITIAL_TIMESTEP_SIZE {fortran_format(self.time_config['initial_timestep'])} {self.time_config['initial_timestep_units']}\n")
 		f.write(f"  MAXIMUM_TIMESTEP_SIZE {fortran_format(self.time_config['maximum_timestep'])} {self.time_config['maximum_timestep_units']}\n")
+		for line in self.time_config.get("extra_lines", []):
+			f.write(f"  {line}\n")
 		f.write("END\n\n")
 	
 	def _write_regions(self, f):
