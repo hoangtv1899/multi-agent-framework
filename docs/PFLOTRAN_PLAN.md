@@ -30,6 +30,17 @@ the elevation/soil gradient. ELM does the surface partitioning; PFLOTRAN does
 the deep fate. That is the coupling archetype the reception/planner have
 carried since the beginning.
 
+## Strategy update (2026-07-06, user decision)
+
+Standalone-first: build the PFLOTRAN path fully independent of ELM so
+groundwater-community users can experiment with PFLOTRAN through the framework
+alone; coupling (Phase B) comes later. Forcing is scenario/data-driven
+(recharge rates), not ELM output. **Phase A implemented same day** —
+`tools/build_pflotran_cases.py` + `tools/analyze_pflotran_run.py`; 20/20
+columns build and run in ~0.5 s each; hydrostatic ICs land exactly on the Fan
+prior; deep columns honestly flagged when the water table sits below the
+capped domain.
+
 ## Phase A — standalone PFLOTRAN ensembles behind the same manager contract
 
 Deliverable: `columns.json → per-column 1-D PFLOTRAN runs → results package`.

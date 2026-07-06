@@ -5,11 +5,11 @@ PFLOTRAN Input Generator and Simulation Runner
 import os
 import subprocess
 import numpy as np
-from elm_soildata import ELMSoilData, fortran_format
+from core.elm_soildata import ELMSoilData, fortran_format
 
 # Import plotting utilities
 try:
-    from pflotran_plotting import PFLOTRANPlotter, plot_all_experiment_figures
+    from core.pflotran_plotting import PFLOTRANPlotter, plot_all_experiment_figures
     PLOTTING_AVAILABLE = True
 except ImportError:
     PLOTTING_AVAILABLE = False
