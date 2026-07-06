@@ -71,14 +71,14 @@
   <text x="493" y="182" class="sub" text-anchor="middle">regional data retrieval / context exchange</text>
 
   <!-- reception -> planner / analyzer -->
-  <path d="M700,220 C560,290 330,330 240,398" stroke="#1f2937" stroke-width="1.8" fill="none" marker-end="url(#arr)"/>
-  <text x="382" y="285" class="lbl">Design new exp. — framed brief JSON</text>
-  <text x="382" y="298" class="sub">(domain, drivers, obs available/missing)</text>
+  <path d="M700,220 C560,290 330,330 210,398" stroke="#1f2937" stroke-width="1.8" fill="none" marker-end="url(#arr)"/>
+  <text x="352" y="285" class="lbl">Design new exp. — framed brief JSON</text>
+  <text x="352" y="298" class="sub">(domain, drivers, obs available/missing)</text>
   <path d="M960,220 C1080,290 1210,330 1285,398" stroke="#1f2937" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
   <text x="1085" y="305" class="lbl">Analyze existing exp.</text>
   <text x="1085" y="318" class="sub">+ prior-run context</text>
 
-  <!-- ═══════════ BOTTOM ROW — the original three boxes ═══════════ -->
+  <!-- ═══════════ BOTTOM ROW — the original three boxes, equal weight ═══════════ -->
   <!-- PLANNER -->
   <rect x="22" y="402" width="310" height="330" class="box"/>
   <text x="177" y="426" class="title" text-anchor="middle">Planner Agent</text>
@@ -96,56 +96,34 @@
   <text x="60" y="625" class="b">no coordinates, no per-column configs</text>
   <text x="50" y="651" class="bb">Internal validation loop (iterative)</text>
   <text x="60" y="666" class="b">deterministic brief/plan checks</text>
-  <text x="50" y="695" class="sub">models: ELM 1-D ensembles (PFLOTRAN</text>
-  <text x="50" y="708" class="sub">coupling designed, not yet built)</text>
+  <text x="50" y="695" class="sub">models: ELM 1-D ensembles today; PFLOTRAN</text>
+  <text x="50" y="708" class="sub">&amp; ELM→PFLOTRAN coupling designed, not built</text>
 
-  <!-- anti-hallucination boundary at the interface -->
-  <line x1="352" y1="396" x2="352" y2="750" stroke="#dc2626" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <text x="30" y="768" class="sub" fill="#dc2626" font-weight="bold">◄ LLM side — reasons &amp; designs</text>
-  <text x="362" y="768" class="sub" fill="#dc2626" font-weight="bold">deterministic side ► — every coordinate and config comes from data, never from the LLM</text>
+  <!-- anti-hallucination boundary in the gap -->
+  <line x1="404" y1="402" x2="404" y2="732" stroke="#dc2626" stroke-width="1.6" stroke-dasharray="7 5"/>
+  <text x="404" y="752" class="sub" fill="#dc2626" font-weight="bold" text-anchor="middle">anti-hallucination boundary — the LLM plans strategy; the manager derives every coordinate &amp; config from data</text>
 
-  <!-- EXPERIMENT MANAGER (owns materialization + forcing + ICs) -->
-  <rect x="372" y="402" width="662" height="330" class="box"/>
-  <text x="703" y="426" class="title" text-anchor="middle">Experiment Manager</text>
-  <text x="703" y="441" class="sub" text-anchor="middle">(core deterministic pipeline — strategy in, results out · per-column ELM on Perlmutter)</text>
+  <!-- EXPERIMENT MANAGER (slim — top-level steps only) -->
+  <rect x="476" y="402" width="352" height="330" class="box"/>
+  <text x="652" y="424" class="title" text-anchor="middle">Experiment Manager</text>
+  <text x="652" y="439" class="sub" text-anchor="middle">(core deterministic pipeline — strategy in, results out)</text>
+  <text x="652" y="453" class="sub" text-anchor="middle" font-style="italic">ELM per-column on Perlmutter · PFLOTRAN via a parallel builder (same interface)</text>
+  <rect x="492" y="462" width="320" height="256" class="inner"/>
+  <text x="504" y="482" class="bb">1. Materialize sampling <tspan class="new">NEW</tspan></text>
+  <text x="504" y="497" class="b">strategy → real DEM sites · bands · soil + WTD</text>
+  <text x="504" y="524" class="bb">2. Build &amp; configure</text>
+  <text x="504" y="539" class="b">surface/domain · NLDAS forcing · Fan warm-start <tspan class="new">NEW</tspan></text>
+  <text x="504" y="566" class="bb">3. Pre-flight guards <tspan class="new">NEW</tspan></text>
+  <text x="504" y="581" class="b">distinct soils · surface/domain coord check</text>
+  <text x="504" y="608" class="bb">4. Execute simulations</text>
+  <text x="504" y="623" class="b">N columns concurrent, one node · cost confirm</text>
+  <text x="504" y="650" class="bb">5. Collect results</text>
+  <text x="504" y="665" class="b">history NetCDF · restarts → warm-start carriers</text>
+  <text x="504" y="700" class="sub" font-style="italic">(each step detailed on a backup slide)</text>
 
-  <rect x="388" y="450" width="308" height="130" class="inner"/>
-  <text x="400" y="467" class="bb">1. Materialize sampling <tspan class="new">NEW</tspan></text>
-  <text x="400" y="483" class="b">strategy → concrete sites:</text>
-  <text x="400" y="499" class="b">• sample real DEM · clip to watershed polygon</text>
-  <text x="400" y="515" class="b">• elevation bands · allocate the planner's N</text>
-  <text x="400" y="531" class="b">• farthest-point spread · enrich each column</text>
-  <text x="412" y="547" class="b">with SSURGO soil + Fan WTD</text>
-  <text x="400" y="568" class="bb">→ columns.json + sampling-design figure</text>
-
-  <rect x="388" y="590" width="308" height="128" class="inner"/>
-  <text x="400" y="607" class="bb">2. Build &amp; configure</text>
-  <text x="400" y="623" class="b">• per-column couplers (lat/lon, soil, years)</text>
-  <text x="400" y="639" class="b">• surface + domain NetCDF per column</text>
-  <text x="400" y="655" class="b">• forcing: NLDAS-2 streams (default)</text>
-  <text x="400" y="671" class="b">• initialization: Fan warm-start finidat <tspan class="new">NEW</tspan></text>
-  <text x="400" y="687" class="b">• clone from shared executable (~15 s/column)</text>
-
-  <rect x="710" y="450" width="308" height="86" class="inner"/>
-  <text x="722" y="467" class="bb">3. Pre-flight guards <tspan class="new">NEW</tspan></text>
-  <text x="722" y="483" class="b">• every column has a distinct, correct soil</text>
-  <text x="722" y="499" class="b">• surface/domain coordinate consistency</text>
-  <text x="722" y="515" class="b">• forcing streams verified before any node time</text>
-
-  <rect x="710" y="546" width="308" height="86" class="inner"/>
-  <text x="722" y="563" class="bb">4. Execute simulations</text>
-  <text x="722" y="579" class="b">• one batch job — N columns concurrent, one node</text>
-  <text x="722" y="595" class="b">• cost estimate + user confirm before submit</text>
-  <text x="722" y="611" class="b">• queue monitoring, per-column status</text>
-
-  <rect x="710" y="642" width="308" height="76" class="inner"/>
-  <text x="722" y="659" class="bb">5. Collect results</text>
-  <text x="722" y="675" class="b">• per-column history NetCDF + run manifest</text>
-  <text x="722" y="691" class="b">• restart states (become future warm-start carriers)</text>
-
-  <!-- user checkpoint tap -->
-  <path d="M540,450 C540,410 560,390 610,382" stroke="#6b7280" stroke-width="1.3" stroke-dasharray="4 3" fill="none" marker-end="url(#arrd)"/>
-  <text x="620" y="380" class="sub" fill="#6b7280">sampling-design figure — user checkpoint before any compute</text>
+  <!-- user checkpoint tap off step 1 -->
+  <path d="M652,402 C652,378 660,368 690,362" stroke="#6b7280" stroke-width="1.3" stroke-dasharray="4 3" fill="none" marker-end="url(#arrd)"/>
+  <text x="700" y="360" class="sub" fill="#6b7280">sampling-design figure — user checkpoint before any compute</text>
 
   <!-- ANALYZER -->
   <rect x="1054" y="402" width="424" height="330" class="box"/>
@@ -168,21 +146,19 @@
   <text x="1082" y="715" class="sub">→ auto-generated storyline deck (question → … → appendix)</text>
 
   <!-- bottom-row arrows -->
-  <path d="M332,565 L368,565" stroke="#1f2937" stroke-width="2" marker-end="url(#arr)"/>
-  <text x="338" y="551" class="lbl" font-size="9.5">strategy</text>
-  <text x="342" y="585" class="sub" font-size="9">JSON</text>
-  <path d="M1034,565 L1050,565" stroke="#1f2937" stroke-width="2" marker-end="url(#arr)"/>
-  <text x="1036" y="551" class="lbl" font-size="9.5">results</text>
-  <text x="1034" y="585" class="sub" font-size="9">package</text>
+  <path d="M332,560 L472,560" stroke="#1f2937" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="360" y="548" class="lbl" font-size="9.5">strategy JSON</text>
+  <path d="M828,560 L1050,560" stroke="#1f2937" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="885" y="548" class="lbl" font-size="9.5">results package</text>
 
   <!-- data layer feeds -->
-  <path d="M183,358 C220,400 300,470 384,500" stroke="#6b7280" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
-  <text x="60" y="390" class="sub" fill="#6b7280">DEM · soil · WTD · forcing · priors (bulk reads)</text>
-  <path d="M344,340 C760,392 1020,388 1130,398" stroke="#6b7280" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
-  <text x="770" y="372" class="sub" fill="#6b7280">observations for validation (wells · gauges · SWE)</text>
+  <path d="M240,358 C300,410 420,452 488,500" stroke="#6b7280" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
+  <text x="150" y="392" class="sub" fill="#6b7280">DEM · soil · WTD · forcing · priors (bulk reads)</text>
+  <path d="M344,330 C760,392 1010,388 1120,398" stroke="#6b7280" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
+  <text x="800" y="374" class="sub" fill="#6b7280">observations for validation (wells · gauges · SWE)</text>
 
   <!-- footer -->
   <rect x="22" y="800" width="1456" height="58" fill="#f8fafc" stroke="#cbd5e1" rx="8"/>
   <text x="40" y="822" class="bb">Same interfaces as the original design: Reception → Planner → Experiment Manager → Analyzer, JSON at every handoff.</text>
-  <text x="40" y="840" class="b">All deviations (orange NEW) are internal to the boxes: sampling materialization + forcing/warm-start live inside the Experiment Manager; feasibility inside the Planner; observation validation inside the Analyzer.</text>
+  <text x="40" y="840" class="b">Deviations (orange NEW) live inside the boxes. The Experiment Manager is ELM-specialized today, but its plan-in / results-out contract is model-agnostic — PFLOTRAN fits as a parallel builder behind the same interface (legacy engine exists; ELM→PFLOTRAN coupling not yet built).</text>
 </svg>
