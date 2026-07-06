@@ -174,7 +174,48 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, do_soil=True, boundary=N
 # PLOTTING (--plot) — illustration of the sampling design
 # ─────────────────────────────────────────────────────────────────────────────
 
-def plot_columns(res, out_path):
+NLDAS_PRECIP = ("/global/cfs/cdirs/e3sm/inputdata/atm/datm7/"
+                "atm_forcing.datm7.NLDAS2.0.125d.v1/Precip")
+
+
+def _soil_cov(c):
+    """(clay_max %, ksat_min um/s) from the column's dominant-component horizons."""
+    layers = (c.get("soil_profile") or {}).get("layers") or []
+    comp = layers[0].get("component") if layers else None
+    hz = [l for l in layers if l.get("component") == comp]
+    def num(x):
+        try: return float(x)
+        except (TypeError, ValueError): return None
+    clays = [v for v in (num(l.get("clay_pct")) for l in hz) if v is not None]
+    ks = [v for v in (num(l.get("ksat_ums")) for l in hz) if v is not None]
+    return (max(clays) if clays else None, min(ks) if ks else None)
+
+
+def nldas_annual_precip(cols, year):
+    """Per-column annual NLDAS precipitation (mm/yr) — nearest 12 km cell,
+    lazy point reads over the 12 monthly files."""
+    import numpy as np
+    import xarray as xr
+    d0 = xr.open_dataset(f"{NLDAS_PRECIP}/ctsmforc.NLDAS2.0.125d.v1.Prec.{year}-01.nc")
+    lats = d0["LATIXY"].values[:, 0]
+    lons = d0["LONGXY"].values[0, :]
+    d0.close()
+    idx = {c["id"]: (int(np.abs(lats - c["lat"]).argmin()),
+                     int(np.abs(lons - (c["lon"] % 360.0)).argmin())) for c in cols}
+    tot = {cid: 0.0 for cid in idx}
+    for mm in range(1, 13):
+        ds = xr.open_dataset(
+            f"{NLDAS_PRECIP}/ctsmforc.NLDAS2.0.125d.v1.Prec.{year}-{mm:02d}.nc")
+        var = next(v for v in ds.data_vars if "PREC" in v.upper())
+        nt = ds.sizes["time"]
+        for cid, (i, j) in idx.items():
+            v = float(ds[var][:, i, j].sum())            # mm/s summed over hours
+            tot[cid] += v * (86400.0 / (24 if nt > 400 else 8))  # hourly vs 3-hourly
+        ds.close()
+    return tot
+
+
+def plot_columns(res, out_path, forcing_year=None):
     """Render a 2x2 illustration of the sampling design from an expand() result.
 
     Purpose-built for the spatial sampling layer (NOT the ELM-case domain plots
@@ -195,7 +236,7 @@ def plot_columns(res, out_path):
     def bcolor(b):
         return bcols[min(max(int(b) - 1, 0), nb - 1)]
 
-    fig, ax = plt.subplots(2, 2, figsize=(13, 9))
+    fig, ax = plt.subplots(2, 3, figsize=(17.5, 9))
     fig.suptitle(f"Sampling design — {res.get('n_columns')} columns",
                  fontsize=15, fontweight="bold")
 
@@ -279,6 +320,42 @@ def plot_columns(res, out_path):
     a.set_xticks(range(nb)); a.set_xticklabels(labels, rotation=20, fontsize=8)
     a.set_ylabel("columns allocated"); a.set_title("Columns per elevation band")
 
+    # P5 — soil configuration coverage: clay vs Ksat actually sampled
+    a = ax[0, 2]
+    plotted = False
+    for c in cols:
+        clay, ks = _soil_cov(c)
+        if clay is None or ks is None:
+            continue
+        a.scatter(max(ks, 0.05), clay, color=bcolor(c["band"]),
+                  marker=tmark.get(c.get("soil_top_texture"), "x"),
+                  s=85, edgecolor="k", linewidth=0.4)
+        plotted = True
+    a.set_xscale("log")
+    a.set_xlabel("min Ksat (µm/s, log)"); a.set_ylabel("max clay (%)")
+    a.set_title("Soil configurations sampled (SSURGO)")
+    if not plotted:
+        a.text(0.5, 0.5, "no soil profiles", transform=a.transAxes, ha="center")
+
+    # P6 — forcing coverage: NLDAS annual precip vs elevation (12 km cells)
+    a = ax[1, 2]
+    if forcing_year:
+        try:
+            pr = nldas_annual_precip(cols, forcing_year)
+            for c in cols:
+                a.scatter(c["elevation_m"], pr[c["id"]], color=bcolor(c["band"]),
+                          s=85, edgecolor="k", linewidth=0.4)
+            a.set_title(f"Forcing sampled — NLDAS precip {forcing_year} (12 km)")
+            a.set_xlabel("elevation (m)"); a.set_ylabel("annual precip (mm/yr)")
+        except Exception as e:
+            a.text(0.5, 0.5, f"NLDAS preview unavailable\n{str(e)[:60]}",
+                   transform=a.transAxes, ha="center", fontsize=9)
+            a.set_title("Forcing sampled (NLDAS)")
+    else:
+        a.text(0.5, 0.5, "pass --forcing-year to preview\nthe NLDAS precip gradient",
+               transform=a.transAxes, ha="center", fontsize=9, color="0.4")
+        a.set_title("Forcing sampled (NLDAS)")
+
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(out_path, dpi=130)
     plt.close(fig)
@@ -325,6 +402,8 @@ def main():
     ap.add_argument("--no-soil", action="store_true", help="skip soil enrichment (faster)")
     ap.add_argument("--plot", action="store_true",
                     help="render sampling_design.png (domain map, hypsometry, WTD vs elev, allocation)")
+    ap.add_argument("--forcing-year", type=int, default=None,
+                    help="add an NLDAS precip-vs-elevation forcing-coverage panel for this year")
     args = ap.parse_args()
 
     out_dir = Path(args.run_dir) if args.run_dir else Path(".")
@@ -382,7 +461,8 @@ def main():
 
     _print_table(res)
     if args.plot:
-        png = plot_columns(res, str(out_dir / "sampling_design.png"))
+        png = plot_columns(res, str(out_dir / "sampling_design.png"),
+                           forcing_year=args.forcing_year)
         print(f"Saved plot -> {png}")
     print()
 
