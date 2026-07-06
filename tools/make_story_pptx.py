@@ -253,6 +253,68 @@ def picture(slide, path, top, max_w=Inches(12.3), max_h=None):
 
 
 # ── slide builders ───────────────────────────────────────────────────────────
+def gather_pflotran(rd: Path):
+    st = load(rd / "pflotran_study.json")
+    if not st:
+        return None
+    return {"type": "pflotran", "dir": rd, "name": st["name"],
+            "question": st["question"], "model": st.get("model", ""),
+            "execution": st.get("execution", ""), "interp": st.get("interpretation", []),
+            "rates": st.get("scenarios_mm_yr", []), "rows": st.get("columns", []),
+            "figs": [rd / f for f in ("sampling_design.png",) if (rd / f).exists()],
+            "rfigs": [p for p in (rd / "r100" / "pflotran_profiles.png",
+                                  rd / "pflotran_scenarios.png") if p.exists()]}
+
+
+def pflotran_slides(prs, s, idx):
+    sl = blank(prs)
+    text(sl, Inches(.8), Inches(2.1), W - Inches(1.6), Inches(1.0),
+         f"Case {idx} — {s['name']}", size=30, bold=True)
+    text(sl, Inches(.8), Inches(3.3), W - Inches(1.6), Inches(2.4),
+         [("question", s["question"]), ("model", s["model"]),
+          ("scenarios", f"steady uniform recharge {'/'.join(f'{r:.0f}' for r in s['rates'])} mm/yr"
+                        " — a controlled experiment: only the subsurface varies"),
+          ("execution", s["execution"])], size=15)
+    for f in s["figs"]:
+        sl = blank(prs)
+        header(sl, f"{s['name']} — sampling design (same columns as the ELM studies)")
+        sl.shapes.add_picture(str(f), Inches(1.2), Inches(1.25), height=Inches(5.7))
+    for cap, f in zip(("profiles & water tables (100 mm/yr)", "scenario sweep — the dynamics"),
+                      s["rfigs"]):
+        sl = blank(prs)
+        header(sl, f"{s['name']} — {cap}")
+        sl.shapes.add_picture(str(f), Inches(1.0), Inches(1.35), width=Inches(11.3))
+    sl = blank(prs)
+    header(sl, f"{s['name']} — interpretation")
+    text(sl, Inches(.6), Inches(1.4), W - Inches(1.2), Inches(5.6),
+         ["•  " + t for t in s["interp"]], size=14)
+
+
+def pflotran_appendix(prs, s, idx):
+    rows = s.get("rows") or []
+    if not rows:
+        return
+    sl = blank(prs)
+    header(sl, f"Appendix P{idx} — {s['name']}: columns & scenario wetness",
+           "vadose-zone mean saturation per recharge rate · WTD from the hydrostatic prior")
+    rates = s["rates"]
+    hdr = ["column", "elev m", "Fan WTD m", "domain m", "WTD end m"] +           [f"sat @{r:.0f}" for r in rates]
+    tbl = sl.shapes.add_table(len(rows) + 1, len(hdr), Inches(.7), Inches(1.5),
+                              Inches(12), Inches(.26) * (len(rows) + 1)).table
+    def fmt(x, d=2):
+        return f"{x:.{d}f}" if isinstance(x, (int, float)) else ">cap"
+    for c, h in enumerate(hdr):
+        cell = tbl.cell(0, c); cell.text = h
+        cell.text_frame.paragraphs[0].font.size = Pt(10)
+        cell.text_frame.paragraphs[0].font.bold = True
+    for r, row in enumerate(rows, 1):
+        vals = [row["id"], fmt(row["elevation_m"], 0), fmt(row["fan_wtd_m"], 1),
+                fmt(row["depth_m"], 1), fmt(row["wtd_final_m"])] +                [fmt(row.get(f"sat_r{ra:.0f}")) for ra in rates]
+        for c, v in enumerate(vals):
+            cell = tbl.cell(r, c); cell.text = str(v)
+            cell.text_frame.paragraphs[0].font.size = Pt(9)
+
+
 def study_slides(prs, s, idx):
     # 1 · question + planning reasons
     sl = blank(prs)
@@ -411,6 +473,9 @@ def main():
         # (controlled) — this excludes legacy pre-framework run dirs
         and ((d / "reception_brief.json").exists() or (d / "soilsweep_plan.json").exists()))
     studies = [s for s in (gather(rd) for rd in run_dirs) if s]
+    pf_dirs = sorted(d for d in (ROOT / "workflow_outputs").iterdir()
+                     if (d / "pflotran_study.json").exists())
+    pf_studies = [s for s in (gather_pflotran(rd) for rd in pf_dirs) if s]
     if not studies:
         raise SystemExit("no executed+analyzed runs found under workflow_outputs/")
 
@@ -427,15 +492,19 @@ def main():
 
     for i, s in enumerate(studies, 1):
         study_slides(prs, s, i)
+    for j, s in enumerate(pf_studies, len(studies) + 1):
+        pflotran_slides(prs, s, j)
     comparison_slide(prs, studies)
     for i, s in enumerate(studies, 1):          # appendix: per-study column tables
         appendix_slide(prs, s, i)
+    for j, s in enumerate(pf_studies, 1):
+        pflotran_appendix(prs, s, j)
 
     out = Path(args.out) if args.out else ROOT / "docs" / "slides" / f"story_{date.today():%Y%m%d}.pptx"
     out.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out))
-    print(f"{len(prs.slides)} slides · {len(studies)} studies -> {out}")
-    for s in studies:
+    print(f"{len(prs.slides)} slides · {len(studies) + len(pf_studies)} studies -> {out}")
+    for s in studies + pf_studies:
         print(f"  • {s['name']:<24} ({s['dir'].name})")
 
 

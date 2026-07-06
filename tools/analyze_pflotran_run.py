@@ -59,9 +59,12 @@ def main():
         H = m["depth_m"]
         t0, z0, p0, _ = read_tec(tecs[0])
         tN, zN, pN, sN = read_tec(tecs[-1])
+        vad = [sv for sv, pv in zip(sN, pN) if pv < ATM]
         rows.append({**{k: m[k] for k in ("id", "elevation_m", "fan_wtd_m", "depth_m")},
                      "wtd_initial_m": wtd_from_profile(z0, p0, H),
                      "wtd_final_m": wtd_from_profile(zN, pN, H),
+                     "sat_top": round(sN[-1], 4),
+                     "sat_vadose_mean": round(sum(vad) / len(vad), 4) if vad else None,
                      "years": tN})
         profiles[m["id"]] = (m.get("elevation_m"), [H - zi for zi in zN], sN)
 
