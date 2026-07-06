@@ -55,6 +55,22 @@ def exec_summary(rd: Path):
     return f"{n_cases} columns built (no run log found)" if n_cases else None
 
 
+def forcing_label(rd: Path) -> str:
+    """Which met forcing drove this run: explicit marker file, else detect from
+    a surviving case's DATM stream, else a dirname heuristic (purged runs)."""
+    m = rd / "forcing.txt"
+    if m.exists():
+        return m.read_text().strip()
+    for cf in ("cases_all.json", "cases.json"):
+        for c in load(rd / cf) or []:
+            st = Path(c) / "run" / "datm.streams.txt.CLM_QIAN.Precip"
+            if st.exists():
+                return ("NLDAS-2 (0.125°, ~12 km)" if "NLDAS2" in st.read_text()
+                        else "CLM_QIAN (Qian 2006, T62 ≈ 1.9°)")
+    return ("NLDAS-2 (0.125°, ~12 km)" if "nldas" in rd.name or "warmstart" in rd.name
+            else "CLM_QIAN (Qian 2006, T62 ≈ 1.9°)")
+
+
 def gather(rd: Path):
     """Everything the slides need for one run."""
     hs = load(rd / "04_analysis" / "hydro_summary.json")
@@ -182,6 +198,7 @@ def gather(rd: Path):
     return {"dir": rd, "name": name, "question": question, "subtitle": subtitle,
             "reasons": reasons, "execution": exec_summary(rd), "interp": interp,
             "evaluation": evaluation, "column_rows": rows,
+            "forcing": forcing_label(rd),
             "driver_matrix": hs.get("driver_matrix"),
             "plan_figs": figs, "result_figs": rfigs,
             "n_cols": len(ok),
@@ -274,8 +291,8 @@ def study_slides(prs, s, idx):
     text(sl, Inches(.5), Inches(7.0), W - Inches(1), Inches(.45),
          ["Definitions — recharge = ELM QCHARGE (flux from the soil column to the water "
           "table); runoff = QOVER (surface runoff); recharge fraction = QCHARGE/(QCHARGE"
-          "+QOVER); WTD = ZWT (the column's own water-table depth); forcing = CLM_QIAN "
-          "(Qian 2006, T62 ≈ 1.9°) precip at the column."], size=9.5, color=MUT)
+          "+QOVER); WTD = ZWT (the column's own water-table depth); forcing = "
+          f"{s['forcing']} precip at the column."], size=9.5, color=MUT)
     for f in s["result_figs"][2:]:
         sl = blank(prs)
         header(sl, f"{s['name']} — results (continued)")
@@ -368,8 +385,8 @@ def appendix_slide(prs, s, idx):
         return
     sl = blank(prs)
     header(sl, f"Appendix A{idx} — {s['name']}: columns & results",
-           "characteristics from the real data (SSURGO soil, Fan 2013 WTD, Qian forcing) "
-           "· results are annual means (mm/yr)")
+           f"characteristics from the real data (SSURGO soil, Fan 2013 WTD, "
+           f"{s['forcing']} forcing) · results are annual means (mm/yr)")
     rows = [APPENDIX_HDR] + s["column_rows"]
     tbl = sl.shapes.add_table(len(rows), len(APPENDIX_HDR), Inches(.4), Inches(1.45),
                               W - Inches(.8), Inches(.42) * len(rows)).table

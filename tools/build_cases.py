@@ -66,6 +66,9 @@ def main():
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "cases.json").write_text(json.dumps(ok, indent=2))
+    (out / "forcing.txt").write_text(
+        "NLDAS-2 (0.125°, ~12 km)" if args.forcing == "nldas"
+        else "CLM_QIAN (Qian 2006, T62 ≈ 1.9°)")
     exe = str(Path(args.ref) / "build" / "e3sm.exe")
     (out / "exe_path.txt").write_text(exe)
     print(f"\n{len(ok)}/{len(exps)} cloned -> {out / 'cases.json'}\nshared exe: {exe}")
