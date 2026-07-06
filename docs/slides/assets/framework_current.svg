@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 880" font-family="Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="7.5" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#1f2937"/>
+    </marker>
+    <marker id="arrd" markerWidth="10" markerHeight="10" refX="7.5" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+  <style>
+    .box   { fill:#ffffff; stroke:#2e75b6; stroke-width:2.2; rx:12; }
+    .inner { fill:#efefef; stroke:#8a8a8a; stroke-width:1; }
+    .title { font-size:16px; font-weight:bold; fill:#111; }
+    .sub   { font-size:10.5px; fill:#333; }
+    .b     { font-size:11px; fill:#111; }
+    .bb    { font-size:11px; font-weight:bold; fill:#111; }
+    .lbl   { font-size:10.5px; fill:#1f2937; font-weight:bold; }
+    .new   { fill:#c2410c; }
+  </style>
+
+  <!-- ═══════════ USER (top right) ═══════════ -->
+  <circle cx="1205" cy="34" r="11" fill="#111"/>
+  <path d="M1186,62 q19,-16 38,0 z" fill="#111"/>
+  <text x="1232" y="34" class="title">User</text>
+  <text x="962" y="26" class="lbl">Define goals &amp; select region</text>
+  <text x="962" y="39" class="sub">(natural language)</text>
+  <path d="M1180,45 L1010,92" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="1042" y="120" class="lbl" transform="rotate(0)">Clarifying questions</text>
+  <text x="1042" y="132" class="sub">(with MCP evidence)</text>
+  <path d="M1015,140 L1192,66" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="1345" y="95" class="lbl">Final report:</text>
+  <text x="1345" y="109" class="sub">auto-built deck +</text>
+  <text x="1345" y="121" class="sub">figures + verdicts</text>
+  <path d="M1385,410 C1440,300 1330,120 1237,58" stroke="#1f2937" stroke-width="1.8" fill="none" marker-end="url(#arr)"/>
+
+  <!-- ═══════════ MCP (top left) ═══════════ -->
+  <rect x="22" y="58" width="320" height="180" class="box"/>
+  <text x="182" y="82" class="title" text-anchor="middle">Model Context Protocol</text>
+  <text x="182" y="97" class="sub" text-anchor="middle">(6 stdio MCP servers — live geospatial data)</text>
+  <rect x="38" y="106" width="288" height="118" class="inner"/>
+  <text x="50" y="123" class="b">• terrain — USGS 3DEP DEM · WBD watersheds</text>
+  <text x="50" y="140" class="b">• geology — USDA SSURGO soil profiles</text>
+  <text x="50" y="157" class="b">• usgs_water — wells + stream gauges (OGC API)</text>
+  <text x="50" y="174" class="b">• snotel — NRCS SWE stations</text>
+  <text x="50" y="191" class="b">• fan_wtd — Fan 2013 equilibrium water table</text>
+  <text x="50" y="208" class="b">• weather — climate summaries</text>
+
+  <!-- forcing & priors (new data layer) -->
+  <rect x="22" y="252" width="320" height="102" class="box"/>
+  <text x="182" y="274" class="title" text-anchor="middle" font-size="14">Forcing &amp; Initialization Priors</text>
+  <text x="316" y="274" class="bb new">NEW</text>
+  <rect x="38" y="284" width="288" height="60" class="inner"/>
+  <text x="50" y="301" class="b">• NLDAS-2 met forcing, 0.125° / 12 km (default)</text>
+  <text x="50" y="318" class="b">• Fan 2013 WTD → warm-start initial conditions</text>
+  <text x="50" y="335" class="b">• ParFlow-CONUS2 1-km prior (wishlist, wired)</text>
+
+  <!-- ═══════════ RECEPTION (top center) ═══════════ -->
+  <rect x="640" y="70" width="370" height="150" class="box"/>
+  <text x="825" y="94" class="title" text-anchor="middle">Reception Agent</text>
+  <text x="825" y="109" class="sub" text-anchor="middle">(agentic LLM tool-user — drives the MCP tools itself)</text>
+  <rect x="656" y="118" width="338" height="92" class="inner"/>
+  <text x="668" y="135" class="bb">Intent + archetype routing</text>
+  <text x="668" y="150" class="b">(conceptual / site / coupling experiments)</text>
+  <text x="668" y="167" class="b">• gathers evidence: watershed, terrain, soil, obs</text>
+  <text x="668" y="182" class="b">• interactive clarification (ask_user tool)</text>
+  <text x="668" y="199" class="b">• multi-turn context (follow-up experiments)</text>
+
+  <!-- agentic tool loop between MCP and Reception -->
+  <path d="M350,120 C480,90 540,95 636,110" stroke="#1f2937" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <path d="M636,150 C540,170 470,168 350,150" stroke="#1f2937" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <text x="493" y="82" class="lbl" text-anchor="middle">Agentic tool loop</text>
+  <text x="493" y="95" class="sub" text-anchor="middle">(LLM calls tools; results feed back — every round)</text>
+  <text x="493" y="188" class="sub" text-anchor="middle">regional data retrieval / context exchange</text>
+
+  <!-- reception -> planner / analyzer -->
+  <path d="M700,220 C560,290 330,330 250,398" stroke="#1f2937" stroke-width="1.8" fill="none" marker-end="url(#arr)"/>
+  <text x="405" y="300" class="lbl">Design new exp. — framed brief JSON</text>
+  <text x="405" y="313" class="sub">(domain, drivers, obs available/missing)</text>
+  <path d="M960,220 C1080,290 1210,330 1275,398" stroke="#1f2937" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <text x="1075" y="305" class="lbl">Analyze existing exp.</text>
+  <text x="1075" y="318" class="sub">+ prior-run context</text>
+
+  <!-- ═══════════ BOTTOM ROW ═══════════ -->
+  <!-- PLANNER -->
+  <rect x="22" y="402" width="310" height="330" class="box"/>
+  <text x="177" y="426" class="title" text-anchor="middle">Planner Agent</text>
+  <text x="177" y="441" class="sub" text-anchor="middle">(heavyweight LLM — capability-aware designer)</text>
+  <rect x="38" y="450" width="278" height="268" class="inner"/>
+  <text x="50" y="469" class="bb">• Design experiment strategy</text>
+  <text x="60" y="484" class="b">N, elevation/soil strata, validation targets</text>
+  <text x="60" y="499" class="b">(uses reception's real-world context)</text>
+  <text x="50" y="521" class="bb">• Feasibility verdict <tspan class="new">NEW</tspan></text>
+  <text x="60" y="536" class="b">answerable vs not-answerable vs needs,</text>
+  <text x="60" y="551" class="b">checked against known execution limits</text>
+  <text x="50" y="573" class="bb">• requires_capabilities backlog</text>
+  <text x="60" y="588" class="b">(the development work a question implies)</text>
+  <text x="50" y="610" class="bb">• Strategy altitude only</text>
+  <text x="60" y="625" class="b">no coordinates, no per-column configs</text>
+  <text x="50" y="651" class="bb">Internal validation loop (iterative)</text>
+  <text x="60" y="666" class="b">deterministic brief/plan checks</text>
+  <text x="50" y="695" class="sub">models: ELM 1-D ensembles (PFLOTRAN</text>
+  <text x="50" y="708" class="sub">coupling designed, not yet built)</text>
+
+  <!-- anti-hallucination boundary -->
+  <line x1="352" y1="402" x2="352" y2="745" stroke="#dc2626" stroke-width="1.6" stroke-dasharray="7 5"/>
+  <text x="346" y="760" class="sub" fill="#dc2626" font-weight="bold">anti-hallucination boundary — the LLM never emits coordinates</text>
+
+  <!-- EXPANDER (NEW) -->
+  <rect x="372" y="402" width="280" height="330" class="box" stroke="#c2410c"/>
+  <text x="512" y="426" class="title" text-anchor="middle">Tier-2 Expander</text>
+  <text x="620" y="426" class="bb new">NEW</text>
+  <text x="512" y="441" class="sub" text-anchor="middle">(deterministic Python — materializes the strategy)</text>
+  <rect x="388" y="450" width="248" height="268" class="inner"/>
+  <text x="400" y="469" class="b">1. Sample the real DEM across the basin</text>
+  <text x="400" y="486" class="b">2. Clip to the watershed polygon</text>
+  <text x="400" y="503" class="b">3. Elevation bands + proportional</text>
+  <text x="412" y="518" class="b">allocation of the planner's N</text>
+  <text x="400" y="535" class="b">4. Farthest-point spatial spread</text>
+  <text x="400" y="552" class="b">5. Enrich each column: SSURGO soil</text>
+  <text x="412" y="567" class="b">profile + Fan WTD</text>
+  <text x="400" y="592" class="bb">→ columns.json</text>
+  <text x="400" y="607" class="b">real lat/lon, soil, water table per column</text>
+  <text x="400" y="632" class="sub">+ sampling-design figure (planning plot)</text>
+  <text x="400" y="700" class="sub" font-style="italic">every coordinate comes from data,</text>
+  <text x="400" y="713" class="sub" font-style="italic">never from the LLM</text>
+
+  <!-- EXPERIMENT MANAGER -->
+  <rect x="672" y="402" width="360" height="330" class="box"/>
+  <text x="852" y="426" class="title" text-anchor="middle">Experiment Manager</text>
+  <text x="852" y="441" class="sub" text-anchor="middle">(deterministic toolchain — per-column ELM on Perlmutter)</text>
+  <rect x="688" y="450" width="328" height="52" class="inner"/>
+  <text x="700" y="467" class="bb">1. Adapt plan</text>
+  <text x="700" y="483" class="b">columns → per-column couplers (lat/lon, soil, years)</text>
+  <rect x="688" y="508" width="328" height="82" class="inner"/>
+  <text x="700" y="525" class="bb">2. Build &amp; configure</text>
+  <text x="700" y="541" class="b">per-column surface + domain NetCDF · clone from</text>
+  <text x="700" y="556" class="b">shared exe (~15 s) · NLDAS-2 streams (default)</text>
+  <text x="700" y="572" class="b">· Fan warm-start finidat <tspan class="new">NEW</tspan></text>
+  <rect x="688" y="596" width="328" height="50" class="inner"/>
+  <text x="700" y="613" class="bb">3. Pre-flight guards <tspan class="new">NEW</tspan></text>
+  <text x="700" y="629" class="b">distinct soils · surface/domain coord check</text>
+  <rect x="688" y="652" width="328" height="66" class="inner"/>
+  <text x="700" y="669" class="bb">4. Execute + collect</text>
+  <text x="700" y="685" class="b">one batch job, N columns concurrent on one node</text>
+  <text x="700" y="701" class="b">· cost/queue confirm before submit · monitoring</text>
+
+  <!-- ANALYZER -->
+  <rect x="1052" y="402" width="426" height="330" class="box"/>
+  <text x="1265" y="426" class="title" text-anchor="middle">Analyzer</text>
+  <text x="1265" y="441" class="sub" text-anchor="middle">(deterministic numbers → observation validation → LLM interpretation)</text>
+  <rect x="1068" y="450" width="394" height="82" class="inner"/>
+  <text x="1080" y="467" class="bb">a. Deterministic analysis</text>
+  <text x="1080" y="483" class="b">water budget P → runoff/infiltration/ET/recharge/Δstorage</text>
+  <text x="1080" y="498" class="b">· driver × response matrix (elev, precip, clay, Ksat)</text>
+  <text x="1080" y="513" class="b">· honesty flags (forcing bins, fit r², leverage) · figures</text>
+  <rect x="1068" y="538" width="394" height="82" class="inner"/>
+  <text x="1080" y="555" class="bb">b. Observation validation <tspan class="new">NEW</tspan></text>
+  <text x="1080" y="571" class="b">WTD: model vs Fan vs USGS wells · streamflow: specific</text>
+  <text x="1080" y="586" class="b">discharge + daily hydrograph NSE/KGE · SNOTEL peak SWE</text>
+  <text x="1080" y="601" class="b">· honest status per target: compared vs context-only</text>
+  <rect x="1068" y="626" width="394" height="66" class="inner"/>
+  <text x="1080" y="643" class="bb">c. LLM interpreter (Answer / Why / Trust / Next)</text>
+  <text x="1080" y="659" class="b">verifies against plan + feasibility · cites the numbers</text>
+  <text x="1080" y="674" class="b">· recommends next experiments (loop)</text>
+  <text x="1080" y="715" class="sub">→ auto-generated storyline deck (question → … → appendix)</text>
+
+  <!-- bottom-row arrows -->
+  <path d="M332,565 L368,565" stroke="#1f2937" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="337" y="552" class="lbl" font-size="9.5">strategy</text>
+  <text x="340" y="585" class="sub" font-size="9">JSON</text>
+  <path d="M652,565 L668,565" stroke="#1f2937" stroke-width="2" marker-end="url(#arr)"/>
+  <path d="M1032,565 L1048,565" stroke="#1f2937" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="1036" y="551" class="lbl" font-size="9.5">results</text>
+  <text x="1035" y="585" class="sub" font-size="9">NetCDF</text>
+
+  <!-- MCP dashed data feeds -->
+  <path d="M344,190 C480,225 512,300 512,396" stroke="#6b7280" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
+  <text x="556" y="248" class="sub" fill="#6b7280">DEM · soil · WTD</text>
+  <path d="M342,300 C700,350 1000,370 1120,398" stroke="#6b7280" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
+  <text x="700" y="366" class="sub" fill="#6b7280">observations for validation (wells · gauges · SWE) + forcing/priors into build</text>
+
+  <!-- footer -->
+  <rect x="22" y="800" width="1456" height="58" fill="#f8fafc" stroke="#cbd5e1" rx="8"/>
+  <text x="40" y="822" class="bb">Same four-agent skeleton as the original design.</text>
+  <text x="40" y="840" class="b">Main deviations (orange NEW): the deterministic Tier-2 Expander (anti-hallucination), capability-aware feasibility in the planner, NLDAS-2 forcing + Fan warm-start initialization, pre-flight guards, and an observation-validation stage with standard metrics (NSE/KGE) inside the analyzer.</text>
+</svg>
