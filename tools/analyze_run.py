@@ -358,15 +358,22 @@ def plot_wtd(results, run_dir, out_path):
     f = np.array([fan.get(r["case_name"]) or np.nan for r in ok], float)
     ax.scatter(x, np.clip(f, .05, None), marker="o", s=48, color="#8856a7",
                edgecolor="#222", label="Fan 2013 equilibrium WTD", zorder=3)
+    firsts = [z.get("first_m") for z in zwt if z.get("first_m") is not None]
+    uniform = firsts and (max(firsts) - min(firsts) < 0.05)
+    init_lab = "model ZWT — initial (cold start)" if uniform else \
+               "model ZWT — initial (Fan warm start)"
     ax.scatter(x, [z.get("first_m") for z in zwt], marker="s", s=40,
-               color="#d95f0e", label="model ZWT — initial (cold start)", zorder=4)
+               color="#d95f0e", label=init_lab, zorder=4)
     ax.scatter(x, [z.get("last_m") for z in zwt], marker="x", s=48,
                color="#2c7fb8", label="model ZWT — end of run", zorder=5)
     ax.set_yscale("log"); ax.invert_yaxis()
     ax.set_xticks(x); ax.set_xticklabels(names, fontsize=7)
     ax.set_ylabel("water-table depth (m, log)")
     ax.set_title("Water table per column — every column cold-starts at the SAME default "
-                 "and barely moves in 1 yr; the real (Fan) WTD varies by orders of magnitude",
+                 "and barely moves in 1 yr; the real (Fan) WTD varies by orders of magnitude"
+                 if uniform else
+                 "Water table per column — initialized from the Fan prior (warm start), "
+                 "then relaxing toward ELM's own equilibrium",
                  fontweight="bold", fontsize=11.5)
     ax.legend(frameon=False, fontsize=9)
     ax.grid(alpha=.25); ax.spines[["top", "right"]].set_visible(False)

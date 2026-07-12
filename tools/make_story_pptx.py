@@ -276,10 +276,13 @@ def pflotran_slides(prs, s, idx):
     text(sl, Inches(.8), Inches(2.1), W - Inches(1.6), Inches(1.0),
          f"Case {idx} — {s['name']}", size=30, bold=True)
     text(sl, Inches(.8), Inches(3.3), W - Inches(1.6), Inches(2.4),
-         [("question", s["question"]), ("model", s["model"]),
-          ("scenarios", f"steady uniform recharge {'/'.join(f'{r:.0f}' for r in s['rates'])} mm/yr"
-                        " — a controlled experiment: only the subsurface varies"),
-          ("execution", s["execution"])], size=15)
+         [("question", s["question"]), ("model", s["model"])] +
+         ([("scenarios", f"steady uniform recharge {'/'.join(f'{r:.0f}' for r in s['rates'])} mm/yr"
+                         " — a controlled experiment: only the subsurface varies")]
+          if s["rates"] else
+          [("forcing", "each column's own ELM daily infiltration — the forcing "
+                       "gradient varies per column (one-way coupling)")]) +
+         [("execution", s["execution"])], size=15)
     for f in s["figs"]:
         sl = blank(prs)
         header(sl, f"{s['name']} — sampling design (same columns as the ELM studies)")
