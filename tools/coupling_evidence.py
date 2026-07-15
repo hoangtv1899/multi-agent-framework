@@ -107,6 +107,12 @@ def main():
         print(f"{r['id']:<8}{r['fan_wtd_m']:>8.1f} | {fmt(r['elm_lag_d']):>8}"
               f"{r['elm_att']:>9.3f} | {fmt(r['coupled_lag_d']):>8}{r['coupled_att']:>9.3f}")
 
+    def _corr(key):
+        w = np.array([np.log10(r["fan_wtd_m"]) for r in rows])
+        y = np.array([r[key] for r in rows])
+        return float(np.corrcoef(w, y)[0, 1]) if len(rows) > 2 else float("nan")
+    r_cpl_att, r_elm_att = _corr("coupled_att"), _corr("elm_att")
+
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -152,7 +158,8 @@ def main():
     ax[2].set_title("Signal surviving to the 'recharge' point",
                     fontweight="bold", fontsize=10.5)
     ax[2].legend(frameon=False, fontsize=8, loc="lower left")
-    ax[2].text(.03, .05, "ELM: scatter, no relation to WTD\ncoupled: monotonic decay with depth",
+    ax[2].text(.03, .05, f"coupled: decay with depth (r={r_cpl_att:+.2f}); soil texture adds scatter\n"
+                         f"ELM: no relation to WTD (r={r_elm_att:+.2f}) — recharge fixed at 3.8 m",
                transform=ax[2].transAxes, fontsize=8, color="#374151")
     for a in ax:
         a.grid(alpha=.25); a.spines[["top", "right"]].set_visible(False)
