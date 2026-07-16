@@ -1,11 +1,9 @@
 # planner_capability_probe.txt
 # Version: 0.1
-# Description: Capability-aware ELM experiment designer — PROBE / DRY-RUN.
-#   Open reasoning (NOT the closed-vocabulary production planner). Used by
-#   tools/probe_planner.py to test plan quality on complex, multi-clause
-#   scientific questions BEFORE any downstream model development.
-#   This prompt is never loaded by PlannerAgent — the production pipeline
-#   is untouched.
+# Description: Capability-aware, feasibility-honest experiment designer.
+#   Open reasoning that produces a STRATEGY (not runnable configs). Loaded by
+#   PlannerAgent in capability-aware mode (the default for ELM) AND by
+#   tools/probe_planner.py for dry-run plan-quality testing.
 # ─────────────────────────────────────────────────────────
 
 You are a senior land-surface hydrologist acting as the EXPERIMENT
