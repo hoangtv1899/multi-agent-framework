@@ -1,0 +1,220 @@
+{
+  "prompt_id": "K01",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user asks **when infiltration becomes recharge at the real water table** \u2014 this is fundamentally a **vadose-zone transit time** question that requires tracking water movement through the unsaturated zone to a dynamic water table. This is a **coupling problem**: ELM alone cannot answer it because:\n\n1. **ELM's limitation**: ELM has a fixed 10-layer soil column (~8 m deep) with a free-draining bottom boundary. It produces sub-surface drainage flux (QDRAI) but does NOT represent a real water table, capillary rise from groundwater, or vadose-zone transit time below the root zone.\n\n2. **What's needed**: A vadose-zone / groundwater model (PFLOTRAN) that:\n   - Receives ELM's bottom drainage as top recharge BC\n   - Solves Richards equation through the full vadose zone to a real water table\n   - Tracks transit time from surface infiltration \u2192 water table arrival\n   - Represents water-table depth variation (which feeds back to capillary rise, though that feedback is out of scope for one-way coupling)\n\n3. **The coupling design**:\n   - **Driver**: ELM QDRAI (sub-surface drainage, mm/day time series) \u2192 PFLOTRAN top recharge flux BC\n   - **Temporal mapping**: ELM daily/monthly drainage \u2192 PFLOTRAN transient recharge BC over the same period\n   - **PFLOTRAN setup**: 1-D columns at the same (lat, lon) as ELM, extending from land surface to observed water table depth (Fan 2013 / USGS wells), solving variably-saturated flow with a fixed-head bottom BC at the water table\n   - **Transit time calculation**: PFLOTRAN particle tracking or age tracer from surface \u2192 water table\n   - **What to compare**: Coupled (ELM\u2192PFLOTRAN transit time) vs standalone ELM (which cannot compute it). The comparison reveals where ELM's free-drain assumption fails (shallow water tables, fine soils with slow percolation).\n\n4. **Spatial sampling**: Stratify by **water-table depth** (the primary control on vadose-zone thickness and transit time) and **soil texture** (controls percolation rate). Use Fan 2013 WTD prior + USGS wells to define WTD strata. Validation: compare PFLOTRAN's simulated water-table depth time series to USGS well observations (co-located where wells exist).\n\n5. **Feasibility verdict**: **PARTIAL**. The question is scientifically well-posed and the coupling design is sound, BUT:\n   - **Answerable**: Soil control on vadose-zone percolation (via ELM), spatial variation in drainage flux\n   - **Not answerable without coupling**: Transit time itself, water-table depth dynamics, capillary rise feedback\n   - **Requires**: ELM\u2192PFLOTRAN coupler (unbuilt), PFLOTRAN 1-D vadose-zone setup, particle tracking / age tracer in PFLOTRAN, USGS well data ingest\n\n---\n\n## JSON OUTPUT\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Quantify vadose-zone transit time from infiltration to water-table recharge across spatial heterogeneity\",\n      \"Validate simulated water-table depth against USGS well observations\"\n    ],\n    \"key_processes\": [\n      \"Surface infiltration partitioning (ELM)\",\n      \"Vadose-zone percolation through unsaturated zone (PFLOTRAN)\",\n      \"Water-table recharge arrival and depth dynamics (PFLOTRAN)\"\n    ],\n    \"drivers_to_resolve\": [\n      \"water-table depth (vadose-zone thickness)\",\n      \"soil texture (percolation rate)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"coupling\",\n    \"rationale\": \"Transit time from infiltration to water table requires tracking through the vadose zone below ELM's root zone to a real water table, which ELM's free-drain boundary cannot represent. Coupling ELM drainage to PFLOTRAN vadose-zone flow is necessary.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"ELM\u2192PFLOTRAN one-way coupling: ELM sub-surface drainage (QDRAI) drives PFLOTRAN top recharge BC; PFLOTRAN solves variably-saturated flow to water table and computes transit time via particle tracking or age tracer. Coupler mechanism is unbuilt (listed in requires_capabilities).\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Spatial variation in ELM sub-surface drainage flux (QDRAI) across soil and water-table depth gradients\",\n      \"Soil texture control on surface partitioning and root-zone percolation\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Vadose-zone transit time from infiltration to water-table recharge\",\n        \"why\": \"ELM has a free-draining bottom boundary and does not represent the vadose zone below ~8 m or a real water table. Transit time calculation requires PFLOTRAN.\",\n        \"needs\": \"ELM\u2192PFLOTRAN coupler with QDRAI\u2192recharge BC mapping\"\n      },\n      {\n        \"aspect\": \"Water-table depth dynamics and capillary rise feedback to root zone\",\n        \"why\": \"ELM does not represent a water table or capillary rise from groundwater. PFLOTRAN can simulate water-table depth, but feedback to ELM requires two-way coupling (out of scope for one-way design).\",\n        \"needs\": \"PFLOTRAN vadose-zone / water-table model; two-way coupling for feedback (optional, not required for transit time)\"\n      }\n    ]\n  },\n  \"coupling_design\": {\n    \"from_model\": \"ELM\",\n    \"to_model\": \"PFLOTRAN\",\n    \"driver\": \"ELM sub-surface drainage flux (QDRAI, mm/day) \u2192 PFLOTRAN top boundary recharge flux (m/s)\",\n    \"temporal_mapping\": \"ELM daily or monthly QDRAI time series (1980-2018) \u2192 PFLOTRAN transient recharge BC at land surface over the same period\",\n    \"receiving_setup\": \"PFLOTRAN 1-D columns at same (lat, lon) as ELM, extending from land surface (z=0) to observed water-table depth (Fan 2013 / USGS wells). Solve Richards equation (variably-saturated flow) with top BC = ELM recharge flux, bottom BC = fixed head at water table (Dirichlet, from observations). Soil hydraulic properties from gridded soil data (van Genuchten parameters). Particle tracking or age tracer to compute transit time from surface to water table.\",\n    \"compare\": \"Coupled (ELM\u2192PFLOTRAN transit time, water-table depth time series) vs standalone ELM (which cannot compute transit time and assumes instant drainage at bottom boundary). Comparison reveals where ELM's free-drain assumption breaks: shallow water tables (<5 m), fine-textured soils with slow percolation, and locations where capillary rise would matter (not captured in one-way coupling, but PFLOTRAN can diagnose it).\"\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Stratified by water-table depth (vadose-zone thickness, primary control on transit time) and soil texture (percolation rate). Validation columns pinned to USGS well locations.\",\n    \"strata\": [\n      {\n        \"driver\": \"water-table depth\",\n        \"bands\": [\n          \"shallow (0-5 m, short transit time, capillary rise likely)\",\n          \"intermediate (5-15 m, moderate transit time)\",\n          \"deep (>15 m, long transit time, thick vadose zone)\"\n        ]\n      },\n      {\n        \"driver\": \"soil texture\",\n        \"classes\": [\n          \"coarse (sand/loamy sand, fast percolation)\",\n          \"medium (loam/silt loam, moderate percolation)\",\n          \"fine (clay loam/clay, slow percolation)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 18,\n    \"n_justification\": \"3 WTD bands \u00d7 3 soil classes \u00d7 2 replicates per stratum = 18 exploratory columns to span the vadose-zone thickness \u00d7 percolation rate space. Replication accounts for within-stratum variability (e.g. local topography, vegetation).\",\n    \"placement_logic\": \"Sample across the full elevation range (352-1977 m) to capture WTD variation. Concentrate in valley bottoms and mid-elevation zones where shallow water tables and fine soils create long transit times and potential capillary rise. Avoid steep slopes where lateral flow dominates (out of scope for 1-D columns).\",\n    \"replication\": \"2 columns per stratum (WTD \u00d7 soil) to assess within-stratum variability in transit time, for a total of 18 exploratory columns.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"shallow WTD (0-5m) \u00d7 coarse soil\",\n      \"n\": 2,\n      \"reason\": \"Short vadose zone, fast percolation \u2192 shortest transit time; tests lower bound and capillary rise potential\"\n    },\n    {\n      \"group\": \"shallow WTD (0-5m) \u00d7 medium soil\",\n      \"n\": 2,\n      \"reason\": \"Short vadose zone, moderate percolation \u2192 tests soil texture effect at shallow water table\"\n    },\n    {\n      \"group\": \"shallow WTD (0-5m) \u00d7 fine soil\",\n      \"n\": 2,\n      \"reason\": \"Short vadose zone, slow percolation \u2192 tests whether fine soil delays recharge even with shallow water table\"\n    },\n    {\n      \"group\": \"intermediate WTD (5-15m) \u00d7 coarse soil\",\n      \"n\": 2,\n      \"reason\": \"Moderate vadose zone, fast percolation \u2192 tests mid-range transit time with minimal soil delay\"\n    },\n    {\n      \"group\": \"intermediate WTD (5-15m) \u00d7 medium soil\",\n      \"n\": 2,\n      \"reason\": \"Moderate vadose zone, moderate percolation \u2192 represents typical Naches conditions\"\n    },\n    {\n      \"group\": \"intermediate WTD (5-15m) \u00d7 fine soil\",\n      \"n\": 2,\n      \"reason\": \"Moderate vadose zone, slow percolation \u2192 tests soil texture as primary transit-time control\"\n    },\n    {\n      \"group\": \"deep WTD (>15m) \u00d7 coarse soil\",\n      \"n\": 2,\n      \"reason\": \"Thick vadose zone, fast percolation \u2192 tests upper bound on transit time with minimal soil delay\"\n    },\n    {\n      \"group\": \"deep WTD (>15m) \u00d7 medium soil\",\n      \"n\": 2,\n      \"reason\": \"Thick vadose zone, moderate percolation \u2192 tests combined effect of depth and soil on long transit times\"\n    },\n    {\n      \"group\": \"deep WTD (>15m) \u00d7 fine soil\",\n      \"n\": 2,\n      \"reason\": \"Thick vadose zone, slow percolation \u2192 longest transit time; tests extreme delay scenario\"\n    },\n    {\n      \"group\": \"USGS well validation sites\",\n      \"n\": 6,\n      \"reason\": \"Co-located with USGS wells for water-table depth validation; span WTD and soil gradients where data exist\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells (time series)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located \u2014 PFLOTRAN simulated water-table depth time series vs USGS well measurements at same (lat, lon)\",\n      \"metric\": \"RMSE, bias, and correlation of water-table depth time series; seasonal phase agreement\",\n      \"n_validation_points\": \"6 (depends on USGS well density in Naches HUC; assume ~6 wells with multi-year records)\"\n    },\n    {\n      \"target_variable\": \"water_table_depth_spatial_pattern\",\n      \"observation_source\": \"Fan et al. 2013 WTD prior (gridded climatology)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated \u2014 compare PFLOTRAN mean water-table depth across all columns to Fan 2013 gridded values at corresponding locations\",\n      \"metric\": \"Spatial correlation and bias of mean WTD across the domain\",\n      \"n_validation_points\": \"24 (all columns, compared to Fan 2013 grid cells)\"\n    },\n    {\n      \"target_variable\": \"recharge_flux\",\n      \"observation_source\": \"none available\",\n      \"in_domain_available\": false,\n      \"comparison\": \"not possible \u2014 no direct recharge observations in Naches. Indirect validation via water-table depth response to recharge events (if USGS wells show water-table rise after precipitation, PFLOTRAN should reproduce timing and magnitude).\",\n      \"metric\": \"qualitative: water-table response timing to precipitation events\",\n      \"n_validation_points\": \"0 direct; 6 indirect (via USGS well water-table response)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 24,\n    \"exploratory\": 18,\n    \"validation\": 6,\n    \"primary_treatment\": \"Baseline forcing (1980-2018 meteorology), native soil from gridded data, water-table depth from Fan 2013 / USGS wells\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"ELM\u2192PFLOTRAN one-way coupler\",\n      \"why\": \"Transit time calculation requires PFLOTRAN vadose-zone model driven by ELM drainage flux. Coupler must map ELM QDRAI (mm/day) to PFLOTRAN top recharge BC (m/s) and handle temporal interpolation.\",\n      \"blocks\": \"The entire transit-time question \u2014 without coupling, only ELM drainage flux spatial patterns are computable, not transit time or water-table dynamics\"\n    },\n    {\n      \"capability\": \"PFLOTRAN 1-D vadose-zone setup with particle tracking or age tracer\",\n      \"why\": \"PFLOTRAN must solve Richards equation from land surface to water table and compute transit time via particle tracking (Lagrangian) or age tracer (Eulerian).\",\n      \"blocks\": \"Transit time quantification \u2014 PFLOTRAN can simulate water-table depth without this, but not answer 'when does infiltration become recharge'\"\n    },\n    {\n      \"capability\": \"USGS well data ingest and time-series extraction\",\n      \"why\": \"Validation requires USGS well water-table depth time series at specific (lat, lon) locations. Need automated ingest from USGS NWIS API or similar.\",\n      \"blocks\": \"Co-located validation of water-table depth dynamics\"\n    },\n    {\n      \"capability\": \"Fan et al. 2013 WTD prior gridded data access\",\n      \"why\": \"Stratification by water-table depth and PFLOTRAN bottom BC require Fan 2013 WTD values at column locations. Need raster sampling tool.\",\n      \"blocks\": \"Water-table depth stratification and PFLOTRAN initial/boundary conditions\"\n    },\n    {\n      \"capability\": \"Gridded soil hydraulic properties (van Genuchten parameters) for PFLOTRAN\",\n      \"why\": \"PFLOTRAN vadose-zone flow requires soil water retention and hydraulic conductivity curves (van Genuchten \u03b1, n, residual/saturated water content, saturated K). ELM soil data may not include these.\",\n      \"blocks\": \"PFLOTRAN vadose-zone simulation \u2014 without hydraulic properties, cannot solve Richards equation\"\n    },\n    {\n      \"capability\": \"DEM and soil texture raster sampling at column locations\",\n      \"why\": \"Stratification by elevation (for WTD proxy) and soil texture requires sampling DEM and soil grids at chosen (lat, lon). Existing framework may have this, but confirm.\",\n      \"blocks\": \"Spatial sampling strategy execution \u2014 cannot place columns in strata without raster sampling\"\n    }\n  ],\n  \"assumptions\": [\n    \"1-D column assumption is valid: lateral subsurface flow is negligible compared to vertical percolation (reasonable for gentle slopes, breaks down on steep hillslopes)\",\n    \"ELM sub-surface drainage (QDRAI) is a reasonable proxy for potential recharge flux entering the vadose zone (ignores lateral redistribution in shallow subsurface)\",\n    \"Fan et al. 2013 WTD prior represents long-term mean water-table depth adequately for stratification and PFLOTRAN bottom BC (climatology, not interannual variability)\",\n    \"USGS wells are screened at or near the water table and represent unconfined aquifer conditions (not perched or confined)\",\n    \"Soil hydraulic properties can be derived from texture class or gridded soil data (e.g. SSURGO, POLARIS) with reasonable accuracy\",\n    \"One-way coupling (ELM\u2192PFLOTRAN) is sufficient for transit time question; capillary rise feedback to ELM root zone is secondary (two-way coupling would improve realism but is not required for first-order transit time estimate)\",\n    \"Forcing period 1980-2018 is long enough to capture interannual variability in recharge and water-table response (39 years includes multiple wet/dry cycles)\"\n  ],\n  \"open_questions\": [\n    \"What is the actual density and spatial distribution of USGS wells in Naches HUC 17030002? (assumed ~6 for validation, but need to confirm)\",\n    \"Are USGS well time series continuous and long enough (ideally 1980-2018 or subset) to validate interannual water-table dynamics?\",\n    \"Does the framework have access to gridded soil hydraulic properties (van Genuchten parameters), or must they be derived from texture class via pedotransfer functions?\",\n    \"Is PFLOTRAN particle tracking or age tracer capability already implemented, or does it need to be added?\",\n    \"Should we include a sensitivity analysis on PFLOTRAN bottom BC (fixed head vs flux) to test water-table depth uncertainty?\",\n    \"Is two-way coupling (PFLOTRAN water table \u2192 ELM capillary rise) desired for future work, or is one-way sufficient for this question?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify vadose-zone transit time from infiltration to water-table recharge across spatial heterogeneity",
+        "Validate simulated water-table depth against USGS well observations"
+      ],
+      "key_processes": [
+        "Surface infiltration partitioning (ELM)",
+        "Vadose-zone percolation through unsaturated zone (PFLOTRAN)",
+        "Water-table recharge arrival and depth dynamics (PFLOTRAN)"
+      ],
+      "drivers_to_resolve": [
+        "water-table depth (vadose-zone thickness)",
+        "soil texture (percolation rate)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "coupling",
+      "rationale": "Transit time from infiltration to water table requires tracking through the vadose zone below ELM's root zone to a real water table, which ELM's free-drain boundary cannot represent. Coupling ELM drainage to PFLOTRAN vadose-zone flow is necessary.",
+      "coupling_needed": true,
+      "coupling_note": "ELM\u2192PFLOTRAN one-way coupling: ELM sub-surface drainage (QDRAI) drives PFLOTRAN top recharge BC; PFLOTRAN solves variably-saturated flow to water table and computes transit time via particle tracking or age tracer. Coupler mechanism is unbuilt (listed in requires_capabilities)."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Spatial variation in ELM sub-surface drainage flux (QDRAI) across soil and water-table depth gradients",
+        "Soil texture control on surface partitioning and root-zone percolation"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Vadose-zone transit time from infiltration to water-table recharge",
+          "why": "ELM has a free-draining bottom boundary and does not represent the vadose zone below ~8 m or a real water table. Transit time calculation requires PFLOTRAN.",
+          "needs": "ELM\u2192PFLOTRAN coupler with QDRAI\u2192recharge BC mapping"
+        },
+        {
+          "aspect": "Water-table depth dynamics and capillary rise feedback to root zone",
+          "why": "ELM does not represent a water table or capillary rise from groundwater. PFLOTRAN can simulate water-table depth, but feedback to ELM requires two-way coupling (out of scope for one-way design).",
+          "needs": "PFLOTRAN vadose-zone / water-table model; two-way coupling for feedback (optional, not required for transit time)"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM sub-surface drainage flux (QDRAI, mm/day) \u2192 PFLOTRAN top boundary recharge flux (m/s)",
+      "temporal_mapping": "ELM daily or monthly QDRAI time series (1980-2018) \u2192 PFLOTRAN transient recharge BC at land surface over the same period",
+      "receiving_setup": "PFLOTRAN 1-D columns at same (lat, lon) as ELM, extending from land surface (z=0) to observed water-table depth (Fan 2013 / USGS wells). Solve Richards equation (variably-saturated flow) with top BC = ELM recharge flux, bottom BC = fixed head at water table (Dirichlet, from observations). Soil hydraulic properties from gridded soil data (van Genuchten parameters). Particle tracking or age tracer to compute transit time from surface to water table.",
+      "compare": "Coupled (ELM\u2192PFLOTRAN transit time, water-table depth time series) vs standalone ELM (which cannot compute transit time and assumes instant drainage at bottom boundary). Comparison reveals where ELM's free-drain assumption breaks: shallow water tables (<5 m), fine-textured soils with slow percolation, and locations where capillary rise would matter (not captured in one-way coupling, but PFLOTRAN can diagnose it)."
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by water-table depth (vadose-zone thickness, primary control on transit time) and soil texture (percolation rate). Validation columns pinned to USGS well locations.",
+      "strata": [
+        {
+          "driver": "water-table depth",
+          "bands": [
+            "shallow (0-5 m, short transit time, capillary rise likely)",
+            "intermediate (5-15 m, moderate transit time)",
+            "deep (>15 m, long transit time, thick vadose zone)"
+          ]
+        },
+        {
+          "driver": "soil texture",
+          "classes": [
+            "coarse (sand/loamy sand, fast percolation)",
+            "medium (loam/silt loam, moderate percolation)",
+            "fine (clay loam/clay, slow percolation)"
+          ]
+        }
+      ],
+      "n_exploratory": 18,
+      "n_justification": "3 WTD bands \u00d7 3 soil classes \u00d7 2 replicates per stratum = 18 exploratory columns to span the vadose-zone thickness \u00d7 percolation rate space. Replication accounts for within-stratum variability (e.g. local topography, vegetation).",
+      "placement_logic": "Sample across the full elevation range (352-1977 m) to capture WTD variation. Concentrate in valley bottoms and mid-elevation zones where shallow water tables and fine soils create long transit times and potential capillary rise. Avoid steep slopes where lateral flow dominates (out of scope for 1-D columns).",
+      "replication": "2 columns per stratum (WTD \u00d7 soil) to assess within-stratum variability in transit time, for a total of 18 exploratory columns."
+    },
+    "sampling_plan": [
+      {
+        "group": "shallow WTD (0-5m) \u00d7 coarse soil",
+        "n": 2,
+        "reason": "Short vadose zone, fast percolation \u2192 shortest transit time; tests lower bound and capillary rise potential"
+      },
+      {
+        "group": "shallow WTD (0-5m) \u00d7 medium soil",
+        "n": 2,
+        "reason": "Short vadose zone, moderate percolation \u2192 tests soil texture effect at shallow water table"
+      },
+      {
+        "group": "shallow WTD (0-5m) \u00d7 fine soil",
+        "n": 2,
+        "reason": "Short vadose zone, slow percolation \u2192 tests whether fine soil delays recharge even with shallow water table"
+      },
+      {
+        "group": "intermediate WTD (5-15m) \u00d7 coarse soil",
+        "n": 2,
+        "reason": "Moderate vadose zone, fast percolation \u2192 tests mid-range transit time with minimal soil delay"
+      },
+      {
+        "group": "intermediate WTD (5-15m) \u00d7 medium soil",
+        "n": 2,
+        "reason": "Moderate vadose zone, moderate percolation \u2192 represents typical Naches conditions"
+      },
+      {
+        "group": "intermediate WTD (5-15m) \u00d7 fine soil",
+        "n": 2,
+        "reason": "Moderate vadose zone, slow percolation \u2192 tests soil texture as primary transit-time control"
+      },
+      {
+        "group": "deep WTD (>15m) \u00d7 coarse soil",
+        "n": 2,
+        "reason": "Thick vadose zone, fast percolation \u2192 tests upper bound on transit time with minimal soil delay"
+      },
+      {
+        "group": "deep WTD (>15m) \u00d7 medium soil",
+        "n": 2,
+        "reason": "Thick vadose zone, moderate percolation \u2192 tests combined effect of depth and soil on long transit times"
+      },
+      {
+        "group": "deep WTD (>15m) \u00d7 fine soil",
+        "n": 2,
+        "reason": "Thick vadose zone, slow percolation \u2192 longest transit time; tests extreme delay scenario"
+      },
+      {
+        "group": "USGS well validation sites",
+        "n": 6,
+        "reason": "Co-located with USGS wells for water-table depth validation; span WTD and soil gradients where data exist"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (time series)",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 PFLOTRAN simulated water-table depth time series vs USGS well measurements at same (lat, lon)",
+        "metric": "RMSE, bias, and correlation of water-table depth time series; seasonal phase agreement",
+        "n_validation_points": "6 (depends on USGS well density in Naches HUC; assume ~6 wells with multi-year records)"
+      },
+      {
+        "target_variable": "water_table_depth_spatial_pattern",
+        "observation_source": "Fan et al. 2013 WTD prior (gridded climatology)",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 compare PFLOTRAN mean water-table depth across all columns to Fan 2013 gridded values at corresponding locations",
+        "metric": "Spatial correlation and bias of mean WTD across the domain",
+        "n_validation_points": "24 (all columns, compared to Fan 2013 grid cells)"
+      },
+      {
+        "target_variable": "recharge_flux",
+        "observation_source": "none available",
+        "in_domain_available": false,
+        "comparison": "not possible \u2014 no direct recharge observations in Naches. Indirect validation via water-table depth response to recharge events (if USGS wells show water-table rise after precipitation, PFLOTRAN should reproduce timing and magnitude).",
+        "metric": "qualitative: water-table response timing to precipitation events",
+        "n_validation_points": "0 direct; 6 indirect (via USGS well water-table response)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 24,
+      "exploratory": 18,
+      "validation": 6,
+      "primary_treatment": "Baseline forcing (1980-2018 meteorology), native soil from gridded data, water-table depth from Fan 2013 / USGS wells"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM\u2192PFLOTRAN one-way coupler",
+        "why": "Transit time calculation requires PFLOTRAN vadose-zone model driven by ELM drainage flux. Coupler must map ELM QDRAI (mm/day) to PFLOTRAN top recharge BC (m/s) and handle temporal interpolation.",
+        "blocks": "The entire transit-time question \u2014 without coupling, only ELM drainage flux spatial patterns are computable, not transit time or water-table dynamics"
+      },
+      {
+        "capability": "PFLOTRAN 1-D vadose-zone setup with particle tracking or age tracer",
+        "why": "PFLOTRAN must solve Richards equation from land surface to water table and compute transit time via particle tracking (Lagrangian) or age tracer (Eulerian).",
+        "blocks": "Transit time quantification \u2014 PFLOTRAN can simulate water-table depth without this, but not answer 'when does infiltration become recharge'"
+      },
+      {
+        "capability": "USGS well data ingest and time-series extraction",
+        "why": "Validation requires USGS well water-table depth time series at specific (lat, lon) locations. Need automated ingest from USGS NWIS API or similar.",
+        "blocks": "Co-located validation of water-table depth dynamics"
+      },
+      {
+        "capability": "Fan et al. 2013 WTD prior gridded data access",
+        "why": "Stratification by water-table depth and PFLOTRAN bottom BC require Fan 2013 WTD values at column locations. Need raster sampling tool.",
+        "blocks": "Water-table depth stratification and PFLOTRAN initial/boundary conditions"
+      },
+      {
+        "capability": "Gridded soil hydraulic properties (van Genuchten parameters) for PFLOTRAN",
+        "why": "PFLOTRAN vadose-zone flow requires soil water retention and hydraulic conductivity curves (van Genuchten \u03b1, n, residual/saturated water content, saturated K). ELM soil data may not include these.",
+        "blocks": "PFLOTRAN vadose-zone simulation \u2014 without hydraulic properties, cannot solve Richards equation"
+      },
+      {
+        "capability": "DEM and soil texture raster sampling at column locations",
+        "why": "Stratification by elevation (for WTD proxy) and soil texture requires sampling DEM and soil grids at chosen (lat, lon). Existing framework may have this, but confirm.",
+        "blocks": "Spatial sampling strategy execution \u2014 cannot place columns in strata without raster sampling"
+      }
+    ],
+    "assumptions": [
+      "1-D column assumption is valid: lateral subsurface flow is negligible compared to vertical percolation (reasonable for gentle slopes, breaks down on steep hillslopes)",
+      "ELM sub-surface drainage (QDRAI) is a reasonable proxy for potential recharge flux entering the vadose zone (ignores lateral redistribution in shallow subsurface)",
+      "Fan et al. 2013 WTD prior represents long-term mean water-table depth adequately for stratification and PFLOTRAN bottom BC (climatology, not interannual variability)",
+      "USGS wells are screened at or near the water table and represent unconfined aquifer conditions (not perched or confined)",
+      "Soil hydraulic properties can be derived from texture class or gridded soil data (e.g. SSURGO, POLARIS) with reasonable accuracy",
+      "One-way coupling (ELM\u2192PFLOTRAN) is sufficient for transit time question; capillary rise feedback to ELM root zone is secondary (two-way coupling would improve realism but is not required for first-order transit time estimate)",
+      "Forcing period 1980-2018 is long enough to capture interannual variability in recharge and water-table response (39 years includes multiple wet/dry cycles)"
+    ],
+    "open_questions": [
+      "What is the actual density and spatial distribution of USGS wells in Naches HUC 17030002? (assumed ~6 for validation, but need to confirm)",
+      "Are USGS well time series continuous and long enough (ideally 1980-2018 or subset) to validate interannual water-table dynamics?",
+      "Does the framework have access to gridded soil hydraulic properties (van Genuchten parameters), or must they be derived from texture class via pedotransfer functions?",
+      "Is PFLOTRAN particle tracking or age tracer capability already implemented, or does it need to be added?",
+      "Should we include a sensitivity analysis on PFLOTRAN bottom BC (fixed head vs flux) to test water-table depth uncertainty?",
+      "Is two-way coupling (PFLOTRAN water table \u2192 ELM capillary rise) desired for future work, or is one-way sufficient for this question?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

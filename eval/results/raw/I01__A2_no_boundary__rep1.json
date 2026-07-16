@@ -1,0 +1,188 @@
+{
+  "prompt_id": "I01",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThis request asks for **nitrate transport modeling** \u2014 a reactive-transport problem that fundamentally requires:\n1. **Subsurface flow** (advection/dispersion pathways from fields to wells)\n2. **Nitrogen cycling** (nitrification, denitrification, plant uptake, leaching)\n3. **Reactive transport** (nitrate as a mobile solute moving with groundwater)\n\n**Critical feasibility assessment against execution limits:**\n\n- **ELM** simulates land-surface water partitioning and has a basic nitrogen cycle (plant uptake, mineralization, nitrification), but it is:\n  - **Single-column 1-D** with no lateral transport\n  - **No groundwater flow modeling** \u2014 columns are independent\n  - **No solute transport** \u2014 nitrogen state variables exist for biogeochemistry, but there is no advection/dispersion of dissolved nitrate through the subsurface\n  \n- **PFLOTRAN** can simulate subsurface flow and reactive transport, but:\n  - The **ELM\u2192PFLOTRAN coupling does not exist** (listed as \"NOT yet implemented\")\n  - Even if coupled, PFLOTRAN would need:\n    - A **3-D domain mesh** spanning the basin's aquifer\n    - **Boundary conditions** from ELM (recharge + nitrate leaching flux at the top)\n    - **Reactive transport setup** (nitrate species, denitrification kinetics, sorption)\n    - **Well locations** as observation/extraction points\n    - **Initial nitrate distribution** in the aquifer\n\n**The question AS POSED cannot be answered by the current framework.** The core mechanism \u2014 nitrate moving laterally through groundwater from fields to wells \u2014 requires capabilities the stack does not have:\n\n1. **ELM\u2192PFLOTRAN coupling** (unbuilt)\n2. **ELM nitrate leaching output** as a flux boundary condition (uncertain if ELM exports this)\n3. **PFLOTRAN reactive transport setup** for nitrate (species definition, reactions)\n4. **3-D subsurface domain** with well locations\n5. **Calibration/validation data** (well nitrate records exist, but their spatial distribution and temporal coverage are unknown)\n\n**Verdict: INFEASIBLE** for execution. However, I can design the **coupling strategy** that WOULD answer the question if the capabilities were built \u2014 this becomes the development roadmap.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Quantify nitrate leaching from fertilized agricultural fields under Upper Iowa climate/soil conditions\",\n      \"Simulate subsurface transport pathways and travel times from source fields to drinking-water wells\",\n      \"Estimate nitrate arrival concentrations at well locations and compare to observed records\"\n    ],\n    \"key_processes\": [\n      \"Nitrogen cycling in agricultural soils (fertilizer application, plant uptake, mineralization, nitrification)\",\n      \"Water partitioning and recharge generation (controls leaching flux)\",\n      \"Subsurface advective-dispersive transport of dissolved nitrate\",\n      \"Denitrification in anoxic zones (nitrate attenuation)\",\n      \"Well capture zones and mixing\"\n    ],\n    \"drivers_to_resolve\": [\n      \"land_use (fertilized cropland vs other)\",\n      \"soil_texture (controls infiltration and denitrification potential)\",\n      \"recharge_rate (climate-driven, controls transport velocity)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"coupling\",\n    \"rationale\": \"Nitrate transport from fields to wells is a coupled land-surface + subsurface problem. ELM provides the source term (recharge + nitrate leaching from the root zone under fertilized conditions). PFLOTRAN provides the 3-D subsurface flow and reactive transport needed to simulate lateral movement through the aquifer to well locations. Single-column ELM alone cannot represent the transport pathway.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"One-way ELM\u2192PFLOTRAN coupling required: ELM sub-surface drainage flux (QDRAI) and nitrate leaching flux (if available, else SMINN_LEACHED or equivalent) drive PFLOTRAN's top boundary condition (spatially-distributed transient recharge + nitrate mass flux). PFLOTRAN solves 3-D groundwater flow + nitrate reactive transport to well extraction points. This coupling mechanism does not exist and is listed in requires_capabilities.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"infeasible\",\n    \"answerable\": [\n      \"ELM can simulate water partitioning and recharge generation under Upper Iowa climate (NLDAS forcing 1980-2018) and SSURGO soils\",\n      \"ELM has a nitrogen cycle and can represent fertilizer application, plant uptake, and nitrification in agricultural soils (if crop PFTs and management are configured)\",\n      \"PFLOTRAN can solve 3-D subsurface flow and reactive transport (steady-state or transient) if provided boundary conditions and domain setup\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Nitrate transport from fields to wells (the core question)\",\n        \"why\": \"ELM is single-column 1-D with no lateral transport. PFLOTRAN can do subsurface transport but ELM\u2192PFLOTRAN coupling does not exist. Even standalone PFLOTRAN cannot run without ELM-derived recharge + nitrate leaching fluxes as boundary conditions.\",\n        \"needs\": \"ELM\u2192PFLOTRAN one-way coupling (recharge + nitrate leaching flux BC)\"\n      },\n      {\n        \"aspect\": \"Nitrate leaching flux from ELM\",\n        \"why\": \"Uncertain whether ELM exports a nitrate leaching flux variable suitable for PFLOTRAN BC. Standard ELM output includes nitrogen state variables (SMINN, plant uptake fluxes) but may not include a direct 'nitrate mass flux leaving the bottom of the soil column' diagnostic.\",\n        \"needs\": \"ELM nitrate leaching flux output variable (or post-processing to derive it from QDRAI + soil nitrate concentration)\"\n      },\n      {\n        \"aspect\": \"3-D subsurface domain and well locations\",\n        \"why\": \"PFLOTRAN requires a 3-D mesh of the Upper Iowa aquifer system, hydraulic properties (K, porosity, dispersivity), and well locations as extraction/observation points. None of this is provided in the brief or exists as a pre-built domain.\",\n        \"needs\": \"PFLOTRAN 3-D domain setup for Upper Iowa HUC (mesh, hydraulic properties, well locations)\"\n      },\n      {\n        \"aspect\": \"Reactive transport parameterization\",\n        \"why\": \"Nitrate transport requires species definition (NO3-, NH4+, DOC for denitrification), reaction kinetics (denitrification rate as f(O2, DOC)), and sorption parameters. These are not standard defaults.\",\n        \"needs\": \"PFLOTRAN nitrate reactive transport setup (species, denitrification kinetics, calibration)\"\n      },\n      {\n        \"aspect\": \"Validation against well nitrate records\",\n        \"why\": \"Well records exist (external) but their spatial distribution, temporal coverage, and format are unknown. Cannot design validation without knowing which wells have data and when.\",\n        \"needs\": \"Well nitrate observation dataset (locations, dates, concentrations) ingested and co-registered with PFLOTRAN well nodes\"\n      },\n      {\n        \"aspect\": \"Agricultural management (fertilizer application)\",\n        \"why\": \"ELM's nitrogen cycle requires fertilizer application rates, timing, and crop types. The brief lists 'land use' as a driver but provides no fertilizer data or crop management scenarios.\",\n        \"needs\": \"Fertilizer application dataset or management scenarios for Upper Iowa cropland (rates, timing, crop types)\"\n      }\n    ]\n  },\n  \"coupling_design\": {\n    \"from_model\": \"ELM\",\n    \"to_model\": \"PFLOTRAN\",\n    \"driver\": \"ELM sub-surface drainage flux (QDRAI, mm/day) and nitrate leaching flux (mass/area/time, e.g. kg-N/m\u00b2/day \u2014 variable name TBD, possibly derived from QDRAI \u00d7 soil nitrate concentration) at each ELM column location \u2192 PFLOTRAN top boundary condition (spatially-distributed transient recharge flux + nitrate mass flux)\",\n    \"temporal_mapping\": \"ELM outputs daily or monthly time series (1980-2018 or subset). PFLOTRAN ingests these as transient BCs: each ELM column's (lat, lon) maps to a PFLOTRAN top-surface node or cell, and the time series drives that node's recharge + nitrate flux over the simulation period. PFLOTRAN solves transient flow + transport, tracking nitrate plume migration from source zones (fertilized fields) to well locations.\",\n    \"receiving_setup\": \"PFLOTRAN 3-D domain: Upper Iowa HUC aquifer system (extent from HUC boundary, depth to bedrock or confining layer, ~100-500 m vertical extent typical for Midwest karst/fractured bedrock aquifers). Mesh resolution: horizontal ~100-500 m (fine enough to resolve well capture zones and field-scale sources), vertical ~5-10 m layers. Hydraulic properties: K (hydraulic conductivity), porosity, dispersivity from regional datasets or calibration. Wells: extraction nodes at known drinking-water well locations (from observation dataset). Initial condition: steady-state flow field (pre-simulation spin-up) or equilibrium water table (e.g. Fan 2013 as analog, though PFLOTRAN's 3-D solution will differ). Nitrate IC: background concentration (low, ~1 mg/L) or zero if simulating only post-1980 agricultural loading.\",\n    \"compare\": \"Coupled (ELM\u2192PFLOTRAN) vs standalone PFLOTRAN with uniform recharge assumption. Standalone PFLOTRAN typically assumes spatially-uniform or simple (elevation-based) recharge, which misses the land-use control: fertilized cropland has both higher recharge (less ET due to seasonal bare soil) and high nitrate loading, while forest/grassland has lower recharge and near-zero nitrate. The coupled run should show: (1) realistic spatial variability in recharge (ELM resolves soil/vegetation effects), (2) co-location of high recharge + high nitrate in cropland (the actual source term), (3) faster/higher nitrate arrival at wells downgradient of cropland vs uniform-recharge prediction. Validation: compare simulated well concentrations (time series at well nodes) to observed well nitrate records. Metrics: bias, RMSE, peak concentration timing, exceedance of drinking-water standard (10 mg/L NO3-N).\"\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Not applicable (coupling design, not spatial sampling). ELM columns would cover the Upper Iowa domain at a resolution sufficient to resolve land-use heterogeneity (cropland vs other) and feed PFLOTRAN's BC. If ELM were run in a gridded mode (not currently supported), a ~1 km grid (~1400 columns for the HUC) would be ideal. In single-column mode, a representative sample (N~50-100) stratified by land use and soil would approximate the spatial BC, but this is a weak substitute for true gridded coupling.\",\n    \"strata\": [\n      {\n        \"driver\": \"land_use\",\n        \"bands\": [\n          \"fertilized_cropland (corn/soy rotation, high N loading)\",\n          \"grassland/pasture (low N loading)\",\n          \"forest/wetland (near-zero N loading)\"\n        ]\n      },\n      {\n        \"driver\": \"soil_texture\",\n        \"classes\": [\n          \"coarse (sandy, high infiltration, low denitrification)\",\n          \"medium (loam, moderate)\",\n          \"fine (clay, low infiltration, high denitrification potential)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 0,\n    \"n_justification\": \"Not applicable \u2014 this is a coupling design, not a spatial sampling experiment. The 'sample' is the entire domain's recharge + nitrate flux field, which ELM would provide at every grid cell (if gridded) or at representative points (if single-column). The design's feasibility does not hinge on N but on the coupling mechanism itself.\",\n    \"placement_logic\": \"Not applicable (coupling design). If forced to use single-column ELM as a BC approximation: oversample fertilized cropland (the nitrate source zones) and areas upgradient of known wells (the transport pathways). But this is a poor substitute for gridded coupling.\",\n    \"replication\": \"Not applicable\"\n  },\n  \"sampling_plan\": [],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"nitrate_concentration_at_wells\",\n      \"observation_source\": \"Well nitrate records (external, details unknown)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located (PFLOTRAN well nodes at observed well locations) \u2014 time series comparison if temporal data exist, or mean/peak concentration if only snapshots available\",\n      \"metric\": \"Bias (mean error), RMSE, correlation (if time series), exceedance probability (fraction of time > 10 mg/L NO3-N drinking-water standard)\",\n      \"n_validation_points\": \"unknown \u2014 depends on well dataset density and temporal coverage (likely 5-20 wells in a HUC8, but unverified)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 0,\n    \"exploratory\": 0,\n    \"validation\": 0,\n    \"primary_treatment\": \"Not applicable \u2014 this is a coupling design, not a runnable ELM experiment. The 'experiment' is the coupled ELM\u2192PFLOTRAN simulation, which cannot execute until the coupling mechanism and PFLOTRAN domain are built.\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"ELM\u2192PFLOTRAN one-way coupling (recharge + nitrate leaching flux BC)\",\n      \"why\": \"The question's core mechanism \u2014 nitrate transport from fields to wells \u2014 requires subsurface flow and transport, which ELM (1-D, no lateral flow) cannot represent. PFLOTRAN can, but needs ELM's spatially-distributed recharge + nitrate flux as a driving BC.\",\n      \"blocks\": \"Entire experiment \u2014 without coupling, neither model alone can answer the question\"\n    },\n    {\n      \"capability\": \"ELM nitrate leaching flux output variable\",\n      \"why\": \"PFLOTRAN's nitrate BC requires a mass flux (kg-N/m\u00b2/day) of nitrate leaving the ELM soil column. Standard ELM output may not include this diagnostic (SMINN is a state, not a flux; QDRAI is water flux without chemistry). May need to derive from QDRAI \u00d7 bottom-layer nitrate concentration or add a new history variable.\",\n      \"blocks\": \"Nitrate BC for PFLOTRAN \u2014 without it, can only simulate water flow, not nitrate transport\"\n    },\n    {\n      \"capability\": \"PFLOTRAN 3-D domain setup for Upper Iowa HUC (mesh, hydraulic properties, well locations)\",\n      \"why\": \"PFLOTRAN requires a 3-D mesh of the aquifer, hydraulic conductivity / porosity / dispersivity fields, and well nodes. None of this exists as a pre-built domain.\",\n      \"blocks\": \"PFLOTRAN simulation \u2014 cannot run without a domain\"\n    },\n    {\n      \"capability\": \"PFLOTRAN nitrate reactive transport setup (species, denitrification kinetics)\",\n      \"why\": \"Nitrate is a reactive solute: denitrification (NO3- \u2192 N2 in anoxic zones) attenuates concentrations and is a key process in agricultural groundwater. Requires species definition (NO3-, possibly NH4+, DOC), reaction stoichiometry, and rate parameters (e.g. Monod kinetics with O2/DOC dependence).\",\n      \"blocks\": \"Realistic nitrate transport \u2014 without reactions, PFLOTRAN treats nitrate as a conservative tracer (overpredicts concentrations)\"\n    },\n    {\n      \"capability\": \"Well nitrate observation dataset (locations, dates, concentrations)\",\n      \"why\": \"Validation requires co-located well data. The brief states 'well nitrate records (external)' exist but provides no details (how many wells, where, what time period, data format). Cannot design validation or assess model skill without this.\",\n      \"blocks\": \"Validation \u2014 without data, the simulation is unconstrained and unverifiable\"\n    },\n    {\n      \"capability\": \"Fertilizer application dataset or management scenarios for Upper Iowa cropland\",\n      \"why\": \"ELM's nitrogen cycle requires fertilizer inputs (rate, timing, crop type) to simulate nitrate loading. The brief lists 'land use' as a driver but provides no fertilizer data. Typical Midwest corn/soy: ~150-200 kg-N/ha/yr, spring application, but site-specific data are needed for realism.\",\n      \"blocks\": \"Realistic nitrate source term \u2014 without fertilizer inputs, ELM's soil nitrate will be near-zero (no anthropogenic loading)\"\n    },\n    {\n      \"capability\": \"ELM crop PFTs and management module\",\n      \"why\": \"Simulating fertilized cropland requires crop plant functional types (corn, soy) and a management module (planting, harvest, fertilizer application). Standard ELM may have generic crop PFTs but management is often a separate capability (CLM-Crop or similar).\",\n      \"blocks\": \"Agricultural nitrogen cycle \u2014 without crops + management, cannot represent the fertilized-field source\"\n    },\n    {\n      \"capability\": \"Gridded ELM mode (or dense single-column sampling + spatial interpolation)\",\n      \"why\": \"PFLOTRAN's BC needs spatially-continuous recharge + nitrate flux fields. ELM's single-column mode produces point values; coupling requires either (1) gridded ELM (not currently supported) or (2) interpolation from a dense single-column sample (N~100+, computationally expensive and less accurate).\",\n      \"blocks\": \"Spatial BC for PFLOTRAN \u2014 point samples are a weak approximation of the true field\"\n    }\n  ],\n  \"assumptions\": [\n    \"Upper Iowa aquifer is unconfined or semi-confined (typical for Midwest karst/fractured bedrock), allowing vertical recharge from land surface\",\n    \"Nitrate transport is primarily advective-dispersive (no preferential flow through macropores/fractures, or PFLOTRAN can represent this with effective dispersivity)\",\n    \"Well nitrate records are from drinking-water wells screened in the same aquifer system ELM/PFLOTRAN simulate (not perched or deep confined aquifers)\",\n    \"Fertilizer application is the dominant nitrate source (not atmospheric deposition, manure, septic systems \u2014 or these are negligible)\",\n    \"ELM's 1-D nitrogen cycle (if configured with crops + fertilizer) produces a realistic leaching flux (calibration/validation against lysimeter or tile-drain data would be needed but is not part of this design)\",\n    \"PFLOTRAN's denitrification parameterization (if implemented) captures the Upper Iowa aquifer's redox conditions (may require calibration against well O2/DOC data)\"\n  ],\n  \"open_questions\": [\n    \"Does ELM output a nitrate leaching flux variable, or must it be derived from QDRAI + soil nitrate concentration?\",\n    \"What is the spatial distribution and temporal coverage of the well nitrate records (how many wells, where, what years)?\",\n    \"What are the Upper Iowa aquifer's hydraulic properties (K, porosity, dispersivity) and geometry (depth to bedrock, confining layers)?\",\n    \"What fertilizer application rates and timing are representative of Upper Iowa cropland (county-level ag statistics, or field-scale data)?\",\n    \"Does ELM have a crop management module (CLM-Crop or equivalent) that can simulate corn/soy rotations with fertilizer application?\",\n    \"What is the computational cost of a coupled ELM\u2192PFLOTRAN run for a HUC8 domain over 1980-2018 (39 years)? This will dictate whether a full transient simulation is feasible or if a shorter period (e.g. 2000-2018) is needed.\",\n    \"Are there any existing ELM\u2192PFLOTRAN coupling examples or prototypes (even for other domains) that this design could build on?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify nitrate leaching from fertilized agricultural fields under Upper Iowa climate/soil conditions",
+        "Simulate subsurface transport pathways and travel times from source fields to drinking-water wells",
+        "Estimate nitrate arrival concentrations at well locations and compare to observed records"
+      ],
+      "key_processes": [
+        "Nitrogen cycling in agricultural soils (fertilizer application, plant uptake, mineralization, nitrification)",
+        "Water partitioning and recharge generation (controls leaching flux)",
+        "Subsurface advective-dispersive transport of dissolved nitrate",
+        "Denitrification in anoxic zones (nitrate attenuation)",
+        "Well capture zones and mixing"
+      ],
+      "drivers_to_resolve": [
+        "land_use (fertilized cropland vs other)",
+        "soil_texture (controls infiltration and denitrification potential)",
+        "recharge_rate (climate-driven, controls transport velocity)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "coupling",
+      "rationale": "Nitrate transport from fields to wells is a coupled land-surface + subsurface problem. ELM provides the source term (recharge + nitrate leaching from the root zone under fertilized conditions). PFLOTRAN provides the 3-D subsurface flow and reactive transport needed to simulate lateral movement through the aquifer to well locations. Single-column ELM alone cannot represent the transport pathway.",
+      "coupling_needed": true,
+      "coupling_note": "One-way ELM\u2192PFLOTRAN coupling required: ELM sub-surface drainage flux (QDRAI) and nitrate leaching flux (if available, else SMINN_LEACHED or equivalent) drive PFLOTRAN's top boundary condition (spatially-distributed transient recharge + nitrate mass flux). PFLOTRAN solves 3-D groundwater flow + nitrate reactive transport to well extraction points. This coupling mechanism does not exist and is listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "ELM can simulate water partitioning and recharge generation under Upper Iowa climate (NLDAS forcing 1980-2018) and SSURGO soils",
+        "ELM has a nitrogen cycle and can represent fertilizer application, plant uptake, and nitrification in agricultural soils (if crop PFTs and management are configured)",
+        "PFLOTRAN can solve 3-D subsurface flow and reactive transport (steady-state or transient) if provided boundary conditions and domain setup"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Nitrate transport from fields to wells (the core question)",
+          "why": "ELM is single-column 1-D with no lateral transport. PFLOTRAN can do subsurface transport but ELM\u2192PFLOTRAN coupling does not exist. Even standalone PFLOTRAN cannot run without ELM-derived recharge + nitrate leaching fluxes as boundary conditions.",
+          "needs": "ELM\u2192PFLOTRAN one-way coupling (recharge + nitrate leaching flux BC)"
+        },
+        {
+          "aspect": "Nitrate leaching flux from ELM",
+          "why": "Uncertain whether ELM exports a nitrate leaching flux variable suitable for PFLOTRAN BC. Standard ELM output includes nitrogen state variables (SMINN, plant uptake fluxes) but may not include a direct 'nitrate mass flux leaving the bottom of the soil column' diagnostic.",
+          "needs": "ELM nitrate leaching flux output variable (or post-processing to derive it from QDRAI + soil nitrate concentration)"
+        },
+        {
+          "aspect": "3-D subsurface domain and well locations",
+          "why": "PFLOTRAN requires a 3-D mesh of the Upper Iowa aquifer system, hydraulic properties (K, porosity, dispersivity), and well locations as extraction/observation points. None of this is provided in the brief or exists as a pre-built domain.",
+          "needs": "PFLOTRAN 3-D domain setup for Upper Iowa HUC (mesh, hydraulic properties, well locations)"
+        },
+        {
+          "aspect": "Reactive transport parameterization",
+          "why": "Nitrate transport requires species definition (NO3-, NH4+, DOC for denitrification), reaction kinetics (denitrification rate as f(O2, DOC)), and sorption parameters. These are not standard defaults.",
+          "needs": "PFLOTRAN nitrate reactive transport setup (species, denitrification kinetics, calibration)"
+        },
+        {
+          "aspect": "Validation against well nitrate records",
+          "why": "Well records exist (external) but their spatial distribution, temporal coverage, and format are unknown. Cannot design validation without knowing which wells have data and when.",
+          "needs": "Well nitrate observation dataset (locations, dates, concentrations) ingested and co-registered with PFLOTRAN well nodes"
+        },
+        {
+          "aspect": "Agricultural management (fertilizer application)",
+          "why": "ELM's nitrogen cycle requires fertilizer application rates, timing, and crop types. The brief lists 'land use' as a driver but provides no fertilizer data or crop management scenarios.",
+          "needs": "Fertilizer application dataset or management scenarios for Upper Iowa cropland (rates, timing, crop types)"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM sub-surface drainage flux (QDRAI, mm/day) and nitrate leaching flux (mass/area/time, e.g. kg-N/m\u00b2/day \u2014 variable name TBD, possibly derived from QDRAI \u00d7 soil nitrate concentration) at each ELM column location \u2192 PFLOTRAN top boundary condition (spatially-distributed transient recharge flux + nitrate mass flux)",
+      "temporal_mapping": "ELM outputs daily or monthly time series (1980-2018 or subset). PFLOTRAN ingests these as transient BCs: each ELM column's (lat, lon) maps to a PFLOTRAN top-surface node or cell, and the time series drives that node's recharge + nitrate flux over the simulation period. PFLOTRAN solves transient flow + transport, tracking nitrate plume migration from source zones (fertilized fields) to well locations.",
+      "receiving_setup": "PFLOTRAN 3-D domain: Upper Iowa HUC aquifer system (extent from HUC boundary, depth to bedrock or confining layer, ~100-500 m vertical extent typical for Midwest karst/fractured bedrock aquifers). Mesh resolution: horizontal ~100-500 m (fine enough to resolve well capture zones and field-scale sources), vertical ~5-10 m layers. Hydraulic properties: K (hydraulic conductivity), porosity, dispersivity from regional datasets or calibration. Wells: extraction nodes at known drinking-water well locations (from observation dataset). Initial condition: steady-state flow field (pre-simulation spin-up) or equilibrium water table (e.g. Fan 2013 as analog, though PFLOTRAN's 3-D solution will differ). Nitrate IC: background concentration (low, ~1 mg/L) or zero if simulating only post-1980 agricultural loading.",
+      "compare": "Coupled (ELM\u2192PFLOTRAN) vs standalone PFLOTRAN with uniform recharge assumption. Standalone PFLOTRAN typically assumes spatially-uniform or simple (elevation-based) recharge, which misses the land-use control: fertilized cropland has both higher recharge (less ET due to seasonal bare soil) and high nitrate loading, while forest/grassland has lower recharge and near-zero nitrate. The coupled run should show: (1) realistic spatial variability in recharge (ELM resolves soil/vegetation effects), (2) co-location of high recharge + high nitrate in cropland (the actual source term), (3) faster/higher nitrate arrival at wells downgradient of cropland vs uniform-recharge prediction. Validation: compare simulated well concentrations (time series at well nodes) to observed well nitrate records. Metrics: bias, RMSE, peak concentration timing, exceedance of drinking-water standard (10 mg/L NO3-N)."
+    },
+    "sampling_strategy": {
+      "approach": "Not applicable (coupling design, not spatial sampling). ELM columns would cover the Upper Iowa domain at a resolution sufficient to resolve land-use heterogeneity (cropland vs other) and feed PFLOTRAN's BC. If ELM were run in a gridded mode (not currently supported), a ~1 km grid (~1400 columns for the HUC) would be ideal. In single-column mode, a representative sample (N~50-100) stratified by land use and soil would approximate the spatial BC, but this is a weak substitute for true gridded coupling.",
+      "strata": [
+        {
+          "driver": "land_use",
+          "bands": [
+            "fertilized_cropland (corn/soy rotation, high N loading)",
+            "grassland/pasture (low N loading)",
+            "forest/wetland (near-zero N loading)"
+          ]
+        },
+        {
+          "driver": "soil_texture",
+          "classes": [
+            "coarse (sandy, high infiltration, low denitrification)",
+            "medium (loam, moderate)",
+            "fine (clay, low infiltration, high denitrification potential)"
+          ]
+        }
+      ],
+      "n_exploratory": 0,
+      "n_justification": "Not applicable \u2014 this is a coupling design, not a spatial sampling experiment. The 'sample' is the entire domain's recharge + nitrate flux field, which ELM would provide at every grid cell (if gridded) or at representative points (if single-column). The design's feasibility does not hinge on N but on the coupling mechanism itself.",
+      "placement_logic": "Not applicable (coupling design). If forced to use single-column ELM as a BC approximation: oversample fertilized cropland (the nitrate source zones) and areas upgradient of known wells (the transport pathways). But this is a poor substitute for gridded coupling.",
+      "replication": "Not applicable"
+    },
+    "sampling_plan": [],
+    "validation_design": [
+      {
+        "target_variable": "nitrate_concentration_at_wells",
+        "observation_source": "Well nitrate records (external, details unknown)",
+        "in_domain_available": true,
+        "comparison": "co-located (PFLOTRAN well nodes at observed well locations) \u2014 time series comparison if temporal data exist, or mean/peak concentration if only snapshots available",
+        "metric": "Bias (mean error), RMSE, correlation (if time series), exceedance probability (fraction of time > 10 mg/L NO3-N drinking-water standard)",
+        "n_validation_points": "unknown \u2014 depends on well dataset density and temporal coverage (likely 5-20 wells in a HUC8, but unverified)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 0,
+      "exploratory": 0,
+      "validation": 0,
+      "primary_treatment": "Not applicable \u2014 this is a coupling design, not a runnable ELM experiment. The 'experiment' is the coupled ELM\u2192PFLOTRAN simulation, which cannot execute until the coupling mechanism and PFLOTRAN domain are built."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM\u2192PFLOTRAN one-way coupling (recharge + nitrate leaching flux BC)",
+        "why": "The question's core mechanism \u2014 nitrate transport from fields to wells \u2014 requires subsurface flow and transport, which ELM (1-D, no lateral flow) cannot represent. PFLOTRAN can, but needs ELM's spatially-distributed recharge + nitrate flux as a driving BC.",
+        "blocks": "Entire experiment \u2014 without coupling, neither model alone can answer the question"
+      },
+      {
+        "capability": "ELM nitrate leaching flux output variable",
+        "why": "PFLOTRAN's nitrate BC requires a mass flux (kg-N/m\u00b2/day) of nitrate leaving the ELM soil column. Standard ELM output may not include this diagnostic (SMINN is a state, not a flux; QDRAI is water flux without chemistry). May need to derive from QDRAI \u00d7 bottom-layer nitrate concentration or add a new history variable.",
+        "blocks": "Nitrate BC for PFLOTRAN \u2014 without it, can only simulate water flow, not nitrate transport"
+      },
+      {
+        "capability": "PFLOTRAN 3-D domain setup for Upper Iowa HUC (mesh, hydraulic properties, well locations)",
+        "why": "PFLOTRAN requires a 3-D mesh of the aquifer, hydraulic conductivity / porosity / dispersivity fields, and well nodes. None of this exists as a pre-built domain.",
+        "blocks": "PFLOTRAN simulation \u2014 cannot run without a domain"
+      },
+      {
+        "capability": "PFLOTRAN nitrate reactive transport setup (species, denitrification kinetics)",
+        "why": "Nitrate is a reactive solute: denitrification (NO3- \u2192 N2 in anoxic zones) attenuates concentrations and is a key process in agricultural groundwater. Requires species definition (NO3-, possibly NH4+, DOC), reaction stoichiometry, and rate parameters (e.g. Monod kinetics with O2/DOC dependence).",
+        "blocks": "Realistic nitrate transport \u2014 without reactions, PFLOTRAN treats nitrate as a conservative tracer (overpredicts concentrations)"
+      },
+      {
+        "capability": "Well nitrate observation dataset (locations, dates, concentrations)",
+        "why": "Validation requires co-located well data. The brief states 'well nitrate records (external)' exist but provides no details (how many wells, where, what time period, data format). Cannot design validation or assess model skill without this.",
+        "blocks": "Validation \u2014 without data, the simulation is unconstrained and unverifiable"
+      },
+      {
+        "capability": "Fertilizer application dataset or management scenarios for Upper Iowa cropland",
+        "why": "ELM's nitrogen cycle requires fertilizer inputs (rate, timing, crop type) to simulate nitrate loading. The brief lists 'land use' as a driver but provides no fertilizer data. Typical Midwest corn/soy: ~150-200 kg-N/ha/yr, spring application, but site-specific data are needed for realism.",
+        "blocks": "Realistic nitrate source term \u2014 without fertilizer inputs, ELM's soil nitrate will be near-zero (no anthropogenic loading)"
+      },
+      {
+        "capability": "ELM crop PFTs and management module",
+        "why": "Simulating fertilized cropland requires crop plant functional types (corn, soy) and a management module (planting, harvest, fertilizer application). Standard ELM may have generic crop PFTs but management is often a separate capability (CLM-Crop or similar).",
+        "blocks": "Agricultural nitrogen cycle \u2014 without crops + management, cannot represent the fertilized-field source"
+      },
+      {
+        "capability": "Gridded ELM mode (or dense single-column sampling + spatial interpolation)",
+        "why": "PFLOTRAN's BC needs spatially-continuous recharge + nitrate flux fields. ELM's single-column mode produces point values; coupling requires either (1) gridded ELM (not currently supported) or (2) interpolation from a dense single-column sample (N~100+, computationally expensive and less accurate).",
+        "blocks": "Spatial BC for PFLOTRAN \u2014 point samples are a weak approximation of the true field"
+      }
+    ],
+    "assumptions": [
+      "Upper Iowa aquifer is unconfined or semi-confined (typical for Midwest karst/fractured bedrock), allowing vertical recharge from land surface",
+      "Nitrate transport is primarily advective-dispersive (no preferential flow through macropores/fractures, or PFLOTRAN can represent this with effective dispersivity)",
+      "Well nitrate records are from drinking-water wells screened in the same aquifer system ELM/PFLOTRAN simulate (not perched or deep confined aquifers)",
+      "Fertilizer application is the dominant nitrate source (not atmospheric deposition, manure, septic systems \u2014 or these are negligible)",
+      "ELM's 1-D nitrogen cycle (if configured with crops + fertilizer) produces a realistic leaching flux (calibration/validation against lysimeter or tile-drain data would be needed but is not part of this design)",
+      "PFLOTRAN's denitrification parameterization (if implemented) captures the Upper Iowa aquifer's redox conditions (may require calibration against well O2/DOC data)"
+    ],
+    "open_questions": [
+      "Does ELM output a nitrate leaching flux variable, or must it be derived from QDRAI + soil nitrate concentration?",
+      "What is the spatial distribution and temporal coverage of the well nitrate records (how many wells, where, what years)?",
+      "What are the Upper Iowa aquifer's hydraulic properties (K, porosity, dispersivity) and geometry (depth to bedrock, confining layers)?",
+      "What fertilizer application rates and timing are representative of Upper Iowa cropland (county-level ag statistics, or field-scale data)?",
+      "Does ELM have a crop management module (CLM-Crop or equivalent) that can simulate corn/soy rotations with fertilizer application?",
+      "What is the computational cost of a coupled ELM\u2192PFLOTRAN run for a HUC8 domain over 1980-2018 (39 years)? This will dictate whether a full transient simulation is feasible or if a shorter period (e.g. 2000-2018) is needed.",
+      "Are there any existing ELM\u2192PFLOTRAN coupling examples or prototypes (even for other domains) that this design could build on?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

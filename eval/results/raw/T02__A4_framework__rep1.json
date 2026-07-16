@@ -1,0 +1,220 @@
+{
+  "prompt_id": "T02",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Estimate spatial distribution of recharge across Naches elevation/soil gradients\", \"Test whether published uniform 500 mm/yr estimate is supported by process-based simulation\", \"Quantify recharge sensitivity to elevation (climate) and soil heterogeneity\"], \"key_processes\": [\"Precipitation partitioning (rain vs snow, elevation-dependent via NLDAS-2)\", \"Evapotranspiration (climate and vegetation control)\", \"Infiltration and drainage (soil texture control)\", \"Sub-surface drainage to aquifer (ELM QDRAI as recharge proxy)\"], \"drivers_to_resolve\": [\"elevation (via NLDAS-2 12-km forcing\\u2014partial climate gradient)\", \"soil (SSURGO texture classes)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM can compute sub-surface drainage (QDRAI) as a recharge estimate across stratified locations. Spatial sampling spans the domain's climate/soil heterogeneity to test the uniform-recharge hypothesis.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Spatial pattern of ELM-simulated recharge (QDRAI) across elevation and soil gradients\", \"Sensitivity of recharge to soil texture (sand/loam/clay via SSURGO)\", \"Qualitative comparison to published estimate (test uniformity hypothesis)\"], \"not_answerable\": [{\"aspect\": \"Confirmation of exact 500 mm/yr uniform recharge\", \"why\": \"No in-domain recharge observations exist (observations_missing). Published value may be watershed-averaged, not spatially uniform. ELM will likely show spatial variability due to elevation/soil gradients\\u2014uniform recharge across 1625 m relief is physically implausible.\", \"needs\": \"Direct recharge measurements (lysimeters, tracer studies, or well hydrograph analysis) for validation\"}, {\"aspect\": \"Fine-scale elevation effects on recharge (sub-12 km terrain)\", \"why\": \"NLDAS-2 forcing is 12-km resolution\\u2014within-cell orographic gradients are unresolved. Columns at different elevations get distinct 12-km cells (verified to span ~15 precip values in this relief range), but sub-12 km lapse rates and rain-snow transitions are smoothed.\", \"needs\": \"Elevation-downscaled forcing (e.g. 1-km PRISM-corrected NLDAS or WRF dynamical downscaling)\"}, {\"aspect\": \"Equilibrium recharge (multi-decadal steady state)\", \"why\": \"Without multi-year spin-up or WTD-informed warm start, recharge in Year 1 is an initialization artifact (aquifer filling from default 8.8 m water table). Quasi-equilibrium requires 5-10 spin-up years.\", \"needs\": \"Multi-year spin-up runs OR WTD-informed warm start (Fan 2013 prior available\\u2014preferred for scalability)\"}, {\"aspect\": \"QDRAI (recharge flux) in output\", \"why\": \"ELM's sub-surface drainage flux (QDRAI) is NOT in the default history field list\\u2014must be added via custom hist_fincl1 namelist modification.\", \"needs\": \"Custom history output configuration to include QDRAI in h0 files\"}]}, \"sampling_strategy\": {\"approach\": \"stratified by elevation and soil texture\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"low (352-800 m): rain-dominated, warmer, higher ET\", \"mid (800-1400 m): rain-snow transition, moderate ET\", \"high (1400-1977 m): snow-dominated, cooler, lower ET, longer melt season\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse (sandy loam, high infiltration, low water-holding)\", \"medium (loam/silt loam, moderate properties)\", \"fine (clay loam, low infiltration, high water-holding)\"]}], \"n_exploratory\": 27, \"n_justification\": \"3 elevation bands \\u00d7 3 soil classes \\u00d7 3 replicates per stratum = 27 columns. Replication accounts for within-stratum spatial variability (aspect, local soil heterogeneity within SSURGO map units) and provides uncertainty estimates for each elevation-soil combination. This is the minimum to resolve the 2-way interaction (elevation \\u00d7 soil) and test the uniform-recharge hypothesis.\", \"placement_logic\": \"Within each elevation band, sample across the dominant soil classes (from SSURGO). Prefer mid-slope positions (avoid ridgetops and valley bottoms where 1-D ELM assumptions are weakest\\u2014ridgetops may have lateral flow losses, valley bottoms may have regional groundwater convergence not represented in single-column mode). Spread replicates to capture aspect variation (N vs S-facing slopes have different radiation/ET, though ELM's 1-D mode won't fully resolve this).\", \"replication\": \"3 replicates per elevation-soil stratum to quantify within-stratum variability and provide statistical confidence in stratum-mean recharge estimates.\"}, \"sampling_plan\": [{\"group\": \"low-elev_coarse-soil\", \"n\": 3, \"reason\": \"Rain-dominated, high infiltration, low storage\\u2014expect high recharge (>500 mm/yr if precip sufficient)\"}, {\"group\": \"low-elev_medium-soil\", \"n\": 3, \"reason\": \"Rain-dominated, moderate infiltration/storage\\u2014baseline recharge for warm low-elevation zone\"}, {\"group\": \"low-elev_fine-soil\", \"n\": 3, \"reason\": \"Rain-dominated, low infiltration, high runoff\\u2014expect reduced recharge (<500 mm/yr)\"}, {\"group\": \"mid-elev_coarse-soil\", \"n\": 3, \"reason\": \"Rain-snow transition, high infiltration from snowmelt\\u2014expect high recharge, test sensitivity to melt timing\"}, {\"group\": \"mid-elev_medium-soil\", \"n\": 3, \"reason\": \"Rain-snow transition, moderate properties\\u2014critical zone for testing elevation gradient in recharge\"}, {\"group\": \"mid-elev_fine-soil\", \"n\": 3, \"reason\": \"Rain-snow transition, low infiltration\\u2014test whether snowmelt compensates for runoff losses\"}, {\"group\": \"high-elev_coarse-soil\", \"n\": 3, \"reason\": \"Snow-dominated, high infiltration, low ET\\u2014expect maximum recharge (>500 mm/yr), test upper bound\"}, {\"group\": \"high-elev_medium-soil\", \"n\": 3, \"reason\": \"Snow-dominated, moderate properties\\u2014baseline recharge for cold high-elevation zone\"}, {\"group\": \"high-elev_fine-soil\", \"n\": 3, \"reason\": \"Snow-dominated, low infiltration\\u2014test whether frozen-soil effects reduce recharge despite snowmelt\"}], \"validation_design\": [{\"target_variable\": \"water_table_depth\", \"observation_source\": \"Fan et al. 2013 equilibrium WTD prior (gridded)\", \"in_domain_available\": true, \"comparison\": \"co-located (each column's simulated WTD vs Fan 2013 value at that point)\", \"metric\": \"Bias and RMSE across all columns. Note: ELM's 1-D equilibrium WTD differs from Fan's lateral-flow equilibrium\\u2014some systematic bias expected. Comparison tests whether ELM's recharge estimates are consistent with observed water table patterns.\", \"n_validation_points\": \"27 (all exploratory columns\\u2014Fan 2013 is gridded, so WTD available everywhere)\"}, {\"target_variable\": \"recharge (QDRAI)\", \"observation_source\": \"Published uniform 500 mm/yr estimate\", \"in_domain_available\": false, \"comparison\": \"Hypothesis test: compute mean and spatial variability (std dev, range) of simulated QDRAI across all columns. If std dev << mean and mean \\u2248 500 mm/yr, uniform estimate is supported. If std dev is large (e.g. >100 mm/yr) or mean differs significantly, uniformity is rejected.\", \"metric\": \"Mean, standard deviation, and range of QDRAI across elevation-soil strata. Statistical test: one-way ANOVA (elevation effect) and two-way ANOVA (elevation \\u00d7 soil interaction) to quantify spatial variability.\", \"n_validation_points\": \"None (no direct recharge observations\\u2014this is a model-based hypothesis test, not validation)\"}, {\"target_variable\": \"well water levels (if USGS wells have time series)\", \"observation_source\": \"USGS wells (observations_available)\", \"in_domain_available\": true, \"comparison\": \"Analog validation: if well hydrographs show seasonal water-table fluctuations, compare timing/magnitude to ELM's simulated ZWT dynamics. This indirectly validates recharge timing (recharge events should correlate with water-table rise).\", \"metric\": \"Qualitative: do simulated water-table rise events align with observed well responses? Quantitative (if data sufficient): correlation between simulated monthly QDRAI and observed monthly water-table change.\", \"n_validation_points\": \"Unknown\\u2014depends on USGS well density and whether time-series data (not just static WTD) are available\"}], \"experiment_summary\": {\"total_columns\": 27, \"exploratory\": 27, \"validation\": 27, \"primary_treatment\": \"Multi-year spin-up (10 years, 1980-1989) followed by analysis period (1990-2018, 29 years) to reach quasi-equilibrium recharge. Use WTD-informed warm start (Fan 2013 prior) if available to reduce spin-up cost. Forcing: NLDAS-2 (native 12-km, elevation-resolved across domain). Soil: SSURGO-derived texture per column. Custom history output: add QDRAI, ZWT, QOVER, QRUNOFF, QINFL to default fields.\"}, \"requires_capabilities\": [{\"capability\": \"QDRAI in history output\", \"why\": \"Sub-surface drainage flux (recharge proxy) is not in default ELM history fields\\u2014must add via hist_fincl1 namelist\", \"blocks\": \"Cannot extract recharge estimates without this field\"}, {\"capability\": \"Multi-year spin-up OR WTD-informed warm start\", \"why\": \"Recharge is a slow-equilibrating flux\\u2014Year 1 values are initialization artifacts (aquifer filling from default 8.8 m water table). Need 5-10 spin-up years OR Fan 2013 WTD-informed initial state.\", \"blocks\": \"Recharge estimates are meaningless without equilibration\\u2014would show transient filling, not steady-state flux\"}, {\"capability\": \"Direct recharge observations (lysimeters, tracers, well hydrograph analysis)\", \"why\": \"No in-domain recharge measurements exist (observations_missing). Published 500 mm/yr value cannot be validated without independent data.\", \"blocks\": \"Cannot confirm published estimate\\u2014can only test its spatial uniformity hypothesis via model-based comparison\"}, {\"capability\": \"Elevation-downscaled forcing (1-km PRISM or WRF)\", \"why\": \"NLDAS-2 is 12-km resolution\\u2014sub-12 km orographic gradients (rain-snow transition zones, lapse rates) are smoothed. Fine-scale elevation effects on recharge are underresolved.\", \"blocks\": \"Cannot fully resolve elevation control on recharge\\u201412-km forcing averages over terrain, missing within-cell variability\"}, {\"capability\": \"SSURGO soil data ingest and per-column assignment\", \"why\": \"Soil texture stratification requires gridded SSURGO data and a spatial sampler to assign dominant texture class to each column location.\", \"blocks\": \"Cannot implement soil stratification without SSURGO ingest\\u2014would fall back to default uniform soil\"}, {\"capability\": \"Statistical analysis tools (ANOVA, spatial aggregation)\", \"why\": \"Testing the uniform-recharge hypothesis requires computing stratum means, spatial variability (std dev, range), and statistical tests (ANOVA for elevation/soil effects).\", \"blocks\": \"Cannot quantify whether spatial variability is significant\\u2014would have raw QDRAI values but no hypothesis test\"}], \"assumptions\": [\"Published 500 mm/yr recharge estimate is a watershed-averaged value, not a spatially-uniform field (uniform recharge across 1625 m relief is physically implausible).\", \"NLDAS-2 12-km forcing provides sufficient elevation resolution to capture first-order climate gradients (verified: ~15 distinct precip values across domain's relief). Sub-12 km terrain effects are unresolved.\", \"ELM's 1-D sub-surface drainage (QDRAI) is an acceptable recharge proxy for hypothesis testing, despite lacking lateral groundwater flow (regional convergence/divergence not represented).\", \"SSURGO soil texture classes can be mapped to ELM's soil parameter lookup (sand/loam/clay fractions).\", \"Fan 2013 WTD prior (if used for warm start) provides a reasonable initial water-table estimate, though ELM's 1-D equilibrium will drift from Fan's lateral-flow equilibrium.\", \"10-year spin-up (1980-1989) is sufficient to equilibrate aquifer storage and recharge flux\\u2014longer spin-up may be needed if initial drift is large.\", \"USGS wells (observations_available) have time-series data, not just static measurements\\u2014if only static WTD, well validation is limited to Fan 2013 comparison.\", \"Three replicates per stratum provide adequate statistical power to detect elevation and soil effects on recharge (total N=27 supports two-way ANOVA with \\u03b1=0.05).\"], \"open_questions\": [\"What is the source and methodology of the published 500 mm/yr estimate? Is it a watershed-averaged value, a point measurement, or a model output? Understanding its provenance is critical to interpreting disagreement.\", \"Do USGS wells have time-series hydrographs, or only static water-level measurements? Time series enable validation of recharge timing; static data only validate equilibrium WTD.\", \"Is the published estimate intended as spatially uniform, or is it being misinterpreted? A watershed-averaged recharge of 500 mm/yr is plausible; claiming uniformity across elevation/soil gradients is not.\", \"What is the acceptable level of disagreement with the published value? If ELM estimates 400-600 mm/yr with high spatial variability, does that 'confirm' the 500 mm/yr mean, or does the variability itself refute the uniformity claim?\", \"Should the design include a sensitivity analysis on spin-up length (5 vs 10 vs 20 years) to quantify equilibration time and uncertainty in recharge estimates?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Estimate spatial distribution of recharge across Naches elevation/soil gradients",
+        "Test whether published uniform 500 mm/yr estimate is supported by process-based simulation",
+        "Quantify recharge sensitivity to elevation (climate) and soil heterogeneity"
+      ],
+      "key_processes": [
+        "Precipitation partitioning (rain vs snow, elevation-dependent via NLDAS-2)",
+        "Evapotranspiration (climate and vegetation control)",
+        "Infiltration and drainage (soil texture control)",
+        "Sub-surface drainage to aquifer (ELM QDRAI as recharge proxy)"
+      ],
+      "drivers_to_resolve": [
+        "elevation (via NLDAS-2 12-km forcing\u2014partial climate gradient)",
+        "soil (SSURGO texture classes)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM can compute sub-surface drainage (QDRAI) as a recharge estimate across stratified locations. Spatial sampling spans the domain's climate/soil heterogeneity to test the uniform-recharge hypothesis.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Spatial pattern of ELM-simulated recharge (QDRAI) across elevation and soil gradients",
+        "Sensitivity of recharge to soil texture (sand/loam/clay via SSURGO)",
+        "Qualitative comparison to published estimate (test uniformity hypothesis)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Confirmation of exact 500 mm/yr uniform recharge",
+          "why": "No in-domain recharge observations exist (observations_missing). Published value may be watershed-averaged, not spatially uniform. ELM will likely show spatial variability due to elevation/soil gradients\u2014uniform recharge across 1625 m relief is physically implausible.",
+          "needs": "Direct recharge measurements (lysimeters, tracer studies, or well hydrograph analysis) for validation"
+        },
+        {
+          "aspect": "Fine-scale elevation effects on recharge (sub-12 km terrain)",
+          "why": "NLDAS-2 forcing is 12-km resolution\u2014within-cell orographic gradients are unresolved. Columns at different elevations get distinct 12-km cells (verified to span ~15 precip values in this relief range), but sub-12 km lapse rates and rain-snow transitions are smoothed.",
+          "needs": "Elevation-downscaled forcing (e.g. 1-km PRISM-corrected NLDAS or WRF dynamical downscaling)"
+        },
+        {
+          "aspect": "Equilibrium recharge (multi-decadal steady state)",
+          "why": "Without multi-year spin-up or WTD-informed warm start, recharge in Year 1 is an initialization artifact (aquifer filling from default 8.8 m water table). Quasi-equilibrium requires 5-10 spin-up years.",
+          "needs": "Multi-year spin-up runs OR WTD-informed warm start (Fan 2013 prior available\u2014preferred for scalability)"
+        },
+        {
+          "aspect": "QDRAI (recharge flux) in output",
+          "why": "ELM's sub-surface drainage flux (QDRAI) is NOT in the default history field list\u2014must be added via custom hist_fincl1 namelist modification.",
+          "needs": "Custom history output configuration to include QDRAI in h0 files"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified by elevation and soil texture",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low (352-800 m): rain-dominated, warmer, higher ET",
+            "mid (800-1400 m): rain-snow transition, moderate ET",
+            "high (1400-1977 m): snow-dominated, cooler, lower ET, longer melt season"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy loam, high infiltration, low water-holding)",
+            "medium (loam/silt loam, moderate properties)",
+            "fine (clay loam, low infiltration, high water-holding)"
+          ]
+        }
+      ],
+      "n_exploratory": 27,
+      "n_justification": "3 elevation bands \u00d7 3 soil classes \u00d7 3 replicates per stratum = 27 columns. Replication accounts for within-stratum spatial variability (aspect, local soil heterogeneity within SSURGO map units) and provides uncertainty estimates for each elevation-soil combination. This is the minimum to resolve the 2-way interaction (elevation \u00d7 soil) and test the uniform-recharge hypothesis.",
+      "placement_logic": "Within each elevation band, sample across the dominant soil classes (from SSURGO). Prefer mid-slope positions (avoid ridgetops and valley bottoms where 1-D ELM assumptions are weakest\u2014ridgetops may have lateral flow losses, valley bottoms may have regional groundwater convergence not represented in single-column mode). Spread replicates to capture aspect variation (N vs S-facing slopes have different radiation/ET, though ELM's 1-D mode won't fully resolve this).",
+      "replication": "3 replicates per elevation-soil stratum to quantify within-stratum variability and provide statistical confidence in stratum-mean recharge estimates."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elev_coarse-soil",
+        "n": 3,
+        "reason": "Rain-dominated, high infiltration, low storage\u2014expect high recharge (>500 mm/yr if precip sufficient)"
+      },
+      {
+        "group": "low-elev_medium-soil",
+        "n": 3,
+        "reason": "Rain-dominated, moderate infiltration/storage\u2014baseline recharge for warm low-elevation zone"
+      },
+      {
+        "group": "low-elev_fine-soil",
+        "n": 3,
+        "reason": "Rain-dominated, low infiltration, high runoff\u2014expect reduced recharge (<500 mm/yr)"
+      },
+      {
+        "group": "mid-elev_coarse-soil",
+        "n": 3,
+        "reason": "Rain-snow transition, high infiltration from snowmelt\u2014expect high recharge, test sensitivity to melt timing"
+      },
+      {
+        "group": "mid-elev_medium-soil",
+        "n": 3,
+        "reason": "Rain-snow transition, moderate properties\u2014critical zone for testing elevation gradient in recharge"
+      },
+      {
+        "group": "mid-elev_fine-soil",
+        "n": 3,
+        "reason": "Rain-snow transition, low infiltration\u2014test whether snowmelt compensates for runoff losses"
+      },
+      {
+        "group": "high-elev_coarse-soil",
+        "n": 3,
+        "reason": "Snow-dominated, high infiltration, low ET\u2014expect maximum recharge (>500 mm/yr), test upper bound"
+      },
+      {
+        "group": "high-elev_medium-soil",
+        "n": 3,
+        "reason": "Snow-dominated, moderate properties\u2014baseline recharge for cold high-elevation zone"
+      },
+      {
+        "group": "high-elev_fine-soil",
+        "n": 3,
+        "reason": "Snow-dominated, low infiltration\u2014test whether frozen-soil effects reduce recharge despite snowmelt"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "Fan et al. 2013 equilibrium WTD prior (gridded)",
+        "in_domain_available": true,
+        "comparison": "co-located (each column's simulated WTD vs Fan 2013 value at that point)",
+        "metric": "Bias and RMSE across all columns. Note: ELM's 1-D equilibrium WTD differs from Fan's lateral-flow equilibrium\u2014some systematic bias expected. Comparison tests whether ELM's recharge estimates are consistent with observed water table patterns.",
+        "n_validation_points": "27 (all exploratory columns\u2014Fan 2013 is gridded, so WTD available everywhere)"
+      },
+      {
+        "target_variable": "recharge (QDRAI)",
+        "observation_source": "Published uniform 500 mm/yr estimate",
+        "in_domain_available": false,
+        "comparison": "Hypothesis test: compute mean and spatial variability (std dev, range) of simulated QDRAI across all columns. If std dev << mean and mean \u2248 500 mm/yr, uniform estimate is supported. If std dev is large (e.g. >100 mm/yr) or mean differs significantly, uniformity is rejected.",
+        "metric": "Mean, standard deviation, and range of QDRAI across elevation-soil strata. Statistical test: one-way ANOVA (elevation effect) and two-way ANOVA (elevation \u00d7 soil interaction) to quantify spatial variability.",
+        "n_validation_points": "None (no direct recharge observations\u2014this is a model-based hypothesis test, not validation)"
+      },
+      {
+        "target_variable": "well water levels (if USGS wells have time series)",
+        "observation_source": "USGS wells (observations_available)",
+        "in_domain_available": true,
+        "comparison": "Analog validation: if well hydrographs show seasonal water-table fluctuations, compare timing/magnitude to ELM's simulated ZWT dynamics. This indirectly validates recharge timing (recharge events should correlate with water-table rise).",
+        "metric": "Qualitative: do simulated water-table rise events align with observed well responses? Quantitative (if data sufficient): correlation between simulated monthly QDRAI and observed monthly water-table change.",
+        "n_validation_points": "Unknown\u2014depends on USGS well density and whether time-series data (not just static WTD) are available"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 27,
+      "exploratory": 27,
+      "validation": 27,
+      "primary_treatment": "Multi-year spin-up (10 years, 1980-1989) followed by analysis period (1990-2018, 29 years) to reach quasi-equilibrium recharge. Use WTD-informed warm start (Fan 2013 prior) if available to reduce spin-up cost. Forcing: NLDAS-2 (native 12-km, elevation-resolved across domain). Soil: SSURGO-derived texture per column. Custom history output: add QDRAI, ZWT, QOVER, QRUNOFF, QINFL to default fields."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "QDRAI in history output",
+        "why": "Sub-surface drainage flux (recharge proxy) is not in default ELM history fields\u2014must add via hist_fincl1 namelist",
+        "blocks": "Cannot extract recharge estimates without this field"
+      },
+      {
+        "capability": "Multi-year spin-up OR WTD-informed warm start",
+        "why": "Recharge is a slow-equilibrating flux\u2014Year 1 values are initialization artifacts (aquifer filling from default 8.8 m water table). Need 5-10 spin-up years OR Fan 2013 WTD-informed initial state.",
+        "blocks": "Recharge estimates are meaningless without equilibration\u2014would show transient filling, not steady-state flux"
+      },
+      {
+        "capability": "Direct recharge observations (lysimeters, tracers, well hydrograph analysis)",
+        "why": "No in-domain recharge measurements exist (observations_missing). Published 500 mm/yr value cannot be validated without independent data.",
+        "blocks": "Cannot confirm published estimate\u2014can only test its spatial uniformity hypothesis via model-based comparison"
+      },
+      {
+        "capability": "Elevation-downscaled forcing (1-km PRISM or WRF)",
+        "why": "NLDAS-2 is 12-km resolution\u2014sub-12 km orographic gradients (rain-snow transition zones, lapse rates) are smoothed. Fine-scale elevation effects on recharge are underresolved.",
+        "blocks": "Cannot fully resolve elevation control on recharge\u201412-km forcing averages over terrain, missing within-cell variability"
+      },
+      {
+        "capability": "SSURGO soil data ingest and per-column assignment",
+        "why": "Soil texture stratification requires gridded SSURGO data and a spatial sampler to assign dominant texture class to each column location.",
+        "blocks": "Cannot implement soil stratification without SSURGO ingest\u2014would fall back to default uniform soil"
+      },
+      {
+        "capability": "Statistical analysis tools (ANOVA, spatial aggregation)",
+        "why": "Testing the uniform-recharge hypothesis requires computing stratum means, spatial variability (std dev, range), and statistical tests (ANOVA for elevation/soil effects).",
+        "blocks": "Cannot quantify whether spatial variability is significant\u2014would have raw QDRAI values but no hypothesis test"
+      }
+    ],
+    "assumptions": [
+      "Published 500 mm/yr recharge estimate is a watershed-averaged value, not a spatially-uniform field (uniform recharge across 1625 m relief is physically implausible).",
+      "NLDAS-2 12-km forcing provides sufficient elevation resolution to capture first-order climate gradients (verified: ~15 distinct precip values across domain's relief). Sub-12 km terrain effects are unresolved.",
+      "ELM's 1-D sub-surface drainage (QDRAI) is an acceptable recharge proxy for hypothesis testing, despite lacking lateral groundwater flow (regional convergence/divergence not represented).",
+      "SSURGO soil texture classes can be mapped to ELM's soil parameter lookup (sand/loam/clay fractions).",
+      "Fan 2013 WTD prior (if used for warm start) provides a reasonable initial water-table estimate, though ELM's 1-D equilibrium will drift from Fan's lateral-flow equilibrium.",
+      "10-year spin-up (1980-1989) is sufficient to equilibrate aquifer storage and recharge flux\u2014longer spin-up may be needed if initial drift is large.",
+      "USGS wells (observations_available) have time-series data, not just static measurements\u2014if only static WTD, well validation is limited to Fan 2013 comparison.",
+      "Three replicates per stratum provide adequate statistical power to detect elevation and soil effects on recharge (total N=27 supports two-way ANOVA with \u03b1=0.05)."
+    ],
+    "open_questions": [
+      "What is the source and methodology of the published 500 mm/yr estimate? Is it a watershed-averaged value, a point measurement, or a model output? Understanding its provenance is critical to interpreting disagreement.",
+      "Do USGS wells have time-series hydrographs, or only static water-level measurements? Time series enable validation of recharge timing; static data only validate equilibrium WTD.",
+      "Is the published estimate intended as spatially uniform, or is it being misinterpreted? A watershed-averaged recharge of 500 mm/yr is plausible; claiming uniformity across elevation/soil gradients is not.",
+      "What is the acceptable level of disagreement with the published value? If ELM estimates 400-600 mm/yr with high spatial variability, does that 'confirm' the 500 mm/yr mean, or does the variability itself refute the uniformity claim?",
+      "Should the design include a sensitivity analysis on spin-up length (5 vs 10 vs 20 years) to quantify equilibration time and uncertainty in recharge estimates?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

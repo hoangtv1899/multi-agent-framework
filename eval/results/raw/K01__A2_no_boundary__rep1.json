@@ -1,0 +1,224 @@
+{
+  "prompt_id": "K01",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe question asks **when infiltration becomes recharge** \u2014 a vadose-zone transit-time question that requires tracking water movement through the unsaturated zone to the water table. This is fundamentally a **coupling problem**: ELM's 1-D column produces bottom-boundary drainage flux (QDRAI) that represents potential recharge leaving the soil column, but ELM's shallow ~3.8 m soil column and simplified aquifer (which sits below the soil, not representing a real vadose zone) cannot resolve the actual transit time through a deep unsaturated zone to a real water table that may be 5-50+ m deep.\n\n**Key insight**: The Naches has 1625 m relief (352-1977 m elevation). Water-table depth varies dramatically with topography (Fan 2013 shows valley bottoms ~2-5 m, ridges/uplands 20-50+ m). Transit time through the vadose zone scales with depth and hydraulic properties \u2014 a 5 m vadose zone might transmit in weeks-months, a 40 m zone in years-decades. ELM alone cannot answer this because:\n1. ELM's soil column ends at ~3.8 m; drainage flux exits immediately as \"recharge\" regardless of actual WTD.\n2. ELM's aquifer is a bucket storage term, not a vadose-zone flow model.\n3. The question explicitly asks about the **real water table**, which requires representing the full vadose zone and its flow physics.\n\n**Coupling design**: ELM \u2192 vadose-zone model (Richards equation solver, e.g. PFLOTRAN unsaturated flow or a 1-D Richards solver). ELM provides the top boundary condition (infiltration past the root zone, or QDRAI as the flux leaving ELM's domain). The vadose model extends from ELM's bottom (~3.8 m) to the observed water table (Fan 2013 WTD), solves unsaturated flow, and tracks transit time to the water table. Compare coupled (realistic transit) vs standalone ELM (instantaneous \"recharge\" at 3.8 m) to quantify the lag.\n\n**Spatial sampling**: Stratify by **water-table depth** (the primary control on transit time) and secondarily by **soil** (hydraulic conductivity affects transit). Sample valley bottoms (shallow WTD, fast transit), mid-slopes (intermediate), and uplands/ridges (deep WTD, slow transit). N ~ 6-9 exploratory columns spanning WTD strata, plus validation at USGS well locations (unknown count, depends on well density in-domain).\n\n**Feasibility**: **Partial**. The coupling mechanism (ELM \u2192 vadose-zone model) does not exist in the framework. ELM runs CAN produce QDRAI time series, and the sampling/validation design is executable, but the **transit-time answer requires the coupler**. Without it, we can only show ELM's drainage flux spatial patterns and timing (which is NOT recharge arrival at the real water table). The design is scientifically sound but execution-blocked.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Quantify vadose-zone transit time from infiltration to recharge arrival at the real water table across spatial heterogeneity\",\n      \"Validate modeled water-table depth against Fan 2013 prior and USGS wells\"\n    ],\n    \"key_processes\": [\n      \"Infiltration partitioning in the root zone (ELM)\",\n      \"Unsaturated flow through the vadose zone (requires coupling)\",\n      \"Transit-time lag as a function of water-table depth and soil hydraulic properties\"\n    ],\n    \"drivers_to_resolve\": [\n      \"water-table depth (primary control on vadose-zone thickness and transit time)\",\n      \"soil texture/hydraulic conductivity (secondary control on flow velocity)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"coupling\",\n    \"rationale\": \"The question requires tracking water movement through the vadose zone to a real water table. ELM's 3.8 m soil column cannot represent vadose zones 5-50+ m deep. Coupling ELM drainage flux to a vadose-zone flow model (Richards equation) is necessary to resolve transit time.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"ELM bottom-boundary drainage flux (QDRAI) drives a vadose-zone model (e.g. PFLOTRAN unsaturated flow or 1-D Richards solver) from ~3.8 m depth to the observed water table (Fan 2013 WTD). The vadose model solves unsaturated flow and tracks transit time. This coupling mechanism does not exist and is listed in requires_capabilities.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"ELM can produce spatially-varying drainage flux (QDRAI) time series across WTD/soil strata\",\n      \"Water-table depth validation against Fan 2013 and USGS wells is possible (co-located comparison)\",\n      \"Spatial patterns of infiltration partitioning and drainage timing from ELM\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Vadose-zone transit time from infiltration to recharge arrival at the real water table\",\n        \"why\": \"ELM's soil column ends at ~3.8 m; QDRAI exits as instantaneous 'recharge' regardless of actual WTD (5-50+ m). No vadose-zone flow physics below ELM's domain.\",\n        \"needs\": \"ELM-to-vadose-zone-model coupling (ELM QDRAI \u2192 Richards equation solver with domain extending to observed WTD)\"\n      },\n      {\n        \"aspect\": \"Quantitative transit-time estimates (days to decades)\",\n        \"why\": \"Requires the coupled vadose-zone model to track water parcels through unsaturated flow\",\n        \"needs\": \"Vadose-zone flow model with particle tracking or age tracer\"\n      }\n    ]\n  },\n  \"coupling_design\": {\n    \"from_model\": \"ELM\",\n    \"to_model\": \"vadose-zone flow model (PFLOTRAN unsaturated or 1-D Richards solver)\",\n    \"driver\": \"ELM bottom-boundary drainage flux QDRAI (kg/m\u00b2/s or mm/day) \u2192 top boundary condition (infiltration flux) for the vadose-zone model domain\",\n    \"temporal_mapping\": \"ELM QDRAI time series (sub-daily to daily) \u2192 vadose model transient top BC. Vadose domain extends from ~3.8 m (ELM bottom) to observed water table depth (Fan 2013 WTD at each column location, 5-50+ m). Vadose model solves Richards equation for unsaturated flow with soil hydraulic properties (van Genuchten parameters from SSURGO or literature). Track water parcel transit time (age tracer or particle tracking) from top BC to water table arrival.\",\n    \"receiving_setup\": \"1-D vadose-zone column per ELM column, vertical domain 3.8 m to WTD (column-specific depth from Fan 2013), discretized in ~0.5-1 m layers. Soil hydraulic properties from SSURGO (matched to ELM's soil at each location). Bottom BC: water table at observed depth (constant head or seepage face). Initial condition: hydrostatic pressure profile from water table. Solve transient Richards equation driven by ELM QDRAI time series.\",\n    \"compare\": \"Coupled (realistic vadose transit) vs standalone ELM (QDRAI treated as instantaneous recharge). Standalone ELM shows drainage flux timing at 3.8 m but cannot represent the lag to the real water table. Coupled model quantifies the transit-time distribution (e.g. median lag, 10th-90th percentile arrival times) as a function of WTD and soil. Expected result: shallow-WTD valley bottoms show months lag, deep-WTD uplands show years-to-decades lag. Validate coupled WTD against Fan 2013 and USGS wells (vadose model's bottom BC should match observed WTD).\"\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Stratified by water-table depth (primary driver of vadose-zone thickness and transit time) and soil texture (secondary driver of hydraulic conductivity). Sample valley bottoms, mid-slopes, and uplands to span WTD range 5-50+ m.\",\n    \"strata\": [\n      {\n        \"driver\": \"water_table_depth\",\n        \"bands\": [\n          \"shallow (5-10 m, valley bottoms/riparian)\",\n          \"intermediate (10-25 m, mid-slopes)\",\n          \"deep (25-50+ m, uplands/ridges)\"\n        ]\n      },\n      {\n        \"driver\": \"soil\",\n        \"classes\": [\n          \"coarse (sandy loam, high Ksat, fast drainage)\",\n          \"medium (loam/silt loam, moderate Ksat)\",\n          \"fine (clay loam, low Ksat, slow drainage)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 9,\n    \"n_justification\": \"3 WTD bands \u00d7 3 soil classes = 9 strata. One column per stratum resolves the two-way interaction (WTD \u00d7 soil) on transit time. This is the minimum to span the heterogeneity; light replication (2 per stratum, N=18) would improve robustness but is not required for the coupling proof-of-concept.\",\n    \"placement_logic\": \"Use Fan 2013 WTD grid to identify WTD bands. Within each band, select locations with the target soil class (from SSURGO). Prefer mid-elevation positions within each WTD band to avoid forcing artifacts at domain edges. Valley-bottom columns (shallow WTD) concentrate near streams/floodplains; upland columns (deep WTD) on ridges/interfluves.\",\n    \"replication\": \"None for exploratory columns (N=9 is one per stratum). Validation columns at USGS well locations provide spatial replication within strata.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"valley_shallow_coarse\",\n      \"n\": 1,\n      \"reason\": \"Shallow WTD (5-10 m), coarse soil: fastest transit time (weeks-months), tests minimum lag\"\n    },\n    {\n      \"group\": \"valley_shallow_medium\",\n      \"n\": 1,\n      \"reason\": \"Shallow WTD (5-10 m), medium soil: moderate transit in thin vadose zone\"\n    },\n    {\n      \"group\": \"valley_shallow_fine\",\n      \"n\": 1,\n      \"reason\": \"Shallow WTD (5-10 m), fine soil: slow drainage but thin vadose zone, tests soil vs depth trade-off\"\n    },\n    {\n      \"group\": \"midslope_intermediate_coarse\",\n      \"n\": 1,\n      \"reason\": \"Intermediate WTD (10-25 m), coarse soil: moderate-fast transit (months-year)\"\n    },\n    {\n      \"group\": \"midslope_intermediate_medium\",\n      \"n\": 1,\n      \"reason\": \"Intermediate WTD (10-25 m), medium soil: baseline mid-range transit time\"\n    },\n    {\n      \"group\": \"midslope_intermediate_fine\",\n      \"n\": 1,\n      \"reason\": \"Intermediate WTD (10-25 m), fine soil: slow transit through moderate vadose thickness\"\n    },\n    {\n      \"group\": \"upland_deep_coarse\",\n      \"n\": 1,\n      \"reason\": \"Deep WTD (25-50+ m), coarse soil: long transit despite high Ksat (years), tests thick vadose zone\"\n    },\n    {\n      \"group\": \"upland_deep_medium\",\n      \"n\": 1,\n      \"reason\": \"Deep WTD (25-50+ m), medium soil: multi-year transit, typical upland condition\"\n    },\n    {\n      \"group\": \"upland_deep_fine\",\n      \"n\": 1,\n      \"reason\": \"Deep WTD (25-50+ m), fine soil: slowest transit (decades), tests maximum lag\"\n    },\n    {\n      \"group\": \"validation_wells\",\n      \"n\": \"unknown (depends on USGS well density in HUC 17030002)\",\n      \"reason\": \"Co-located validation of modeled WTD against USGS well observations and Fan 2013 prior\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"Fan et al. 2013 equilibrium WTD grid (1 km)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"Co-located: extract Fan WTD at each ELM column location, compare to coupled vadose model's bottom BC depth (should match by design) and to ELM's aquifer-derived WTD (expected mismatch due to ELM's 1-D equilibrium vs Fan's lateral-flow equilibrium)\",\n      \"metric\": \"Bias and RMSE between modeled WTD and Fan 2013 WTD\",\n      \"n_validation_points\": \"All exploratory columns (9) plus USGS well locations\"\n    },\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS groundwater wells in HUC 17030002\",\n      \"in_domain_available\": true,\n      \"comparison\": \"Co-located: compare coupled vadose model WTD to well-measured WTD (if transient well data available, compare time series; if static, compare mean state)\",\n      \"metric\": \"Bias, RMSE, and correlation (if time series available)\",\n      \"n_validation_points\": \"Unknown \u2014 depends on well density and data availability in the Naches HUC\"\n    },\n    {\n      \"target_variable\": \"recharge (arrival at water table)\",\n      \"observation_source\": \"None available in-domain\",\n      \"in_domain_available\": false,\n      \"comparison\": \"Not possible \u2014 no direct recharge observations. Validation is indirect via WTD (recharge controls WTD in steady state). Coupled model's transit-time predictions are untested against observations.\",\n      \"metric\": \"N/A\",\n      \"n_validation_points\": \"0\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": \"9 exploratory + N validation (unknown, depends on USGS well count)\",\n    \"exploratory\": 9,\n    \"validation\": \"unknown (USGS wells in HUC 17030002)\",\n    \"primary_treatment\": \"Transient ELM run (1980-2018 NLDAS-2 forcing, native SSURGO soil at each location, WTD-informed warm start from Fan 2013). ELM QDRAI output drives coupled vadose-zone model (1-D Richards equation, domain 3.8 m to Fan WTD, transient simulation matching ELM period).\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"ELM-to-vadose-zone-model coupling\",\n      \"why\": \"The question requires tracking water through the vadose zone to the real water table. ELM's 3.8 m soil column cannot represent 5-50+ m vadose zones. Coupling is the core mechanism.\",\n      \"blocks\": \"Transit-time quantification (the primary question)\"\n    },\n    {\n      \"capability\": \"Vadose-zone flow model (PFLOTRAN unsaturated or 1-D Richards solver)\",\n      \"why\": \"Solves Richards equation for unsaturated flow from ELM's bottom boundary to the observed water table. Tracks transit time via age tracer or particle tracking.\",\n      \"blocks\": \"Transit-time calculation and vadose-zone physics representation\"\n    },\n    {\n      \"capability\": \"ELM QDRAI output (bottom-boundary drainage flux)\",\n      \"why\": \"Provides the time series of water flux leaving ELM's domain, which becomes the vadose model's top BC. Must be in history output (daily or sub-daily).\",\n      \"blocks\": \"Coupling input (likely already available in ELM history, but must verify)\"\n    },\n    {\n      \"capability\": \"Fan 2013 WTD grid ingestion and per-column extraction\",\n      \"why\": \"Sets the vadose-zone domain depth (bottom BC) for each column. Also used for WTD-informed warm start and validation.\",\n      \"blocks\": \"Vadose-zone domain setup and validation baseline\"\n    },\n    {\n      \"capability\": \"USGS well data ingestion (locations and WTD measurements in HUC 17030002)\",\n      \"why\": \"Provides co-located validation points for modeled WTD. Well density and data availability are unknown.\",\n      \"blocks\": \"Validation sample size and robustness\"\n    },\n    {\n      \"capability\": \"SSURGO soil hydraulic properties (van Genuchten parameters: alpha, n, residual/saturated water content, Ksat)\",\n      \"why\": \"Vadose-zone model requires unsaturated hydraulic functions. SSURGO provides texture; van Genuchten parameters must be derived (e.g. Rosetta pedotransfer functions) or looked up.\",\n      \"blocks\": \"Vadose-zone model parameterization\"\n    },\n    {\n      \"capability\": \"Multi-year ELM spin-up or WTD-informed warm start\",\n      \"why\": \"ELM's aquifer and root-zone soil moisture must equilibrate to avoid initialization artifacts in QDRAI. WTD-informed warm start (preferred) sets initial aquifer storage from Fan 2013 WTD.\",\n      \"blocks\": \"Realistic QDRAI time series (without spin-up, QDRAI is artifact-dominated for ~5 years)\"\n    }\n  ],\n  \"assumptions\": [\n    \"Fan 2013 WTD is a reasonable proxy for the real water table depth in the Naches (1-km resolution, equilibrium assumption)\",\n    \"SSURGO soil texture at each column location can be mapped to van Genuchten hydraulic parameters via pedotransfer functions or literature\",\n    \"ELM's QDRAI (drainage flux at ~3.8 m) is a reasonable approximation of infiltration entering the vadose zone (ignores lateral flow in ELM's shallow soil, which is minor in 1-D columns)\",\n    \"1-D vadose-zone flow is adequate (ignores lateral unsaturated flow, which is typically small compared to vertical flow in thick vadose zones)\",\n    \"USGS well data in HUC 17030002 exists and is accessible (count and spatial coverage unknown)\",\n    \"The coupled vadose model's bottom BC (water table at Fan WTD) is a reasonable lower boundary (constant head or seepage face, ignoring regional groundwater flow)\"\n  ],\n  \"open_questions\": [\n    \"How many USGS wells are in HUC 17030002, and do they have transient WTD measurements or only static records?\",\n    \"Is PFLOTRAN unsaturated flow the preferred vadose-zone model, or is a simpler 1-D Richards solver acceptable for the coupling proof-of-concept?\",\n    \"Should the vadose-zone model include age tracers (for transit-time distribution) or particle tracking (for individual parcel trajectories)?\",\n    \"What is the acceptable spatial resolution for the Fan 2013 WTD grid extraction (1 km native vs interpolated to column locations)?\",\n    \"Should the design include sensitivity tests on vadose-zone hydraulic parameters (e.g. Ksat uncertainty), or is the WTD \u00d7 soil stratification sufficient?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify vadose-zone transit time from infiltration to recharge arrival at the real water table across spatial heterogeneity",
+        "Validate modeled water-table depth against Fan 2013 prior and USGS wells"
+      ],
+      "key_processes": [
+        "Infiltration partitioning in the root zone (ELM)",
+        "Unsaturated flow through the vadose zone (requires coupling)",
+        "Transit-time lag as a function of water-table depth and soil hydraulic properties"
+      ],
+      "drivers_to_resolve": [
+        "water-table depth (primary control on vadose-zone thickness and transit time)",
+        "soil texture/hydraulic conductivity (secondary control on flow velocity)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "coupling",
+      "rationale": "The question requires tracking water movement through the vadose zone to a real water table. ELM's 3.8 m soil column cannot represent vadose zones 5-50+ m deep. Coupling ELM drainage flux to a vadose-zone flow model (Richards equation) is necessary to resolve transit time.",
+      "coupling_needed": true,
+      "coupling_note": "ELM bottom-boundary drainage flux (QDRAI) drives a vadose-zone model (e.g. PFLOTRAN unsaturated flow or 1-D Richards solver) from ~3.8 m depth to the observed water table (Fan 2013 WTD). The vadose model solves unsaturated flow and tracks transit time. This coupling mechanism does not exist and is listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "ELM can produce spatially-varying drainage flux (QDRAI) time series across WTD/soil strata",
+        "Water-table depth validation against Fan 2013 and USGS wells is possible (co-located comparison)",
+        "Spatial patterns of infiltration partitioning and drainage timing from ELM"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Vadose-zone transit time from infiltration to recharge arrival at the real water table",
+          "why": "ELM's soil column ends at ~3.8 m; QDRAI exits as instantaneous 'recharge' regardless of actual WTD (5-50+ m). No vadose-zone flow physics below ELM's domain.",
+          "needs": "ELM-to-vadose-zone-model coupling (ELM QDRAI \u2192 Richards equation solver with domain extending to observed WTD)"
+        },
+        {
+          "aspect": "Quantitative transit-time estimates (days to decades)",
+          "why": "Requires the coupled vadose-zone model to track water parcels through unsaturated flow",
+          "needs": "Vadose-zone flow model with particle tracking or age tracer"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "vadose-zone flow model (PFLOTRAN unsaturated or 1-D Richards solver)",
+      "driver": "ELM bottom-boundary drainage flux QDRAI (kg/m\u00b2/s or mm/day) \u2192 top boundary condition (infiltration flux) for the vadose-zone model domain",
+      "temporal_mapping": "ELM QDRAI time series (sub-daily to daily) \u2192 vadose model transient top BC. Vadose domain extends from ~3.8 m (ELM bottom) to observed water table depth (Fan 2013 WTD at each column location, 5-50+ m). Vadose model solves Richards equation for unsaturated flow with soil hydraulic properties (van Genuchten parameters from SSURGO or literature). Track water parcel transit time (age tracer or particle tracking) from top BC to water table arrival.",
+      "receiving_setup": "1-D vadose-zone column per ELM column, vertical domain 3.8 m to WTD (column-specific depth from Fan 2013), discretized in ~0.5-1 m layers. Soil hydraulic properties from SSURGO (matched to ELM's soil at each location). Bottom BC: water table at observed depth (constant head or seepage face). Initial condition: hydrostatic pressure profile from water table. Solve transient Richards equation driven by ELM QDRAI time series.",
+      "compare": "Coupled (realistic vadose transit) vs standalone ELM (QDRAI treated as instantaneous recharge). Standalone ELM shows drainage flux timing at 3.8 m but cannot represent the lag to the real water table. Coupled model quantifies the transit-time distribution (e.g. median lag, 10th-90th percentile arrival times) as a function of WTD and soil. Expected result: shallow-WTD valley bottoms show months lag, deep-WTD uplands show years-to-decades lag. Validate coupled WTD against Fan 2013 and USGS wells (vadose model's bottom BC should match observed WTD)."
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by water-table depth (primary driver of vadose-zone thickness and transit time) and soil texture (secondary driver of hydraulic conductivity). Sample valley bottoms, mid-slopes, and uplands to span WTD range 5-50+ m.",
+      "strata": [
+        {
+          "driver": "water_table_depth",
+          "bands": [
+            "shallow (5-10 m, valley bottoms/riparian)",
+            "intermediate (10-25 m, mid-slopes)",
+            "deep (25-50+ m, uplands/ridges)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy loam, high Ksat, fast drainage)",
+            "medium (loam/silt loam, moderate Ksat)",
+            "fine (clay loam, low Ksat, slow drainage)"
+          ]
+        }
+      ],
+      "n_exploratory": 9,
+      "n_justification": "3 WTD bands \u00d7 3 soil classes = 9 strata. One column per stratum resolves the two-way interaction (WTD \u00d7 soil) on transit time. This is the minimum to span the heterogeneity; light replication (2 per stratum, N=18) would improve robustness but is not required for the coupling proof-of-concept.",
+      "placement_logic": "Use Fan 2013 WTD grid to identify WTD bands. Within each band, select locations with the target soil class (from SSURGO). Prefer mid-elevation positions within each WTD band to avoid forcing artifacts at domain edges. Valley-bottom columns (shallow WTD) concentrate near streams/floodplains; upland columns (deep WTD) on ridges/interfluves.",
+      "replication": "None for exploratory columns (N=9 is one per stratum). Validation columns at USGS well locations provide spatial replication within strata."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley_shallow_coarse",
+        "n": 1,
+        "reason": "Shallow WTD (5-10 m), coarse soil: fastest transit time (weeks-months), tests minimum lag"
+      },
+      {
+        "group": "valley_shallow_medium",
+        "n": 1,
+        "reason": "Shallow WTD (5-10 m), medium soil: moderate transit in thin vadose zone"
+      },
+      {
+        "group": "valley_shallow_fine",
+        "n": 1,
+        "reason": "Shallow WTD (5-10 m), fine soil: slow drainage but thin vadose zone, tests soil vs depth trade-off"
+      },
+      {
+        "group": "midslope_intermediate_coarse",
+        "n": 1,
+        "reason": "Intermediate WTD (10-25 m), coarse soil: moderate-fast transit (months-year)"
+      },
+      {
+        "group": "midslope_intermediate_medium",
+        "n": 1,
+        "reason": "Intermediate WTD (10-25 m), medium soil: baseline mid-range transit time"
+      },
+      {
+        "group": "midslope_intermediate_fine",
+        "n": 1,
+        "reason": "Intermediate WTD (10-25 m), fine soil: slow transit through moderate vadose thickness"
+      },
+      {
+        "group": "upland_deep_coarse",
+        "n": 1,
+        "reason": "Deep WTD (25-50+ m), coarse soil: long transit despite high Ksat (years), tests thick vadose zone"
+      },
+      {
+        "group": "upland_deep_medium",
+        "n": 1,
+        "reason": "Deep WTD (25-50+ m), medium soil: multi-year transit, typical upland condition"
+      },
+      {
+        "group": "upland_deep_fine",
+        "n": 1,
+        "reason": "Deep WTD (25-50+ m), fine soil: slowest transit (decades), tests maximum lag"
+      },
+      {
+        "group": "validation_wells",
+        "n": "unknown (depends on USGS well density in HUC 17030002)",
+        "reason": "Co-located validation of modeled WTD against USGS well observations and Fan 2013 prior"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "Fan et al. 2013 equilibrium WTD grid (1 km)",
+        "in_domain_available": true,
+        "comparison": "Co-located: extract Fan WTD at each ELM column location, compare to coupled vadose model's bottom BC depth (should match by design) and to ELM's aquifer-derived WTD (expected mismatch due to ELM's 1-D equilibrium vs Fan's lateral-flow equilibrium)",
+        "metric": "Bias and RMSE between modeled WTD and Fan 2013 WTD",
+        "n_validation_points": "All exploratory columns (9) plus USGS well locations"
+      },
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS groundwater wells in HUC 17030002",
+        "in_domain_available": true,
+        "comparison": "Co-located: compare coupled vadose model WTD to well-measured WTD (if transient well data available, compare time series; if static, compare mean state)",
+        "metric": "Bias, RMSE, and correlation (if time series available)",
+        "n_validation_points": "Unknown \u2014 depends on well density and data availability in the Naches HUC"
+      },
+      {
+        "target_variable": "recharge (arrival at water table)",
+        "observation_source": "None available in-domain",
+        "in_domain_available": false,
+        "comparison": "Not possible \u2014 no direct recharge observations. Validation is indirect via WTD (recharge controls WTD in steady state). Coupled model's transit-time predictions are untested against observations.",
+        "metric": "N/A",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": "9 exploratory + N validation (unknown, depends on USGS well count)",
+      "exploratory": 9,
+      "validation": "unknown (USGS wells in HUC 17030002)",
+      "primary_treatment": "Transient ELM run (1980-2018 NLDAS-2 forcing, native SSURGO soil at each location, WTD-informed warm start from Fan 2013). ELM QDRAI output drives coupled vadose-zone model (1-D Richards equation, domain 3.8 m to Fan WTD, transient simulation matching ELM period)."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM-to-vadose-zone-model coupling",
+        "why": "The question requires tracking water through the vadose zone to the real water table. ELM's 3.8 m soil column cannot represent 5-50+ m vadose zones. Coupling is the core mechanism.",
+        "blocks": "Transit-time quantification (the primary question)"
+      },
+      {
+        "capability": "Vadose-zone flow model (PFLOTRAN unsaturated or 1-D Richards solver)",
+        "why": "Solves Richards equation for unsaturated flow from ELM's bottom boundary to the observed water table. Tracks transit time via age tracer or particle tracking.",
+        "blocks": "Transit-time calculation and vadose-zone physics representation"
+      },
+      {
+        "capability": "ELM QDRAI output (bottom-boundary drainage flux)",
+        "why": "Provides the time series of water flux leaving ELM's domain, which becomes the vadose model's top BC. Must be in history output (daily or sub-daily).",
+        "blocks": "Coupling input (likely already available in ELM history, but must verify)"
+      },
+      {
+        "capability": "Fan 2013 WTD grid ingestion and per-column extraction",
+        "why": "Sets the vadose-zone domain depth (bottom BC) for each column. Also used for WTD-informed warm start and validation.",
+        "blocks": "Vadose-zone domain setup and validation baseline"
+      },
+      {
+        "capability": "USGS well data ingestion (locations and WTD measurements in HUC 17030002)",
+        "why": "Provides co-located validation points for modeled WTD. Well density and data availability are unknown.",
+        "blocks": "Validation sample size and robustness"
+      },
+      {
+        "capability": "SSURGO soil hydraulic properties (van Genuchten parameters: alpha, n, residual/saturated water content, Ksat)",
+        "why": "Vadose-zone model requires unsaturated hydraulic functions. SSURGO provides texture; van Genuchten parameters must be derived (e.g. Rosetta pedotransfer functions) or looked up.",
+        "blocks": "Vadose-zone model parameterization"
+      },
+      {
+        "capability": "Multi-year ELM spin-up or WTD-informed warm start",
+        "why": "ELM's aquifer and root-zone soil moisture must equilibrate to avoid initialization artifacts in QDRAI. WTD-informed warm start (preferred) sets initial aquifer storage from Fan 2013 WTD.",
+        "blocks": "Realistic QDRAI time series (without spin-up, QDRAI is artifact-dominated for ~5 years)"
+      }
+    ],
+    "assumptions": [
+      "Fan 2013 WTD is a reasonable proxy for the real water table depth in the Naches (1-km resolution, equilibrium assumption)",
+      "SSURGO soil texture at each column location can be mapped to van Genuchten hydraulic parameters via pedotransfer functions or literature",
+      "ELM's QDRAI (drainage flux at ~3.8 m) is a reasonable approximation of infiltration entering the vadose zone (ignores lateral flow in ELM's shallow soil, which is minor in 1-D columns)",
+      "1-D vadose-zone flow is adequate (ignores lateral unsaturated flow, which is typically small compared to vertical flow in thick vadose zones)",
+      "USGS well data in HUC 17030002 exists and is accessible (count and spatial coverage unknown)",
+      "The coupled vadose model's bottom BC (water table at Fan WTD) is a reasonable lower boundary (constant head or seepage face, ignoring regional groundwater flow)"
+    ],
+    "open_questions": [
+      "How many USGS wells are in HUC 17030002, and do they have transient WTD measurements or only static records?",
+      "Is PFLOTRAN unsaturated flow the preferred vadose-zone model, or is a simpler 1-D Richards solver acceptable for the coupling proof-of-concept?",
+      "Should the vadose-zone model include age tracers (for transit-time distribution) or particle tracking (for individual parcel trajectories)?",
+      "What is the acceptable spatial resolution for the Fan 2013 WTD grid extraction (1 km native vs interpolated to column locations)?",
+      "Should the design include sensitivity tests on vadose-zone hydraulic parameters (e.g. Ksat uncertainty), or is the WTD \u00d7 soil stratification sufficient?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

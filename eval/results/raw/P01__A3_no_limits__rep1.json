@@ -1,0 +1,212 @@
+{
+  "prompt_id": "P01",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user asks how the Naches watershed partitions water between runoff and recharge using \"a handful of representative columns.\" This is a **site archetype** design with a single mechanistic goal: understand partitioning drivers across real heterogeneity.\n\n### Decomposition\n- **Primary goal**: Quantify partitioning (runoff vs recharge/drainage) and identify its spatial drivers.\n- **Key processes**: Infiltration, percolation, surface runoff generation, subsurface drainage (ELM's QDRAI as proxy for recharge).\n- **Candidate drivers from brief**: elevation (352\u20131977 m, spanning rain-snow transition) and soil texture.\n\n### Feasibility Check Against Execution Limits\n\n**Elevation as a driver**: The Naches range (352\u20131977 m) crosses the critical rain-snow transition zone in the Cascades. Elevation controls partitioning through:\n1. Snow accumulation/melt timing (high-elev snowpack delays recharge)\n2. Precipitation phase and amount (orographic gradient)\n3. Temperature effects on ET\n\n**PROBLEM**: The framework uses **uniform forcing** (one met file for all columns). A column at 1977 m receives the same precipitation and temperature as one at 352 m. This **cannot represent** the elevation-climate mechanism. The variation we'd see would be soil-driven only, not elevation-driven. ELM can simulate snow processes IF given appropriate forcing, but the framework lacks elevation-downscaled forcing.\n\n**Soil texture as a driver**: ELM represents soil hydraulic properties (sand/loam/clay \u2192 infiltration capacity, percolation rates, field capacity). This IS answerable with the current stack.\n\n**Verdict**: **PARTIAL**. The runs can isolate soil texture control on partitioning. They CANNOT isolate elevation/climate control without elevation-downscaled forcing. The design will stratify by both (because the domain IS heterogeneous), but we must be honest that elevation strata will show soil+topographic effects, not climate effects.\n\n### Validation Constraints\n- **WTD (wells)**: Available. Can validate subsurface drainage/recharge indirectly via water table depth (if we had coupled PFLOTRAN or a water-table diagnostic). ELM's QDRAI is a flux, not a state. **Gap**: No direct co-located recharge observations. Wells validate the *consequence* (water table), not the flux itself.\n- **SWE (SNOTEL, 6 stations)**: Available. Can validate snow accumulation/melt IF we sample near SNOTEL sites. But with uniform forcing, the model won't reproduce site-specific SWE differences driven by elevation. This becomes an **analog validation** (process realism check), not co-located.\n- **Stream gauges**: Available. Runoff aggregation to outlet requires **routing** (not implemented). We can validate *column-scale* surface runoff generation as a process check, but not integrated streamflow.\n- **Flux towers**: Missing. No ET validation.\n\n### Sampling Strategy\n\n**\"A handful\"** = minimize N while spanning the drivers. The domain is 1625 m elevation range, likely 2\u20133 dominant soil classes. \n\n**Strata**:\n1. **Elevation**: 3 bands (low <800 m, mid 800\u20131400 m, high >1400 m) to span valley/foothill/montane zones. The mid-band captures the rain-snow transition (~1200 m in Cascades).\n2. **Soil texture**: 2\u20133 classes (coarse/sandy vs fine/loamy, if data shows this split).\n\n**N calculation**:\n- **Exploratory**: 3 elevation bands \u00d7 2 soil classes = 6 base strata. Add 2 replicates in the mid-elevation rain-snow transition (highest partitioning sensitivity expected) = **8 exploratory columns**.\n- **Validation**: 6 SNOTEL sites (if we sample near them for SWE analog validation) + assume 3\u20135 well locations in-domain for WTD = **~4 validation columns** (co-located with wells, overlapping with exploratory strata where possible).\n\n**Total**: ~12 columns. This is defensible for \"a handful\" and spans the heterogeneity without dense gridding.\n\n**Placement logic**: \n- Concentrate in **mid-elevation band** (rain-snow transition, 800\u20131400 m) where partitioning regime shifts.\n- Sample **valley bottoms** (low-elev, fine soils, high water tables) and **ridges/upper slopes** (high-elev, coarse soils, rapid drainage).\n- Pin validation columns to well locations and near (within ~5 km) SNOTEL sites.\n\n---\n\n## JSON OUTPUT\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Quantify spatial variability in water partitioning (surface runoff vs subsurface drainage/recharge) across the Naches watershed\",\n      \"Validate snow accumulation/melt and water table depth against available observations\"\n    ],\n    \"key_processes\": [\n      \"Infiltration and surface runoff generation\",\n      \"Soil percolation and subsurface drainage (QDRAI as recharge proxy)\",\n      \"Snow accumulation and melt timing\",\n      \"Evapotranspiration (unvalidated due to missing flux towers)\"\n    ],\n    \"drivers_to_resolve\": [\n      \"elevation\",\n      \"soil texture\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM can represent soil-controlled partitioning and snow processes. Spatial sampling across elevation and soil gradients captures domain heterogeneity. Validation pinned to available well and SNOTEL observations.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"PFLOTRAN coupling would enable water-table feedback and direct recharge validation, but is not required for the partitioning question as posed. ELM's QDRAI (subsurface drainage) serves as recharge proxy.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Soil texture control on infiltration, percolation, and partitioning (sand vs loam vs clay hydraulic properties)\",\n      \"Snow accumulation and melt processes (if forcing is representative, though not elevation-specific)\",\n      \"Column-scale surface runoff generation mechanisms\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Elevation/climate control on partitioning via orographic precipitation gradient and temperature lapse\",\n        \"why\": \"Framework uses uniform forcing (one met file for all columns). Columns at 1977 m receive identical precipitation and temperature as columns at 352 m, preventing representation of elevation-driven climate effects.\",\n        \"needs\": \"Elevation-downscaled forcing (temperature lapse, orographic precipitation scaling)\"\n      },\n      {\n        \"aspect\": \"Integrated watershed streamflow and runoff routing\",\n        \"why\": \"No runoff routing or aggregation to outlet. Can validate column-scale runoff generation but not gauged streamflow.\",\n        \"needs\": \"Runoff routing and aggregation to USGS gauge locations\"\n      },\n      {\n        \"aspect\": \"Direct co-located recharge flux validation\",\n        \"why\": \"No recharge observations. Wells provide water table depth (a consequence), not the flux itself. ELM's QDRAI is a model output, not a validated flux.\",\n        \"needs\": \"Recharge flux observations or tracer-based estimates\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Stratified by elevation and soil texture, with targeted placement in high-sensitivity zones (rain-snow transition, valley bottoms) and co-location with observation sites\",\n    \"strata\": [\n      {\n        \"driver\": \"elevation\",\n        \"bands\": [\n          \"low (<800 m): valley floors, rain-dominated\",\n          \"mid (800-1400 m): rain-snow transition, highest partitioning sensitivity\",\n          \"high (>1400 m): montane, snow-dominated\"\n        ]\n      },\n      {\n        \"driver\": \"soil texture\",\n        \"classes\": [\n          \"coarse (sandy/gravelly): high infiltration, rapid drainage\",\n          \"fine (loamy/silty): moderate infiltration, higher moisture retention\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 8,\n    \"n_justification\": \"3 elevation bands \u00d7 2 soil classes = 6 base strata. Add 2 replicates in mid-elevation rain-snow transition (highest expected partitioning variability). Total 8 exploratory columns spans heterogeneity without over-sampling.\",\n    \"placement_logic\": \"Concentrate in mid-elevation band (800-1400 m, rain-snow transition) where partitioning regime shifts. Sample valley bottoms (low-elev, fine soils, potential high water tables) and upper slopes/ridges (high-elev, coarse soils, rapid drainage). Avoid uniform grid; target mechanistically distinct landscape positions.\",\n    \"replication\": \"Light replication (n=2) in mid-elevation rain-snow transition to assess within-stratum variability in the zone of highest sensitivity.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"Low-elev valley, fine soil\",\n      \"n\": 1,\n      \"reason\": \"Rain-dominated, high moisture retention, potential shallow water table and low runoff\"\n    },\n    {\n      \"group\": \"Low-elev valley, coarse soil\",\n      \"n\": 1,\n      \"reason\": \"Rain-dominated, rapid drainage, high recharge potential, low surface runoff\"\n    },\n    {\n      \"group\": \"Mid-elev transition, fine soil (replicated)\",\n      \"n\": 2,\n      \"reason\": \"Rain-snow transition, moderate retention, partitioning sensitive to snow timing and soil saturation\"\n    },\n    {\n      \"group\": \"Mid-elev transition, coarse soil (replicated)\",\n      \"n\": 2,\n      \"reason\": \"Rain-snow transition, rapid drainage, tests recharge dominance under mixed precip phase\"\n    },\n    {\n      \"group\": \"High-elev montane, fine soil\",\n      \"n\": 1,\n      \"reason\": \"Snow-dominated, delayed melt-driven recharge, tests soil moisture carryover from snowmelt\"\n    },\n    {\n      \"group\": \"High-elev montane, coarse soil\",\n      \"n\": 1,\n      \"reason\": \"Snow-dominated, rapid melt infiltration, maximum recharge potential, minimal surface runoff\"\n    },\n    {\n      \"group\": \"Validation: well co-location\",\n      \"n\": 4,\n      \"reason\": \"Pinned to USGS well locations for water table depth validation, spanning elevation/soil strata where wells exist\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"SWE (snow water equivalent)\",\n      \"observation_source\": \"SNOTEL (6 stations in/near domain)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"analog \u2014 columns placed within ~5 km of SNOTEL sites for process validation, but uniform forcing prevents exact co-located match of elevation-specific SWE\",\n      \"metric\": \"Seasonal cycle correlation, peak SWE timing bias\",\n      \"n_validation_points\": \"6 (one per SNOTEL station, if columns sampled nearby)\"\n    },\n    {\n      \"target_variable\": \"Water table depth (WTD)\",\n      \"observation_source\": \"USGS wells\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located \u2014 columns placed at well coordinates, comparing ELM soil moisture profile (or PFLOTRAN water table if coupled) to observed WTD\",\n      \"metric\": \"Mean bias, RMSE, seasonal correlation\",\n      \"n_validation_points\": \"4 (assumes 4 wells in-domain with usable records; actual count depends on data density)\"\n    },\n    {\n      \"target_variable\": \"Surface runoff generation (column-scale)\",\n      \"observation_source\": \"USGS stream gauges (indirect)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated \u2014 column runoff summed/routed to gauge (requires routing capability). Without routing, validate runoff generation process against literature/physical expectation (e.g. low runoff in coarse soils, high in fine soils during saturation).\",\n      \"metric\": \"If routed: streamflow bias/NSE. Without routing: qualitative process check (runoff magnitude and timing patterns).\",\n      \"n_validation_points\": \"unknown \u2014 depends on routing implementation and gauge coverage\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 12,\n    \"exploratory\": 8,\n    \"validation\": 4,\n    \"primary_treatment\": \"Baseline forcing (1980-2018 or representative subset, uniform across domain), native soil properties from gridded soil dataset, default ELM vegetation (PFT from surface dataset)\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"Elevation-downscaled forcing (temperature lapse rate, orographic precipitation scaling)\",\n      \"why\": \"To represent elevation/climate control on partitioning. Currently uniform forcing prevents testing elevation as a driver of precipitation phase, amount, and temperature effects.\",\n      \"blocks\": \"Answering how elevation drives partitioning via snow vs rain dominance and orographic gradients\"\n    },\n    {\n      \"capability\": \"Gridded soil texture dataset sampling at column locations\",\n      \"why\": \"To assign soil hydraulic properties (sand/loam/clay fractions) based on real spatial data, not uniform or invented values.\",\n      \"blocks\": \"Realistic soil stratification; without it, soil classes are assumptions\"\n    },\n    {\n      \"capability\": \"DEM-based elevation sampling and topographic position classification\",\n      \"why\": \"To place columns at target elevations and landscape positions (valley bottom, slope, ridge) per the placement logic.\",\n      \"blocks\": \"Stratified elevation sampling and mechanistically-informed placement\"\n    },\n    {\n      \"capability\": \"USGS well location and WTD data ingest\",\n      \"why\": \"To co-locate validation columns with wells and compare modeled soil moisture/water table to observed WTD.\",\n      \"blocks\": \"Co-located water table validation\"\n    },\n    {\n      \"capability\": \"SNOTEL station location and SWE data ingest\",\n      \"why\": \"To place columns near SNOTEL sites and validate snow accumulation/melt timing.\",\n      \"blocks\": \"SWE validation (analog comparison)\"\n    },\n    {\n      \"capability\": \"Runoff routing and aggregation to USGS gauge outlets\",\n      \"why\": \"To validate integrated streamflow. Without routing, can only validate column-scale runoff generation as a process check.\",\n      \"blocks\": \"Streamflow validation at gauges\"\n    },\n    {\n      \"capability\": \"ELM snow output variables (SNOWDP, H2OSNO, QSNOMELT) in history files\",\n      \"why\": \"To extract and validate snow water equivalent and melt timing against SNOTEL.\",\n      \"blocks\": \"SWE validation if snow variables not in default output\"\n    },\n    {\n      \"capability\": \"Model spin-up protocol (multi-cycle or accelerated decomposition)\",\n      \"why\": \"To initialize soil moisture and carbon pools to equilibrium before the analysis period, preventing transient artifacts.\",\n      \"blocks\": \"Realistic initial conditions; without spin-up, early years are unreliable\"\n    }\n  ],\n  \"assumptions\": [\n    \"Gridded soil texture data exists and can be sampled at column locations (if not, soil classes are placeholders).\",\n    \"USGS wells have sufficient temporal coverage (multi-year records) for seasonal WTD validation.\",\n    \"SNOTEL stations are within ~5 km of sampled elevations for analog SWE validation.\",\n    \"ELM's QDRAI (subsurface drainage) is a reasonable proxy for recharge, though it does not account for lateral groundwater flow or regional water table dynamics.\",\n    \"Uniform forcing is representative of domain-average climate, but does not capture elevation-specific precipitation or temperature.\",\n    \"Default ELM vegetation (PFT from surface dataset) is adequate; vegetation is not a primary driver in this design.\",\n    \"A representative forcing period (e.g. 10-year subset of 1980-2018 spanning wet/dry years) is sufficient; full 38-year transient not required for partitioning mechanism.\"\n  ],\n  \"open_questions\": [\n    \"What is the actual density and spatial distribution of USGS wells in the Naches HUC? (Determines n_validation for WTD.)\",\n    \"Are SNOTEL stations inside the HUC boundary or nearby? (Affects analog validation feasibility.)\",\n    \"Is there a preferred forcing period (e.g. recent decade, wet vs dry years) or should we use a climatological average?\",\n    \"Should we prioritize SWE validation (near SNOTEL) or WTD validation (at wells) if their locations don't overlap with the exploratory strata?\",\n    \"Is there interest in a follow-on coupled ELM-PFLOTRAN experiment to test water-table feedback on partitioning? (Would require listing coupling in requires_capabilities.)\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify spatial variability in water partitioning (surface runoff vs subsurface drainage/recharge) across the Naches watershed",
+        "Validate snow accumulation/melt and water table depth against available observations"
+      ],
+      "key_processes": [
+        "Infiltration and surface runoff generation",
+        "Soil percolation and subsurface drainage (QDRAI as recharge proxy)",
+        "Snow accumulation and melt timing",
+        "Evapotranspiration (unvalidated due to missing flux towers)"
+      ],
+      "drivers_to_resolve": [
+        "elevation",
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM can represent soil-controlled partitioning and snow processes. Spatial sampling across elevation and soil gradients captures domain heterogeneity. Validation pinned to available well and SNOTEL observations.",
+      "coupling_needed": false,
+      "coupling_note": "PFLOTRAN coupling would enable water-table feedback and direct recharge validation, but is not required for the partitioning question as posed. ELM's QDRAI (subsurface drainage) serves as recharge proxy."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Soil texture control on infiltration, percolation, and partitioning (sand vs loam vs clay hydraulic properties)",
+        "Snow accumulation and melt processes (if forcing is representative, though not elevation-specific)",
+        "Column-scale surface runoff generation mechanisms"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Elevation/climate control on partitioning via orographic precipitation gradient and temperature lapse",
+          "why": "Framework uses uniform forcing (one met file for all columns). Columns at 1977 m receive identical precipitation and temperature as columns at 352 m, preventing representation of elevation-driven climate effects.",
+          "needs": "Elevation-downscaled forcing (temperature lapse, orographic precipitation scaling)"
+        },
+        {
+          "aspect": "Integrated watershed streamflow and runoff routing",
+          "why": "No runoff routing or aggregation to outlet. Can validate column-scale runoff generation but not gauged streamflow.",
+          "needs": "Runoff routing and aggregation to USGS gauge locations"
+        },
+        {
+          "aspect": "Direct co-located recharge flux validation",
+          "why": "No recharge observations. Wells provide water table depth (a consequence), not the flux itself. ELM's QDRAI is a model output, not a validated flux.",
+          "needs": "Recharge flux observations or tracer-based estimates"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by elevation and soil texture, with targeted placement in high-sensitivity zones (rain-snow transition, valley bottoms) and co-location with observation sites",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low (<800 m): valley floors, rain-dominated",
+            "mid (800-1400 m): rain-snow transition, highest partitioning sensitivity",
+            "high (>1400 m): montane, snow-dominated"
+          ]
+        },
+        {
+          "driver": "soil texture",
+          "classes": [
+            "coarse (sandy/gravelly): high infiltration, rapid drainage",
+            "fine (loamy/silty): moderate infiltration, higher moisture retention"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "3 elevation bands \u00d7 2 soil classes = 6 base strata. Add 2 replicates in mid-elevation rain-snow transition (highest expected partitioning variability). Total 8 exploratory columns spans heterogeneity without over-sampling.",
+      "placement_logic": "Concentrate in mid-elevation band (800-1400 m, rain-snow transition) where partitioning regime shifts. Sample valley bottoms (low-elev, fine soils, potential high water tables) and upper slopes/ridges (high-elev, coarse soils, rapid drainage). Avoid uniform grid; target mechanistically distinct landscape positions.",
+      "replication": "Light replication (n=2) in mid-elevation rain-snow transition to assess within-stratum variability in the zone of highest sensitivity."
+    },
+    "sampling_plan": [
+      {
+        "group": "Low-elev valley, fine soil",
+        "n": 1,
+        "reason": "Rain-dominated, high moisture retention, potential shallow water table and low runoff"
+      },
+      {
+        "group": "Low-elev valley, coarse soil",
+        "n": 1,
+        "reason": "Rain-dominated, rapid drainage, high recharge potential, low surface runoff"
+      },
+      {
+        "group": "Mid-elev transition, fine soil (replicated)",
+        "n": 2,
+        "reason": "Rain-snow transition, moderate retention, partitioning sensitive to snow timing and soil saturation"
+      },
+      {
+        "group": "Mid-elev transition, coarse soil (replicated)",
+        "n": 2,
+        "reason": "Rain-snow transition, rapid drainage, tests recharge dominance under mixed precip phase"
+      },
+      {
+        "group": "High-elev montane, fine soil",
+        "n": 1,
+        "reason": "Snow-dominated, delayed melt-driven recharge, tests soil moisture carryover from snowmelt"
+      },
+      {
+        "group": "High-elev montane, coarse soil",
+        "n": 1,
+        "reason": "Snow-dominated, rapid melt infiltration, maximum recharge potential, minimal surface runoff"
+      },
+      {
+        "group": "Validation: well co-location",
+        "n": 4,
+        "reason": "Pinned to USGS well locations for water table depth validation, spanning elevation/soil strata where wells exist"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "SWE (snow water equivalent)",
+        "observation_source": "SNOTEL (6 stations in/near domain)",
+        "in_domain_available": true,
+        "comparison": "analog \u2014 columns placed within ~5 km of SNOTEL sites for process validation, but uniform forcing prevents exact co-located match of elevation-specific SWE",
+        "metric": "Seasonal cycle correlation, peak SWE timing bias",
+        "n_validation_points": "6 (one per SNOTEL station, if columns sampled nearby)"
+      },
+      {
+        "target_variable": "Water table depth (WTD)",
+        "observation_source": "USGS wells",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 columns placed at well coordinates, comparing ELM soil moisture profile (or PFLOTRAN water table if coupled) to observed WTD",
+        "metric": "Mean bias, RMSE, seasonal correlation",
+        "n_validation_points": "4 (assumes 4 wells in-domain with usable records; actual count depends on data density)"
+      },
+      {
+        "target_variable": "Surface runoff generation (column-scale)",
+        "observation_source": "USGS stream gauges (indirect)",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 column runoff summed/routed to gauge (requires routing capability). Without routing, validate runoff generation process against literature/physical expectation (e.g. low runoff in coarse soils, high in fine soils during saturation).",
+        "metric": "If routed: streamflow bias/NSE. Without routing: qualitative process check (runoff magnitude and timing patterns).",
+        "n_validation_points": "unknown \u2014 depends on routing implementation and gauge coverage"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 8,
+      "validation": 4,
+      "primary_treatment": "Baseline forcing (1980-2018 or representative subset, uniform across domain), native soil properties from gridded soil dataset, default ELM vegetation (PFT from surface dataset)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Elevation-downscaled forcing (temperature lapse rate, orographic precipitation scaling)",
+        "why": "To represent elevation/climate control on partitioning. Currently uniform forcing prevents testing elevation as a driver of precipitation phase, amount, and temperature effects.",
+        "blocks": "Answering how elevation drives partitioning via snow vs rain dominance and orographic gradients"
+      },
+      {
+        "capability": "Gridded soil texture dataset sampling at column locations",
+        "why": "To assign soil hydraulic properties (sand/loam/clay fractions) based on real spatial data, not uniform or invented values.",
+        "blocks": "Realistic soil stratification; without it, soil classes are assumptions"
+      },
+      {
+        "capability": "DEM-based elevation sampling and topographic position classification",
+        "why": "To place columns at target elevations and landscape positions (valley bottom, slope, ridge) per the placement logic.",
+        "blocks": "Stratified elevation sampling and mechanistically-informed placement"
+      },
+      {
+        "capability": "USGS well location and WTD data ingest",
+        "why": "To co-locate validation columns with wells and compare modeled soil moisture/water table to observed WTD.",
+        "blocks": "Co-located water table validation"
+      },
+      {
+        "capability": "SNOTEL station location and SWE data ingest",
+        "why": "To place columns near SNOTEL sites and validate snow accumulation/melt timing.",
+        "blocks": "SWE validation (analog comparison)"
+      },
+      {
+        "capability": "Runoff routing and aggregation to USGS gauge outlets",
+        "why": "To validate integrated streamflow. Without routing, can only validate column-scale runoff generation as a process check.",
+        "blocks": "Streamflow validation at gauges"
+      },
+      {
+        "capability": "ELM snow output variables (SNOWDP, H2OSNO, QSNOMELT) in history files",
+        "why": "To extract and validate snow water equivalent and melt timing against SNOTEL.",
+        "blocks": "SWE validation if snow variables not in default output"
+      },
+      {
+        "capability": "Model spin-up protocol (multi-cycle or accelerated decomposition)",
+        "why": "To initialize soil moisture and carbon pools to equilibrium before the analysis period, preventing transient artifacts.",
+        "blocks": "Realistic initial conditions; without spin-up, early years are unreliable"
+      }
+    ],
+    "assumptions": [
+      "Gridded soil texture data exists and can be sampled at column locations (if not, soil classes are placeholders).",
+      "USGS wells have sufficient temporal coverage (multi-year records) for seasonal WTD validation.",
+      "SNOTEL stations are within ~5 km of sampled elevations for analog SWE validation.",
+      "ELM's QDRAI (subsurface drainage) is a reasonable proxy for recharge, though it does not account for lateral groundwater flow or regional water table dynamics.",
+      "Uniform forcing is representative of domain-average climate, but does not capture elevation-specific precipitation or temperature.",
+      "Default ELM vegetation (PFT from surface dataset) is adequate; vegetation is not a primary driver in this design.",
+      "A representative forcing period (e.g. 10-year subset of 1980-2018 spanning wet/dry years) is sufficient; full 38-year transient not required for partitioning mechanism."
+    ],
+    "open_questions": [
+      "What is the actual density and spatial distribution of USGS wells in the Naches HUC? (Determines n_validation for WTD.)",
+      "Are SNOTEL stations inside the HUC boundary or nearby? (Affects analog validation feasibility.)",
+      "Is there a preferred forcing period (e.g. recent decade, wet vs dry years) or should we use a climatological average?",
+      "Should we prioritize SWE validation (near SNOTEL) or WTD validation (at wells) if their locations don't overlap with the exploratory strata?",
+      "Is there interest in a follow-on coupled ELM-PFLOTRAN experiment to test water-table feedback on partitioning? (Would require listing coupling in requires_capabilities.)"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

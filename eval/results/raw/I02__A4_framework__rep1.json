@@ -1,0 +1,212 @@
+{
+  "prompt_id": "I02",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Establish historical baseline recharge (1980-2018) in the Naches watershed\", \"Quantify climate sensitivity of recharge to temperature and precipitation variability\", \"Identify recharge mechanisms (rain vs snowmelt, seasonal timing) as context for future change\"], \"key_processes\": [\"Precipitation partitioning (rain vs snow)\", \"Snowmelt timing and magnitude\", \"Evapotranspiration response to temperature\", \"Soil infiltration and deep drainage (recharge)\"], \"drivers_to_resolve\": [\"elevation (controls rain-snow transition and snowpack)\", \"climate variability (wet vs dry periods, warm vs cool years)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"ELM single-column can simulate historical recharge (QDRAI) and its climate sensitivity across elevation gradients. However, the question asks for 2050 projection, which requires future climate forcing the framework does not have. This design addresses the answerable subset: historical baseline characterization.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"infeasible\", \"answerable\": [\"Historical recharge baseline (1980-2018) across elevation gradient\", \"Climate sensitivity of recharge to historical temperature/precipitation variability\", \"Elevation control on recharge via rain-snow partitioning and snowmelt timing\", \"Identification of wet/dry analog years as potential future-state proxies\"], \"not_answerable\": [{\"aspect\": \"2050 recharge projection under warming scenario\", \"why\": \"Framework has only historical forcing (1980-2018). No future climate scenarios (CMIP6 SSPs, downscaled projections) are available. Cannot simulate 2050 conditions.\", \"needs\": \"Future climate forcing datasets (e.g., CMIP6-downscaled SSP2-4.5/SSP5-8.5 for 2040-2060, bias-corrected to NLDAS-2 grid)\"}, {\"aspect\": \"Quantitative 2050 recharge change (delta from baseline)\", \"why\": \"Requires running ELM with 2050 forcing to compute future recharge, then differencing against historical baseline. Future forcing is missing.\", \"needs\": \"Future climate forcing datasets\"}]}, \"sampling_strategy\": {\"approach\": \"elevation-stratified with climate-period sampling\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"low (352-800 m, rain-dominated)\", \"mid (800-1400 m, rain-snow transition)\", \"high (1400-1977 m, snow-dominated)\"]}, {\"driver\": \"climate_period\", \"periods\": [\"baseline (full 1980-2018 record)\", \"wet analog (wettest 5-year period in record)\", \"dry analog (driest 5-year period in record)\", \"warm analog (warmest 5-year period in record)\"]}], \"n_exploratory\": 12, \"n_justification\": \"3 elevation bands \\u00d7 4 climate periods = 12 column-period combinations. Elevation bands isolate rain-snow-snowmelt mechanisms. Climate periods provide historical analogs for potential future states (wet/dry/warm) to bracket sensitivity. No spatial replication within bands (single representative column per band) because the question is about temporal change, not spatial heterogeneity.\", \"placement_logic\": \"One column per elevation band, placed at locations representative of that band's dominant land cover and soil (avoid extreme outliers like rock outcrops or wetlands). Mid-elevation band (rain-snow transition, 800-1400 m) is most sensitive to warming and should be sampled at a location with substantial snowpack in the historical record.\", \"replication\": \"None. Each elevation band is represented by a single column run across multiple climate periods. Spatial replication is not needed because the question targets temporal climate response, not spatial variability.\"}, \"sampling_plan\": [{\"group\": \"low-elevation baseline\", \"n\": 1, \"reason\": \"Rain-dominated zone (352-800 m), full 1980-2018 record to establish historical recharge baseline and seasonal timing\"}, {\"group\": \"low-elevation wet analog\", \"n\": 1, \"reason\": \"Same location, wettest 5-year period to test recharge response to increased precipitation (potential future wet state)\"}, {\"group\": \"low-elevation dry analog\", \"n\": 1, \"reason\": \"Same location, driest 5-year period to test recharge response to drought (potential future dry state)\"}, {\"group\": \"low-elevation warm analog\", \"n\": 1, \"reason\": \"Same location, warmest 5-year period to test recharge response to elevated temperature (ET increase, reduced recharge)\"}, {\"group\": \"mid-elevation baseline\", \"n\": 1, \"reason\": \"Rain-snow transition (800-1400 m), full record to capture snowmelt-driven recharge and its interannual variability\"}, {\"group\": \"mid-elevation wet analog\", \"n\": 1, \"reason\": \"Same location, wettest period to test whether increased precipitation compensates for earlier snowmelt under warming\"}, {\"group\": \"mid-elevation dry analog\", \"n\": 1, \"reason\": \"Same location, driest period to test recharge vulnerability when both precipitation and snowpack decline\"}, {\"group\": \"mid-elevation warm analog\", \"n\": 1, \"reason\": \"Same location, warmest period to isolate warming effect on snowmelt timing and recharge (critical for 2050 projection context)\"}, {\"group\": \"high-elevation baseline\", \"n\": 1, \"reason\": \"Snow-dominated zone (1400-1977 m), full record to establish snowpack-recharge relationship and late-season melt contribution\"}, {\"group\": \"high-elevation wet analog\", \"n\": 1, \"reason\": \"Same location, wettest period to test whether high-elevation snowpack buffers recharge against climate variability\"}, {\"group\": \"high-elevation dry analog\", \"n\": 1, \"reason\": \"Same location, driest period to test recharge sensitivity to reduced snowpack (analog for future warming)\"}, {\"group\": \"high-elevation warm analog\", \"n\": 1, \"reason\": \"Same location, warmest period to test rain-on-snow events and earlier melt (key warming impact at high elevation)\"}], \"validation_design\": [{\"target_variable\": \"recharge (QDRAI)\", \"observation_source\": \"none available\", \"in_domain_available\": false, \"comparison\": \"not applicable (no observations)\", \"metric\": \"not applicable\", \"n_validation_points\": \"0\"}, {\"target_variable\": \"snow water equivalent (H2OSNO)\", \"observation_source\": \"SNOTEL stations (if available in Naches HUC)\", \"in_domain_available\": false, \"comparison\": \"co-located if SNOTEL exists; otherwise process validation against regional snowpack literature\", \"metric\": \"peak SWE bias, melt timing (day of year)\", \"n_validation_points\": \"unknown \\u2014 depends on SNOTEL station density in HUC 17030002\"}], \"experiment_summary\": {\"total_columns\": 12, \"exploratory\": 12, \"validation\": 0, \"primary_treatment\": \"NLDAS-2 forcing (elevation-resolved), native SSURGO soil, 5-year spin-up for each climate period to equilibrate water table and soil moisture\"}, \"requires_capabilities\": [{\"capability\": \"Future climate forcing datasets (CMIP6-downscaled SSP scenarios for 2040-2060)\", \"why\": \"The question asks for 2050 recharge projection under warming. Framework has only historical forcing (1980-2018). Without future forcing, cannot simulate 2050 conditions.\", \"blocks\": \"Primary goal: 2050 recharge projection and quantitative change from baseline\"}, {\"capability\": \"Climate period extraction tool (identify wettest/driest/warmest N-year windows in NLDAS-2 record)\", \"why\": \"Design uses historical wet/dry/warm analogs as proxies for potential future states. Need automated identification of these periods from 1980-2018 NLDAS-2 data.\", \"blocks\": \"Analog period selection (currently manual, error-prone)\"}, {\"capability\": \"SNOTEL observation ingest and co-location\", \"why\": \"Validation of snowpack (H2OSNO, peak SWE, melt timing) requires SNOTEL data. Unknown if stations exist in Naches HUC.\", \"blocks\": \"Snow process validation (recharge mechanism depends on snowmelt timing)\"}, {\"capability\": \"Multi-year spin-up with WTD-informed warm start\", \"why\": \"Recharge (QDRAI) is sensitive to water table depth. Each climate period (5 years) needs spin-up to equilibrate aquifer storage. WTD-informed start (Fan 2013) is preferred over cold start.\", \"blocks\": \"Accurate recharge estimates (cold start gives initialization artifacts in QDRAI)\"}, {\"capability\": \"Elevation-band representative point selector\", \"why\": \"Design specifies one column per elevation band, representative of that band's land cover and soil. Need automated selection from DEM/SSURGO to avoid outliers.\", \"blocks\": \"Placement logic execution (currently manual point selection)\"}], \"assumptions\": [\"NLDAS-2 forcing (12 km, 1980-2018) adequately resolves elevation-driven climate gradients in the Naches (352-1977 m relief). Sub-12 km terrain effects (e.g., aspect, local cold-air pooling) are unresolved.\", \"Historical wet/dry/warm periods serve as reasonable analogs for potential future climate states, though they do not capture novel future conditions (e.g., unprecedented warming beyond historical range).\", \"ELM's 1-D recharge (QDRAI = sub-surface drainage) is a valid proxy for aquifer recharge in the Naches. Lateral groundwater flow and regional water table are not represented.\", \"Native SSURGO soil is representative of each elevation band. Soil spatial variability within bands is ignored (single column per band).\", \"Five-year climate periods are long enough to capture interannual variability and equilibrate slow states (water table, deep soil moisture) with spin-up.\", \"No observations are available for direct recharge validation. Snowpack validation (SNOTEL, if available) provides indirect process validation for recharge mechanisms.\"], \"open_questions\": [\"Are SNOTEL stations present in HUC 17030002 (Naches)? If so, how many and at what elevations?\", \"What is the user's acceptable uncertainty range for a 2050 projection? (Historical analogs provide sensitivity bounds, not a point forecast.)\", \"Is there interest in a sensitivity analysis (e.g., +2\\u00b0C warming, \\u00b110% precipitation perturbations applied to historical forcing) as a stopgap until true future forcing is available?\", \"Should the design include a comparison of recharge mechanisms (rain vs snowmelt contribution) across elevation bands to inform future vulnerability?\", \"What is the downstream use of the recharge estimates? (e.g., water supply planning, ecological flows) \\u2014 this may inform whether historical analogs are sufficient or true projections are required.\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Establish historical baseline recharge (1980-2018) in the Naches watershed",
+        "Quantify climate sensitivity of recharge to temperature and precipitation variability",
+        "Identify recharge mechanisms (rain vs snowmelt, seasonal timing) as context for future change"
+      ],
+      "key_processes": [
+        "Precipitation partitioning (rain vs snow)",
+        "Snowmelt timing and magnitude",
+        "Evapotranspiration response to temperature",
+        "Soil infiltration and deep drainage (recharge)"
+      ],
+      "drivers_to_resolve": [
+        "elevation (controls rain-snow transition and snowpack)",
+        "climate variability (wet vs dry periods, warm vs cool years)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM single-column can simulate historical recharge (QDRAI) and its climate sensitivity across elevation gradients. However, the question asks for 2050 projection, which requires future climate forcing the framework does not have. This design addresses the answerable subset: historical baseline characterization.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "Historical recharge baseline (1980-2018) across elevation gradient",
+        "Climate sensitivity of recharge to historical temperature/precipitation variability",
+        "Elevation control on recharge via rain-snow partitioning and snowmelt timing",
+        "Identification of wet/dry analog years as potential future-state proxies"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "2050 recharge projection under warming scenario",
+          "why": "Framework has only historical forcing (1980-2018). No future climate scenarios (CMIP6 SSPs, downscaled projections) are available. Cannot simulate 2050 conditions.",
+          "needs": "Future climate forcing datasets (e.g., CMIP6-downscaled SSP2-4.5/SSP5-8.5 for 2040-2060, bias-corrected to NLDAS-2 grid)"
+        },
+        {
+          "aspect": "Quantitative 2050 recharge change (delta from baseline)",
+          "why": "Requires running ELM with 2050 forcing to compute future recharge, then differencing against historical baseline. Future forcing is missing.",
+          "needs": "Future climate forcing datasets"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "elevation-stratified with climate-period sampling",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low (352-800 m, rain-dominated)",
+            "mid (800-1400 m, rain-snow transition)",
+            "high (1400-1977 m, snow-dominated)"
+          ]
+        },
+        {
+          "driver": "climate_period",
+          "periods": [
+            "baseline (full 1980-2018 record)",
+            "wet analog (wettest 5-year period in record)",
+            "dry analog (driest 5-year period in record)",
+            "warm analog (warmest 5-year period in record)"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "3 elevation bands \u00d7 4 climate periods = 12 column-period combinations. Elevation bands isolate rain-snow-snowmelt mechanisms. Climate periods provide historical analogs for potential future states (wet/dry/warm) to bracket sensitivity. No spatial replication within bands (single representative column per band) because the question is about temporal change, not spatial heterogeneity.",
+      "placement_logic": "One column per elevation band, placed at locations representative of that band's dominant land cover and soil (avoid extreme outliers like rock outcrops or wetlands). Mid-elevation band (rain-snow transition, 800-1400 m) is most sensitive to warming and should be sampled at a location with substantial snowpack in the historical record.",
+      "replication": "None. Each elevation band is represented by a single column run across multiple climate periods. Spatial replication is not needed because the question targets temporal climate response, not spatial variability."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elevation baseline",
+        "n": 1,
+        "reason": "Rain-dominated zone (352-800 m), full 1980-2018 record to establish historical recharge baseline and seasonal timing"
+      },
+      {
+        "group": "low-elevation wet analog",
+        "n": 1,
+        "reason": "Same location, wettest 5-year period to test recharge response to increased precipitation (potential future wet state)"
+      },
+      {
+        "group": "low-elevation dry analog",
+        "n": 1,
+        "reason": "Same location, driest 5-year period to test recharge response to drought (potential future dry state)"
+      },
+      {
+        "group": "low-elevation warm analog",
+        "n": 1,
+        "reason": "Same location, warmest 5-year period to test recharge response to elevated temperature (ET increase, reduced recharge)"
+      },
+      {
+        "group": "mid-elevation baseline",
+        "n": 1,
+        "reason": "Rain-snow transition (800-1400 m), full record to capture snowmelt-driven recharge and its interannual variability"
+      },
+      {
+        "group": "mid-elevation wet analog",
+        "n": 1,
+        "reason": "Same location, wettest period to test whether increased precipitation compensates for earlier snowmelt under warming"
+      },
+      {
+        "group": "mid-elevation dry analog",
+        "n": 1,
+        "reason": "Same location, driest period to test recharge vulnerability when both precipitation and snowpack decline"
+      },
+      {
+        "group": "mid-elevation warm analog",
+        "n": 1,
+        "reason": "Same location, warmest period to isolate warming effect on snowmelt timing and recharge (critical for 2050 projection context)"
+      },
+      {
+        "group": "high-elevation baseline",
+        "n": 1,
+        "reason": "Snow-dominated zone (1400-1977 m), full record to establish snowpack-recharge relationship and late-season melt contribution"
+      },
+      {
+        "group": "high-elevation wet analog",
+        "n": 1,
+        "reason": "Same location, wettest period to test whether high-elevation snowpack buffers recharge against climate variability"
+      },
+      {
+        "group": "high-elevation dry analog",
+        "n": 1,
+        "reason": "Same location, driest period to test recharge sensitivity to reduced snowpack (analog for future warming)"
+      },
+      {
+        "group": "high-elevation warm analog",
+        "n": 1,
+        "reason": "Same location, warmest period to test rain-on-snow events and earlier melt (key warming impact at high elevation)"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "recharge (QDRAI)",
+        "observation_source": "none available",
+        "in_domain_available": false,
+        "comparison": "not applicable (no observations)",
+        "metric": "not applicable",
+        "n_validation_points": "0"
+      },
+      {
+        "target_variable": "snow water equivalent (H2OSNO)",
+        "observation_source": "SNOTEL stations (if available in Naches HUC)",
+        "in_domain_available": false,
+        "comparison": "co-located if SNOTEL exists; otherwise process validation against regional snowpack literature",
+        "metric": "peak SWE bias, melt timing (day of year)",
+        "n_validation_points": "unknown \u2014 depends on SNOTEL station density in HUC 17030002"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 12,
+      "validation": 0,
+      "primary_treatment": "NLDAS-2 forcing (elevation-resolved), native SSURGO soil, 5-year spin-up for each climate period to equilibrate water table and soil moisture"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Future climate forcing datasets (CMIP6-downscaled SSP scenarios for 2040-2060)",
+        "why": "The question asks for 2050 recharge projection under warming. Framework has only historical forcing (1980-2018). Without future forcing, cannot simulate 2050 conditions.",
+        "blocks": "Primary goal: 2050 recharge projection and quantitative change from baseline"
+      },
+      {
+        "capability": "Climate period extraction tool (identify wettest/driest/warmest N-year windows in NLDAS-2 record)",
+        "why": "Design uses historical wet/dry/warm analogs as proxies for potential future states. Need automated identification of these periods from 1980-2018 NLDAS-2 data.",
+        "blocks": "Analog period selection (currently manual, error-prone)"
+      },
+      {
+        "capability": "SNOTEL observation ingest and co-location",
+        "why": "Validation of snowpack (H2OSNO, peak SWE, melt timing) requires SNOTEL data. Unknown if stations exist in Naches HUC.",
+        "blocks": "Snow process validation (recharge mechanism depends on snowmelt timing)"
+      },
+      {
+        "capability": "Multi-year spin-up with WTD-informed warm start",
+        "why": "Recharge (QDRAI) is sensitive to water table depth. Each climate period (5 years) needs spin-up to equilibrate aquifer storage. WTD-informed start (Fan 2013) is preferred over cold start.",
+        "blocks": "Accurate recharge estimates (cold start gives initialization artifacts in QDRAI)"
+      },
+      {
+        "capability": "Elevation-band representative point selector",
+        "why": "Design specifies one column per elevation band, representative of that band's land cover and soil. Need automated selection from DEM/SSURGO to avoid outliers.",
+        "blocks": "Placement logic execution (currently manual point selection)"
+      }
+    ],
+    "assumptions": [
+      "NLDAS-2 forcing (12 km, 1980-2018) adequately resolves elevation-driven climate gradients in the Naches (352-1977 m relief). Sub-12 km terrain effects (e.g., aspect, local cold-air pooling) are unresolved.",
+      "Historical wet/dry/warm periods serve as reasonable analogs for potential future climate states, though they do not capture novel future conditions (e.g., unprecedented warming beyond historical range).",
+      "ELM's 1-D recharge (QDRAI = sub-surface drainage) is a valid proxy for aquifer recharge in the Naches. Lateral groundwater flow and regional water table are not represented.",
+      "Native SSURGO soil is representative of each elevation band. Soil spatial variability within bands is ignored (single column per band).",
+      "Five-year climate periods are long enough to capture interannual variability and equilibrate slow states (water table, deep soil moisture) with spin-up.",
+      "No observations are available for direct recharge validation. Snowpack validation (SNOTEL, if available) provides indirect process validation for recharge mechanisms."
+    ],
+    "open_questions": [
+      "Are SNOTEL stations present in HUC 17030002 (Naches)? If so, how many and at what elevations?",
+      "What is the user's acceptable uncertainty range for a 2050 projection? (Historical analogs provide sensitivity bounds, not a point forecast.)",
+      "Is there interest in a sensitivity analysis (e.g., +2\u00b0C warming, \u00b110% precipitation perturbations applied to historical forcing) as a stopgap until true future forcing is available?",
+      "Should the design include a comparison of recharge mechanisms (rain vs snowmelt contribution) across elevation bands to inform future vulnerability?",
+      "What is the downstream use of the recharge estimates? (e.g., water supply planning, ecological flows) \u2014 this may inform whether historical analogs are sufficient or true projections are required."
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

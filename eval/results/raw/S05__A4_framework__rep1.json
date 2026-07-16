@@ -1,0 +1,142 @@
+{
+  "prompt_id": "S05",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Validate ELM's representation of elevation control on snowmelt timing against 6 SNOTEL stations\"], \"key_processes\": [\"Snow accumulation\", \"Snowmelt timing (onset and rate)\", \"Elevation-modulated temperature and precipitation\"], \"drivers_to_resolve\": [\"elevation\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"ELM simulates snow accumulation and melt (H2OSNO, QSNOMELT, SNOW in default output). SNOTEL SWE observations are available for validation. Single-column mode is appropriate for station-specific timing comparison.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Basin-scale elevation control on snowmelt timing (across the 1625 m relief, ~12 km forcing resolution)\", \"Peak SWE magnitude and timing at SNOTEL locations\", \"Day-of-year of snowmelt onset at each station (modeled vs observed)\"], \"not_answerable\": [{\"aspect\": \"Sub-12 km 'local lapse rate' between stations on the same ridge (<12 km apart)\", \"why\": \"NLDAS-2 forcing is 0.125\\u00b0 (~12 km). Stations closer than 12 km receive identical precipitation and temperature from the same forcing cell. No within-cell lapse rate or terrain downscaling is applied.\", \"needs\": \"Sub-grid elevation-downscaled forcing (e.g. 1-4 km, with lapse-rate correction) or station-specific forcing\"}]}, \"sampling_strategy\": {\"approach\": \"validation-only (pinned to observation locations)\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"Implicit: 6 SNOTEL stations span 352-1977 m elevation range\"]}], \"n_exploratory\": 0, \"n_justification\": \"N=6 is dictated by SNOTEL station availability. The question is station-specific (validate timing at each location), so no additional exploratory columns are needed. The 6 stations already span the basin's elevation range.\", \"placement_logic\": \"Columns are pinned to the 6 SNOTEL station coordinates (exact lat/lon from SNOTEL metadata). No spatial sampling \\u2014 this is a pure validation design.\", \"replication\": \"None. Each station is a unique validation point.\"}, \"sampling_plan\": [{\"group\": \"SNOTEL validation set\", \"n\": 6, \"reason\": \"One column per SNOTEL station to validate modeled snowmelt timing against observed SWE time series\"}], \"validation_design\": [{\"target_variable\": \"peak_SWE\", \"observation_source\": \"SNOTEL SWE (6 stations in-domain)\", \"in_domain_available\": true, \"comparison\": \"co-located (modeled H2OSNO at station coordinates vs observed SWE time series)\", \"metric\": \"Bias, RMSE, and correlation of annual peak SWE magnitude across stations and years\", \"n_validation_points\": \"6 stations \\u00d7 N years (user-selected subset of 1980-2018)\"}, {\"target_variable\": \"day_of_year_peak_SWE\", \"observation_source\": \"SNOTEL SWE (6 stations in-domain)\", \"in_domain_available\": true, \"comparison\": \"co-located (day-of-year of modeled vs observed peak SWE)\", \"metric\": \"Bias and RMSE of peak-SWE timing (days) across stations and years\", \"n_validation_points\": \"6 stations \\u00d7 N years\"}, {\"target_variable\": \"day_of_year_snowmelt_onset\", \"observation_source\": \"SNOTEL SWE (6 stations in-domain)\", \"in_domain_available\": true, \"comparison\": \"co-located (modeled QSNOMELT or H2OSNO decline vs observed SWE decline). Onset defined as first sustained decline in SWE or QSNOMELT exceeding threshold (e.g. 5-day running mean > 0.5 mm/day).\", \"metric\": \"Bias and RMSE of melt-onset timing (days) across stations and years; correlation of onset DOY with elevation\", \"n_validation_points\": \"6 stations \\u00d7 N years\"}], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 0, \"validation\": 6, \"primary_treatment\": \"Multi-year runs (\\u22655 years for snow-state spin-up), NLDAS-2 forcing (1980-2018, user-selected years for analysis), native SSURGO soil at each station location\"}, \"requires_capabilities\": [{\"capability\": \"SNOTEL station metadata (exact lat/lon coordinates for the 6 stations in HUC 17030002)\", \"why\": \"Columns must be pinned to station locations for co-located validation\", \"blocks\": \"Column placement and validation comparison\"}, {\"capability\": \"SNOTEL SWE time-series ingest and alignment (daily SWE observations, 1980-2018 or subset)\", \"why\": \"Validation requires observed SWE to compare against modeled H2OSNO\", \"blocks\": \"All validation metrics\"}, {\"capability\": \"Multi-year ELM runs (\\u22655 years) with snow output (H2OSNO, QSNOMELT, SNOW in history files)\", \"why\": \"Snow states require spin-up; melt timing requires daily/sub-daily output over multiple years\", \"blocks\": \"Realistic snow accumulation and melt-onset timing\"}, {\"capability\": \"Sub-grid elevation-downscaled forcing (1-4 km resolution with lapse-rate correction) OR station-specific forcing\", \"why\": \"NLDAS-2 12 km forcing cannot resolve sub-12 km lapse rates between nearby stations on the same ridge (the question's explicit target)\", \"blocks\": \"Testing 'local lapse rate between stations <12 km apart' \\u2014 the primary mechanism in the user request\"}, {\"capability\": \"Post-processing tool to extract day-of-year of peak SWE and snowmelt onset from ELM history files\", \"why\": \"Validation metrics require identifying timing of events in time-series output\", \"blocks\": \"Automated validation workflow\"}], \"assumptions\": [\"SNOTEL stations are representative of their local elevation and not affected by micro-topography or canopy effects unresolved by ELM's single-column setup\", \"NLDAS-2 forcing at 12 km resolution captures the basin-scale elevation gradient (verified: 1625 m relief spans ~15 distinct precip values), but sub-12 km gradients are unresolved\", \"Native SSURGO soil at station locations is adequate (soil is not expected to be a primary driver of snowmelt timing compared to elevation/climate)\", \"5-year spin-up is sufficient for snow states (fast state compared to deep soil moisture or water table)\", \"Snowmelt onset can be robustly defined from SWE time series (e.g. first sustained decline or QSNOMELT threshold) \\u2014 definition must be consistent between model and observations\"], \"open_questions\": [\"What is the acceptable tolerance for snowmelt-onset timing bias (days)? This sets the success criterion for validation.\", \"Are the 6 SNOTEL stations' exact coordinates and SWE time series (1980-2018) available in a machine-readable format, or does ingest need to be built?\", \"Does the user accept that stations <12 km apart will show minimal modeled timing difference (same forcing cell), even if observations diverge? If not, sub-grid forcing is a hard requirement.\", \"Should the design include a sensitivity test (e.g. perturb temperature by \\u00b11-2\\u00b0C to mimic sub-grid lapse rate) to estimate the magnitude of the unresolved effect?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Validate ELM's representation of elevation control on snowmelt timing against 6 SNOTEL stations"
+      ],
+      "key_processes": [
+        "Snow accumulation",
+        "Snowmelt timing (onset and rate)",
+        "Elevation-modulated temperature and precipitation"
+      ],
+      "drivers_to_resolve": [
+        "elevation"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM simulates snow accumulation and melt (H2OSNO, QSNOMELT, SNOW in default output). SNOTEL SWE observations are available for validation. Single-column mode is appropriate for station-specific timing comparison.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Basin-scale elevation control on snowmelt timing (across the 1625 m relief, ~12 km forcing resolution)",
+        "Peak SWE magnitude and timing at SNOTEL locations",
+        "Day-of-year of snowmelt onset at each station (modeled vs observed)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Sub-12 km 'local lapse rate' between stations on the same ridge (<12 km apart)",
+          "why": "NLDAS-2 forcing is 0.125\u00b0 (~12 km). Stations closer than 12 km receive identical precipitation and temperature from the same forcing cell. No within-cell lapse rate or terrain downscaling is applied.",
+          "needs": "Sub-grid elevation-downscaled forcing (e.g. 1-4 km, with lapse-rate correction) or station-specific forcing"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "validation-only (pinned to observation locations)",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "Implicit: 6 SNOTEL stations span 352-1977 m elevation range"
+          ]
+        }
+      ],
+      "n_exploratory": 0,
+      "n_justification": "N=6 is dictated by SNOTEL station availability. The question is station-specific (validate timing at each location), so no additional exploratory columns are needed. The 6 stations already span the basin's elevation range.",
+      "placement_logic": "Columns are pinned to the 6 SNOTEL station coordinates (exact lat/lon from SNOTEL metadata). No spatial sampling \u2014 this is a pure validation design.",
+      "replication": "None. Each station is a unique validation point."
+    },
+    "sampling_plan": [
+      {
+        "group": "SNOTEL validation set",
+        "n": 6,
+        "reason": "One column per SNOTEL station to validate modeled snowmelt timing against observed SWE time series"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "peak_SWE",
+        "observation_source": "SNOTEL SWE (6 stations in-domain)",
+        "in_domain_available": true,
+        "comparison": "co-located (modeled H2OSNO at station coordinates vs observed SWE time series)",
+        "metric": "Bias, RMSE, and correlation of annual peak SWE magnitude across stations and years",
+        "n_validation_points": "6 stations \u00d7 N years (user-selected subset of 1980-2018)"
+      },
+      {
+        "target_variable": "day_of_year_peak_SWE",
+        "observation_source": "SNOTEL SWE (6 stations in-domain)",
+        "in_domain_available": true,
+        "comparison": "co-located (day-of-year of modeled vs observed peak SWE)",
+        "metric": "Bias and RMSE of peak-SWE timing (days) across stations and years",
+        "n_validation_points": "6 stations \u00d7 N years"
+      },
+      {
+        "target_variable": "day_of_year_snowmelt_onset",
+        "observation_source": "SNOTEL SWE (6 stations in-domain)",
+        "in_domain_available": true,
+        "comparison": "co-located (modeled QSNOMELT or H2OSNO decline vs observed SWE decline). Onset defined as first sustained decline in SWE or QSNOMELT exceeding threshold (e.g. 5-day running mean > 0.5 mm/day).",
+        "metric": "Bias and RMSE of melt-onset timing (days) across stations and years; correlation of onset DOY with elevation",
+        "n_validation_points": "6 stations \u00d7 N years"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 0,
+      "validation": 6,
+      "primary_treatment": "Multi-year runs (\u22655 years for snow-state spin-up), NLDAS-2 forcing (1980-2018, user-selected years for analysis), native SSURGO soil at each station location"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "SNOTEL station metadata (exact lat/lon coordinates for the 6 stations in HUC 17030002)",
+        "why": "Columns must be pinned to station locations for co-located validation",
+        "blocks": "Column placement and validation comparison"
+      },
+      {
+        "capability": "SNOTEL SWE time-series ingest and alignment (daily SWE observations, 1980-2018 or subset)",
+        "why": "Validation requires observed SWE to compare against modeled H2OSNO",
+        "blocks": "All validation metrics"
+      },
+      {
+        "capability": "Multi-year ELM runs (\u22655 years) with snow output (H2OSNO, QSNOMELT, SNOW in history files)",
+        "why": "Snow states require spin-up; melt timing requires daily/sub-daily output over multiple years",
+        "blocks": "Realistic snow accumulation and melt-onset timing"
+      },
+      {
+        "capability": "Sub-grid elevation-downscaled forcing (1-4 km resolution with lapse-rate correction) OR station-specific forcing",
+        "why": "NLDAS-2 12 km forcing cannot resolve sub-12 km lapse rates between nearby stations on the same ridge (the question's explicit target)",
+        "blocks": "Testing 'local lapse rate between stations <12 km apart' \u2014 the primary mechanism in the user request"
+      },
+      {
+        "capability": "Post-processing tool to extract day-of-year of peak SWE and snowmelt onset from ELM history files",
+        "why": "Validation metrics require identifying timing of events in time-series output",
+        "blocks": "Automated validation workflow"
+      }
+    ],
+    "assumptions": [
+      "SNOTEL stations are representative of their local elevation and not affected by micro-topography or canopy effects unresolved by ELM's single-column setup",
+      "NLDAS-2 forcing at 12 km resolution captures the basin-scale elevation gradient (verified: 1625 m relief spans ~15 distinct precip values), but sub-12 km gradients are unresolved",
+      "Native SSURGO soil at station locations is adequate (soil is not expected to be a primary driver of snowmelt timing compared to elevation/climate)",
+      "5-year spin-up is sufficient for snow states (fast state compared to deep soil moisture or water table)",
+      "Snowmelt onset can be robustly defined from SWE time series (e.g. first sustained decline or QSNOMELT threshold) \u2014 definition must be consistent between model and observations"
+    ],
+    "open_questions": [
+      "What is the acceptable tolerance for snowmelt-onset timing bias (days)? This sets the success criterion for validation.",
+      "Are the 6 SNOTEL stations' exact coordinates and SWE time series (1980-2018) available in a machine-readable format, or does ingest need to be built?",
+      "Does the user accept that stations <12 km apart will show minimal modeled timing difference (same forcing cell), even if observations diverge? If not, sub-grid forcing is a hard requirement.",
+      "Should the design include a sensitivity test (e.g. perturb temperature by \u00b11-2\u00b0C to mimic sub-grid lapse rate) to estimate the magnitude of the unresolved effect?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

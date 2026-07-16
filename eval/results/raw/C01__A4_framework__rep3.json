@@ -1,0 +1,139 @@
+{
+  "prompt_id": "C01",
+  "arm": "A4_framework",
+  "rep": 3,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Isolate the mechanistic effect of soil clay content on runoff vs recharge partitioning\"], \"key_processes\": [\"Infiltration capacity as a function of soil texture\", \"Hydraulic conductivity control on subsurface drainage\", \"Surface runoff generation when infiltration capacity is exceeded\"], \"drivers_to_resolve\": [\"clay content\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"Single-column ELM represents soil texture effects on infiltration, runoff (QOVER), and subsurface drainage (QDRAI) as core physics. A controlled experiment with synthetic uniform soils isolates the clay-content effect without confounding spatial heterogeneity.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"full\", \"answerable\": [\"Soil texture control on infiltration and runoff/recharge partitioning via ELM's Richards equation and hydraulic conductivity parameterizations\", \"Quantitative partitioning response across the clay content range (5-55%) under controlled forcing\"], \"not_answerable\": []}, \"sampling_strategy\": {\"approach\": \"controlled factor levels (treatments), not spatial sampling\", \"strata\": [{\"driver\": \"clay content\", \"bands\": [\"5% (sandy)\", \"15% (loamy sand)\", \"25% (loam)\", \"35% (clay loam)\", \"45% (silty clay)\", \"55% (clay)\"]}], \"n_exploratory\": 6, \"n_justification\": \"Six clay levels span the 5-55% range with sufficient resolution to capture the nonlinear hydraulic response (sandy to clayey soils). Each level is one treatment; no replication needed in a deterministic model under fixed forcing.\", \"placement_logic\": \"Not applicable \\u2014 this is a controlled experiment in parameter space, not geographic space. All columns use the same arbitrary location and forcing.\", \"replication\": \"None \\u2014 deterministic model, controlled conditions\"}, \"sampling_plan\": [{\"group\": \"clay_5pct\", \"n\": 1, \"reason\": \"Sandy soil (5% clay): high infiltration capacity, minimal surface runoff, maximum recharge\"}, {\"group\": \"clay_15pct\", \"n\": 1, \"reason\": \"Loamy sand (15% clay): moderate infiltration, beginning of runoff generation under intense precipitation\"}, {\"group\": \"clay_25pct\", \"n\": 1, \"reason\": \"Loam (25% clay): balanced infiltration and runoff, mid-range recharge\"}, {\"group\": \"clay_35pct\", \"n\": 1, \"reason\": \"Clay loam (35% clay): reduced infiltration, increased surface runoff, declining recharge\"}, {\"group\": \"clay_45pct\", \"n\": 1, \"reason\": \"Silty clay (45% clay): low infiltration capacity, high runoff generation, minimal recharge\"}, {\"group\": \"clay_55pct\", \"n\": 1, \"reason\": \"Clay (55% clay): lowest infiltration, maximum surface runoff, near-zero recharge\"}], \"validation_design\": [{\"target_variable\": \"runoff_recharge_partitioning\", \"observation_source\": \"None \\u2014 conceptual experiment validated against physical expectation and literature (e.g., Rawls & Brakensiek infiltration curves, Clapp & Hornberger hydraulic parameters)\", \"in_domain_available\": false, \"comparison\": \"Process validation: monotonic decrease in infiltration and recharge with increasing clay content; comparison to published soil hydraulic property databases\", \"metric\": \"Qualitative consistency with expected infiltration-texture relationships; quantitative comparison of QOVER/QDRAI ratios to literature ranges\", \"n_validation_points\": \"Not applicable \\u2014 no observational data\"}], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 6, \"validation\": 0, \"primary_treatment\": \"15-year simulation (10 years spin-up + 5 years analysis) with representative forcing period (e.g., 1990-2004), uniform vegetation (generic temperate PFT), synthetic uniform soil columns with specified clay content, fixed location/elevation\"}, \"requires_capabilities\": [{\"capability\": \"Multi-year spin-up (10+ years)\", \"why\": \"Recharge (QDRAI) is a target variable. Without spin-up, the aquifer cold-starts at default WTD (~8.8 m) and QDRAI reads near-zero while storage fills \\u2014 an initialization artifact, not the soil-texture effect. Spin-up is needed to equilibrate the aquifer and produce meaningful recharge values.\", \"blocks\": \"Meaningful recharge output and runoff/recharge partitioning analysis\"}, {\"capability\": \"Synthetic soil specification (custom clay content)\", \"why\": \"The experiment requires uniform soil columns with specified clay percentages (5%, 15%, 25%, 35%, 45%, 55%), overriding default SSURGO data. ELM likely supports custom soil parameters via namelist or fsurdat modification, but this must be confirmed.\", \"blocks\": \"Creation of the controlled soil treatments\"}, {\"capability\": \"Runoff and recharge output variables (QOVER, QDRAI)\", \"why\": \"The experiment targets runoff/recharge partitioning. QOVER (surface runoff) and QDRAI (subsurface drainage/recharge) must be in the history output. These are standard ELM variables, but explicit confirmation is needed.\", \"blocks\": \"Quantitative partitioning analysis\"}], \"assumptions\": [\"ELM's soil hydraulic parameterizations (e.g., Clapp & Hornberger or van Genuchten) adequately represent the clay-content effect on infiltration and drainage across the 5-55% range\", \"A 10-year spin-up is sufficient to equilibrate the aquifer for recharge analysis (may need verification for clayey soils with very slow drainage)\", \"Vegetation and forcing are held constant across treatments, so observed partitioning differences are attributable to soil texture alone\", \"The chosen forcing period (e.g., 1990-2004) is climatically representative and includes sufficient precipitation variability to exercise the infiltration-runoff mechanism\", \"No lateral flow or regional groundwater effects are needed \\u2014 single-column 1-D representation is adequate for this controlled experiment\"], \"open_questions\": [\"What forcing period (within 1980-2018) should be used? A wetter period may better differentiate runoff generation across clay levels.\", \"Should sand and silt percentages be held constant (e.g., fixed sand/silt ratio) or varied to maintain realistic soil texture triangles for each clay level?\", \"Is 10 years of spin-up sufficient for the clayey end (55% clay) where drainage is very slow, or should spin-up be extended?\", \"Should the experiment include a sensitivity check on forcing intensity (e.g., repeat with a wet vs dry 5-year period) to test if the clay effect is modulated by climate?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Isolate the mechanistic effect of soil clay content on runoff vs recharge partitioning"
+      ],
+      "key_processes": [
+        "Infiltration capacity as a function of soil texture",
+        "Hydraulic conductivity control on subsurface drainage",
+        "Surface runoff generation when infiltration capacity is exceeded"
+      ],
+      "drivers_to_resolve": [
+        "clay content"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column ELM represents soil texture effects on infiltration, runoff (QOVER), and subsurface drainage (QDRAI) as core physics. A controlled experiment with synthetic uniform soils isolates the clay-content effect without confounding spatial heterogeneity.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "Soil texture control on infiltration and runoff/recharge partitioning via ELM's Richards equation and hydraulic conductivity parameterizations",
+        "Quantitative partitioning response across the clay content range (5-55%) under controlled forcing"
+      ],
+      "not_answerable": []
+    },
+    "sampling_strategy": {
+      "approach": "controlled factor levels (treatments), not spatial sampling",
+      "strata": [
+        {
+          "driver": "clay content",
+          "bands": [
+            "5% (sandy)",
+            "15% (loamy sand)",
+            "25% (loam)",
+            "35% (clay loam)",
+            "45% (silty clay)",
+            "55% (clay)"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "Six clay levels span the 5-55% range with sufficient resolution to capture the nonlinear hydraulic response (sandy to clayey soils). Each level is one treatment; no replication needed in a deterministic model under fixed forcing.",
+      "placement_logic": "Not applicable \u2014 this is a controlled experiment in parameter space, not geographic space. All columns use the same arbitrary location and forcing.",
+      "replication": "None \u2014 deterministic model, controlled conditions"
+    },
+    "sampling_plan": [
+      {
+        "group": "clay_5pct",
+        "n": 1,
+        "reason": "Sandy soil (5% clay): high infiltration capacity, minimal surface runoff, maximum recharge"
+      },
+      {
+        "group": "clay_15pct",
+        "n": 1,
+        "reason": "Loamy sand (15% clay): moderate infiltration, beginning of runoff generation under intense precipitation"
+      },
+      {
+        "group": "clay_25pct",
+        "n": 1,
+        "reason": "Loam (25% clay): balanced infiltration and runoff, mid-range recharge"
+      },
+      {
+        "group": "clay_35pct",
+        "n": 1,
+        "reason": "Clay loam (35% clay): reduced infiltration, increased surface runoff, declining recharge"
+      },
+      {
+        "group": "clay_45pct",
+        "n": 1,
+        "reason": "Silty clay (45% clay): low infiltration capacity, high runoff generation, minimal recharge"
+      },
+      {
+        "group": "clay_55pct",
+        "n": 1,
+        "reason": "Clay (55% clay): lowest infiltration, maximum surface runoff, near-zero recharge"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "runoff_recharge_partitioning",
+        "observation_source": "None \u2014 conceptual experiment validated against physical expectation and literature (e.g., Rawls & Brakensiek infiltration curves, Clapp & Hornberger hydraulic parameters)",
+        "in_domain_available": false,
+        "comparison": "Process validation: monotonic decrease in infiltration and recharge with increasing clay content; comparison to published soil hydraulic property databases",
+        "metric": "Qualitative consistency with expected infiltration-texture relationships; quantitative comparison of QOVER/QDRAI ratios to literature ranges",
+        "n_validation_points": "Not applicable \u2014 no observational data"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "15-year simulation (10 years spin-up + 5 years analysis) with representative forcing period (e.g., 1990-2004), uniform vegetation (generic temperate PFT), synthetic uniform soil columns with specified clay content, fixed location/elevation"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Multi-year spin-up (10+ years)",
+        "why": "Recharge (QDRAI) is a target variable. Without spin-up, the aquifer cold-starts at default WTD (~8.8 m) and QDRAI reads near-zero while storage fills \u2014 an initialization artifact, not the soil-texture effect. Spin-up is needed to equilibrate the aquifer and produce meaningful recharge values.",
+        "blocks": "Meaningful recharge output and runoff/recharge partitioning analysis"
+      },
+      {
+        "capability": "Synthetic soil specification (custom clay content)",
+        "why": "The experiment requires uniform soil columns with specified clay percentages (5%, 15%, 25%, 35%, 45%, 55%), overriding default SSURGO data. ELM likely supports custom soil parameters via namelist or fsurdat modification, but this must be confirmed.",
+        "blocks": "Creation of the controlled soil treatments"
+      },
+      {
+        "capability": "Runoff and recharge output variables (QOVER, QDRAI)",
+        "why": "The experiment targets runoff/recharge partitioning. QOVER (surface runoff) and QDRAI (subsurface drainage/recharge) must be in the history output. These are standard ELM variables, but explicit confirmation is needed.",
+        "blocks": "Quantitative partitioning analysis"
+      }
+    ],
+    "assumptions": [
+      "ELM's soil hydraulic parameterizations (e.g., Clapp & Hornberger or van Genuchten) adequately represent the clay-content effect on infiltration and drainage across the 5-55% range",
+      "A 10-year spin-up is sufficient to equilibrate the aquifer for recharge analysis (may need verification for clayey soils with very slow drainage)",
+      "Vegetation and forcing are held constant across treatments, so observed partitioning differences are attributable to soil texture alone",
+      "The chosen forcing period (e.g., 1990-2004) is climatically representative and includes sufficient precipitation variability to exercise the infiltration-runoff mechanism",
+      "No lateral flow or regional groundwater effects are needed \u2014 single-column 1-D representation is adequate for this controlled experiment"
+    ],
+    "open_questions": [
+      "What forcing period (within 1980-2018) should be used? A wetter period may better differentiate runoff generation across clay levels.",
+      "Should sand and silt percentages be held constant (e.g., fixed sand/silt ratio) or varied to maintain realistic soil texture triangles for each clay level?",
+      "Is 10 years of spin-up sufficient for the clayey end (55% clay) where drainage is very slow, or should spin-up be extended?",
+      "Should the experiment include a sensitivity check on forcing intensity (e.g., repeat with a wet vs dry 5-year period) to test if the clay effect is modulated by climate?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

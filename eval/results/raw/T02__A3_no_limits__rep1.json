@@ -1,0 +1,238 @@
+{
+  "prompt_id": "T02",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThis request presents a **fundamental scientific problem**: the user asserts a uniform recharge value (500 mm/yr everywhere) for a heterogeneous mountain watershed spanning 1625 m of elevation relief. This contradicts basic hydrologic principles\u2014recharge in mountain systems varies strongly with elevation (through precipitation gradients, snowmelt timing, and ET demand), soil properties, and vegetation. A uniform recharge across such relief is physically implausible.\n\n**The question as posed is not scientifically testable** because:\n1. It asks to \"confirm\" a predetermined answer rather than test a hypothesis\n2. The assertion (uniform recharge) contradicts the domain's known heterogeneity\n3. No recharge observations exist to validate against (observations_missing lists \"recharge measurements\")\n\n**What I can design instead**: A scientifically valid experiment to **estimate spatially-distributed recharge** across the Naches watershed and **quantify its spatial variability**. This tests the implicit hypothesis that recharge varies with elevation/soil/forcing\u2014the physically expected outcome. If the user's literature claim is correct, the simulations will show it; if not, we learn the actual spatial pattern.\n\n**Feasibility constraints**:\n- **Elevation as a driver**: The brief lists only \"soil\" and \"forcing\" as candidate_drivers, NOT elevation. Yet elevation is the dominant control on recharge in mountain systems (through orographic precipitation, snow accumulation/melt, temperature). The framework's single uniform forcing CANNOT represent elevation-driven climate gradients. This is a **critical execution limit**: stratifying columns by elevation without elevation-downscaled forcing will NOT isolate the elevation effect\u2014any variation would be soil-driven only.\n- **Recharge validation**: No direct recharge measurements exist. Water-table depth (WTD) observations are available (wells, Fan 2013), which provide an **indirect constraint** on long-term recharge via steady-state water balance, but this is analog validation, not direct.\n- **Model capability**: ELM produces sub-surface drainage (QDRAI), which approximates recharge in the absence of lateral flow. This is the best available proxy, but it's a **1-D column approximation**\u2014true recharge includes lateral redistribution that ELM cannot represent.\n\n**Design decision**: I will design a **stratified spatial sampling** to estimate recharge variability across soil and elevation (as a spatial coordinate, not a climate driver\u2014acknowledging the forcing limitation). The design will be honest about what it CAN resolve (soil control, spatial patterns given uniform forcing) versus what it CANNOT (elevation's climate effect). Total N will be small and defensible.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Estimate spatially-distributed recharge across the Naches watershed\",\n      \"Quantify recharge spatial variability and its drivers (soil, topographic position)\",\n      \"Provide indirect validation against water-table depth observations where available\"\n    ],\n    \"key_processes\": [\n      \"Infiltration and percolation through the soil column\",\n      \"Evapotranspiration (reducing water available for recharge)\",\n      \"Snowmelt contribution to recharge (timing and magnitude)\",\n      \"Sub-surface drainage as recharge proxy (QDRAI)\"\n    ],\n    \"drivers_to_resolve\": [\n      \"soil texture and hydraulic properties\",\n      \"topographic position (elevation as spatial coordinate, not climate driver)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"ELM single-column runs stratified across soil and elevation bands provide spatially-distributed recharge estimates (via QDRAI). This is a site-based spatial sampling campaign with indirect validation against WTD observations.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": null\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Spatial pattern of recharge across the watershed given uniform forcing\",\n      \"Soil texture control on recharge (via infiltration, percolation, ET)\",\n      \"Topographic position effect on recharge (as a spatial coordinate\u2014valley vs ridge)\",\n      \"Indirect validation of recharge estimates against water-table depth observations\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Elevation control on recharge via climate gradients (orographic precipitation, temperature lapse)\",\n        \"why\": \"Framework uses uniform forcing across all columns\u2014cannot represent elevation-driven precipitation/temperature gradients that dominate mountain recharge patterns\",\n        \"needs\": \"Elevation-downscaled meteorological forcing (PRISM or similar) to vary precip/temp with elevation\"\n      },\n      {\n        \"aspect\": \"Direct validation of recharge estimates\",\n        \"why\": \"No recharge measurements exist in the domain (observations_missing)\",\n        \"needs\": \"In-situ recharge measurements (lysimeters, tracer studies, or water-balance closure at gauged sub-basins)\"\n      },\n      {\n        \"aspect\": \"Lateral groundwater redistribution effects on recharge\",\n        \"why\": \"ELM is 1-D column model\u2014QDRAI is vertical drainage only, does not account for lateral flow convergence/divergence\",\n        \"needs\": \"3-D subsurface flow model (PFLOTRAN) or coupled ELM-PFLOTRAN to represent lateral redistribution\"\n      },\n      {\n        \"aspect\": \"Confirmation of uniform 500 mm/yr recharge claim\",\n        \"why\": \"Claim contradicts physical expectation for heterogeneous mountain watershed; no observations to validate against; framework cannot test the climate-driven variability that would refute/support it\",\n        \"needs\": \"Elevation-downscaled forcing + direct recharge observations\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Stratified spatial sampling across elevation bands and soil classes\",\n    \"strata\": [\n      {\n        \"driver\": \"elevation\",\n        \"bands\": [\n          \"low (352-800 m) \u2014 valley floor, rain-dominated\",\n          \"mid (800-1400 m) \u2014 rain-snow transition\",\n          \"high (1400-1977 m) \u2014 snow-dominated\"\n        ]\n      },\n      {\n        \"driver\": \"soil\",\n        \"classes\": [\n          \"coarse (sandy loam, high infiltration)\",\n          \"medium (loam, moderate infiltration)\",\n          \"fine (clay loam, low infiltration)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 18,\n    \"n_justification\": \"3 elevation bands \u00d7 3 soil classes \u00d7 2 replicates per stratum = 18 exploratory columns. This resolves the factorial design (elevation position \u00d7 soil) with light replication to assess within-stratum variability. Replication is minimal because the question is about spatial pattern, not uncertainty quantification.\",\n    \"placement_logic\": \"Within each elevation band, sample across the soil gradient. Concentrate columns in mid-elevation (rain-snow transition, 800-1400 m) where recharge processes are most dynamic (snowmelt timing, mixed precip phase). In low elevation, sample valley bottoms and alluvial fans (high recharge potential). In high elevation, sample ridges and slopes (snow accumulation zones). Avoid steep slopes >30\u00b0 where ELM's 1-D assumption breaks down most severely.\",\n    \"replication\": \"2 columns per stratum (elevation \u00d7 soil combination) to capture within-stratum spatial variability and provide a basic uncertainty estimate on stratum-mean recharge.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"low-elevation, coarse soil\",\n      \"n\": 2,\n      \"reason\": \"Valley floor alluvial fans\u2014high infiltration, rain-dominated, expected high recharge\"\n    },\n    {\n      \"group\": \"low-elevation, medium soil\",\n      \"n\": 2,\n      \"reason\": \"Valley floor moderate soils\u2014baseline recharge for rain-dominated zone\"\n    },\n    {\n      \"group\": \"low-elevation, fine soil\",\n      \"n\": 2,\n      \"reason\": \"Valley floor low-permeability soils\u2014tests infiltration limitation on recharge\"\n    },\n    {\n      \"group\": \"mid-elevation, coarse soil\",\n      \"n\": 2,\n      \"reason\": \"Rain-snow transition, high infiltration\u2014captures snowmelt recharge pulse in permeable substrate\"\n    },\n    {\n      \"group\": \"mid-elevation, medium soil\",\n      \"n\": 2,\n      \"reason\": \"Rain-snow transition, moderate soils\u2014most representative of watershed, critical for spatial average\"\n    },\n    {\n      \"group\": \"mid-elevation, fine soil\",\n      \"n\": 2,\n      \"reason\": \"Rain-snow transition, low permeability\u2014tests whether snowmelt overwhelms infiltration capacity\"\n    },\n    {\n      \"group\": \"high-elevation, coarse soil\",\n      \"n\": 2,\n      \"reason\": \"Snow-dominated ridges, high infiltration\u2014maximum snowmelt recharge potential\"\n    },\n    {\n      \"group\": \"high-elevation, medium soil\",\n      \"n\": 2,\n      \"reason\": \"Snow-dominated slopes, moderate soils\u2014typical high-elevation recharge\"\n    },\n    {\n      \"group\": \"high-elevation, fine soil\",\n      \"n\": 2,\n      \"reason\": \"Snow-dominated, low permeability\u2014tests whether frozen/saturated soils limit recharge\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells (in-domain point measurements)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"analog \u2014 long-term mean simulated recharge (QDRAI) compared to steady-state water-table depth via conceptual water-balance relationship (high recharge \u2192 shallow WTD in unconfined aquifers). Not direct co-location because ELM does not simulate water table.\",\n      \"metric\": \"Spearman rank correlation between simulated recharge and observed WTD (inverse relationship expected: high recharge areas should have shallower water tables, assuming similar aquifer properties)\",\n      \"n_validation_points\": \"unknown \u2014 depends on USGS well density in Naches HUC, likely 5-15 wells\"\n    },\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"Fan et al. 2013 gridded WTD prior (1 km resolution)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated \u2014 spatially-averaged simulated recharge compared to spatial pattern of Fan WTD across the watershed. Tests whether high-recharge zones (simulated) align with shallow-WTD zones (observed).\",\n      \"metric\": \"Spatial correlation (Pearson r) between gridded recharge estimates (interpolated from column locations) and Fan WTD grid\",\n      \"n_validation_points\": \"~200 grid cells covering Naches HUC at 1 km resolution\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 18,\n    \"exploratory\": 18,\n    \"validation\": 0,\n    \"primary_treatment\": \"Baseline forcing (1980-2018 climatology, uniform across domain), native soil properties from gridded soil dataset, default ELM vegetation (PFT from land-cover data)\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"Elevation-downscaled meteorological forcing\",\n      \"why\": \"To represent orographic precipitation gradients and temperature lapse rates that drive elevation-dependent recharge patterns in mountain watersheds\",\n      \"blocks\": \"Testing elevation as a climate driver (currently elevation is only a spatial coordinate; columns at different elevations receive identical forcing)\"\n    },\n    {\n      \"capability\": \"Gridded soil property dataset for Naches HUC\",\n      \"why\": \"To assign realistic soil texture, hydraulic conductivity, and porosity to each column based on its location\",\n      \"blocks\": \"Soil stratification (currently assumes soil classes exist but does not specify data source)\"\n    },\n    {\n      \"capability\": \"DEM-based elevation sampling tool\",\n      \"why\": \"To place columns at representative elevations within each elevation band (low/mid/high) by sampling the actual DEM\",\n      \"blocks\": \"Deterministic placement of columns in elevation strata\"\n    },\n    {\n      \"capability\": \"HUC boundary resolver\",\n      \"why\": \"To constrain column placement within the Naches HUC-8 watershed boundary\",\n      \"blocks\": \"Ensuring all columns are in-domain\"\n    },\n    {\n      \"capability\": \"USGS well data ingest and spatial query\",\n      \"why\": \"To identify well locations within Naches HUC and extract observed water-table depths for validation\",\n      \"blocks\": \"Validation against in-situ WTD observations\"\n    },\n    {\n      \"capability\": \"Fan et al. 2013 WTD dataset ingest and spatial extraction\",\n      \"why\": \"To extract gridded WTD values for the Naches domain for spatial validation\",\n      \"blocks\": \"Validation against gridded WTD prior\"\n    },\n    {\n      \"capability\": \"ELM sub-surface drainage output (QDRAI variable)\",\n      \"why\": \"QDRAI is the recharge proxy\u2014must be in the output variable list and post-processed to annual totals\",\n      \"blocks\": \"Recharge estimation (if QDRAI is not output, the experiment cannot proceed)\"\n    },\n    {\n      \"capability\": \"Spatial interpolation tool for recharge estimates\",\n      \"why\": \"To create a continuous recharge surface from the 18 point estimates for comparison with gridded Fan WTD\",\n      \"blocks\": \"Aggregated validation against Fan dataset\"\n    },\n    {\n      \"capability\": \"Model spin-up protocol\",\n      \"why\": \"ELM soil moisture and snow states must equilibrate before recharge estimates are meaningful (likely 10-20 year spin-up)\",\n      \"blocks\": \"Physically realistic recharge estimates (without spin-up, initial conditions dominate)\"\n    },\n    {\n      \"capability\": \"Direct recharge measurements (lysimeters, tracers, or gauged sub-basin water balance)\",\n      \"why\": \"To validate simulated recharge directly rather than via the indirect WTD proxy\",\n      \"blocks\": \"Direct validation of recharge estimates (currently only indirect validation is possible)\"\n    },\n    {\n      \"capability\": \"3-D subsurface flow model (PFLOTRAN) or ELM-PFLOTRAN coupling\",\n      \"why\": \"To represent lateral groundwater flow and test whether 1-D recharge estimates (ELM QDRAI) are biased by neglecting lateral redistribution\",\n      \"blocks\": \"Accounting for lateral flow effects on recharge (ELM assumes purely vertical drainage)\"\n    }\n  ],\n  \"assumptions\": [\n    \"Uniform forcing across the domain is acceptable for isolating soil effects, but severely limits elevation-driven recharge variability\",\n    \"ELM QDRAI (sub-surface drainage) is a reasonable proxy for recharge in the absence of lateral flow representation\",\n    \"Water-table depth observations provide an indirect constraint on long-term recharge via steady-state water balance (high recharge \u2192 shallow WTD in unconfined systems)\",\n    \"Soil property data exist and can be spatially queried to assign realistic hydraulic parameters to each column\",\n    \"The 1980-2018 forcing period is long enough to estimate climatological mean recharge (transient trends are not the focus)\",\n    \"Replication factor of 2 per stratum is sufficient for basic within-stratum variability assessment\",\n    \"The user's claim of uniform 500 mm/yr recharge is a hypothesis to be tested, not a constraint on the design\"\n  ],\n  \"open_questions\": [\n    \"What is the source and spatial resolution of the soil property dataset for Naches? Does it include hydraulic conductivity and porosity, or only texture class?\",\n    \"How many USGS wells exist within the Naches HUC, and what is their temporal coverage (are they suitable for long-term mean WTD)?\",\n    \"What is the published source for the 500 mm/yr uniform recharge claim? Does it provide spatial detail or uncertainty bounds?\",\n    \"Is there a preferred time period within 1980-2018 for the forcing (e.g., exclude drought years, or use the full climatology)?\",\n    \"Should the design include a sensitivity test on forcing period (e.g., wet vs dry years) to assess recharge variability, or focus only on long-term mean?\",\n    \"Are there any gauged sub-basins within Naches where streamflow data could provide an independent water-balance constraint on recharge?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Estimate spatially-distributed recharge across the Naches watershed",
+        "Quantify recharge spatial variability and its drivers (soil, topographic position)",
+        "Provide indirect validation against water-table depth observations where available"
+      ],
+      "key_processes": [
+        "Infiltration and percolation through the soil column",
+        "Evapotranspiration (reducing water available for recharge)",
+        "Snowmelt contribution to recharge (timing and magnitude)",
+        "Sub-surface drainage as recharge proxy (QDRAI)"
+      ],
+      "drivers_to_resolve": [
+        "soil texture and hydraulic properties",
+        "topographic position (elevation as spatial coordinate, not climate driver)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM single-column runs stratified across soil and elevation bands provide spatially-distributed recharge estimates (via QDRAI). This is a site-based spatial sampling campaign with indirect validation against WTD observations.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Spatial pattern of recharge across the watershed given uniform forcing",
+        "Soil texture control on recharge (via infiltration, percolation, ET)",
+        "Topographic position effect on recharge (as a spatial coordinate\u2014valley vs ridge)",
+        "Indirect validation of recharge estimates against water-table depth observations"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Elevation control on recharge via climate gradients (orographic precipitation, temperature lapse)",
+          "why": "Framework uses uniform forcing across all columns\u2014cannot represent elevation-driven precipitation/temperature gradients that dominate mountain recharge patterns",
+          "needs": "Elevation-downscaled meteorological forcing (PRISM or similar) to vary precip/temp with elevation"
+        },
+        {
+          "aspect": "Direct validation of recharge estimates",
+          "why": "No recharge measurements exist in the domain (observations_missing)",
+          "needs": "In-situ recharge measurements (lysimeters, tracer studies, or water-balance closure at gauged sub-basins)"
+        },
+        {
+          "aspect": "Lateral groundwater redistribution effects on recharge",
+          "why": "ELM is 1-D column model\u2014QDRAI is vertical drainage only, does not account for lateral flow convergence/divergence",
+          "needs": "3-D subsurface flow model (PFLOTRAN) or coupled ELM-PFLOTRAN to represent lateral redistribution"
+        },
+        {
+          "aspect": "Confirmation of uniform 500 mm/yr recharge claim",
+          "why": "Claim contradicts physical expectation for heterogeneous mountain watershed; no observations to validate against; framework cannot test the climate-driven variability that would refute/support it",
+          "needs": "Elevation-downscaled forcing + direct recharge observations"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Stratified spatial sampling across elevation bands and soil classes",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low (352-800 m) \u2014 valley floor, rain-dominated",
+            "mid (800-1400 m) \u2014 rain-snow transition",
+            "high (1400-1977 m) \u2014 snow-dominated"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy loam, high infiltration)",
+            "medium (loam, moderate infiltration)",
+            "fine (clay loam, low infiltration)"
+          ]
+        }
+      ],
+      "n_exploratory": 18,
+      "n_justification": "3 elevation bands \u00d7 3 soil classes \u00d7 2 replicates per stratum = 18 exploratory columns. This resolves the factorial design (elevation position \u00d7 soil) with light replication to assess within-stratum variability. Replication is minimal because the question is about spatial pattern, not uncertainty quantification.",
+      "placement_logic": "Within each elevation band, sample across the soil gradient. Concentrate columns in mid-elevation (rain-snow transition, 800-1400 m) where recharge processes are most dynamic (snowmelt timing, mixed precip phase). In low elevation, sample valley bottoms and alluvial fans (high recharge potential). In high elevation, sample ridges and slopes (snow accumulation zones). Avoid steep slopes >30\u00b0 where ELM's 1-D assumption breaks down most severely.",
+      "replication": "2 columns per stratum (elevation \u00d7 soil combination) to capture within-stratum spatial variability and provide a basic uncertainty estimate on stratum-mean recharge."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elevation, coarse soil",
+        "n": 2,
+        "reason": "Valley floor alluvial fans\u2014high infiltration, rain-dominated, expected high recharge"
+      },
+      {
+        "group": "low-elevation, medium soil",
+        "n": 2,
+        "reason": "Valley floor moderate soils\u2014baseline recharge for rain-dominated zone"
+      },
+      {
+        "group": "low-elevation, fine soil",
+        "n": 2,
+        "reason": "Valley floor low-permeability soils\u2014tests infiltration limitation on recharge"
+      },
+      {
+        "group": "mid-elevation, coarse soil",
+        "n": 2,
+        "reason": "Rain-snow transition, high infiltration\u2014captures snowmelt recharge pulse in permeable substrate"
+      },
+      {
+        "group": "mid-elevation, medium soil",
+        "n": 2,
+        "reason": "Rain-snow transition, moderate soils\u2014most representative of watershed, critical for spatial average"
+      },
+      {
+        "group": "mid-elevation, fine soil",
+        "n": 2,
+        "reason": "Rain-snow transition, low permeability\u2014tests whether snowmelt overwhelms infiltration capacity"
+      },
+      {
+        "group": "high-elevation, coarse soil",
+        "n": 2,
+        "reason": "Snow-dominated ridges, high infiltration\u2014maximum snowmelt recharge potential"
+      },
+      {
+        "group": "high-elevation, medium soil",
+        "n": 2,
+        "reason": "Snow-dominated slopes, moderate soils\u2014typical high-elevation recharge"
+      },
+      {
+        "group": "high-elevation, fine soil",
+        "n": 2,
+        "reason": "Snow-dominated, low permeability\u2014tests whether frozen/saturated soils limit recharge"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (in-domain point measurements)",
+        "in_domain_available": true,
+        "comparison": "analog \u2014 long-term mean simulated recharge (QDRAI) compared to steady-state water-table depth via conceptual water-balance relationship (high recharge \u2192 shallow WTD in unconfined aquifers). Not direct co-location because ELM does not simulate water table.",
+        "metric": "Spearman rank correlation between simulated recharge and observed WTD (inverse relationship expected: high recharge areas should have shallower water tables, assuming similar aquifer properties)",
+        "n_validation_points": "unknown \u2014 depends on USGS well density in Naches HUC, likely 5-15 wells"
+      },
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "Fan et al. 2013 gridded WTD prior (1 km resolution)",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 spatially-averaged simulated recharge compared to spatial pattern of Fan WTD across the watershed. Tests whether high-recharge zones (simulated) align with shallow-WTD zones (observed).",
+        "metric": "Spatial correlation (Pearson r) between gridded recharge estimates (interpolated from column locations) and Fan WTD grid",
+        "n_validation_points": "~200 grid cells covering Naches HUC at 1 km resolution"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 18,
+      "exploratory": 18,
+      "validation": 0,
+      "primary_treatment": "Baseline forcing (1980-2018 climatology, uniform across domain), native soil properties from gridded soil dataset, default ELM vegetation (PFT from land-cover data)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Elevation-downscaled meteorological forcing",
+        "why": "To represent orographic precipitation gradients and temperature lapse rates that drive elevation-dependent recharge patterns in mountain watersheds",
+        "blocks": "Testing elevation as a climate driver (currently elevation is only a spatial coordinate; columns at different elevations receive identical forcing)"
+      },
+      {
+        "capability": "Gridded soil property dataset for Naches HUC",
+        "why": "To assign realistic soil texture, hydraulic conductivity, and porosity to each column based on its location",
+        "blocks": "Soil stratification (currently assumes soil classes exist but does not specify data source)"
+      },
+      {
+        "capability": "DEM-based elevation sampling tool",
+        "why": "To place columns at representative elevations within each elevation band (low/mid/high) by sampling the actual DEM",
+        "blocks": "Deterministic placement of columns in elevation strata"
+      },
+      {
+        "capability": "HUC boundary resolver",
+        "why": "To constrain column placement within the Naches HUC-8 watershed boundary",
+        "blocks": "Ensuring all columns are in-domain"
+      },
+      {
+        "capability": "USGS well data ingest and spatial query",
+        "why": "To identify well locations within Naches HUC and extract observed water-table depths for validation",
+        "blocks": "Validation against in-situ WTD observations"
+      },
+      {
+        "capability": "Fan et al. 2013 WTD dataset ingest and spatial extraction",
+        "why": "To extract gridded WTD values for the Naches domain for spatial validation",
+        "blocks": "Validation against gridded WTD prior"
+      },
+      {
+        "capability": "ELM sub-surface drainage output (QDRAI variable)",
+        "why": "QDRAI is the recharge proxy\u2014must be in the output variable list and post-processed to annual totals",
+        "blocks": "Recharge estimation (if QDRAI is not output, the experiment cannot proceed)"
+      },
+      {
+        "capability": "Spatial interpolation tool for recharge estimates",
+        "why": "To create a continuous recharge surface from the 18 point estimates for comparison with gridded Fan WTD",
+        "blocks": "Aggregated validation against Fan dataset"
+      },
+      {
+        "capability": "Model spin-up protocol",
+        "why": "ELM soil moisture and snow states must equilibrate before recharge estimates are meaningful (likely 10-20 year spin-up)",
+        "blocks": "Physically realistic recharge estimates (without spin-up, initial conditions dominate)"
+      },
+      {
+        "capability": "Direct recharge measurements (lysimeters, tracers, or gauged sub-basin water balance)",
+        "why": "To validate simulated recharge directly rather than via the indirect WTD proxy",
+        "blocks": "Direct validation of recharge estimates (currently only indirect validation is possible)"
+      },
+      {
+        "capability": "3-D subsurface flow model (PFLOTRAN) or ELM-PFLOTRAN coupling",
+        "why": "To represent lateral groundwater flow and test whether 1-D recharge estimates (ELM QDRAI) are biased by neglecting lateral redistribution",
+        "blocks": "Accounting for lateral flow effects on recharge (ELM assumes purely vertical drainage)"
+      }
+    ],
+    "assumptions": [
+      "Uniform forcing across the domain is acceptable for isolating soil effects, but severely limits elevation-driven recharge variability",
+      "ELM QDRAI (sub-surface drainage) is a reasonable proxy for recharge in the absence of lateral flow representation",
+      "Water-table depth observations provide an indirect constraint on long-term recharge via steady-state water balance (high recharge \u2192 shallow WTD in unconfined systems)",
+      "Soil property data exist and can be spatially queried to assign realistic hydraulic parameters to each column",
+      "The 1980-2018 forcing period is long enough to estimate climatological mean recharge (transient trends are not the focus)",
+      "Replication factor of 2 per stratum is sufficient for basic within-stratum variability assessment",
+      "The user's claim of uniform 500 mm/yr recharge is a hypothesis to be tested, not a constraint on the design"
+    ],
+    "open_questions": [
+      "What is the source and spatial resolution of the soil property dataset for Naches? Does it include hydraulic conductivity and porosity, or only texture class?",
+      "How many USGS wells exist within the Naches HUC, and what is their temporal coverage (are they suitable for long-term mean WTD)?",
+      "What is the published source for the 500 mm/yr uniform recharge claim? Does it provide spatial detail or uncertainty bounds?",
+      "Is there a preferred time period within 1980-2018 for the forcing (e.g., exclude drought years, or use the full climatology)?",
+      "Should the design include a sensitivity test on forcing period (e.g., wet vs dry years) to assess recharge variability, or focus only on long-term mean?",
+      "Are there any gauged sub-basins within Naches where streamflow data could provide an independent water-balance constraint on recharge?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

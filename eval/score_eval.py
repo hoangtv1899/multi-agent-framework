@@ -151,9 +151,15 @@ def score_record(rec, prompt) -> dict:
     if "n_justified" in prompt.get("must_flag", []):
         text = json.dumps(parsed) if parsed else raw
         m = re.search(r'justif', text, re.I)
-        n = (parsed or {}).get("n_columns") or \
-            ((parsed or {}).get("sampling_plan") or {}).get("n_exploratory") or \
-            ((parsed or {}).get("sampling_strategy") or {}).get("n_exploratory")
+        def _n_of(o):
+            if isinstance(o, dict):
+                return o.get("n_exploratory") or o.get("n_columns")
+            if isinstance(o, list):
+                return len(o) or None
+            return None
+        pz = parsed or {}
+        n = pz.get("n_columns") or _n_of(pz.get("sampling_plan")) \
+            or _n_of(pz.get("sampling_strategy"))
         s["n_justified"] = bool(m) and n is not None
     if "verify_not_confirm" in prompt.get("must_flag", []):
         text = (json.dumps(parsed) if parsed else raw).lower()
@@ -226,6 +232,20 @@ def main():
         print(f"{arm:<16}{n:>4}{a['parse_ok']:>7}{coords:>13}{badc:>11}"
               f"{badcfg:>12}{str(a['verdict_accuracy']):>13}"
               f"{str(a['must_flag_recall']):>13}")
+
+    # per-class verdict confusion (the calibration story)
+    from collections import Counter
+    print("\nVERDICT CONFUSION (expected -> emitted, rep 1):")
+    for arm in arms:
+        conf = defaultdict(Counter)
+        for r in scope:
+            if r["arm"] == arm and r["rep"] == 1:
+                conf[r["verdict_expected"]][r["verdict"]] += 1
+        cells = []
+        for exp in ("full", "partial", "infeasible"):
+            c = conf[exp]; tot = sum(c.values())
+            cells.append(f"{exp}:{c[exp]}/{tot}")
+        print(f"  {arm:<16} " + "  ".join(cells))
 
     # traps + determinism detail
     traps = [r for r in scope if any(k in r for k in

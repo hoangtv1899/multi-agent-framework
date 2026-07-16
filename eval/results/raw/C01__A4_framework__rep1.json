@@ -1,0 +1,128 @@
+{
+  "prompt_id": "C01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Isolate and quantify the mechanistic effect of soil clay content on runoff vs recharge partitioning under controlled conditions\"], \"key_processes\": [\"Infiltration capacity as a function of soil texture\", \"Hydraulic conductivity (saturated and unsaturated) controlled by clay content\", \"Partitioning of precipitation into surface runoff (QOVER) vs subsurface drainage/recharge (QDRAI)\"], \"drivers_to_resolve\": [\"clay content (5-55%)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"ELM's 1-D Richards equation solver with texture-dependent hydraulic parameterizations directly represents the clay-content control on infiltration and drainage. No lateral processes or coupling needed for this vertical partitioning question.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"full\", \"answerable\": [\"Clay content control on infiltration capacity and hydraulic conductivity\", \"Resulting partitioning of water into surface runoff vs subsurface drainage/recharge\", \"Nonlinear response curve across the clay gradient (5-55%)\"], \"not_answerable\": []}, \"sampling_strategy\": {\"approach\": \"controlled factor levels (treatments), not spatial sampling\", \"strata\": [{\"driver\": \"clay content\", \"bands\": [\"5%\", \"15%\", \"25%\", \"35%\", \"45%\", \"55%\"]}], \"n_exploratory\": 6, \"n_justification\": \"Six clay levels at 10% intervals span the specified range (5-55%) and resolve the expected nonlinear hydraulic response (infiltration capacity drops sharply with increasing clay) without redundancy. Each level is a distinct treatment in a controlled experiment.\", \"placement_logic\": \"Not applicable \\u2014 this is a controlled experiment with synthetic uniform soil columns, not spatial sampling. Each column is identical except for the clay fraction.\", \"replication\": \"None. Deterministic physics with controlled inputs; no stochastic variability to average over.\"}, \"sampling_plan\": [{\"group\": \"clay_5pct\", \"n\": 1, \"reason\": \"Sandy soil (5% clay) \\u2014 high infiltration capacity, minimal surface runoff, maximum recharge potential\"}, {\"group\": \"clay_15pct\", \"n\": 1, \"reason\": \"Loamy sand (15% clay) \\u2014 moderate infiltration, beginning of runoff generation under intense precipitation\"}, {\"group\": \"clay_25pct\", \"n\": 1, \"reason\": \"Loam (25% clay) \\u2014 balanced texture, transition zone where runoff and recharge are comparable\"}, {\"group\": \"clay_35pct\", \"n\": 1, \"reason\": \"Clay loam (35% clay) \\u2014 reduced infiltration, increased surface runoff dominance\"}, {\"group\": \"clay_45pct\", \"n\": 1, \"reason\": \"Clay (45% clay) \\u2014 low hydraulic conductivity, strong runoff generation, minimal deep drainage\"}, {\"group\": \"clay_55pct\", \"n\": 1, \"reason\": \"Heavy clay (55% clay) \\u2014 near-minimum infiltration capacity, maximum surface runoff, negligible recharge\"}], \"validation_design\": [{\"target_variable\": \"runoff_recharge_partitioning_ratio\", \"observation_source\": \"Literature comparison (e.g. Rawls et al. texture-class infiltration rates, USDA hydraulic property databases)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 compare simulated partitioning trends against published texture-class hydraulic behavior and infiltration capacity curves\", \"metric\": \"Qualitative trend agreement (monotonic decrease in recharge fraction with increasing clay) and quantitative comparison of partitioning ratios to literature ranges\", \"n_validation_points\": \"Not applicable \\u2014 validation is against physical expectation and literature, not co-located observations\"}], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 6, \"validation\": 0, \"primary_treatment\": \"Uniform forcing (1990-1999, representative mid-latitude temperate climate), flat topography, single vegetation type (grassland or bare soil), 2-year spin-up, clay content varied 5-55% at 10% intervals with sand/silt adjusted to sum to 100%\"}, \"requires_capabilities\": [], \"assumptions\": [\"ELM's pedotransfer functions (Clapp-Hornberger or van Genuchten parameters derived from texture) adequately represent the clay-content control on hydraulic conductivity and water retention\", \"Sand and silt fractions are adjusted proportionally to maintain sand + silt + clay = 100% at each clay level (e.g. if clay = 25%, sand = 50%, silt = 25% as a representative loam)\", \"A single 10-year forcing period (1990-1999) captures sufficient precipitation variability (seasonal, interannual, event intensity) to exercise the partitioning mechanism across all clay levels\", \"Vegetation effects (transpiration, root water uptake) are either minimized (bare soil) or held constant (single PFT) to isolate the soil texture effect\", \"Two-year spin-up is sufficient to equilibrate soil moisture profiles for a fast-response partitioning process (not testing long-term water table dynamics)\", \"Topographic slope is zero or negligible (no lateral runoff generation from topography, only from infiltration-excess)\"], \"open_questions\": [\"Should the experiment use bare soil or a single vegetation type (e.g. C3 grass) to control for transpiration effects?\", \"Which forcing period / climate regime is most representative for the conceptual experiment (temperate, semi-arid, humid)?\", \"Should organic matter content be held constant or varied with clay (in natural soils they often co-vary)?\", \"Is a sensitivity test on precipitation intensity (e.g. high-intensity events vs steady moderate rain) desired as a secondary factor?\"], \"_schema_warnings\": [\"missing required strategy field: requires_capabilities\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Isolate and quantify the mechanistic effect of soil clay content on runoff vs recharge partitioning under controlled conditions"
+      ],
+      "key_processes": [
+        "Infiltration capacity as a function of soil texture",
+        "Hydraulic conductivity (saturated and unsaturated) controlled by clay content",
+        "Partitioning of precipitation into surface runoff (QOVER) vs subsurface drainage/recharge (QDRAI)"
+      ],
+      "drivers_to_resolve": [
+        "clay content (5-55%)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "ELM's 1-D Richards equation solver with texture-dependent hydraulic parameterizations directly represents the clay-content control on infiltration and drainage. No lateral processes or coupling needed for this vertical partitioning question.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "Clay content control on infiltration capacity and hydraulic conductivity",
+        "Resulting partitioning of water into surface runoff vs subsurface drainage/recharge",
+        "Nonlinear response curve across the clay gradient (5-55%)"
+      ],
+      "not_answerable": []
+    },
+    "sampling_strategy": {
+      "approach": "controlled factor levels (treatments), not spatial sampling",
+      "strata": [
+        {
+          "driver": "clay content",
+          "bands": [
+            "5%",
+            "15%",
+            "25%",
+            "35%",
+            "45%",
+            "55%"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "Six clay levels at 10% intervals span the specified range (5-55%) and resolve the expected nonlinear hydraulic response (infiltration capacity drops sharply with increasing clay) without redundancy. Each level is a distinct treatment in a controlled experiment.",
+      "placement_logic": "Not applicable \u2014 this is a controlled experiment with synthetic uniform soil columns, not spatial sampling. Each column is identical except for the clay fraction.",
+      "replication": "None. Deterministic physics with controlled inputs; no stochastic variability to average over."
+    },
+    "sampling_plan": [
+      {
+        "group": "clay_5pct",
+        "n": 1,
+        "reason": "Sandy soil (5% clay) \u2014 high infiltration capacity, minimal surface runoff, maximum recharge potential"
+      },
+      {
+        "group": "clay_15pct",
+        "n": 1,
+        "reason": "Loamy sand (15% clay) \u2014 moderate infiltration, beginning of runoff generation under intense precipitation"
+      },
+      {
+        "group": "clay_25pct",
+        "n": 1,
+        "reason": "Loam (25% clay) \u2014 balanced texture, transition zone where runoff and recharge are comparable"
+      },
+      {
+        "group": "clay_35pct",
+        "n": 1,
+        "reason": "Clay loam (35% clay) \u2014 reduced infiltration, increased surface runoff dominance"
+      },
+      {
+        "group": "clay_45pct",
+        "n": 1,
+        "reason": "Clay (45% clay) \u2014 low hydraulic conductivity, strong runoff generation, minimal deep drainage"
+      },
+      {
+        "group": "clay_55pct",
+        "n": 1,
+        "reason": "Heavy clay (55% clay) \u2014 near-minimum infiltration capacity, maximum surface runoff, negligible recharge"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "runoff_recharge_partitioning_ratio",
+        "observation_source": "Literature comparison (e.g. Rawls et al. texture-class infiltration rates, USDA hydraulic property databases)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 compare simulated partitioning trends against published texture-class hydraulic behavior and infiltration capacity curves",
+        "metric": "Qualitative trend agreement (monotonic decrease in recharge fraction with increasing clay) and quantitative comparison of partitioning ratios to literature ranges",
+        "n_validation_points": "Not applicable \u2014 validation is against physical expectation and literature, not co-located observations"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "Uniform forcing (1990-1999, representative mid-latitude temperate climate), flat topography, single vegetation type (grassland or bare soil), 2-year spin-up, clay content varied 5-55% at 10% intervals with sand/silt adjusted to sum to 100%"
+    },
+    "requires_capabilities": [],
+    "assumptions": [
+      "ELM's pedotransfer functions (Clapp-Hornberger or van Genuchten parameters derived from texture) adequately represent the clay-content control on hydraulic conductivity and water retention",
+      "Sand and silt fractions are adjusted proportionally to maintain sand + silt + clay = 100% at each clay level (e.g. if clay = 25%, sand = 50%, silt = 25% as a representative loam)",
+      "A single 10-year forcing period (1990-1999) captures sufficient precipitation variability (seasonal, interannual, event intensity) to exercise the partitioning mechanism across all clay levels",
+      "Vegetation effects (transpiration, root water uptake) are either minimized (bare soil) or held constant (single PFT) to isolate the soil texture effect",
+      "Two-year spin-up is sufficient to equilibrate soil moisture profiles for a fast-response partitioning process (not testing long-term water table dynamics)",
+      "Topographic slope is zero or negligible (no lateral runoff generation from topography, only from infiltration-excess)"
+    ],
+    "open_questions": [
+      "Should the experiment use bare soil or a single vegetation type (e.g. C3 grass) to control for transpiration effects?",
+      "Which forcing period / climate regime is most representative for the conceptual experiment (temperate, semi-arid, humid)?",
+      "Should organic matter content be held constant or varied with clay (in natural soils they often co-vary)?",
+      "Is a sensitivity test on precipitation intensity (e.g. high-intensity events vs steady moderate rain) desired as a secondary factor?"
+    ],
+    "_schema_warnings": [
+      "missing required strategy field: requires_capabilities"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

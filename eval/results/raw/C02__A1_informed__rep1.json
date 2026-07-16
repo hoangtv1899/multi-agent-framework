@@ -1,0 +1,171 @@
+{
+  "prompt_id": "C02",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "```json\n{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Water table depth influence on infiltration pulse propagation\",\n      \"Fraction of surface water reaching water table across depth gradient\",\n      \"Transit time and attenuation of infiltration pulse\",\n      \"Soil moisture redistribution dynamics\",\n      \"Capillary rise vs deep drainage partitioning\"\n    ],\n    \"not_answerable\": [\n      \"Lateral groundwater flow effects (single-column limitation)\",\n      \"Regional aquifer heterogeneity impacts\",\n      \"Multi-dimensional preferential flow pathways\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"Six columns provide systematic sampling across water-table depth gradient (0.5, 2, 5, 10, 25, 50 m) to capture nonlinear responses in vadose zone processes. This range spans shallow water tables with strong capillary coupling to deep water tables where vadose zone storage dominates. All columns use identical soil texture, climate forcing, and surface conditions to isolate water-table depth as the sole experimental variable. Six points enable robust characterization of depth-response curves while remaining computationally tractable for high-frequency output analysis.\",\n  \"columns\": [\n    {\n      \"id\": \"wtd_0.5m\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loam\",\n      \"water_table_depth\": 0.5,\n      \"description\": \"Very shallow water table - strong capillary coupling\"\n    },\n    {\n      \"id\": \"wtd_2m\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loam\",\n      \"water_table_depth\": 2.0,\n      \"description\": \"Shallow water table - moderate capillary influence\"\n    },\n    {\n      \"id\": \"wtd_5m\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loam\",\n      \"water_table_depth\": 5.0,\n      \"description\": \"Intermediate water table - transition zone\"\n    },\n    {\n      \"id\": \"wtd_10m\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loam\",\n      \"water_table_depth\": 10.0,\n      \"description\": \"Deep water table - limited capillary connection\"\n    },\n    {\n      \"id\": \"wtd_25m\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loam\",\n      \"water_table_depth\": 25.0,\n      \"description\": \"Very deep water table - vadose zone dominated\"\n    },\n    {\n      \"id\": \"wtd_50m\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loam\",\n      \"water_table_depth\": 50.0,\n      \"description\": \"Extremely deep water table - maximum vadose zone storage\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"2000\",\n    \"DATM_CLMNCEP_YR_END\": \"2000\",\n    \"DATM_CLMNCEP_YR_ALIGN\": \"2000\",\n    \"CLM_FORCE_COLDSTART\": \"off\",\n    \"CLM_ACCELERATED_SPINUP\": \"off\",\n    \"STOP_OPTION\": \"nyears\",\n    \"STOP_N\": \"3\",\n    \"RUN_STARTDATE\": \"2000-01-01\",\n    \"REST_OPTION\": \"nyears\",\n    \"REST_N\": \"1\",\n    \"RESUBMIT\": \"0\",\n    \"DIN_LOC_ROOT\": \"/compyfs/inputdata\",\n    \"CLM_USRDAT_NAME\": \"wtd_infiltration_experiment\",\n    \"CALENDAR\": \"NO_LEAP\",\n    \"hist_empty_htapes\": \".true.\",\n    \"hist_fincl1\": [\n      \"QINFL\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRUNOFF\",\n      \"QCHARGE\",\n      \"ZWT\",\n      \"WA\",\n      \"H2OSOI\",\n      \"SOILWATER_10CM\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"QSOIL\",\n      \"QVEGT\",\n      \"QVEGE\",\n      \"RAIN\",\n      \"SNOW\",\n      \"TSOI\",\n      \"EFLX_LH_TOT\",\n      \"FSH\",\n      \"QINTR\",\n      \"TWS\",\n      \"H2OCAN\",\n      \"QIRRIG\"\n    ],\n    \"hist_mfilt\": \"8760\",\n    \"hist_nhtfrq\": \"-1\",\n    \"hist_avgflag_pertape\": \"A\",\n    \"use_init_interp\": \".true.\",\n    \"init_interp_method\": \"general\",\n    \"use_bedrock\": \".true.\",\n    \"use_vichydro\": \".false.\",\n    \"subgridflag\": \"1\",\n    \"run_zero_weight_urban\": \".false.\",\n    \"irrigate\": \".false.\",\n    \"use_fertilizer\": \".false.\",\n    \"dtime\": \"1800\",\n    \"nsegspc\": \"35\",\n    \"co2_type\": \"constant\",\n    \"co2_ppmv\": \"367.0\",\n    \"spinup_years\": \"200\",\n    \"experimental_design\": \"controlled_pulse\",\n    \"pulse_timing\": \"day_180\",\n    \"pulse_magnitude_mm\": \"50\",\n    \"pulse_duration_hours\": \"6\"\n  },\n  \"requires_capabilities\": [\n    \"ELM with dynamic water table (CLM_CONFIG_OPTS: -bgc sp -nutrient cn -soil_decomp ctc)\",\n    \"PFLOTRAN coupling for detailed vadose zone physics and water table dynamics\",\n    \"High-frequency output (hourly) for pulse tracking\",\n    \"Deep soil column configuration (>50m) with fine vertical resolution\",\n    \"Prescribed infiltration pulse capability or high-intensity precipitation event\",\n    \"Tracer capability for pulse tracking (optional but recommended)\",\n    \"Soil moisture profile output at multiple depths\",\n    \"Water table position and flux diagnostics\",\n    \"Ability to initialize with equilibrium water table at specified depths\",\n    \"Long spinup capability to establish hydrostatic equilibrium\"\n  ],\n  \"assumptions\": [\n    \"Homogeneous loam soil texture throughout the profile for all columns\",\n    \"No lateral groundwater flow (single-column assumption valid for vertical pulse propagation)\",\n    \"Uniform initial soil moisture profile in equilibrium with specified water table depth\",\n    \"No vegetation water uptake during pulse tracking period (or minimal transpiration)\",\n    \"Impermeable lower boundary at 60m depth for deepest water table case\",\n    \"Infiltration pulse applied uniformly as high-intensity precipitation event (50mm over 6 hours)\",\n    \"No surface runoff generation (all water infiltrates) to maximize pulse clarity\",\n    \"Isothermal conditions or temperature effects secondary to hydraulic processes\",\n    \"Brooks-Corey or van Genuchten soil hydraulic properties appropriate for loam\",\n    \"Negligible soil air phase resistance (Richards equation valid)\",\n    \"Experiment conducted during growing season (day 180) to avoid frozen soil complications\",\n    \"200-year spinup sufficient to establish equilibrium water table and soil moisture profiles\",\n    \"Hourly output frequency adequate to capture pulse propagation dynamics\",\n    \"Three-year simulation allows tracking of pulse arrival and long-term redistribution\",\n    \"Atmospheric demand held constant across all columns (same forcing data)\"\n  ]\n}\n```",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Water table depth influence on infiltration pulse propagation",
+        "Fraction of surface water reaching water table across depth gradient",
+        "Transit time and attenuation of infiltration pulse",
+        "Soil moisture redistribution dynamics",
+        "Capillary rise vs deep drainage partitioning"
+      ],
+      "not_answerable": [
+        "Lateral groundwater flow effects (single-column limitation)",
+        "Regional aquifer heterogeneity impacts",
+        "Multi-dimensional preferential flow pathways"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "Six columns provide systematic sampling across water-table depth gradient (0.5, 2, 5, 10, 25, 50 m) to capture nonlinear responses in vadose zone processes. This range spans shallow water tables with strong capillary coupling to deep water tables where vadose zone storage dominates. All columns use identical soil texture, climate forcing, and surface conditions to isolate water-table depth as the sole experimental variable. Six points enable robust characterization of depth-response curves while remaining computationally tractable for high-frequency output analysis.",
+    "columns": [
+      {
+        "id": "wtd_0.5m",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loam",
+        "water_table_depth": 0.5,
+        "description": "Very shallow water table - strong capillary coupling"
+      },
+      {
+        "id": "wtd_2m",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loam",
+        "water_table_depth": 2.0,
+        "description": "Shallow water table - moderate capillary influence"
+      },
+      {
+        "id": "wtd_5m",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loam",
+        "water_table_depth": 5.0,
+        "description": "Intermediate water table - transition zone"
+      },
+      {
+        "id": "wtd_10m",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loam",
+        "water_table_depth": 10.0,
+        "description": "Deep water table - limited capillary connection"
+      },
+      {
+        "id": "wtd_25m",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loam",
+        "water_table_depth": 25.0,
+        "description": "Very deep water table - vadose zone dominated"
+      },
+      {
+        "id": "wtd_50m",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loam",
+        "water_table_depth": 50.0,
+        "description": "Extremely deep water table - maximum vadose zone storage"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "2000",
+      "DATM_CLMNCEP_YR_END": "2000",
+      "DATM_CLMNCEP_YR_ALIGN": "2000",
+      "CLM_FORCE_COLDSTART": "off",
+      "CLM_ACCELERATED_SPINUP": "off",
+      "STOP_OPTION": "nyears",
+      "STOP_N": "3",
+      "RUN_STARTDATE": "2000-01-01",
+      "REST_OPTION": "nyears",
+      "REST_N": "1",
+      "RESUBMIT": "0",
+      "DIN_LOC_ROOT": "/compyfs/inputdata",
+      "CLM_USRDAT_NAME": "wtd_infiltration_experiment",
+      "CALENDAR": "NO_LEAP",
+      "hist_empty_htapes": ".true.",
+      "hist_fincl1": [
+        "QINFL",
+        "QOVER",
+        "QDRAI",
+        "QRUNOFF",
+        "QCHARGE",
+        "ZWT",
+        "WA",
+        "H2OSOI",
+        "SOILWATER_10CM",
+        "SOILLIQ",
+        "SOILICE",
+        "QSOIL",
+        "QVEGT",
+        "QVEGE",
+        "RAIN",
+        "SNOW",
+        "TSOI",
+        "EFLX_LH_TOT",
+        "FSH",
+        "QINTR",
+        "TWS",
+        "H2OCAN",
+        "QIRRIG"
+      ],
+      "hist_mfilt": "8760",
+      "hist_nhtfrq": "-1",
+      "hist_avgflag_pertape": "A",
+      "use_init_interp": ".true.",
+      "init_interp_method": "general",
+      "use_bedrock": ".true.",
+      "use_vichydro": ".false.",
+      "subgridflag": "1",
+      "run_zero_weight_urban": ".false.",
+      "irrigate": ".false.",
+      "use_fertilizer": ".false.",
+      "dtime": "1800",
+      "nsegspc": "35",
+      "co2_type": "constant",
+      "co2_ppmv": "367.0",
+      "spinup_years": "200",
+      "experimental_design": "controlled_pulse",
+      "pulse_timing": "day_180",
+      "pulse_magnitude_mm": "50",
+      "pulse_duration_hours": "6"
+    },
+    "requires_capabilities": [
+      "ELM with dynamic water table (CLM_CONFIG_OPTS: -bgc sp -nutrient cn -soil_decomp ctc)",
+      "PFLOTRAN coupling for detailed vadose zone physics and water table dynamics",
+      "High-frequency output (hourly) for pulse tracking",
+      "Deep soil column configuration (>50m) with fine vertical resolution",
+      "Prescribed infiltration pulse capability or high-intensity precipitation event",
+      "Tracer capability for pulse tracking (optional but recommended)",
+      "Soil moisture profile output at multiple depths",
+      "Water table position and flux diagnostics",
+      "Ability to initialize with equilibrium water table at specified depths",
+      "Long spinup capability to establish hydrostatic equilibrium"
+    ],
+    "assumptions": [
+      "Homogeneous loam soil texture throughout the profile for all columns",
+      "No lateral groundwater flow (single-column assumption valid for vertical pulse propagation)",
+      "Uniform initial soil moisture profile in equilibrium with specified water table depth",
+      "No vegetation water uptake during pulse tracking period (or minimal transpiration)",
+      "Impermeable lower boundary at 60m depth for deepest water table case",
+      "Infiltration pulse applied uniformly as high-intensity precipitation event (50mm over 6 hours)",
+      "No surface runoff generation (all water infiltrates) to maximize pulse clarity",
+      "Isothermal conditions or temperature effects secondary to hydraulic processes",
+      "Brooks-Corey or van Genuchten soil hydraulic properties appropriate for loam",
+      "Negligible soil air phase resistance (Richards equation valid)",
+      "Experiment conducted during growing season (day 180) to avoid frozen soil complications",
+      "200-year spinup sufficient to establish equilibrium water table and soil moisture profiles",
+      "Hourly output frequency adequate to capture pulse propagation dynamics",
+      "Three-year simulation allows tracking of pulse arrival and long-term redistribution",
+      "Atmospheric demand held constant across all columns (same forcing data)"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

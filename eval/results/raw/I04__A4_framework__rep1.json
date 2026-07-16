@@ -1,0 +1,146 @@
+{
+  "prompt_id": "I04",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Establish baseline water table under current pumping stress\", \"Simulate water table recovery trajectory under 30% pumping reduction over a decade\", \"Quantify recovery magnitude and timescale across the basin\"], \"key_processes\": [\"Regional 3D groundwater flow with lateral connectivity\", \"Pumping-induced drawdown and stress propagation\", \"Aquifer recovery dynamics (recharge vs pumping balance)\", \"Spatial heterogeneity in transmissivity and recharge\"], \"drivers_to_resolve\": [\"pumping_stress\", \"recharge_spatial_distribution\", \"aquifer_transmissivity\"]}, \"model_choice\": {\"primary_model\": \"PFLOTRAN (required) with ELM-derived recharge (ideal)\", \"design_archetype\": \"coupling\", \"rationale\": \"The question is fundamentally a regional groundwater management problem requiring 3D lateral flow and pumping representation. ELM's 1-D single-column framework cannot represent pumping wells, drawdown propagation, or lateral recovery. PFLOTRAN is the appropriate tool, ideally driven by spatially-distributed ELM recharge, but even standalone PFLOTRAN with simplified recharge would be closer to answering the question than ELM alone.\", \"coupling_needed\": true, \"coupling_note\": \"ELM\\u2192PFLOTRAN coupling to provide spatially-distributed recharge as top boundary condition for PFLOTRAN transient groundwater simulation. However, coupling alone is insufficient \\u2014 PFLOTRAN domain setup, pumping well data, and aquifer properties are also required.\"}, \"feasibility\": {\"verdict\": \"infeasible\", \"answerable\": [], \"not_answerable\": [{\"aspect\": \"Baseline water table under pumping stress\", \"why\": \"ELM has no pumping representation (no well sink terms). PFLOTRAN can represent pumping but requires pumping rates/locations, which are missing (observations_missing: pumping records).\", \"needs\": \"PFLOTRAN regional setup + pumping well data (rates, locations)\"}, {\"aspect\": \"Regional water table recovery via lateral flow\", \"why\": \"ELM is 1-D single-column with no lateral groundwater flow \\u2014 columns are independent. Recovery from pumping stress requires 3D regional flow where drawdown cones propagate and recover laterally.\", \"needs\": \"PFLOTRAN 3D groundwater model with regional domain\"}, {\"aspect\": \"Pumping reduction scenario (30% decrease)\", \"why\": \"Cannot impose a reduction on pumping that is not represented. ELM has no pumping mechanism; PFLOTRAN can represent it but baseline pumping data are missing.\", \"needs\": \"Pumping records (current rates/locations) + PFLOTRAN transient simulation capability\"}, {\"aspect\": \"Decadal transient recovery trajectory\", \"why\": \"ELM's aquifer is a fast-equilibrating 1-D storage with no memory of regional stress history. PFLOTRAN transient simulation is needed but not yet coupled to ELM recharge.\", \"needs\": \"ELM\\u2192PFLOTRAN coupling + PFLOTRAN transient solver setup\"}]}, \"coupling_design\": {\"from_model\": \"ELM\", \"to_model\": \"PFLOTRAN\", \"driver\": \"ELM sub-surface drainage/recharge (QDRAI, monthly or daily time series) \\u2192 PFLOTRAN top boundary recharge flux\", \"temporal_mapping\": \"ELM outputs monthly or daily recharge time series (1980-2018 historical, then projection period 2019-2029 for recovery simulation). PFLOTRAN ingests as transient top BC, spatially distributed across the HUC8 mesh.\", \"receiving_setup\": \"PFLOTRAN 3D unstructured mesh covering Upper Iowa HUC8 (260-420 m elevation range, ~1400 km\\u00b2 area). Aquifer properties from regional hydrogeology (transmissivity, storativity). Pumping wells as sink terms: baseline scenario uses current pumping rates (MISSING \\u2014 must be obtained), intervention scenario reduces rates by 30%. Transient simulation: spin-up to baseline steady-state under current pumping (or start from observed 2018 water levels if available), then forward 10 years (2019-2029) under reduced pumping.\", \"compare\": \"Baseline (current pumping) vs intervention (30% reduction): compare water table elevation time series at USGS well locations. Metrics: recovery magnitude (\\u0394WL in meters), recovery rate (m/year), time to 50%/90% recovery. Spatial maps of recovery across the basin. Standalone ELM (1-D, no pumping) would show only local recharge-driven water table with no pumping signal or lateral recovery \\u2014 the coupled PFLOTRAN simulation is the only way to represent the management question.\"}, \"sampling_strategy\": {\"approach\": \"Not applicable \\u2014 ELM single-column sampling cannot answer this question. If ELM\\u2192PFLOTRAN coupling were implemented, ELM would provide spatially-distributed recharge across the basin (stratified by soil/land-use to capture recharge heterogeneity), but the PRIMARY simulation is PFLOTRAN's 3D groundwater model, not ELM column sampling.\", \"strata\": [], \"n_exploratory\": 0, \"n_justification\": \"N/A \\u2014 question requires regional 3D groundwater model, not single-column sampling.\", \"placement_logic\": \"N/A\", \"replication\": \"N/A\"}, \"sampling_plan\": [], \"validation_design\": [{\"target_variable\": \"water_table_depth\", \"observation_source\": \"USGS wells (available in-domain per brief)\", \"in_domain_available\": true, \"comparison\": \"Co-located time series comparison at well locations. PFLOTRAN outputs water table elevation at well coordinates; compare to observed levels (if time series available) or at minimum validate baseline steady-state against most recent observations.\", \"metric\": \"Bias (mean error), RMSE, and time-series correlation for transient validation. For intervention scenario (no observations exist for future counterfactual), report predicted recovery magnitude and rate at well locations.\", \"n_validation_points\": \"Unknown \\u2014 depends on USGS well density in Upper Iowa HUC8. Typical USGS coverage might yield 5-20 wells; must query NWIS database.\"}], \"experiment_summary\": {\"total_columns\": 0, \"exploratory\": 0, \"validation\": 0, \"primary_treatment\": \"N/A \\u2014 experiment requires PFLOTRAN regional groundwater model, not ELM column sampling. If ELM were used to drive PFLOTRAN recharge, it would provide spatially-distributed recharge across the basin, but the management question is answered by PFLOTRAN's pumping/recovery simulation.\"}, \"requires_capabilities\": [{\"capability\": \"PFLOTRAN regional 3D groundwater model setup for Upper Iowa HUC8\", \"why\": \"Question requires lateral groundwater flow and regional water table dynamics, which ELM's 1-D single-column framework cannot represent.\", \"blocks\": \"All aspects of the question \\u2014 baseline pumping stress, lateral recovery, regional water table response.\"}, {\"capability\": \"Pumping well data (rates, locations) for Upper Iowa basin\", \"why\": \"Brief lists 'pumping records' as missing. Cannot simulate baseline stress or 30% reduction scenario without knowing current pumping rates and well locations.\", \"blocks\": \"Baseline stressed state, intervention scenario definition, quantitative recovery prediction.\"}, {\"capability\": \"ELM\\u2192PFLOTRAN coupling (spatially-distributed recharge as PFLOTRAN top BC)\", \"why\": \"Ideally, PFLOTRAN should be driven by realistic spatially-heterogeneous recharge from ELM (which captures soil/vegetation/climate controls). Currently not implemented.\", \"blocks\": \"Realistic recharge forcing for PFLOTRAN. Workaround: use uniform or literature-based recharge estimates, but this sacrifices spatial realism.\"}, {\"capability\": \"PFLOTRAN transient simulation with pumping wells as sink terms\", \"why\": \"Must represent pumping stress (baseline and reduced) and simulate decadal recovery trajectory. PFLOTRAN has this capability but requires setup.\", \"blocks\": \"Core mechanism of the question \\u2014 pumping-driven drawdown and recovery.\"}, {\"capability\": \"Aquifer property data (transmissivity, storativity, thickness) for Upper Iowa\", \"why\": \"PFLOTRAN requires hydraulic properties to solve groundwater flow. May be available from USGS regional studies or state geological survey.\", \"blocks\": \"Quantitative accuracy of recovery predictions (timescale and magnitude depend on aquifer properties).\"}, {\"capability\": \"USGS well time-series data ingest and co-location with PFLOTRAN mesh\", \"why\": \"Brief says 'USGS wells' available but does not specify if time-series data exist or only point measurements. Need to query NWIS and map to PFLOTRAN nodes.\", \"blocks\": \"Transient validation of baseline and recovery trajectories.\"}], \"assumptions\": [\"USGS wells in the brief refer to monitoring wells with water level measurements, not just well locations (must verify via NWIS query).\", \"The 30% pumping reduction is uniform across all wells (brief does not specify spatial targeting \\u2014 could be refined if policy details available).\", \"Agricultural pumping is the dominant stress (brief context implies this, but industrial/municipal pumping may also exist).\", \"A decade (10 years) is the recovery simulation period implied by 'over a decade' \\u2014 could be adjusted based on expected recovery timescale from aquifer properties.\", \"Upper Iowa basin aquifer is unconfined or leaky-confined (appropriate for PFLOTRAN water-table simulation with recharge top BC) \\u2014 must verify from hydrogeology.\", \"Baseline period for pumping stress is recent (e.g., 2010-2018 average rates) \\u2014 must be defined when pumping data are obtained.\"], \"open_questions\": [\"Are USGS well data time-series (transient) or point measurements (single date)? If point, what year?\", \"Is the 30% pumping reduction uniform across all wells, or targeted to specific areas/well types?\", \"What is the current total pumping rate in the basin (needed to define baseline stress)?\", \"Are there existing PFLOTRAN or MODFLOW models for Upper Iowa that could be adapted?\", \"What aquifer system is being pumped (surficial alluvial, bedrock, or both)? This affects PFLOTRAN domain setup.\", \"Is there a policy timeline for the pumping reduction (e.g., phased over 5 years vs immediate), or is it an instantaneous step-change scenario?\", \"Should the recovery simulation account for climate variability (e.g., drought vs wet years during 2019-2029), or use climatological average recharge?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Establish baseline water table under current pumping stress",
+        "Simulate water table recovery trajectory under 30% pumping reduction over a decade",
+        "Quantify recovery magnitude and timescale across the basin"
+      ],
+      "key_processes": [
+        "Regional 3D groundwater flow with lateral connectivity",
+        "Pumping-induced drawdown and stress propagation",
+        "Aquifer recovery dynamics (recharge vs pumping balance)",
+        "Spatial heterogeneity in transmissivity and recharge"
+      ],
+      "drivers_to_resolve": [
+        "pumping_stress",
+        "recharge_spatial_distribution",
+        "aquifer_transmissivity"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "PFLOTRAN (required) with ELM-derived recharge (ideal)",
+      "design_archetype": "coupling",
+      "rationale": "The question is fundamentally a regional groundwater management problem requiring 3D lateral flow and pumping representation. ELM's 1-D single-column framework cannot represent pumping wells, drawdown propagation, or lateral recovery. PFLOTRAN is the appropriate tool, ideally driven by spatially-distributed ELM recharge, but even standalone PFLOTRAN with simplified recharge would be closer to answering the question than ELM alone.",
+      "coupling_needed": true,
+      "coupling_note": "ELM\u2192PFLOTRAN coupling to provide spatially-distributed recharge as top boundary condition for PFLOTRAN transient groundwater simulation. However, coupling alone is insufficient \u2014 PFLOTRAN domain setup, pumping well data, and aquifer properties are also required."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [],
+      "not_answerable": [
+        {
+          "aspect": "Baseline water table under pumping stress",
+          "why": "ELM has no pumping representation (no well sink terms). PFLOTRAN can represent pumping but requires pumping rates/locations, which are missing (observations_missing: pumping records).",
+          "needs": "PFLOTRAN regional setup + pumping well data (rates, locations)"
+        },
+        {
+          "aspect": "Regional water table recovery via lateral flow",
+          "why": "ELM is 1-D single-column with no lateral groundwater flow \u2014 columns are independent. Recovery from pumping stress requires 3D regional flow where drawdown cones propagate and recover laterally.",
+          "needs": "PFLOTRAN 3D groundwater model with regional domain"
+        },
+        {
+          "aspect": "Pumping reduction scenario (30% decrease)",
+          "why": "Cannot impose a reduction on pumping that is not represented. ELM has no pumping mechanism; PFLOTRAN can represent it but baseline pumping data are missing.",
+          "needs": "Pumping records (current rates/locations) + PFLOTRAN transient simulation capability"
+        },
+        {
+          "aspect": "Decadal transient recovery trajectory",
+          "why": "ELM's aquifer is a fast-equilibrating 1-D storage with no memory of regional stress history. PFLOTRAN transient simulation is needed but not yet coupled to ELM recharge.",
+          "needs": "ELM\u2192PFLOTRAN coupling + PFLOTRAN transient solver setup"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM sub-surface drainage/recharge (QDRAI, monthly or daily time series) \u2192 PFLOTRAN top boundary recharge flux",
+      "temporal_mapping": "ELM outputs monthly or daily recharge time series (1980-2018 historical, then projection period 2019-2029 for recovery simulation). PFLOTRAN ingests as transient top BC, spatially distributed across the HUC8 mesh.",
+      "receiving_setup": "PFLOTRAN 3D unstructured mesh covering Upper Iowa HUC8 (260-420 m elevation range, ~1400 km\u00b2 area). Aquifer properties from regional hydrogeology (transmissivity, storativity). Pumping wells as sink terms: baseline scenario uses current pumping rates (MISSING \u2014 must be obtained), intervention scenario reduces rates by 30%. Transient simulation: spin-up to baseline steady-state under current pumping (or start from observed 2018 water levels if available), then forward 10 years (2019-2029) under reduced pumping.",
+      "compare": "Baseline (current pumping) vs intervention (30% reduction): compare water table elevation time series at USGS well locations. Metrics: recovery magnitude (\u0394WL in meters), recovery rate (m/year), time to 50%/90% recovery. Spatial maps of recovery across the basin. Standalone ELM (1-D, no pumping) would show only local recharge-driven water table with no pumping signal or lateral recovery \u2014 the coupled PFLOTRAN simulation is the only way to represent the management question."
+    },
+    "sampling_strategy": {
+      "approach": "Not applicable \u2014 ELM single-column sampling cannot answer this question. If ELM\u2192PFLOTRAN coupling were implemented, ELM would provide spatially-distributed recharge across the basin (stratified by soil/land-use to capture recharge heterogeneity), but the PRIMARY simulation is PFLOTRAN's 3D groundwater model, not ELM column sampling.",
+      "strata": [],
+      "n_exploratory": 0,
+      "n_justification": "N/A \u2014 question requires regional 3D groundwater model, not single-column sampling.",
+      "placement_logic": "N/A",
+      "replication": "N/A"
+    },
+    "sampling_plan": [],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (available in-domain per brief)",
+        "in_domain_available": true,
+        "comparison": "Co-located time series comparison at well locations. PFLOTRAN outputs water table elevation at well coordinates; compare to observed levels (if time series available) or at minimum validate baseline steady-state against most recent observations.",
+        "metric": "Bias (mean error), RMSE, and time-series correlation for transient validation. For intervention scenario (no observations exist for future counterfactual), report predicted recovery magnitude and rate at well locations.",
+        "n_validation_points": "Unknown \u2014 depends on USGS well density in Upper Iowa HUC8. Typical USGS coverage might yield 5-20 wells; must query NWIS database."
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 0,
+      "exploratory": 0,
+      "validation": 0,
+      "primary_treatment": "N/A \u2014 experiment requires PFLOTRAN regional groundwater model, not ELM column sampling. If ELM were used to drive PFLOTRAN recharge, it would provide spatially-distributed recharge across the basin, but the management question is answered by PFLOTRAN's pumping/recovery simulation."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "PFLOTRAN regional 3D groundwater model setup for Upper Iowa HUC8",
+        "why": "Question requires lateral groundwater flow and regional water table dynamics, which ELM's 1-D single-column framework cannot represent.",
+        "blocks": "All aspects of the question \u2014 baseline pumping stress, lateral recovery, regional water table response."
+      },
+      {
+        "capability": "Pumping well data (rates, locations) for Upper Iowa basin",
+        "why": "Brief lists 'pumping records' as missing. Cannot simulate baseline stress or 30% reduction scenario without knowing current pumping rates and well locations.",
+        "blocks": "Baseline stressed state, intervention scenario definition, quantitative recovery prediction."
+      },
+      {
+        "capability": "ELM\u2192PFLOTRAN coupling (spatially-distributed recharge as PFLOTRAN top BC)",
+        "why": "Ideally, PFLOTRAN should be driven by realistic spatially-heterogeneous recharge from ELM (which captures soil/vegetation/climate controls). Currently not implemented.",
+        "blocks": "Realistic recharge forcing for PFLOTRAN. Workaround: use uniform or literature-based recharge estimates, but this sacrifices spatial realism."
+      },
+      {
+        "capability": "PFLOTRAN transient simulation with pumping wells as sink terms",
+        "why": "Must represent pumping stress (baseline and reduced) and simulate decadal recovery trajectory. PFLOTRAN has this capability but requires setup.",
+        "blocks": "Core mechanism of the question \u2014 pumping-driven drawdown and recovery."
+      },
+      {
+        "capability": "Aquifer property data (transmissivity, storativity, thickness) for Upper Iowa",
+        "why": "PFLOTRAN requires hydraulic properties to solve groundwater flow. May be available from USGS regional studies or state geological survey.",
+        "blocks": "Quantitative accuracy of recovery predictions (timescale and magnitude depend on aquifer properties)."
+      },
+      {
+        "capability": "USGS well time-series data ingest and co-location with PFLOTRAN mesh",
+        "why": "Brief says 'USGS wells' available but does not specify if time-series data exist or only point measurements. Need to query NWIS and map to PFLOTRAN nodes.",
+        "blocks": "Transient validation of baseline and recovery trajectories."
+      }
+    ],
+    "assumptions": [
+      "USGS wells in the brief refer to monitoring wells with water level measurements, not just well locations (must verify via NWIS query).",
+      "The 30% pumping reduction is uniform across all wells (brief does not specify spatial targeting \u2014 could be refined if policy details available).",
+      "Agricultural pumping is the dominant stress (brief context implies this, but industrial/municipal pumping may also exist).",
+      "A decade (10 years) is the recovery simulation period implied by 'over a decade' \u2014 could be adjusted based on expected recovery timescale from aquifer properties.",
+      "Upper Iowa basin aquifer is unconfined or leaky-confined (appropriate for PFLOTRAN water-table simulation with recharge top BC) \u2014 must verify from hydrogeology.",
+      "Baseline period for pumping stress is recent (e.g., 2010-2018 average rates) \u2014 must be defined when pumping data are obtained."
+    ],
+    "open_questions": [
+      "Are USGS well data time-series (transient) or point measurements (single date)? If point, what year?",
+      "Is the 30% pumping reduction uniform across all wells, or targeted to specific areas/well types?",
+      "What is the current total pumping rate in the basin (needed to define baseline stress)?",
+      "Are there existing PFLOTRAN or MODFLOW models for Upper Iowa that could be adapted?",
+      "What aquifer system is being pumped (surficial alluvial, bedrock, or both)? This affects PFLOTRAN domain setup.",
+      "Is there a policy timeline for the pumping reduction (e.g., phased over 5 years vs immediate), or is it an instantaneous step-change scenario?",
+      "Should the recovery simulation account for climate variability (e.g., drought vs wet years during 2019-2029), or use climatological average recharge?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

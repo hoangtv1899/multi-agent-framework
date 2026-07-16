@@ -1,0 +1,197 @@
+{
+  "prompt_id": "I01",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "# REASONING\n\nThis request asks for **nitrate transport from fields to wells** \u2014 a fundamentally **reactive-transport problem** that requires:\n1. **Subsurface flow** (groundwater pathways from recharge zones to wells)\n2. **Solute transport** (advection + dispersion of nitrate through the aquifer)\n3. **Biogeochemical reactions** (denitrification, mineralization)\n4. **Source loading** (fertilizer application rates tied to land use)\n\n## Critical Feasibility Assessment\n\n**ELM alone cannot answer this question.** ELM is a land-surface model that:\n- Computes water partitioning (ET, runoff, drainage/recharge)\n- Tracks soil moisture and energy balance\n- Does NOT simulate groundwater flow, lateral transport, or solute fate\n\n**What the stack would need:**\n1. **PFLOTRAN** (or equivalent) for subsurface flow + reactive transport\n2. **ELM\u2192PFLOTRAN coupling** to pass recharge fluxes as boundary conditions\n3. **Nitrate source terms** (fertilizer loading by land-use class, application timing)\n4. **Biogeochemistry** (denitrification rates, sorption parameters)\n5. **Well locations** as observation/extraction points\n6. **Aquifer geometry** (depth to bedrock, hydraulic conductivity fields)\n\nThe brief lists **\"well nitrate records (external)\"** as available observations, but provides no well coordinates, no fertilizer data, no aquifer properties, and no biogeochemical parameters. The only candidate driver is \"land use,\" which would control recharge rates (via ELM) and source loading (via fertilizer assumptions), but **neither model in the stack can route nitrate through groundwater to wells.**\n\n## Verdict\n\n**INFEASIBLE** with current capabilities. This is a **coupling + reactive-transport** problem that requires:\n- ELM\u2192PFLOTRAN one-way coupling (unbuilt)\n- PFLOTRAN reactive transport (available in PFLOTRAN but not integrated)\n- Nitrate source/sink parameterization (not in ELM's standard output)\n- Well-network data ingestion (not provided)\n\nThe question's **primary mechanism** (subsurface nitrate transport to wells) is **not representable** in the current stack. I will design the **ELM recharge component** as a necessary first step, but flag the full workflow as blocked.\n\n---\n\n# JSON OUTPUT\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Estimate spatially-distributed groundwater recharge from fertilized agricultural fields\",\n      \"Simulate subsurface nitrate transport from recharge zones to drinking-water wells\",\n      \"Validate arrival concentrations against well nitrate observations\"\n    ],\n    \"key_processes\": [\n      \"Land-surface water partitioning (recharge generation)\",\n      \"Groundwater flow (lateral transport from fields to wells)\",\n      \"Reactive transport (nitrate advection, dispersion, denitrification)\",\n      \"Source loading (fertilizer application by land-use class)\"\n    ],\n    \"drivers_to_resolve\": [\n      \"land_use (controls recharge rates and fertilizer loading)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"coupling\",\n    \"rationale\": \"The question requires ELM to generate recharge fluxes (the driver of groundwater flow) and PFLOTRAN to simulate subsurface nitrate transport to wells. ELM alone cannot route solutes through groundwater or predict well concentrations. This is a one-way coupling problem: ELM drainage/recharge \u2192 PFLOTRAN reactive transport.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"ELM sub-surface drainage (QDRAI) must drive PFLOTRAN top boundary recharge flux. PFLOTRAN must then solve coupled flow + reactive transport (nitrate advection, denitrification) to well extraction points. The coupler and nitrate source parameterization do not exist.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"infeasible\",\n    \"answerable\": [\n      \"Spatially-distributed groundwater recharge rates from agricultural fields (ELM can compute QDRAI by land-use class)\",\n      \"Sensitivity of recharge to land-use heterogeneity (via stratified ELM sampling)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Subsurface nitrate transport from fields to wells\",\n        \"why\": \"ELM does not simulate groundwater flow or solute transport. PFLOTRAN can, but ELM\u2192PFLOTRAN coupling is not implemented.\",\n        \"needs\": \"ELM\u2192PFLOTRAN one-way coupler (recharge flux BC)\"\n      },\n      {\n        \"aspect\": \"Nitrate arrival concentrations at wells\",\n        \"why\": \"Requires reactive transport (denitrification, sorption) in PFLOTRAN, which is not integrated into the framework.\",\n        \"needs\": \"PFLOTRAN reactive transport module + nitrate source/sink parameterization\"\n      },\n      {\n        \"aspect\": \"Validation against well nitrate observations\",\n        \"why\": \"Well locations, nitrate time series, and fertilizer loading data are not provided in the brief.\",\n        \"needs\": \"Well-network data ingest (coordinates, screen depths, nitrate time series) + fertilizer application database by land-use class\"\n      },\n      {\n        \"aspect\": \"Aquifer-scale flow pathways\",\n        \"why\": \"Requires 3D aquifer geometry (depth to bedrock, hydraulic conductivity fields), which is not provided.\",\n        \"needs\": \"Hydrogeologic framework (aquifer thickness, K-field, porosity) for Upper Iowa HUC\"\n      }\n    ]\n  },\n  \"coupling_design\": {\n    \"from_model\": \"ELM\",\n    \"to_model\": \"PFLOTRAN\",\n    \"driver\": \"ELM sub-surface drainage flux (QDRAI, mm/day) \u2192 PFLOTRAN top boundary recharge flux (m\u00b3/day per cell)\",\n    \"temporal_mapping\": \"ELM daily QDRAI time series (1980-2018) \u2192 PFLOTRAN transient recharge BC (daily or monthly aggregated). Spatial mapping: ELM column centroids \u2192 PFLOTRAN top-surface mesh cells (nearest-neighbor or area-weighted).\",\n    \"receiving_setup\": \"PFLOTRAN 3D saturated-zone domain: Upper Iowa aquifer (extent = HUC boundary, depth = bedrock surface), unstructured mesh (~100-500m horizontal resolution), transient flow + reactive transport (nitrate species, denitrification reaction). Wells as extraction sinks (pumping rates from records or assumed domestic/municipal rates). Initial condition: steady-state flow field from long-term mean recharge.\",\n    \"compare\": \"Coupled (ELM recharge \u2192 PFLOTRAN transport) vs standalone PFLOTRAN with uniform recharge assumption. Expect standalone to fail in: (1) spatial variability of arrival times (land-use-driven recharge heterogeneity controls flow paths), (2) peak concentrations (uniform recharge underestimates hot-spots from high-fertilizer fields), (3) seasonal dynamics (ELM captures recharge seasonality; uniform BC does not).\"\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified by land-use class to resolve recharge heterogeneity\",\n    \"strata\": [\n      {\n        \"driver\": \"land_use\",\n        \"classes\": [\n          \"row_crop_corn_soy (high fertilizer, high recharge)\",\n          \"pasture_hay (moderate fertilizer, moderate recharge)\",\n          \"forest_grassland (no fertilizer, low recharge)\",\n          \"urban_developed (impervious, minimal recharge)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 12,\n    \"n_justification\": \"4 land-use classes \u00d7 3 replicates per class = 12 columns. Replication accounts for within-class soil/topographic variability. This is the MINIMUM to characterize recharge by land use, which is the only driver the brief provides. Additional columns would require elevation or soil stratification, but the brief does not list these as candidate drivers.\",\n    \"placement_logic\": \"Concentrate columns in agricultural areas (row crop, pasture) where fertilizer loading is highest and recharge drives nitrate transport. Place 1-2 columns in forested/grassland areas as low-recharge controls. Avoid urban areas unless they are significant in extent (check land-cover fraction). Within each land-use class, sample across the elevation range (260-420m) to capture topographic effects on recharge (upland vs lowland), but note that elevation is NOT a stratification axis per the brief's candidate_drivers.\",\n    \"replication\": \"3 replicates per land-use class to capture within-class variability (soil texture, slope, aspect). This is light replication \u2014 sufficient for mean recharge estimation but not for spatial uncertainty quantification.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"row_crop_high_fertilizer\",\n      \"n\": 3,\n      \"reason\": \"Corn-soy rotation fields with high fertilizer application \u2014 primary nitrate source and recharge driver\"\n    },\n    {\n      \"group\": \"pasture_moderate_fertilizer\",\n      \"n\": 3,\n      \"reason\": \"Pasture/hay with moderate fertilizer \u2014 intermediate recharge and source strength\"\n    },\n    {\n      \"group\": \"forest_grassland_no_fertilizer\",\n      \"n\": 3,\n      \"reason\": \"Forested or native grassland \u2014 low recharge control with no fertilizer input\"\n    },\n    {\n      \"group\": \"urban_developed_minimal_recharge\",\n      \"n\": 3,\n      \"reason\": \"Urban/developed areas with impervious cover \u2014 minimal recharge, negligible nitrate source (include only if >10% of HUC area)\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"nitrate_concentration_mg_per_L\",\n      \"observation_source\": \"well nitrate records (external)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"Cannot be designed \u2014 well locations, screen depths, and nitrate time series are not provided in the brief. Co-located validation would require: (1) well coordinates within HUC 07060002, (2) nitrate concentration time series (ideally 1980-2018 to match forcing), (3) well construction details (screen depth, pumping rate) to match PFLOTRAN extraction sinks.\",\n      \"metric\": \"bias, RMSE, and temporal correlation (monthly or seasonal) \u2014 IF well data become available\",\n      \"n_validation_points\": \"unknown \u2014 depends on well-network density in Upper Iowa HUC\"\n    },\n    {\n      \"target_variable\": \"groundwater_recharge_mm_per_year\",\n      \"observation_source\": \"analog \u2014 regional recharge estimates from USGS or state geological survey\",\n      \"in_domain_available\": false,\n      \"comparison\": \"Analog validation: compare ELM-derived recharge rates (by land-use class) to published estimates for similar Iowa watersheds. This is NOT co-located but provides a sanity check on recharge magnitude.\",\n      \"metric\": \"Percent difference from literature range\",\n      \"n_validation_points\": \"N/A (literature comparison, not point-wise)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 12,\n    \"exploratory\": 12,\n    \"validation\": 0,\n    \"primary_treatment\": \"Transient forcing 1980-2018 (full period to capture climate variability), native soil properties (from gridded soil database), land-use-specific vegetation parameters (crop vs pasture vs forest PFTs)\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"ELM\u2192PFLOTRAN one-way coupler\",\n      \"why\": \"ELM QDRAI (sub-surface drainage) must drive PFLOTRAN top boundary recharge flux. The coupler must map ELM column centroids to PFLOTRAN mesh cells and convert units (mm/day \u2192 m\u00b3/day).\",\n      \"blocks\": \"Subsurface flow simulation \u2014 without coupling, PFLOTRAN cannot receive spatially/temporally varying recharge from ELM\"\n    },\n    {\n      \"capability\": \"PFLOTRAN reactive transport integration\",\n      \"why\": \"Nitrate transport requires advection-dispersion-reaction (denitrification, mineralization). PFLOTRAN has this capability, but it is not integrated into the framework's workflow.\",\n      \"blocks\": \"Nitrate fate and transport \u2014 without reactive transport, cannot predict well concentrations or denitrification losses\"\n    },\n    {\n      \"capability\": \"Nitrate source/sink parameterization\",\n      \"why\": \"Fertilizer application rates (kg N/ha/year) by land-use class, application timing (spring/fall), and denitrification rate constants are required as PFLOTRAN boundary/reaction inputs. These are not in ELM's standard output.\",\n      \"blocks\": \"Source loading \u2014 without fertilizer data, cannot initialize nitrate concentrations in recharge water\"\n    },\n    {\n      \"capability\": \"Well-network data ingest\",\n      \"why\": \"Well locations (lat/lon), screen depths, pumping rates, and nitrate time series are needed for PFLOTRAN extraction sinks and validation. The brief lists 'well nitrate records (external)' but provides no data.\",\n      \"blocks\": \"Validation and well-concentration prediction \u2014 without well data, cannot compare modeled vs observed nitrate\"\n    },\n    {\n      \"capability\": \"Hydrogeologic framework for Upper Iowa HUC\",\n      \"why\": \"PFLOTRAN requires 3D aquifer geometry: depth to bedrock (defines domain bottom), hydraulic conductivity field (controls flow paths), porosity, and dispersivity. These are not provided.\",\n      \"blocks\": \"PFLOTRAN domain setup \u2014 without aquifer properties, cannot build the subsurface mesh or solve flow equations\"\n    },\n    {\n      \"capability\": \"Land-use/land-cover raster for Upper Iowa HUC\",\n      \"why\": \"ELM column placement and vegetation parameterization require gridded land-use data (NLCD or equivalent) to identify row-crop, pasture, forest, and urban areas. The brief lists 'land use' as a candidate driver but provides no raster.\",\n      \"blocks\": \"Stratified sampling \u2014 cannot place columns in land-use classes without a land-cover map\"\n    },\n    {\n      \"capability\": \"Gridded soil database (SSURGO or POLARIS)\",\n      \"why\": \"ELM requires soil texture (sand/silt/clay fractions), organic matter, and hydraulic parameters at each column location. The brief does not provide soil data.\",\n      \"blocks\": \"ELM soil parameterization \u2014 without soil data, cannot configure realistic soil columns\"\n    },\n    {\n      \"capability\": \"HUC boundary resolver\",\n      \"why\": \"The brief specifies HUC 07060002 but does not provide a polygon. The framework needs to resolve HUC codes to spatial boundaries for domain clipping and column placement.\",\n      \"blocks\": \"Domain definition \u2014 cannot constrain sampling to the Upper Iowa basin without the HUC polygon\"\n    }\n  ],\n  \"assumptions\": [\n    \"Land-use classes (row crop, pasture, forest, urban) are spatially distinct and mappable within the HUC \u2014 requires land-cover raster (not provided)\",\n    \"Fertilizer application rates can be assigned by land-use class from literature or USDA county-level data (not provided in brief)\",\n    \"Wells are screened in a single unconfined aquifer (no multi-layer complexity) \u2014 actual hydrogeology unknown\",\n    \"Denitrification is the dominant nitrate sink (no plant uptake in saturated zone, no sorption) \u2014 reaction parameters unknown\",\n    \"ELM QDRAI (sub-surface drainage) is a reasonable proxy for aquifer recharge \u2014 assumes minimal lateral redistribution in the vadose zone\",\n    \"Transient forcing 1980-2018 is sufficient to capture climate variability affecting recharge \u2014 no spin-up period specified\",\n    \"Well pumping rates are either known from records or can be assumed (domestic ~0.5 m\u00b3/day, municipal ~100-1000 m\u00b3/day) \u2014 not provided\"\n  ],\n  \"open_questions\": [\n    \"Are well nitrate records available IN-DOMAIN (within HUC 07060002)? If so, how many wells, what time period, and what are the coordinates?\",\n    \"What is the spatial resolution and source of the land-use/land-cover data for Upper Iowa? NLCD 30m? CDL (Cropland Data Layer)?\",\n    \"Are fertilizer application rates available by land-use class (e.g., from USDA NASS county-level data or Iowa State extension)?\",\n    \"What is the hydrogeologic framework? Depth to bedrock, aquifer type (unconfined/confined), hydraulic conductivity range?\",\n    \"Should the design include a spin-up period before 1980 to equilibrate soil moisture and water table? If so, how long (5-10 years)?\",\n    \"Is the urban land-use class significant in extent (>10% of HUC area)? If not, drop it from the sampling plan.\",\n    \"Are there any existing PFLOTRAN models for Iowa aquifers that could provide parameter ranges (K, porosity, dispersivity, denitrification rates)?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Estimate spatially-distributed groundwater recharge from fertilized agricultural fields",
+        "Simulate subsurface nitrate transport from recharge zones to drinking-water wells",
+        "Validate arrival concentrations against well nitrate observations"
+      ],
+      "key_processes": [
+        "Land-surface water partitioning (recharge generation)",
+        "Groundwater flow (lateral transport from fields to wells)",
+        "Reactive transport (nitrate advection, dispersion, denitrification)",
+        "Source loading (fertilizer application by land-use class)"
+      ],
+      "drivers_to_resolve": [
+        "land_use (controls recharge rates and fertilizer loading)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "coupling",
+      "rationale": "The question requires ELM to generate recharge fluxes (the driver of groundwater flow) and PFLOTRAN to simulate subsurface nitrate transport to wells. ELM alone cannot route solutes through groundwater or predict well concentrations. This is a one-way coupling problem: ELM drainage/recharge \u2192 PFLOTRAN reactive transport.",
+      "coupling_needed": true,
+      "coupling_note": "ELM sub-surface drainage (QDRAI) must drive PFLOTRAN top boundary recharge flux. PFLOTRAN must then solve coupled flow + reactive transport (nitrate advection, denitrification) to well extraction points. The coupler and nitrate source parameterization do not exist."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "Spatially-distributed groundwater recharge rates from agricultural fields (ELM can compute QDRAI by land-use class)",
+        "Sensitivity of recharge to land-use heterogeneity (via stratified ELM sampling)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Subsurface nitrate transport from fields to wells",
+          "why": "ELM does not simulate groundwater flow or solute transport. PFLOTRAN can, but ELM\u2192PFLOTRAN coupling is not implemented.",
+          "needs": "ELM\u2192PFLOTRAN one-way coupler (recharge flux BC)"
+        },
+        {
+          "aspect": "Nitrate arrival concentrations at wells",
+          "why": "Requires reactive transport (denitrification, sorption) in PFLOTRAN, which is not integrated into the framework.",
+          "needs": "PFLOTRAN reactive transport module + nitrate source/sink parameterization"
+        },
+        {
+          "aspect": "Validation against well nitrate observations",
+          "why": "Well locations, nitrate time series, and fertilizer loading data are not provided in the brief.",
+          "needs": "Well-network data ingest (coordinates, screen depths, nitrate time series) + fertilizer application database by land-use class"
+        },
+        {
+          "aspect": "Aquifer-scale flow pathways",
+          "why": "Requires 3D aquifer geometry (depth to bedrock, hydraulic conductivity fields), which is not provided.",
+          "needs": "Hydrogeologic framework (aquifer thickness, K-field, porosity) for Upper Iowa HUC"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM sub-surface drainage flux (QDRAI, mm/day) \u2192 PFLOTRAN top boundary recharge flux (m\u00b3/day per cell)",
+      "temporal_mapping": "ELM daily QDRAI time series (1980-2018) \u2192 PFLOTRAN transient recharge BC (daily or monthly aggregated). Spatial mapping: ELM column centroids \u2192 PFLOTRAN top-surface mesh cells (nearest-neighbor or area-weighted).",
+      "receiving_setup": "PFLOTRAN 3D saturated-zone domain: Upper Iowa aquifer (extent = HUC boundary, depth = bedrock surface), unstructured mesh (~100-500m horizontal resolution), transient flow + reactive transport (nitrate species, denitrification reaction). Wells as extraction sinks (pumping rates from records or assumed domestic/municipal rates). Initial condition: steady-state flow field from long-term mean recharge.",
+      "compare": "Coupled (ELM recharge \u2192 PFLOTRAN transport) vs standalone PFLOTRAN with uniform recharge assumption. Expect standalone to fail in: (1) spatial variability of arrival times (land-use-driven recharge heterogeneity controls flow paths), (2) peak concentrations (uniform recharge underestimates hot-spots from high-fertilizer fields), (3) seasonal dynamics (ELM captures recharge seasonality; uniform BC does not)."
+    },
+    "sampling_strategy": {
+      "approach": "stratified by land-use class to resolve recharge heterogeneity",
+      "strata": [
+        {
+          "driver": "land_use",
+          "classes": [
+            "row_crop_corn_soy (high fertilizer, high recharge)",
+            "pasture_hay (moderate fertilizer, moderate recharge)",
+            "forest_grassland (no fertilizer, low recharge)",
+            "urban_developed (impervious, minimal recharge)"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "4 land-use classes \u00d7 3 replicates per class = 12 columns. Replication accounts for within-class soil/topographic variability. This is the MINIMUM to characterize recharge by land use, which is the only driver the brief provides. Additional columns would require elevation or soil stratification, but the brief does not list these as candidate drivers.",
+      "placement_logic": "Concentrate columns in agricultural areas (row crop, pasture) where fertilizer loading is highest and recharge drives nitrate transport. Place 1-2 columns in forested/grassland areas as low-recharge controls. Avoid urban areas unless they are significant in extent (check land-cover fraction). Within each land-use class, sample across the elevation range (260-420m) to capture topographic effects on recharge (upland vs lowland), but note that elevation is NOT a stratification axis per the brief's candidate_drivers.",
+      "replication": "3 replicates per land-use class to capture within-class variability (soil texture, slope, aspect). This is light replication \u2014 sufficient for mean recharge estimation but not for spatial uncertainty quantification."
+    },
+    "sampling_plan": [
+      {
+        "group": "row_crop_high_fertilizer",
+        "n": 3,
+        "reason": "Corn-soy rotation fields with high fertilizer application \u2014 primary nitrate source and recharge driver"
+      },
+      {
+        "group": "pasture_moderate_fertilizer",
+        "n": 3,
+        "reason": "Pasture/hay with moderate fertilizer \u2014 intermediate recharge and source strength"
+      },
+      {
+        "group": "forest_grassland_no_fertilizer",
+        "n": 3,
+        "reason": "Forested or native grassland \u2014 low recharge control with no fertilizer input"
+      },
+      {
+        "group": "urban_developed_minimal_recharge",
+        "n": 3,
+        "reason": "Urban/developed areas with impervious cover \u2014 minimal recharge, negligible nitrate source (include only if >10% of HUC area)"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "nitrate_concentration_mg_per_L",
+        "observation_source": "well nitrate records (external)",
+        "in_domain_available": false,
+        "comparison": "Cannot be designed \u2014 well locations, screen depths, and nitrate time series are not provided in the brief. Co-located validation would require: (1) well coordinates within HUC 07060002, (2) nitrate concentration time series (ideally 1980-2018 to match forcing), (3) well construction details (screen depth, pumping rate) to match PFLOTRAN extraction sinks.",
+        "metric": "bias, RMSE, and temporal correlation (monthly or seasonal) \u2014 IF well data become available",
+        "n_validation_points": "unknown \u2014 depends on well-network density in Upper Iowa HUC"
+      },
+      {
+        "target_variable": "groundwater_recharge_mm_per_year",
+        "observation_source": "analog \u2014 regional recharge estimates from USGS or state geological survey",
+        "in_domain_available": false,
+        "comparison": "Analog validation: compare ELM-derived recharge rates (by land-use class) to published estimates for similar Iowa watersheds. This is NOT co-located but provides a sanity check on recharge magnitude.",
+        "metric": "Percent difference from literature range",
+        "n_validation_points": "N/A (literature comparison, not point-wise)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 12,
+      "validation": 0,
+      "primary_treatment": "Transient forcing 1980-2018 (full period to capture climate variability), native soil properties (from gridded soil database), land-use-specific vegetation parameters (crop vs pasture vs forest PFTs)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM\u2192PFLOTRAN one-way coupler",
+        "why": "ELM QDRAI (sub-surface drainage) must drive PFLOTRAN top boundary recharge flux. The coupler must map ELM column centroids to PFLOTRAN mesh cells and convert units (mm/day \u2192 m\u00b3/day).",
+        "blocks": "Subsurface flow simulation \u2014 without coupling, PFLOTRAN cannot receive spatially/temporally varying recharge from ELM"
+      },
+      {
+        "capability": "PFLOTRAN reactive transport integration",
+        "why": "Nitrate transport requires advection-dispersion-reaction (denitrification, mineralization). PFLOTRAN has this capability, but it is not integrated into the framework's workflow.",
+        "blocks": "Nitrate fate and transport \u2014 without reactive transport, cannot predict well concentrations or denitrification losses"
+      },
+      {
+        "capability": "Nitrate source/sink parameterization",
+        "why": "Fertilizer application rates (kg N/ha/year) by land-use class, application timing (spring/fall), and denitrification rate constants are required as PFLOTRAN boundary/reaction inputs. These are not in ELM's standard output.",
+        "blocks": "Source loading \u2014 without fertilizer data, cannot initialize nitrate concentrations in recharge water"
+      },
+      {
+        "capability": "Well-network data ingest",
+        "why": "Well locations (lat/lon), screen depths, pumping rates, and nitrate time series are needed for PFLOTRAN extraction sinks and validation. The brief lists 'well nitrate records (external)' but provides no data.",
+        "blocks": "Validation and well-concentration prediction \u2014 without well data, cannot compare modeled vs observed nitrate"
+      },
+      {
+        "capability": "Hydrogeologic framework for Upper Iowa HUC",
+        "why": "PFLOTRAN requires 3D aquifer geometry: depth to bedrock (defines domain bottom), hydraulic conductivity field (controls flow paths), porosity, and dispersivity. These are not provided.",
+        "blocks": "PFLOTRAN domain setup \u2014 without aquifer properties, cannot build the subsurface mesh or solve flow equations"
+      },
+      {
+        "capability": "Land-use/land-cover raster for Upper Iowa HUC",
+        "why": "ELM column placement and vegetation parameterization require gridded land-use data (NLCD or equivalent) to identify row-crop, pasture, forest, and urban areas. The brief lists 'land use' as a candidate driver but provides no raster.",
+        "blocks": "Stratified sampling \u2014 cannot place columns in land-use classes without a land-cover map"
+      },
+      {
+        "capability": "Gridded soil database (SSURGO or POLARIS)",
+        "why": "ELM requires soil texture (sand/silt/clay fractions), organic matter, and hydraulic parameters at each column location. The brief does not provide soil data.",
+        "blocks": "ELM soil parameterization \u2014 without soil data, cannot configure realistic soil columns"
+      },
+      {
+        "capability": "HUC boundary resolver",
+        "why": "The brief specifies HUC 07060002 but does not provide a polygon. The framework needs to resolve HUC codes to spatial boundaries for domain clipping and column placement.",
+        "blocks": "Domain definition \u2014 cannot constrain sampling to the Upper Iowa basin without the HUC polygon"
+      }
+    ],
+    "assumptions": [
+      "Land-use classes (row crop, pasture, forest, urban) are spatially distinct and mappable within the HUC \u2014 requires land-cover raster (not provided)",
+      "Fertilizer application rates can be assigned by land-use class from literature or USDA county-level data (not provided in brief)",
+      "Wells are screened in a single unconfined aquifer (no multi-layer complexity) \u2014 actual hydrogeology unknown",
+      "Denitrification is the dominant nitrate sink (no plant uptake in saturated zone, no sorption) \u2014 reaction parameters unknown",
+      "ELM QDRAI (sub-surface drainage) is a reasonable proxy for aquifer recharge \u2014 assumes minimal lateral redistribution in the vadose zone",
+      "Transient forcing 1980-2018 is sufficient to capture climate variability affecting recharge \u2014 no spin-up period specified",
+      "Well pumping rates are either known from records or can be assumed (domestic ~0.5 m\u00b3/day, municipal ~100-1000 m\u00b3/day) \u2014 not provided"
+    ],
+    "open_questions": [
+      "Are well nitrate records available IN-DOMAIN (within HUC 07060002)? If so, how many wells, what time period, and what are the coordinates?",
+      "What is the spatial resolution and source of the land-use/land-cover data for Upper Iowa? NLCD 30m? CDL (Cropland Data Layer)?",
+      "Are fertilizer application rates available by land-use class (e.g., from USDA NASS county-level data or Iowa State extension)?",
+      "What is the hydrogeologic framework? Depth to bedrock, aquifer type (unconfined/confined), hydraulic conductivity range?",
+      "Should the design include a spin-up period before 1980 to equilibrate soil moisture and water table? If so, how long (5-10 years)?",
+      "Is the urban land-use class significant in extent (>10% of HUC area)? If not, drop it from the sampling plan.",
+      "Are there any existing PFLOTRAN models for Iowa aquifers that could provide parameter ranges (K, porosity, dispersivity, denitrification rates)?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

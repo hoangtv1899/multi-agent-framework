@@ -1,0 +1,192 @@
+{
+  "prompt_id": "S09",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Characterize seasonal ET dynamics and partitioning (transpiration, evaporation, soil evaporation) across the Passaic basin\", \"Validate modeled ET seasonality against eddy-covariance flux tower observations\"], \"key_processes\": [\"Seasonal ET partitioning (transpiration vs bare-soil evaporation)\", \"Vegetation phenology control on growing-season ET\", \"Soil moisture limitation on summer ET\", \"Land cover control on ET magnitude and seasonality\"], \"drivers_to_resolve\": [\"land_cover\", \"soil_texture\", \"elevation\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"ELM's transient land-surface simulation directly produces seasonal ET partitioning (QVEGE, QVEGT, QSOIL) and resolves the key drivers (land cover via PFT distribution, soil texture via SSURGO, seasonal forcing via NLDAS-2). The Passaic's low relief and modest heterogeneity are well-suited to single-column sampling.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Seasonal ET dynamics and partitioning across land cover and soil gradients \\u2014 ELM simulates ET components (QVEGE, QVEGT, QSOIL) with seasonal resolution\", \"Land cover control on ET magnitude and seasonality \\u2014 PFT-specific parameters (LAI, stomatal conductance) are represented\", \"Soil texture control on summer ET stress \\u2014 soil hydraulic properties modulate moisture availability\", \"Forcing-driven seasonal cycles \\u2014 NLDAS-2 provides spatially-varying precipitation/temperature (1980-2018) that drives phenology and moisture stress\"], \"not_answerable\": [{\"aspect\": \"Validation against local eddy-covariance flux towers in the Passaic basin\", \"why\": \"The brief explicitly states 'eddy-covariance flux towers (none in the data stack)' under observations_missing. Co-located validation requires in-domain observations, which do not exist.\", \"needs\": \"In-domain eddy-covariance flux tower data (e.g. AmeriFlux site in Passaic basin, or ingest of regional flux tower network)\"}]}, \"sampling_strategy\": {\"approach\": \"Stratified by land cover \\u00d7 soil texture, with light elevation sampling to capture orographic precipitation gradient (though weak in this low-relief basin)\", \"strata\": [{\"driver\": \"land_cover\", \"bands\": [\"forested (deciduous/mixed)\", \"suburban/urban\", \"wetland/riparian\"]}, {\"driver\": \"soil_texture\", \"bands\": [\"sandy/well-drained\", \"loamy\", \"poorly-drained/hydric\"]}, {\"driver\": \"elevation\", \"bands\": [\"lowland (3-100m)\", \"upland (100-390m)\"]}], \"n_exploratory\": 15, \"n_justification\": \"3 land cover classes \\u00d7 3 soil classes = 9 core strata. Add 6 columns for elevation replication (3 lowland + 3 upland) to capture the weak orographic precipitation gradient. Total N=15 is sufficient to span the Passaic's modest heterogeneity without oversampling a small, relatively homogeneous basin.\", \"placement_logic\": \"Concentrate columns in forested uplands (where transpiration dominates) and poorly-drained lowlands/riparian zones (where soil evaporation and moisture availability differ). Avoid heavily urbanized areas where impervious cover violates ELM's vegetated-surface assumption. Sample across the elevation range to capture NLDAS precipitation variation (~4-5 distinct 12km cells across 387m relief).\", \"replication\": \"Light replication (2 columns per land cover \\u00d7 soil stratum) to assess within-stratum variability, particularly for the forested/loamy combination (likely the dominant basin condition).\"}, \"sampling_plan\": [{\"group\": \"forested upland, well-drained sandy soil\", \"n\": 2, \"reason\": \"Isolates high-transpiration regime with minimal soil moisture stress (sandy soils drain quickly, upland forests have deep roots)\"}, {\"group\": \"forested upland, loamy soil\", \"n\": 2, \"reason\": \"Dominant basin condition \\u2014 balanced moisture retention and drainage, high growing-season transpiration\"}, {\"group\": \"forested lowland, poorly-drained soil\", \"n\": 2, \"reason\": \"Tests soil moisture control on ET \\u2014 poorly-drained soils may sustain higher summer ET or shift partitioning toward soil evaporation\"}, {\"group\": \"suburban/urban fringe, loamy soil, mixed elevation\", \"n\": 3, \"reason\": \"Captures reduced-vegetation ET regime (lower LAI, fragmented canopy) \\u2014 expect lower transpiration, higher soil evaporation\"}, {\"group\": \"wetland/riparian, poorly-drained hydric soil, lowland\", \"n\": 3, \"reason\": \"High water-table regime \\u2014 tests ELM's representation of moisture-unlimited ET and potential water-table feedback on root-zone moisture\"}, {\"group\": \"forested upland, loamy soil, high-elevation (300-390m)\", \"n\": 3, \"reason\": \"Replication at upper elevation band to capture orographic precipitation gradient (NLDAS cells differ by ~10-15% precip across basin)\"}], \"validation_design\": [{\"target_variable\": \"seasonal_ET_total\", \"observation_source\": \"Analog-site eddy-covariance flux towers from Mid-Atlantic region (e.g. AmeriFlux US-DK3 Duke Forest NC, US-MMS Morgan Monroe IN, or similar Piedmont/Coastal Plain forested sites)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 compare ELM's seasonal ET cycle (monthly mean ET, peak timing, summer decline) at forested Passaic columns to observed seasonal patterns at physiographically-similar Mid-Atlantic towers. This is a PROCESS validation (does ELM capture the regional seasonal ET signature), not a site validation.\", \"metric\": \"Seasonal cycle correlation, peak-month bias, summer ET decline rate\", \"n_validation_points\": \"0 in-domain; 2-3 analog sites from AmeriFlux Mid-Atlantic network\"}, {\"target_variable\": \"ET_partitioning (transpiration vs evaporation)\", \"observation_source\": \"Analog-site sap-flow or isotope-partitioned ET from literature (if available for Mid-Atlantic forests)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 compare ELM's QVEGT/QVEGE ratio to observed transpiration fraction during growing season\", \"metric\": \"Transpiration fraction bias\", \"n_validation_points\": \"unknown \\u2014 depends on literature availability\"}, {\"target_variable\": \"streamflow (as integrated water balance check)\", \"observation_source\": \"USGS gauges (brief states available)\", \"in_domain_available\": true, \"comparison\": \"aggregated \\u2014 sum ELM surface runoff + subsurface drainage across all columns (weighted by area), compare to observed streamflow. NOTE: this requires a post-processing aggregation step and assumes columns are representative of basin area distribution.\", \"metric\": \"Annual runoff bias, seasonal runoff timing\", \"n_validation_points\": \"1-2 USGS gauges (depends on gage density in Passaic basin)\"}], \"experiment_summary\": {\"total_columns\": 15, \"exploratory\": 15, \"validation\": 0, \"primary_treatment\": \"Baseline forcing (NLDAS-2, 1980-2018 climatology or representative 10-year period to capture interannual variability), native SSURGO soil at each column location, land cover from ELM surface dataset (PFT distribution)\"}, \"requires_capabilities\": [{\"capability\": \"In-domain eddy-covariance flux tower data for Passaic basin\", \"why\": \"The user's validation goal requires local flux tower observations. The brief states none exist in the data stack.\", \"blocks\": \"Co-located validation of seasonal ET dynamics against observed fluxes\"}, {\"capability\": \"AmeriFlux or regional flux tower network ingest (for analog-site validation)\", \"why\": \"To enable process validation of ELM's seasonal ET cycle against physiographically-similar Mid-Atlantic towers\", \"blocks\": \"Analog-site validation (proposed fallback for missing in-domain data)\"}, {\"capability\": \"Streamflow aggregation / routing post-processor\", \"why\": \"ELM columns are independent 1-D points with no lateral transport. To compare modeled runoff to USGS gage streamflow requires summing column fluxes (surface runoff + subsurface drainage) and weighting by area representation.\", \"blocks\": \"Integrated water balance validation against observed streamflow\"}, {\"capability\": \"Land cover / PFT stratification sampler\", \"why\": \"The sampling strategy requires placing columns in specific land cover classes (forested, suburban, wetland). The deterministic expander must sample land cover rasters (e.g. NLCD) to identify target locations.\", \"blocks\": \"Automated placement of columns in land-cover-stratified groups\"}, {\"capability\": \"SSURGO soil texture class sampler\", \"why\": \"The sampling strategy stratifies by soil texture (sandy, loamy, poorly-drained). The expander must query SSURGO to identify soil classes at candidate locations.\", \"blocks\": \"Automated placement of columns in soil-stratified groups\"}], \"assumptions\": [\"NLDAS-2 forcing (0.125\\u00b0 resolution) adequately captures the Passaic's orographic precipitation gradient across 387m relief \\u2014 expect ~4-5 distinct 12km cells, though sub-12km terrain is unresolved\", \"ELM's default PFT distribution from the surface dataset reasonably represents Passaic land cover (forested, suburban, wetland) \\u2014 no custom land cover forcing is applied\", \"The Passaic's low relief (max 390m) means no rain-snow transition or significant snow accumulation \\u2014 elevation acts primarily through precipitation gradient, not snow dynamics\", \"Suburban/urban columns are placed at the urban fringe where vegetated cover remains (ELM does not represent impervious surfaces)\", \"Analog-site validation using Mid-Atlantic flux towers is scientifically defensible for testing ELM's seasonal ET process representation, though it does not validate site-specific performance in the Passaic\", \"USGS well data (stated as available) is assumed to be groundwater level observations, not relevant for ET validation but potentially useful for water table / recharge validation in a separate design\", \"A 10-year forcing period (e.g. 2000-2009) is sufficient to capture interannual ET variability without excessive computational cost \\u2014 full 1980-2018 climatology is not required for seasonal dynamics\"], \"open_questions\": [\"Are there any unpublished or regional flux tower datasets for the Passaic or nearby New Jersey basins that could be ingested?\", \"Should the design include a water table / recharge validation component using the available USGS well data, or is the focus strictly on ET?\", \"What is the desired temporal resolution for ET output \\u2014 monthly means sufficient for seasonal dynamics, or daily output needed?\", \"Should the design include a sensitivity test for forcing period (e.g. wet vs dry years) to assess interannual ET variability?\", \"Is there interest in comparing ELM's ET partitioning to remote sensing ET products (e.g. MODIS ET, GLEAM) as a spatial validation alternative to flux towers?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Characterize seasonal ET dynamics and partitioning (transpiration, evaporation, soil evaporation) across the Passaic basin",
+        "Validate modeled ET seasonality against eddy-covariance flux tower observations"
+      ],
+      "key_processes": [
+        "Seasonal ET partitioning (transpiration vs bare-soil evaporation)",
+        "Vegetation phenology control on growing-season ET",
+        "Soil moisture limitation on summer ET",
+        "Land cover control on ET magnitude and seasonality"
+      ],
+      "drivers_to_resolve": [
+        "land_cover",
+        "soil_texture",
+        "elevation"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM's transient land-surface simulation directly produces seasonal ET partitioning (QVEGE, QVEGT, QSOIL) and resolves the key drivers (land cover via PFT distribution, soil texture via SSURGO, seasonal forcing via NLDAS-2). The Passaic's low relief and modest heterogeneity are well-suited to single-column sampling.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Seasonal ET dynamics and partitioning across land cover and soil gradients \u2014 ELM simulates ET components (QVEGE, QVEGT, QSOIL) with seasonal resolution",
+        "Land cover control on ET magnitude and seasonality \u2014 PFT-specific parameters (LAI, stomatal conductance) are represented",
+        "Soil texture control on summer ET stress \u2014 soil hydraulic properties modulate moisture availability",
+        "Forcing-driven seasonal cycles \u2014 NLDAS-2 provides spatially-varying precipitation/temperature (1980-2018) that drives phenology and moisture stress"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Validation against local eddy-covariance flux towers in the Passaic basin",
+          "why": "The brief explicitly states 'eddy-covariance flux towers (none in the data stack)' under observations_missing. Co-located validation requires in-domain observations, which do not exist.",
+          "needs": "In-domain eddy-covariance flux tower data (e.g. AmeriFlux site in Passaic basin, or ingest of regional flux tower network)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by land cover \u00d7 soil texture, with light elevation sampling to capture orographic precipitation gradient (though weak in this low-relief basin)",
+      "strata": [
+        {
+          "driver": "land_cover",
+          "bands": [
+            "forested (deciduous/mixed)",
+            "suburban/urban",
+            "wetland/riparian"
+          ]
+        },
+        {
+          "driver": "soil_texture",
+          "bands": [
+            "sandy/well-drained",
+            "loamy",
+            "poorly-drained/hydric"
+          ]
+        },
+        {
+          "driver": "elevation",
+          "bands": [
+            "lowland (3-100m)",
+            "upland (100-390m)"
+          ]
+        }
+      ],
+      "n_exploratory": 15,
+      "n_justification": "3 land cover classes \u00d7 3 soil classes = 9 core strata. Add 6 columns for elevation replication (3 lowland + 3 upland) to capture the weak orographic precipitation gradient. Total N=15 is sufficient to span the Passaic's modest heterogeneity without oversampling a small, relatively homogeneous basin.",
+      "placement_logic": "Concentrate columns in forested uplands (where transpiration dominates) and poorly-drained lowlands/riparian zones (where soil evaporation and moisture availability differ). Avoid heavily urbanized areas where impervious cover violates ELM's vegetated-surface assumption. Sample across the elevation range to capture NLDAS precipitation variation (~4-5 distinct 12km cells across 387m relief).",
+      "replication": "Light replication (2 columns per land cover \u00d7 soil stratum) to assess within-stratum variability, particularly for the forested/loamy combination (likely the dominant basin condition)."
+    },
+    "sampling_plan": [
+      {
+        "group": "forested upland, well-drained sandy soil",
+        "n": 2,
+        "reason": "Isolates high-transpiration regime with minimal soil moisture stress (sandy soils drain quickly, upland forests have deep roots)"
+      },
+      {
+        "group": "forested upland, loamy soil",
+        "n": 2,
+        "reason": "Dominant basin condition \u2014 balanced moisture retention and drainage, high growing-season transpiration"
+      },
+      {
+        "group": "forested lowland, poorly-drained soil",
+        "n": 2,
+        "reason": "Tests soil moisture control on ET \u2014 poorly-drained soils may sustain higher summer ET or shift partitioning toward soil evaporation"
+      },
+      {
+        "group": "suburban/urban fringe, loamy soil, mixed elevation",
+        "n": 3,
+        "reason": "Captures reduced-vegetation ET regime (lower LAI, fragmented canopy) \u2014 expect lower transpiration, higher soil evaporation"
+      },
+      {
+        "group": "wetland/riparian, poorly-drained hydric soil, lowland",
+        "n": 3,
+        "reason": "High water-table regime \u2014 tests ELM's representation of moisture-unlimited ET and potential water-table feedback on root-zone moisture"
+      },
+      {
+        "group": "forested upland, loamy soil, high-elevation (300-390m)",
+        "n": 3,
+        "reason": "Replication at upper elevation band to capture orographic precipitation gradient (NLDAS cells differ by ~10-15% precip across basin)"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "seasonal_ET_total",
+        "observation_source": "Analog-site eddy-covariance flux towers from Mid-Atlantic region (e.g. AmeriFlux US-DK3 Duke Forest NC, US-MMS Morgan Monroe IN, or similar Piedmont/Coastal Plain forested sites)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 compare ELM's seasonal ET cycle (monthly mean ET, peak timing, summer decline) at forested Passaic columns to observed seasonal patterns at physiographically-similar Mid-Atlantic towers. This is a PROCESS validation (does ELM capture the regional seasonal ET signature), not a site validation.",
+        "metric": "Seasonal cycle correlation, peak-month bias, summer ET decline rate",
+        "n_validation_points": "0 in-domain; 2-3 analog sites from AmeriFlux Mid-Atlantic network"
+      },
+      {
+        "target_variable": "ET_partitioning (transpiration vs evaporation)",
+        "observation_source": "Analog-site sap-flow or isotope-partitioned ET from literature (if available for Mid-Atlantic forests)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 compare ELM's QVEGT/QVEGE ratio to observed transpiration fraction during growing season",
+        "metric": "Transpiration fraction bias",
+        "n_validation_points": "unknown \u2014 depends on literature availability"
+      },
+      {
+        "target_variable": "streamflow (as integrated water balance check)",
+        "observation_source": "USGS gauges (brief states available)",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 sum ELM surface runoff + subsurface drainage across all columns (weighted by area), compare to observed streamflow. NOTE: this requires a post-processing aggregation step and assumes columns are representative of basin area distribution.",
+        "metric": "Annual runoff bias, seasonal runoff timing",
+        "n_validation_points": "1-2 USGS gauges (depends on gage density in Passaic basin)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 15,
+      "exploratory": 15,
+      "validation": 0,
+      "primary_treatment": "Baseline forcing (NLDAS-2, 1980-2018 climatology or representative 10-year period to capture interannual variability), native SSURGO soil at each column location, land cover from ELM surface dataset (PFT distribution)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "In-domain eddy-covariance flux tower data for Passaic basin",
+        "why": "The user's validation goal requires local flux tower observations. The brief states none exist in the data stack.",
+        "blocks": "Co-located validation of seasonal ET dynamics against observed fluxes"
+      },
+      {
+        "capability": "AmeriFlux or regional flux tower network ingest (for analog-site validation)",
+        "why": "To enable process validation of ELM's seasonal ET cycle against physiographically-similar Mid-Atlantic towers",
+        "blocks": "Analog-site validation (proposed fallback for missing in-domain data)"
+      },
+      {
+        "capability": "Streamflow aggregation / routing post-processor",
+        "why": "ELM columns are independent 1-D points with no lateral transport. To compare modeled runoff to USGS gage streamflow requires summing column fluxes (surface runoff + subsurface drainage) and weighting by area representation.",
+        "blocks": "Integrated water balance validation against observed streamflow"
+      },
+      {
+        "capability": "Land cover / PFT stratification sampler",
+        "why": "The sampling strategy requires placing columns in specific land cover classes (forested, suburban, wetland). The deterministic expander must sample land cover rasters (e.g. NLCD) to identify target locations.",
+        "blocks": "Automated placement of columns in land-cover-stratified groups"
+      },
+      {
+        "capability": "SSURGO soil texture class sampler",
+        "why": "The sampling strategy stratifies by soil texture (sandy, loamy, poorly-drained). The expander must query SSURGO to identify soil classes at candidate locations.",
+        "blocks": "Automated placement of columns in soil-stratified groups"
+      }
+    ],
+    "assumptions": [
+      "NLDAS-2 forcing (0.125\u00b0 resolution) adequately captures the Passaic's orographic precipitation gradient across 387m relief \u2014 expect ~4-5 distinct 12km cells, though sub-12km terrain is unresolved",
+      "ELM's default PFT distribution from the surface dataset reasonably represents Passaic land cover (forested, suburban, wetland) \u2014 no custom land cover forcing is applied",
+      "The Passaic's low relief (max 390m) means no rain-snow transition or significant snow accumulation \u2014 elevation acts primarily through precipitation gradient, not snow dynamics",
+      "Suburban/urban columns are placed at the urban fringe where vegetated cover remains (ELM does not represent impervious surfaces)",
+      "Analog-site validation using Mid-Atlantic flux towers is scientifically defensible for testing ELM's seasonal ET process representation, though it does not validate site-specific performance in the Passaic",
+      "USGS well data (stated as available) is assumed to be groundwater level observations, not relevant for ET validation but potentially useful for water table / recharge validation in a separate design",
+      "A 10-year forcing period (e.g. 2000-2009) is sufficient to capture interannual ET variability without excessive computational cost \u2014 full 1980-2018 climatology is not required for seasonal dynamics"
+    ],
+    "open_questions": [
+      "Are there any unpublished or regional flux tower datasets for the Passaic or nearby New Jersey basins that could be ingested?",
+      "Should the design include a water table / recharge validation component using the available USGS well data, or is the focus strictly on ET?",
+      "What is the desired temporal resolution for ET output \u2014 monthly means sufficient for seasonal dynamics, or daily output needed?",
+      "Should the design include a sensitivity test for forcing period (e.g. wet vs dry years) to assess interannual ET variability?",
+      "Is there interest in comparing ELM's ET partitioning to remote sensing ET products (e.g. MODIS ET, GLEAM) as a spatial validation alternative to flux towers?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

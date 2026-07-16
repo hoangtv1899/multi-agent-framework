@@ -1,0 +1,210 @@
+{
+  "prompt_id": "P02",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThis request asks for **regional groundwater mapping with lateral flow and inter-column exchange** \u2014 fundamentally a **3D subsurface flow problem** that single-column ELM **cannot represent**. Let me decompose what's being asked and what the framework can actually do:\n\n**What the question needs:**\n1. Regional water table surface across the Naches watershed\n2. Lateral groundwater flow from hillslopes to valleys\n3. Inter-column exchange fluxes (hillslope recharge \u2192 valley discharge)\n4. Spatial coherence of the water table (not independent columns)\n\n**What the framework can do:**\n- ELM: 1-D vertical soil moisture and drainage at independent points \u2014 no lateral flow, no inter-column communication\n- PFLOTRAN: 3D steady-state groundwater flow \u2014 CAN represent lateral flow and regional water tables, but requires a mesh and boundary conditions\n- ELM\u2192PFLOTRAN coupling: **not yet implemented** \u2014 this is the missing link\n\n**The core problem:** ELM columns are **hydrologically independent**. Each column computes its own sub-surface drainage (QDRAI) as a lower boundary flux, but this drainage goes \"nowhere\" \u2014 it doesn't flow laterally to neighboring columns or accumulate in a valley aquifer. To answer this question properly requires:\n\n1. **Spatial ELM runs** across the watershed to generate distributed recharge fields\n2. **ELM\u2192PFLOTRAN coupling** to pass QDRAI as top boundary condition to a 3D groundwater model\n3. **PFLOTRAN 3D domain** spanning the watershed with realistic geology/hydraulic conductivity\n4. **Comparison of coupled vs standalone** to show where lateral flow matters (valley water tables fed by hillslope recharge vs ELM's local 1-D assumption)\n\n**Feasibility verdict: INFEASIBLE as posed.** The question's primary mechanism \u2014 lateral groundwater flow and inter-column exchange \u2014 is not representable with the current stack. I can design the **ELM spatial sampling component** (the recharge field generation), but the regional water table mapping and flux quantification require the unbuilt coupler.\n\n**What I CAN design:** A preparatory ELM campaign that generates the **distributed recharge inputs** a future PFLOTRAN run would need, stratified by topography (hillslope vs valley positions) to capture recharge heterogeneity. This is a **necessary precursor** but not the answer to the question.\n\n**Validation constraint:** USGS wells provide WTD observations, but validating a \"regional water table\" requires the coupled model to produce one \u2014 standalone ELM columns each have their own disconnected water table depth, which cannot be validated as a coherent surface.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Map the regional water table surface across the Naches watershed\",\n      \"Quantify lateral groundwater flow from hillslopes to valley aquifer\",\n      \"Quantify inter-column exchange fluxes (recharge vs discharge zones)\",\n      \"Validate mapped water table against USGS well observations\"\n    ],\n    \"key_processes\": [\n      \"Hillslope recharge generation (vertical infiltration and drainage)\",\n      \"Lateral subsurface flow from high to low elevation\",\n      \"Valley aquifer accumulation and discharge\",\n      \"Topographic control on water table depth and flow direction\"\n    ],\n    \"drivers_to_resolve\": [\n      \"topography (elevation gradient driving lateral flow)\",\n      \"hillslope position (recharge zones vs discharge zones)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"coupling\",\n    \"rationale\": \"The question fundamentally requires 3D groundwater flow (lateral hillslope-to-valley transport and inter-column exchange), which single-column ELM cannot represent. This is a coupling problem: ELM generates distributed recharge, PFLOTRAN solves regional groundwater flow. The design below describes the ELM recharge-generation component and the required coupling architecture.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"ELM\u2192PFLOTRAN one-way coupling required. ELM provides spatially-distributed sub-surface drainage (QDRAI) as top boundary recharge to a 3D PFLOTRAN domain spanning the watershed. PFLOTRAN solves steady-state or transient saturated flow to produce the regional water table surface and lateral flux fields. Without this coupling, the question is not answerable.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"infeasible\",\n    \"answerable\": [\n      \"Distributed recharge field generation across topographic gradient (ELM can produce QDRAI at stratified hillslope/valley positions)\",\n      \"Local 1-D water table depth at independent points (but not as a coherent regional surface)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Regional water table surface mapping\",\n        \"why\": \"ELM columns are hydrologically independent \u2014 each has its own water table depth with no lateral connectivity. A regional water table surface requires 3D groundwater flow.\",\n        \"needs\": \"ELM\u2192PFLOTRAN coupling + PFLOTRAN 3D domain\"\n      },\n      {\n        \"aspect\": \"Lateral groundwater flow from hillslopes to valleys\",\n        \"why\": \"ELM has no lateral flow physics \u2014 drainage exits the column bottom boundary and is not routed. Lateral flow requires 3D subsurface model.\",\n        \"needs\": \"PFLOTRAN 3D saturated flow solver with ELM recharge as top BC\"\n      },\n      {\n        \"aspect\": \"Inter-column exchange flux quantification\",\n        \"why\": \"No inter-column communication in ELM. Exchange fluxes (hillslope recharge \u2192 valley discharge) require a coupled groundwater model.\",\n        \"needs\": \"ELM\u2192PFLOTRAN coupling to compute lateral flux divergence\"\n      },\n      {\n        \"aspect\": \"Validation of regional water table against USGS wells\",\n        \"why\": \"USGS wells measure a coherent regional water table shaped by lateral flow. ELM produces independent per-column WTD values that cannot be validated as a surface.\",\n        \"needs\": \"Coupled model output (PFLOTRAN water table surface) for co-located well comparison\"\n      }\n    ]\n  },\n  \"coupling_design\": {\n    \"from_model\": \"ELM\",\n    \"to_model\": \"PFLOTRAN\",\n    \"driver\": \"ELM sub-surface drainage flux (QDRAI, mm/day or mm/month) at each column location \u2192 PFLOTRAN top boundary recharge flux (m\u00b3/s or m/day) at corresponding mesh nodes\",\n    \"temporal_mapping\": \"ELM outputs monthly or annual mean QDRAI time series (1980-2018). For steady-state PFLOTRAN: use long-term mean recharge. For transient PFLOTRAN: map ELM monthly fluxes to PFLOTRAN transient top BC.\",\n    \"receiving_setup\": \"PFLOTRAN 3D unstructured mesh spanning Naches watershed (HUC 17030002), elevation 352-1977m. Domain extends from ridgelines (no-flow lateral BC) to valley outlet (specified head or flux BC at river). Hydraulic conductivity field from regional geology/soil data. Solves saturated flow (Richards or steady-state Darcy) to produce water table surface and 3D flux field.\",\n    \"compare\": \"Coupled (PFLOTRAN driven by ELM recharge) vs standalone ELM assumption. Standalone ELM assumes local 1-D drainage with no lateral redistribution \u2014 water table depth at each column is independent. Coupled model shows: (1) valley water tables elevated by hillslope recharge convergence, (2) hillslope water tables drawn down by lateral drainage, (3) realistic water table surface continuity, (4) quantified lateral flux from recharge to discharge zones. Validation: coupled PFLOTRAN water table vs USGS well WTD (co-located comparison, bias/RMSE). Standalone ELM cannot be validated this way.\"\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Topographically-stratified sampling to resolve recharge heterogeneity across the elevation/hillslope gradient. ELM columns placed to span hillslope positions (ridges, mid-slopes, valley bottoms) and elevation bands, generating the distributed recharge field a future PFLOTRAN run requires.\",\n    \"strata\": [\n      {\n        \"driver\": \"topographic_position\",\n        \"classes\": [\n          \"ridge/upper_slope (recharge zones, steep gradient, thin soils)\",\n          \"mid_slope (transition, moderate gradient)\",\n          \"valley_bottom/riparian (discharge zones, flat, deep soils, near-surface water table)\"\n        ]\n      },\n      {\n        \"driver\": \"elevation\",\n        \"bands\": [\n          \"low (352-800m, rain-dominated)\",\n          \"mid (800-1400m, rain-snow transition)\",\n          \"high (1400-1977m, snow-dominated)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 18,\n    \"n_justification\": \"3 topographic positions \u00d7 3 elevation bands = 9 strata, with 2 replicates per stratum = 18 columns. This resolves the recharge gradient from ridges (high drainage) to valleys (low drainage, high water table) across the elevation/climate gradient. Replication provides uncertainty estimate on recharge rates. This is the MINIMUM to characterize distributed recharge for PFLOTRAN input.\",\n    \"placement_logic\": \"Concentrate columns along elevation transects from ridges to valley bottoms, capturing the topographic flow path. Oversample valley bottoms (3-4 columns) where USGS wells exist for future validation. Use DEM-derived topographic wetness index (TWI) or slope to identify representative hillslope positions within each elevation band.\",\n    \"replication\": \"2 columns per stratum (light replication) to estimate recharge variability within each topographic-elevation class. Total 18 columns.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"high-elevation ridges (1400-1977m, steep, recharge zones)\",\n      \"n\": 2,\n      \"reason\": \"Capture snow-dominated recharge at watershed headwaters where drainage is highest and water table is deep.\"\n    },\n    {\n      \"group\": \"high-elevation mid-slopes (1400-1977m, moderate gradient)\",\n      \"n\": 2,\n      \"reason\": \"Transition zone between ridge recharge and valley accumulation at high elevation.\"\n    },\n    {\n      \"group\": \"high-elevation valleys (1400-1977m, flat, near streams)\",\n      \"n\": 2,\n      \"reason\": \"High-elevation discharge zones where lateral flow converges and water table is shallow.\"\n    },\n    {\n      \"group\": \"mid-elevation ridges (800-1400m, rain-snow transition, steep)\",\n      \"n\": 2,\n      \"reason\": \"Capture mixed rain-snow recharge at ridges in the transition zone.\"\n    },\n    {\n      \"group\": \"mid-elevation mid-slopes (800-1400m, moderate gradient)\",\n      \"n\": 2,\n      \"reason\": \"Dominant area of the watershed \u2014 recharge rates here control valley aquifer input.\"\n    },\n    {\n      \"group\": \"mid-elevation valleys (800-1400m, flat, riparian)\",\n      \"n\": 2,\n      \"reason\": \"Key discharge zones where hillslope recharge accumulates \u2014 likely location of USGS wells.\"\n    },\n    {\n      \"group\": \"low-elevation ridges (352-800m, rain-dominated, steep)\",\n      \"n\": 2,\n      \"reason\": \"Capture rain-dominated recharge at lower watershed where drainage is lower than snow zones.\"\n    },\n    {\n      \"group\": \"low-elevation mid-slopes (352-800m, moderate gradient)\",\n      \"n\": 2,\n      \"reason\": \"Lower watershed recharge contribution to valley aquifer.\"\n    },\n    {\n      \"group\": \"low-elevation valleys (352-800m, flat, near outlet)\",\n      \"n\": 2,\n      \"reason\": \"Lowest discharge zones near watershed outlet \u2014 critical for regional water table validation.\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells\",\n      \"in_domain_available\": true,\n      \"comparison\": \"NOT POSSIBLE with standalone ELM. Validation requires coupled PFLOTRAN output (regional water table surface) compared to well WTD at co-located points. Standalone ELM produces independent per-column WTD that cannot represent the regional surface shaped by lateral flow.\",\n      \"metric\": \"bias, RMSE, spatial correlation (coupled PFLOTRAN water table vs well observations)\",\n      \"n_validation_points\": \"unknown \u2014 depends on USGS well density in Naches HUC 17030002. Likely 5-15 wells based on typical USGS coverage.\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 18,\n    \"exploratory\": 18,\n    \"validation\": 0,\n    \"primary_treatment\": \"Baseline forcing (1980-2018 meteorology), native soil properties from gridded soil dataset, topographically-stratified placement. This is a RECHARGE GENERATION campaign, not a validation campaign \u2014 validation requires the coupled model.\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"ELM\u2192PFLOTRAN one-way coupling mechanism\",\n      \"why\": \"To pass ELM sub-surface drainage (QDRAI) as top boundary recharge to PFLOTRAN 3D domain. This is the core missing piece \u2014 without it, the question is not answerable.\",\n      \"blocks\": \"Regional water table mapping, lateral flow quantification, inter-column exchange fluxes, validation against USGS wells\"\n    },\n    {\n      \"capability\": \"PFLOTRAN 3D domain setup for Naches watershed\",\n      \"why\": \"Requires unstructured mesh spanning HUC 17030002 (elevation 352-1977m), hydraulic conductivity field from geology/soil data, boundary conditions (no-flow at ridges, specified head/flux at outlet).\",\n      \"blocks\": \"3D groundwater flow solution, regional water table surface output\"\n    },\n    {\n      \"capability\": \"DEM-based topographic position classification\",\n      \"why\": \"To identify ridge/mid-slope/valley positions for stratified ELM column placement. Needs DEM-derived slope, TWI, or flow accumulation.\",\n      \"blocks\": \"Topographically-stratified sampling (can fall back to elevation-only stratification if unavailable)\"\n    },\n    {\n      \"capability\": \"USGS well data ingest and spatial indexing\",\n      \"why\": \"To identify well locations within Naches HUC for future validation of coupled PFLOTRAN water table output.\",\n      \"blocks\": \"Co-located validation (not critical for ELM recharge generation, but needed for coupled model validation)\"\n    },\n    {\n      \"capability\": \"Gridded soil hydraulic properties (Ksat, porosity, texture) for Naches\",\n      \"why\": \"ELM needs soil properties at each column location. PFLOTRAN needs 3D hydraulic conductivity field.\",\n      \"blocks\": \"Realistic recharge rates (ELM) and lateral flow (PFLOTRAN)\"\n    },\n    {\n      \"capability\": \"HUC boundary resolver for domain extent\",\n      \"why\": \"To define Naches watershed boundary (HUC 17030002) for PFLOTRAN mesh generation and ELM column placement.\",\n      \"blocks\": \"Domain definition (can use bbox as fallback, but less accurate)\"\n    }\n  ],\n  \"assumptions\": [\n    \"USGS well observations represent the regional water table shaped by lateral flow (not perched or local features).\",\n    \"Topographic position (ridge/slope/valley) is the primary control on recharge vs discharge zones \u2014 soil heterogeneity is secondary.\",\n    \"Long-term mean recharge (1980-2018) is sufficient for steady-state PFLOTRAN, or monthly means for transient.\",\n    \"ELM QDRAI (sub-surface drainage) is a reasonable proxy for groundwater recharge (ignoring deep percolation losses or lateral unsaturated flow).\",\n    \"PFLOTRAN domain can be meshed at resolution sufficient to resolve valley aquifer (~100m) without prohibitive computational cost.\",\n    \"Hydraulic conductivity field for PFLOTRAN can be derived from regional geology/soil maps (not site-specific measurements).\"\n  ],\n  \"open_questions\": [\n    \"What is the actual density and spatial distribution of USGS wells in Naches HUC 17030002? Are they concentrated in valleys (likely) or distributed across hillslopes?\",\n    \"Is transient PFLOTRAN needed (seasonal water table fluctuations) or is steady-state sufficient for the regional mapping goal?\",\n    \"What is the priority: build the ELM recharge generation campaign first (preparatory), or wait until ELM\u2192PFLOTRAN coupling exists to design the full experiment?\",\n    \"Are there existing PFLOTRAN meshes or hydraulic conductivity datasets for the Naches region, or does this require new data preparation?\",\n    \"Should the design include a standalone PFLOTRAN baseline (uniform recharge) to isolate the value of spatially-distributed ELM recharge?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Map the regional water table surface across the Naches watershed",
+        "Quantify lateral groundwater flow from hillslopes to valley aquifer",
+        "Quantify inter-column exchange fluxes (recharge vs discharge zones)",
+        "Validate mapped water table against USGS well observations"
+      ],
+      "key_processes": [
+        "Hillslope recharge generation (vertical infiltration and drainage)",
+        "Lateral subsurface flow from high to low elevation",
+        "Valley aquifer accumulation and discharge",
+        "Topographic control on water table depth and flow direction"
+      ],
+      "drivers_to_resolve": [
+        "topography (elevation gradient driving lateral flow)",
+        "hillslope position (recharge zones vs discharge zones)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "coupling",
+      "rationale": "The question fundamentally requires 3D groundwater flow (lateral hillslope-to-valley transport and inter-column exchange), which single-column ELM cannot represent. This is a coupling problem: ELM generates distributed recharge, PFLOTRAN solves regional groundwater flow. The design below describes the ELM recharge-generation component and the required coupling architecture.",
+      "coupling_needed": true,
+      "coupling_note": "ELM\u2192PFLOTRAN one-way coupling required. ELM provides spatially-distributed sub-surface drainage (QDRAI) as top boundary recharge to a 3D PFLOTRAN domain spanning the watershed. PFLOTRAN solves steady-state or transient saturated flow to produce the regional water table surface and lateral flux fields. Without this coupling, the question is not answerable."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "Distributed recharge field generation across topographic gradient (ELM can produce QDRAI at stratified hillslope/valley positions)",
+        "Local 1-D water table depth at independent points (but not as a coherent regional surface)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Regional water table surface mapping",
+          "why": "ELM columns are hydrologically independent \u2014 each has its own water table depth with no lateral connectivity. A regional water table surface requires 3D groundwater flow.",
+          "needs": "ELM\u2192PFLOTRAN coupling + PFLOTRAN 3D domain"
+        },
+        {
+          "aspect": "Lateral groundwater flow from hillslopes to valleys",
+          "why": "ELM has no lateral flow physics \u2014 drainage exits the column bottom boundary and is not routed. Lateral flow requires 3D subsurface model.",
+          "needs": "PFLOTRAN 3D saturated flow solver with ELM recharge as top BC"
+        },
+        {
+          "aspect": "Inter-column exchange flux quantification",
+          "why": "No inter-column communication in ELM. Exchange fluxes (hillslope recharge \u2192 valley discharge) require a coupled groundwater model.",
+          "needs": "ELM\u2192PFLOTRAN coupling to compute lateral flux divergence"
+        },
+        {
+          "aspect": "Validation of regional water table against USGS wells",
+          "why": "USGS wells measure a coherent regional water table shaped by lateral flow. ELM produces independent per-column WTD values that cannot be validated as a surface.",
+          "needs": "Coupled model output (PFLOTRAN water table surface) for co-located well comparison"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM sub-surface drainage flux (QDRAI, mm/day or mm/month) at each column location \u2192 PFLOTRAN top boundary recharge flux (m\u00b3/s or m/day) at corresponding mesh nodes",
+      "temporal_mapping": "ELM outputs monthly or annual mean QDRAI time series (1980-2018). For steady-state PFLOTRAN: use long-term mean recharge. For transient PFLOTRAN: map ELM monthly fluxes to PFLOTRAN transient top BC.",
+      "receiving_setup": "PFLOTRAN 3D unstructured mesh spanning Naches watershed (HUC 17030002), elevation 352-1977m. Domain extends from ridgelines (no-flow lateral BC) to valley outlet (specified head or flux BC at river). Hydraulic conductivity field from regional geology/soil data. Solves saturated flow (Richards or steady-state Darcy) to produce water table surface and 3D flux field.",
+      "compare": "Coupled (PFLOTRAN driven by ELM recharge) vs standalone ELM assumption. Standalone ELM assumes local 1-D drainage with no lateral redistribution \u2014 water table depth at each column is independent. Coupled model shows: (1) valley water tables elevated by hillslope recharge convergence, (2) hillslope water tables drawn down by lateral drainage, (3) realistic water table surface continuity, (4) quantified lateral flux from recharge to discharge zones. Validation: coupled PFLOTRAN water table vs USGS well WTD (co-located comparison, bias/RMSE). Standalone ELM cannot be validated this way."
+    },
+    "sampling_strategy": {
+      "approach": "Topographically-stratified sampling to resolve recharge heterogeneity across the elevation/hillslope gradient. ELM columns placed to span hillslope positions (ridges, mid-slopes, valley bottoms) and elevation bands, generating the distributed recharge field a future PFLOTRAN run requires.",
+      "strata": [
+        {
+          "driver": "topographic_position",
+          "classes": [
+            "ridge/upper_slope (recharge zones, steep gradient, thin soils)",
+            "mid_slope (transition, moderate gradient)",
+            "valley_bottom/riparian (discharge zones, flat, deep soils, near-surface water table)"
+          ]
+        },
+        {
+          "driver": "elevation",
+          "bands": [
+            "low (352-800m, rain-dominated)",
+            "mid (800-1400m, rain-snow transition)",
+            "high (1400-1977m, snow-dominated)"
+          ]
+        }
+      ],
+      "n_exploratory": 18,
+      "n_justification": "3 topographic positions \u00d7 3 elevation bands = 9 strata, with 2 replicates per stratum = 18 columns. This resolves the recharge gradient from ridges (high drainage) to valleys (low drainage, high water table) across the elevation/climate gradient. Replication provides uncertainty estimate on recharge rates. This is the MINIMUM to characterize distributed recharge for PFLOTRAN input.",
+      "placement_logic": "Concentrate columns along elevation transects from ridges to valley bottoms, capturing the topographic flow path. Oversample valley bottoms (3-4 columns) where USGS wells exist for future validation. Use DEM-derived topographic wetness index (TWI) or slope to identify representative hillslope positions within each elevation band.",
+      "replication": "2 columns per stratum (light replication) to estimate recharge variability within each topographic-elevation class. Total 18 columns."
+    },
+    "sampling_plan": [
+      {
+        "group": "high-elevation ridges (1400-1977m, steep, recharge zones)",
+        "n": 2,
+        "reason": "Capture snow-dominated recharge at watershed headwaters where drainage is highest and water table is deep."
+      },
+      {
+        "group": "high-elevation mid-slopes (1400-1977m, moderate gradient)",
+        "n": 2,
+        "reason": "Transition zone between ridge recharge and valley accumulation at high elevation."
+      },
+      {
+        "group": "high-elevation valleys (1400-1977m, flat, near streams)",
+        "n": 2,
+        "reason": "High-elevation discharge zones where lateral flow converges and water table is shallow."
+      },
+      {
+        "group": "mid-elevation ridges (800-1400m, rain-snow transition, steep)",
+        "n": 2,
+        "reason": "Capture mixed rain-snow recharge at ridges in the transition zone."
+      },
+      {
+        "group": "mid-elevation mid-slopes (800-1400m, moderate gradient)",
+        "n": 2,
+        "reason": "Dominant area of the watershed \u2014 recharge rates here control valley aquifer input."
+      },
+      {
+        "group": "mid-elevation valleys (800-1400m, flat, riparian)",
+        "n": 2,
+        "reason": "Key discharge zones where hillslope recharge accumulates \u2014 likely location of USGS wells."
+      },
+      {
+        "group": "low-elevation ridges (352-800m, rain-dominated, steep)",
+        "n": 2,
+        "reason": "Capture rain-dominated recharge at lower watershed where drainage is lower than snow zones."
+      },
+      {
+        "group": "low-elevation mid-slopes (352-800m, moderate gradient)",
+        "n": 2,
+        "reason": "Lower watershed recharge contribution to valley aquifer."
+      },
+      {
+        "group": "low-elevation valleys (352-800m, flat, near outlet)",
+        "n": 2,
+        "reason": "Lowest discharge zones near watershed outlet \u2014 critical for regional water table validation."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells",
+        "in_domain_available": true,
+        "comparison": "NOT POSSIBLE with standalone ELM. Validation requires coupled PFLOTRAN output (regional water table surface) compared to well WTD at co-located points. Standalone ELM produces independent per-column WTD that cannot represent the regional surface shaped by lateral flow.",
+        "metric": "bias, RMSE, spatial correlation (coupled PFLOTRAN water table vs well observations)",
+        "n_validation_points": "unknown \u2014 depends on USGS well density in Naches HUC 17030002. Likely 5-15 wells based on typical USGS coverage."
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 18,
+      "exploratory": 18,
+      "validation": 0,
+      "primary_treatment": "Baseline forcing (1980-2018 meteorology), native soil properties from gridded soil dataset, topographically-stratified placement. This is a RECHARGE GENERATION campaign, not a validation campaign \u2014 validation requires the coupled model."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM\u2192PFLOTRAN one-way coupling mechanism",
+        "why": "To pass ELM sub-surface drainage (QDRAI) as top boundary recharge to PFLOTRAN 3D domain. This is the core missing piece \u2014 without it, the question is not answerable.",
+        "blocks": "Regional water table mapping, lateral flow quantification, inter-column exchange fluxes, validation against USGS wells"
+      },
+      {
+        "capability": "PFLOTRAN 3D domain setup for Naches watershed",
+        "why": "Requires unstructured mesh spanning HUC 17030002 (elevation 352-1977m), hydraulic conductivity field from geology/soil data, boundary conditions (no-flow at ridges, specified head/flux at outlet).",
+        "blocks": "3D groundwater flow solution, regional water table surface output"
+      },
+      {
+        "capability": "DEM-based topographic position classification",
+        "why": "To identify ridge/mid-slope/valley positions for stratified ELM column placement. Needs DEM-derived slope, TWI, or flow accumulation.",
+        "blocks": "Topographically-stratified sampling (can fall back to elevation-only stratification if unavailable)"
+      },
+      {
+        "capability": "USGS well data ingest and spatial indexing",
+        "why": "To identify well locations within Naches HUC for future validation of coupled PFLOTRAN water table output.",
+        "blocks": "Co-located validation (not critical for ELM recharge generation, but needed for coupled model validation)"
+      },
+      {
+        "capability": "Gridded soil hydraulic properties (Ksat, porosity, texture) for Naches",
+        "why": "ELM needs soil properties at each column location. PFLOTRAN needs 3D hydraulic conductivity field.",
+        "blocks": "Realistic recharge rates (ELM) and lateral flow (PFLOTRAN)"
+      },
+      {
+        "capability": "HUC boundary resolver for domain extent",
+        "why": "To define Naches watershed boundary (HUC 17030002) for PFLOTRAN mesh generation and ELM column placement.",
+        "blocks": "Domain definition (can use bbox as fallback, but less accurate)"
+      }
+    ],
+    "assumptions": [
+      "USGS well observations represent the regional water table shaped by lateral flow (not perched or local features).",
+      "Topographic position (ridge/slope/valley) is the primary control on recharge vs discharge zones \u2014 soil heterogeneity is secondary.",
+      "Long-term mean recharge (1980-2018) is sufficient for steady-state PFLOTRAN, or monthly means for transient.",
+      "ELM QDRAI (sub-surface drainage) is a reasonable proxy for groundwater recharge (ignoring deep percolation losses or lateral unsaturated flow).",
+      "PFLOTRAN domain can be meshed at resolution sufficient to resolve valley aquifer (~100m) without prohibitive computational cost.",
+      "Hydraulic conductivity field for PFLOTRAN can be derived from regional geology/soil maps (not site-specific measurements)."
+    ],
+    "open_questions": [
+      "What is the actual density and spatial distribution of USGS wells in Naches HUC 17030002? Are they concentrated in valleys (likely) or distributed across hillslopes?",
+      "Is transient PFLOTRAN needed (seasonal water table fluctuations) or is steady-state sufficient for the regional mapping goal?",
+      "What is the priority: build the ELM recharge generation campaign first (preparatory), or wait until ELM\u2192PFLOTRAN coupling exists to design the full experiment?",
+      "Are there existing PFLOTRAN meshes or hydraulic conductivity datasets for the Naches region, or does this require new data preparation?",
+      "Should the design include a standalone PFLOTRAN baseline (uniform recharge) to isolate the value of spatially-distributed ELM recharge?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

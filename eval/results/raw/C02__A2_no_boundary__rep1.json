@@ -1,0 +1,148 @@
+{
+  "prompt_id": "C02",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThis is a **conceptual / idealized experiment** to isolate the mechanism of water-table depth control on infiltration pulse propagation through the vadose zone. The question asks: how does the thickness of the unsaturated zone affect the transmission of a surface water input to the water table?\n\n**Scientific decomposition:**\n- **Goal:** Understand vadose-zone buffering as a function of water-table depth \u2014 specifically, how much of a surface pulse reaches the water table, and how quickly.\n- **Key process:** Vertical unsaturated flow through soil layers, gravity drainage, capillary retention, and the arrival of the infiltration front at the water table (manifested as aquifer recharge in ELM).\n- **Driver to isolate:** Initial water-table depth (WTD), spanning shallow (0.5 m) to deep (50 m).\n\n**Design approach:**\nThis is a **controlled factor experiment**, not a spatial sampling campaign. I will vary WTD systematically across a range (0.5, 2, 5, 10, 20, 50 m) while holding everything else constant: uniform soil (a single representative texture, e.g. loam), uniform forcing (a single representative climate with a defined infiltration pulse), and a single location (domain and observations are null \u2014 this is not site-specific).\n\n**The infiltration pulse:**\nThe \"pulse\" can be implemented as a **wet forcing period** (e.g. a high-precipitation month or season) embedded in an otherwise moderate baseline climate. ELM will partition the precipitation into infiltration (the rest goes to runoff/ET), and we track how much of that infiltration eventually reaches the water table as recharge (QDRAI in ELM).\n\n**Feasibility check:**\n- **CAN the stack do this?** YES, with the **WTD-informed warm start** capability (Fan 2013-based initialization). Each treatment column is initialized at a target WTD (0.5, 2, 5, 10, 20, 50 m), then run through the pulse period. ELM's aquifer range is 0.05\u201328.8 m, so the 50 m treatment is **outside ELM's aquifer range** \u2014 it will pin at the empty-aquifer state (WTD = 28.8 m, the deepest ELM can represent). This is a **known limitation** but still informative: the 50 m treatment becomes \"very deep, aquifer empty\" and shows the extreme buffering case.\n- **Spin-up:** Each column needs a short spin-up (~1 year) to equilibrate the root-zone soil moisture with the initialized water table, then the pulse period (~1\u20132 years to capture the pulse and its propagation).\n- **Forcing:** Use a **representative CONUS climate** (e.g. a temperate mid-latitude site from NLDAS-2, say 40\u00b0N, -105\u00b0W \u2014 a generic location, not tied to a real watershed). The pulse is a **seasonal or event-scale wet period** within that climate.\n\n**Sample size:**\nN = 6 treatments (WTD levels). This is the minimum to span the range and resolve the functional relationship (shallow \u2192 deep). No replication is needed in a controlled experiment (the mechanism is deterministic given the inputs).\n\n**Validation:**\nThis is a **process-understanding experiment**, not a site validation. There are no observations to compare against (observations_available is empty). Validation is **conceptual**: does the model behavior match physical expectation (e.g. deeper WTD \u2192 longer lag, more attenuation; shallow WTD \u2192 faster response, higher transmission fraction)? We can compare to **literature on vadose-zone travel times** (e.g. typical unsaturated-zone transit times scale with depth and texture).\n\n**What we compare:**\n- **Recharge response** (QDRAI time series) to the infiltration pulse: timing of peak recharge, total recharge volume, and the **transmission fraction** (recharge / infiltration).\n- **Water-table response** (ZWT, H2OSOI for aquifer storage): does the water table rise, and by how much?\n- **Lag time:** time from pulse peak to recharge peak.\n\n**Requires capabilities:**\n- **WTD-informed warm start** (Fan 2013-based initialization) \u2014 this is AVAILABLE per the execution limits, but I list it here because it is ESSENTIAL to the design (without it, all columns cold-start at the same WTD and the experiment collapses).\n- **Infiltration output** \u2014 ELM does not directly output \"infiltration\" as a single variable. We need to derive it from the water balance: infiltration \u2248 precipitation - surface runoff - canopy interception loss. This may require **post-processing or a custom history variable** (QINFL if it exists, or compute from RAIN + SNOW - QOVER - QINTR). List this as a capability need.\n\n**Caveats:**\n- The 50 m treatment is clamped at ELM's aquifer limit (28.8 m empty aquifer). This is a **known approximation** but still tests the deep-WTD regime.\n- ELM's unsaturated flow is Richards-equation-based (CLM4.5/ELM), which is appropriate for this question.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Understand vadose-zone buffering: how initial water-table depth controls the transmission of a surface infiltration pulse to the water table (recharge response)\"\n    ],\n    \"key_processes\": [\n      \"Vertical unsaturated flow (Richards equation)\",\n      \"Gravity drainage and capillary retention in the vadose zone\",\n      \"Infiltration partitioning at the surface\",\n      \"Aquifer recharge (arrival of infiltration front at water table)\"\n    ],\n    \"drivers_to_resolve\": [\n      \"Initial water-table depth (0.5 to 50 m)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"conceptual\",\n    \"rationale\": \"This is an idealized controlled experiment to isolate the WTD mechanism. ELM's 1-D unsaturated-zone physics (Richards equation, multi-layer soil moisture, aquifer recharge) is appropriate. No spatial heterogeneity or site-specific validation is needed.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": null\n  },\n  \"feasibility\": {\n    \"verdict\": \"full\",\n    \"answerable\": [\n      \"WTD control on recharge response (timing, magnitude, transmission fraction) via ELM's unsaturated-zone physics\",\n      \"Vadose-zone buffering as a function of depth (0.5\u201328.8 m, ELM's aquifer range)\",\n      \"Conceptual validation against physical expectation (deeper WTD \u2192 longer lag, more attenuation)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"WTD = 50 m treatment (beyond ELM's aquifer range)\",\n        \"why\": \"ELM's aquifer depth is clamped at 0.05\u201328.8 m. The 50 m treatment will pin at 28.8 m (empty aquifer), representing 'very deep' but not literally 50 m.\",\n        \"needs\": \"Extended aquifer depth range (or coupling to a deeper groundwater model) \u2014 not critical for this experiment, as 28.8 m is already a deep vadose zone.\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Controlled factor levels (treatments)\",\n    \"strata\": [\n      {\n        \"driver\": \"initial_water_table_depth\",\n        \"levels\": [\"0.5 m\", \"2 m\", \"5 m\", \"10 m\", \"20 m\", \"50 m (clamped at 28.8 m)\"]\n      }\n    ],\n    \"n_exploratory\": 6,\n    \"n_justification\": \"Six WTD levels span the range from shallow (0.5 m, minimal vadose zone) to deep (50 m, maximum buffering). This resolves the functional relationship (transmission fraction and lag vs. depth) with sufficient resolution. No replication needed in a deterministic controlled experiment.\",\n    \"placement_logic\": \"Not spatial. Single representative location (e.g. 40\u00b0N, -105\u00b0W, temperate mid-latitude CONUS) with uniform soil (loam) and uniform forcing. Treatments differ only in initialized WTD.\",\n    \"replication\": \"None. Controlled experiment with deterministic physics.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"Shallow WTD (0.5 m)\",\n      \"n\": 1,\n      \"reason\": \"Minimal vadose zone \u2014 expect fast response, high transmission fraction, minimal buffering.\"\n    },\n    {\n      \"group\": \"Intermediate-shallow WTD (2 m)\",\n      \"n\": 1,\n      \"reason\": \"Moderate vadose zone \u2014 expect moderate lag and attenuation.\"\n    },\n    {\n      \"group\": \"Intermediate WTD (5 m)\",\n      \"n\": 1,\n      \"reason\": \"Typical vadose-zone thickness \u2014 expect measurable lag and partial transmission.\"\n    },\n    {\n      \"group\": \"Deep WTD (10 m)\",\n      \"n\": 1,\n      \"reason\": \"Thick vadose zone \u2014 expect longer lag, significant attenuation.\"\n    },\n    {\n      \"group\": \"Very deep WTD (20 m)\",\n      \"n\": 1,\n      \"reason\": \"Very thick vadose zone \u2014 expect strong buffering, low transmission fraction.\"\n    },\n    {\n      \"group\": \"Extreme deep WTD (50 m, clamped at 28.8 m)\",\n      \"n\": 1,\n      \"reason\": \"Maximum vadose-zone buffering case \u2014 expect minimal or delayed recharge response (tests ELM's deep-aquifer limit).\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"Recharge response (QDRAI) and transmission fraction\",\n      \"observation_source\": \"None (conceptual experiment)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"Conceptual validation against physical expectation and literature on vadose-zone travel times\",\n      \"metric\": \"Qualitative: does deeper WTD \u2192 longer lag, lower transmission fraction? Quantitative: compare lag times and transmission fractions to typical unsaturated-zone transit times from literature (e.g. days to years depending on depth and texture).\",\n      \"n_validation_points\": \"N/A (no observational data)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 6,\n    \"exploratory\": 6,\n    \"validation\": 0,\n    \"primary_treatment\": \"Uniform loam soil, representative temperate CONUS forcing (NLDAS-2, e.g. 40\u00b0N -105\u00b0W), 1-year spin-up + 2-year pulse period. Infiltration pulse = wet season or high-precipitation event embedded in baseline climate. Vary only initial WTD (0.5, 2, 5, 10, 20, 50 m via WTD-informed warm start).\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"WTD-informed warm start (Fan 2013-based initialization)\",\n      \"why\": \"Essential to initialize each column at the target water-table depth (0.5\u201350 m). Without this, all columns cold-start at the same default WTD and the experiment collapses.\",\n      \"blocks\": \"The entire experimental design (WTD is the independent variable)\"\n    },\n    {\n      \"capability\": \"Infiltration output or derivation (QINFL or computed from water balance)\",\n      \"why\": \"Need to quantify the infiltration pulse (the input to the vadose zone) to compute transmission fraction = recharge / infiltration. ELM may not output infiltration directly.\",\n      \"blocks\": \"Quantitative transmission-fraction analysis (can still compare recharge responses qualitatively)\"\n    },\n    {\n      \"capability\": \"History output for recharge (QDRAI), water-table depth (ZWT), aquifer storage (H2OSOI for aquifer layer), and soil moisture (H2OSOI for vadose-zone layers)\",\n      \"why\": \"These are the key response variables. QDRAI and ZWT are likely in default output; aquifer/vadose H2OSOI may need to be added to hist_fincl.\",\n      \"blocks\": \"Detailed vadose-zone and water-table response analysis if not in output\"\n    }\n  ],\n  \"assumptions\": [\n    \"Uniform soil texture (loam) across all treatments \u2014 isolates WTD effect, removes soil heterogeneity.\",\n    \"Uniform forcing (single representative climate) \u2014 isolates WTD effect, removes climate variability.\",\n    \"Infiltration pulse is represented by a wet period (season or event) in the forcing time series \u2014 ELM partitions precipitation into infiltration based on its surface hydrology.\",\n    \"ELM's Richards-equation unsaturated flow and aquifer recharge physics are appropriate for this question.\",\n    \"The 50 m WTD treatment is clamped at ELM's aquifer limit (28.8 m, empty aquifer) \u2014 still tests the deep-buffering regime.\",\n    \"1-year spin-up is sufficient to equilibrate root-zone soil moisture with the initialized water table (aquifer is pre-set by warm start).\"\n  ],\n  \"open_questions\": [\n    \"What is the desired infiltration pulse magnitude and duration? (e.g. a single storm event, a wet month, or a wet season?) \u2014 affects the forcing period design.\",\n    \"Should we test multiple soil textures (sand, loam, clay) as a secondary factor, or keep it purely WTD-focused? \u2014 adds 3x columns but isolates soil vs. WTD effects.\",\n    \"Is there a preferred metric for 'transmission fraction' \u2014 total recharge over the pulse period / total infiltration, or peak recharge / peak infiltration rate?\",\n    \"Should we output vadose-zone soil moisture profiles (H2OSOI by layer) to visualize the infiltration front propagation? \u2014 useful for mechanistic understanding but increases output size.\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Understand vadose-zone buffering: how initial water-table depth controls the transmission of a surface infiltration pulse to the water table (recharge response)"
+      ],
+      "key_processes": [
+        "Vertical unsaturated flow (Richards equation)",
+        "Gravity drainage and capillary retention in the vadose zone",
+        "Infiltration partitioning at the surface",
+        "Aquifer recharge (arrival of infiltration front at water table)"
+      ],
+      "drivers_to_resolve": [
+        "Initial water-table depth (0.5 to 50 m)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "This is an idealized controlled experiment to isolate the WTD mechanism. ELM's 1-D unsaturated-zone physics (Richards equation, multi-layer soil moisture, aquifer recharge) is appropriate. No spatial heterogeneity or site-specific validation is needed.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "WTD control on recharge response (timing, magnitude, transmission fraction) via ELM's unsaturated-zone physics",
+        "Vadose-zone buffering as a function of depth (0.5\u201328.8 m, ELM's aquifer range)",
+        "Conceptual validation against physical expectation (deeper WTD \u2192 longer lag, more attenuation)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "WTD = 50 m treatment (beyond ELM's aquifer range)",
+          "why": "ELM's aquifer depth is clamped at 0.05\u201328.8 m. The 50 m treatment will pin at 28.8 m (empty aquifer), representing 'very deep' but not literally 50 m.",
+          "needs": "Extended aquifer depth range (or coupling to a deeper groundwater model) \u2014 not critical for this experiment, as 28.8 m is already a deep vadose zone."
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Controlled factor levels (treatments)",
+      "strata": [
+        {
+          "driver": "initial_water_table_depth",
+          "levels": [
+            "0.5 m",
+            "2 m",
+            "5 m",
+            "10 m",
+            "20 m",
+            "50 m (clamped at 28.8 m)"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "Six WTD levels span the range from shallow (0.5 m, minimal vadose zone) to deep (50 m, maximum buffering). This resolves the functional relationship (transmission fraction and lag vs. depth) with sufficient resolution. No replication needed in a deterministic controlled experiment.",
+      "placement_logic": "Not spatial. Single representative location (e.g. 40\u00b0N, -105\u00b0W, temperate mid-latitude CONUS) with uniform soil (loam) and uniform forcing. Treatments differ only in initialized WTD.",
+      "replication": "None. Controlled experiment with deterministic physics."
+    },
+    "sampling_plan": [
+      {
+        "group": "Shallow WTD (0.5 m)",
+        "n": 1,
+        "reason": "Minimal vadose zone \u2014 expect fast response, high transmission fraction, minimal buffering."
+      },
+      {
+        "group": "Intermediate-shallow WTD (2 m)",
+        "n": 1,
+        "reason": "Moderate vadose zone \u2014 expect moderate lag and attenuation."
+      },
+      {
+        "group": "Intermediate WTD (5 m)",
+        "n": 1,
+        "reason": "Typical vadose-zone thickness \u2014 expect measurable lag and partial transmission."
+      },
+      {
+        "group": "Deep WTD (10 m)",
+        "n": 1,
+        "reason": "Thick vadose zone \u2014 expect longer lag, significant attenuation."
+      },
+      {
+        "group": "Very deep WTD (20 m)",
+        "n": 1,
+        "reason": "Very thick vadose zone \u2014 expect strong buffering, low transmission fraction."
+      },
+      {
+        "group": "Extreme deep WTD (50 m, clamped at 28.8 m)",
+        "n": 1,
+        "reason": "Maximum vadose-zone buffering case \u2014 expect minimal or delayed recharge response (tests ELM's deep-aquifer limit)."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "Recharge response (QDRAI) and transmission fraction",
+        "observation_source": "None (conceptual experiment)",
+        "in_domain_available": false,
+        "comparison": "Conceptual validation against physical expectation and literature on vadose-zone travel times",
+        "metric": "Qualitative: does deeper WTD \u2192 longer lag, lower transmission fraction? Quantitative: compare lag times and transmission fractions to typical unsaturated-zone transit times from literature (e.g. days to years depending on depth and texture).",
+        "n_validation_points": "N/A (no observational data)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "Uniform loam soil, representative temperate CONUS forcing (NLDAS-2, e.g. 40\u00b0N -105\u00b0W), 1-year spin-up + 2-year pulse period. Infiltration pulse = wet season or high-precipitation event embedded in baseline climate. Vary only initial WTD (0.5, 2, 5, 10, 20, 50 m via WTD-informed warm start)."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "WTD-informed warm start (Fan 2013-based initialization)",
+        "why": "Essential to initialize each column at the target water-table depth (0.5\u201350 m). Without this, all columns cold-start at the same default WTD and the experiment collapses.",
+        "blocks": "The entire experimental design (WTD is the independent variable)"
+      },
+      {
+        "capability": "Infiltration output or derivation (QINFL or computed from water balance)",
+        "why": "Need to quantify the infiltration pulse (the input to the vadose zone) to compute transmission fraction = recharge / infiltration. ELM may not output infiltration directly.",
+        "blocks": "Quantitative transmission-fraction analysis (can still compare recharge responses qualitatively)"
+      },
+      {
+        "capability": "History output for recharge (QDRAI), water-table depth (ZWT), aquifer storage (H2OSOI for aquifer layer), and soil moisture (H2OSOI for vadose-zone layers)",
+        "why": "These are the key response variables. QDRAI and ZWT are likely in default output; aquifer/vadose H2OSOI may need to be added to hist_fincl.",
+        "blocks": "Detailed vadose-zone and water-table response analysis if not in output"
+      }
+    ],
+    "assumptions": [
+      "Uniform soil texture (loam) across all treatments \u2014 isolates WTD effect, removes soil heterogeneity.",
+      "Uniform forcing (single representative climate) \u2014 isolates WTD effect, removes climate variability.",
+      "Infiltration pulse is represented by a wet period (season or event) in the forcing time series \u2014 ELM partitions precipitation into infiltration based on its surface hydrology.",
+      "ELM's Richards-equation unsaturated flow and aquifer recharge physics are appropriate for this question.",
+      "The 50 m WTD treatment is clamped at ELM's aquifer limit (28.8 m, empty aquifer) \u2014 still tests the deep-buffering regime.",
+      "1-year spin-up is sufficient to equilibrate root-zone soil moisture with the initialized water table (aquifer is pre-set by warm start)."
+    ],
+    "open_questions": [
+      "What is the desired infiltration pulse magnitude and duration? (e.g. a single storm event, a wet month, or a wet season?) \u2014 affects the forcing period design.",
+      "Should we test multiple soil textures (sand, loam, clay) as a secondary factor, or keep it purely WTD-focused? \u2014 adds 3x columns but isolates soil vs. WTD effects.",
+      "Is there a preferred metric for 'transmission fraction' \u2014 total recharge over the pulse period / total infiltration, or peak recharge / peak infiltration rate?",
+      "Should we output vadose-zone soil moisture profiles (H2OSOI by layer) to visualize the infiltration front propagation? \u2014 useful for mechanistic understanding but increases output size."
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

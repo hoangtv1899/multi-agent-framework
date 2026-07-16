@@ -1,0 +1,225 @@
+{
+  "prompt_id": "S01",
+  "arm": "A1_informed",
+  "rep": 3,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "```json\n{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Precipitation partitioning into runoff, ET, and recharge across elevation and soil texture gradients\",\n      \"Spatial variability in water balance components driven by topography and soil properties\",\n      \"Seasonal dynamics of snowmelt-dominated hydrology\",\n      \"Validation against SNOTEL SWE observations\",\n      \"Validation against USGS streamflow (aggregated runoff)\",\n      \"Validation against USGS well water table depth for recharge inference\"\n    ],\n    \"not_answerable\": [\n      \"Direct ET validation (no flux towers available)\",\n      \"High-resolution spatial routing (single-column framework)\",\n      \"Groundwater-surface water interactions requiring coupled 3D modeling\",\n      \"Sub-daily validation of most processes\"\n    ]\n  },\n  \"n_columns\": 12,\n  \"n_justification\": \"The Naches watershed spans significant elevation (352-1977m) and climatic gradients in the Cascade Range. A 12-column design captures: (1) three elevation bands (low <700m, mid 700-1400m, high >1400m) representing rain-dominated, transitional, and snow-dominated zones; (2) four soil texture classes (sandy loam, loam, silt loam, clay loam) common in volcanic/glacial terrain; (3) spatial replication across the watershed extent. This stratified design enables robust quantification of precipitation partitioning drivers while remaining computationally tractable for multi-decadal simulation and ensemble analysis.\",\n  \"columns\": [\n    {\n      \"id\": \"naches_low_sandyloam\",\n      \"lat\": 46.65,\n      \"lon\": -120.75,\n      \"elevation_m\": 450,\n      \"soil_texture\": \"sandy loam\",\n      \"zone\": \"low_elevation_rain_dominated\"\n    },\n    {\n      \"id\": \"naches_low_loam\",\n      \"lat\": 46.70,\n      \"lon\": -120.85,\n      \"elevation_m\": 520,\n      \"soil_texture\": \"loam\",\n      \"zone\": \"low_elevation_rain_dominated\"\n    },\n    {\n      \"id\": \"naches_low_siltloam\",\n      \"lat\": 46.55,\n      \"lon\": -120.95,\n      \"elevation_m\": 610,\n      \"soil_texture\": \"silt loam\",\n      \"zone\": \"low_elevation_rain_dominated\"\n    },\n    {\n      \"id\": \"naches_low_clayloam\",\n      \"lat\": 46.60,\n      \"lon\": -121.05,\n      \"elevation_m\": 680,\n      \"soil_texture\": \"clay loam\",\n      \"zone\": \"low_elevation_rain_dominated\"\n    },\n    {\n      \"id\": \"naches_mid_sandyloam\",\n      \"lat\": 46.80,\n      \"lon\": -120.90,\n      \"elevation_m\": 920,\n      \"soil_texture\": \"sandy loam\",\n      \"zone\": \"mid_elevation_transitional\"\n    },\n    {\n      \"id\": \"naches_mid_loam\",\n      \"lat\": 46.85,\n      \"lon\": -121.00,\n      \"elevation_m\": 1050,\n      \"soil_texture\": \"loam\",\n      \"zone\": \"mid_elevation_transitional\"\n    },\n    {\n      \"id\": \"naches_mid_siltloam\",\n      \"lat\": 46.75,\n      \"lon\": -121.10,\n      \"elevation_m\": 1180,\n      \"soil_texture\": \"silt loam\",\n      \"zone\": \"mid_elevation_transitional\"\n    },\n    {\n      \"id\": \"naches_mid_clayloam\",\n      \"lat\": 46.90,\n      \"lon\": -121.20,\n      \"elevation_m\": 1320,\n      \"soil_texture\": \"clay loam\",\n      \"zone\": \"mid_elevation_transitional\"\n    },\n    {\n      \"id\": \"naches_high_sandyloam\",\n      \"lat\": 47.00,\n      \"lon\": -121.15,\n      \"elevation_m\": 1520,\n      \"soil_texture\": \"sandy loam\",\n      \"zone\": \"high_elevation_snow_dominated\"\n    },\n    {\n      \"id\": \"naches_high_loam\",\n      \"lat\": 47.05,\n      \"lon\": -121.25,\n      \"elevation_m\": 1650,\n      \"soil_texture\": \"loam\",\n      \"zone\": \"high_elevation_snow_dominated\"\n    },\n    {\n      \"id\": \"naches_high_siltloam\",\n      \"lat\": 47.10,\n      \"lon\": -121.35,\n      \"elevation_m\": 1780,\n      \"soil_texture\": \"silt loam\",\n      \"zone\": \"high_elevation_snow_dominated\"\n    },\n    {\n      \"id\": \"naches_high_clayloam\",\n      \"lat\": 47.15,\n      \"lon\": -121.45,\n      \"elevation_m\": 1920,\n      \"soil_texture\": \"clay loam\",\n      \"zone\": \"high_elevation_snow_dominated\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_OPTION\": \"nyears\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"CLM_FORCE_COLDSTART\": \"off\",\n    \"CLM_ACCELERATED_SPINUP\": \"on\",\n    \"SPINUP_YEARS\": \"200\",\n    \"CLM_BLDNML_OPTS\": \"-bgc sp -crop -irrigation_mode limit\",\n    \"DIN_LOC_ROOT\": \"/compyfs/inputdata\",\n    \"ATM_DOMAIN_FILE\": \"domain.lnd.naches_12col.nc\",\n    \"LND_DOMAIN_FILE\": \"domain.lnd.naches_12col.nc\",\n    \"SURFACE_DATA\": \"surfdata_naches_12col_hist_16pfts_Irrig_CMIP6_simyr2000_c20210101.nc\",\n    \"hist_mfilt\": \"365,12,1\",\n    \"hist_nhtfrq\": \"-24,0,-8760\",\n    \"hist_avgflag_pertape\": \"A,A,A\",\n    \"hist_dov2xy\": \".true.,.true.,.true.\",\n    \"hist_type1d_pertape\": \"COLS,COLS,COLS\",\n    \"hist_variables\": [\n      \"RAIN\",\n      \"SNOW\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRUNOFF\",\n      \"QINTR\",\n      \"QVEGE\",\n      \"QVEGT\",\n      \"QSOIL\",\n      \"QFLX_EVAP_TOT\",\n      \"EFLX_LH_TOT\",\n      \"FSH\",\n      \"QCHARGE\",\n      \"QINFL\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"SNOWICE\",\n      \"SNOWLIQ\",\n      \"FSNO\",\n      \"SNOCAN\",\n      \"H2OSOI\",\n      \"SOILWATER_10CM\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"ZWT\",\n      \"ZWT_PERCH\",\n      \"WA\",\n      \"TWS\",\n      \"TBOT\",\n      \"QBOT\",\n      \"WIND\",\n      \"FLDS\",\n      \"FSDS\",\n      \"PREC\",\n      \"PBOT\",\n      \"TSA\",\n      \"TSOI\",\n      \"TG\",\n      \"TV\",\n      \"TLAI\",\n      \"ELAI\",\n      \"ESAI\",\n      \"FPSN\",\n      \"GPP\",\n      \"AR\",\n      \"HR\",\n      \"NEE\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM single-column mode with custom domain/surface data generation\",\n    \"DATM CLMNCEP forcing extraction for 12 custom locations (1980-2018)\",\n    \"Soil texture parameterization (hydraulic conductivity, porosity, field capacity) for 4 texture classes\",\n    \"Elevation-dependent forcing adjustments (temperature lapse rate, precipitation orographic enhancement)\",\n    \"Snow model validation framework (SNOTEL comparison)\",\n    \"Water table depth output and validation against USGS well observations\",\n    \"Aggregated runoff validation against USGS streamflow (area-weighted column summation)\",\n    \"Water balance closure diagnostics (P = ET + Q + \u0394S + recharge)\",\n    \"Multi-year spinup for soil moisture and water table equilibration\",\n    \"Post-processing: partitioning ratios (ET/P, Q/P, R/P), seasonal analysis, elevation/texture sensitivity\"\n  ],\n  \"assumptions\": [\n    \"Single-column framework neglects lateral subsurface flow and surface routing; runoff aggregation approximates watershed discharge\",\n    \"CLMNCEP forcing adequately represents orographic precipitation gradients when adjusted by elevation\",\n    \"Soil texture classes are representative of watershed heterogeneity; actual spatial distribution requires soil survey integration\",\n    \"Satellite phenology (SP mode) is acceptable; crop/irrigation effects are minor in this forested/alpine watershed\",\n    \"Water table depth (ZWT) serves as proxy for recharge validation; direct recharge measurements unavailable\",\n    \"SNOTEL stations provide adequate constraint on snow accumulation/melt despite point-to-grid scale mismatch\",\n    \"Streamflow validation assumes column runoff can be area-weighted to approximate gauge observations (ignoring routing lag)\",\n    \"ET cannot be directly validated but is constrained by water balance closure and energy balance consistency\",\n    \"200-year accelerated spinup achieves quasi-equilibrium for deep soil moisture and groundwater\",\n    \"1980-2018 period captures interannual variability including ENSO, PDO effects on Pacific Northwest hydrology\",\n    \"Perched water tables and shallow bedrock effects are represented by ELM's default parameterizations\",\n    \"Vegetation distribution (PFT) from default surface dataset is reasonable for Cascade mixed conifer/subalpine forests\"\n  ]\n}\n```",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Precipitation partitioning into runoff, ET, and recharge across elevation and soil texture gradients",
+        "Spatial variability in water balance components driven by topography and soil properties",
+        "Seasonal dynamics of snowmelt-dominated hydrology",
+        "Validation against SNOTEL SWE observations",
+        "Validation against USGS streamflow (aggregated runoff)",
+        "Validation against USGS well water table depth for recharge inference"
+      ],
+      "not_answerable": [
+        "Direct ET validation (no flux towers available)",
+        "High-resolution spatial routing (single-column framework)",
+        "Groundwater-surface water interactions requiring coupled 3D modeling",
+        "Sub-daily validation of most processes"
+      ]
+    },
+    "n_columns": 12,
+    "n_justification": "The Naches watershed spans significant elevation (352-1977m) and climatic gradients in the Cascade Range. A 12-column design captures: (1) three elevation bands (low <700m, mid 700-1400m, high >1400m) representing rain-dominated, transitional, and snow-dominated zones; (2) four soil texture classes (sandy loam, loam, silt loam, clay loam) common in volcanic/glacial terrain; (3) spatial replication across the watershed extent. This stratified design enables robust quantification of precipitation partitioning drivers while remaining computationally tractable for multi-decadal simulation and ensemble analysis.",
+    "columns": [
+      {
+        "id": "naches_low_sandyloam",
+        "lat": 46.65,
+        "lon": -120.75,
+        "elevation_m": 450,
+        "soil_texture": "sandy loam",
+        "zone": "low_elevation_rain_dominated"
+      },
+      {
+        "id": "naches_low_loam",
+        "lat": 46.7,
+        "lon": -120.85,
+        "elevation_m": 520,
+        "soil_texture": "loam",
+        "zone": "low_elevation_rain_dominated"
+      },
+      {
+        "id": "naches_low_siltloam",
+        "lat": 46.55,
+        "lon": -120.95,
+        "elevation_m": 610,
+        "soil_texture": "silt loam",
+        "zone": "low_elevation_rain_dominated"
+      },
+      {
+        "id": "naches_low_clayloam",
+        "lat": 46.6,
+        "lon": -121.05,
+        "elevation_m": 680,
+        "soil_texture": "clay loam",
+        "zone": "low_elevation_rain_dominated"
+      },
+      {
+        "id": "naches_mid_sandyloam",
+        "lat": 46.8,
+        "lon": -120.9,
+        "elevation_m": 920,
+        "soil_texture": "sandy loam",
+        "zone": "mid_elevation_transitional"
+      },
+      {
+        "id": "naches_mid_loam",
+        "lat": 46.85,
+        "lon": -121.0,
+        "elevation_m": 1050,
+        "soil_texture": "loam",
+        "zone": "mid_elevation_transitional"
+      },
+      {
+        "id": "naches_mid_siltloam",
+        "lat": 46.75,
+        "lon": -121.1,
+        "elevation_m": 1180,
+        "soil_texture": "silt loam",
+        "zone": "mid_elevation_transitional"
+      },
+      {
+        "id": "naches_mid_clayloam",
+        "lat": 46.9,
+        "lon": -121.2,
+        "elevation_m": 1320,
+        "soil_texture": "clay loam",
+        "zone": "mid_elevation_transitional"
+      },
+      {
+        "id": "naches_high_sandyloam",
+        "lat": 47.0,
+        "lon": -121.15,
+        "elevation_m": 1520,
+        "soil_texture": "sandy loam",
+        "zone": "high_elevation_snow_dominated"
+      },
+      {
+        "id": "naches_high_loam",
+        "lat": 47.05,
+        "lon": -121.25,
+        "elevation_m": 1650,
+        "soil_texture": "loam",
+        "zone": "high_elevation_snow_dominated"
+      },
+      {
+        "id": "naches_high_siltloam",
+        "lat": 47.1,
+        "lon": -121.35,
+        "elevation_m": 1780,
+        "soil_texture": "silt loam",
+        "zone": "high_elevation_snow_dominated"
+      },
+      {
+        "id": "naches_high_clayloam",
+        "lat": 47.15,
+        "lon": -121.45,
+        "elevation_m": 1920,
+        "soil_texture": "clay loam",
+        "zone": "high_elevation_snow_dominated"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_OPTION": "nyears",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "CLM_FORCE_COLDSTART": "off",
+      "CLM_ACCELERATED_SPINUP": "on",
+      "SPINUP_YEARS": "200",
+      "CLM_BLDNML_OPTS": "-bgc sp -crop -irrigation_mode limit",
+      "DIN_LOC_ROOT": "/compyfs/inputdata",
+      "ATM_DOMAIN_FILE": "domain.lnd.naches_12col.nc",
+      "LND_DOMAIN_FILE": "domain.lnd.naches_12col.nc",
+      "SURFACE_DATA": "surfdata_naches_12col_hist_16pfts_Irrig_CMIP6_simyr2000_c20210101.nc",
+      "hist_mfilt": "365,12,1",
+      "hist_nhtfrq": "-24,0,-8760",
+      "hist_avgflag_pertape": "A,A,A",
+      "hist_dov2xy": ".true.,.true.,.true.",
+      "hist_type1d_pertape": "COLS,COLS,COLS",
+      "hist_variables": [
+        "RAIN",
+        "SNOW",
+        "QOVER",
+        "QDRAI",
+        "QRUNOFF",
+        "QINTR",
+        "QVEGE",
+        "QVEGT",
+        "QSOIL",
+        "QFLX_EVAP_TOT",
+        "EFLX_LH_TOT",
+        "FSH",
+        "QCHARGE",
+        "QINFL",
+        "H2OSNO",
+        "SNOWDP",
+        "SNOWICE",
+        "SNOWLIQ",
+        "FSNO",
+        "SNOCAN",
+        "H2OSOI",
+        "SOILWATER_10CM",
+        "SOILLIQ",
+        "SOILICE",
+        "ZWT",
+        "ZWT_PERCH",
+        "WA",
+        "TWS",
+        "TBOT",
+        "QBOT",
+        "WIND",
+        "FLDS",
+        "FSDS",
+        "PREC",
+        "PBOT",
+        "TSA",
+        "TSOI",
+        "TG",
+        "TV",
+        "TLAI",
+        "ELAI",
+        "ESAI",
+        "FPSN",
+        "GPP",
+        "AR",
+        "HR",
+        "NEE"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM single-column mode with custom domain/surface data generation",
+      "DATM CLMNCEP forcing extraction for 12 custom locations (1980-2018)",
+      "Soil texture parameterization (hydraulic conductivity, porosity, field capacity) for 4 texture classes",
+      "Elevation-dependent forcing adjustments (temperature lapse rate, precipitation orographic enhancement)",
+      "Snow model validation framework (SNOTEL comparison)",
+      "Water table depth output and validation against USGS well observations",
+      "Aggregated runoff validation against USGS streamflow (area-weighted column summation)",
+      "Water balance closure diagnostics (P = ET + Q + \u0394S + recharge)",
+      "Multi-year spinup for soil moisture and water table equilibration",
+      "Post-processing: partitioning ratios (ET/P, Q/P, R/P), seasonal analysis, elevation/texture sensitivity"
+    ],
+    "assumptions": [
+      "Single-column framework neglects lateral subsurface flow and surface routing; runoff aggregation approximates watershed discharge",
+      "CLMNCEP forcing adequately represents orographic precipitation gradients when adjusted by elevation",
+      "Soil texture classes are representative of watershed heterogeneity; actual spatial distribution requires soil survey integration",
+      "Satellite phenology (SP mode) is acceptable; crop/irrigation effects are minor in this forested/alpine watershed",
+      "Water table depth (ZWT) serves as proxy for recharge validation; direct recharge measurements unavailable",
+      "SNOTEL stations provide adequate constraint on snow accumulation/melt despite point-to-grid scale mismatch",
+      "Streamflow validation assumes column runoff can be area-weighted to approximate gauge observations (ignoring routing lag)",
+      "ET cannot be directly validated but is constrained by water balance closure and energy balance consistency",
+      "200-year accelerated spinup achieves quasi-equilibrium for deep soil moisture and groundwater",
+      "1980-2018 period captures interannual variability including ENSO, PDO effects on Pacific Northwest hydrology",
+      "Perched water tables and shallow bedrock effects are represented by ELM's default parameterizations",
+      "Vegetation distribution (PFT) from default surface dataset is reasonable for Cascade mixed conifer/subalpine forests"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

@@ -1,0 +1,229 @@
+{
+  "prompt_id": "S04",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user asks to **contrast water partitioning between a wet year (1993) and a dry year (2002)** in the Salt River headwaters. This is a **comparative climate-sensitivity experiment** at a real watershed.\n\n### Decomposition\nTwo explicit goals:\n1. **Mechanistic understanding**: Quantify how partitioning (ET, runoff, recharge) responds to wet vs dry forcing across the watershed's heterogeneity.\n2. **Validation**: Compare modeled streamflow aggregates to USGS gauge observations (the only available data).\n\n### Key Drivers\nThe brief lists \"forcing period\" and \"elevation\" as candidate drivers. The question explicitly targets **forcing period** (wet vs dry year). **Elevation** matters physically (controls precip gradient, temperature, snow vs rain), but:\n\n**FEASIBILITY CHECK**: The framework provides **uniform forcing** to all columns. A column at 900m and a column at 3300m receive **identical meteorology**. Without elevation-downscaled forcing, columns stratified by elevation will show differences driven by **soil/vegetation**, not by elevation's climate effect. The question's premise\u2014contrasting wet vs dry years\u2014assumes the forcing itself varies, which it does (1993 vs 2002), but the elevation gradient's **orographic precipitation and temperature lapse** are not represented.\n\n**Verdict**: The runs CAN answer the **forcing-period contrast** (wet vs dry) but CANNOT isolate elevation's climate control on partitioning. They CAN show how **soil/topographic-position heterogeneity** modulates the response to wet vs dry forcing.\n\n### Sampling Strategy\n- **Two treatments**: 1993 forcing (wet) and 2002 forcing (dry).\n- **Spatial stratification**: Sample across the watershed's **elevation bands** and **topographic positions** (upland vs valley/riparian) to capture soil moisture redistribution and runoff generation zones. Even without elevation-downscaled forcing, elevation correlates with soil type and topographic wetness, which DO affect partitioning.\n- **N justification**: \n  - 3 elevation bands (low <1500m, mid 1500-2400m, high >2400m) \u00d7 2 topographic positions (upland, valley/riparian) = 6 spatial strata.\n  - Light replication (2 per stratum) = 12 exploratory columns per treatment.\n  - 2 treatments \u00d7 12 = **24 exploratory columns**.\n  - **Validation**: 1-2 columns near USGS gauges for streamflow validation (co-located is impossible\u2014ELM columns don't route\u2014so we validate via **analog process**: compare modeled runoff generation to observed streamflow timing/magnitude). Total validation columns: 2.\n  - **Total: 26 columns**.\n\n### Validation Design\n- **Target**: Streamflow at USGS gauges.\n- **Problem**: ELM single-column produces **surface runoff + subsurface drainage** at the column scale, NOT routed streamflow. The framework lacks a routing model.\n- **Workaround**: Place validation columns near gauges and compare **modeled runoff generation** (QOVER + QDRAI summed) to **observed streamflow** as an **analog validation**\u2014we check if the model's runoff timing and wet-vs-dry contrast match observations, acknowledging this is NOT a direct hydrograph comparison.\n- **Metric**: Temporal correlation and wet-year / dry-year ratio.\n\n### Requires Capabilities\n1. **Elevation-downscaled forcing** (precip lapse, temperature lapse) \u2014 needed to isolate elevation's climate effect. Without it, elevation stratification tests soil/position, not climate.\n2. **Runoff routing / aggregation** \u2014 needed to convert column-scale runoff to watershed streamflow for direct gauge validation.\n3. **DEM/elevation sampling** \u2014 the expander must sample real elevation rasters to place columns in the specified bands.\n4. **Gridded soil data** \u2014 to assign realistic soil properties by location.\n5. **HUC boundary resolver** \u2014 to clip sampling to HUC 15060103.\n6. **USGS gauge metadata ingest** \u2014 to locate validation columns near gauges.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Quantify how water partitioning (ET, surface runoff, subsurface drainage) responds to wet (1993) vs dry (2002) forcing across the watershed's spatial heterogeneity\",\n      \"Validate modeled runoff generation against USGS streamflow observations\"\n    ],\n    \"key_processes\": [\n      \"Evapotranspiration\",\n      \"Surface runoff generation\",\n      \"Subsurface drainage/recharge\",\n      \"Soil moisture dynamics\",\n      \"Wet-year vs dry-year partitioning contrast\"\n    ],\n    \"drivers_to_resolve\": [\n      \"forcing period (wet vs dry)\",\n      \"elevation (as proxy for soil/topographic position)\",\n      \"topographic position (upland vs valley/riparian)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM can resolve soil moisture, ET, and runoff generation at points across the watershed. Comparing two forcing periods (1993 vs 2002) tests climate sensitivity. Spatial sampling captures heterogeneity in the response.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": null\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Wet-year (1993) vs dry-year (2002) contrast in partitioning (ET, runoff, drainage) at the watershed scale\",\n      \"How soil/topographic-position heterogeneity modulates the wet-vs-dry response\",\n      \"Analog validation of runoff generation timing and magnitude against USGS streamflow\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Elevation's climate control on partitioning (orographic precip gradient, temperature lapse, rain-snow transition)\",\n        \"why\": \"Framework provides uniform forcing to all columns; elevation-downscaled forcing (precip/temp lapse rates) is not implemented\",\n        \"needs\": \"Elevation-downscaled forcing\"\n      },\n      {\n        \"aspect\": \"Direct streamflow validation (routed hydrograph comparison at gauges)\",\n        \"why\": \"ELM single-column produces column-scale runoff, not routed streamflow; framework lacks a routing model\",\n        \"needs\": \"Runoff routing / aggregation to watershed outlet\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Stratified by elevation band and topographic position, with two forcing treatments (wet vs dry year)\",\n    \"strata\": [\n      {\n        \"driver\": \"elevation\",\n        \"bands\": [\n          \"low: 900-1500m\",\n          \"mid: 1500-2400m\",\n          \"high: 2400-3300m\"\n        ]\n      },\n      {\n        \"driver\": \"topographic_position\",\n        \"classes\": [\n          \"upland (ridges, hillslopes)\",\n          \"valley/riparian (convergent zones, near-stream)\"\n        ]\n      },\n      {\n        \"driver\": \"forcing_period\",\n        \"treatments\": [\n          \"wet year: 1993\",\n          \"dry year: 2002\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 24,\n    \"n_justification\": \"3 elevation bands \u00d7 2 topographic positions = 6 spatial strata. Light replication (2 columns per stratum) = 12 exploratory columns. Two forcing treatments (1993, 2002) \u00d7 12 = 24 exploratory columns. This resolves the wet-vs-dry contrast across the watershed's soil/position heterogeneity.\",\n    \"placement_logic\": \"Concentrate columns in valley/riparian zones (where soil moisture redistribution and runoff generation are strongest) and span the elevation gradient (which correlates with soil type and topographic wetness even without downscaled forcing). Upland columns capture drier, well-drained conditions; valley columns capture wetter, convergent zones.\",\n    \"replication\": \"2 columns per spatial stratum to assess within-stratum variability and improve robustness of the wet-vs-dry contrast\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"low-elevation upland, wet year (1993)\",\n      \"n\": 2,\n      \"reason\": \"Baseline partitioning in warm, low-elevation uplands under wet forcing\"\n    },\n    {\n      \"group\": \"low-elevation upland, dry year (2002)\",\n      \"n\": 2,\n      \"reason\": \"Contrast to wet year: how low-elevation uplands respond to drought\"\n    },\n    {\n      \"group\": \"low-elevation valley/riparian, wet year (1993)\",\n      \"n\": 2,\n      \"reason\": \"Runoff generation and soil moisture accumulation in convergent zones under wet forcing\"\n    },\n    {\n      \"group\": \"low-elevation valley/riparian, dry year (2002)\",\n      \"n\": 2,\n      \"reason\": \"Contrast to wet year: how valley zones sustain ET and runoff under drought\"\n    },\n    {\n      \"group\": \"mid-elevation upland, wet year (1993)\",\n      \"n\": 2,\n      \"reason\": \"Intermediate elevation uplands under wet forcing (transition zone)\"\n    },\n    {\n      \"group\": \"mid-elevation upland, dry year (2002)\",\n      \"n\": 2,\n      \"reason\": \"Contrast to wet year: mid-elevation upland drought response\"\n    },\n    {\n      \"group\": \"mid-elevation valley/riparian, wet year (1993)\",\n      \"n\": 2,\n      \"reason\": \"Mid-elevation convergent zones under wet forcing (key runoff generation)\"\n    },\n    {\n      \"group\": \"mid-elevation valley/riparian, dry year (2002)\",\n      \"n\": 2,\n      \"reason\": \"Contrast to wet year: mid-elevation valley drought response\"\n    },\n    {\n      \"group\": \"high-elevation upland, wet year (1993)\",\n      \"n\": 2,\n      \"reason\": \"High-elevation uplands under wet forcing (cooler, potentially snow-affected)\"\n    },\n    {\n      \"group\": \"high-elevation upland, dry year (2002)\",\n      \"n\": 2,\n      \"reason\": \"Contrast to wet year: high-elevation upland drought response\"\n    },\n    {\n      \"group\": \"high-elevation valley/riparian, wet year (1993)\",\n      \"n\": 2,\n      \"reason\": \"High-elevation convergent zones under wet forcing (headwater runoff generation)\"\n    },\n    {\n      \"group\": \"high-elevation valley/riparian, dry year (2002)\",\n      \"n\": 2,\n      \"reason\": \"Contrast to wet year: high-elevation valley drought response\"\n    },\n    {\n      \"group\": \"validation near USGS gauges, wet year (1993)\",\n      \"n\": 1,\n      \"reason\": \"Analog validation of runoff generation timing/magnitude against observed streamflow in wet year\"\n    },\n    {\n      \"group\": \"validation near USGS gauges, dry year (2002)\",\n      \"n\": 1,\n      \"reason\": \"Analog validation of runoff generation timing/magnitude against observed streamflow in dry year\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"streamflow\",\n      \"observation_source\": \"USGS stream gauges\",\n      \"in_domain_available\": true,\n      \"comparison\": \"analog \u2014 modeled column-scale runoff (QOVER + QDRAI) compared to observed streamflow timing and wet-vs-dry ratio, NOT direct hydrograph matching (no routing)\",\n      \"metric\": \"Temporal correlation of monthly runoff generation vs observed streamflow; wet-year / dry-year runoff ratio\",\n      \"n_validation_points\": \"2 (one per forcing treatment, near gauge locations)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 26,\n    \"exploratory\": 24,\n    \"validation\": 2,\n    \"primary_treatment\": \"Two forcing periods (1993 wet, 2002 dry) applied to spatially stratified columns; native soil and vegetation per location\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"Elevation-downscaled forcing (precipitation lapse rate, temperature lapse rate)\",\n      \"why\": \"To isolate elevation's climate control on partitioning (orographic precip, rain-snow transition). Without it, elevation stratification tests soil/position heterogeneity, not climate gradient.\",\n      \"blocks\": \"Answering whether elevation drives partitioning differences via climate (precip/temp gradients)\"\n    },\n    {\n      \"capability\": \"Runoff routing / aggregation to watershed outlet\",\n      \"why\": \"ELM produces column-scale runoff; USGS gauges measure routed streamflow. Direct hydrograph validation requires routing.\",\n      \"blocks\": \"Direct streamflow validation (co-located hydrograph comparison at gauges)\"\n    },\n    {\n      \"capability\": \"DEM/elevation raster sampling\",\n      \"why\": \"Expander must sample real elevation data to place columns in specified elevation bands (900-1500m, 1500-2400m, 2400-3300m).\",\n      \"blocks\": \"Automated placement of columns in elevation strata\"\n    },\n    {\n      \"capability\": \"Gridded soil data (texture, depth, hydraulic properties)\",\n      \"why\": \"To assign realistic soil properties by location, which control infiltration, runoff, and drainage.\",\n      \"blocks\": \"Realistic soil heterogeneity in the sampling\"\n    },\n    {\n      \"capability\": \"Topographic wetness index or valley-bottom mask\",\n      \"why\": \"To identify valley/riparian vs upland positions for stratified sampling.\",\n      \"blocks\": \"Automated placement of columns in topographic-position strata\"\n    },\n    {\n      \"capability\": \"HUC boundary resolver (clip to HUC 15060103)\",\n      \"why\": \"To constrain sampling to the Salt River headwaters watershed.\",\n      \"blocks\": \"Ensuring all columns are within the target domain\"\n    },\n    {\n      \"capability\": \"USGS gauge metadata ingest (locations, drainage areas)\",\n      \"why\": \"To place validation columns near gauges and retrieve observed streamflow for comparison.\",\n      \"blocks\": \"Automated validation-column placement and observation retrieval\"\n    }\n  ],\n  \"assumptions\": [\n    \"1993 and 2002 forcing data are available and representative of wet vs dry conditions in the Salt River headwaters\",\n    \"Uniform forcing (no elevation downscaling) is acceptable for a first-order wet-vs-dry contrast, with elevation stratification capturing soil/position heterogeneity rather than climate gradient\",\n    \"Analog validation (column runoff vs gauge streamflow) is scientifically defensible for assessing runoff generation timing and magnitude, despite lack of routing\",\n    \"USGS gauge locations are known and accessible for validation-column placement\",\n    \"Soil and vegetation data are available at sufficient resolution to assign realistic properties to sampled columns\",\n    \"SNOTEL sparsity is acceptable (snow processes are secondary to the wet-vs-dry partitioning question, though high-elevation columns may be affected)\"\n  ],\n  \"open_questions\": [\n    \"Are 1993 and 2002 confirmed as wet and dry years in this watershed (e.g. via precipitation anomaly or streamflow records)?\",\n    \"How many USGS gauges are active in HUC 15060103 during 1993 and 2002, and where are they located?\",\n    \"Is there interest in a follow-on experiment with elevation-downscaled forcing to isolate climate-gradient effects?\",\n    \"Should high-elevation columns include snow-related output variables (SWE, snowmelt timing) even though SNOTEL is sparse?\",\n    \"Is there interest in a coupled ELM-PFLOTRAN experiment to test groundwater's role in sustaining baseflow during the dry year?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify how water partitioning (ET, surface runoff, subsurface drainage) responds to wet (1993) vs dry (2002) forcing across the watershed's spatial heterogeneity",
+        "Validate modeled runoff generation against USGS streamflow observations"
+      ],
+      "key_processes": [
+        "Evapotranspiration",
+        "Surface runoff generation",
+        "Subsurface drainage/recharge",
+        "Soil moisture dynamics",
+        "Wet-year vs dry-year partitioning contrast"
+      ],
+      "drivers_to_resolve": [
+        "forcing period (wet vs dry)",
+        "elevation (as proxy for soil/topographic position)",
+        "topographic position (upland vs valley/riparian)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM can resolve soil moisture, ET, and runoff generation at points across the watershed. Comparing two forcing periods (1993 vs 2002) tests climate sensitivity. Spatial sampling captures heterogeneity in the response.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Wet-year (1993) vs dry-year (2002) contrast in partitioning (ET, runoff, drainage) at the watershed scale",
+        "How soil/topographic-position heterogeneity modulates the wet-vs-dry response",
+        "Analog validation of runoff generation timing and magnitude against USGS streamflow"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Elevation's climate control on partitioning (orographic precip gradient, temperature lapse, rain-snow transition)",
+          "why": "Framework provides uniform forcing to all columns; elevation-downscaled forcing (precip/temp lapse rates) is not implemented",
+          "needs": "Elevation-downscaled forcing"
+        },
+        {
+          "aspect": "Direct streamflow validation (routed hydrograph comparison at gauges)",
+          "why": "ELM single-column produces column-scale runoff, not routed streamflow; framework lacks a routing model",
+          "needs": "Runoff routing / aggregation to watershed outlet"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by elevation band and topographic position, with two forcing treatments (wet vs dry year)",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low: 900-1500m",
+            "mid: 1500-2400m",
+            "high: 2400-3300m"
+          ]
+        },
+        {
+          "driver": "topographic_position",
+          "classes": [
+            "upland (ridges, hillslopes)",
+            "valley/riparian (convergent zones, near-stream)"
+          ]
+        },
+        {
+          "driver": "forcing_period",
+          "treatments": [
+            "wet year: 1993",
+            "dry year: 2002"
+          ]
+        }
+      ],
+      "n_exploratory": 24,
+      "n_justification": "3 elevation bands \u00d7 2 topographic positions = 6 spatial strata. Light replication (2 columns per stratum) = 12 exploratory columns. Two forcing treatments (1993, 2002) \u00d7 12 = 24 exploratory columns. This resolves the wet-vs-dry contrast across the watershed's soil/position heterogeneity.",
+      "placement_logic": "Concentrate columns in valley/riparian zones (where soil moisture redistribution and runoff generation are strongest) and span the elevation gradient (which correlates with soil type and topographic wetness even without downscaled forcing). Upland columns capture drier, well-drained conditions; valley columns capture wetter, convergent zones.",
+      "replication": "2 columns per spatial stratum to assess within-stratum variability and improve robustness of the wet-vs-dry contrast"
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elevation upland, wet year (1993)",
+        "n": 2,
+        "reason": "Baseline partitioning in warm, low-elevation uplands under wet forcing"
+      },
+      {
+        "group": "low-elevation upland, dry year (2002)",
+        "n": 2,
+        "reason": "Contrast to wet year: how low-elevation uplands respond to drought"
+      },
+      {
+        "group": "low-elevation valley/riparian, wet year (1993)",
+        "n": 2,
+        "reason": "Runoff generation and soil moisture accumulation in convergent zones under wet forcing"
+      },
+      {
+        "group": "low-elevation valley/riparian, dry year (2002)",
+        "n": 2,
+        "reason": "Contrast to wet year: how valley zones sustain ET and runoff under drought"
+      },
+      {
+        "group": "mid-elevation upland, wet year (1993)",
+        "n": 2,
+        "reason": "Intermediate elevation uplands under wet forcing (transition zone)"
+      },
+      {
+        "group": "mid-elevation upland, dry year (2002)",
+        "n": 2,
+        "reason": "Contrast to wet year: mid-elevation upland drought response"
+      },
+      {
+        "group": "mid-elevation valley/riparian, wet year (1993)",
+        "n": 2,
+        "reason": "Mid-elevation convergent zones under wet forcing (key runoff generation)"
+      },
+      {
+        "group": "mid-elevation valley/riparian, dry year (2002)",
+        "n": 2,
+        "reason": "Contrast to wet year: mid-elevation valley drought response"
+      },
+      {
+        "group": "high-elevation upland, wet year (1993)",
+        "n": 2,
+        "reason": "High-elevation uplands under wet forcing (cooler, potentially snow-affected)"
+      },
+      {
+        "group": "high-elevation upland, dry year (2002)",
+        "n": 2,
+        "reason": "Contrast to wet year: high-elevation upland drought response"
+      },
+      {
+        "group": "high-elevation valley/riparian, wet year (1993)",
+        "n": 2,
+        "reason": "High-elevation convergent zones under wet forcing (headwater runoff generation)"
+      },
+      {
+        "group": "high-elevation valley/riparian, dry year (2002)",
+        "n": 2,
+        "reason": "Contrast to wet year: high-elevation valley drought response"
+      },
+      {
+        "group": "validation near USGS gauges, wet year (1993)",
+        "n": 1,
+        "reason": "Analog validation of runoff generation timing/magnitude against observed streamflow in wet year"
+      },
+      {
+        "group": "validation near USGS gauges, dry year (2002)",
+        "n": 1,
+        "reason": "Analog validation of runoff generation timing/magnitude against observed streamflow in dry year"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "streamflow",
+        "observation_source": "USGS stream gauges",
+        "in_domain_available": true,
+        "comparison": "analog \u2014 modeled column-scale runoff (QOVER + QDRAI) compared to observed streamflow timing and wet-vs-dry ratio, NOT direct hydrograph matching (no routing)",
+        "metric": "Temporal correlation of monthly runoff generation vs observed streamflow; wet-year / dry-year runoff ratio",
+        "n_validation_points": "2 (one per forcing treatment, near gauge locations)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 26,
+      "exploratory": 24,
+      "validation": 2,
+      "primary_treatment": "Two forcing periods (1993 wet, 2002 dry) applied to spatially stratified columns; native soil and vegetation per location"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Elevation-downscaled forcing (precipitation lapse rate, temperature lapse rate)",
+        "why": "To isolate elevation's climate control on partitioning (orographic precip, rain-snow transition). Without it, elevation stratification tests soil/position heterogeneity, not climate gradient.",
+        "blocks": "Answering whether elevation drives partitioning differences via climate (precip/temp gradients)"
+      },
+      {
+        "capability": "Runoff routing / aggregation to watershed outlet",
+        "why": "ELM produces column-scale runoff; USGS gauges measure routed streamflow. Direct hydrograph validation requires routing.",
+        "blocks": "Direct streamflow validation (co-located hydrograph comparison at gauges)"
+      },
+      {
+        "capability": "DEM/elevation raster sampling",
+        "why": "Expander must sample real elevation data to place columns in specified elevation bands (900-1500m, 1500-2400m, 2400-3300m).",
+        "blocks": "Automated placement of columns in elevation strata"
+      },
+      {
+        "capability": "Gridded soil data (texture, depth, hydraulic properties)",
+        "why": "To assign realistic soil properties by location, which control infiltration, runoff, and drainage.",
+        "blocks": "Realistic soil heterogeneity in the sampling"
+      },
+      {
+        "capability": "Topographic wetness index or valley-bottom mask",
+        "why": "To identify valley/riparian vs upland positions for stratified sampling.",
+        "blocks": "Automated placement of columns in topographic-position strata"
+      },
+      {
+        "capability": "HUC boundary resolver (clip to HUC 15060103)",
+        "why": "To constrain sampling to the Salt River headwaters watershed.",
+        "blocks": "Ensuring all columns are within the target domain"
+      },
+      {
+        "capability": "USGS gauge metadata ingest (locations, drainage areas)",
+        "why": "To place validation columns near gauges and retrieve observed streamflow for comparison.",
+        "blocks": "Automated validation-column placement and observation retrieval"
+      }
+    ],
+    "assumptions": [
+      "1993 and 2002 forcing data are available and representative of wet vs dry conditions in the Salt River headwaters",
+      "Uniform forcing (no elevation downscaling) is acceptable for a first-order wet-vs-dry contrast, with elevation stratification capturing soil/position heterogeneity rather than climate gradient",
+      "Analog validation (column runoff vs gauge streamflow) is scientifically defensible for assessing runoff generation timing and magnitude, despite lack of routing",
+      "USGS gauge locations are known and accessible for validation-column placement",
+      "Soil and vegetation data are available at sufficient resolution to assign realistic properties to sampled columns",
+      "SNOTEL sparsity is acceptable (snow processes are secondary to the wet-vs-dry partitioning question, though high-elevation columns may be affected)"
+    ],
+    "open_questions": [
+      "Are 1993 and 2002 confirmed as wet and dry years in this watershed (e.g. via precipitation anomaly or streamflow records)?",
+      "How many USGS gauges are active in HUC 15060103 during 1993 and 2002, and where are they located?",
+      "Is there interest in a follow-on experiment with elevation-downscaled forcing to isolate climate-gradient effects?",
+      "Should high-elevation columns include snow-related output variables (SWE, snowmelt timing) even though SNOTEL is sparse?",
+      "Is there interest in a coupled ELM-PFLOTRAN experiment to test groundwater's role in sustaining baseflow during the dry year?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

@@ -1,0 +1,143 @@
+{
+  "prompt_id": "S04",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user asks to **contrast water partitioning between a wet year (1993) and a dry year (2002)** in the Salt River headwaters (HUC 15060103, Arizona). This is a **temporal comparison** question, not a spatial heterogeneity question, despite the \"site\" archetype label.\n\n### Decomposition\n- **Primary goal**: Quantify how partitioning (ET, runoff, recharge) differs between wet vs dry forcing years.\n- **Secondary goal**: Validate streamflow response (USGS gauges available).\n- **Key process**: Water partitioning under contrasting precipitation regimes.\n- **Drivers**: The question explicitly names **forcing period** (1993 vs 2002) as the treatment. Elevation is listed as a candidate driver, but the question does NOT ask \"how does elevation modulate the wet/dry contrast\" \u2014 it asks for the basin-level contrast itself.\n\n### Feasibility Check Against Execution Limits\n\n**FORCING**: NLDAS-2 (1980-2018, 0.125\u00b0 CONUS) covers both years and the domain. Each column gets its nearest 12 km cell, so precipitation DOES vary with location/elevation across the 2400 m relief range. \u2713 This is representable.\n\n**ELEVATION EFFECT**: The 900-3300 m range spans a strong orographic gradient. NLDAS-2 at 12 km resolution captures large-scale orographic patterns (verified: a 1625 m basin spans ~15 distinct precip values). The Salt River headwaters' 2400 m relief will produce substantial forcing variation across columns. However, **sub-12 km terrain is unresolved** (no within-cell lapse rate), so fine-scale elevation effects are smoothed. This is a **partial** representation: the runs CAN show elevation-correlated forcing differences, but cannot resolve ridge-scale microclimates.\n\n**STREAMFLOW VALIDATION**: USGS gauges exist, but ELM columns are **independent 1-D points with no lateral transport or routing**. To compare to gage flow, we need **runoff aggregation + routing**, which is NOT implemented. This is a **known execution limit**. We can validate **analog processes** (e.g. runoff generation patterns, ET partitioning) but NOT integrated streamflow directly. Must flag this gap.\n\n**SPIN-UP**: Comparing 1993 vs 2002 requires each column to start from a realistic initial state, not a cold-start artifact. **Multi-year spin-up OR WTD-informed warm start is REQUIRED**. The WTD-informed warm start (Fan 2013 equilibrium) is preferred (scales better, available for CONUS). Without it, recharge/water table in both years would be initialization noise, not climate response.\n\n### Design Strategy\n\nSince the question is **temporal (wet vs dry year)**, not spatial-heterogeneity exploration, the sampling strategy is:\n- **Stratify lightly by elevation** to span the basin's orographic gradient (low/mid/high elevation bands), ensuring the wet/dry contrast is captured across the precipitation regime.\n- **N = small** (6-9 columns): 3 elevation bands \u00d7 2-3 replicates per band. This is enough to characterize basin-level partitioning and its elevation dependence without over-sampling.\n- **Treatment**: Each column runs TWICE (1993 forcing, 2002 forcing), both starting from the same WTD-informed warm start (Fan 2013 equilibrium). This isolates the forcing-year effect.\n- **Validation**: Aggregate column runoff (QRUNOFF + QDRAI) across the sample and compare temporal patterns (not absolute flow) to USGS gage hydrographs. This is an **analog validation** (pattern comparison), not co-located streamflow validation (which needs routing).\n\n### Feasibility Verdict\n**Partial**: The runs CAN answer the core question (wet vs dry partitioning contrast, elevation-correlated forcing variation) but CANNOT validate integrated streamflow (needs routing) and cannot resolve sub-12 km terrain effects. The primary mechanism (forcing-year contrast) IS representable.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Quantify water partitioning (ET, runoff, recharge) differences between wet year (1993) and dry year (2002)\",\n      \"Validate runoff generation patterns against USGS streamflow temporal response\"\n    ],\n    \"key_processes\": [\n      \"Water partitioning under contrasting precipitation regimes\",\n      \"Orographic precipitation gradient across 2400 m elevation range\",\n      \"Runoff generation and timing\"\n    ],\n    \"drivers_to_resolve\": [\n      \"forcing_period (1993 vs 2002 \u2014 primary treatment)\",\n      \"elevation (orographic gradient \u2014 secondary stratification axis)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM can resolve water partitioning response to forcing-year contrast. Stratify by elevation to span orographic gradient. No coupling needed for this temporal comparison question.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": null\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Water partitioning (ET, runoff, recharge) contrast between 1993 (wet) and 2002 (dry) at column scale\",\n      \"Elevation-correlated forcing variation via NLDAS-2 12 km cells across 2400 m relief\",\n      \"Runoff generation patterns and timing (analog validation against USGS gage temporal response)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Integrated streamflow for direct gage comparison\",\n        \"why\": \"ELM columns are independent 1-D points with no lateral transport or routing\",\n        \"needs\": \"Runoff aggregation and routing to basin outlet\"\n      },\n      {\n        \"aspect\": \"Sub-12 km terrain effects (ridge-scale microclimates, within-cell lapse rate)\",\n        \"why\": \"NLDAS-2 forcing is 12 km resolution; sub-cell terrain is unresolved\",\n        \"needs\": \"Higher-resolution or terrain-downscaled forcing (e.g. 1-4 km)\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Stratified by elevation to span orographic gradient; temporal treatment (1993 vs 2002) applied to all columns\",\n    \"strata\": [\n      {\n        \"driver\": \"elevation\",\n        \"bands\": [\n          \"low (900-1400 m \u2014 lower montane, rain-dominated)\",\n          \"mid (1400-2200 m \u2014 mixed rain-snow transition)\",\n          \"high (2200-3300 m \u2014 upper montane, snow-dominated)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 9,\n    \"n_justification\": \"3 elevation bands \u00d7 3 columns per band = 9 columns span the 2400 m orographic gradient. Each column runs twice (1993, 2002), yielding 18 column-year simulations. This resolves basin-level partitioning and elevation-dependent forcing variation without over-sampling.\",\n    \"placement_logic\": \"Distribute columns evenly across elevation bands to capture orographic precipitation gradient. Within each band, select locations with representative soil (avoid extreme outliers). Concentrate mid-elevation sampling in the rain-snow transition zone (1400-2200 m) where partitioning sensitivity to forcing year is expected to be strongest.\",\n    \"replication\": \"3 columns per elevation band provide light replication to assess within-band variability and robustness of the wet/dry contrast.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"low elevation (900-1400 m, rain-dominated)\",\n      \"n\": 3,\n      \"reason\": \"Capture lower montane partitioning where precipitation falls primarily as rain in both wet and dry years\"\n    },\n    {\n      \"group\": \"mid elevation (1400-2200 m, rain-snow transition)\",\n      \"n\": 3,\n      \"reason\": \"Isolate the rain-snow transition zone where wet/dry year contrast is expected to produce largest partitioning shifts (snow vs rain dominance)\"\n    },\n    {\n      \"group\": \"high elevation (2200-3300 m, snow-dominated)\",\n      \"n\": 3,\n      \"reason\": \"Represent upper montane snow-dominated regime where both years accumulate snowpack but with different magnitude and melt timing\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"runoff_generation_timing\",\n      \"observation_source\": \"USGS stream gauges (Salt River headwaters)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"analog \u2014 compare temporal patterns (peak timing, recession shape) of aggregated column runoff (QRUNOFF + QDRAI) to gage hydrographs for 1993 and 2002. NOT co-located streamflow (no routing).\",\n      \"metric\": \"Qualitative pattern match (peak timing offset, recession correlation); quantitative if routing added later\",\n      \"n_validation_points\": \"1-2 USGS gauges (depends on gage density in HUC 15060103)\"\n    },\n    {\n      \"target_variable\": \"ET_partitioning\",\n      \"observation_source\": \"None available in-domain\",\n      \"in_domain_available\": false,\n      \"comparison\": \"Process validation against literature expectations (wet year: higher ET, lower runoff ratio; dry year: lower ET, higher runoff ratio due to water limitation)\",\n      \"metric\": \"Directional consistency with water-limited vs energy-limited regime theory\",\n      \"n_validation_points\": \"N/A\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 9,\n    \"exploratory\": 9,\n    \"validation\": 0,\n    \"primary_treatment\": \"Each column runs twice: (1) 1993 forcing (wet year), (2) 2002 forcing (dry year). Both runs start from WTD-informed warm start (Fan 2013 equilibrium) to ensure realistic initial water table. Native SSURGO soil at each location. NLDAS-2 forcing (12 km, elevation-resolved across basin).\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"WTD-informed warm start (Fan 2013 equilibrium)\",\n      \"why\": \"Temporal comparison (1993 vs 2002) requires realistic initial water table, not cold-start artifacts. Without this, recharge/WTD in both years would be initialization noise.\",\n      \"blocks\": \"Meaningful recharge and water table response to forcing-year contrast\"\n    },\n    {\n      \"capability\": \"Runoff aggregation and routing to basin outlet\",\n      \"why\": \"USGS gauges measure integrated streamflow, but ELM columns are independent 1-D points with no lateral transport. Direct streamflow validation requires aggregating column runoff and routing to the gage.\",\n      \"blocks\": \"Co-located streamflow validation (currently limited to analog pattern comparison)\"\n    },\n    {\n      \"capability\": \"Higher-resolution or terrain-downscaled forcing (1-4 km)\",\n      \"why\": \"NLDAS-2 at 12 km resolves large-scale orographic patterns but smooths sub-cell terrain effects (ridge-scale microclimates, within-cell lapse rate).\",\n      \"blocks\": \"Fine-scale elevation effects on partitioning (partial gap \u2014 12 km is adequate for basin-level contrast)\"\n    }\n  ],\n  \"assumptions\": [\n    \"NLDAS-2 12 km forcing adequately captures orographic precipitation gradient across 2400 m relief (verified for similar basins)\",\n    \"1993 and 2002 are representative wet and dry years (user-specified; not verified against climatology)\",\n    \"SSURGO soil data available and representative for the domain\",\n    \"Fan 2013 equilibrium WTD is a reasonable initial condition proxy (ELM's 1-D equilibrium will drift from Fan's lateral-flow equilibrium, but this drift is itself a result)\",\n    \"USGS gage(s) exist in HUC 15060103 and have data for 1993 and 2002 (not verified from brief)\"\n  ],\n  \"open_questions\": [\n    \"How many USGS gauges are active in HUC 15060103 during 1993 and 2002, and where are they located?\",\n    \"Are 1993 and 2002 confirmed as wet/dry years relative to the 1980-2018 climatology for this basin?\",\n    \"Is SNOTEL data truly absent, or just sparse? If any SNOTEL stations exist, even outside the HUC, they could provide analog snow validation.\",\n    \"Should we add a multi-year spin-up (e.g. 1980-1992) before the 1993 run to further stabilize slow states, or is WTD-informed warm start sufficient?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify water partitioning (ET, runoff, recharge) differences between wet year (1993) and dry year (2002)",
+        "Validate runoff generation patterns against USGS streamflow temporal response"
+      ],
+      "key_processes": [
+        "Water partitioning under contrasting precipitation regimes",
+        "Orographic precipitation gradient across 2400 m elevation range",
+        "Runoff generation and timing"
+      ],
+      "drivers_to_resolve": [
+        "forcing_period (1993 vs 2002 \u2014 primary treatment)",
+        "elevation (orographic gradient \u2014 secondary stratification axis)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM can resolve water partitioning response to forcing-year contrast. Stratify by elevation to span orographic gradient. No coupling needed for this temporal comparison question.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Water partitioning (ET, runoff, recharge) contrast between 1993 (wet) and 2002 (dry) at column scale",
+        "Elevation-correlated forcing variation via NLDAS-2 12 km cells across 2400 m relief",
+        "Runoff generation patterns and timing (analog validation against USGS gage temporal response)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Integrated streamflow for direct gage comparison",
+          "why": "ELM columns are independent 1-D points with no lateral transport or routing",
+          "needs": "Runoff aggregation and routing to basin outlet"
+        },
+        {
+          "aspect": "Sub-12 km terrain effects (ridge-scale microclimates, within-cell lapse rate)",
+          "why": "NLDAS-2 forcing is 12 km resolution; sub-cell terrain is unresolved",
+          "needs": "Higher-resolution or terrain-downscaled forcing (e.g. 1-4 km)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by elevation to span orographic gradient; temporal treatment (1993 vs 2002) applied to all columns",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low (900-1400 m \u2014 lower montane, rain-dominated)",
+            "mid (1400-2200 m \u2014 mixed rain-snow transition)",
+            "high (2200-3300 m \u2014 upper montane, snow-dominated)"
+          ]
+        }
+      ],
+      "n_exploratory": 9,
+      "n_justification": "3 elevation bands \u00d7 3 columns per band = 9 columns span the 2400 m orographic gradient. Each column runs twice (1993, 2002), yielding 18 column-year simulations. This resolves basin-level partitioning and elevation-dependent forcing variation without over-sampling.",
+      "placement_logic": "Distribute columns evenly across elevation bands to capture orographic precipitation gradient. Within each band, select locations with representative soil (avoid extreme outliers). Concentrate mid-elevation sampling in the rain-snow transition zone (1400-2200 m) where partitioning sensitivity to forcing year is expected to be strongest.",
+      "replication": "3 columns per elevation band provide light replication to assess within-band variability and robustness of the wet/dry contrast."
+    },
+    "sampling_plan": [
+      {
+        "group": "low elevation (900-1400 m, rain-dominated)",
+        "n": 3,
+        "reason": "Capture lower montane partitioning where precipitation falls primarily as rain in both wet and dry years"
+      },
+      {
+        "group": "mid elevation (1400-2200 m, rain-snow transition)",
+        "n": 3,
+        "reason": "Isolate the rain-snow transition zone where wet/dry year contrast is expected to produce largest partitioning shifts (snow vs rain dominance)"
+      },
+      {
+        "group": "high elevation (2200-3300 m, snow-dominated)",
+        "n": 3,
+        "reason": "Represent upper montane snow-dominated regime where both years accumulate snowpack but with different magnitude and melt timing"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "runoff_generation_timing",
+        "observation_source": "USGS stream gauges (Salt River headwaters)",
+        "in_domain_available": true,
+        "comparison": "analog \u2014 compare temporal patterns (peak timing, recession shape) of aggregated column runoff (QRUNOFF + QDRAI) to gage hydrographs for 1993 and 2002. NOT co-located streamflow (no routing).",
+        "metric": "Qualitative pattern match (peak timing offset, recession correlation); quantitative if routing added later",
+        "n_validation_points": "1-2 USGS gauges (depends on gage density in HUC 15060103)"
+      },
+      {
+        "target_variable": "ET_partitioning",
+        "observation_source": "None available in-domain",
+        "in_domain_available": false,
+        "comparison": "Process validation against literature expectations (wet year: higher ET, lower runoff ratio; dry year: lower ET, higher runoff ratio due to water limitation)",
+        "metric": "Directional consistency with water-limited vs energy-limited regime theory",
+        "n_validation_points": "N/A"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 9,
+      "exploratory": 9,
+      "validation": 0,
+      "primary_treatment": "Each column runs twice: (1) 1993 forcing (wet year), (2) 2002 forcing (dry year). Both runs start from WTD-informed warm start (Fan 2013 equilibrium) to ensure realistic initial water table. Native SSURGO soil at each location. NLDAS-2 forcing (12 km, elevation-resolved across basin)."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "WTD-informed warm start (Fan 2013 equilibrium)",
+        "why": "Temporal comparison (1993 vs 2002) requires realistic initial water table, not cold-start artifacts. Without this, recharge/WTD in both years would be initialization noise.",
+        "blocks": "Meaningful recharge and water table response to forcing-year contrast"
+      },
+      {
+        "capability": "Runoff aggregation and routing to basin outlet",
+        "why": "USGS gauges measure integrated streamflow, but ELM columns are independent 1-D points with no lateral transport. Direct streamflow validation requires aggregating column runoff and routing to the gage.",
+        "blocks": "Co-located streamflow validation (currently limited to analog pattern comparison)"
+      },
+      {
+        "capability": "Higher-resolution or terrain-downscaled forcing (1-4 km)",
+        "why": "NLDAS-2 at 12 km resolves large-scale orographic patterns but smooths sub-cell terrain effects (ridge-scale microclimates, within-cell lapse rate).",
+        "blocks": "Fine-scale elevation effects on partitioning (partial gap \u2014 12 km is adequate for basin-level contrast)"
+      }
+    ],
+    "assumptions": [
+      "NLDAS-2 12 km forcing adequately captures orographic precipitation gradient across 2400 m relief (verified for similar basins)",
+      "1993 and 2002 are representative wet and dry years (user-specified; not verified against climatology)",
+      "SSURGO soil data available and representative for the domain",
+      "Fan 2013 equilibrium WTD is a reasonable initial condition proxy (ELM's 1-D equilibrium will drift from Fan's lateral-flow equilibrium, but this drift is itself a result)",
+      "USGS gage(s) exist in HUC 15060103 and have data for 1993 and 2002 (not verified from brief)"
+    ],
+    "open_questions": [
+      "How many USGS gauges are active in HUC 15060103 during 1993 and 2002, and where are they located?",
+      "Are 1993 and 2002 confirmed as wet/dry years relative to the 1980-2018 climatology for this basin?",
+      "Is SNOTEL data truly absent, or just sparse? If any SNOTEL stations exist, even outside the HUC, they could provide analog snow validation.",
+      "Should we add a multi-year spin-up (e.g. 1980-1992) before the 1993 run to further stabilize slow states, or is WTD-informed warm start sufficient?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

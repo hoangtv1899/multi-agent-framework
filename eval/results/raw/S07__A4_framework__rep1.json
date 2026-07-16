@@ -1,0 +1,209 @@
+{
+  "prompt_id": "S07",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Validate ELM's runoff generation against observed streamflow at the American River gauge\", \"Assess spatial heterogeneity in runoff contributions across the upstream basin\"], \"key_processes\": [\"Surface runoff generation (infiltration-excess, saturation-excess)\", \"Subsurface drainage to stream\", \"Snow accumulation and melt (elevation-dependent)\", \"Evapotranspiration (vegetation-dependent)\"], \"drivers_to_resolve\": [\"elevation (via NLDAS-2 forcing variability)\", \"soil texture (infiltration/drainage)\", \"vegetation type (ET/interception)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM can generate spatially-distributed runoff (QOVER + QDRAI) across the upstream basin. Validation against a streamflow gauge requires aggregation + routing (not native to ELM).\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Spatial pattern of runoff generation (QOVER + QDRAI) across elevation/soil/vegetation gradients\", \"Elevation control on runoff timing via NLDAS-2 forcing (verified ~15 distinct precip values in 1625 m relief)\", \"Soil texture control on infiltration and subsurface drainage\", \"Vegetation control on ET and interception\"], \"not_answerable\": [{\"aspect\": \"Daily streamflow hydrograph at the gauge (m\\u00b3/s)\", \"why\": \"ELM columns are independent 1-D points with no lateral transport or routing. Column runoff fluxes (mm/s) cannot be converted to gauge streamflow (m\\u00b3/s) without spatial aggregation and routing.\", \"needs\": \"Runoff aggregation + routing capability (e.g. mizuRoute, RAPID)\"}, {\"aspect\": \"NSE metric against observed streamflow\", \"why\": \"NSE requires a modeled streamflow time series at the gauge, which depends on the aggregation + routing step above.\", \"needs\": \"Runoff aggregation + routing capability\"}]}, \"sampling_strategy\": {\"approach\": \"stratified\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"low (352-900 m, rain-dominated)\", \"mid (900-1400 m, rain-snow transition)\", \"high (1400-1977 m, snow-dominated)\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse (sandy loam, high drainage)\", \"fine (silt loam / clay loam, lower drainage)\"]}, {\"driver\": \"vegetation\", \"classes\": [\"forest (conifer, high LAI, high interception)\", \"shrub/meadow (lower LAI, lower interception)\"]}], \"n_exploratory\": 24, \"n_justification\": \"3 elevation bands \\u00d7 2 soil classes \\u00d7 2 vegetation types = 12 strata. Light replication (2 columns per stratum) = 24 total. This resolves the primary drivers of runoff generation (elevation/forcing, soil infiltration, vegetation ET) without over-sampling.\", \"placement_logic\": \"Distribute columns across the upstream basin of the American River gauge. Concentrate sampling in the mid-elevation rain-snow transition (900-1400 m) where runoff timing is most sensitive to temperature/precipitation phase. Ensure representation of dominant soil-vegetation combinations in each elevation band. Avoid ridgetops (unrepresentative of basin-average conditions) and focus on hillslopes and valley bottoms where runoff generation is strongest.\", \"replication\": \"2 columns per stratum to capture within-stratum variability and provide robustness against local anomalies (e.g. a single column hitting an unrepresentative soil patch).\"}, \"sampling_plan\": [{\"group\": \"low-elev, coarse soil, forest\", \"n\": 2, \"reason\": \"Rain-dominated runoff, high infiltration, high ET \\u2014 baseline low-elevation response\"}, {\"group\": \"low-elev, coarse soil, shrub\", \"n\": 2, \"reason\": \"Rain-dominated, high infiltration, lower ET \\u2014 tests vegetation control on low-elevation partitioning\"}, {\"group\": \"low-elev, fine soil, forest\", \"n\": 2, \"reason\": \"Rain-dominated, lower infiltration, high ET \\u2014 tests soil control on surface vs subsurface runoff\"}, {\"group\": \"low-elev, fine soil, shrub\", \"n\": 2, \"reason\": \"Rain-dominated, lower infiltration, lower ET \\u2014 maximum low-elevation runoff generation\"}, {\"group\": \"mid-elev, coarse soil, forest\", \"n\": 2, \"reason\": \"Rain-snow transition, high infiltration, high ET \\u2014 critical for runoff timing (snowmelt + rain)\"}, {\"group\": \"mid-elev, coarse soil, shrub\", \"n\": 2, \"reason\": \"Rain-snow transition, high infiltration, lower ET \\u2014 tests vegetation control on transition-zone partitioning\"}, {\"group\": \"mid-elev, fine soil, forest\", \"n\": 2, \"reason\": \"Rain-snow transition, lower infiltration, high ET \\u2014 tests soil control on transition-zone runoff\"}, {\"group\": \"mid-elev, fine soil, shrub\", \"n\": 2, \"reason\": \"Rain-snow transition, lower infiltration, lower ET \\u2014 maximum transition-zone runoff generation\"}, {\"group\": \"high-elev, coarse soil, forest\", \"n\": 2, \"reason\": \"Snow-dominated, high infiltration, high ET \\u2014 tests snowmelt-driven subsurface drainage\"}, {\"group\": \"high-elev, coarse soil, shrub\", \"n\": 2, \"reason\": \"Snow-dominated, high infiltration, lower ET \\u2014 tests vegetation control on high-elevation partitioning\"}, {\"group\": \"high-elev, fine soil, forest\", \"n\": 2, \"reason\": \"Snow-dominated, lower infiltration, high ET \\u2014 tests soil control on snowmelt runoff\"}, {\"group\": \"high-elev, fine soil, shrub\", \"n\": 2, \"reason\": \"Snow-dominated, lower infiltration, lower ET \\u2014 maximum high-elevation runoff generation\"}], \"validation_design\": [{\"target_variable\": \"daily_streamflow_m3s\", \"observation_source\": \"USGS gauge: American River nr Nile\", \"in_domain_available\": true, \"comparison\": \"aggregated \\u2014 sum upstream column runoff (QOVER + QDRAI weighted by area), apply routing, compare to gauge\", \"metric\": \"NSE (Nash-Sutcliffe Efficiency)\", \"n_validation_points\": \"0 co-located columns (gauge is a basin outlet, not a point source). Validation requires aggregation of all 24 upstream columns + routing.\"}], \"experiment_summary\": {\"total_columns\": 24, \"exploratory\": 24, \"validation\": 0, \"primary_treatment\": \"NLDAS-2 forcing (1980-2018), native SSURGO soil at each column location, WTD-informed warm start (Fan 2013 equilibrium water table)\"}, \"requires_capabilities\": [{\"capability\": \"Upstream basin delineation for American River gauge\", \"why\": \"Need drainage area boundary to constrain column placement and aggregation\", \"blocks\": \"Cannot define the spatial domain for sampling or aggregation without the gauge's upstream basin\"}, {\"capability\": \"Runoff aggregation (area-weighted sum of column QOVER + QDRAI)\", \"why\": \"ELM columns produce point fluxes (mm/s); must sum across upstream basin to get total runoff volume\", \"blocks\": \"Cannot convert column runoff to basin-scale runoff without aggregation\"}, {\"capability\": \"Routing model (e.g. mizuRoute, RAPID, or simple lag function)\", \"why\": \"Aggregated runoff must be routed through the stream network to the gauge to account for travel time and attenuation\", \"blocks\": \"Cannot produce a streamflow hydrograph at the gauge without routing\"}, {\"capability\": \"Gauge metadata (drainage area, exact lat/lon, record period)\", \"why\": \"Need drainage area for aggregation weighting, location for routing outlet, and record period to align validation window\", \"blocks\": \"Cannot verify data availability or align simulation period without metadata\"}, {\"capability\": \"WTD-informed warm start (Fan 2013 or ParFlow-CONUS2)\", \"why\": \"Initialize subsurface storage realistically to avoid artifactually low QDRAI during validation period\", \"blocks\": \"Without warm start, subsurface drainage will be biased low (cold-start artifact), degrading streamflow validation\"}], \"assumptions\": [\"The American River gauge drains a sub-basin within the Naches HUC8 (not the full HUC8 \\u2014 exact boundary unknown)\", \"NLDAS-2 forcing (1980-2018) covers the gauge's record period and is adequate for validation\", \"The gauge record is daily and overlaps with 1980-2018 (not verified in brief)\", \"Dominant soil and vegetation types can be sampled from SSURGO and land-cover datasets within the upstream basin\", \"A WTD-informed warm start (Fan 2013) is available and preferred over multi-year spin-up\", \"The 24-column sample is representative of the upstream basin's runoff generation (assumes the basin is not dominated by a single extreme condition outside the strata)\"], \"open_questions\": [\"What is the drainage area of the American River gauge? (needed for aggregation weighting)\", \"What is the gauge's record period? (to align simulation and validation windows)\", \"Is a routing model (mizuRoute, RAPID) available or planned? If not, can a simple area-weighted sum + lag function serve as a first-order approximation?\", \"Are SSURGO soil and land-cover data available for the Naches basin to inform stratification?\", \"Should the validation period be the full 1980-2018 or a subset (e.g. exclude drought/flood extremes for initial validation)?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Validate ELM's runoff generation against observed streamflow at the American River gauge",
+        "Assess spatial heterogeneity in runoff contributions across the upstream basin"
+      ],
+      "key_processes": [
+        "Surface runoff generation (infiltration-excess, saturation-excess)",
+        "Subsurface drainage to stream",
+        "Snow accumulation and melt (elevation-dependent)",
+        "Evapotranspiration (vegetation-dependent)"
+      ],
+      "drivers_to_resolve": [
+        "elevation (via NLDAS-2 forcing variability)",
+        "soil texture (infiltration/drainage)",
+        "vegetation type (ET/interception)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM can generate spatially-distributed runoff (QOVER + QDRAI) across the upstream basin. Validation against a streamflow gauge requires aggregation + routing (not native to ELM).",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Spatial pattern of runoff generation (QOVER + QDRAI) across elevation/soil/vegetation gradients",
+        "Elevation control on runoff timing via NLDAS-2 forcing (verified ~15 distinct precip values in 1625 m relief)",
+        "Soil texture control on infiltration and subsurface drainage",
+        "Vegetation control on ET and interception"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Daily streamflow hydrograph at the gauge (m\u00b3/s)",
+          "why": "ELM columns are independent 1-D points with no lateral transport or routing. Column runoff fluxes (mm/s) cannot be converted to gauge streamflow (m\u00b3/s) without spatial aggregation and routing.",
+          "needs": "Runoff aggregation + routing capability (e.g. mizuRoute, RAPID)"
+        },
+        {
+          "aspect": "NSE metric against observed streamflow",
+          "why": "NSE requires a modeled streamflow time series at the gauge, which depends on the aggregation + routing step above.",
+          "needs": "Runoff aggregation + routing capability"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low (352-900 m, rain-dominated)",
+            "mid (900-1400 m, rain-snow transition)",
+            "high (1400-1977 m, snow-dominated)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy loam, high drainage)",
+            "fine (silt loam / clay loam, lower drainage)"
+          ]
+        },
+        {
+          "driver": "vegetation",
+          "classes": [
+            "forest (conifer, high LAI, high interception)",
+            "shrub/meadow (lower LAI, lower interception)"
+          ]
+        }
+      ],
+      "n_exploratory": 24,
+      "n_justification": "3 elevation bands \u00d7 2 soil classes \u00d7 2 vegetation types = 12 strata. Light replication (2 columns per stratum) = 24 total. This resolves the primary drivers of runoff generation (elevation/forcing, soil infiltration, vegetation ET) without over-sampling.",
+      "placement_logic": "Distribute columns across the upstream basin of the American River gauge. Concentrate sampling in the mid-elevation rain-snow transition (900-1400 m) where runoff timing is most sensitive to temperature/precipitation phase. Ensure representation of dominant soil-vegetation combinations in each elevation band. Avoid ridgetops (unrepresentative of basin-average conditions) and focus on hillslopes and valley bottoms where runoff generation is strongest.",
+      "replication": "2 columns per stratum to capture within-stratum variability and provide robustness against local anomalies (e.g. a single column hitting an unrepresentative soil patch)."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elev, coarse soil, forest",
+        "n": 2,
+        "reason": "Rain-dominated runoff, high infiltration, high ET \u2014 baseline low-elevation response"
+      },
+      {
+        "group": "low-elev, coarse soil, shrub",
+        "n": 2,
+        "reason": "Rain-dominated, high infiltration, lower ET \u2014 tests vegetation control on low-elevation partitioning"
+      },
+      {
+        "group": "low-elev, fine soil, forest",
+        "n": 2,
+        "reason": "Rain-dominated, lower infiltration, high ET \u2014 tests soil control on surface vs subsurface runoff"
+      },
+      {
+        "group": "low-elev, fine soil, shrub",
+        "n": 2,
+        "reason": "Rain-dominated, lower infiltration, lower ET \u2014 maximum low-elevation runoff generation"
+      },
+      {
+        "group": "mid-elev, coarse soil, forest",
+        "n": 2,
+        "reason": "Rain-snow transition, high infiltration, high ET \u2014 critical for runoff timing (snowmelt + rain)"
+      },
+      {
+        "group": "mid-elev, coarse soil, shrub",
+        "n": 2,
+        "reason": "Rain-snow transition, high infiltration, lower ET \u2014 tests vegetation control on transition-zone partitioning"
+      },
+      {
+        "group": "mid-elev, fine soil, forest",
+        "n": 2,
+        "reason": "Rain-snow transition, lower infiltration, high ET \u2014 tests soil control on transition-zone runoff"
+      },
+      {
+        "group": "mid-elev, fine soil, shrub",
+        "n": 2,
+        "reason": "Rain-snow transition, lower infiltration, lower ET \u2014 maximum transition-zone runoff generation"
+      },
+      {
+        "group": "high-elev, coarse soil, forest",
+        "n": 2,
+        "reason": "Snow-dominated, high infiltration, high ET \u2014 tests snowmelt-driven subsurface drainage"
+      },
+      {
+        "group": "high-elev, coarse soil, shrub",
+        "n": 2,
+        "reason": "Snow-dominated, high infiltration, lower ET \u2014 tests vegetation control on high-elevation partitioning"
+      },
+      {
+        "group": "high-elev, fine soil, forest",
+        "n": 2,
+        "reason": "Snow-dominated, lower infiltration, high ET \u2014 tests soil control on snowmelt runoff"
+      },
+      {
+        "group": "high-elev, fine soil, shrub",
+        "n": 2,
+        "reason": "Snow-dominated, lower infiltration, lower ET \u2014 maximum high-elevation runoff generation"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "daily_streamflow_m3s",
+        "observation_source": "USGS gauge: American River nr Nile",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 sum upstream column runoff (QOVER + QDRAI weighted by area), apply routing, compare to gauge",
+        "metric": "NSE (Nash-Sutcliffe Efficiency)",
+        "n_validation_points": "0 co-located columns (gauge is a basin outlet, not a point source). Validation requires aggregation of all 24 upstream columns + routing."
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 24,
+      "exploratory": 24,
+      "validation": 0,
+      "primary_treatment": "NLDAS-2 forcing (1980-2018), native SSURGO soil at each column location, WTD-informed warm start (Fan 2013 equilibrium water table)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Upstream basin delineation for American River gauge",
+        "why": "Need drainage area boundary to constrain column placement and aggregation",
+        "blocks": "Cannot define the spatial domain for sampling or aggregation without the gauge's upstream basin"
+      },
+      {
+        "capability": "Runoff aggregation (area-weighted sum of column QOVER + QDRAI)",
+        "why": "ELM columns produce point fluxes (mm/s); must sum across upstream basin to get total runoff volume",
+        "blocks": "Cannot convert column runoff to basin-scale runoff without aggregation"
+      },
+      {
+        "capability": "Routing model (e.g. mizuRoute, RAPID, or simple lag function)",
+        "why": "Aggregated runoff must be routed through the stream network to the gauge to account for travel time and attenuation",
+        "blocks": "Cannot produce a streamflow hydrograph at the gauge without routing"
+      },
+      {
+        "capability": "Gauge metadata (drainage area, exact lat/lon, record period)",
+        "why": "Need drainage area for aggregation weighting, location for routing outlet, and record period to align validation window",
+        "blocks": "Cannot verify data availability or align simulation period without metadata"
+      },
+      {
+        "capability": "WTD-informed warm start (Fan 2013 or ParFlow-CONUS2)",
+        "why": "Initialize subsurface storage realistically to avoid artifactually low QDRAI during validation period",
+        "blocks": "Without warm start, subsurface drainage will be biased low (cold-start artifact), degrading streamflow validation"
+      }
+    ],
+    "assumptions": [
+      "The American River gauge drains a sub-basin within the Naches HUC8 (not the full HUC8 \u2014 exact boundary unknown)",
+      "NLDAS-2 forcing (1980-2018) covers the gauge's record period and is adequate for validation",
+      "The gauge record is daily and overlaps with 1980-2018 (not verified in brief)",
+      "Dominant soil and vegetation types can be sampled from SSURGO and land-cover datasets within the upstream basin",
+      "A WTD-informed warm start (Fan 2013) is available and preferred over multi-year spin-up",
+      "The 24-column sample is representative of the upstream basin's runoff generation (assumes the basin is not dominated by a single extreme condition outside the strata)"
+    ],
+    "open_questions": [
+      "What is the drainage area of the American River gauge? (needed for aggregation weighting)",
+      "What is the gauge's record period? (to align simulation and validation windows)",
+      "Is a routing model (mizuRoute, RAPID) available or planned? If not, can a simple area-weighted sum + lag function serve as a first-order approximation?",
+      "Are SSURGO soil and land-cover data available for the Naches basin to inform stratification?",
+      "Should the validation period be the full 1980-2018 or a subset (e.g. exclude drought/flood extremes for initial validation)?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

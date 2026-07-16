@@ -1,0 +1,125 @@
+{
+  "prompt_id": "C01",
+  "arm": "A4_framework",
+  "rep": 2,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Isolate the mechanistic effect of soil clay content on surface runoff vs subsurface drainage partitioning\"], \"key_processes\": [\"Infiltration capacity as a function of soil texture\", \"Hydraulic conductivity and percolation rate\", \"Surface runoff generation (infiltration-excess)\"], \"drivers_to_resolve\": [\"clay content\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"Single-column ELM directly represents texture-dependent infiltration and drainage via Richards equation. Controlled experiment isolates clay effect by holding forcing, vegetation, and other factors constant.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"full\", \"answerable\": [\"Clay content control on infiltration capacity and runoff/recharge partitioning\", \"Mechanistic response curve across sandy loam to silty clay textures\"], \"not_answerable\": []}, \"sampling_strategy\": {\"approach\": \"controlled treatment levels (not spatial sampling)\", \"strata\": [{\"driver\": \"clay content\", \"bands\": [\"5% (sandy loam)\", \"15% (loam)\", \"25% (silt loam)\", \"35% (clay loam)\", \"45% (silty clay loam)\", \"55% (silty clay)\"]}], \"n_exploratory\": 6, \"n_justification\": \"6 treatments span the 5-55% range at ~10% intervals, sufficient to resolve monotonic or threshold responses in partitioning without redundancy. Each treatment is one column.\", \"placement_logic\": \"Not spatial. Single representative location with uniform forcing. All columns identical except for clay content treatment.\", \"replication\": \"None. Controlled conditions eliminate stochastic variation; replication not needed for mechanism isolation.\"}, \"sampling_plan\": [{\"group\": \"clay_5pct\", \"n\": 1, \"reason\": \"Sandy loam baseline: high infiltration, minimal runoff, maximum drainage\"}, {\"group\": \"clay_15pct\", \"n\": 1, \"reason\": \"Loam: moderate infiltration, beginning of runoff generation\"}, {\"group\": \"clay_25pct\", \"n\": 1, \"reason\": \"Silt loam: reduced infiltration, increased surface runoff\"}, {\"group\": \"clay_35pct\", \"n\": 1, \"reason\": \"Clay loam: low hydraulic conductivity, runoff-dominated partitioning\"}, {\"group\": \"clay_45pct\", \"n\": 1, \"reason\": \"Silty clay loam: very low infiltration, high runoff, minimal drainage\"}, {\"group\": \"clay_55pct\", \"n\": 1, \"reason\": \"Silty clay: near-impermeable, maximum runoff, negligible recharge\"}], \"validation_design\": [], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 6, \"validation\": 0, \"primary_treatment\": \"Uniform forcing (single representative climate), default vegetation, vary only clay content\"}, \"requires_capabilities\": [{\"capability\": \"Custom soil texture specification per column\", \"why\": \"Must set clay % (and derived sand/silt) independently for each treatment column\", \"blocks\": \"Ability to implement the 6 clay-content treatments\"}, {\"capability\": \"Uniform forcing application\", \"why\": \"All columns must receive identical meteorological forcing to isolate soil effect\", \"blocks\": \"Controlled-experiment validity (if forcing varies, confounds clay effect)\"}], \"assumptions\": [\"ELM's Richards equation solver adequately represents texture-dependent infiltration and percolation across the clay range\", \"Other soil properties (organic matter, structure) held at default/representative values\", \"Vegetation type/LAI held constant across treatments\", \"Single representative forcing climate is sufficient (no need to test clay effect across multiple climates)\", \"Spin-up not critical for partitioning comparison (or brief spin-up applied uniformly to all treatments)\"], \"open_questions\": [\"What forcing period/climate should be used? (Suggest a moderate-precipitation regime to see both runoff and drainage)\", \"Should sand/silt be adjusted proportionally as clay varies, or held constant?\", \"Is a short spin-up (e.g. 2 years) needed to equilibrate soil moisture, or can we compare from cold start?\", \"What output frequency is desired for partitioning analysis (daily, monthly)?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Isolate the mechanistic effect of soil clay content on surface runoff vs subsurface drainage partitioning"
+      ],
+      "key_processes": [
+        "Infiltration capacity as a function of soil texture",
+        "Hydraulic conductivity and percolation rate",
+        "Surface runoff generation (infiltration-excess)"
+      ],
+      "drivers_to_resolve": [
+        "clay content"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column ELM directly represents texture-dependent infiltration and drainage via Richards equation. Controlled experiment isolates clay effect by holding forcing, vegetation, and other factors constant.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "Clay content control on infiltration capacity and runoff/recharge partitioning",
+        "Mechanistic response curve across sandy loam to silty clay textures"
+      ],
+      "not_answerable": []
+    },
+    "sampling_strategy": {
+      "approach": "controlled treatment levels (not spatial sampling)",
+      "strata": [
+        {
+          "driver": "clay content",
+          "bands": [
+            "5% (sandy loam)",
+            "15% (loam)",
+            "25% (silt loam)",
+            "35% (clay loam)",
+            "45% (silty clay loam)",
+            "55% (silty clay)"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "6 treatments span the 5-55% range at ~10% intervals, sufficient to resolve monotonic or threshold responses in partitioning without redundancy. Each treatment is one column.",
+      "placement_logic": "Not spatial. Single representative location with uniform forcing. All columns identical except for clay content treatment.",
+      "replication": "None. Controlled conditions eliminate stochastic variation; replication not needed for mechanism isolation."
+    },
+    "sampling_plan": [
+      {
+        "group": "clay_5pct",
+        "n": 1,
+        "reason": "Sandy loam baseline: high infiltration, minimal runoff, maximum drainage"
+      },
+      {
+        "group": "clay_15pct",
+        "n": 1,
+        "reason": "Loam: moderate infiltration, beginning of runoff generation"
+      },
+      {
+        "group": "clay_25pct",
+        "n": 1,
+        "reason": "Silt loam: reduced infiltration, increased surface runoff"
+      },
+      {
+        "group": "clay_35pct",
+        "n": 1,
+        "reason": "Clay loam: low hydraulic conductivity, runoff-dominated partitioning"
+      },
+      {
+        "group": "clay_45pct",
+        "n": 1,
+        "reason": "Silty clay loam: very low infiltration, high runoff, minimal drainage"
+      },
+      {
+        "group": "clay_55pct",
+        "n": 1,
+        "reason": "Silty clay: near-impermeable, maximum runoff, negligible recharge"
+      }
+    ],
+    "validation_design": [],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "Uniform forcing (single representative climate), default vegetation, vary only clay content"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Custom soil texture specification per column",
+        "why": "Must set clay % (and derived sand/silt) independently for each treatment column",
+        "blocks": "Ability to implement the 6 clay-content treatments"
+      },
+      {
+        "capability": "Uniform forcing application",
+        "why": "All columns must receive identical meteorological forcing to isolate soil effect",
+        "blocks": "Controlled-experiment validity (if forcing varies, confounds clay effect)"
+      }
+    ],
+    "assumptions": [
+      "ELM's Richards equation solver adequately represents texture-dependent infiltration and percolation across the clay range",
+      "Other soil properties (organic matter, structure) held at default/representative values",
+      "Vegetation type/LAI held constant across treatments",
+      "Single representative forcing climate is sufficient (no need to test clay effect across multiple climates)",
+      "Spin-up not critical for partitioning comparison (or brief spin-up applied uniformly to all treatments)"
+    ],
+    "open_questions": [
+      "What forcing period/climate should be used? (Suggest a moderate-precipitation regime to see both runoff and drainage)",
+      "Should sand/silt be adjusted proportionally as clay varies, or held constant?",
+      "Is a short spin-up (e.g. 2 years) needed to equilibrate soil moisture, or can we compare from cold start?",
+      "What output frequency is desired for partitioning analysis (daily, monthly)?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

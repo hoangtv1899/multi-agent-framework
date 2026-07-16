@@ -1,0 +1,151 @@
+{
+  "prompt_id": "P01",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "```json\n{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Water partitioning between runoff and recharge across elevation and soil texture gradients\",\n      \"Spatial variability in infiltration vs surface runoff\",\n      \"Seasonal patterns of water partitioning\",\n      \"Role of snowmelt in recharge vs runoff dynamics\",\n      \"Soil texture control on water partitioning\"\n    ],\n    \"not_answerable\": [\n      \"Lateral subsurface flow between columns (single-column limitation)\",\n      \"Stream routing and channel processes\",\n      \"Groundwater-surface water interactions at watershed scale\",\n      \"Calibrated watershed-integrated water balance without flux tower validation\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"Six columns capture the primary drivers of water partitioning in Naches: elevation gradient (low/mid/high controlling snowpack dynamics and precipitation phase) crossed with soil texture (coarse vs fine controlling infiltration capacity). This 3\u00d72 factorial design spans 352-1977m elevation range and contrasts sandy loam (high infiltration, deep percolation) vs silty clay loam (lower infiltration, more runoff). Includes valley bottom, mid-slope transition, and high-elevation SNOTEL-proximate locations.\",\n  \"columns\": [\n    {\n      \"id\": \"naches_valley_coarse\",\n      \"lat\": 46.65,\n      \"lon\": -120.85,\n      \"elevation_m\": 450,\n      \"soil_texture\": \"sandy_loam\",\n      \"description\": \"Low elevation valley, coarse soil, rain-dominated\"\n    },\n    {\n      \"id\": \"naches_valley_fine\",\n      \"lat\": 46.70,\n      \"lon\": -120.95,\n      \"elevation_m\": 480,\n      \"soil_texture\": \"silty_clay_loam\",\n      \"description\": \"Low elevation valley, fine soil, higher runoff potential\"\n    },\n    {\n      \"id\": \"naches_mid_coarse\",\n      \"lat\": 46.85,\n      \"lon\": -121.10,\n      \"elevation_m\": 1100,\n      \"soil_texture\": \"sandy_loam\",\n      \"description\": \"Mid-elevation transition zone, coarse soil, mixed rain-snow\"\n    },\n    {\n      \"id\": \"naches_mid_fine\",\n      \"lat\": 46.90,\n      \"lon\": -121.15,\n      \"elevation_m\": 1150,\n      \"soil_texture\": \"silty_clay_loam\",\n      \"description\": \"Mid-elevation transition, fine soil, moderate infiltration\"\n    },\n    {\n      \"id\": \"naches_high_coarse\",\n      \"lat\": 47.05,\n      \"lon\": -121.35,\n      \"elevation_m\": 1650,\n      \"soil_texture\": \"sandy_loam\",\n      \"description\": \"High elevation near SNOTEL sites, coarse soil, snow-dominated\"\n    },\n    {\n      \"id\": \"naches_high_fine\",\n      \"lat\": 47.10,\n      \"lon\": -121.40,\n      \"elevation_m\": 1700,\n      \"soil_texture\": \"silty_clay_loam\",\n      \"description\": \"High elevation, fine soil, snowmelt runoff dominant\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1985\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_OPTION\": \"nyears\",\n    \"STOP_N\": \"34\",\n    \"RUN_STARTDATE\": \"1985-01-01\",\n    \"CLM_FORCE_COLDSTART\": \"off\",\n    \"SPINUP_YEARS\": \"200\",\n    \"CLM_BLDNML_OPTS\": \"-bgc sp -nutrient_comp_pathway rd -soil_decomp_method CENTURYKoven2013\",\n    \"hist_mfilt\": \"365\",\n    \"hist_nhtfrq\": \"-24\",\n    \"hist_variables\": [\n      \"RAIN\",\n      \"SNOW\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRUNOFF\",\n      \"QINFL\",\n      \"QCHARGE\",\n      \"QSOIL\",\n      \"QVEGT\",\n      \"QVEGE\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"SNOWLIQ\",\n      \"SNOWICE\",\n      \"QSNOMELT\",\n      \"QSNOFRZ\",\n      \"QDRIP\",\n      \"QTHRO\",\n      \"SOILWATER_10CM\",\n      \"H2OSOI\",\n      \"ZWT\",\n      \"ZWT_PERCH\",\n      \"QINTR\",\n      \"TWS\",\n      \"WA\",\n      \"TSOI\",\n      \"TBOT\",\n      \"QIRRIG\",\n      \"EFLX_LH_TOT\",\n      \"FSH\",\n      \"FLDS\",\n      \"FSDS\",\n      \"TREFMNAV\",\n      \"TREFMXAV\",\n      \"PREC_INTR_RAIN\",\n      \"PREC_INTR_SNOW\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM single-column mode with custom soil texture specification\",\n    \"DATM atmospheric forcing (GSWP3 or site-specific if available)\",\n    \"Subsurface hydrology with groundwater representation\",\n    \"Snow model (SNICAR) for snowpack dynamics\",\n    \"Daily output for water balance closure\",\n    \"Post-processing to calculate partitioning ratios: runoff/(runoff+recharge), seasonal aggregation\"\n  ],\n  \"assumptions\": [\n    \"Single-column simulations neglect lateral subsurface flow and topographic redistribution of water\",\n    \"Soil texture classes are representative of dominant types at each elevation band\",\n    \"DATM forcing adequately captures elevation-dependent precipitation and temperature gradients\",\n    \"Spinup of 200 years achieves equilibrium soil moisture and carbon states\",\n    \"QCHARGE variable represents deep drainage/recharge below the soil column\",\n    \"QOVER (surface runoff) + QDRAI (subsurface drainage) = total runoff\",\n    \"Water partitioning analysis focuses on annual and seasonal (snowmelt period) timescales\",\n    \"No irrigation or human water management in these representative natural columns\",\n    \"Bedrock depth and hydraulic properties use ELM defaults appropriate for mountainous terrain\",\n    \"Comparison across columns isolates effects of elevation and soil texture on partitioning\"\n  ]\n}\n```",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Water partitioning between runoff and recharge across elevation and soil texture gradients",
+        "Spatial variability in infiltration vs surface runoff",
+        "Seasonal patterns of water partitioning",
+        "Role of snowmelt in recharge vs runoff dynamics",
+        "Soil texture control on water partitioning"
+      ],
+      "not_answerable": [
+        "Lateral subsurface flow between columns (single-column limitation)",
+        "Stream routing and channel processes",
+        "Groundwater-surface water interactions at watershed scale",
+        "Calibrated watershed-integrated water balance without flux tower validation"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "Six columns capture the primary drivers of water partitioning in Naches: elevation gradient (low/mid/high controlling snowpack dynamics and precipitation phase) crossed with soil texture (coarse vs fine controlling infiltration capacity). This 3\u00d72 factorial design spans 352-1977m elevation range and contrasts sandy loam (high infiltration, deep percolation) vs silty clay loam (lower infiltration, more runoff). Includes valley bottom, mid-slope transition, and high-elevation SNOTEL-proximate locations.",
+    "columns": [
+      {
+        "id": "naches_valley_coarse",
+        "lat": 46.65,
+        "lon": -120.85,
+        "elevation_m": 450,
+        "soil_texture": "sandy_loam",
+        "description": "Low elevation valley, coarse soil, rain-dominated"
+      },
+      {
+        "id": "naches_valley_fine",
+        "lat": 46.7,
+        "lon": -120.95,
+        "elevation_m": 480,
+        "soil_texture": "silty_clay_loam",
+        "description": "Low elevation valley, fine soil, higher runoff potential"
+      },
+      {
+        "id": "naches_mid_coarse",
+        "lat": 46.85,
+        "lon": -121.1,
+        "elevation_m": 1100,
+        "soil_texture": "sandy_loam",
+        "description": "Mid-elevation transition zone, coarse soil, mixed rain-snow"
+      },
+      {
+        "id": "naches_mid_fine",
+        "lat": 46.9,
+        "lon": -121.15,
+        "elevation_m": 1150,
+        "soil_texture": "silty_clay_loam",
+        "description": "Mid-elevation transition, fine soil, moderate infiltration"
+      },
+      {
+        "id": "naches_high_coarse",
+        "lat": 47.05,
+        "lon": -121.35,
+        "elevation_m": 1650,
+        "soil_texture": "sandy_loam",
+        "description": "High elevation near SNOTEL sites, coarse soil, snow-dominated"
+      },
+      {
+        "id": "naches_high_fine",
+        "lat": 47.1,
+        "lon": -121.4,
+        "elevation_m": 1700,
+        "soil_texture": "silty_clay_loam",
+        "description": "High elevation, fine soil, snowmelt runoff dominant"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1985",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_OPTION": "nyears",
+      "STOP_N": "34",
+      "RUN_STARTDATE": "1985-01-01",
+      "CLM_FORCE_COLDSTART": "off",
+      "SPINUP_YEARS": "200",
+      "CLM_BLDNML_OPTS": "-bgc sp -nutrient_comp_pathway rd -soil_decomp_method CENTURYKoven2013",
+      "hist_mfilt": "365",
+      "hist_nhtfrq": "-24",
+      "hist_variables": [
+        "RAIN",
+        "SNOW",
+        "QOVER",
+        "QDRAI",
+        "QRUNOFF",
+        "QINFL",
+        "QCHARGE",
+        "QSOIL",
+        "QVEGT",
+        "QVEGE",
+        "H2OSNO",
+        "SNOWDP",
+        "SNOWLIQ",
+        "SNOWICE",
+        "QSNOMELT",
+        "QSNOFRZ",
+        "QDRIP",
+        "QTHRO",
+        "SOILWATER_10CM",
+        "H2OSOI",
+        "ZWT",
+        "ZWT_PERCH",
+        "QINTR",
+        "TWS",
+        "WA",
+        "TSOI",
+        "TBOT",
+        "QIRRIG",
+        "EFLX_LH_TOT",
+        "FSH",
+        "FLDS",
+        "FSDS",
+        "TREFMNAV",
+        "TREFMXAV",
+        "PREC_INTR_RAIN",
+        "PREC_INTR_SNOW"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM single-column mode with custom soil texture specification",
+      "DATM atmospheric forcing (GSWP3 or site-specific if available)",
+      "Subsurface hydrology with groundwater representation",
+      "Snow model (SNICAR) for snowpack dynamics",
+      "Daily output for water balance closure",
+      "Post-processing to calculate partitioning ratios: runoff/(runoff+recharge), seasonal aggregation"
+    ],
+    "assumptions": [
+      "Single-column simulations neglect lateral subsurface flow and topographic redistribution of water",
+      "Soil texture classes are representative of dominant types at each elevation band",
+      "DATM forcing adequately captures elevation-dependent precipitation and temperature gradients",
+      "Spinup of 200 years achieves equilibrium soil moisture and carbon states",
+      "QCHARGE variable represents deep drainage/recharge below the soil column",
+      "QOVER (surface runoff) + QDRAI (subsurface drainage) = total runoff",
+      "Water partitioning analysis focuses on annual and seasonal (snowmelt period) timescales",
+      "No irrigation or human water management in these representative natural columns",
+      "Bedrock depth and hydraulic properties use ELM defaults appropriate for mountainous terrain",
+      "Comparison across columns isolates effects of elevation and soil texture on partitioning"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

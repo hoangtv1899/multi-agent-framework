@@ -1,0 +1,189 @@
+{
+  "prompt_id": "I02",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThis request asks for **future climate projection (2050)** under a warming scenario, but the brief states forcing is available only for **1980-2018 (historical)**. The framework has **no future climate forcing** and no downscaling capability to generate it from GCM scenarios. This is a **fundamental execution limit**: ELM cannot simulate 2050 conditions without 2050 forcing.\n\n**What the question actually needs:**\n1. Future climate forcing (2030-2050) from a warming scenario (e.g., RCP4.5/8.5 or SSP2-4.5)\n2. Bias-corrected and downscaled to the Naches domain\n3. ELM runs driven by that forcing to project recharge\n\n**What the stack CAN do:**\n- Run historical baseline (1980-2018) to characterize current recharge patterns\n- Perform sensitivity analysis: perturb historical forcing (e.g., +2\u00b0C, \u00b110% precip) to explore recharge response to climate shifts\n- This gives **direction and magnitude of sensitivity**, but is NOT a true 2050 projection (no GCM scenario, no transient pathway)\n\n**Feasibility verdict: INFEASIBLE as posed.** The question's core goal\u2014project 2050 recharge under a specific warming scenario\u2014cannot be answered without future forcing. I will design a **sensitivity-based proxy** that explores recharge response to plausible climate perturbations, clearly labeled as a sensitivity study, not a projection. The design will also enumerate what's needed for a true projection.\n\n**Design approach:**\n- **Baseline**: historical period (e.g., 2000-2018) to establish current recharge\n- **Sensitivity treatments**: perturb temperature (+1.5\u00b0C, +3\u00b0C) and precipitation (\u221210%, +10%) to span plausible mid-century changes\n- **Spatial sampling**: stratify by elevation (climate gradient proxy) since that's the only listed driver and the domain has 1625 m relief\n- **Validation**: none listed in brief, so this is purely exploratory\n- **N**: small (6-9 columns) \u2014 enough to span elevation bands \u00d7 a few treatments, since this is a sensitivity study, not a spatial survey\n\n**Key limitation to state clearly:** Without future forcing, this is a **what-if sensitivity analysis**, not a projection. The results show recharge's sensitivity to climate shifts but do not represent a specific 2050 scenario.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Establish baseline recharge patterns in the Naches under historical climate (1980-2018)\",\n      \"Quantify recharge sensitivity to plausible mid-century climate perturbations (temperature increase, precipitation change)\",\n      \"Identify elevation-dependent responses (rain-snow transition shifts, snowmelt timing)\"\n    ],\n    \"key_processes\": [\n      \"Precipitation partitioning (rain vs snow)\",\n      \"Snowmelt timing and magnitude\",\n      \"Evapotranspiration response to warming\",\n      \"Infiltration and deep drainage (recharge)\"\n    ],\n    \"drivers_to_resolve\": [\n      \"elevation (proxy for climate gradient, rain-snow transition)\",\n      \"climate perturbation (temperature, precipitation)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"ELM simulates the water balance processes (snow, ET, infiltration, drainage) needed to estimate recharge. Site archetype chosen because the question implies spatial heterogeneity (elevation range 1625 m) and the domain is real, though no observations are available for validation.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": null\n  },\n  \"feasibility\": {\n    \"verdict\": \"infeasible\",\n    \"answerable\": [\n      \"Baseline historical recharge (1980-2018) across elevation gradient\",\n      \"Recharge sensitivity to temperature increase (+1.5\u00b0C, +3\u00b0C) and precipitation change (\u00b110%)\",\n      \"Elevation-dependent response patterns (e.g., high-elevation snowpack sensitivity vs low-elevation rain-dominated)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"True 2050 projection under a specific warming scenario (e.g., RCP4.5, SSP2-4.5)\",\n        \"why\": \"Framework has only historical forcing (1980-2018). No future climate forcing from GCMs, no downscaling capability to generate 2030-2050 forcing for the Naches domain.\",\n        \"needs\": \"Future climate forcing dataset (bias-corrected, downscaled GCM output for 2030-2050 under a warming scenario)\"\n      },\n      {\n        \"aspect\": \"Transient climate pathway from present to 2050\",\n        \"why\": \"Sensitivity perturbations are step-changes applied to historical forcing, not a continuous transient scenario. Cannot represent gradual warming trajectory or inter-annual variability under climate change.\",\n        \"needs\": \"Transient GCM forcing (year-by-year 1980-2050) to simulate the pathway, not just endpoint sensitivity\"\n      },\n      {\n        \"aspect\": \"Scenario-specific uncertainty (e.g., RCP4.5 vs RCP8.5 spread)\",\n        \"why\": \"No GCM ensemble or scenario forcing available. Sensitivity perturbations are generic, not tied to a specific emissions pathway or model ensemble.\",\n        \"needs\": \"Multi-model GCM ensemble forcing for uncertainty quantification\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified by elevation, with climate perturbation treatments\",\n    \"strata\": [\n      {\n        \"driver\": \"elevation\",\n        \"bands\": [\n          \"low (400-800 m, rain-dominated)\",\n          \"mid (800-1400 m, rain-snow transition)\",\n          \"high (1400-1977 m, snow-dominated)\"\n        ]\n      },\n      {\n        \"driver\": \"climate_treatment\",\n        \"classes\": [\n          \"baseline (historical 2000-2018)\",\n          \"warm_dry (+2\u00b0C, -10% precip)\",\n          \"warm_wet (+2\u00b0C, +10% precip)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 9,\n    \"n_justification\": \"3 elevation bands \u00d7 3 climate treatments = 9 columns. This is the minimum to resolve elevation-dependent sensitivity. Each band gets one representative location (no replication, since this is a sensitivity study, not a spatial survey). Total N is small because the design is exploratory/sensitivity-focused, not validation-driven.\",\n    \"placement_logic\": \"One column per elevation band, placed to represent the dominant land cover and avoid extreme local anomalies (e.g., avoid isolated peaks or valley bottoms; prefer mid-slope positions). Mid-elevation band (rain-snow transition) is the most sensitive to warming and should be prioritized if resources are limited.\",\n    \"replication\": \"None. Each elevation band is represented by a single column. Replication is not justified for a sensitivity study without validation targets.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"low-elevation baseline\",\n      \"n\": 1,\n      \"reason\": \"Rain-dominated regime (400-800 m), historical climate \u2014 establishes current recharge in low-elevation areas with minimal snowpack\"\n    },\n    {\n      \"group\": \"low-elevation warm_dry\",\n      \"n\": 1,\n      \"reason\": \"Rain-dominated regime, +2\u00b0C/-10% precip \u2014 tests recharge sensitivity to warming and drying where snow is already minimal\"\n    },\n    {\n      \"group\": \"low-elevation warm_wet\",\n      \"n\": 1,\n      \"reason\": \"Rain-dominated regime, +2\u00b0C/+10% precip \u2014 tests recharge sensitivity to warming with increased precipitation\"\n    },\n    {\n      \"group\": \"mid-elevation baseline\",\n      \"n\": 1,\n      \"reason\": \"Rain-snow transition (800-1400 m), historical climate \u2014 establishes current recharge in the most climate-sensitive zone\"\n    },\n    {\n      \"group\": \"mid-elevation warm_dry\",\n      \"n\": 1,\n      \"reason\": \"Rain-snow transition, +2\u00b0C/-10% precip \u2014 tests snowpack loss and earlier melt under warming/drying (expected largest recharge decline)\"\n    },\n    {\n      \"group\": \"mid-elevation warm_wet\",\n      \"n\": 1,\n      \"reason\": \"Rain-snow transition, +2\u00b0C/+10% precip \u2014 tests competing effects of snowpack loss vs increased precipitation on recharge\"\n    },\n    {\n      \"group\": \"high-elevation baseline\",\n      \"n\": 1,\n      \"reason\": \"Snow-dominated regime (1400-1977 m), historical climate \u2014 establishes current recharge from high-elevation snowmelt\"\n    },\n    {\n      \"group\": \"high-elevation warm_dry\",\n      \"n\": 1,\n      \"reason\": \"Snow-dominated regime, +2\u00b0C/-10% precip \u2014 tests high-elevation snowpack persistence and melt timing under warming/drying\"\n    },\n    {\n      \"group\": \"high-elevation warm_wet\",\n      \"n\": 1,\n      \"reason\": \"Snow-dominated regime, +2\u00b0C/+10% precip \u2014 tests whether increased precipitation offsets earlier melt at high elevations\"\n    }\n  ],\n  \"validation_design\": [],\n  \"experiment_summary\": {\n    \"total_columns\": 9,\n    \"exploratory\": 9,\n    \"validation\": 0,\n    \"primary_treatment\": \"Baseline: historical forcing (2000-2018), native SSURGO soil. Perturbations: +2\u00b0C applied uniformly to air temperature, \u00b110% applied to precipitation, using the same historical forcing period as the carrier.\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"Future climate forcing (2030-2050) from bias-corrected downscaled GCM output under a warming scenario (e.g., RCP4.5, SSP2-4.5)\",\n      \"why\": \"The question asks for a 2050 projection, which requires future forcing. Historical forcing (1980-2018) cannot represent future climate.\",\n      \"blocks\": \"True 2050 projection. Without this, only sensitivity analysis (perturbations of historical climate) is possible.\"\n    },\n    {\n      \"capability\": \"Transient GCM forcing (year-by-year 1980-2050) to simulate the climate change pathway\",\n      \"why\": \"Step-change perturbations do not represent the gradual warming trajectory or inter-annual variability under climate change.\",\n      \"blocks\": \"Transient projection showing how recharge evolves over time from present to 2050.\"\n    },\n    {\n      \"capability\": \"Multi-model GCM ensemble forcing for uncertainty quantification\",\n      \"why\": \"A single scenario or sensitivity perturbation does not capture the range of plausible futures or model uncertainty.\",\n      \"blocks\": \"Projection uncertainty bounds (e.g., likely range of 2050 recharge change).\"\n    },\n    {\n      \"capability\": \"Climate perturbation tool (apply uniform \u0394T, \u0394precip to historical forcing)\",\n      \"why\": \"To implement the sensitivity treatments (+2\u00b0C, \u00b110% precip) as a proxy for future climate in the absence of GCM forcing.\",\n      \"blocks\": \"The sensitivity analysis itself. If this tool does not exist, the design cannot be executed even as a sensitivity study.\"\n    },\n    {\n      \"capability\": \"Multi-year spin-up or WTD-informed warm start\",\n      \"why\": \"Recharge is the target variable, which depends on equilibrated subsurface storage and water table depth. Cold-start runs will show initialization artifacts in drainage/recharge for several years.\",\n      \"blocks\": \"Meaningful recharge estimates. Without spin-up, early-year recharge will be biased low as the aquifer fills from the default initial state.\"\n    },\n    {\n      \"capability\": \"Elevation-downscaled forcing (NLDAS-2 or equivalent at ~12 km with orographic adjustment)\",\n      \"why\": \"The domain has 1625 m relief. Coarse forcing (e.g., Qian T62 ~1.9\u00b0) does not resolve elevation-dependent precipitation and temperature gradients, which are critical for rain-snow partitioning and recharge.\",\n      \"blocks\": \"Elevation-stratified sampling. Without elevation-resolved forcing, columns at different elevations will see nearly identical climate, and the design cannot isolate elevation-dependent responses.\"\n    }\n  ],\n  \"assumptions\": [\n    \"Sensitivity perturbations (+2\u00b0C, \u00b110% precip) are plausible proxies for mid-century climate change in the Pacific Northwest, based on regional climate projections (e.g., CMIP5/6 ensemble means for RCP4.5/SSP2-4.5 by 2050).\",\n    \"Uniform perturbations (same \u0394T, \u0394precip at all elevations) are a simplification. Real GCM projections show elevation-dependent warming (amplification at high elevations) and spatially varying precipitation changes.\",\n    \"Historical forcing period (2000-2018) is representative of current climate. Inter-decadal variability (e.g., PDO phase) is not explicitly addressed.\",\n    \"Native SSURGO soil is used at all columns. Soil heterogeneity is not explored, though it may interact with climate (e.g., coarse soils in valleys vs thin soils on ridges).\",\n    \"Recharge is approximated by ELM's subsurface drainage (QDRAI). This is a 1-D column flux and does not account for lateral groundwater flow or regional water table dynamics.\",\n    \"No observations are available for validation, so results cannot be benchmarked against measured recharge or streamflow. This is a purely model-based sensitivity study.\"\n  ],\n  \"open_questions\": [\n    \"What warming scenario should the sensitivity perturbations represent (e.g., RCP4.5 ~+2\u00b0C by 2050, or RCP8.5 ~+3\u00b0C)? The brief does not specify.\",\n    \"Should the design include a +3\u00b0C treatment to span a wider range of plausible futures, or is +2\u00b0C sufficient?\",\n    \"Are there any streamflow gages in or downstream of the Naches that could be used for indirect validation (e.g., comparing modeled vs observed baseflow trends as a recharge proxy)?\",\n    \"Is there interest in exploring soil heterogeneity (e.g., coarse alluvial soils in valleys vs thin rocky soils on slopes) as a secondary driver, or is elevation/climate the sole focus?\",\n    \"Should the design include a colder/wetter treatment (e.g., -1\u00b0C, +10% precip) to explore the full sensitivity space, or only warming scenarios?\",\n    \"What is the acceptable runtime cost? Each column \u00d7 treatment \u00d7 spin-up years could be expensive if NLDAS-2 forcing is used (~30 min per simulated year per column). A 10-year spin-up + 18-year analysis period = 28 years \u00d7 9 columns = 252 column-years.\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Establish baseline recharge patterns in the Naches under historical climate (1980-2018)",
+        "Quantify recharge sensitivity to plausible mid-century climate perturbations (temperature increase, precipitation change)",
+        "Identify elevation-dependent responses (rain-snow transition shifts, snowmelt timing)"
+      ],
+      "key_processes": [
+        "Precipitation partitioning (rain vs snow)",
+        "Snowmelt timing and magnitude",
+        "Evapotranspiration response to warming",
+        "Infiltration and deep drainage (recharge)"
+      ],
+      "drivers_to_resolve": [
+        "elevation (proxy for climate gradient, rain-snow transition)",
+        "climate perturbation (temperature, precipitation)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM simulates the water balance processes (snow, ET, infiltration, drainage) needed to estimate recharge. Site archetype chosen because the question implies spatial heterogeneity (elevation range 1625 m) and the domain is real, though no observations are available for validation.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "Baseline historical recharge (1980-2018) across elevation gradient",
+        "Recharge sensitivity to temperature increase (+1.5\u00b0C, +3\u00b0C) and precipitation change (\u00b110%)",
+        "Elevation-dependent response patterns (e.g., high-elevation snowpack sensitivity vs low-elevation rain-dominated)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "True 2050 projection under a specific warming scenario (e.g., RCP4.5, SSP2-4.5)",
+          "why": "Framework has only historical forcing (1980-2018). No future climate forcing from GCMs, no downscaling capability to generate 2030-2050 forcing for the Naches domain.",
+          "needs": "Future climate forcing dataset (bias-corrected, downscaled GCM output for 2030-2050 under a warming scenario)"
+        },
+        {
+          "aspect": "Transient climate pathway from present to 2050",
+          "why": "Sensitivity perturbations are step-changes applied to historical forcing, not a continuous transient scenario. Cannot represent gradual warming trajectory or inter-annual variability under climate change.",
+          "needs": "Transient GCM forcing (year-by-year 1980-2050) to simulate the pathway, not just endpoint sensitivity"
+        },
+        {
+          "aspect": "Scenario-specific uncertainty (e.g., RCP4.5 vs RCP8.5 spread)",
+          "why": "No GCM ensemble or scenario forcing available. Sensitivity perturbations are generic, not tied to a specific emissions pathway or model ensemble.",
+          "needs": "Multi-model GCM ensemble forcing for uncertainty quantification"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified by elevation, with climate perturbation treatments",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low (400-800 m, rain-dominated)",
+            "mid (800-1400 m, rain-snow transition)",
+            "high (1400-1977 m, snow-dominated)"
+          ]
+        },
+        {
+          "driver": "climate_treatment",
+          "classes": [
+            "baseline (historical 2000-2018)",
+            "warm_dry (+2\u00b0C, -10% precip)",
+            "warm_wet (+2\u00b0C, +10% precip)"
+          ]
+        }
+      ],
+      "n_exploratory": 9,
+      "n_justification": "3 elevation bands \u00d7 3 climate treatments = 9 columns. This is the minimum to resolve elevation-dependent sensitivity. Each band gets one representative location (no replication, since this is a sensitivity study, not a spatial survey). Total N is small because the design is exploratory/sensitivity-focused, not validation-driven.",
+      "placement_logic": "One column per elevation band, placed to represent the dominant land cover and avoid extreme local anomalies (e.g., avoid isolated peaks or valley bottoms; prefer mid-slope positions). Mid-elevation band (rain-snow transition) is the most sensitive to warming and should be prioritized if resources are limited.",
+      "replication": "None. Each elevation band is represented by a single column. Replication is not justified for a sensitivity study without validation targets."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elevation baseline",
+        "n": 1,
+        "reason": "Rain-dominated regime (400-800 m), historical climate \u2014 establishes current recharge in low-elevation areas with minimal snowpack"
+      },
+      {
+        "group": "low-elevation warm_dry",
+        "n": 1,
+        "reason": "Rain-dominated regime, +2\u00b0C/-10% precip \u2014 tests recharge sensitivity to warming and drying where snow is already minimal"
+      },
+      {
+        "group": "low-elevation warm_wet",
+        "n": 1,
+        "reason": "Rain-dominated regime, +2\u00b0C/+10% precip \u2014 tests recharge sensitivity to warming with increased precipitation"
+      },
+      {
+        "group": "mid-elevation baseline",
+        "n": 1,
+        "reason": "Rain-snow transition (800-1400 m), historical climate \u2014 establishes current recharge in the most climate-sensitive zone"
+      },
+      {
+        "group": "mid-elevation warm_dry",
+        "n": 1,
+        "reason": "Rain-snow transition, +2\u00b0C/-10% precip \u2014 tests snowpack loss and earlier melt under warming/drying (expected largest recharge decline)"
+      },
+      {
+        "group": "mid-elevation warm_wet",
+        "n": 1,
+        "reason": "Rain-snow transition, +2\u00b0C/+10% precip \u2014 tests competing effects of snowpack loss vs increased precipitation on recharge"
+      },
+      {
+        "group": "high-elevation baseline",
+        "n": 1,
+        "reason": "Snow-dominated regime (1400-1977 m), historical climate \u2014 establishes current recharge from high-elevation snowmelt"
+      },
+      {
+        "group": "high-elevation warm_dry",
+        "n": 1,
+        "reason": "Snow-dominated regime, +2\u00b0C/-10% precip \u2014 tests high-elevation snowpack persistence and melt timing under warming/drying"
+      },
+      {
+        "group": "high-elevation warm_wet",
+        "n": 1,
+        "reason": "Snow-dominated regime, +2\u00b0C/+10% precip \u2014 tests whether increased precipitation offsets earlier melt at high elevations"
+      }
+    ],
+    "validation_design": [],
+    "experiment_summary": {
+      "total_columns": 9,
+      "exploratory": 9,
+      "validation": 0,
+      "primary_treatment": "Baseline: historical forcing (2000-2018), native SSURGO soil. Perturbations: +2\u00b0C applied uniformly to air temperature, \u00b110% applied to precipitation, using the same historical forcing period as the carrier."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Future climate forcing (2030-2050) from bias-corrected downscaled GCM output under a warming scenario (e.g., RCP4.5, SSP2-4.5)",
+        "why": "The question asks for a 2050 projection, which requires future forcing. Historical forcing (1980-2018) cannot represent future climate.",
+        "blocks": "True 2050 projection. Without this, only sensitivity analysis (perturbations of historical climate) is possible."
+      },
+      {
+        "capability": "Transient GCM forcing (year-by-year 1980-2050) to simulate the climate change pathway",
+        "why": "Step-change perturbations do not represent the gradual warming trajectory or inter-annual variability under climate change.",
+        "blocks": "Transient projection showing how recharge evolves over time from present to 2050."
+      },
+      {
+        "capability": "Multi-model GCM ensemble forcing for uncertainty quantification",
+        "why": "A single scenario or sensitivity perturbation does not capture the range of plausible futures or model uncertainty.",
+        "blocks": "Projection uncertainty bounds (e.g., likely range of 2050 recharge change)."
+      },
+      {
+        "capability": "Climate perturbation tool (apply uniform \u0394T, \u0394precip to historical forcing)",
+        "why": "To implement the sensitivity treatments (+2\u00b0C, \u00b110% precip) as a proxy for future climate in the absence of GCM forcing.",
+        "blocks": "The sensitivity analysis itself. If this tool does not exist, the design cannot be executed even as a sensitivity study."
+      },
+      {
+        "capability": "Multi-year spin-up or WTD-informed warm start",
+        "why": "Recharge is the target variable, which depends on equilibrated subsurface storage and water table depth. Cold-start runs will show initialization artifacts in drainage/recharge for several years.",
+        "blocks": "Meaningful recharge estimates. Without spin-up, early-year recharge will be biased low as the aquifer fills from the default initial state."
+      },
+      {
+        "capability": "Elevation-downscaled forcing (NLDAS-2 or equivalent at ~12 km with orographic adjustment)",
+        "why": "The domain has 1625 m relief. Coarse forcing (e.g., Qian T62 ~1.9\u00b0) does not resolve elevation-dependent precipitation and temperature gradients, which are critical for rain-snow partitioning and recharge.",
+        "blocks": "Elevation-stratified sampling. Without elevation-resolved forcing, columns at different elevations will see nearly identical climate, and the design cannot isolate elevation-dependent responses."
+      }
+    ],
+    "assumptions": [
+      "Sensitivity perturbations (+2\u00b0C, \u00b110% precip) are plausible proxies for mid-century climate change in the Pacific Northwest, based on regional climate projections (e.g., CMIP5/6 ensemble means for RCP4.5/SSP2-4.5 by 2050).",
+      "Uniform perturbations (same \u0394T, \u0394precip at all elevations) are a simplification. Real GCM projections show elevation-dependent warming (amplification at high elevations) and spatially varying precipitation changes.",
+      "Historical forcing period (2000-2018) is representative of current climate. Inter-decadal variability (e.g., PDO phase) is not explicitly addressed.",
+      "Native SSURGO soil is used at all columns. Soil heterogeneity is not explored, though it may interact with climate (e.g., coarse soils in valleys vs thin soils on ridges).",
+      "Recharge is approximated by ELM's subsurface drainage (QDRAI). This is a 1-D column flux and does not account for lateral groundwater flow or regional water table dynamics.",
+      "No observations are available for validation, so results cannot be benchmarked against measured recharge or streamflow. This is a purely model-based sensitivity study."
+    ],
+    "open_questions": [
+      "What warming scenario should the sensitivity perturbations represent (e.g., RCP4.5 ~+2\u00b0C by 2050, or RCP8.5 ~+3\u00b0C)? The brief does not specify.",
+      "Should the design include a +3\u00b0C treatment to span a wider range of plausible futures, or is +2\u00b0C sufficient?",
+      "Are there any streamflow gages in or downstream of the Naches that could be used for indirect validation (e.g., comparing modeled vs observed baseflow trends as a recharge proxy)?",
+      "Is there interest in exploring soil heterogeneity (e.g., coarse alluvial soils in valleys vs thin rocky soils on slopes) as a secondary driver, or is elevation/climate the sole focus?",
+      "Should the design include a colder/wetter treatment (e.g., -1\u00b0C, +10% precip) to explore the full sensitivity space, or only warming scenarios?",
+      "What is the acceptable runtime cost? Each column \u00d7 treatment \u00d7 spin-up years could be expensive if NLDAS-2 forcing is used (~30 min per simulated year per column). A 10-year spin-up + 18-year analysis period = 28 years \u00d7 9 columns = 252 column-years."
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

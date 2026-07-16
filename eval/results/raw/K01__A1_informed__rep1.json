@@ -1,0 +1,257 @@
+{
+  "prompt_id": "K01",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "```json\n{\n  \"feasibility\": {\n    \"verdict\": \"feasible_with_coupling\",\n    \"answerable\": [\n      \"Infiltration timing and magnitude from ELM land surface\",\n      \"Vadose zone travel time using PFLOTRAN subsurface transport\",\n      \"Water table depth from Fan 2013 prior for initialization\",\n      \"Spatial variability across Naches HUC using multiple columns\",\n      \"Temporal lag between infiltration and water table recharge\"\n    ],\n    \"not_answerable\": [\n      \"Direct observational validation of recharge timing (no observations available)\",\n      \"Lateral groundwater flow effects (single-column limitation)\",\n      \"Bedrock heterogeneity details beyond soil texture databases\"\n    ]\n  },\n  \"n_columns\": 9,\n  \"n_justification\": \"Nine columns capture the Naches basin's strong elevation gradient (352-1977m), varied soil textures, and water-table depth heterogeneity. This design samples three elevation zones (low/valley <600m, mid 800-1200m, high/montane >1500m) \u00d7 three WTD regimes (shallow <5m, intermediate 5-15m, deep >15m) to characterize infiltration-to-recharge lag times across the dominant hydroclimatic and subsurface gradients. More columns would be redundant given the basin's relatively uniform geology (Cascade volcanics); fewer would miss critical elevation-WTD interactions controlling vadose transit times.\",\n  \"columns\": [\n    {\n      \"id\": \"naches_valley_shallow\",\n      \"lat\": 46.72,\n      \"lon\": -120.71,\n      \"soil_texture\": \"silt_loam\",\n      \"elevation_m\": 380,\n      \"wtd_m\": 3.2,\n      \"description\": \"Lower Naches valley, shallow alluvial aquifer\"\n    },\n    {\n      \"id\": \"naches_valley_intermediate\",\n      \"lat\": 46.65,\n      \"lon\": -120.85,\n      \"soil_texture\": \"sandy_loam\",\n      \"elevation_m\": 450,\n      \"wtd_m\": 8.5,\n      \"description\": \"Valley terrace, intermediate WTD\"\n    },\n    {\n      \"id\": \"naches_valley_deep\",\n      \"lat\": 46.58,\n      \"lon\": -121.05,\n      \"soil_texture\": \"loam\",\n      \"elevation_m\": 520,\n      \"wtd_m\": 18.0,\n      \"description\": \"Valley margin, deep water table\"\n    },\n    {\n      \"id\": \"naches_mid_shallow\",\n      \"lat\": 46.82,\n      \"lon\": -121.15,\n      \"soil_texture\": \"loam\",\n      \"elevation_m\": 920,\n      \"wtd_m\": 4.8,\n      \"description\": \"Mid-elevation forest, riparian shallow WT\"\n    },\n    {\n      \"id\": \"naches_mid_intermediate\",\n      \"lat\": 46.92,\n      \"lon\": -121.08,\n      \"soil_texture\": \"sandy_loam\",\n      \"elevation_m\": 1050,\n      \"wtd_m\": 11.2,\n      \"description\": \"Mid-elevation hillslope, moderate WTD\"\n    },\n    {\n      \"id\": \"naches_mid_deep\",\n      \"lat\": 46.78,\n      \"lon\": -121.28,\n      \"soil_texture\": \"gravelly_loam\",\n      \"elevation_m\": 1180,\n      \"wtd_m\": 22.5,\n      \"description\": \"Mid-elevation ridge, deep fractured bedrock WT\"\n    },\n    {\n      \"id\": \"naches_high_shallow\",\n      \"lat\": 47.05,\n      \"lon\": -121.22,\n      \"soil_texture\": \"sandy_loam\",\n      \"elevation_m\": 1620,\n      \"wtd_m\": 4.5,\n      \"description\": \"Subalpine meadow, perched/shallow WT\"\n    },\n    {\n      \"id\": \"naches_high_intermediate\",\n      \"lat\": 47.12,\n      \"lon\": -121.35,\n      \"soil_texture\": \"loam\",\n      \"elevation_m\": 1780,\n      \"wtd_m\": 9.8,\n      \"description\": \"High-elevation forest, snowmelt-dominated\"\n    },\n    {\n      \"id\": \"naches_high_deep\",\n      \"lat\": 47.08,\n      \"lon\": -121.42,\n      \"soil_texture\": \"gravelly_sandy_loam\",\n      \"elevation_m\": 1890,\n      \"wtd_m\": 28.0,\n      \"description\": \"Alpine/subalpine transition, very deep WT\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1995\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_OPTION\": \"nyears\",\n    \"STOP_N\": \"24\",\n    \"RUN_STARTDATE\": \"1995-01-01\",\n    \"CLM_FORCE_COLDSTART\": \"off\",\n    \"CLM_ACCELERATED_SPINUP\": \"off\",\n    \"SPINUP_YEARS\": \"200\",\n    \"hist_fincl1\": [\n      \"QINFL\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QCHARGE\",\n      \"QRGWL\",\n      \"ZWT\",\n      \"WA\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QSNOMELT\",\n      \"QSOIL\",\n      \"QVEGT\",\n      \"QVEGE\",\n      \"H2OSOI\",\n      \"SOILWATER_10CM\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"TSOI\",\n      \"EFLX_LH_TOT\",\n      \"FSH\"\n    ],\n    \"hist_mfilt\": 8760,\n    \"hist_nhtfrq\": -1,\n    \"hist_avgflag\": \"I\",\n    \"description\": \"Hourly instantaneous output for infiltration-recharge lag analysis\"\n  },\n  \"pflotran_coupling\": {\n    \"enabled\": true,\n    \"mode\": \"offline_sequential\",\n    \"rationale\": \"ELM's default soil column (3.8m) and simplified groundwater representation cannot resolve vadose travel times for WTD >5m. PFLOTRAN provides Richards equation solution through full vadose zone to actual water table.\",\n    \"workflow\": [\n      \"1. Run ELM spinup (200yr) to equilibrate surface hydrology and soil moisture\",\n      \"2. Run ELM 1995-2018 with hourly QINFL output as upper boundary condition\",\n      \"3. Configure PFLOTRAN 1D columns matching each ELM column with actual WTD\",\n      \"4. Drive PFLOTRAN with ELM QINFL time series at surface\",\n      \"5. Extract water table flux (recharge) and compute lag times\"\n    ],\n    \"pflotran_config\": {\n      \"mode\": \"RICHARDS\",\n      \"grid\": {\n        \"type\": \"1D_vertical\",\n        \"nz_vadose\": \"variable_by_wtd\",\n        \"dz_upper_m\": 0.05,\n        \"dz_lower_m\": 0.5,\n        \"refinement\": \"logarithmic_from_surface\"\n      },\n      \"soil_properties\": {\n        \"source\": \"van_Genuchten_Mualem\",\n        \"mapped_from_texture\": true,\n        \"porosity_range\": [0.38, 0.52],\n        \"residual_saturation_range\": [0.05, 0.15]\n      },\n      \"boundary_conditions\": {\n        \"top\": \"QINFL_from_ELM_hourly\",\n        \"bottom\": \"water_table_dirichlet_pressure\"\n      },\n      \"initial_conditions\": {\n        \"pressure\": \"hydrostatic_from_wtd\",\n        \"saturation\": \"equilibrium_profile\"\n      },\n      \"output\": {\n        \"variables\": [\n          \"liquid_pressure\",\n          \"liquid_saturation\",\n          \"darcy_velocity_z\",\n          \"water_table_position\"\n        ],\n        \"frequency_hours\": 1\n      }\n    }\n  },\n  \"analysis_metrics\": {\n    \"primary\": [\n      \"infiltration_to_recharge_lag_days_median\",\n      \"infiltration_to_recharge_lag_days_p10_p90\",\n      \"seasonal_variation_lag_winter_vs_summer\",\n      \"wtd_control_on_lag_correlation\"\n    ],\n    \"secondary\": [\n      \"vadose_zone_storage_change\",\n      \"recharge_efficiency_ratio\",\n      \"event_scale_lag_vs_antecedent_moisture\"\n    ],\n    \"lag_calculation_method\": \"cross_correlation between QINFL(t) and water_table_flux(t+lag) with peak correlation defining characteristic lag; also track individual infiltration pulse arrival using tracer-like analysis\"\n  },\n  \"requires_capabilities\": [\n    \"ELM single-column mode with custom forcing\",\n    \"PFLOTRAN 1D Richards equation solver\",\n    \"Offline coupling workflow (ELM \u2192 PFLOTRAN sequential)\",\n    \"Fan 2013 WTD dataset for initialization\",\n    \"High-frequency (hourly) output for lag detection\",\n    \"Extended spinup for deep vadose zone equilibration\",\n    \"Python/NCL post-processing for cross-correlation analysis\"\n  ],\n  \"assumptions\": [\n    \"1D vertical flow dominates vadose transport (lateral flow neglected)\",\n    \"Fan 2013 WTD represents long-term average water table position\",\n    \"Soil hydraulic properties adequately represented by texture-based pedotransfer functions\",\n    \"Water table acts as constant-head lower boundary (no regional drawdown)\",\n    \"ELM surface infiltration (QINFL) accurately represents water entering vadose zone\",\n    \"No preferential flow paths (macropores, fractures) beyond parameterized hydraulic conductivity\",\n    \"Atmospheric forcing (DATM) adequately represents basin climate at point scale\",\n    \"Spinup achieves quasi-equilibrium vadose moisture profile for 1995 start\",\n    \"Geologic heterogeneity within vadose zone approximated by soil texture variation\",\n    \"No anthropogenic influences (pumping, irrigation) affect water table dynamics\"\n  ],\n  \"expected_outcomes\": {\n    \"shallow_wtd_columns\": \"Lag times 1-30 days, strong seasonal variation with rapid response to snowmelt\",\n    \"intermediate_wtd_columns\": \"Lag times 30-180 days, damped seasonal signal, memory of antecedent conditions\",\n    \"deep_wtd_columns\": \"Lag times 180-730+ days, highly damped annual cycle, multi-year memory\",\n    \"elevation_effect\": \"High-elevation sites show spring pulse from snowmelt with predictable timing; low-elevation sites show multiple winter rain events with variable lags\",\n    \"texture_effect\": \"Sandy soils show faster but more variable lags; finer textures show slower, more consistent transit times\"\n  },\n  \"validation_strategy\": {\n    \"direct\": \"None available (no recharge observations)\",\n    \"indirect\": [\n      \"Compare simulated vs observed water table depths from USGS wells\",\n      \"Check if simulated recharge seasonality matches regional groundwater level fluctuations\",\n      \"Verify infiltration amounts against basin water balance constraints\",\n      \"Compare vadose travel times to literature values for similar settings\"\n    ]\n  },\n  \"computational_requirements\": {\n    \"elm_cost\": \"Low - 9 columns \u00d7 24 years with hourly output\",\n    \"pflotran_cost\": \"Moderate - 9 1D columns with fine vertical resolution, hourly timesteps\",\n    \"storage\": \"~50 GB for hourly ELM output + ~100 GB for PFLOTRAN vadose profiles\",\n    \"runtime_estimate\": \"ELM: ~2 hours; PFLOTRAN: ~24 hours on single node\"\n  }\n}\n```",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible_with_coupling",
+      "answerable": [
+        "Infiltration timing and magnitude from ELM land surface",
+        "Vadose zone travel time using PFLOTRAN subsurface transport",
+        "Water table depth from Fan 2013 prior for initialization",
+        "Spatial variability across Naches HUC using multiple columns",
+        "Temporal lag between infiltration and water table recharge"
+      ],
+      "not_answerable": [
+        "Direct observational validation of recharge timing (no observations available)",
+        "Lateral groundwater flow effects (single-column limitation)",
+        "Bedrock heterogeneity details beyond soil texture databases"
+      ]
+    },
+    "n_columns": 9,
+    "n_justification": "Nine columns capture the Naches basin's strong elevation gradient (352-1977m), varied soil textures, and water-table depth heterogeneity. This design samples three elevation zones (low/valley <600m, mid 800-1200m, high/montane >1500m) \u00d7 three WTD regimes (shallow <5m, intermediate 5-15m, deep >15m) to characterize infiltration-to-recharge lag times across the dominant hydroclimatic and subsurface gradients. More columns would be redundant given the basin's relatively uniform geology (Cascade volcanics); fewer would miss critical elevation-WTD interactions controlling vadose transit times.",
+    "columns": [
+      {
+        "id": "naches_valley_shallow",
+        "lat": 46.72,
+        "lon": -120.71,
+        "soil_texture": "silt_loam",
+        "elevation_m": 380,
+        "wtd_m": 3.2,
+        "description": "Lower Naches valley, shallow alluvial aquifer"
+      },
+      {
+        "id": "naches_valley_intermediate",
+        "lat": 46.65,
+        "lon": -120.85,
+        "soil_texture": "sandy_loam",
+        "elevation_m": 450,
+        "wtd_m": 8.5,
+        "description": "Valley terrace, intermediate WTD"
+      },
+      {
+        "id": "naches_valley_deep",
+        "lat": 46.58,
+        "lon": -121.05,
+        "soil_texture": "loam",
+        "elevation_m": 520,
+        "wtd_m": 18.0,
+        "description": "Valley margin, deep water table"
+      },
+      {
+        "id": "naches_mid_shallow",
+        "lat": 46.82,
+        "lon": -121.15,
+        "soil_texture": "loam",
+        "elevation_m": 920,
+        "wtd_m": 4.8,
+        "description": "Mid-elevation forest, riparian shallow WT"
+      },
+      {
+        "id": "naches_mid_intermediate",
+        "lat": 46.92,
+        "lon": -121.08,
+        "soil_texture": "sandy_loam",
+        "elevation_m": 1050,
+        "wtd_m": 11.2,
+        "description": "Mid-elevation hillslope, moderate WTD"
+      },
+      {
+        "id": "naches_mid_deep",
+        "lat": 46.78,
+        "lon": -121.28,
+        "soil_texture": "gravelly_loam",
+        "elevation_m": 1180,
+        "wtd_m": 22.5,
+        "description": "Mid-elevation ridge, deep fractured bedrock WT"
+      },
+      {
+        "id": "naches_high_shallow",
+        "lat": 47.05,
+        "lon": -121.22,
+        "soil_texture": "sandy_loam",
+        "elevation_m": 1620,
+        "wtd_m": 4.5,
+        "description": "Subalpine meadow, perched/shallow WT"
+      },
+      {
+        "id": "naches_high_intermediate",
+        "lat": 47.12,
+        "lon": -121.35,
+        "soil_texture": "loam",
+        "elevation_m": 1780,
+        "wtd_m": 9.8,
+        "description": "High-elevation forest, snowmelt-dominated"
+      },
+      {
+        "id": "naches_high_deep",
+        "lat": 47.08,
+        "lon": -121.42,
+        "soil_texture": "gravelly_sandy_loam",
+        "elevation_m": 1890,
+        "wtd_m": 28.0,
+        "description": "Alpine/subalpine transition, very deep WT"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1995",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_OPTION": "nyears",
+      "STOP_N": "24",
+      "RUN_STARTDATE": "1995-01-01",
+      "CLM_FORCE_COLDSTART": "off",
+      "CLM_ACCELERATED_SPINUP": "off",
+      "SPINUP_YEARS": "200",
+      "hist_fincl1": [
+        "QINFL",
+        "QOVER",
+        "QDRAI",
+        "QCHARGE",
+        "QRGWL",
+        "ZWT",
+        "WA",
+        "RAIN",
+        "SNOW",
+        "QSNOMELT",
+        "QSOIL",
+        "QVEGT",
+        "QVEGE",
+        "H2OSOI",
+        "SOILWATER_10CM",
+        "SOILLIQ",
+        "SOILICE",
+        "TSOI",
+        "EFLX_LH_TOT",
+        "FSH"
+      ],
+      "hist_mfilt": 8760,
+      "hist_nhtfrq": -1,
+      "hist_avgflag": "I",
+      "description": "Hourly instantaneous output for infiltration-recharge lag analysis"
+    },
+    "pflotran_coupling": {
+      "enabled": true,
+      "mode": "offline_sequential",
+      "rationale": "ELM's default soil column (3.8m) and simplified groundwater representation cannot resolve vadose travel times for WTD >5m. PFLOTRAN provides Richards equation solution through full vadose zone to actual water table.",
+      "workflow": [
+        "1. Run ELM spinup (200yr) to equilibrate surface hydrology and soil moisture",
+        "2. Run ELM 1995-2018 with hourly QINFL output as upper boundary condition",
+        "3. Configure PFLOTRAN 1D columns matching each ELM column with actual WTD",
+        "4. Drive PFLOTRAN with ELM QINFL time series at surface",
+        "5. Extract water table flux (recharge) and compute lag times"
+      ],
+      "pflotran_config": {
+        "mode": "RICHARDS",
+        "grid": {
+          "type": "1D_vertical",
+          "nz_vadose": "variable_by_wtd",
+          "dz_upper_m": 0.05,
+          "dz_lower_m": 0.5,
+          "refinement": "logarithmic_from_surface"
+        },
+        "soil_properties": {
+          "source": "van_Genuchten_Mualem",
+          "mapped_from_texture": true,
+          "porosity_range": [
+            0.38,
+            0.52
+          ],
+          "residual_saturation_range": [
+            0.05,
+            0.15
+          ]
+        },
+        "boundary_conditions": {
+          "top": "QINFL_from_ELM_hourly",
+          "bottom": "water_table_dirichlet_pressure"
+        },
+        "initial_conditions": {
+          "pressure": "hydrostatic_from_wtd",
+          "saturation": "equilibrium_profile"
+        },
+        "output": {
+          "variables": [
+            "liquid_pressure",
+            "liquid_saturation",
+            "darcy_velocity_z",
+            "water_table_position"
+          ],
+          "frequency_hours": 1
+        }
+      }
+    },
+    "analysis_metrics": {
+      "primary": [
+        "infiltration_to_recharge_lag_days_median",
+        "infiltration_to_recharge_lag_days_p10_p90",
+        "seasonal_variation_lag_winter_vs_summer",
+        "wtd_control_on_lag_correlation"
+      ],
+      "secondary": [
+        "vadose_zone_storage_change",
+        "recharge_efficiency_ratio",
+        "event_scale_lag_vs_antecedent_moisture"
+      ],
+      "lag_calculation_method": "cross_correlation between QINFL(t) and water_table_flux(t+lag) with peak correlation defining characteristic lag; also track individual infiltration pulse arrival using tracer-like analysis"
+    },
+    "requires_capabilities": [
+      "ELM single-column mode with custom forcing",
+      "PFLOTRAN 1D Richards equation solver",
+      "Offline coupling workflow (ELM \u2192 PFLOTRAN sequential)",
+      "Fan 2013 WTD dataset for initialization",
+      "High-frequency (hourly) output for lag detection",
+      "Extended spinup for deep vadose zone equilibration",
+      "Python/NCL post-processing for cross-correlation analysis"
+    ],
+    "assumptions": [
+      "1D vertical flow dominates vadose transport (lateral flow neglected)",
+      "Fan 2013 WTD represents long-term average water table position",
+      "Soil hydraulic properties adequately represented by texture-based pedotransfer functions",
+      "Water table acts as constant-head lower boundary (no regional drawdown)",
+      "ELM surface infiltration (QINFL) accurately represents water entering vadose zone",
+      "No preferential flow paths (macropores, fractures) beyond parameterized hydraulic conductivity",
+      "Atmospheric forcing (DATM) adequately represents basin climate at point scale",
+      "Spinup achieves quasi-equilibrium vadose moisture profile for 1995 start",
+      "Geologic heterogeneity within vadose zone approximated by soil texture variation",
+      "No anthropogenic influences (pumping, irrigation) affect water table dynamics"
+    ],
+    "expected_outcomes": {
+      "shallow_wtd_columns": "Lag times 1-30 days, strong seasonal variation with rapid response to snowmelt",
+      "intermediate_wtd_columns": "Lag times 30-180 days, damped seasonal signal, memory of antecedent conditions",
+      "deep_wtd_columns": "Lag times 180-730+ days, highly damped annual cycle, multi-year memory",
+      "elevation_effect": "High-elevation sites show spring pulse from snowmelt with predictable timing; low-elevation sites show multiple winter rain events with variable lags",
+      "texture_effect": "Sandy soils show faster but more variable lags; finer textures show slower, more consistent transit times"
+    },
+    "validation_strategy": {
+      "direct": "None available (no recharge observations)",
+      "indirect": [
+        "Compare simulated vs observed water table depths from USGS wells",
+        "Check if simulated recharge seasonality matches regional groundwater level fluctuations",
+        "Verify infiltration amounts against basin water balance constraints",
+        "Compare vadose travel times to literature values for similar settings"
+      ]
+    },
+    "computational_requirements": {
+      "elm_cost": "Low - 9 columns \u00d7 24 years with hourly output",
+      "pflotran_cost": "Moderate - 9 1D columns with fine vertical resolution, hourly timesteps",
+      "storage": "~50 GB for hourly ELM output + ~100 GB for PFLOTRAN vadose profiles",
+      "runtime_estimate": "ELM: ~2 hours; PFLOTRAN: ~24 hours on single node"
+    }
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

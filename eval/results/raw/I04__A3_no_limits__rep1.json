@@ -1,0 +1,215 @@
+{
+  "prompt_id": "I04",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "# REASONING\n\nThis request poses a **management intervention scenario** (30% pumping reduction \u2192 water table recovery) in a **groundwater-dominated system**. Let me decompose what the question actually asks and what the framework can deliver.\n\n## Scientific Decomposition\n\nThe question has two implicit goals:\n1. **Baseline characterization** \u2014 establish current water table dynamics under existing pumping stress\n2. **Intervention response** \u2014 quantify water table recovery under reduced pumping\n\nThe key process is **groundwater extraction and recharge balance**. The driver is explicitly **management (pumping rate)**.\n\n## Critical Feasibility Assessment\n\n**The framework CANNOT answer this question as posed.** Here's why:\n\n1. **ELM is a 1-D land surface model** \u2014 it simulates vertical water movement (infiltration, ET, drainage to an implicit water table) but does **NOT represent lateral groundwater flow, regional water tables, or pumping wells**. ELM's sub-surface drainage (QDRAI) is a local column process, not a basin-scale aquifer response.\n\n2. **Pumping is not an ELM process** \u2014 there is no mechanism to impose groundwater extraction in a single-column land surface model. Pumping affects the regional water table through 3-D aquifer drawdown, which requires a groundwater model (PFLOTRAN).\n\n3. **The observations brief says \"pumping records\" are MISSING** \u2014 so even if we had a groundwater model, we cannot parameterize the baseline pumping stress to establish the counterfactual.\n\n4. **Recovery is a transient regional aquifer process** \u2014 it requires solving 3-D saturated flow with pumping as a sink term, then removing/reducing that sink and propagating the recovery signal laterally across the basin. This is fundamentally outside ELM's scope.\n\n## What the Stack CAN Do (Partial Answer)\n\nThe stack can provide a **necessary but insufficient** piece:\n- **ELM can estimate spatially-distributed groundwater recharge** (QDRAI) across the basin under current land use/climate. This is the *input* to a groundwater model, but it does NOT solve the pumping-recovery question.\n\n## What Would Be Required (Full Answer)\n\nA full answer needs:\n1. **PFLOTRAN 3-D groundwater model** \u2014 basin-scale saturated flow domain\n2. **ELM\u2192PFLOTRAN coupling** \u2014 ELM QDRAI time series drives PFLOTRAN top boundary recharge\n3. **Pumping well representation** \u2014 sink terms in PFLOTRAN at well locations with known rates\n4. **Baseline pumping data** \u2014 the brief says this is MISSING, so we'd need either:\n   - Estimated pumping from irrigated acreage + crop water demand, OR\n   - Analog pumping rates from a similar basin\n5. **Transient PFLOTRAN simulation** \u2014 baseline (with pumping) \u2192 intervention (30% reduction) \u2192 10-year recovery\n\nThis is a **coupling archetype** experiment, but the coupler does not exist and the pumping data are absent.\n\n## Design Decision\n\nI will produce a **partial/infeasible verdict** with two components:\n1. **What ELM CAN deliver** \u2014 a recharge estimation campaign (stratified sampling to characterize spatial recharge heterogeneity), which is a prerequisite input but does NOT answer the pumping-recovery question\n2. **What's required for a full answer** \u2014 the coupling + pumping data backlog\n\nThis is honest: the user asked a groundwater management question, and the land surface model cannot answer it. The design documents the gap.\n\n---\n\n# JSON OUTPUT\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Characterize baseline water table dynamics under current pumping stress\",\n      \"Quantify water table recovery response to 30% pumping reduction over a decade\"\n    ],\n    \"key_processes\": [\n      \"Groundwater extraction (pumping)\",\n      \"Regional aquifer recharge-discharge balance\",\n      \"Lateral groundwater flow and water table propagation\",\n      \"Land surface recharge (infiltration minus ET minus surface runoff)\"\n    ],\n    \"drivers_to_resolve\": [\n      \"management (pumping rate)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"ELM can estimate spatially-distributed recharge (a necessary input to groundwater modeling), but cannot simulate pumping, lateral groundwater flow, or basin-scale water table response. The question requires a coupled ELM\u2192PFLOTRAN groundwater model, which is not yet implemented.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"Full answer requires ELM\u2192PFLOTRAN coupling: ELM QDRAI (sub-surface drainage/recharge) drives PFLOTRAN top boundary condition; PFLOTRAN solves 3-D saturated flow with pumping wells as sink terms; compare baseline (with pumping) vs intervention (30% reduction) water table evolution. This coupling does not exist and is listed in requires_capabilities.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"infeasible\",\n    \"answerable\": [\n      \"Spatial distribution of groundwater recharge (ELM QDRAI) across the basin under current climate/land use \u2014 this is a necessary input to a groundwater model but does NOT answer the pumping-recovery question\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Baseline water table dynamics under pumping stress\",\n        \"why\": \"ELM does not represent pumping wells or lateral groundwater flow; water table in ELM is an implicit local equilibrium, not a regional aquifer surface affected by extraction\",\n        \"needs\": \"PFLOTRAN 3-D groundwater model with pumping well representation\"\n      },\n      {\n        \"aspect\": \"Water table recovery response to pumping reduction\",\n        \"why\": \"Recovery is a transient regional aquifer process (lateral flow redistributing after sink removal) that requires a groundwater model; ELM's 1-D column cannot simulate this\",\n        \"needs\": \"ELM\u2192PFLOTRAN coupling + transient PFLOTRAN simulation with pumping scenario\"\n      },\n      {\n        \"aspect\": \"Parameterization of baseline pumping stress\",\n        \"why\": \"Brief states pumping records are MISSING; cannot establish the counterfactual baseline without known extraction rates\",\n        \"needs\": \"Pumping data (well locations, rates) OR estimated pumping from irrigated acreage + crop water demand OR analog basin pumping rates\"\n      }\n    ]\n  },\n  \"coupling_design\": {\n    \"from_model\": \"ELM\",\n    \"to_model\": \"PFLOTRAN\",\n    \"driver\": \"ELM sub-surface drainage/recharge (QDRAI) \u2192 PFLOTRAN top boundary recharge flux\",\n    \"temporal_mapping\": \"ELM daily/monthly QDRAI time series aggregated to PFLOTRAN transient recharge boundary condition (spatially-distributed, time-varying)\",\n    \"receiving_setup\": \"PFLOTRAN 3-D saturated flow domain covering Upper Iowa HUC (07060002), mesh refined near wells and streams, pumping wells as sink terms with known/estimated rates, lateral boundaries from regional water table or no-flow at watershed divide, bottom boundary at bedrock or regional aquifer base\",\n    \"compare\": \"Baseline scenario (current pumping) vs intervention scenario (30% pumping reduction): compare water table elevation time series at USGS well locations over 10 years. Expect recovery (water table rise) in intervention scenario, with spatial pattern reflecting well proximity and aquifer transmissivity. Standalone ELM cannot represent this \u2014 it would show identical QDRAI in both scenarios (pumping is not an ELM process), missing the entire management effect.\"\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Stratified by landscape position and soil drainage class to resolve spatial recharge heterogeneity (upland vs lowland, well-drained vs poorly-drained soils). This characterizes the recharge INPUT to a groundwater model but does NOT answer the pumping-recovery question.\",\n    \"strata\": [\n      {\n        \"driver\": \"landscape_position\",\n        \"bands\": [\n          \"upland (>380 m elevation, well-drained agricultural)\",\n          \"mid-slope (320-380 m, mixed drainage)\",\n          \"lowland/riparian (<320 m, poorly-drained, near streams)\"\n        ]\n      },\n      {\n        \"driver\": \"soil_drainage\",\n        \"classes\": [\n          \"well-drained (sandy loam, high infiltration)\",\n          \"moderately-drained (silt loam)\",\n          \"poorly-drained (clay loam, high runoff)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 18,\n    \"n_justification\": \"3 landscape positions \u00d7 3 soil drainage classes = 9 strata; 2 replicates per stratum = 18 columns. This resolves the dominant recharge heterogeneity (topographic position controls runoff vs infiltration; soil texture controls percolation rate) with light replication to assess within-stratum variability. Minimal sample because the question is about pumping response (which ELM cannot simulate), not recharge spatial patterns per se.\",\n    \"placement_logic\": \"Distribute columns across the elevation gradient and soil drainage spectrum. Concentrate sampling in agricultural uplands (where pumping wells are typically located) and lowland riparian zones (where water table is shallow and recharge-discharge transitions occur). Avoid urban/developed areas (minimal extent in this rural basin).\",\n    \"replication\": \"2 columns per stratum to assess within-stratum variability in recharge, given that soil and topography are heterogeneous even within a class.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"upland well-drained agricultural\",\n      \"n\": 2,\n      \"reason\": \"High recharge potential (deep water table, high infiltration) in the zone where pumping wells are concentrated\"\n    },\n    {\n      \"group\": \"upland moderately-drained agricultural\",\n      \"n\": 2,\n      \"reason\": \"Moderate recharge, dominant soil type in upland cropland\"\n    },\n    {\n      \"group\": \"upland poorly-drained agricultural\",\n      \"n\": 2,\n      \"reason\": \"Low recharge (high runoff) in upland depressions and tile-drained fields\"\n    },\n    {\n      \"group\": \"mid-slope well-drained mixed\",\n      \"n\": 2,\n      \"reason\": \"Transition zone between upland recharge and lowland discharge, moderate infiltration\"\n    },\n    {\n      \"group\": \"mid-slope moderately-drained mixed\",\n      \"n\": 2,\n      \"reason\": \"Dominant mid-slope condition, balanced runoff-infiltration partitioning\"\n    },\n    {\n      \"group\": \"mid-slope poorly-drained mixed\",\n      \"n\": 2,\n      \"reason\": \"Perched water table and lateral subsurface flow in mid-slope poorly-drained soils\"\n    },\n    {\n      \"group\": \"lowland well-drained riparian\",\n      \"n\": 2,\n      \"reason\": \"Riparian zone with shallow water table but sandy soils allowing vertical exchange\"\n    },\n    {\n      \"group\": \"lowland moderately-drained riparian\",\n      \"n\": 2,\n      \"reason\": \"Dominant lowland condition, groundwater discharge zone with moderate soil permeability\"\n    },\n    {\n      \"group\": \"lowland poorly-drained riparian\",\n      \"n\": 2,\n      \"reason\": \"Saturated riparian soils, minimal recharge, potential groundwater discharge to streams\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells\",\n      \"in_domain_available\": true,\n      \"comparison\": \"NOT APPLICABLE \u2014 ELM does not output a prognostic water table depth comparable to well measurements. ELM's water table is an implicit diagnostic (bottom of the soil column where saturation occurs), not a regional aquifer surface. Co-located validation would require PFLOTRAN output (hydraulic head) compared to well water levels.\",\n      \"metric\": \"N/A for ELM-only runs\",\n      \"n_validation_points\": \"unknown \u2014 depends on USGS well density in HUC 07060002, but validation is not possible with ELM alone\"\n    },\n    {\n      \"target_variable\": \"groundwater_recharge (ELM QDRAI)\",\n      \"observation_source\": \"No direct observations available; indirect validation via baseflow separation from USGS streamflow gages (if available in-domain) or water balance closure\",\n      \"in_domain_available\": false,\n      \"comparison\": \"Analog process validation: compare basin-aggregated ELM recharge to literature estimates for similar Midwest agricultural basins (typically 50-150 mm/yr) or to baseflow-derived recharge estimates if streamflow data exist\",\n      \"metric\": \"Plausibility check (order-of-magnitude agreement with regional recharge rates)\",\n      \"n_validation_points\": \"1 (basin-scale aggregate comparison)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 18,\n    \"exploratory\": 18,\n    \"validation\": 0,\n    \"primary_treatment\": \"Baseline forcing (1980-2018 climate), native soil properties from gridded soil database, no pumping (ELM cannot represent pumping). Output: spatially-distributed recharge (QDRAI) time series as input to a future PFLOTRAN groundwater model.\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"PFLOTRAN 3-D groundwater model for Upper Iowa basin\",\n      \"why\": \"ELM cannot simulate lateral groundwater flow, regional water table, or pumping wells \u2014 all required to answer the pumping-recovery question\",\n      \"blocks\": \"Baseline water table dynamics under pumping stress; water table recovery response to pumping reduction\"\n    },\n    {\n      \"capability\": \"ELM\u2192PFLOTRAN coupling (QDRAI \u2192 top boundary recharge flux)\",\n      \"why\": \"Pumping-recovery simulation requires land surface recharge (from ELM) to drive a groundwater model (PFLOTRAN) that solves 3-D saturated flow with pumping\",\n      \"blocks\": \"Integrated land surface\u2013groundwater simulation of management scenarios\"\n    },\n    {\n      \"capability\": \"Pumping well data (locations, rates) for Upper Iowa basin\",\n      \"why\": \"Brief states pumping records are MISSING; cannot parameterize baseline pumping stress or the 30% reduction scenario without extraction rates\",\n      \"blocks\": \"Baseline scenario definition; intervention scenario definition\"\n    },\n    {\n      \"capability\": \"Estimated pumping rates from irrigated acreage + crop water demand (if well data unavailable)\",\n      \"why\": \"Alternative to direct pumping records: use land use (irrigated area) and crop coefficients to estimate groundwater extraction\",\n      \"blocks\": \"Baseline scenario parameterization (if well data remain unavailable)\"\n    },\n    {\n      \"capability\": \"USGS well data ingest and spatial indexing for Upper Iowa HUC\",\n      \"why\": \"Validation of PFLOTRAN water table output requires co-located well measurements; need to identify wells within the domain and extract time series\",\n      \"blocks\": \"Water table validation (for future PFLOTRAN runs)\"\n    },\n    {\n      \"capability\": \"Transient PFLOTRAN simulation capability (time-varying recharge BC, pumping scenarios)\",\n      \"why\": \"Recovery over a decade is a transient process; PFLOTRAN must solve time-dependent saturated flow with scenario-switching (baseline \u2192 intervention)\",\n      \"blocks\": \"10-year recovery simulation\"\n    },\n    {\n      \"capability\": \"HUC boundary resolver and DEM/soil sampling for Upper Iowa (07060002)\",\n      \"why\": \"Stratified sampling requires watershed boundary, elevation raster, and gridded soil data to place columns according to landscape position and soil drainage class\",\n      \"blocks\": \"Deterministic column placement from sampling strategy\"\n    }\n  ],\n  \"assumptions\": [\n    \"Upper Iowa basin is primarily agricultural with groundwater-fed irrigation (justifying the pumping-recovery question)\",\n    \"USGS wells in the domain are screened in the same aquifer affected by pumping (not perched or deep confined aquifers)\",\n    \"30% pumping reduction is spatially uniform (all wells reduced equally) unless user specifies targeted reduction\",\n    \"Baseline pumping has reached quasi-steady-state (water table equilibrated to current extraction rates) before the intervention\",\n    \"Climate forcing (1980-2018) is representative of future conditions during the recovery decade (no climate change scenario)\",\n    \"Land use and vegetation remain constant (no expansion/contraction of irrigated area during recovery)\",\n    \"ELM QDRAI (sub-surface drainage) is a reasonable proxy for groundwater recharge in this setting (no significant lateral subsurface flow in the unsaturated zone, no tile drainage losses that bypass the aquifer)\"\n  ],\n  \"open_questions\": [\n    \"Are USGS wells in Upper Iowa basin monitored continuously (for time series validation) or sporadically (for snapshot validation)?\",\n    \"Is there any estimate of current pumping volume or irrigated acreage in the basin (to parameterize baseline stress)?\",\n    \"Does the user have a specific recovery target (e.g. return to pre-pumping levels, or partial recovery to a sustainable yield)?\",\n    \"Should the 30% reduction be uniform across all wells, or targeted to specific areas (e.g. near streams, near sensitive wells)?\",\n    \"Is there interest in the ELM recharge characterization as a standalone product (input to a future groundwater model), or is the pumping-recovery answer the only deliverable of value?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Characterize baseline water table dynamics under current pumping stress",
+        "Quantify water table recovery response to 30% pumping reduction over a decade"
+      ],
+      "key_processes": [
+        "Groundwater extraction (pumping)",
+        "Regional aquifer recharge-discharge balance",
+        "Lateral groundwater flow and water table propagation",
+        "Land surface recharge (infiltration minus ET minus surface runoff)"
+      ],
+      "drivers_to_resolve": [
+        "management (pumping rate)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM can estimate spatially-distributed recharge (a necessary input to groundwater modeling), but cannot simulate pumping, lateral groundwater flow, or basin-scale water table response. The question requires a coupled ELM\u2192PFLOTRAN groundwater model, which is not yet implemented.",
+      "coupling_needed": true,
+      "coupling_note": "Full answer requires ELM\u2192PFLOTRAN coupling: ELM QDRAI (sub-surface drainage/recharge) drives PFLOTRAN top boundary condition; PFLOTRAN solves 3-D saturated flow with pumping wells as sink terms; compare baseline (with pumping) vs intervention (30% reduction) water table evolution. This coupling does not exist and is listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "Spatial distribution of groundwater recharge (ELM QDRAI) across the basin under current climate/land use \u2014 this is a necessary input to a groundwater model but does NOT answer the pumping-recovery question"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Baseline water table dynamics under pumping stress",
+          "why": "ELM does not represent pumping wells or lateral groundwater flow; water table in ELM is an implicit local equilibrium, not a regional aquifer surface affected by extraction",
+          "needs": "PFLOTRAN 3-D groundwater model with pumping well representation"
+        },
+        {
+          "aspect": "Water table recovery response to pumping reduction",
+          "why": "Recovery is a transient regional aquifer process (lateral flow redistributing after sink removal) that requires a groundwater model; ELM's 1-D column cannot simulate this",
+          "needs": "ELM\u2192PFLOTRAN coupling + transient PFLOTRAN simulation with pumping scenario"
+        },
+        {
+          "aspect": "Parameterization of baseline pumping stress",
+          "why": "Brief states pumping records are MISSING; cannot establish the counterfactual baseline without known extraction rates",
+          "needs": "Pumping data (well locations, rates) OR estimated pumping from irrigated acreage + crop water demand OR analog basin pumping rates"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM sub-surface drainage/recharge (QDRAI) \u2192 PFLOTRAN top boundary recharge flux",
+      "temporal_mapping": "ELM daily/monthly QDRAI time series aggregated to PFLOTRAN transient recharge boundary condition (spatially-distributed, time-varying)",
+      "receiving_setup": "PFLOTRAN 3-D saturated flow domain covering Upper Iowa HUC (07060002), mesh refined near wells and streams, pumping wells as sink terms with known/estimated rates, lateral boundaries from regional water table or no-flow at watershed divide, bottom boundary at bedrock or regional aquifer base",
+      "compare": "Baseline scenario (current pumping) vs intervention scenario (30% pumping reduction): compare water table elevation time series at USGS well locations over 10 years. Expect recovery (water table rise) in intervention scenario, with spatial pattern reflecting well proximity and aquifer transmissivity. Standalone ELM cannot represent this \u2014 it would show identical QDRAI in both scenarios (pumping is not an ELM process), missing the entire management effect."
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by landscape position and soil drainage class to resolve spatial recharge heterogeneity (upland vs lowland, well-drained vs poorly-drained soils). This characterizes the recharge INPUT to a groundwater model but does NOT answer the pumping-recovery question.",
+      "strata": [
+        {
+          "driver": "landscape_position",
+          "bands": [
+            "upland (>380 m elevation, well-drained agricultural)",
+            "mid-slope (320-380 m, mixed drainage)",
+            "lowland/riparian (<320 m, poorly-drained, near streams)"
+          ]
+        },
+        {
+          "driver": "soil_drainage",
+          "classes": [
+            "well-drained (sandy loam, high infiltration)",
+            "moderately-drained (silt loam)",
+            "poorly-drained (clay loam, high runoff)"
+          ]
+        }
+      ],
+      "n_exploratory": 18,
+      "n_justification": "3 landscape positions \u00d7 3 soil drainage classes = 9 strata; 2 replicates per stratum = 18 columns. This resolves the dominant recharge heterogeneity (topographic position controls runoff vs infiltration; soil texture controls percolation rate) with light replication to assess within-stratum variability. Minimal sample because the question is about pumping response (which ELM cannot simulate), not recharge spatial patterns per se.",
+      "placement_logic": "Distribute columns across the elevation gradient and soil drainage spectrum. Concentrate sampling in agricultural uplands (where pumping wells are typically located) and lowland riparian zones (where water table is shallow and recharge-discharge transitions occur). Avoid urban/developed areas (minimal extent in this rural basin).",
+      "replication": "2 columns per stratum to assess within-stratum variability in recharge, given that soil and topography are heterogeneous even within a class."
+    },
+    "sampling_plan": [
+      {
+        "group": "upland well-drained agricultural",
+        "n": 2,
+        "reason": "High recharge potential (deep water table, high infiltration) in the zone where pumping wells are concentrated"
+      },
+      {
+        "group": "upland moderately-drained agricultural",
+        "n": 2,
+        "reason": "Moderate recharge, dominant soil type in upland cropland"
+      },
+      {
+        "group": "upland poorly-drained agricultural",
+        "n": 2,
+        "reason": "Low recharge (high runoff) in upland depressions and tile-drained fields"
+      },
+      {
+        "group": "mid-slope well-drained mixed",
+        "n": 2,
+        "reason": "Transition zone between upland recharge and lowland discharge, moderate infiltration"
+      },
+      {
+        "group": "mid-slope moderately-drained mixed",
+        "n": 2,
+        "reason": "Dominant mid-slope condition, balanced runoff-infiltration partitioning"
+      },
+      {
+        "group": "mid-slope poorly-drained mixed",
+        "n": 2,
+        "reason": "Perched water table and lateral subsurface flow in mid-slope poorly-drained soils"
+      },
+      {
+        "group": "lowland well-drained riparian",
+        "n": 2,
+        "reason": "Riparian zone with shallow water table but sandy soils allowing vertical exchange"
+      },
+      {
+        "group": "lowland moderately-drained riparian",
+        "n": 2,
+        "reason": "Dominant lowland condition, groundwater discharge zone with moderate soil permeability"
+      },
+      {
+        "group": "lowland poorly-drained riparian",
+        "n": 2,
+        "reason": "Saturated riparian soils, minimal recharge, potential groundwater discharge to streams"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells",
+        "in_domain_available": true,
+        "comparison": "NOT APPLICABLE \u2014 ELM does not output a prognostic water table depth comparable to well measurements. ELM's water table is an implicit diagnostic (bottom of the soil column where saturation occurs), not a regional aquifer surface. Co-located validation would require PFLOTRAN output (hydraulic head) compared to well water levels.",
+        "metric": "N/A for ELM-only runs",
+        "n_validation_points": "unknown \u2014 depends on USGS well density in HUC 07060002, but validation is not possible with ELM alone"
+      },
+      {
+        "target_variable": "groundwater_recharge (ELM QDRAI)",
+        "observation_source": "No direct observations available; indirect validation via baseflow separation from USGS streamflow gages (if available in-domain) or water balance closure",
+        "in_domain_available": false,
+        "comparison": "Analog process validation: compare basin-aggregated ELM recharge to literature estimates for similar Midwest agricultural basins (typically 50-150 mm/yr) or to baseflow-derived recharge estimates if streamflow data exist",
+        "metric": "Plausibility check (order-of-magnitude agreement with regional recharge rates)",
+        "n_validation_points": "1 (basin-scale aggregate comparison)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 18,
+      "exploratory": 18,
+      "validation": 0,
+      "primary_treatment": "Baseline forcing (1980-2018 climate), native soil properties from gridded soil database, no pumping (ELM cannot represent pumping). Output: spatially-distributed recharge (QDRAI) time series as input to a future PFLOTRAN groundwater model."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "PFLOTRAN 3-D groundwater model for Upper Iowa basin",
+        "why": "ELM cannot simulate lateral groundwater flow, regional water table, or pumping wells \u2014 all required to answer the pumping-recovery question",
+        "blocks": "Baseline water table dynamics under pumping stress; water table recovery response to pumping reduction"
+      },
+      {
+        "capability": "ELM\u2192PFLOTRAN coupling (QDRAI \u2192 top boundary recharge flux)",
+        "why": "Pumping-recovery simulation requires land surface recharge (from ELM) to drive a groundwater model (PFLOTRAN) that solves 3-D saturated flow with pumping",
+        "blocks": "Integrated land surface\u2013groundwater simulation of management scenarios"
+      },
+      {
+        "capability": "Pumping well data (locations, rates) for Upper Iowa basin",
+        "why": "Brief states pumping records are MISSING; cannot parameterize baseline pumping stress or the 30% reduction scenario without extraction rates",
+        "blocks": "Baseline scenario definition; intervention scenario definition"
+      },
+      {
+        "capability": "Estimated pumping rates from irrigated acreage + crop water demand (if well data unavailable)",
+        "why": "Alternative to direct pumping records: use land use (irrigated area) and crop coefficients to estimate groundwater extraction",
+        "blocks": "Baseline scenario parameterization (if well data remain unavailable)"
+      },
+      {
+        "capability": "USGS well data ingest and spatial indexing for Upper Iowa HUC",
+        "why": "Validation of PFLOTRAN water table output requires co-located well measurements; need to identify wells within the domain and extract time series",
+        "blocks": "Water table validation (for future PFLOTRAN runs)"
+      },
+      {
+        "capability": "Transient PFLOTRAN simulation capability (time-varying recharge BC, pumping scenarios)",
+        "why": "Recovery over a decade is a transient process; PFLOTRAN must solve time-dependent saturated flow with scenario-switching (baseline \u2192 intervention)",
+        "blocks": "10-year recovery simulation"
+      },
+      {
+        "capability": "HUC boundary resolver and DEM/soil sampling for Upper Iowa (07060002)",
+        "why": "Stratified sampling requires watershed boundary, elevation raster, and gridded soil data to place columns according to landscape position and soil drainage class",
+        "blocks": "Deterministic column placement from sampling strategy"
+      }
+    ],
+    "assumptions": [
+      "Upper Iowa basin is primarily agricultural with groundwater-fed irrigation (justifying the pumping-recovery question)",
+      "USGS wells in the domain are screened in the same aquifer affected by pumping (not perched or deep confined aquifers)",
+      "30% pumping reduction is spatially uniform (all wells reduced equally) unless user specifies targeted reduction",
+      "Baseline pumping has reached quasi-steady-state (water table equilibrated to current extraction rates) before the intervention",
+      "Climate forcing (1980-2018) is representative of future conditions during the recovery decade (no climate change scenario)",
+      "Land use and vegetation remain constant (no expansion/contraction of irrigated area during recovery)",
+      "ELM QDRAI (sub-surface drainage) is a reasonable proxy for groundwater recharge in this setting (no significant lateral subsurface flow in the unsaturated zone, no tile drainage losses that bypass the aquifer)"
+    ],
+    "open_questions": [
+      "Are USGS wells in Upper Iowa basin monitored continuously (for time series validation) or sporadically (for snapshot validation)?",
+      "Is there any estimate of current pumping volume or irrigated acreage in the basin (to parameterize baseline stress)?",
+      "Does the user have a specific recovery target (e.g. return to pre-pumping levels, or partial recovery to a sustainable yield)?",
+      "Should the 30% reduction be uniform across all wells, or targeted to specific areas (e.g. near streams, near sensitive wells)?",
+      "Is there interest in the ELM recharge characterization as a standalone product (input to a future groundwater model), or is the pumping-recovery answer the only deliverable of value?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

@@ -1,0 +1,220 @@
+{
+  "prompt_id": "K01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Quantify vadose-zone travel time from infiltration to water-table arrival as a function of water-table depth and soil properties\", \"Map recharge lag across the Naches' WTD heterogeneity (0-28 m)\", \"Validate modeled water-table position and dynamics against observed WTD (Fan prior, USGS wells)\"], \"key_processes\": [\"Vadose-zone unsaturated flow (below ELM's soil column to the real water table)\", \"Lateral groundwater flow (regional water table, valley discharge vs ridge recharge)\", \"Water-table response lag to surface infiltration events\"], \"drivers_to_resolve\": [\"water-table depth (0-28 m, primary control on travel time)\", \"soil texture (controls unsaturated hydraulic conductivity)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"coupling\", \"rationale\": \"The question asks when infiltration becomes recharge at the real water table. ELM's 1-D architecture cannot represent vadose-zone transport below its soil column (3.8 m) nor the lateral groundwater flow that sets the regional water table. Coupling ELM drainage flux to PFLOTRAN's vadose-zone and saturated-zone solver is required to answer the question as posed.\", \"coupling_needed\": true, \"coupling_note\": \"ELM QDRAI (bottom drainage flux) drives PFLOTRAN top recharge BC. PFLOTRAN solves Richards equation in the vadose zone (3.8 m to observed WTD) and saturated flow (regional water table with lateral connectivity). Compare coupled (realistic lag) vs standalone ELM (instant recharge assumption).\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Vadose-zone travel time as a function of water-table depth and soil (with coupling)\", \"Spatial variation in recharge lag across the Naches' WTD gradient (with coupling)\", \"Water-table position validation against Fan prior and USGS wells (with coupling)\"], \"not_answerable\": [{\"aspect\": \"When infiltration becomes recharge at the real water table (the question's core mechanism)\", \"why\": \"ELM is single-column 1-D with no vadose zone below its soil column (3.8 m) and no lateral groundwater flow. It cannot represent transport to a deep water table (up to 28 m in the Naches) nor the regional water table that makes valleys discharge and ridges recharge.\", \"needs\": \"ELM\\u2192PFLOTRAN coupling (vadose-zone transport + lateral saturated flow)\"}, {\"aspect\": \"Recharge observation validation\", \"why\": \"No recharge observations are available in-domain (per brief's observations_missing).\", \"needs\": \"Recharge observation dataset (e.g. tracer-derived estimates, lysimeters)\"}]}, \"coupling_design\": {\"from_model\": \"ELM\", \"to_model\": \"PFLOTRAN\", \"driver\": \"ELM bottom-boundary drainage flux (QDRAI, mm/day time series, 1980-2018) becomes PFLOTRAN top recharge boundary condition at 3.8 m depth\", \"temporal_mapping\": \"ELM daily QDRAI time series (39 years including 5-year spin-up) mapped to PFLOTRAN transient top BC (daily or sub-daily time steps in Richards solver)\", \"receiving_setup\": \"PFLOTRAN 2-D cross-section or 3-D domain spanning Naches elevation gradient (valley to ridge). Vadose zone from 3.8 m (ELM bottom) to observed water table (Fan WTD, 0-28 m depth). Saturated zone with lateral flow (Darcy, regional water table). Richards equation in vadose zone (unsaturated flow, tracks travel time). Boundary conditions: top = ELM QDRAI flux, bottom = constant head or no-flow, sides = no-flow or specified head (valley discharge).\", \"compare\": \"Coupled (ELM\\u2192PFLOTRAN vadose\\u2192water table) vs standalone ELM (QDRAI treated as instant recharge). Metrics: (1) water-table position and temporal dynamics (compare to Fan/USGS wells), (2) recharge arrival lag (time from surface infiltration event to water-table rise), (3) spatial pattern (valleys as discharge zones, ridges as recharge zones \\u2014 lateral flow effect). Expected standalone ELM failure: cannot represent months-to-years lag in deep vadose zones, nor lateral redistribution.\"}, \"sampling_strategy\": {\"approach\": \"Stratified by water-table depth (primary control on vadose-zone travel time) and soil texture (secondary control on unsaturated hydraulic conductivity). Separate exploratory (span parameter space) and validation (co-located with USGS wells) populations.\", \"strata\": [{\"driver\": \"water-table depth\", \"bands\": [\"Shallow (0-5 m, valley bottoms, short travel time)\", \"Intermediate (5-15 m, mid-slopes, moderate lag)\", \"Deep (15-28 m, ridges, long lag, potential multi-year storage)\"]}, {\"driver\": \"soil texture\", \"classes\": [\"Coarse (sandy loam, high unsaturated K, fast drainage)\", \"Medium (loam/silt loam, moderate K)\", \"Fine (clay loam, low K, slow drainage, longer residence time)\"]}], \"n_exploratory\": 18, \"n_justification\": \"3 WTD bands \\u00d7 3 soil classes \\u00d7 2 replicates = 18 columns. This spans the parameter space (WTD 0-28 m, soil texture range) with light replication to assess within-stratum variability. Each column produces a QDRAI time series for PFLOTRAN coupling.\", \"placement_logic\": \"Concentrate validation columns at USGS well locations (co-located WTD observations). Exploratory columns: oversample the WTD gradient (valley to ridge transect) and soil contrasts (coarse valley alluvium vs fine upland soils). Avoid uniform spatial grid \\u2014 stratified sampling by WTD/soil is more efficient than dense coverage.\", \"replication\": \"2 replicates per stratum (WTD \\u00d7 soil combination) to assess within-stratum variability in QDRAI flux and vadose-zone response. Total 18 exploratory + 6 validation = 24 columns.\"}, \"sampling_plan\": [{\"group\": \"Shallow WTD, coarse soil (valley bottoms, fast recharge)\", \"n\": 2, \"reason\": \"Short vadose zone (0-5 m) + high K \\u2192 minimal lag, tests lower bound of travel time\"}, {\"group\": \"Shallow WTD, medium soil (riparian zones)\", \"n\": 2, \"reason\": \"Short vadose zone, moderate K \\u2192 slight lag, common valley setting\"}, {\"group\": \"Shallow WTD, fine soil (valley clay lenses)\", \"n\": 2, \"reason\": \"Short vadose zone but low K \\u2192 tests soil control on lag even when WTD is shallow\"}, {\"group\": \"Intermediate WTD, coarse soil (mid-slope sandy deposits)\", \"n\": 2, \"reason\": \"Moderate vadose zone (5-15 m), high K \\u2192 tests mid-range travel time\"}, {\"group\": \"Intermediate WTD, medium soil (typical mid-slope)\", \"n\": 2, \"reason\": \"Moderate vadose zone and K \\u2192 expected multi-month lag, most common setting\"}, {\"group\": \"Intermediate WTD, fine soil (mid-slope clay-rich)\", \"n\": 2, \"reason\": \"Moderate vadose zone, low K \\u2192 tests combined WTD + soil control on lag\"}, {\"group\": \"Deep WTD, coarse soil (ridge sandy loam)\", \"n\": 2, \"reason\": \"Deep vadose zone (15-28 m), high K \\u2192 tests upper bound of travel time (months to years)\"}, {\"group\": \"Deep WTD, medium soil (typical ridge)\", \"n\": 2, \"reason\": \"Deep vadose zone, moderate K \\u2192 expected multi-year lag, tests long-term storage\"}, {\"group\": \"Deep WTD, fine soil (ridge clay loam)\", \"n\": 2, \"reason\": \"Deep vadose zone + low K \\u2192 maximum lag scenario, tests extreme residence time\"}, {\"group\": \"Validation columns (co-located with USGS wells)\", \"n\": 6, \"reason\": \"Pinned to USGS well locations for water-table position/dynamics validation, span available WTD observations\"}], \"validation_design\": [{\"target_variable\": \"water_table_depth\", \"observation_source\": \"Fan et al. 2013 equilibrium WTD prior (gridded)\", \"in_domain_available\": true, \"comparison\": \"Co-located: PFLOTRAN modeled WTD at each column location vs Fan prior value. Note: Fan is equilibrium (lateral flow), PFLOTRAN is transient (coupled to ELM), so some drift is expected and is itself a result (tests ELM\\u2192PFLOTRAN coupling realism).\", \"metric\": \"Bias (mean error), RMSE, spatial correlation across the 24 columns\", \"n_validation_points\": \"24 (all columns have Fan prior values)\"}, {\"target_variable\": \"water_table_depth_dynamics\", \"observation_source\": \"USGS wells (time series where available)\", \"in_domain_available\": true, \"comparison\": \"Co-located time series: PFLOTRAN modeled WTD temporal variation vs USGS well hydrographs at the 6 validation column locations. Tests water-table response timing and amplitude.\", \"metric\": \"Correlation (timing), normalized RMSE (amplitude), lag to peak response\", \"n_validation_points\": \"6 (validation columns at USGS well locations)\"}, {\"target_variable\": \"recharge_flux\", \"observation_source\": \"None available in-domain\", \"in_domain_available\": false, \"comparison\": \"Not possible \\u2014 no recharge observations. Indirect validation via water-table response (if WTD dynamics match observations, recharge timing is implicitly constrained).\", \"metric\": \"N/A\", \"n_validation_points\": \"0\"}], \"experiment_summary\": {\"total_columns\": 24, \"exploratory\": 18, \"validation\": 6, \"primary_treatment\": \"Baseline: NLDAS-2 forcing (1980-2018, 39 years including 5-year spin-up 1980-1984), native SSURGO soil at each column location, WTD-informed warm start (Fan 2013 prior sets initial PFLOTRAN water table). Each ELM column produces QDRAI time series for PFLOTRAN coupling.\"}, \"requires_capabilities\": [{\"capability\": \"ELM\\u2192PFLOTRAN coupler (vadose-zone + saturated flow)\", \"why\": \"The question's core mechanism (infiltration \\u2192 recharge at real water table) requires vadose-zone transport below ELM's soil column and lateral groundwater flow. ELM alone cannot answer the question.\", \"blocks\": \"Entire coupling design \\u2014 without this, only ELM drainage flux (QDRAI) can be produced, not recharge arrival timing at the water table\"}, {\"capability\": \"PFLOTRAN domain generation and mesh for Naches\", \"why\": \"Need 2-D/3-D domain spanning elevation gradient (valley to ridge), vadose zone from 3.8 m to Fan WTD (0-28 m), saturated zone with lateral flow\", \"blocks\": \"PFLOTRAN setup and execution\"}, {\"capability\": \"Fan 2013 WTD raster sampling at column locations\", \"why\": \"Initialize PFLOTRAN water table position and stratify columns by WTD (primary driver)\", \"blocks\": \"WTD stratification and PFLOTRAN initial conditions\"}, {\"capability\": \"USGS well data ingest and time-series extraction\", \"why\": \"Validate PFLOTRAN water-table dynamics (temporal variation, response lag)\", \"blocks\": \"Water-table dynamics validation (6 validation columns)\"}, {\"capability\": \"PFLOTRAN Richards equation solver configuration\", \"why\": \"Vadose-zone unsaturated flow (tracks travel time from ELM bottom to water table)\", \"blocks\": \"Travel-time quantification (the question's target)\"}, {\"capability\": \"Recharge observation dataset\", \"why\": \"No recharge observations available in-domain \\u2014 limits direct validation of recharge flux\", \"blocks\": \"Direct recharge validation (indirect validation via water-table response is possible)\"}], \"assumptions\": [\"NLDAS-2 forcing (12 km, 1980-2018) adequately represents precipitation/temperature variation across the Naches' 1625 m elevation range (expect some underestimation at high elevations due to unresolved sub-12 km terrain)\", \"Fan 2013 equilibrium WTD is a reasonable initial condition for PFLOTRAN water table (some drift expected as PFLOTRAN equilibrates under ELM-driven recharge)\", \"ELM's 5-year spin-up (1980-1984) is sufficient to stabilize root-zone soil moisture and QDRAI flux (slow aquifer state initialized from Fan WTD)\", \"SSURGO soil texture classes adequately represent unsaturated hydraulic properties for PFLOTRAN vadose-zone parameterization\", \"USGS well density is sufficient to validate water-table dynamics (6 validation points assumed available, actual count depends on data reception)\", \"2-D cross-section or 3-D PFLOTRAN domain can represent lateral groundwater flow effects (valley discharge, ridge recharge) \\u2014 domain extent and boundary conditions TBD\"], \"open_questions\": [\"What is the actual density and temporal coverage of USGS wells in the Naches (brief says available but does not specify count or period)?\", \"Should PFLOTRAN domain be 2-D (elevation transect, computationally cheaper) or 3-D (full spatial heterogeneity, more realistic but expensive)?\", \"What are the PFLOTRAN domain boundaries (lateral extent, bottom depth) \\u2014 should they match the HUC8 boundary or a smaller representative transect?\", \"Are PFLOTRAN vadose-zone hydraulic parameters (van Genuchten curves) available for SSURGO soil classes, or do they need to be derived?\", \"Is there a preference for PFLOTRAN time-step resolution (daily vs sub-daily) \\u2014 finer steps capture event-scale dynamics but increase cost?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify vadose-zone travel time from infiltration to water-table arrival as a function of water-table depth and soil properties",
+        "Map recharge lag across the Naches' WTD heterogeneity (0-28 m)",
+        "Validate modeled water-table position and dynamics against observed WTD (Fan prior, USGS wells)"
+      ],
+      "key_processes": [
+        "Vadose-zone unsaturated flow (below ELM's soil column to the real water table)",
+        "Lateral groundwater flow (regional water table, valley discharge vs ridge recharge)",
+        "Water-table response lag to surface infiltration events"
+      ],
+      "drivers_to_resolve": [
+        "water-table depth (0-28 m, primary control on travel time)",
+        "soil texture (controls unsaturated hydraulic conductivity)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "coupling",
+      "rationale": "The question asks when infiltration becomes recharge at the real water table. ELM's 1-D architecture cannot represent vadose-zone transport below its soil column (3.8 m) nor the lateral groundwater flow that sets the regional water table. Coupling ELM drainage flux to PFLOTRAN's vadose-zone and saturated-zone solver is required to answer the question as posed.",
+      "coupling_needed": true,
+      "coupling_note": "ELM QDRAI (bottom drainage flux) drives PFLOTRAN top recharge BC. PFLOTRAN solves Richards equation in the vadose zone (3.8 m to observed WTD) and saturated flow (regional water table with lateral connectivity). Compare coupled (realistic lag) vs standalone ELM (instant recharge assumption)."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Vadose-zone travel time as a function of water-table depth and soil (with coupling)",
+        "Spatial variation in recharge lag across the Naches' WTD gradient (with coupling)",
+        "Water-table position validation against Fan prior and USGS wells (with coupling)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "When infiltration becomes recharge at the real water table (the question's core mechanism)",
+          "why": "ELM is single-column 1-D with no vadose zone below its soil column (3.8 m) and no lateral groundwater flow. It cannot represent transport to a deep water table (up to 28 m in the Naches) nor the regional water table that makes valleys discharge and ridges recharge.",
+          "needs": "ELM\u2192PFLOTRAN coupling (vadose-zone transport + lateral saturated flow)"
+        },
+        {
+          "aspect": "Recharge observation validation",
+          "why": "No recharge observations are available in-domain (per brief's observations_missing).",
+          "needs": "Recharge observation dataset (e.g. tracer-derived estimates, lysimeters)"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM bottom-boundary drainage flux (QDRAI, mm/day time series, 1980-2018) becomes PFLOTRAN top recharge boundary condition at 3.8 m depth",
+      "temporal_mapping": "ELM daily QDRAI time series (39 years including 5-year spin-up) mapped to PFLOTRAN transient top BC (daily or sub-daily time steps in Richards solver)",
+      "receiving_setup": "PFLOTRAN 2-D cross-section or 3-D domain spanning Naches elevation gradient (valley to ridge). Vadose zone from 3.8 m (ELM bottom) to observed water table (Fan WTD, 0-28 m depth). Saturated zone with lateral flow (Darcy, regional water table). Richards equation in vadose zone (unsaturated flow, tracks travel time). Boundary conditions: top = ELM QDRAI flux, bottom = constant head or no-flow, sides = no-flow or specified head (valley discharge).",
+      "compare": "Coupled (ELM\u2192PFLOTRAN vadose\u2192water table) vs standalone ELM (QDRAI treated as instant recharge). Metrics: (1) water-table position and temporal dynamics (compare to Fan/USGS wells), (2) recharge arrival lag (time from surface infiltration event to water-table rise), (3) spatial pattern (valleys as discharge zones, ridges as recharge zones \u2014 lateral flow effect). Expected standalone ELM failure: cannot represent months-to-years lag in deep vadose zones, nor lateral redistribution."
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by water-table depth (primary control on vadose-zone travel time) and soil texture (secondary control on unsaturated hydraulic conductivity). Separate exploratory (span parameter space) and validation (co-located with USGS wells) populations.",
+      "strata": [
+        {
+          "driver": "water-table depth",
+          "bands": [
+            "Shallow (0-5 m, valley bottoms, short travel time)",
+            "Intermediate (5-15 m, mid-slopes, moderate lag)",
+            "Deep (15-28 m, ridges, long lag, potential multi-year storage)"
+          ]
+        },
+        {
+          "driver": "soil texture",
+          "classes": [
+            "Coarse (sandy loam, high unsaturated K, fast drainage)",
+            "Medium (loam/silt loam, moderate K)",
+            "Fine (clay loam, low K, slow drainage, longer residence time)"
+          ]
+        }
+      ],
+      "n_exploratory": 18,
+      "n_justification": "3 WTD bands \u00d7 3 soil classes \u00d7 2 replicates = 18 columns. This spans the parameter space (WTD 0-28 m, soil texture range) with light replication to assess within-stratum variability. Each column produces a QDRAI time series for PFLOTRAN coupling.",
+      "placement_logic": "Concentrate validation columns at USGS well locations (co-located WTD observations). Exploratory columns: oversample the WTD gradient (valley to ridge transect) and soil contrasts (coarse valley alluvium vs fine upland soils). Avoid uniform spatial grid \u2014 stratified sampling by WTD/soil is more efficient than dense coverage.",
+      "replication": "2 replicates per stratum (WTD \u00d7 soil combination) to assess within-stratum variability in QDRAI flux and vadose-zone response. Total 18 exploratory + 6 validation = 24 columns."
+    },
+    "sampling_plan": [
+      {
+        "group": "Shallow WTD, coarse soil (valley bottoms, fast recharge)",
+        "n": 2,
+        "reason": "Short vadose zone (0-5 m) + high K \u2192 minimal lag, tests lower bound of travel time"
+      },
+      {
+        "group": "Shallow WTD, medium soil (riparian zones)",
+        "n": 2,
+        "reason": "Short vadose zone, moderate K \u2192 slight lag, common valley setting"
+      },
+      {
+        "group": "Shallow WTD, fine soil (valley clay lenses)",
+        "n": 2,
+        "reason": "Short vadose zone but low K \u2192 tests soil control on lag even when WTD is shallow"
+      },
+      {
+        "group": "Intermediate WTD, coarse soil (mid-slope sandy deposits)",
+        "n": 2,
+        "reason": "Moderate vadose zone (5-15 m), high K \u2192 tests mid-range travel time"
+      },
+      {
+        "group": "Intermediate WTD, medium soil (typical mid-slope)",
+        "n": 2,
+        "reason": "Moderate vadose zone and K \u2192 expected multi-month lag, most common setting"
+      },
+      {
+        "group": "Intermediate WTD, fine soil (mid-slope clay-rich)",
+        "n": 2,
+        "reason": "Moderate vadose zone, low K \u2192 tests combined WTD + soil control on lag"
+      },
+      {
+        "group": "Deep WTD, coarse soil (ridge sandy loam)",
+        "n": 2,
+        "reason": "Deep vadose zone (15-28 m), high K \u2192 tests upper bound of travel time (months to years)"
+      },
+      {
+        "group": "Deep WTD, medium soil (typical ridge)",
+        "n": 2,
+        "reason": "Deep vadose zone, moderate K \u2192 expected multi-year lag, tests long-term storage"
+      },
+      {
+        "group": "Deep WTD, fine soil (ridge clay loam)",
+        "n": 2,
+        "reason": "Deep vadose zone + low K \u2192 maximum lag scenario, tests extreme residence time"
+      },
+      {
+        "group": "Validation columns (co-located with USGS wells)",
+        "n": 6,
+        "reason": "Pinned to USGS well locations for water-table position/dynamics validation, span available WTD observations"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "Fan et al. 2013 equilibrium WTD prior (gridded)",
+        "in_domain_available": true,
+        "comparison": "Co-located: PFLOTRAN modeled WTD at each column location vs Fan prior value. Note: Fan is equilibrium (lateral flow), PFLOTRAN is transient (coupled to ELM), so some drift is expected and is itself a result (tests ELM\u2192PFLOTRAN coupling realism).",
+        "metric": "Bias (mean error), RMSE, spatial correlation across the 24 columns",
+        "n_validation_points": "24 (all columns have Fan prior values)"
+      },
+      {
+        "target_variable": "water_table_depth_dynamics",
+        "observation_source": "USGS wells (time series where available)",
+        "in_domain_available": true,
+        "comparison": "Co-located time series: PFLOTRAN modeled WTD temporal variation vs USGS well hydrographs at the 6 validation column locations. Tests water-table response timing and amplitude.",
+        "metric": "Correlation (timing), normalized RMSE (amplitude), lag to peak response",
+        "n_validation_points": "6 (validation columns at USGS well locations)"
+      },
+      {
+        "target_variable": "recharge_flux",
+        "observation_source": "None available in-domain",
+        "in_domain_available": false,
+        "comparison": "Not possible \u2014 no recharge observations. Indirect validation via water-table response (if WTD dynamics match observations, recharge timing is implicitly constrained).",
+        "metric": "N/A",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 24,
+      "exploratory": 18,
+      "validation": 6,
+      "primary_treatment": "Baseline: NLDAS-2 forcing (1980-2018, 39 years including 5-year spin-up 1980-1984), native SSURGO soil at each column location, WTD-informed warm start (Fan 2013 prior sets initial PFLOTRAN water table). Each ELM column produces QDRAI time series for PFLOTRAN coupling."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM\u2192PFLOTRAN coupler (vadose-zone + saturated flow)",
+        "why": "The question's core mechanism (infiltration \u2192 recharge at real water table) requires vadose-zone transport below ELM's soil column and lateral groundwater flow. ELM alone cannot answer the question.",
+        "blocks": "Entire coupling design \u2014 without this, only ELM drainage flux (QDRAI) can be produced, not recharge arrival timing at the water table"
+      },
+      {
+        "capability": "PFLOTRAN domain generation and mesh for Naches",
+        "why": "Need 2-D/3-D domain spanning elevation gradient (valley to ridge), vadose zone from 3.8 m to Fan WTD (0-28 m), saturated zone with lateral flow",
+        "blocks": "PFLOTRAN setup and execution"
+      },
+      {
+        "capability": "Fan 2013 WTD raster sampling at column locations",
+        "why": "Initialize PFLOTRAN water table position and stratify columns by WTD (primary driver)",
+        "blocks": "WTD stratification and PFLOTRAN initial conditions"
+      },
+      {
+        "capability": "USGS well data ingest and time-series extraction",
+        "why": "Validate PFLOTRAN water-table dynamics (temporal variation, response lag)",
+        "blocks": "Water-table dynamics validation (6 validation columns)"
+      },
+      {
+        "capability": "PFLOTRAN Richards equation solver configuration",
+        "why": "Vadose-zone unsaturated flow (tracks travel time from ELM bottom to water table)",
+        "blocks": "Travel-time quantification (the question's target)"
+      },
+      {
+        "capability": "Recharge observation dataset",
+        "why": "No recharge observations available in-domain \u2014 limits direct validation of recharge flux",
+        "blocks": "Direct recharge validation (indirect validation via water-table response is possible)"
+      }
+    ],
+    "assumptions": [
+      "NLDAS-2 forcing (12 km, 1980-2018) adequately represents precipitation/temperature variation across the Naches' 1625 m elevation range (expect some underestimation at high elevations due to unresolved sub-12 km terrain)",
+      "Fan 2013 equilibrium WTD is a reasonable initial condition for PFLOTRAN water table (some drift expected as PFLOTRAN equilibrates under ELM-driven recharge)",
+      "ELM's 5-year spin-up (1980-1984) is sufficient to stabilize root-zone soil moisture and QDRAI flux (slow aquifer state initialized from Fan WTD)",
+      "SSURGO soil texture classes adequately represent unsaturated hydraulic properties for PFLOTRAN vadose-zone parameterization",
+      "USGS well density is sufficient to validate water-table dynamics (6 validation points assumed available, actual count depends on data reception)",
+      "2-D cross-section or 3-D PFLOTRAN domain can represent lateral groundwater flow effects (valley discharge, ridge recharge) \u2014 domain extent and boundary conditions TBD"
+    ],
+    "open_questions": [
+      "What is the actual density and temporal coverage of USGS wells in the Naches (brief says available but does not specify count or period)?",
+      "Should PFLOTRAN domain be 2-D (elevation transect, computationally cheaper) or 3-D (full spatial heterogeneity, more realistic but expensive)?",
+      "What are the PFLOTRAN domain boundaries (lateral extent, bottom depth) \u2014 should they match the HUC8 boundary or a smaller representative transect?",
+      "Are PFLOTRAN vadose-zone hydraulic parameters (van Genuchten curves) available for SSURGO soil classes, or do they need to be derived?",
+      "Is there a preference for PFLOTRAN time-step resolution (daily vs sub-daily) \u2014 finer steps capture event-scale dynamics but increase cost?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

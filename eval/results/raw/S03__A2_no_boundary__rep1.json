@@ -1,0 +1,147 @@
+{
+  "prompt_id": "S03",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe question asks how strongly soil texture controls sub-surface drainage in an agricultural landscape. This is a **single-driver mechanistic question** with a validation component.\n\n**Decomposition:**\n1. **Mechanistic goal**: Quantify the sensitivity of sub-surface drainage (QDRAI) to soil texture variation across the agricultural landscape.\n2. **Validation goal**: Compare simulated water table depth to sparse USGS well observations where available.\n\n**Key process**: Sub-surface drainage from the soil column to the unconfined aquifer, which in ELM is controlled by soil hydraulic properties (texture-dependent) and the water table position. Agricultural landscapes in Iowa are typically tile-drained, but the brief explicitly notes tile-drain flow data is MISSING. ELM's native QDRAI represents gravity drainage to the aquifer, NOT tile drainage (which would require explicit tile infrastructure representation). This is a **critical feasibility constraint**.\n\n**Driver**: Soil texture is the sole candidate driver. The elevation range is modest (160 m), and with NLDAS-2 forcing at 12 km resolution, the basin likely spans only 1-2 precipitation cells, so elevation/climate gradients are minimal. Soil texture is the primary lever available.\n\n**Feasibility check against execution limits:**\n- **Tile drainage**: The question targets an agricultural landscape where tile drains dominate sub-surface flow. ELM does NOT represent tile drains\u2014QDRAI is natural gravity drainage. This means the simulated drainage mechanism differs fundamentally from the real one. The question AS POSED (tile-drained agricultural drainage) is **not fully answerable**. What IS answerable: the sensitivity of ELM's gravity drainage to soil texture, which is a process analog but not the actual tile-drain process.\n- **Forcing**: NLDAS-2 covers the domain (Iowa is in CONUS). Elevation relief is modest, so within-cell terrain effects are minor.\n- **Spin-up**: Sub-surface drainage and water table are slow states. A **warm start from Fan (2013) WTD** is essential to avoid initialization artifacts. This is available and preferred.\n- **Validation**: USGS wells provide point WTD observations (sparse). Co-located validation is possible where wells exist. QDRAI itself has no direct observations (tile flow is missing).\n\n**Verdict**: **Partial**. The runs can quantify soil texture's control on ELM's gravity drainage and validate water table against wells, but cannot represent the tile-drain mechanism that dominates the real landscape. This is a process-analog study, not a direct simulation of agricultural drainage.\n\n**Sampling strategy:**\n- **Strata**: Soil texture classes present in the basin (likely silt loam, silty clay loam, loam\u2014typical Iowa soils). SSURGO provides per-location texture.\n- **N**: Small and defensible. Agricultural landscapes are relatively homogeneous (glacial till, row crops). Sample the dominant texture classes with light replication to span spatial variability. Estimate: 3 texture classes \u00d7 2-3 replicates = **6-9 exploratory columns**. Add **validation columns pinned to USGS well locations** (count unknown\u2014depends on well density, likely 2-5 wells in a HUC8).\n- **Placement**: Concentrate on agricultural land (avoid riparian/forested edges). Spread across the basin to sample texture variation. Pin validation columns to well coordinates.\n- **Forcing**: Use a representative multi-year period (e.g., 2000-2015, 16 years) to capture interannual variability in recharge/drainage. Warm-start from Fan WTD.\n\n**Validation:**\n- **Water table depth**: Compare simulated ZWT to USGS well observations (co-located, time-series correlation/bias).\n- **QDRAI**: No direct observations. Validate indirectly via water balance closure or cite as a limitation.\n\n**Total columns**: ~8-12 (6-9 exploratory + 2-5 validation, with overlap where wells fall in texture strata).\n\n---\n\n## JSON OUTPUT\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Quantify the sensitivity of sub-surface drainage to soil texture variation in an agricultural landscape\",\n      \"Validate simulated water table depth against sparse USGS well observations\"\n    ],\n    \"key_processes\": [\n      \"Sub-surface drainage (gravity drainage to aquifer)\",\n      \"Soil moisture dynamics in the root zone and below\",\n      \"Water table position and its control on drainage flux\"\n    ],\n    \"drivers_to_resolve\": [\n      \"soil texture\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM can resolve soil texture control on gravity drainage and water table dynamics. Warm-start from Fan WTD to initialize water table realistically. Validation against USGS wells provides process credibility.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": null\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Soil texture control on ELM's gravity drainage (QDRAI) to the unconfined aquifer\",\n      \"Water table depth dynamics and validation against USGS well observations\",\n      \"Relative sensitivity across texture classes (e.g., sandy loam drains faster than silty clay loam)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Tile-drain flow and its texture sensitivity in the real agricultural landscape\",\n        \"why\": \"ELM does not represent tile drains\u2014QDRAI is natural gravity drainage, not tile drainage. The dominant sub-surface flow mechanism in Iowa row-crop fields (tile drains at ~1 m depth) is absent from the model.\",\n        \"needs\": \"Tile-drain parameterization in ELM (explicit tile depth, spacing, and drainage function)\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"Stratified by soil texture, with validation columns pinned to USGS well locations\",\n    \"strata\": [\n      {\n        \"driver\": \"soil texture\",\n        \"classes\": [\n          \"silt loam\",\n          \"silty clay loam\",\n          \"loam\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 9,\n    \"n_justification\": \"Three dominant texture classes (typical Iowa glacial till soils) \u00d7 3 replicates per class to span spatial variability within each texture = 9 exploratory columns. Agricultural landscape is relatively homogeneous, so dense sampling is unnecessary.\",\n    \"placement_logic\": \"Concentrate on agricultural land (row crops, away from riparian corridors). Spread columns across the basin to sample texture variation as mapped by SSURGO. Avoid forested or urban edges. Validation columns are pinned to USGS well coordinates (likely 3-5 wells in the HUC8).\",\n    \"replication\": \"3 replicates per texture class to capture within-class spatial variability and provide statistical confidence in texture effects\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"Silt loam, agricultural\",\n      \"n\": 3,\n      \"reason\": \"Dominant texture in Iowa till plains; moderate drainage, high water-holding capacity\"\n    },\n    {\n      \"group\": \"Silty clay loam, agricultural\",\n      \"n\": 3,\n      \"reason\": \"Finer texture, slower drainage, higher water table expected\"\n    },\n    {\n      \"group\": \"Loam, agricultural\",\n      \"n\": 3,\n      \"reason\": \"Coarser texture, faster drainage, lower water table expected\"\n    },\n    {\n      \"group\": \"USGS well validation sites\",\n      \"n\": 4,\n      \"reason\": \"Pinned to well coordinates for co-located water table validation (count estimated from typical HUC8 well density)\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells (sparse, in-domain)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located time-series at well coordinates; compare simulated ZWT to observed WTD (monthly or seasonal means)\",\n      \"metric\": \"Bias, RMSE, temporal correlation\",\n      \"n_validation_points\": \"4 (estimated\u2014depends on actual well density in HUC 07060002)\"\n    },\n    {\n      \"target_variable\": \"sub-surface_drainage_QDRAI\",\n      \"observation_source\": \"None (tile-drain flow data missing)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"No direct validation possible. Indirect check via water balance closure (P - ET - QOVER - QDRAI \u2248 \u0394S). Cite as limitation.\",\n      \"metric\": \"Not applicable\",\n      \"n_validation_points\": \"0\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 13,\n    \"exploratory\": 9,\n    \"validation\": 4,\n    \"primary_treatment\": \"Warm-start from Fan (2013) WTD; NLDAS-2 forcing 2000-2015 (16 years); native SSURGO soil at each column location; default ELM crop PFT (C3 crop or managed vegetation)\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"Tile-drain parameterization in ELM\",\n      \"why\": \"The question targets agricultural sub-surface drainage, which in Iowa is dominated by tile drains (~1 m depth, 10-20 m spacing). ELM's QDRAI represents natural gravity drainage, not tile flow.\",\n      \"blocks\": \"Direct simulation of tile-drain flux and its texture sensitivity. Current design is a process analog (gravity drainage) but not the real mechanism.\"\n    },\n    {\n      \"capability\": \"Warm-start from Fan (2013) WTD\",\n      \"why\": \"Sub-surface drainage and water table are slow states. Cold-start artifacts (uniform initial WTD, zero recharge during fill) would dominate the signal. Warm-start is essential.\",\n      \"blocks\": \"Meaningful QDRAI and ZWT results without multi-decade spin-up (which is cost-prohibitive for 13 columns \u00d7 16 years).\"\n    },\n    {\n      \"capability\": \"USGS well data ingest and coordinate extraction for HUC 07060002\",\n      \"why\": \"Validation columns must be pinned to actual well locations. Need well coordinates and time-series WTD observations.\",\n      \"blocks\": \"Co-located water table validation.\"\n    },\n    {\n      \"capability\": \"SSURGO soil texture extraction at column coordinates\",\n      \"why\": \"Stratification and per-column soil assignment depend on gridded or point-query access to SSURGO texture classes.\",\n      \"blocks\": \"Texture-based sampling and native soil configuration.\"\n    }\n  ],\n  \"assumptions\": [\n    \"USGS well density in HUC 07060002 is sufficient for validation (assumed ~4 wells; actual count unknown).\",\n    \"Agricultural land in the basin is row crops (corn/soy) with similar management\u2014vegetation differences are secondary to soil texture.\",\n    \"NLDAS-2 forcing at 12 km resolution adequately represents basin-average precipitation and temperature (elevation relief is modest, 160 m).\",\n    \"Fan (2013) equilibrium WTD is a reasonable prior for initial aquifer storage, despite ELM's 1-D vs. Fan's lateral-flow equilibrium.\",\n    \"ELM's gravity drainage (QDRAI) is a useful process analog for tile drainage, even though the mechanisms differ (both are texture-sensitive, but tile drains short-circuit deeper flow paths).\"\n  ],\n  \"open_questions\": [\n    \"What is the actual USGS well density in HUC 07060002, and are well time series long enough (2000-2015) for validation?\",\n    \"Should we include a sensitivity test with/without warm-start to quantify initialization artifacts?\",\n    \"Is there any proxy for tile-drain flux (e.g., county-level drainage district reports) that could provide a basin-scale validation target?\",\n    \"Should we test a range of forcing periods (wet vs. dry years) to assess texture control under different recharge regimes?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify the sensitivity of sub-surface drainage to soil texture variation in an agricultural landscape",
+        "Validate simulated water table depth against sparse USGS well observations"
+      ],
+      "key_processes": [
+        "Sub-surface drainage (gravity drainage to aquifer)",
+        "Soil moisture dynamics in the root zone and below",
+        "Water table position and its control on drainage flux"
+      ],
+      "drivers_to_resolve": [
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM can resolve soil texture control on gravity drainage and water table dynamics. Warm-start from Fan WTD to initialize water table realistically. Validation against USGS wells provides process credibility.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Soil texture control on ELM's gravity drainage (QDRAI) to the unconfined aquifer",
+        "Water table depth dynamics and validation against USGS well observations",
+        "Relative sensitivity across texture classes (e.g., sandy loam drains faster than silty clay loam)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Tile-drain flow and its texture sensitivity in the real agricultural landscape",
+          "why": "ELM does not represent tile drains\u2014QDRAI is natural gravity drainage, not tile drainage. The dominant sub-surface flow mechanism in Iowa row-crop fields (tile drains at ~1 m depth) is absent from the model.",
+          "needs": "Tile-drain parameterization in ELM (explicit tile depth, spacing, and drainage function)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by soil texture, with validation columns pinned to USGS well locations",
+      "strata": [
+        {
+          "driver": "soil texture",
+          "classes": [
+            "silt loam",
+            "silty clay loam",
+            "loam"
+          ]
+        }
+      ],
+      "n_exploratory": 9,
+      "n_justification": "Three dominant texture classes (typical Iowa glacial till soils) \u00d7 3 replicates per class to span spatial variability within each texture = 9 exploratory columns. Agricultural landscape is relatively homogeneous, so dense sampling is unnecessary.",
+      "placement_logic": "Concentrate on agricultural land (row crops, away from riparian corridors). Spread columns across the basin to sample texture variation as mapped by SSURGO. Avoid forested or urban edges. Validation columns are pinned to USGS well coordinates (likely 3-5 wells in the HUC8).",
+      "replication": "3 replicates per texture class to capture within-class spatial variability and provide statistical confidence in texture effects"
+    },
+    "sampling_plan": [
+      {
+        "group": "Silt loam, agricultural",
+        "n": 3,
+        "reason": "Dominant texture in Iowa till plains; moderate drainage, high water-holding capacity"
+      },
+      {
+        "group": "Silty clay loam, agricultural",
+        "n": 3,
+        "reason": "Finer texture, slower drainage, higher water table expected"
+      },
+      {
+        "group": "Loam, agricultural",
+        "n": 3,
+        "reason": "Coarser texture, faster drainage, lower water table expected"
+      },
+      {
+        "group": "USGS well validation sites",
+        "n": 4,
+        "reason": "Pinned to well coordinates for co-located water table validation (count estimated from typical HUC8 well density)"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (sparse, in-domain)",
+        "in_domain_available": true,
+        "comparison": "co-located time-series at well coordinates; compare simulated ZWT to observed WTD (monthly or seasonal means)",
+        "metric": "Bias, RMSE, temporal correlation",
+        "n_validation_points": "4 (estimated\u2014depends on actual well density in HUC 07060002)"
+      },
+      {
+        "target_variable": "sub-surface_drainage_QDRAI",
+        "observation_source": "None (tile-drain flow data missing)",
+        "in_domain_available": false,
+        "comparison": "No direct validation possible. Indirect check via water balance closure (P - ET - QOVER - QDRAI \u2248 \u0394S). Cite as limitation.",
+        "metric": "Not applicable",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 13,
+      "exploratory": 9,
+      "validation": 4,
+      "primary_treatment": "Warm-start from Fan (2013) WTD; NLDAS-2 forcing 2000-2015 (16 years); native SSURGO soil at each column location; default ELM crop PFT (C3 crop or managed vegetation)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Tile-drain parameterization in ELM",
+        "why": "The question targets agricultural sub-surface drainage, which in Iowa is dominated by tile drains (~1 m depth, 10-20 m spacing). ELM's QDRAI represents natural gravity drainage, not tile flow.",
+        "blocks": "Direct simulation of tile-drain flux and its texture sensitivity. Current design is a process analog (gravity drainage) but not the real mechanism."
+      },
+      {
+        "capability": "Warm-start from Fan (2013) WTD",
+        "why": "Sub-surface drainage and water table are slow states. Cold-start artifacts (uniform initial WTD, zero recharge during fill) would dominate the signal. Warm-start is essential.",
+        "blocks": "Meaningful QDRAI and ZWT results without multi-decade spin-up (which is cost-prohibitive for 13 columns \u00d7 16 years)."
+      },
+      {
+        "capability": "USGS well data ingest and coordinate extraction for HUC 07060002",
+        "why": "Validation columns must be pinned to actual well locations. Need well coordinates and time-series WTD observations.",
+        "blocks": "Co-located water table validation."
+      },
+      {
+        "capability": "SSURGO soil texture extraction at column coordinates",
+        "why": "Stratification and per-column soil assignment depend on gridded or point-query access to SSURGO texture classes.",
+        "blocks": "Texture-based sampling and native soil configuration."
+      }
+    ],
+    "assumptions": [
+      "USGS well density in HUC 07060002 is sufficient for validation (assumed ~4 wells; actual count unknown).",
+      "Agricultural land in the basin is row crops (corn/soy) with similar management\u2014vegetation differences are secondary to soil texture.",
+      "NLDAS-2 forcing at 12 km resolution adequately represents basin-average precipitation and temperature (elevation relief is modest, 160 m).",
+      "Fan (2013) equilibrium WTD is a reasonable prior for initial aquifer storage, despite ELM's 1-D vs. Fan's lateral-flow equilibrium.",
+      "ELM's gravity drainage (QDRAI) is a useful process analog for tile drainage, even though the mechanisms differ (both are texture-sensitive, but tile drains short-circuit deeper flow paths)."
+    ],
+    "open_questions": [
+      "What is the actual USGS well density in HUC 07060002, and are well time series long enough (2000-2015) for validation?",
+      "Should we include a sensitivity test with/without warm-start to quantify initialization artifacts?",
+      "Is there any proxy for tile-drain flux (e.g., county-level drainage district reports) that could provide a basin-scale validation target?",
+      "Should we test a range of forcing periods (wet vs. dry years) to assess texture control under different recharge regimes?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

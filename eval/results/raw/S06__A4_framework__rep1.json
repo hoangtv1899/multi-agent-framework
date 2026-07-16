@@ -1,0 +1,203 @@
+{
+  "prompt_id": "S06",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Quantify spatially-distributed steady-state annual recharge to the deep water table across the Naches HUC8\"], \"key_processes\": [\"precipitation partitioning (infiltration vs surface runoff)\", \"evapotranspiration (soil moisture control)\", \"deep drainage from soil column base (recharge flux)\"], \"drivers_to_resolve\": [\"soil texture/hydraulic properties (infiltration capacity)\", \"regional climate/forcing zones (elevation proxy via NLDAS 12 km spatial variation)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM can compute deep drainage (QDRAI) as the recharge flux. Stratified spatial sampling across soil and regional forcing zones produces a first-order recharge map. Water-table observations (USGS wells, Fan 2013 WTD) provide validation via the recharge-WTD linkage.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Soil texture control on recharge (infiltration vs runoff partitioning)\", \"Regional-scale climate variation across the HUC8 (NLDAS 12 km forcing does vary spatially)\", \"First-order recharge spatial pattern stratified by soil and regional forcing zones\", \"Water-table depth validation against USGS wells and Fan 2013 WTD (recharge-WTD linkage)\"], \"not_answerable\": [{\"aspect\": \"Fine-scale orographic precipitation gradient and precise rain-snow transition elevation\", \"why\": \"NLDAS-2 forcing is 0.125\\u00b0 (~12 km) resolution with no sub-cell elevation lapse rate or within-cell orographic enhancement. Columns at different elevations within the same 12 km cell receive identical forcing. The Naches spans 1625 m relief, but sub-12 km terrain effects are unresolved.\", \"needs\": \"Elevation-downscaled forcing (e.g. 1 km PRISM-like climatology or WRF dynamical downscaling with terrain-aware precipitation)\"}, {\"aspect\": \"True steady-state recharge if 'true' requires full orographic/lapse-rate fidelity\", \"why\": \"The 12 km forcing captures regional climate variation but misses fine-scale orographic effects. The resulting recharge map is a first-order estimate, not the full-fidelity 'true' pattern.\", \"needs\": \"Elevation-downscaled forcing\"}]}, \"sampling_strategy\": {\"approach\": \"Stratified by soil texture and regional elevation/forcing zones\", \"strata\": [{\"driver\": \"elevation (regional forcing proxy)\", \"bands\": [\"low: 352-800 m (valley floors, warmest/driest)\", \"mid: 800-1400 m (transitional, mixed rain-snow)\", \"high: 1400-1977 m (ridges, coolest/wettest, snow-dominated)\"]}, {\"driver\": \"soil texture\", \"classes\": [\"coarse (sandy, high infiltration, low water-holding capacity)\", \"medium (loam, moderate infiltration and storage)\", \"fine (clay, low infiltration, high runoff potential)\"]}], \"n_exploratory\": 18, \"n_justification\": \"3 elevation bands \\u00d7 3 soil classes = 9 strata. 2 replicates per stratum = 18 exploratory columns. This is the minimum to span the soil-climate space and assess within-stratum variability. Replication is light (2\\u00d7) because the question is exploratory (map recharge patterns) rather than hypothesis-testing (detect a treatment effect).\", \"placement_logic\": \"Within each stratum, place columns to sample the geographic extent of that soil-elevation combination (avoid clustering in one sub-region). Prefer locations near USGS wells where possible to co-locate exploratory and validation sampling. Avoid urban/disturbed areas if identifiable.\", \"replication\": \"2 replicates per stratum (18 total exploratory columns) to assess within-stratum variability and provide robustness against local anomalies.\"}, \"sampling_plan\": [{\"group\": \"low-elev \\u00d7 coarse-soil\", \"n\": 2, \"reason\": \"Valley floors with sandy soils: high infiltration, low ET (sparse vegetation), expect moderate-to-high recharge despite low precipitation.\"}, {\"group\": \"low-elev \\u00d7 medium-soil\", \"n\": 2, \"reason\": \"Valley floors with loam: balanced infiltration and storage, moderate ET, expect moderate recharge.\"}, {\"group\": \"low-elev \\u00d7 fine-soil\", \"n\": 2, \"reason\": \"Valley floors with clay: low infiltration, high runoff, expect low recharge despite available water.\"}, {\"group\": \"mid-elev \\u00d7 coarse-soil\", \"n\": 2, \"reason\": \"Transitional zone with sandy soils: high infiltration, mixed rain-snow, expect high recharge (snowmelt + infiltration capacity).\"}, {\"group\": \"mid-elev \\u00d7 medium-soil\", \"n\": 2, \"reason\": \"Transitional zone with loam: moderate infiltration, mixed rain-snow, expect moderate-to-high recharge.\"}, {\"group\": \"mid-elev \\u00d7 fine-soil\", \"n\": 2, \"reason\": \"Transitional zone with clay: low infiltration, high runoff even with snowmelt, expect low-to-moderate recharge.\"}, {\"group\": \"high-elev \\u00d7 coarse-soil\", \"n\": 2, \"reason\": \"Ridges with sandy soils: high infiltration, snow-dominated, expect very high recharge (snowmelt infiltrates efficiently).\"}, {\"group\": \"high-elev \\u00d7 medium-soil\", \"n\": 2, \"reason\": \"Ridges with loam: moderate infiltration, snow-dominated, expect high recharge (snowmelt + storage).\"}, {\"group\": \"high-elev \\u00d7 fine-soil\", \"n\": 2, \"reason\": \"Ridges with clay: low infiltration, high runoff even from snowmelt, expect moderate recharge (limited by soil, not water availability).\"}, {\"group\": \"validation (USGS wells)\", \"n\": 8, \"reason\": \"Columns co-located with USGS well locations for direct WTD comparison (count estimated; actual count depends on well density in-domain).\"}], \"validation_design\": [{\"target_variable\": \"water_table_depth\", \"observation_source\": \"USGS wells (in-situ measurements)\", \"in_domain_available\": true, \"comparison\": \"Co-located: simulated WTD at well coordinates vs observed WTD time series (if transient) or mean WTD (if steady-state assumption).\", \"metric\": \"Bias (mean error) and RMSE. Recharge is not directly observed, but WTD is its integrated signature (high recharge \\u2192 shallow WTD in 1-D equilibrium).\", \"n_validation_points\": \"~8 (estimated; actual count depends on USGS well density in the Naches HUC8)\"}, {\"target_variable\": \"water_table_depth\", \"observation_source\": \"Fan et al. 2013 equilibrium WTD grid\", \"in_domain_available\": true, \"comparison\": \"Co-located: simulated WTD at each column vs Fan 2013 WTD sampled at that point. Caveat: ELM's 1-D equilibrium differs from Fan's lateral-flow equilibrium (some bias expected and is itself a result).\", \"metric\": \"Bias and RMSE across all columns. Spatial correlation (does the simulated WTD pattern match Fan's pattern?).\", \"n_validation_points\": \"All columns (~26) \\u2014 Fan 2013 is a gridded product, so every column has a corresponding WTD value.\"}], \"experiment_summary\": {\"total_columns\": 26, \"exploratory\": 18, \"validation\": 8, \"primary_treatment\": \"WTD-informed warm start from Fan 2013 (initialize water table at Fan's equilibrium WTD, clamped to ELM's aquifer range 0.05-28.8 m). Run 1-2 years to equilibrate fast states (root-zone soil moisture). Extract steady-state annual recharge (QDRAI) from the equilibrated period. Use NLDAS-2 forcing (1980-2018 climatology or a representative multi-year period). Native SSURGO soil at each column location.\"}, \"requires_capabilities\": [{\"capability\": \"WTD-informed warm start from Fan 2013 equilibrium WTD\", \"why\": \"To initialize realistic water tables and avoid multi-year spin-up cost. The question asks for steady-state recharge, which requires equilibrated aquifer storage. Cold-start from default WTD (~8.8 m everywhere) produces initialization artifacts.\", \"blocks\": \"Realistic recharge estimates (without this, recharge reads ~0 during spin-up while storage fills, and the equilibrium is delayed by years).\"}, {\"capability\": \"SSURGO gridded soil data sampling (or coarser soil map if SSURGO unavailable)\", \"why\": \"To assign per-column soil texture class (coarse/medium/fine) from spatial data. Soil texture controls infiltration capacity and thus recharge.\", \"blocks\": \"Soil stratification (cannot sample soil classes without a soil map).\"}, {\"capability\": \"USGS well data ingest (locations + observed WTD time series)\", \"why\": \"To identify in-domain well locations for validation column placement and to obtain observed WTD for comparison.\", \"blocks\": \"Co-located WTD validation against in-situ measurements.\"}, {\"capability\": \"Elevation-downscaled forcing (e.g. 1 km PRISM climatology or WRF downscaling)\", \"why\": \"To resolve sub-12 km orographic precipitation gradients and the precise rain-snow transition elevation. NLDAS-2 12 km forcing misses fine-scale terrain effects.\", \"blocks\": \"Full-fidelity 'true' recharge pattern driven by elevation/climate (current design produces a first-order estimate with regional-scale climate variation but missing fine-scale orographic effects).\"}, {\"capability\": \"DEM/elevation sampling at column locations\", \"why\": \"To assign each column's elevation for stratification into low/mid/high bands and for potential future elevation-downscaled forcing.\", \"blocks\": \"Elevation stratification (cannot place columns in elevation bands without knowing their elevation).\"}, {\"capability\": \"HUC boundary resolver (to clip sampling to the Naches HUC8 17030002)\", \"why\": \"To ensure all sampled columns fall within the target watershed.\", \"blocks\": \"Domain-constrained sampling.\"}], \"assumptions\": [\"NLDAS-2 12 km forcing is adequate for regional-scale recharge patterns (accepted limitation: sub-12 km orographic effects are unresolved).\", \"Fan 2013 equilibrium WTD is a reasonable prior for water-table initialization (accepted that ELM's 1-D equilibrium will drift from Fan's lateral-flow equilibrium due to missing lateral flow).\", \"Dominant soil texture classes (coarse/medium/fine) can be identified from SSURGO or a coarser soil map.\", \"USGS wells exist in-domain (count unknown from brief; assumed ~8 based on typical HUC8 well density).\", \"Steady-state recharge can be approximated by equilibrating the model for 1-2 years after WTD-informed warm start (fast states equilibrate quickly; slow aquifer state is pre-equilibrated by Fan prior).\", \"Recharge spatial pattern is primarily controlled by soil texture and regional climate (elevation proxy) \\u2014 vegetation and land-cover heterogeneity are secondary (not stratified in this design).\"], \"open_questions\": [\"What is the actual USGS well density in the Naches HUC8? (This determines the validation sample size.)\", \"Is SSURGO coverage complete in the Naches, or do we need a coarser soil map (e.g. STATSGO)?\", \"What is the preferred equilibration period after WTD-informed warm start? (1 year may suffice for fast states; 2 years provides margin.)\", \"Should we use a multi-year NLDAS climatology (e.g. 1990-2010 mean) or a specific representative period for forcing?\", \"Are there any known land-cover disturbances (logging, fire) in the Naches that would invalidate the steady-state assumption?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify spatially-distributed steady-state annual recharge to the deep water table across the Naches HUC8"
+      ],
+      "key_processes": [
+        "precipitation partitioning (infiltration vs surface runoff)",
+        "evapotranspiration (soil moisture control)",
+        "deep drainage from soil column base (recharge flux)"
+      ],
+      "drivers_to_resolve": [
+        "soil texture/hydraulic properties (infiltration capacity)",
+        "regional climate/forcing zones (elevation proxy via NLDAS 12 km spatial variation)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM can compute deep drainage (QDRAI) as the recharge flux. Stratified spatial sampling across soil and regional forcing zones produces a first-order recharge map. Water-table observations (USGS wells, Fan 2013 WTD) provide validation via the recharge-WTD linkage.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Soil texture control on recharge (infiltration vs runoff partitioning)",
+        "Regional-scale climate variation across the HUC8 (NLDAS 12 km forcing does vary spatially)",
+        "First-order recharge spatial pattern stratified by soil and regional forcing zones",
+        "Water-table depth validation against USGS wells and Fan 2013 WTD (recharge-WTD linkage)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Fine-scale orographic precipitation gradient and precise rain-snow transition elevation",
+          "why": "NLDAS-2 forcing is 0.125\u00b0 (~12 km) resolution with no sub-cell elevation lapse rate or within-cell orographic enhancement. Columns at different elevations within the same 12 km cell receive identical forcing. The Naches spans 1625 m relief, but sub-12 km terrain effects are unresolved.",
+          "needs": "Elevation-downscaled forcing (e.g. 1 km PRISM-like climatology or WRF dynamical downscaling with terrain-aware precipitation)"
+        },
+        {
+          "aspect": "True steady-state recharge if 'true' requires full orographic/lapse-rate fidelity",
+          "why": "The 12 km forcing captures regional climate variation but misses fine-scale orographic effects. The resulting recharge map is a first-order estimate, not the full-fidelity 'true' pattern.",
+          "needs": "Elevation-downscaled forcing"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by soil texture and regional elevation/forcing zones",
+      "strata": [
+        {
+          "driver": "elevation (regional forcing proxy)",
+          "bands": [
+            "low: 352-800 m (valley floors, warmest/driest)",
+            "mid: 800-1400 m (transitional, mixed rain-snow)",
+            "high: 1400-1977 m (ridges, coolest/wettest, snow-dominated)"
+          ]
+        },
+        {
+          "driver": "soil texture",
+          "classes": [
+            "coarse (sandy, high infiltration, low water-holding capacity)",
+            "medium (loam, moderate infiltration and storage)",
+            "fine (clay, low infiltration, high runoff potential)"
+          ]
+        }
+      ],
+      "n_exploratory": 18,
+      "n_justification": "3 elevation bands \u00d7 3 soil classes = 9 strata. 2 replicates per stratum = 18 exploratory columns. This is the minimum to span the soil-climate space and assess within-stratum variability. Replication is light (2\u00d7) because the question is exploratory (map recharge patterns) rather than hypothesis-testing (detect a treatment effect).",
+      "placement_logic": "Within each stratum, place columns to sample the geographic extent of that soil-elevation combination (avoid clustering in one sub-region). Prefer locations near USGS wells where possible to co-locate exploratory and validation sampling. Avoid urban/disturbed areas if identifiable.",
+      "replication": "2 replicates per stratum (18 total exploratory columns) to assess within-stratum variability and provide robustness against local anomalies."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elev \u00d7 coarse-soil",
+        "n": 2,
+        "reason": "Valley floors with sandy soils: high infiltration, low ET (sparse vegetation), expect moderate-to-high recharge despite low precipitation."
+      },
+      {
+        "group": "low-elev \u00d7 medium-soil",
+        "n": 2,
+        "reason": "Valley floors with loam: balanced infiltration and storage, moderate ET, expect moderate recharge."
+      },
+      {
+        "group": "low-elev \u00d7 fine-soil",
+        "n": 2,
+        "reason": "Valley floors with clay: low infiltration, high runoff, expect low recharge despite available water."
+      },
+      {
+        "group": "mid-elev \u00d7 coarse-soil",
+        "n": 2,
+        "reason": "Transitional zone with sandy soils: high infiltration, mixed rain-snow, expect high recharge (snowmelt + infiltration capacity)."
+      },
+      {
+        "group": "mid-elev \u00d7 medium-soil",
+        "n": 2,
+        "reason": "Transitional zone with loam: moderate infiltration, mixed rain-snow, expect moderate-to-high recharge."
+      },
+      {
+        "group": "mid-elev \u00d7 fine-soil",
+        "n": 2,
+        "reason": "Transitional zone with clay: low infiltration, high runoff even with snowmelt, expect low-to-moderate recharge."
+      },
+      {
+        "group": "high-elev \u00d7 coarse-soil",
+        "n": 2,
+        "reason": "Ridges with sandy soils: high infiltration, snow-dominated, expect very high recharge (snowmelt infiltrates efficiently)."
+      },
+      {
+        "group": "high-elev \u00d7 medium-soil",
+        "n": 2,
+        "reason": "Ridges with loam: moderate infiltration, snow-dominated, expect high recharge (snowmelt + storage)."
+      },
+      {
+        "group": "high-elev \u00d7 fine-soil",
+        "n": 2,
+        "reason": "Ridges with clay: low infiltration, high runoff even from snowmelt, expect moderate recharge (limited by soil, not water availability)."
+      },
+      {
+        "group": "validation (USGS wells)",
+        "n": 8,
+        "reason": "Columns co-located with USGS well locations for direct WTD comparison (count estimated; actual count depends on well density in-domain)."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (in-situ measurements)",
+        "in_domain_available": true,
+        "comparison": "Co-located: simulated WTD at well coordinates vs observed WTD time series (if transient) or mean WTD (if steady-state assumption).",
+        "metric": "Bias (mean error) and RMSE. Recharge is not directly observed, but WTD is its integrated signature (high recharge \u2192 shallow WTD in 1-D equilibrium).",
+        "n_validation_points": "~8 (estimated; actual count depends on USGS well density in the Naches HUC8)"
+      },
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "Fan et al. 2013 equilibrium WTD grid",
+        "in_domain_available": true,
+        "comparison": "Co-located: simulated WTD at each column vs Fan 2013 WTD sampled at that point. Caveat: ELM's 1-D equilibrium differs from Fan's lateral-flow equilibrium (some bias expected and is itself a result).",
+        "metric": "Bias and RMSE across all columns. Spatial correlation (does the simulated WTD pattern match Fan's pattern?).",
+        "n_validation_points": "All columns (~26) \u2014 Fan 2013 is a gridded product, so every column has a corresponding WTD value."
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 26,
+      "exploratory": 18,
+      "validation": 8,
+      "primary_treatment": "WTD-informed warm start from Fan 2013 (initialize water table at Fan's equilibrium WTD, clamped to ELM's aquifer range 0.05-28.8 m). Run 1-2 years to equilibrate fast states (root-zone soil moisture). Extract steady-state annual recharge (QDRAI) from the equilibrated period. Use NLDAS-2 forcing (1980-2018 climatology or a representative multi-year period). Native SSURGO soil at each column location."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "WTD-informed warm start from Fan 2013 equilibrium WTD",
+        "why": "To initialize realistic water tables and avoid multi-year spin-up cost. The question asks for steady-state recharge, which requires equilibrated aquifer storage. Cold-start from default WTD (~8.8 m everywhere) produces initialization artifacts.",
+        "blocks": "Realistic recharge estimates (without this, recharge reads ~0 during spin-up while storage fills, and the equilibrium is delayed by years)."
+      },
+      {
+        "capability": "SSURGO gridded soil data sampling (or coarser soil map if SSURGO unavailable)",
+        "why": "To assign per-column soil texture class (coarse/medium/fine) from spatial data. Soil texture controls infiltration capacity and thus recharge.",
+        "blocks": "Soil stratification (cannot sample soil classes without a soil map)."
+      },
+      {
+        "capability": "USGS well data ingest (locations + observed WTD time series)",
+        "why": "To identify in-domain well locations for validation column placement and to obtain observed WTD for comparison.",
+        "blocks": "Co-located WTD validation against in-situ measurements."
+      },
+      {
+        "capability": "Elevation-downscaled forcing (e.g. 1 km PRISM climatology or WRF downscaling)",
+        "why": "To resolve sub-12 km orographic precipitation gradients and the precise rain-snow transition elevation. NLDAS-2 12 km forcing misses fine-scale terrain effects.",
+        "blocks": "Full-fidelity 'true' recharge pattern driven by elevation/climate (current design produces a first-order estimate with regional-scale climate variation but missing fine-scale orographic effects)."
+      },
+      {
+        "capability": "DEM/elevation sampling at column locations",
+        "why": "To assign each column's elevation for stratification into low/mid/high bands and for potential future elevation-downscaled forcing.",
+        "blocks": "Elevation stratification (cannot place columns in elevation bands without knowing their elevation)."
+      },
+      {
+        "capability": "HUC boundary resolver (to clip sampling to the Naches HUC8 17030002)",
+        "why": "To ensure all sampled columns fall within the target watershed.",
+        "blocks": "Domain-constrained sampling."
+      }
+    ],
+    "assumptions": [
+      "NLDAS-2 12 km forcing is adequate for regional-scale recharge patterns (accepted limitation: sub-12 km orographic effects are unresolved).",
+      "Fan 2013 equilibrium WTD is a reasonable prior for water-table initialization (accepted that ELM's 1-D equilibrium will drift from Fan's lateral-flow equilibrium due to missing lateral flow).",
+      "Dominant soil texture classes (coarse/medium/fine) can be identified from SSURGO or a coarser soil map.",
+      "USGS wells exist in-domain (count unknown from brief; assumed ~8 based on typical HUC8 well density).",
+      "Steady-state recharge can be approximated by equilibrating the model for 1-2 years after WTD-informed warm start (fast states equilibrate quickly; slow aquifer state is pre-equilibrated by Fan prior).",
+      "Recharge spatial pattern is primarily controlled by soil texture and regional climate (elevation proxy) \u2014 vegetation and land-cover heterogeneity are secondary (not stratified in this design)."
+    ],
+    "open_questions": [
+      "What is the actual USGS well density in the Naches HUC8? (This determines the validation sample size.)",
+      "Is SSURGO coverage complete in the Naches, or do we need a coarser soil map (e.g. STATSGO)?",
+      "What is the preferred equilibration period after WTD-informed warm start? (1 year may suffice for fast states; 2 years provides margin.)",
+      "Should we use a multi-year NLDAS climatology (e.g. 1990-2010 mean) or a specific representative period for forcing?",
+      "Are there any known land-cover disturbances (logging, fire) in the Naches that would invalidate the steady-state assumption?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

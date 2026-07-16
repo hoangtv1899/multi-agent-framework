@@ -1,0 +1,212 @@
+{
+  "prompt_id": "S06",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user asks for **steady-state annual recharge reaching the deep water table** across the Naches watershed. This is fundamentally a **subsurface groundwater question**, not a land-surface partitioning question, and it immediately exposes a critical capability gap in the current framework.\n\n### Decomposition\n1. **Goal 1 (primary)**: Quantify spatially-distributed deep recharge (the flux crossing the water table into regional groundwater).\n2. **Goal 2 (validation)**: Compare modeled water table depth against USGS wells and Fan 2013 prior.\n\n### The Core Problem: ELM Cannot Answer This Question Directly\n\n**ELM is a 1-D land surface model.** It simulates:\n- Vertical water partitioning (ET, surface runoff, sub-surface drainage QDRAI)\n- Per-layer soil moisture down to ~3-8 m depth\n- **But NOT**: lateral groundwater flow, regional water table position, or the distinction between *local drainage* (QDRAI leaving the bottom of the soil column) and *deep recharge* (flux actually reaching a regional water table that may be 10-50 m deep and controlled by lateral flow).\n\n**The question asks for \"recharge reaching the deep water table.\"** In a mountainous watershed like Naches (elevation 352-1977 m), the water table depth varies from near-surface in valley bottoms to tens of meters deep on hillslopes. ELM's QDRAI is the flux leaving the bottom of its soil column (~3-8 m), which is:\n- An **upper bound** on deep recharge (some QDRAI becomes shallow lateral flow, never reaching the deep table)\n- **Not spatially redistributed** by lateral groundwater flow\n- **Not validated** against water table observations (ELM has no water table state variable)\n\n### What the Stack CAN Do (Partial Answer)\n- **ELM spatial sampling** across soil/elevation heterogeneity \u2192 QDRAI as a *proxy* for recharge potential\n- **PFLOTRAN steady-state groundwater** (listed as available) \u2192 solve for water table position and deep recharge flux, IF driven by appropriate boundary conditions\n\n### What the Stack CANNOT Do (Blocks Full Answer)\n- **ELM\u2192PFLOTRAN coupling**: The framework lists PFLOTRAN as available but coupling as \"not yet implemented.\" Without coupling, we cannot:\n  - Drive PFLOTRAN's top boundary with ELM's spatially-distributed QDRAI\n  - Solve for the actual water table position and deep recharge flux\n  - Validate water table depth against USGS wells\n- **Spin-up to steady state**: The brief provides transient forcing (1980-2018) but no spin-up protocol. Steady-state recharge requires equilibrium soil moisture, which needs multi-decadal spin-up.\n\n### Feasibility Verdict: **PARTIAL**\n- **Answerable**: Spatial patterns of *drainage potential* (ELM QDRAI) across soil/elevation heterogeneity\n- **Not answerable**: True deep recharge flux and water table position (requires ELM\u2192PFLOTRAN coupling + steady-state groundwater solve)\n\n### Design Strategy (Scoped to What's Possible)\nSince the full question is infeasible, I design a **two-phase strategy**:\n1. **Phase 1 (executable now)**: ELM spatial sampling \u2192 QDRAI as recharge proxy, stratified by elevation and soil to span the watershed's heterogeneity. This establishes the *upper bound* and spatial pattern.\n2. **Phase 2 (requires coupling)**: Feed Phase 1 QDRAI into PFLOTRAN \u2192 solve steady-state water table and deep recharge \u2192 validate against USGS wells.\n\nI design Phase 1 fully (sampling strategy, N, placement) and outline Phase 2 requirements in `coupling_design` and `requires_capabilities`.\n\n### Sampling Strategy (Phase 1: ELM QDRAI)\n**Drivers**: Elevation (controls precip/snow/ET) and soil (controls infiltration/drainage). The brief lists these as candidate drivers and they are representable in single-column ELM.\n\n**Strata**:\n- **Elevation**: 3 bands (low valley <700 m, mid-slope 700-1400 m, high montane >1400 m) \u2014 spans rain-dominated to snow-dominated\n- **Soil**: 2 classes (coarse/well-drained vs fine/poorly-drained) \u2014 controls drainage capacity\n\n**N Justification**:\n- 3 elevation \u00d7 2 soil = 6 strata\n- 3 columns per stratum (light replication to capture within-stratum variability) = 18 exploratory\n- 5 validation columns pinned to USGS well locations (in-domain, for Phase 2 water table validation)\n- **Total: 23 columns**\n\nThis is defensibly small: enough to span the heterogeneity for a recharge-proxy map, not a dense grid.\n\n**Placement Logic**: Oversample mid-elevation (rain-snow transition, 700-1400 m) and valley bottoms where water table is shallow and QDRAI\u2192recharge conversion is most direct. Avoid ridgetops (thin soils, low recharge potential).\n\n### Validation Design\n**Phase 1 (ELM only)**: No direct validation possible \u2014 QDRAI is not observed, and water table depth cannot be validated without PFLOTRAN.\n\n**Phase 2 (coupled)**: Water table depth (PFLOTRAN output) vs USGS wells (co-located) and Fan 2013 prior (gridded, aggregated comparison). Metrics: bias, RMSE.\n\n---\n\n## JSON OUTPUT\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Quantify spatially-distributed steady-state deep recharge (flux reaching regional water table)\",\n      \"Validate modeled water table depth against USGS wells and Fan 2013 prior\"\n    ],\n    \"key_processes\": [\n      \"Vertical water partitioning (ET, runoff, drainage)\",\n      \"Lateral groundwater flow and regional water table position\",\n      \"Soil moisture-water table feedback\"\n    ],\n    \"drivers_to_resolve\": [\n      \"elevation (climate/snow gradient)\",\n      \"soil (drainage capacity)\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Site archetype for spatial sampling across Naches heterogeneity, but question fundamentally requires coupling to PFLOTRAN for groundwater solution\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"ELM QDRAI (sub-surface drainage) must drive PFLOTRAN top boundary to solve for water table position and true deep recharge. Without coupling, ELM QDRAI is only a recharge proxy (upper bound), not the answer.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Spatial patterns of drainage potential (ELM QDRAI) across elevation and soil heterogeneity\",\n      \"Upper bound on deep recharge (QDRAI assumes all drainage reaches water table)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"True deep recharge flux reaching regional water table\",\n        \"why\": \"ELM is 1-D land surface model with no lateral groundwater flow or water table state. QDRAI is drainage leaving bottom of soil column (~3-8 m), not flux crossing a deep water table (10-50 m) controlled by lateral flow.\",\n        \"needs\": \"ELM\u2192PFLOTRAN coupling to drive groundwater model with spatially-distributed QDRAI\"\n      },\n      {\n        \"aspect\": \"Water table depth for validation against USGS wells\",\n        \"why\": \"ELM does not simulate water table position. PFLOTRAN can solve for it, but requires coupling.\",\n        \"needs\": \"ELM\u2192PFLOTRAN coupling + PFLOTRAN steady-state groundwater solve\"\n      },\n      {\n        \"aspect\": \"Steady-state equilibrium\",\n        \"why\": \"Brief provides transient forcing (1980-2018) but no spin-up protocol. Steady-state recharge requires equilibrated soil moisture.\",\n        \"needs\": \"Multi-decadal spin-up capability (recycle forcing to equilibrium)\"\n      }\n    ]\n  },\n  \"coupling_design\": {\n    \"from_model\": \"ELM\",\n    \"to_model\": \"PFLOTRAN\",\n    \"driver\": \"ELM sub-surface drainage flux QDRAI (mm/day time series per column) \u2192 PFLOTRAN top boundary recharge flux (m\u00b3/day per cell)\",\n    \"temporal_mapping\": \"ELM daily/monthly QDRAI averaged to annual mean (steady-state assumption) \u2192 PFLOTRAN steady-state top BC. Alternatively, transient PFLOTRAN run with time-varying BC to test steady-state assumption.\",\n    \"receiving_setup\": \"PFLOTRAN 3-D saturated groundwater flow over Naches domain: DEM-derived mesh, lateral no-flow boundaries at watershed divide, constant-head BC at outlet (Naches River), heterogeneous hydraulic conductivity from soil/geology. Solve for water table elevation and deep recharge flux (vertical flux crossing water table surface).\",\n    \"compare\": \"Coupled (PFLOTRAN water table driven by ELM QDRAI) vs standalone ELM (QDRAI as recharge proxy). Standalone ELM overestimates recharge in areas where lateral groundwater flow redistributes water (e.g., hillslope drainage becomes valley discharge, never reaching deep table). Validation: coupled water table depth vs USGS wells.\"\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified by elevation and soil, with light replication\",\n    \"strata\": [\n      {\n        \"driver\": \"elevation\",\n        \"bands\": [\n          \"low valley <700 m (rain-dominated, shallow water table)\",\n          \"mid-slope 700-1400 m (rain-snow transition, variable water table)\",\n          \"high montane >1400 m (snow-dominated, deep water table)\"\n        ]\n      },\n      {\n        \"driver\": \"soil\",\n        \"classes\": [\n          \"coarse/well-drained (high QDRAI potential)\",\n          \"fine/poorly-drained (low QDRAI, more runoff)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 18,\n    \"n_justification\": \"3 elevation bands \u00d7 2 soil classes = 6 strata. 3 columns per stratum (light replication) = 18 exploratory. Sufficient to span heterogeneity for recharge-proxy map without over-sampling.\",\n    \"placement_logic\": \"Concentrate columns in mid-elevation band (700-1400 m, rain-snow transition where recharge is most sensitive to climate) and valley bottoms (shallow water table, QDRAI\u2192recharge conversion most direct). Avoid ridgetops (thin soils, low recharge). Use DEM and soil rasters to place columns within strata.\",\n    \"replication\": \"3 columns per stratum to capture within-stratum variability (e.g., aspect, local soil heterogeneity). Not full statistical replication, but enough to assess representativeness.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"low-valley, coarse-soil\",\n      \"n\": 3,\n      \"reason\": \"Rain-dominated, high infiltration, shallow water table \u2014 maximum QDRAI and most direct recharge pathway\"\n    },\n    {\n      \"group\": \"low-valley, fine-soil\",\n      \"n\": 3,\n      \"reason\": \"Rain-dominated but low infiltration \u2014 tests soil control on recharge in wet lowlands\"\n    },\n    {\n      \"group\": \"mid-slope, coarse-soil\",\n      \"n\": 3,\n      \"reason\": \"Rain-snow transition, high drainage capacity \u2014 critical zone for recharge variability with elevation\"\n    },\n    {\n      \"group\": \"mid-slope, fine-soil\",\n      \"n\": 3,\n      \"reason\": \"Rain-snow transition, low drainage \u2014 isolates soil vs climate control on recharge\"\n    },\n    {\n      \"group\": \"high-montane, coarse-soil\",\n      \"n\": 3,\n      \"reason\": \"Snow-dominated, high infiltration, deep water table \u2014 tests snowmelt recharge potential\"\n    },\n    {\n      \"group\": \"high-montane, fine-soil\",\n      \"n\": 3,\n      \"reason\": \"Snow-dominated, low infiltration \u2014 minimum recharge scenario (more runoff)\"\n    },\n    {\n      \"group\": \"validation-wells\",\n      \"n\": 5,\n      \"reason\": \"Columns co-located with USGS well sites for Phase 2 water table validation (PFLOTRAN)\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located (Phase 2 only: PFLOTRAN water table output at well coordinates vs observed WTD)\",\n      \"metric\": \"bias, RMSE, correlation\",\n      \"n_validation_points\": \"5 (assumed from brief; actual count depends on USGS well density in Naches)\"\n    },\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"Fan 2013 WTD prior (gridded)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated (Phase 2: PFLOTRAN water table map vs Fan 2013 grid, spatially-averaged or binned by elevation/soil)\",\n      \"metric\": \"spatial correlation, mean bias by stratum\",\n      \"n_validation_points\": \"grid-scale (Fan 2013 is ~1 km resolution)\"\n    },\n    {\n      \"target_variable\": \"sub-surface drainage QDRAI\",\n      \"observation_source\": \"none (not directly observed)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"not applicable for Phase 1. Phase 2: QDRAI is input to PFLOTRAN, not validated independently.\",\n      \"metric\": \"none\",\n      \"n_validation_points\": \"0\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 23,\n    \"exploratory\": 18,\n    \"validation\": 5,\n    \"primary_treatment\": \"Transient forcing 1980-2018 (or subset for spin-up), native soil from gridded dataset, default ELM vegetation (PFT from land cover)\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"ELM\u2192PFLOTRAN one-way coupling\",\n      \"why\": \"Question asks for deep recharge reaching water table, which requires groundwater model. ELM QDRAI must drive PFLOTRAN top boundary condition.\",\n      \"blocks\": \"True deep recharge quantification and water table validation. Without coupling, only QDRAI proxy is available.\"\n    },\n    {\n      \"capability\": \"PFLOTRAN steady-state groundwater setup for Naches\",\n      \"why\": \"Solve for water table position and deep recharge flux under steady-state assumption (annual-mean QDRAI forcing).\",\n      \"blocks\": \"Water table depth output for validation against USGS wells and Fan 2013.\"\n    },\n    {\n      \"capability\": \"Multi-decadal spin-up protocol\",\n      \"why\": \"Steady-state recharge requires equilibrated soil moisture. Brief provides 1980-2018 forcing but no spin-up.\",\n      \"blocks\": \"Steady-state assumption validity. Without spin-up, early years are transient.\"\n    },\n    {\n      \"capability\": \"Gridded soil hydraulic properties for Naches\",\n      \"why\": \"Sampling strategy requires soil texture/drainage classes to stratify columns and parameterize ELM.\",\n      \"blocks\": \"Soil stratification and realistic QDRAI spatial patterns.\"\n    },\n    {\n      \"capability\": \"DEM-based elevation sampling\",\n      \"why\": \"Elevation is a primary stratification axis. Expander must sample DEM to place columns in elevation bands.\",\n      \"blocks\": \"Elevation stratification (though workaround: manual coordinate selection is possible but not scalable).\"\n    },\n    {\n      \"capability\": \"USGS well location and WTD data ingest\",\n      \"why\": \"Validation design pins 5 columns to well sites and compares PFLOTRAN water table output to observed WTD.\",\n      \"blocks\": \"Co-located water table validation.\"\n    },\n    {\n      \"capability\": \"Fan 2013 WTD prior gridded data ingest\",\n      \"why\": \"Validation design compares PFLOTRAN water table map to Fan 2013 grid.\",\n      \"blocks\": \"Spatial water table validation.\"\n    }\n  ],\n  \"assumptions\": [\n    \"Steady-state assumption is valid: annual-mean QDRAI approximates long-term recharge (ignores interannual variability and transient storage changes).\",\n    \"ELM QDRAI is a reasonable upper bound on deep recharge (i.e., lateral redistribution reduces recharge but does not reverse the spatial pattern).\",\n    \"USGS wells sample the regional water table (not perched), so PFLOTRAN steady-state solution is comparable.\",\n    \"Soil and elevation are the dominant recharge drivers; vegetation and aspect are secondary (not stratified).\",\n    \"Forcing is spatially uniform (no elevation lapse rate or orographic correction) \u2014 limits elevation effect to ELM's internal snow/ET response, not climate input.\",\n    \"PFLOTRAN domain boundaries (no-flow at divide, constant-head at outlet) are appropriate for Naches watershed.\"\n  ],\n  \"open_questions\": [\n    \"What is the actual density and spatial distribution of USGS wells in Naches? (Brief says 'available' but not count or coverage.)\",\n    \"Is transient PFLOTRAN needed to test steady-state assumption, or is annual-mean QDRAI sufficient?\",\n    \"Should Phase 1 (ELM-only QDRAI) be run first to inform Phase 2 PFLOTRAN setup, or are both phases designed together?\",\n    \"What is the desired output resolution for the recharge map? (Column-scale or interpolated grid?)\",\n    \"Are there any geology/bedrock data to constrain PFLOTRAN hydraulic conductivity, or is it inferred from soil?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify spatially-distributed steady-state deep recharge (flux reaching regional water table)",
+        "Validate modeled water table depth against USGS wells and Fan 2013 prior"
+      ],
+      "key_processes": [
+        "Vertical water partitioning (ET, runoff, drainage)",
+        "Lateral groundwater flow and regional water table position",
+        "Soil moisture-water table feedback"
+      ],
+      "drivers_to_resolve": [
+        "elevation (climate/snow gradient)",
+        "soil (drainage capacity)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Site archetype for spatial sampling across Naches heterogeneity, but question fundamentally requires coupling to PFLOTRAN for groundwater solution",
+      "coupling_needed": true,
+      "coupling_note": "ELM QDRAI (sub-surface drainage) must drive PFLOTRAN top boundary to solve for water table position and true deep recharge. Without coupling, ELM QDRAI is only a recharge proxy (upper bound), not the answer."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Spatial patterns of drainage potential (ELM QDRAI) across elevation and soil heterogeneity",
+        "Upper bound on deep recharge (QDRAI assumes all drainage reaches water table)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "True deep recharge flux reaching regional water table",
+          "why": "ELM is 1-D land surface model with no lateral groundwater flow or water table state. QDRAI is drainage leaving bottom of soil column (~3-8 m), not flux crossing a deep water table (10-50 m) controlled by lateral flow.",
+          "needs": "ELM\u2192PFLOTRAN coupling to drive groundwater model with spatially-distributed QDRAI"
+        },
+        {
+          "aspect": "Water table depth for validation against USGS wells",
+          "why": "ELM does not simulate water table position. PFLOTRAN can solve for it, but requires coupling.",
+          "needs": "ELM\u2192PFLOTRAN coupling + PFLOTRAN steady-state groundwater solve"
+        },
+        {
+          "aspect": "Steady-state equilibrium",
+          "why": "Brief provides transient forcing (1980-2018) but no spin-up protocol. Steady-state recharge requires equilibrated soil moisture.",
+          "needs": "Multi-decadal spin-up capability (recycle forcing to equilibrium)"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM sub-surface drainage flux QDRAI (mm/day time series per column) \u2192 PFLOTRAN top boundary recharge flux (m\u00b3/day per cell)",
+      "temporal_mapping": "ELM daily/monthly QDRAI averaged to annual mean (steady-state assumption) \u2192 PFLOTRAN steady-state top BC. Alternatively, transient PFLOTRAN run with time-varying BC to test steady-state assumption.",
+      "receiving_setup": "PFLOTRAN 3-D saturated groundwater flow over Naches domain: DEM-derived mesh, lateral no-flow boundaries at watershed divide, constant-head BC at outlet (Naches River), heterogeneous hydraulic conductivity from soil/geology. Solve for water table elevation and deep recharge flux (vertical flux crossing water table surface).",
+      "compare": "Coupled (PFLOTRAN water table driven by ELM QDRAI) vs standalone ELM (QDRAI as recharge proxy). Standalone ELM overestimates recharge in areas where lateral groundwater flow redistributes water (e.g., hillslope drainage becomes valley discharge, never reaching deep table). Validation: coupled water table depth vs USGS wells."
+    },
+    "sampling_strategy": {
+      "approach": "stratified by elevation and soil, with light replication",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low valley <700 m (rain-dominated, shallow water table)",
+            "mid-slope 700-1400 m (rain-snow transition, variable water table)",
+            "high montane >1400 m (snow-dominated, deep water table)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/well-drained (high QDRAI potential)",
+            "fine/poorly-drained (low QDRAI, more runoff)"
+          ]
+        }
+      ],
+      "n_exploratory": 18,
+      "n_justification": "3 elevation bands \u00d7 2 soil classes = 6 strata. 3 columns per stratum (light replication) = 18 exploratory. Sufficient to span heterogeneity for recharge-proxy map without over-sampling.",
+      "placement_logic": "Concentrate columns in mid-elevation band (700-1400 m, rain-snow transition where recharge is most sensitive to climate) and valley bottoms (shallow water table, QDRAI\u2192recharge conversion most direct). Avoid ridgetops (thin soils, low recharge). Use DEM and soil rasters to place columns within strata.",
+      "replication": "3 columns per stratum to capture within-stratum variability (e.g., aspect, local soil heterogeneity). Not full statistical replication, but enough to assess representativeness."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-valley, coarse-soil",
+        "n": 3,
+        "reason": "Rain-dominated, high infiltration, shallow water table \u2014 maximum QDRAI and most direct recharge pathway"
+      },
+      {
+        "group": "low-valley, fine-soil",
+        "n": 3,
+        "reason": "Rain-dominated but low infiltration \u2014 tests soil control on recharge in wet lowlands"
+      },
+      {
+        "group": "mid-slope, coarse-soil",
+        "n": 3,
+        "reason": "Rain-snow transition, high drainage capacity \u2014 critical zone for recharge variability with elevation"
+      },
+      {
+        "group": "mid-slope, fine-soil",
+        "n": 3,
+        "reason": "Rain-snow transition, low drainage \u2014 isolates soil vs climate control on recharge"
+      },
+      {
+        "group": "high-montane, coarse-soil",
+        "n": 3,
+        "reason": "Snow-dominated, high infiltration, deep water table \u2014 tests snowmelt recharge potential"
+      },
+      {
+        "group": "high-montane, fine-soil",
+        "n": 3,
+        "reason": "Snow-dominated, low infiltration \u2014 minimum recharge scenario (more runoff)"
+      },
+      {
+        "group": "validation-wells",
+        "n": 5,
+        "reason": "Columns co-located with USGS well sites for Phase 2 water table validation (PFLOTRAN)"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells",
+        "in_domain_available": true,
+        "comparison": "co-located (Phase 2 only: PFLOTRAN water table output at well coordinates vs observed WTD)",
+        "metric": "bias, RMSE, correlation",
+        "n_validation_points": "5 (assumed from brief; actual count depends on USGS well density in Naches)"
+      },
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "Fan 2013 WTD prior (gridded)",
+        "in_domain_available": true,
+        "comparison": "aggregated (Phase 2: PFLOTRAN water table map vs Fan 2013 grid, spatially-averaged or binned by elevation/soil)",
+        "metric": "spatial correlation, mean bias by stratum",
+        "n_validation_points": "grid-scale (Fan 2013 is ~1 km resolution)"
+      },
+      {
+        "target_variable": "sub-surface drainage QDRAI",
+        "observation_source": "none (not directly observed)",
+        "in_domain_available": false,
+        "comparison": "not applicable for Phase 1. Phase 2: QDRAI is input to PFLOTRAN, not validated independently.",
+        "metric": "none",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 23,
+      "exploratory": 18,
+      "validation": 5,
+      "primary_treatment": "Transient forcing 1980-2018 (or subset for spin-up), native soil from gridded dataset, default ELM vegetation (PFT from land cover)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM\u2192PFLOTRAN one-way coupling",
+        "why": "Question asks for deep recharge reaching water table, which requires groundwater model. ELM QDRAI must drive PFLOTRAN top boundary condition.",
+        "blocks": "True deep recharge quantification and water table validation. Without coupling, only QDRAI proxy is available."
+      },
+      {
+        "capability": "PFLOTRAN steady-state groundwater setup for Naches",
+        "why": "Solve for water table position and deep recharge flux under steady-state assumption (annual-mean QDRAI forcing).",
+        "blocks": "Water table depth output for validation against USGS wells and Fan 2013."
+      },
+      {
+        "capability": "Multi-decadal spin-up protocol",
+        "why": "Steady-state recharge requires equilibrated soil moisture. Brief provides 1980-2018 forcing but no spin-up.",
+        "blocks": "Steady-state assumption validity. Without spin-up, early years are transient."
+      },
+      {
+        "capability": "Gridded soil hydraulic properties for Naches",
+        "why": "Sampling strategy requires soil texture/drainage classes to stratify columns and parameterize ELM.",
+        "blocks": "Soil stratification and realistic QDRAI spatial patterns."
+      },
+      {
+        "capability": "DEM-based elevation sampling",
+        "why": "Elevation is a primary stratification axis. Expander must sample DEM to place columns in elevation bands.",
+        "blocks": "Elevation stratification (though workaround: manual coordinate selection is possible but not scalable)."
+      },
+      {
+        "capability": "USGS well location and WTD data ingest",
+        "why": "Validation design pins 5 columns to well sites and compares PFLOTRAN water table output to observed WTD.",
+        "blocks": "Co-located water table validation."
+      },
+      {
+        "capability": "Fan 2013 WTD prior gridded data ingest",
+        "why": "Validation design compares PFLOTRAN water table map to Fan 2013 grid.",
+        "blocks": "Spatial water table validation."
+      }
+    ],
+    "assumptions": [
+      "Steady-state assumption is valid: annual-mean QDRAI approximates long-term recharge (ignores interannual variability and transient storage changes).",
+      "ELM QDRAI is a reasonable upper bound on deep recharge (i.e., lateral redistribution reduces recharge but does not reverse the spatial pattern).",
+      "USGS wells sample the regional water table (not perched), so PFLOTRAN steady-state solution is comparable.",
+      "Soil and elevation are the dominant recharge drivers; vegetation and aspect are secondary (not stratified).",
+      "Forcing is spatially uniform (no elevation lapse rate or orographic correction) \u2014 limits elevation effect to ELM's internal snow/ET response, not climate input.",
+      "PFLOTRAN domain boundaries (no-flow at divide, constant-head at outlet) are appropriate for Naches watershed."
+    ],
+    "open_questions": [
+      "What is the actual density and spatial distribution of USGS wells in Naches? (Brief says 'available' but not count or coverage.)",
+      "Is transient PFLOTRAN needed to test steady-state assumption, or is annual-mean QDRAI sufficient?",
+      "Should Phase 1 (ELM-only QDRAI) be run first to inform Phase 2 PFLOTRAN setup, or are both phases designed together?",
+      "What is the desired output resolution for the recharge map? (Column-scale or interpolated grid?)",
+      "Are there any geology/bedrock data to constrain PFLOTRAN hydraulic conductivity, or is it inferred from soil?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

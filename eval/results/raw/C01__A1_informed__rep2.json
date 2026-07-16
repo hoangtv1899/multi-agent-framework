@@ -1,0 +1,211 @@
+{
+  "prompt_id": "C01",
+  "arm": "A1_informed",
+  "rep": 2,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "```json\n{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Runoff vs recharge partitioning as a function of soil clay content\",\n      \"Impact of soil texture on infiltration capacity and surface water partitioning\",\n      \"Controlled sensitivity analysis across clay content gradient (5-55%)\",\n      \"Subsurface drainage and percolation responses to texture variation\"\n    ],\n    \"not_answerable\": [\n      \"Site-specific calibration without observational data\",\n      \"Validation of absolute magnitudes without measurements\",\n      \"Interaction effects with vegetation or topography (held constant in this design)\"\n    ]\n  },\n  \"n_columns\": 11,\n  \"n_justification\": \"To systematically evaluate runoff/recharge partitioning across clay content from 5% to 55%, we use 11 columns at 5% increments (5%, 10%, 15%, 20%, 25%, 30%, 35%, 40%, 45%, 50%, 55%). This provides sufficient resolution to capture nonlinear hydraulic responses across the texture spectrum from sandy (5%) to clay-dominated (55%) soils. All columns share identical climate forcing, vegetation, and topography to isolate the clay content effect. A single representative mid-latitude location is used with forcing replicated across all columns.\",\n  \"columns\": [\n    {\n      \"id\": \"clay_05pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"sand\",\n      \"clay_percent\": 5,\n      \"sand_percent\": 90,\n      \"silt_percent\": 5,\n      \"description\": \"Sandy soil endmember\"\n    },\n    {\n      \"id\": \"clay_10pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loamy_sand\",\n      \"clay_percent\": 10,\n      \"sand_percent\": 82,\n      \"silt_percent\": 8,\n      \"description\": \"Loamy sand\"\n    },\n    {\n      \"id\": \"clay_15pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"sandy_loam\",\n      \"clay_percent\": 15,\n      \"sand_percent\": 70,\n      \"silt_percent\": 15,\n      \"description\": \"Sandy loam\"\n    },\n    {\n      \"id\": \"clay_20pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loam\",\n      \"clay_percent\": 20,\n      \"sand_percent\": 45,\n      \"silt_percent\": 35,\n      \"description\": \"Loam\"\n    },\n    {\n      \"id\": \"clay_25pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"silt_loam\",\n      \"clay_percent\": 25,\n      \"sand_percent\": 25,\n      \"silt_percent\": 50,\n      \"description\": \"Silt loam\"\n    },\n    {\n      \"id\": \"clay_30pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"clay_loam\",\n      \"clay_percent\": 30,\n      \"sand_percent\": 35,\n      \"silt_percent\": 35,\n      \"description\": \"Clay loam\"\n    },\n    {\n      \"id\": \"clay_35pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"silty_clay_loam\",\n      \"clay_percent\": 35,\n      \"sand_percent\": 10,\n      \"silt_percent\": 55,\n      \"description\": \"Silty clay loam\"\n    },\n    {\n      \"id\": \"clay_40pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"sandy_clay\",\n      \"clay_percent\": 40,\n      \"sand_percent\": 50,\n      \"silt_percent\": 10,\n      \"description\": \"Sandy clay\"\n    },\n    {\n      \"id\": \"clay_45pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"silty_clay\",\n      \"clay_percent\": 45,\n      \"sand_percent\": 10,\n      \"silt_percent\": 45,\n      \"description\": \"Silty clay\"\n    },\n    {\n      \"id\": \"clay_50pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"clay\",\n      \"clay_percent\": 50,\n      \"sand_percent\": 25,\n      \"silt_percent\": 25,\n      \"description\": \"Clay\"\n    },\n    {\n      \"id\": \"clay_55pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"clay\",\n      \"clay_percent\": 55,\n      \"sand_percent\": 23,\n      \"silt_percent\": 22,\n      \"description\": \"High clay endmember\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"2000\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_OPTION\": \"nyears\",\n    \"STOP_N\": \"19\",\n    \"RUN_STARTDATE\": \"2000-01-01\",\n    \"CLM_FORCE_COLDSTART\": \"on\",\n    \"CLM_ACCELERATED_SPINUP\": \"off\",\n    \"CALENDAR\": \"GREGORIAN\",\n    \"hist_mfilt\": 1,\n    \"hist_nhtfrq\": -24,\n    \"hist_empty_htapes\": \".true.\",\n    \"hist_fincl1\": [\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRUNOFF\",\n      \"QINFL\",\n      \"QCHARGE\",\n      \"QSOIL\",\n      \"QVEGT\",\n      \"QVEGE\",\n      \"RAIN\",\n      \"SNOW\",\n      \"H2OSOI\",\n      \"SOILWATER_10CM\",\n      \"ZWT\",\n      \"ZWT_PERCH\",\n      \"QINTR\",\n      \"QDRAI_PERCH\",\n      \"QOVER_SAT\",\n      \"QOVER_INFIL_EXCESS\",\n      \"INFILTRATION_EXCESS\",\n      \"QFLX_SURF\",\n      \"QFLX_DRAIN\",\n      \"QFLX_SUB_SNOW\",\n      \"QFLX_EVAP_TOT\",\n      \"QFLX_EVAP_SOIL\",\n      \"QFLX_TRAN_VEG\",\n      \"H2OSNO\",\n      \"TSOI\",\n      \"WATSAT\",\n      \"SUCSAT\",\n      \"BSW\",\n      \"HKSAT\"\n    ],\n    \"description\": \"Controlled clay content sensitivity experiment with daily hydrology outputs\"\n  },\n  \"requires_capabilities\": [\n    \"ELM single-column mode with custom soil texture specification\",\n    \"Ability to override default soil properties (clay/sand/silt percentages) for each column\",\n    \"DATM atmospheric forcing (CLMNCEP or GSWP3)\",\n    \"Standard ELM hydrology with Richards equation or similar infiltration scheme\",\n    \"Output of surface runoff (saturation excess + infiltration excess) and subsurface drainage\",\n    \"Daily output frequency for water balance closure verification\"\n  ],\n  \"assumptions\": [\n    \"All columns use identical atmospheric forcing from the same location (40\u00b0N, 105\u00b0W - Colorado Front Range representative climate)\",\n    \"Vegetation type, LAI, and rooting depth held constant across all columns\",\n    \"Topography (slope) set to zero or minimal value to isolate texture effects\",\n    \"Soil depth and layer structure identical across columns\",\n    \"Soil organic matter content held constant\",\n    \"No lateral flow between columns (independent single-column simulations)\",\n    \"Hydraulic parameters (saturated hydraulic conductivity, water retention curves) derived from clay/sand/silt fractions using standard pedotransfer functions (e.g., Clapp-Hornberger or van Genuchten)\",\n    \"Initial soil moisture conditions identical across columns (cold start from default)\",\n    \"No human water management (irrigation, drainage tiles)\",\n    \"Recharge defined as QDRAI (subsurface drainage reaching water table or model bottom)\",\n    \"Runoff defined as QOVER (surface runoff from saturation and infiltration excess)\",\n    \"19-year simulation provides adequate sample of interannual climate variability\",\n    \"First 1-2 years may show spinup effects but are retained for water balance analysis\"\n  ]\n}\n```",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Runoff vs recharge partitioning as a function of soil clay content",
+        "Impact of soil texture on infiltration capacity and surface water partitioning",
+        "Controlled sensitivity analysis across clay content gradient (5-55%)",
+        "Subsurface drainage and percolation responses to texture variation"
+      ],
+      "not_answerable": [
+        "Site-specific calibration without observational data",
+        "Validation of absolute magnitudes without measurements",
+        "Interaction effects with vegetation or topography (held constant in this design)"
+      ]
+    },
+    "n_columns": 11,
+    "n_justification": "To systematically evaluate runoff/recharge partitioning across clay content from 5% to 55%, we use 11 columns at 5% increments (5%, 10%, 15%, 20%, 25%, 30%, 35%, 40%, 45%, 50%, 55%). This provides sufficient resolution to capture nonlinear hydraulic responses across the texture spectrum from sandy (5%) to clay-dominated (55%) soils. All columns share identical climate forcing, vegetation, and topography to isolate the clay content effect. A single representative mid-latitude location is used with forcing replicated across all columns.",
+    "columns": [
+      {
+        "id": "clay_05pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "sand",
+        "clay_percent": 5,
+        "sand_percent": 90,
+        "silt_percent": 5,
+        "description": "Sandy soil endmember"
+      },
+      {
+        "id": "clay_10pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loamy_sand",
+        "clay_percent": 10,
+        "sand_percent": 82,
+        "silt_percent": 8,
+        "description": "Loamy sand"
+      },
+      {
+        "id": "clay_15pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "sandy_loam",
+        "clay_percent": 15,
+        "sand_percent": 70,
+        "silt_percent": 15,
+        "description": "Sandy loam"
+      },
+      {
+        "id": "clay_20pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loam",
+        "clay_percent": 20,
+        "sand_percent": 45,
+        "silt_percent": 35,
+        "description": "Loam"
+      },
+      {
+        "id": "clay_25pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "silt_loam",
+        "clay_percent": 25,
+        "sand_percent": 25,
+        "silt_percent": 50,
+        "description": "Silt loam"
+      },
+      {
+        "id": "clay_30pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "clay_loam",
+        "clay_percent": 30,
+        "sand_percent": 35,
+        "silt_percent": 35,
+        "description": "Clay loam"
+      },
+      {
+        "id": "clay_35pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "silty_clay_loam",
+        "clay_percent": 35,
+        "sand_percent": 10,
+        "silt_percent": 55,
+        "description": "Silty clay loam"
+      },
+      {
+        "id": "clay_40pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "sandy_clay",
+        "clay_percent": 40,
+        "sand_percent": 50,
+        "silt_percent": 10,
+        "description": "Sandy clay"
+      },
+      {
+        "id": "clay_45pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "silty_clay",
+        "clay_percent": 45,
+        "sand_percent": 10,
+        "silt_percent": 45,
+        "description": "Silty clay"
+      },
+      {
+        "id": "clay_50pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "clay",
+        "clay_percent": 50,
+        "sand_percent": 25,
+        "silt_percent": 25,
+        "description": "Clay"
+      },
+      {
+        "id": "clay_55pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "clay",
+        "clay_percent": 55,
+        "sand_percent": 23,
+        "silt_percent": 22,
+        "description": "High clay endmember"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "2000",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_OPTION": "nyears",
+      "STOP_N": "19",
+      "RUN_STARTDATE": "2000-01-01",
+      "CLM_FORCE_COLDSTART": "on",
+      "CLM_ACCELERATED_SPINUP": "off",
+      "CALENDAR": "GREGORIAN",
+      "hist_mfilt": 1,
+      "hist_nhtfrq": -24,
+      "hist_empty_htapes": ".true.",
+      "hist_fincl1": [
+        "QOVER",
+        "QDRAI",
+        "QRUNOFF",
+        "QINFL",
+        "QCHARGE",
+        "QSOIL",
+        "QVEGT",
+        "QVEGE",
+        "RAIN",
+        "SNOW",
+        "H2OSOI",
+        "SOILWATER_10CM",
+        "ZWT",
+        "ZWT_PERCH",
+        "QINTR",
+        "QDRAI_PERCH",
+        "QOVER_SAT",
+        "QOVER_INFIL_EXCESS",
+        "INFILTRATION_EXCESS",
+        "QFLX_SURF",
+        "QFLX_DRAIN",
+        "QFLX_SUB_SNOW",
+        "QFLX_EVAP_TOT",
+        "QFLX_EVAP_SOIL",
+        "QFLX_TRAN_VEG",
+        "H2OSNO",
+        "TSOI",
+        "WATSAT",
+        "SUCSAT",
+        "BSW",
+        "HKSAT"
+      ],
+      "description": "Controlled clay content sensitivity experiment with daily hydrology outputs"
+    },
+    "requires_capabilities": [
+      "ELM single-column mode with custom soil texture specification",
+      "Ability to override default soil properties (clay/sand/silt percentages) for each column",
+      "DATM atmospheric forcing (CLMNCEP or GSWP3)",
+      "Standard ELM hydrology with Richards equation or similar infiltration scheme",
+      "Output of surface runoff (saturation excess + infiltration excess) and subsurface drainage",
+      "Daily output frequency for water balance closure verification"
+    ],
+    "assumptions": [
+      "All columns use identical atmospheric forcing from the same location (40\u00b0N, 105\u00b0W - Colorado Front Range representative climate)",
+      "Vegetation type, LAI, and rooting depth held constant across all columns",
+      "Topography (slope) set to zero or minimal value to isolate texture effects",
+      "Soil depth and layer structure identical across columns",
+      "Soil organic matter content held constant",
+      "No lateral flow between columns (independent single-column simulations)",
+      "Hydraulic parameters (saturated hydraulic conductivity, water retention curves) derived from clay/sand/silt fractions using standard pedotransfer functions (e.g., Clapp-Hornberger or van Genuchten)",
+      "Initial soil moisture conditions identical across columns (cold start from default)",
+      "No human water management (irrigation, drainage tiles)",
+      "Recharge defined as QDRAI (subsurface drainage reaching water table or model bottom)",
+      "Runoff defined as QOVER (surface runoff from saturation and infiltration excess)",
+      "19-year simulation provides adequate sample of interannual climate variability",
+      "First 1-2 years may show spinup effects but are retained for water balance analysis"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

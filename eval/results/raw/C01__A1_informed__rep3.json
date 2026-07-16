@@ -1,0 +1,210 @@
+{
+  "prompt_id": "C01",
+  "arm": "A1_informed",
+  "rep": 3,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "```json\n{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Runoff vs recharge partitioning as a function of soil clay content\",\n      \"Impact of clay content on infiltration capacity and surface water partitioning\",\n      \"Soil hydraulic property effects on water balance components\",\n      \"Controlled sensitivity analysis across clay content gradient\"\n    ],\n    \"not_answerable\": [\n      \"Site-specific validation without observational data\",\n      \"Interaction effects with vegetation or climate variability (held constant in this design)\",\n      \"Long-term soil development feedbacks\"\n    ]\n  },\n  \"n_columns\": 11,\n  \"n_justification\": \"To systematically evaluate the effect of clay content from 5% to 55%, we use 11 columns at 5% increments (5%, 10%, 15%, 20%, 25%, 30%, 35%, 40%, 45%, 50%, 55%). This provides sufficient resolution to capture nonlinear responses in hydraulic conductivity, water retention, and runoff generation while remaining computationally tractable. All columns share identical location, climate forcing, and vegetation to isolate the clay content effect.\",\n  \"columns\": [\n    {\n      \"id\": \"clay_05pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"sand\",\n      \"clay_percent\": 5,\n      \"sand_percent\": 90,\n      \"silt_percent\": 5,\n      \"description\": \"Sandy soil with minimal clay content\"\n    },\n    {\n      \"id\": \"clay_10pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loamy_sand\",\n      \"clay_percent\": 10,\n      \"sand_percent\": 82,\n      \"silt_percent\": 8,\n      \"description\": \"Loamy sand texture\"\n    },\n    {\n      \"id\": \"clay_15pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"sandy_loam\",\n      \"clay_percent\": 15,\n      \"sand_percent\": 70,\n      \"silt_percent\": 15,\n      \"description\": \"Sandy loam texture\"\n    },\n    {\n      \"id\": \"clay_20pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"loam\",\n      \"clay_percent\": 20,\n      \"sand_percent\": 42,\n      \"silt_percent\": 38,\n      \"description\": \"Loam texture\"\n    },\n    {\n      \"id\": \"clay_25pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"silt_loam\",\n      \"clay_percent\": 25,\n      \"sand_percent\": 20,\n      \"silt_percent\": 55,\n      \"description\": \"Silt loam texture\"\n    },\n    {\n      \"id\": \"clay_30pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"clay_loam\",\n      \"clay_percent\": 30,\n      \"sand_percent\": 35,\n      \"silt_percent\": 35,\n      \"description\": \"Clay loam texture\"\n    },\n    {\n      \"id\": \"clay_35pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"silty_clay_loam\",\n      \"clay_percent\": 35,\n      \"sand_percent\": 10,\n      \"silt_percent\": 55,\n      \"description\": \"Silty clay loam texture\"\n    },\n    {\n      \"id\": \"clay_40pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"sandy_clay\",\n      \"clay_percent\": 40,\n      \"sand_percent\": 52,\n      \"silt_percent\": 8,\n      \"description\": \"Sandy clay texture\"\n    },\n    {\n      \"id\": \"clay_45pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"silty_clay\",\n      \"clay_percent\": 45,\n      \"sand_percent\": 8,\n      \"silt_percent\": 47,\n      \"description\": \"Silty clay texture\"\n    },\n    {\n      \"id\": \"clay_50pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"clay\",\n      \"clay_percent\": 50,\n      \"sand_percent\": 25,\n      \"silt_percent\": 25,\n      \"description\": \"Clay texture\"\n    },\n    {\n      \"id\": \"clay_55pct\",\n      \"lat\": 40.0,\n      \"lon\": -105.0,\n      \"soil_texture\": \"clay\",\n      \"clay_percent\": 55,\n      \"sand_percent\": 22,\n      \"silt_percent\": 23,\n      \"description\": \"High clay content\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"2000\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_OPTION\": \"nyears\",\n    \"STOP_N\": \"19\",\n    \"RUN_STARTDATE\": \"2000-01-01\",\n    \"CLM_FORCE_COLDSTART\": \"on\",\n    \"CLM_ACCELERATED_SPINUP\": \"off\",\n    \"CALENDAR\": \"GREGORIAN\",\n    \"hist_mfilt\": 228,\n    \"hist_nhtfrq\": -24,\n    \"hist_empty_htapes\": \".true.\",\n    \"hist_fincl1\": [\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRGWL\",\n      \"QCHARGE\",\n      \"QINFL\",\n      \"QSOIL\",\n      \"QVEGE\",\n      \"QVEGT\",\n      \"RAIN\",\n      \"SNOW\",\n      \"H2OSOI\",\n      \"SOILWATER_10CM\",\n      \"ZWT\",\n      \"WA\",\n      \"TSOI\",\n      \"QIRRIG\",\n      \"FSAT\",\n      \"FSNO\",\n      \"SNOWDP\",\n      \"H2OSNO\",\n      \"TBOT\",\n      \"PBOT\",\n      \"QBOT\",\n      \"FLDS\",\n      \"FSDS\",\n      \"WIND\"\n    ],\n    \"use_init_interp\": \".true.\",\n    \"init_interp_method\": \"general\",\n    \"stream_fldfilename_soi_texture\": \"user_specified_texture_file.nc\",\n    \"use_bedrock\": \".true.\",\n    \"soil_layerstruct\": \"20SL_8.5m\"\n  },\n  \"requires_capabilities\": [\n    \"Custom soil texture specification per column\",\n    \"Pedotransfer functions (Clapp-Hornberger or van Genuchten) to derive hydraulic parameters from texture\",\n    \"Subsurface hydrology with lateral flow disabled to isolate vertical processes\",\n    \"Identical atmospheric forcing across all columns\",\n    \"Identical vegetation (PFT) distribution across all columns\",\n    \"Daily output for water balance closure verification\"\n  ],\n  \"assumptions\": [\n    \"All columns use identical atmospheric forcing from a single grid cell (40\u00b0N, 105\u00b0W - Colorado Front Range)\",\n    \"Vegetation type and LAI held constant across all simulations (e.g., C3 grass or temperate deciduous forest)\",\n    \"Soil organic matter content held constant across clay gradient\",\n    \"Bedrock depth and soil column depth identical across all columns\",\n    \"No lateral subsurface flow - pure 1D vertical water movement\",\n    \"Topographic slope set to zero to eliminate topographic runoff effects\",\n    \"No irrigation or other anthropogenic water inputs\",\n    \"Soil hydraulic parameters derived from texture using standard pedotransfer functions\",\n    \"Initial conditions: 19-year simulation provides adequate equilibration from cold start\",\n    \"Climate period 2000-2018 provides diverse precipitation patterns for robust partitioning analysis\",\n    \"Groundwater table dynamics allowed to equilibrate naturally based on soil properties\",\n    \"No frozen soil parameterization differences - focus on liquid water partitioning\"\n  ]\n}\n```",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Runoff vs recharge partitioning as a function of soil clay content",
+        "Impact of clay content on infiltration capacity and surface water partitioning",
+        "Soil hydraulic property effects on water balance components",
+        "Controlled sensitivity analysis across clay content gradient"
+      ],
+      "not_answerable": [
+        "Site-specific validation without observational data",
+        "Interaction effects with vegetation or climate variability (held constant in this design)",
+        "Long-term soil development feedbacks"
+      ]
+    },
+    "n_columns": 11,
+    "n_justification": "To systematically evaluate the effect of clay content from 5% to 55%, we use 11 columns at 5% increments (5%, 10%, 15%, 20%, 25%, 30%, 35%, 40%, 45%, 50%, 55%). This provides sufficient resolution to capture nonlinear responses in hydraulic conductivity, water retention, and runoff generation while remaining computationally tractable. All columns share identical location, climate forcing, and vegetation to isolate the clay content effect.",
+    "columns": [
+      {
+        "id": "clay_05pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "sand",
+        "clay_percent": 5,
+        "sand_percent": 90,
+        "silt_percent": 5,
+        "description": "Sandy soil with minimal clay content"
+      },
+      {
+        "id": "clay_10pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loamy_sand",
+        "clay_percent": 10,
+        "sand_percent": 82,
+        "silt_percent": 8,
+        "description": "Loamy sand texture"
+      },
+      {
+        "id": "clay_15pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "sandy_loam",
+        "clay_percent": 15,
+        "sand_percent": 70,
+        "silt_percent": 15,
+        "description": "Sandy loam texture"
+      },
+      {
+        "id": "clay_20pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "loam",
+        "clay_percent": 20,
+        "sand_percent": 42,
+        "silt_percent": 38,
+        "description": "Loam texture"
+      },
+      {
+        "id": "clay_25pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "silt_loam",
+        "clay_percent": 25,
+        "sand_percent": 20,
+        "silt_percent": 55,
+        "description": "Silt loam texture"
+      },
+      {
+        "id": "clay_30pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "clay_loam",
+        "clay_percent": 30,
+        "sand_percent": 35,
+        "silt_percent": 35,
+        "description": "Clay loam texture"
+      },
+      {
+        "id": "clay_35pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "silty_clay_loam",
+        "clay_percent": 35,
+        "sand_percent": 10,
+        "silt_percent": 55,
+        "description": "Silty clay loam texture"
+      },
+      {
+        "id": "clay_40pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "sandy_clay",
+        "clay_percent": 40,
+        "sand_percent": 52,
+        "silt_percent": 8,
+        "description": "Sandy clay texture"
+      },
+      {
+        "id": "clay_45pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "silty_clay",
+        "clay_percent": 45,
+        "sand_percent": 8,
+        "silt_percent": 47,
+        "description": "Silty clay texture"
+      },
+      {
+        "id": "clay_50pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "clay",
+        "clay_percent": 50,
+        "sand_percent": 25,
+        "silt_percent": 25,
+        "description": "Clay texture"
+      },
+      {
+        "id": "clay_55pct",
+        "lat": 40.0,
+        "lon": -105.0,
+        "soil_texture": "clay",
+        "clay_percent": 55,
+        "sand_percent": 22,
+        "silt_percent": 23,
+        "description": "High clay content"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "2000",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_OPTION": "nyears",
+      "STOP_N": "19",
+      "RUN_STARTDATE": "2000-01-01",
+      "CLM_FORCE_COLDSTART": "on",
+      "CLM_ACCELERATED_SPINUP": "off",
+      "CALENDAR": "GREGORIAN",
+      "hist_mfilt": 228,
+      "hist_nhtfrq": -24,
+      "hist_empty_htapes": ".true.",
+      "hist_fincl1": [
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QRGWL",
+        "QCHARGE",
+        "QINFL",
+        "QSOIL",
+        "QVEGE",
+        "QVEGT",
+        "RAIN",
+        "SNOW",
+        "H2OSOI",
+        "SOILWATER_10CM",
+        "ZWT",
+        "WA",
+        "TSOI",
+        "QIRRIG",
+        "FSAT",
+        "FSNO",
+        "SNOWDP",
+        "H2OSNO",
+        "TBOT",
+        "PBOT",
+        "QBOT",
+        "FLDS",
+        "FSDS",
+        "WIND"
+      ],
+      "use_init_interp": ".true.",
+      "init_interp_method": "general",
+      "stream_fldfilename_soi_texture": "user_specified_texture_file.nc",
+      "use_bedrock": ".true.",
+      "soil_layerstruct": "20SL_8.5m"
+    },
+    "requires_capabilities": [
+      "Custom soil texture specification per column",
+      "Pedotransfer functions (Clapp-Hornberger or van Genuchten) to derive hydraulic parameters from texture",
+      "Subsurface hydrology with lateral flow disabled to isolate vertical processes",
+      "Identical atmospheric forcing across all columns",
+      "Identical vegetation (PFT) distribution across all columns",
+      "Daily output for water balance closure verification"
+    ],
+    "assumptions": [
+      "All columns use identical atmospheric forcing from a single grid cell (40\u00b0N, 105\u00b0W - Colorado Front Range)",
+      "Vegetation type and LAI held constant across all simulations (e.g., C3 grass or temperate deciduous forest)",
+      "Soil organic matter content held constant across clay gradient",
+      "Bedrock depth and soil column depth identical across all columns",
+      "No lateral subsurface flow - pure 1D vertical water movement",
+      "Topographic slope set to zero to eliminate topographic runoff effects",
+      "No irrigation or other anthropogenic water inputs",
+      "Soil hydraulic parameters derived from texture using standard pedotransfer functions",
+      "Initial conditions: 19-year simulation provides adequate equilibration from cold start",
+      "Climate period 2000-2018 provides diverse precipitation patterns for robust partitioning analysis",
+      "Groundwater table dynamics allowed to equilibrate naturally based on soil properties",
+      "No frozen soil parameterization differences - focus on liquid water partitioning"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

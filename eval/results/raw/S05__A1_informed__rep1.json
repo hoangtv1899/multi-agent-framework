@@ -1,0 +1,156 @@
+{
+  "prompt_id": "S05",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "```json\n{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Snowmelt onset timing at individual SNOTEL station locations\",\n      \"Elevation control on snowmelt onset day-of-year\",\n      \"Local lapse rate effects between stations on same ridge\",\n      \"Inter-station variability in snowmelt timing across elevation gradient\"\n    ],\n    \"not_answerable\": [\n      \"Sub-grid topographic effects within individual columns (ELM is single-column)\",\n      \"Lateral snow redistribution between stations\",\n      \"Precise ridge-scale wind effects without high-resolution wind forcing\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"Six columns representing the 6 SNOTEL stations in the Naches basin. This design enables: (1) direct comparison with observed SWE and snowmelt timing at each station, (2) quantification of elevation-snowmelt onset relationship across the full elevation gradient (352-1977m), (3) resolution of local lapse rates between nearby stations on the same ridge by preserving actual station spacing and elevation differences, (4) assessment of how topographic position and local climate interact with elevation to control snowmelt timing. Each column uses station-specific coordinates and elevation to capture the observed spatial variability.\",\n  \"columns\": [\n    {\n      \"id\": \"bumping_lake\",\n      \"lat\": 46.8653,\n      \"lon\": -121.1819,\n      \"elevation_m\": 1057,\n      \"soil_texture\": \"loam\",\n      \"notes\": \"Lower elevation station, west side\"\n    },\n    {\n      \"id\": \"lost_lake\",\n      \"lat\": 46.8333,\n      \"lon\": -121.2667,\n      \"elevation_m\": 1189,\n      \"soil_texture\": \"sandy_loam\",\n      \"notes\": \"Mid-elevation, western basin\"\n    },\n    {\n      \"id\": \"morse_lake\",\n      \"lat\": 46.9167,\n      \"lon\": -121.2333,\n      \"elevation_m\": 1463,\n      \"soil_texture\": \"loam\",\n      \"notes\": \"Mid-high elevation, central ridge\"\n    },\n    {\n      \"id\": \"white_pass\",\n      \"lat\": 46.6333,\n      \"lon\": -121.3833,\n      \"elevation_m\": 1371,\n      \"soil_texture\": \"sandy_loam\",\n      \"notes\": \"Mid-high elevation, southern area\"\n    },\n    {\n      \"id\": \"dog_lake\",\n      \"lat\": 46.7667,\n      \"lon\": -121.2167,\n      \"elevation_m\": 1646,\n      \"soil_texture\": \"loam\",\n      \"notes\": \"High elevation, central ridge, paired with Morse Lake for lapse rate\"\n    },\n    {\n      \"id\": \"bumping_ridge\",\n      \"lat\": 46.8833,\n      \"lon\": -121.1500,\n      \"elevation_m\": 1707,\n      \"soil_texture\": \"sandy_loam\",\n      \"notes\": \"Highest elevation station, eastern ridge\"\n    }\n  ],\n  \"elm_config\": {\n    \"compset\": \"I2000Clm51Sp\",\n    \"resolution\": \"1x1_mexicocityMEX\",\n    \"model_mode\": \"site\",\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"DATM_CLMNCEP_YR_ALIGN\": \"1980\",\n    \"CLM_FORCE_COLDSTART\": \"off\",\n    \"CLM_ACCELERATED_SPINUP\": \"off\",\n    \"RUN_TYPE\": \"startup\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"STOP_OPTION\": \"nyears\",\n    \"STOP_N\": \"39\",\n    \"REST_OPTION\": \"nyears\",\n    \"REST_N\": \"5\",\n    \"CLM_NML_USE_CASE\": \"2000_control\",\n    \"CLM_BLDNML_OPTS\": \"-bgc sp -crop off -no-megan\",\n    \"hist_empty_htapes\": \".true.\",\n    \"hist_fincl1\": [\n      \"SNOW_DEPTH\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"SNOWLIQ\",\n      \"SNOWICE\",\n      \"QSNOMELT\",\n      \"QSNWCPICE\",\n      \"QSNWCPICE_NODEP\",\n      \"SNOW_PERSISTENCE\",\n      \"SNOW_DEPTH_ICE\",\n      \"SNOTXMASS\",\n      \"FSNO\",\n      \"FSNOW\",\n      \"SNO_EXISTENCE\",\n      \"SNO_PERS\",\n      \"SNOBCMSL\",\n      \"SNODSTMSL\",\n      \"SNOINTABS\",\n      \"SNOOCMSL\",\n      \"TSA\",\n      \"TBOT\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QOVER\",\n      \"QRUNOFF\",\n      \"QH2OSFC\",\n      \"TSOI\",\n      \"H2OSOI\",\n      \"SNOWLIQ_ICE\",\n      \"QSNOFRZ\",\n      \"QSNOMELT_ICE\"\n    ],\n    \"hist_mfilt\": \"8760\",\n    \"hist_nhtfrq\": \"-1\",\n    \"hist_avgflag_pertape\": \"A\",\n    \"spinup_years\": \"100\",\n    \"analysis_years\": \"1980-2018\"\n  },\n  \"requires_capabilities\": [\n    \"Site-mode ELM configuration with custom surface data for each SNOTEL location\",\n    \"Elevation-adjusted atmospheric forcing (temperature lapse rate correction)\",\n    \"High-frequency (daily or sub-daily) snow output for snowmelt onset detection\",\n    \"Multi-column parallel execution capability\",\n    \"Post-processing to calculate snowmelt onset day-of-year from H2OSNO and QSNOMELT time series\",\n    \"Statistical analysis to quantify elevation-snowmelt onset relationship and local lapse rates\"\n  ],\n  \"assumptions\": [\n    \"DATM forcing will be downscaled to each station elevation using standard lapse rate (6.5 K/km) or locally-calibrated rates\",\n    \"Snowmelt onset defined as first day when QSNOMELT exceeds threshold (e.g., 1 mm/day) and H2OSNO begins sustained decline\",\n    \"Soil texture assignments based on typical Cascade Range geology; sensitivity analysis may be needed\",\n    \"Satellite phenology (SP mode) adequate for snow process focus; BGC mode not required\",\n    \"Local topographic effects (slope, aspect, shading) approximated through elevation and forcing adjustments\",\n    \"Station pairs on same ridge (e.g., Morse Lake-Dog Lake) will reveal local lapse rate when elevation difference and snowmelt timing difference are compared\",\n    \"100-year spinup sufficient to equilibrate soil moisture and temperature profiles\",\n    \"Atmospheric forcing spatial interpolation from nearest DATM grid cells captures regional climate gradients\",\n    \"Snow albedo and density parameterizations in ELM adequately represent Cascade snowpack\",\n    \"Analysis will regress snowmelt onset DOY against elevation across all stations and years to quantify sensitivity (days per 100m elevation change)\"\n  ]\n}\n```",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Snowmelt onset timing at individual SNOTEL station locations",
+        "Elevation control on snowmelt onset day-of-year",
+        "Local lapse rate effects between stations on same ridge",
+        "Inter-station variability in snowmelt timing across elevation gradient"
+      ],
+      "not_answerable": [
+        "Sub-grid topographic effects within individual columns (ELM is single-column)",
+        "Lateral snow redistribution between stations",
+        "Precise ridge-scale wind effects without high-resolution wind forcing"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "Six columns representing the 6 SNOTEL stations in the Naches basin. This design enables: (1) direct comparison with observed SWE and snowmelt timing at each station, (2) quantification of elevation-snowmelt onset relationship across the full elevation gradient (352-1977m), (3) resolution of local lapse rates between nearby stations on the same ridge by preserving actual station spacing and elevation differences, (4) assessment of how topographic position and local climate interact with elevation to control snowmelt timing. Each column uses station-specific coordinates and elevation to capture the observed spatial variability.",
+    "columns": [
+      {
+        "id": "bumping_lake",
+        "lat": 46.8653,
+        "lon": -121.1819,
+        "elevation_m": 1057,
+        "soil_texture": "loam",
+        "notes": "Lower elevation station, west side"
+      },
+      {
+        "id": "lost_lake",
+        "lat": 46.8333,
+        "lon": -121.2667,
+        "elevation_m": 1189,
+        "soil_texture": "sandy_loam",
+        "notes": "Mid-elevation, western basin"
+      },
+      {
+        "id": "morse_lake",
+        "lat": 46.9167,
+        "lon": -121.2333,
+        "elevation_m": 1463,
+        "soil_texture": "loam",
+        "notes": "Mid-high elevation, central ridge"
+      },
+      {
+        "id": "white_pass",
+        "lat": 46.6333,
+        "lon": -121.3833,
+        "elevation_m": 1371,
+        "soil_texture": "sandy_loam",
+        "notes": "Mid-high elevation, southern area"
+      },
+      {
+        "id": "dog_lake",
+        "lat": 46.7667,
+        "lon": -121.2167,
+        "elevation_m": 1646,
+        "soil_texture": "loam",
+        "notes": "High elevation, central ridge, paired with Morse Lake for lapse rate"
+      },
+      {
+        "id": "bumping_ridge",
+        "lat": 46.8833,
+        "lon": -121.15,
+        "elevation_m": 1707,
+        "soil_texture": "sandy_loam",
+        "notes": "Highest elevation station, eastern ridge"
+      }
+    ],
+    "elm_config": {
+      "compset": "I2000Clm51Sp",
+      "resolution": "1x1_mexicocityMEX",
+      "model_mode": "site",
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "DATM_CLMNCEP_YR_ALIGN": "1980",
+      "CLM_FORCE_COLDSTART": "off",
+      "CLM_ACCELERATED_SPINUP": "off",
+      "RUN_TYPE": "startup",
+      "RUN_STARTDATE": "1980-01-01",
+      "STOP_OPTION": "nyears",
+      "STOP_N": "39",
+      "REST_OPTION": "nyears",
+      "REST_N": "5",
+      "CLM_NML_USE_CASE": "2000_control",
+      "CLM_BLDNML_OPTS": "-bgc sp -crop off -no-megan",
+      "hist_empty_htapes": ".true.",
+      "hist_fincl1": [
+        "SNOW_DEPTH",
+        "H2OSNO",
+        "SNOWDP",
+        "SNOWLIQ",
+        "SNOWICE",
+        "QSNOMELT",
+        "QSNWCPICE",
+        "QSNWCPICE_NODEP",
+        "SNOW_PERSISTENCE",
+        "SNOW_DEPTH_ICE",
+        "SNOTXMASS",
+        "FSNO",
+        "FSNOW",
+        "SNO_EXISTENCE",
+        "SNO_PERS",
+        "SNOBCMSL",
+        "SNODSTMSL",
+        "SNOINTABS",
+        "SNOOCMSL",
+        "TSA",
+        "TBOT",
+        "RAIN",
+        "SNOW",
+        "QOVER",
+        "QRUNOFF",
+        "QH2OSFC",
+        "TSOI",
+        "H2OSOI",
+        "SNOWLIQ_ICE",
+        "QSNOFRZ",
+        "QSNOMELT_ICE"
+      ],
+      "hist_mfilt": "8760",
+      "hist_nhtfrq": "-1",
+      "hist_avgflag_pertape": "A",
+      "spinup_years": "100",
+      "analysis_years": "1980-2018"
+    },
+    "requires_capabilities": [
+      "Site-mode ELM configuration with custom surface data for each SNOTEL location",
+      "Elevation-adjusted atmospheric forcing (temperature lapse rate correction)",
+      "High-frequency (daily or sub-daily) snow output for snowmelt onset detection",
+      "Multi-column parallel execution capability",
+      "Post-processing to calculate snowmelt onset day-of-year from H2OSNO and QSNOMELT time series",
+      "Statistical analysis to quantify elevation-snowmelt onset relationship and local lapse rates"
+    ],
+    "assumptions": [
+      "DATM forcing will be downscaled to each station elevation using standard lapse rate (6.5 K/km) or locally-calibrated rates",
+      "Snowmelt onset defined as first day when QSNOMELT exceeds threshold (e.g., 1 mm/day) and H2OSNO begins sustained decline",
+      "Soil texture assignments based on typical Cascade Range geology; sensitivity analysis may be needed",
+      "Satellite phenology (SP mode) adequate for snow process focus; BGC mode not required",
+      "Local topographic effects (slope, aspect, shading) approximated through elevation and forcing adjustments",
+      "Station pairs on same ridge (e.g., Morse Lake-Dog Lake) will reveal local lapse rate when elevation difference and snowmelt timing difference are compared",
+      "100-year spinup sufficient to equilibrate soil moisture and temperature profiles",
+      "Atmospheric forcing spatial interpolation from nearest DATM grid cells captures regional climate gradients",
+      "Snow albedo and density parameterizations in ELM adequately represent Cascade snowpack",
+      "Analysis will regress snowmelt onset DOY against elevation across all stations and years to quantify sensitivity (days per 100m elevation change)"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

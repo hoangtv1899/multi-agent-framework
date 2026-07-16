@@ -1,0 +1,149 @@
+{
+  "prompt_id": "C02",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Quantify how initial water-table depth controls the magnitude, timing, and shape of recharge reaching the water table after a surface infiltration pulse\", \"Identify threshold behavior: critical WTD beyond which the pulse is consumed by ET/storage before reaching the water table\"], \"key_processes\": [\"Vadose-zone unsaturated flow and wetting-front propagation\", \"Evapotranspiration losses during pulse transmission\", \"Soil moisture storage in the unsaturated zone\", \"Recharge arrival at the water table (QDRAI)\"], \"drivers_to_resolve\": [\"initial_water_table_depth\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"ELM simulates vadose-zone soil moisture dynamics, infiltration, ET, and drainage/recharge (QDRAI). A controlled experiment isolates WTD as the independent variable by holding soil, forcing, and location constant.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Vadose-zone pulse propagation physics (unsaturated flow, ET, storage) are represented in ELM\", \"Recharge flux to the water table (QDRAI) is simulated and output\", \"Soil moisture dynamics and wetting-front travel are captured in the multi-layer soil column\"], \"not_answerable\": [{\"aspect\": \"Prescribing arbitrary initial water-table depth (0.5 to 50 m) as a controlled treatment\", \"why\": \"ELM's water table is an emergent equilibrium state, not a user-settable initial condition. The model cold-starts at a default WTD (~8.8 m) and evolves based on climate/soil. The WTD-informed warm start (Fan 2013) sets WTD from a spatial prior, not arbitrary user values.\", \"needs\": \"WTD initialization tool: capability to generate restart files or namelist settings that impose prescribed initial WTD for each treatment column\"}]}, \"sampling_strategy\": {\"approach\": \"controlled factorial (single-factor: initial WTD)\", \"strata\": [{\"driver\": \"initial_water_table_depth\", \"bands\": [\"0.5 m (very shallow, near-surface water table)\", \"1 m (shallow)\", \"2 m (moderate-shallow)\", \"5 m (moderate)\", \"10 m (moderate-deep)\", \"20 m (deep)\", \"50 m (very deep, arid-like)\"]}], \"n_exploratory\": 7, \"n_justification\": \"Seven WTD levels logarithmically spaced from 0.5 to 50 m to capture nonlinear behavior in pulse transmission (expected threshold effects where deeper WTD leads to complete pulse consumption by ET/storage). Each level is one treatment; no replication needed for a deterministic mechanistic experiment.\", \"placement_logic\": \"Single arbitrary location (no spatial heterogeneity). All columns use identical soil (uniform loam) and forcing (one designed infiltration pulse scenario, e.g., a single large precipitation event or a wet season). The ONLY variation is initial WTD.\", \"replication\": \"None \\u2014 deterministic model, controlled conditions\"}, \"sampling_plan\": [{\"group\": \"Very shallow WTD (0.5 m)\", \"n\": 1, \"reason\": \"Minimal vadose zone \\u2014 pulse reaches water table quickly with minimal attenuation\"}, {\"group\": \"Shallow WTD (1 m)\", \"n\": 1, \"reason\": \"Short vadose zone \\u2014 pulse transmission with moderate ET/storage losses\"}, {\"group\": \"Moderate-shallow WTD (2 m)\", \"n\": 1, \"reason\": \"Intermediate vadose zone \\u2014 captures transition in pulse attenuation\"}, {\"group\": \"Moderate WTD (5 m)\", \"n\": 1, \"reason\": \"Typical temperate-region depth \\u2014 significant vadose-zone travel time and ET opportunity\"}, {\"group\": \"Moderate-deep WTD (10 m)\", \"n\": 1, \"reason\": \"Deep vadose zone \\u2014 pulse may be substantially attenuated or delayed\"}, {\"group\": \"Deep WTD (20 m)\", \"n\": 1, \"reason\": \"Very deep vadose zone \\u2014 tests threshold for pulse reaching water table vs complete consumption\"}, {\"group\": \"Very deep WTD (50 m)\", \"n\": 1, \"reason\": \"Extreme depth (arid-like) \\u2014 pulse likely entirely consumed by ET/storage before reaching water table\"}], \"validation_design\": [{\"target_variable\": \"recharge_pulse_magnitude_and_timing\", \"observation_source\": \"Physical expectation and literature on vadose-zone travel times\", \"in_domain_available\": false, \"comparison\": \"Process validation against expected behavior: deeper WTD \\u2192 longer lag, smaller recharge pulse magnitude, potential threshold where pulse does not reach water table\", \"metric\": \"Qualitative comparison to vadose-zone hydrology theory; quantitative metrics: recharge arrival time (days), peak recharge flux (mm/day), cumulative recharge fraction (% of infiltration pulse)\", \"n_validation_points\": \"Not applicable (conceptual experiment, no observational data)\"}], \"experiment_summary\": {\"total_columns\": 7, \"exploratory\": 7, \"validation\": 0, \"primary_treatment\": \"Uniform loam soil, single location, one designed infiltration pulse (e.g., 100 mm precipitation event or wet-season forcing), varying only initial WTD across treatments\"}, \"requires_capabilities\": [{\"capability\": \"WTD initialization tool (restart-file editor or namelist extension)\", \"why\": \"To prescribe arbitrary initial water-table depth (0.5 to 50 m) as a controlled treatment for each column. ELM's water table is currently an emergent state, not user-settable.\", \"blocks\": \"The core experimental manipulation \\u2014 without this, we cannot isolate initial WTD as the independent variable\"}, {\"capability\": \"Designed infiltration pulse forcing\", \"why\": \"To apply a controlled surface infiltration event (e.g., single large precipitation pulse or wet season) that is identical across all treatments. May require custom forcing file generation.\", \"blocks\": \"Standardized pulse input \\u2014 without this, we cannot ensure the surface boundary condition is identical across WTD treatments\"}], \"assumptions\": [\"Uniform loam soil is representative for isolating WTD effects (soil texture held constant)\", \"A single infiltration pulse (e.g., 100 mm event or wet season) is sufficient to generate a measurable recharge signal at shallow-to-moderate WTD\", \"ELM's vadose-zone physics (Richards equation, multi-layer soil moisture) adequately represents unsaturated flow and pulse propagation\", \"The experiment duration is long enough to observe pulse arrival at the deepest WTD (50 m) or confirm non-arrival\", \"No lateral flow or regional groundwater effects (single-column 1-D assumption is appropriate for this conceptual experiment)\"], \"open_questions\": [\"What infiltration pulse magnitude and duration should be used (single event vs seasonal forcing)?\", \"Should the experiment include multiple soil textures (sand, loam, clay) as a secondary factor, or strictly isolate WTD?\", \"What simulation duration is needed to observe pulse arrival at 50 m WTD (or confirm it never arrives)?\", \"Is there a preferred method for WTD initialization: restart-file surgery vs a new namelist parameter vs a pre-spin-up protocol?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify how initial water-table depth controls the magnitude, timing, and shape of recharge reaching the water table after a surface infiltration pulse",
+        "Identify threshold behavior: critical WTD beyond which the pulse is consumed by ET/storage before reaching the water table"
+      ],
+      "key_processes": [
+        "Vadose-zone unsaturated flow and wetting-front propagation",
+        "Evapotranspiration losses during pulse transmission",
+        "Soil moisture storage in the unsaturated zone",
+        "Recharge arrival at the water table (QDRAI)"
+      ],
+      "drivers_to_resolve": [
+        "initial_water_table_depth"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "ELM simulates vadose-zone soil moisture dynamics, infiltration, ET, and drainage/recharge (QDRAI). A controlled experiment isolates WTD as the independent variable by holding soil, forcing, and location constant.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Vadose-zone pulse propagation physics (unsaturated flow, ET, storage) are represented in ELM",
+        "Recharge flux to the water table (QDRAI) is simulated and output",
+        "Soil moisture dynamics and wetting-front travel are captured in the multi-layer soil column"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Prescribing arbitrary initial water-table depth (0.5 to 50 m) as a controlled treatment",
+          "why": "ELM's water table is an emergent equilibrium state, not a user-settable initial condition. The model cold-starts at a default WTD (~8.8 m) and evolves based on climate/soil. The WTD-informed warm start (Fan 2013) sets WTD from a spatial prior, not arbitrary user values.",
+          "needs": "WTD initialization tool: capability to generate restart files or namelist settings that impose prescribed initial WTD for each treatment column"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "controlled factorial (single-factor: initial WTD)",
+      "strata": [
+        {
+          "driver": "initial_water_table_depth",
+          "bands": [
+            "0.5 m (very shallow, near-surface water table)",
+            "1 m (shallow)",
+            "2 m (moderate-shallow)",
+            "5 m (moderate)",
+            "10 m (moderate-deep)",
+            "20 m (deep)",
+            "50 m (very deep, arid-like)"
+          ]
+        }
+      ],
+      "n_exploratory": 7,
+      "n_justification": "Seven WTD levels logarithmically spaced from 0.5 to 50 m to capture nonlinear behavior in pulse transmission (expected threshold effects where deeper WTD leads to complete pulse consumption by ET/storage). Each level is one treatment; no replication needed for a deterministic mechanistic experiment.",
+      "placement_logic": "Single arbitrary location (no spatial heterogeneity). All columns use identical soil (uniform loam) and forcing (one designed infiltration pulse scenario, e.g., a single large precipitation event or a wet season). The ONLY variation is initial WTD.",
+      "replication": "None \u2014 deterministic model, controlled conditions"
+    },
+    "sampling_plan": [
+      {
+        "group": "Very shallow WTD (0.5 m)",
+        "n": 1,
+        "reason": "Minimal vadose zone \u2014 pulse reaches water table quickly with minimal attenuation"
+      },
+      {
+        "group": "Shallow WTD (1 m)",
+        "n": 1,
+        "reason": "Short vadose zone \u2014 pulse transmission with moderate ET/storage losses"
+      },
+      {
+        "group": "Moderate-shallow WTD (2 m)",
+        "n": 1,
+        "reason": "Intermediate vadose zone \u2014 captures transition in pulse attenuation"
+      },
+      {
+        "group": "Moderate WTD (5 m)",
+        "n": 1,
+        "reason": "Typical temperate-region depth \u2014 significant vadose-zone travel time and ET opportunity"
+      },
+      {
+        "group": "Moderate-deep WTD (10 m)",
+        "n": 1,
+        "reason": "Deep vadose zone \u2014 pulse may be substantially attenuated or delayed"
+      },
+      {
+        "group": "Deep WTD (20 m)",
+        "n": 1,
+        "reason": "Very deep vadose zone \u2014 tests threshold for pulse reaching water table vs complete consumption"
+      },
+      {
+        "group": "Very deep WTD (50 m)",
+        "n": 1,
+        "reason": "Extreme depth (arid-like) \u2014 pulse likely entirely consumed by ET/storage before reaching water table"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "recharge_pulse_magnitude_and_timing",
+        "observation_source": "Physical expectation and literature on vadose-zone travel times",
+        "in_domain_available": false,
+        "comparison": "Process validation against expected behavior: deeper WTD \u2192 longer lag, smaller recharge pulse magnitude, potential threshold where pulse does not reach water table",
+        "metric": "Qualitative comparison to vadose-zone hydrology theory; quantitative metrics: recharge arrival time (days), peak recharge flux (mm/day), cumulative recharge fraction (% of infiltration pulse)",
+        "n_validation_points": "Not applicable (conceptual experiment, no observational data)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 7,
+      "exploratory": 7,
+      "validation": 0,
+      "primary_treatment": "Uniform loam soil, single location, one designed infiltration pulse (e.g., 100 mm precipitation event or wet-season forcing), varying only initial WTD across treatments"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "WTD initialization tool (restart-file editor or namelist extension)",
+        "why": "To prescribe arbitrary initial water-table depth (0.5 to 50 m) as a controlled treatment for each column. ELM's water table is currently an emergent state, not user-settable.",
+        "blocks": "The core experimental manipulation \u2014 without this, we cannot isolate initial WTD as the independent variable"
+      },
+      {
+        "capability": "Designed infiltration pulse forcing",
+        "why": "To apply a controlled surface infiltration event (e.g., single large precipitation pulse or wet season) that is identical across all treatments. May require custom forcing file generation.",
+        "blocks": "Standardized pulse input \u2014 without this, we cannot ensure the surface boundary condition is identical across WTD treatments"
+      }
+    ],
+    "assumptions": [
+      "Uniform loam soil is representative for isolating WTD effects (soil texture held constant)",
+      "A single infiltration pulse (e.g., 100 mm event or wet season) is sufficient to generate a measurable recharge signal at shallow-to-moderate WTD",
+      "ELM's vadose-zone physics (Richards equation, multi-layer soil moisture) adequately represents unsaturated flow and pulse propagation",
+      "The experiment duration is long enough to observe pulse arrival at the deepest WTD (50 m) or confirm non-arrival",
+      "No lateral flow or regional groundwater effects (single-column 1-D assumption is appropriate for this conceptual experiment)"
+    ],
+    "open_questions": [
+      "What infiltration pulse magnitude and duration should be used (single event vs seasonal forcing)?",
+      "Should the experiment include multiple soil textures (sand, loam, clay) as a secondary factor, or strictly isolate WTD?",
+      "What simulation duration is needed to observe pulse arrival at 50 m WTD (or confirm it never arrives)?",
+      "Is there a preferred method for WTD initialization: restart-file surgery vs a new namelist parameter vs a pre-spin-up protocol?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

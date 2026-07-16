@@ -1,0 +1,152 @@
+{
+  "prompt_id": "S04",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Quantify how water partitioning (ET, runoff, recharge) differs between a wet year (1993) and a dry year (2002) across the Salt River headwaters' elevation gradient\"], \"key_processes\": [\"Precipitation partitioning (rain vs snow)\", \"Evapotranspiration\", \"Surface runoff generation\", \"Sub-surface drainage / recharge\", \"Snowmelt timing\"], \"drivers_to_resolve\": [\"forcing period (wet 1993 vs dry 2002)\", \"elevation (900-3300 m, controls precip amount/phase via NLDAS-2)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"ELM single-column runs stratified by elevation, each run under both wet (1993) and dry (2002) forcing, to isolate the temporal forcing contrast across the spatial gradient. NLDAS-2 forcing (available in CONUS) provides elevation-varying precipitation/temperature, enabling the elevation driver to act through climate.\", \"coupling_needed\": false, \"coupling_note\": null}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Wet vs dry partitioning contrast (ET, runoff, recharge) across elevation \\u2014 NLDAS-2 forcing is available in-domain and provides elevation-varying precip/temp\", \"Modeled snow/SWE output (H2OSNO) \\u2014 can report, though validation is limited by sparse SNOTEL\", \"Per-column runoff generation and timing\"], \"not_answerable\": [{\"aspect\": \"Co-located streamflow validation at USGS gauges\", \"why\": \"ELM columns are independent 1-D points with no lateral routing \\u2014 cannot aggregate column runoff over contributing areas to compare against integrated gage discharge\", \"needs\": \"Runoff routing / aggregation tool\"}, {\"aspect\": \"Robust peak-SWE validation\", \"why\": \"SNOTEL observations are sparse in-domain (per brief's observations_missing)\", \"needs\": \"Denser SNOTEL coverage or alternative snow observation dataset\"}]}, \"sampling_strategy\": {\"approach\": \"Stratified by elevation (3 bands spanning 900-3300 m) \\u00d7 forcing period (2 treatments: wet 1993, dry 2002). Each spatial column is run under both forcing years, creating a 2-treatment factorial design.\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"Low (900-1600 m): rain-dominated, lower orographic precip\", \"Mid (1600-2400 m): rain-snow transition, peak orographic precip\", \"High (2400-3300 m): snow-dominated, cooler temps\"]}, {\"driver\": \"forcing period\", \"classes\": [\"Wet year (1993)\", \"Dry year (2002)\"]}], \"n_exploratory\": 6, \"n_justification\": \"3 elevation bands \\u00d7 2 replicates per band = 6 unique spatial locations. Each location is run under both 1993 and 2002 forcing (12 column-years total). Light replication (2 per band) captures within-band soil/aspect variability while keeping N small. The 3 bands resolve the rain-snow transition and orographic gradient, which are the key mechanisms for partitioning sensitivity to wet vs dry forcing.\", \"placement_logic\": \"Concentrate columns in mid-elevation (1600-2400 m) rain-snow transition where partitioning sensitivity is highest. Within each band, prefer valley bottoms / riparian corridors where soil moisture and runoff generation are most active. Avoid extreme ridgetops (NLDAS 12 km cells average over terrain, may underestimate ridgetop precip).\", \"replication\": \"2 columns per elevation band to capture within-band heterogeneity (soil, aspect) without excessive cost.\"}, \"sampling_plan\": [{\"group\": \"Low elevation (900-1600 m), rain-dominated\", \"n\": 2, \"reason\": \"Isolate low-elevation rain-dominated partitioning response to wet vs dry forcing (minimal snow influence).\"}, {\"group\": \"Mid elevation (1600-2400 m), rain-snow transition\", \"n\": 2, \"reason\": \"Capture rain-snow transition zone where partitioning is most sensitive to forcing (snowmelt timing shifts between wet/dry years).\"}, {\"group\": \"High elevation (2400-3300 m), snow-dominated\", \"n\": 2, \"reason\": \"Isolate high-elevation snow-dominated response where snowpack accumulation/melt timing differ strongly between wet/dry years.\"}], \"validation_design\": [{\"target_variable\": \"Streamflow timing / seasonality\", \"observation_source\": \"USGS stream gauges\", \"in_domain_available\": true, \"comparison\": \"analog \\u2014 compare modeled runoff TIMING (peak month, recession shape) from columns in the gage's elevation band against observed hydrograph timing. NOT co-located magnitude (requires routing to aggregate column runoff over contributing area).\", \"metric\": \"Peak-month agreement, timing correlation (not magnitude/bias \\u2014 routing needed for that)\", \"n_validation_points\": \"1-2 gauges (depends on gage density in HUC 15060103)\"}, {\"target_variable\": \"Peak SWE\", \"observation_source\": \"SNOTEL (if available)\", \"in_domain_available\": false, \"comparison\": \"Co-located (if SNOTEL sites exist) \\u2014 compare modeled H2OSNO peak against observed peak SWE. Sparse coverage limits robustness.\", \"metric\": \"Bias, RMSE at available sites\", \"n_validation_points\": \"unknown \\u2014 SNOTEL is sparse per brief\"}], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 6, \"validation\": 0, \"primary_treatment\": \"Each of 6 spatial columns run under both 1993 (wet) and 2002 (dry) NLDAS-2 forcing. WTD-informed warm start (Fan 2013 equilibrium WTD) for initial aquifer state. Native SSURGO soil at each location. One-year runs (no multi-year spin-up needed with WTD initialization).\"}, \"requires_capabilities\": [{\"capability\": \"Runoff routing / aggregation tool\", \"why\": \"To sum per-column runoff over contributing areas and validate against USGS gage integrated discharge\", \"blocks\": \"Co-located streamflow magnitude validation (timing-only analog validation is possible without routing)\"}, {\"capability\": \"WTD-informed warm start (Fan 2013 equilibrium WTD)\", \"why\": \"To initialize aquifer storage / water table at equilibrium without multi-year spin-up cost (preferred for 1-year forcing comparisons)\", \"blocks\": \"Nothing \\u2014 this capability is AVAILABLE per guidance (preferred over multi-year spin-up). Listed here as a dependency to confirm its use.\"}, {\"capability\": \"SNOTEL data ingest / denser snow observation coverage\", \"why\": \"To robustly validate modeled peak SWE (current coverage is sparse per brief)\", \"blocks\": \"Robust peak-SWE validation (modeled snow output is available, but validation is limited)\"}], \"assumptions\": [\"NLDAS-2 forcing is available and adequate for the Salt River headwaters (verified: within CONUS domain, 0.125\\u00b0 resolution provides ~15 distinct precip values across 2400 m relief)\", \"1993 and 2002 are representative wet and dry years (user-specified)\", \"Soil heterogeneity is secondary to elevation/climate effects (soil not listed as candidate driver)\", \"One-year runs (1993, 2002) are sufficient with WTD-informed initialization (no multi-year spin-up needed)\", \"Within-band replication (n=2) adequately captures soil/aspect variability\", \"USGS gage density in HUC 15060103 supports 1-2 validation points (actual count unknown)\"], \"open_questions\": [\"What is the actual USGS gage density in HUC 15060103 (how many gauges, where)?\", \"Are there any SNOTEL sites within or near the domain (even if sparse)?\", \"Should we add a 'normal' year (e.g. median precip year) as a third forcing treatment for context?\", \"Is soil heterogeneity significant enough to warrant stratification (not listed as candidate driver, but may matter)?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify how water partitioning (ET, runoff, recharge) differs between a wet year (1993) and a dry year (2002) across the Salt River headwaters' elevation gradient"
+      ],
+      "key_processes": [
+        "Precipitation partitioning (rain vs snow)",
+        "Evapotranspiration",
+        "Surface runoff generation",
+        "Sub-surface drainage / recharge",
+        "Snowmelt timing"
+      ],
+      "drivers_to_resolve": [
+        "forcing period (wet 1993 vs dry 2002)",
+        "elevation (900-3300 m, controls precip amount/phase via NLDAS-2)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM single-column runs stratified by elevation, each run under both wet (1993) and dry (2002) forcing, to isolate the temporal forcing contrast across the spatial gradient. NLDAS-2 forcing (available in CONUS) provides elevation-varying precipitation/temperature, enabling the elevation driver to act through climate.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Wet vs dry partitioning contrast (ET, runoff, recharge) across elevation \u2014 NLDAS-2 forcing is available in-domain and provides elevation-varying precip/temp",
+        "Modeled snow/SWE output (H2OSNO) \u2014 can report, though validation is limited by sparse SNOTEL",
+        "Per-column runoff generation and timing"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Co-located streamflow validation at USGS gauges",
+          "why": "ELM columns are independent 1-D points with no lateral routing \u2014 cannot aggregate column runoff over contributing areas to compare against integrated gage discharge",
+          "needs": "Runoff routing / aggregation tool"
+        },
+        {
+          "aspect": "Robust peak-SWE validation",
+          "why": "SNOTEL observations are sparse in-domain (per brief's observations_missing)",
+          "needs": "Denser SNOTEL coverage or alternative snow observation dataset"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "Stratified by elevation (3 bands spanning 900-3300 m) \u00d7 forcing period (2 treatments: wet 1993, dry 2002). Each spatial column is run under both forcing years, creating a 2-treatment factorial design.",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "Low (900-1600 m): rain-dominated, lower orographic precip",
+            "Mid (1600-2400 m): rain-snow transition, peak orographic precip",
+            "High (2400-3300 m): snow-dominated, cooler temps"
+          ]
+        },
+        {
+          "driver": "forcing period",
+          "classes": [
+            "Wet year (1993)",
+            "Dry year (2002)"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "3 elevation bands \u00d7 2 replicates per band = 6 unique spatial locations. Each location is run under both 1993 and 2002 forcing (12 column-years total). Light replication (2 per band) captures within-band soil/aspect variability while keeping N small. The 3 bands resolve the rain-snow transition and orographic gradient, which are the key mechanisms for partitioning sensitivity to wet vs dry forcing.",
+      "placement_logic": "Concentrate columns in mid-elevation (1600-2400 m) rain-snow transition where partitioning sensitivity is highest. Within each band, prefer valley bottoms / riparian corridors where soil moisture and runoff generation are most active. Avoid extreme ridgetops (NLDAS 12 km cells average over terrain, may underestimate ridgetop precip).",
+      "replication": "2 columns per elevation band to capture within-band heterogeneity (soil, aspect) without excessive cost."
+    },
+    "sampling_plan": [
+      {
+        "group": "Low elevation (900-1600 m), rain-dominated",
+        "n": 2,
+        "reason": "Isolate low-elevation rain-dominated partitioning response to wet vs dry forcing (minimal snow influence)."
+      },
+      {
+        "group": "Mid elevation (1600-2400 m), rain-snow transition",
+        "n": 2,
+        "reason": "Capture rain-snow transition zone where partitioning is most sensitive to forcing (snowmelt timing shifts between wet/dry years)."
+      },
+      {
+        "group": "High elevation (2400-3300 m), snow-dominated",
+        "n": 2,
+        "reason": "Isolate high-elevation snow-dominated response where snowpack accumulation/melt timing differ strongly between wet/dry years."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "Streamflow timing / seasonality",
+        "observation_source": "USGS stream gauges",
+        "in_domain_available": true,
+        "comparison": "analog \u2014 compare modeled runoff TIMING (peak month, recession shape) from columns in the gage's elevation band against observed hydrograph timing. NOT co-located magnitude (requires routing to aggregate column runoff over contributing area).",
+        "metric": "Peak-month agreement, timing correlation (not magnitude/bias \u2014 routing needed for that)",
+        "n_validation_points": "1-2 gauges (depends on gage density in HUC 15060103)"
+      },
+      {
+        "target_variable": "Peak SWE",
+        "observation_source": "SNOTEL (if available)",
+        "in_domain_available": false,
+        "comparison": "Co-located (if SNOTEL sites exist) \u2014 compare modeled H2OSNO peak against observed peak SWE. Sparse coverage limits robustness.",
+        "metric": "Bias, RMSE at available sites",
+        "n_validation_points": "unknown \u2014 SNOTEL is sparse per brief"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "Each of 6 spatial columns run under both 1993 (wet) and 2002 (dry) NLDAS-2 forcing. WTD-informed warm start (Fan 2013 equilibrium WTD) for initial aquifer state. Native SSURGO soil at each location. One-year runs (no multi-year spin-up needed with WTD initialization)."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Runoff routing / aggregation tool",
+        "why": "To sum per-column runoff over contributing areas and validate against USGS gage integrated discharge",
+        "blocks": "Co-located streamflow magnitude validation (timing-only analog validation is possible without routing)"
+      },
+      {
+        "capability": "WTD-informed warm start (Fan 2013 equilibrium WTD)",
+        "why": "To initialize aquifer storage / water table at equilibrium without multi-year spin-up cost (preferred for 1-year forcing comparisons)",
+        "blocks": "Nothing \u2014 this capability is AVAILABLE per guidance (preferred over multi-year spin-up). Listed here as a dependency to confirm its use."
+      },
+      {
+        "capability": "SNOTEL data ingest / denser snow observation coverage",
+        "why": "To robustly validate modeled peak SWE (current coverage is sparse per brief)",
+        "blocks": "Robust peak-SWE validation (modeled snow output is available, but validation is limited)"
+      }
+    ],
+    "assumptions": [
+      "NLDAS-2 forcing is available and adequate for the Salt River headwaters (verified: within CONUS domain, 0.125\u00b0 resolution provides ~15 distinct precip values across 2400 m relief)",
+      "1993 and 2002 are representative wet and dry years (user-specified)",
+      "Soil heterogeneity is secondary to elevation/climate effects (soil not listed as candidate driver)",
+      "One-year runs (1993, 2002) are sufficient with WTD-informed initialization (no multi-year spin-up needed)",
+      "Within-band replication (n=2) adequately captures soil/aspect variability",
+      "USGS gage density in HUC 15060103 supports 1-2 validation points (actual count unknown)"
+    ],
+    "open_questions": [
+      "What is the actual USGS gage density in HUC 15060103 (how many gauges, where)?",
+      "Are there any SNOTEL sites within or near the domain (even if sparse)?",
+      "Should we add a 'normal' year (e.g. median precip year) as a third forcing treatment for context?",
+      "Is soil heterogeneity significant enough to warrant stratification (not listed as candidate driver, but may matter)?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}

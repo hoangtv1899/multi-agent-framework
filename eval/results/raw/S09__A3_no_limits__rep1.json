@@ -1,0 +1,213 @@
+{
+  "prompt_id": "S09",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-sonnet-4-5-20250929-v1-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user requests a **site-archetype** design to characterize seasonal ET dynamics across the Passaic basin and validate against eddy-covariance flux towers. However, the brief explicitly states that **no eddy-covariance flux towers exist in the data stack** (observations_missing). This creates an immediate feasibility problem: the PRIMARY validation goal cannot be met as posed.\n\n**Decomposition:**\n1. **Mechanistic goal**: Characterize seasonal ET dynamics and their spatial variability across the basin\n2. **Validation goal**: Validate ET against eddy-covariance observations\n\n**Feasibility assessment:**\n- **Answerable**: The mechanistic characterization of ET dynamics IS feasible. ELM can simulate ET partitioning (transpiration, soil evaporation, canopy evaporation) at single columns stratified across the basin's heterogeneity (land cover, soil). The available drivers (land cover, soil) are representable in ELM's single-column mode with appropriate surface datasets.\n- **Not answerable**: Direct co-located ET validation against flux towers is **impossible** because the observations do not exist in-domain. The user's validation goal cannot be met.\n\n**Honest response options:**\n1. Propose an **analog-site validation** using flux towers from similar physiographic regions (e.g., AmeriFlux sites in the Mid-Atlantic with comparable land cover/climate), clearly labeled as analog validation, not co-located.\n2. Propose **alternative validation** using available observations (USGS gauges for streamflow as an integrated water-balance check; USGS wells for water table depth as a constraint on root-zone moisture availability).\n3. Flag the flux-tower validation as infeasible and proceed with mechanistic characterization only.\n\nI will take option 2+3: design a mechanistic ET characterization stratified by the available drivers (land cover, soil), propose streamflow validation as a water-balance constraint (acknowledging it's indirect), and **honestly declare the flux-tower validation infeasible**.\n\n**Drivers to resolve:**\n- **Land cover**: Controls vegetation type, LAI, rooting depth, stomatal conductance \u2192 transpiration dominance and seasonal timing.\n- **Soil texture**: Controls soil moisture availability, field capacity, wilting point \u2192 evaporation vs transpiration partitioning and dry-season stress.\n- Elevation is in the brief (3\u2013390 m range), but with **uniform forcing** (no elevation-downscaled meteorology), elevation becomes a proxy for topographic position (valley vs upland) affecting soil moisture redistribution, NOT a climate/temperature gradient. ELM single-column cannot represent lateral redistribution, so elevation's effect is limited to soil parameterization differences if we sample different landscape positions. This is weak and should be noted.\n\n**Sampling strategy:**\n- Stratify by **land cover \u00d7 soil texture** (the representable drivers).\n- Passaic basin land cover (from regional knowledge): mix of deciduous forest, urban/suburban, wetlands, agriculture. Dominant classes likely: forest, developed, wetland.\n- Soil: likely mix of well-drained upland soils (loams) and poorly-drained lowland soils (clays, organic).\n- **N justification**: \n  - 3 land cover classes \u00d7 2\u20133 soil drainage classes = 6\u20139 strata.\n  - Light replication (2 per stratum) for robustness \u2192 ~12\u201318 exploratory columns.\n  - Validation columns: USGS gauges (streamflow) are basin-outlet or sub-basin scale, not point-scale ET. We cannot pin columns to gauges for ET validation. USGS wells could constrain water table depth (affects root-zone moisture), but that's not ET. So **validation columns = 0 for ET**; streamflow validation is basin-aggregated (requires routing/aggregation capability we lack).\n  - **Total: ~15 exploratory columns** (3 land cover \u00d7 3 soil \u00d7 ~2 replication, rounded for coverage).\n\n**Placement logic**: Concentrate columns in **representative landscape positions** for each land cover\u2013soil combination: upland forests on well-drained soils, valley/riparian forests on poorly-drained soils, developed areas on mixed soils, wetlands in lowlands. Avoid edge cases (e.g., tiny isolated patches).\n\n**Validation design**:\n- **ET validation against flux towers**: **INFEASIBLE** (no data).\n- **Streamflow validation**: Possible in principle (USGS gauges available), but requires **runoff routing and basin aggregation** (not implemented). Flag as requiring capability.\n- **Water table validation**: USGS wells available; could validate water table depth as a **process constraint** (not ET directly, but affects root-zone moisture and thus ET). This is indirect but feasible.\n\n**Requires capabilities**:\n1. Eddy-covariance flux tower data ingest (for the user's stated validation goal).\n2. Runoff routing and basin aggregation (to use USGS streamflow gauges).\n3. Gridded land cover dataset sampling (to stratify columns by land cover class).\n4. Gridded soil texture dataset sampling (to stratify by soil drainage class).\n5. Water table depth output from ELM (if not default) and well-observation ingest.\n\n**Verdict**: **Partial**. The mechanistic ET characterization is feasible; the validation goal as stated is not.\n\n---\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: Characterize seasonal ET dynamics and spatial variability across land cover and soil types in the Passaic basin\",\n      \"Validation: Validate ET against local eddy-covariance flux towers (user-stated goal)\"\n    ],\n    \"key_processes\": [\n      \"Evapotranspiration partitioning (transpiration, soil evaporation, canopy interception)\",\n      \"Seasonal ET dynamics driven by phenology, soil moisture availability, and atmospheric demand\",\n      \"Land cover control on ET magnitude and timing (forest vs developed vs wetland)\",\n      \"Soil texture control on moisture availability and dry-season stress\"\n    ],\n    \"drivers_to_resolve\": [\n      \"land_cover\",\n      \"soil_texture\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM can simulate ET partitioning and seasonal dynamics at stratified locations across the basin's land cover and soil heterogeneity. Site archetype is appropriate for spatial sampling and validation against observations.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": null\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Mechanistic characterization of seasonal ET dynamics across land cover and soil types (ELM can simulate ET partitioning, phenology, soil moisture stress)\",\n      \"Spatial variability in ET driven by land cover (vegetation type, LAI, rooting depth) and soil texture (moisture availability)\",\n      \"Process validation of water table depth against USGS wells (indirect constraint on root-zone moisture and ET)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Direct validation of ET against eddy-covariance flux towers\",\n        \"why\": \"No eddy-covariance flux tower observations exist in the data stack (observations_missing). Co-located ET validation is impossible.\",\n        \"needs\": \"Eddy-covariance flux tower data ingest and QA/QC pipeline\"\n      },\n      {\n        \"aspect\": \"Validation of basin-scale water balance via streamflow\",\n        \"why\": \"USGS streamflow gauges are available, but ELM single-column produces point runoff. Basin aggregation requires runoff routing (not implemented).\",\n        \"needs\": \"Runoff routing and basin aggregation capability\"\n      },\n      {\n        \"aspect\": \"Elevation/climate gradient effects on ET\",\n        \"why\": \"Elevation range is 3\u2013390 m, but forcing is spatially uniform (no elevation downscaling). Elevation cannot isolate a climate/temperature effect; only topographic position (via soil) is weakly represented.\",\n        \"needs\": \"Elevation-downscaled meteorological forcing\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified by land cover \u00d7 soil texture\",\n    \"strata\": [\n      {\n        \"driver\": \"land_cover\",\n        \"bands\": [\n          \"deciduous_forest\",\n          \"developed_urban_suburban\",\n          \"wetland\"\n        ]\n      },\n      {\n        \"driver\": \"soil_texture\",\n        \"classes\": [\n          \"well_drained_upland (loam/sandy loam)\",\n          \"moderately_drained (silt loam)\",\n          \"poorly_drained_lowland (clay/organic)\"\n        ]\n      }\n    ],\n    \"n_exploratory\": 15,\n    \"n_justification\": \"3 land cover classes \u00d7 3 soil drainage classes = 9 strata. Light replication (~1.5\u20132 per stratum) for robustness and coverage of within-stratum variability yields ~15 exploratory columns. This resolves the primary drivers (land cover, soil) without oversampling, given that validation is limited.\",\n    \"placement_logic\": \"Concentrate columns in representative landscape positions for each land cover\u2013soil combination: upland forests on well-drained soils (ridges/slopes), valley/riparian forests on poorly-drained soils, developed areas on mixed soils (suburban matrix), wetlands in lowland/floodplain positions. Avoid isolated patches or edge cases. Use DEM-derived topographic position (upland vs lowland) to guide placement within soil classes.\",\n    \"replication\": \"Light replication (~2 per stratum) to capture within-stratum variability and provide robustness against outlier locations or data artifacts.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"upland_forest_well_drained\",\n      \"n\": 2,\n      \"reason\": \"Isolates deciduous forest ET on well-drained upland soils (high transpiration, minimal moisture stress)\"\n    },\n    {\n      \"group\": \"upland_forest_moderate_drained\",\n      \"n\": 2,\n      \"reason\": \"Deciduous forest on moderately-drained soils (intermediate moisture availability, seasonal stress)\"\n    },\n    {\n      \"group\": \"lowland_forest_poorly_drained\",\n      \"n\": 2,\n      \"reason\": \"Riparian/valley forest on poorly-drained soils (high moisture, potential saturation effects on ET)\"\n    },\n    {\n      \"group\": \"developed_well_drained\",\n      \"n\": 2,\n      \"reason\": \"Urban/suburban land cover on well-drained soils (reduced transpiration, increased impervious fraction)\"\n    },\n    {\n      \"group\": \"developed_moderate_drained\",\n      \"n\": 1,\n      \"reason\": \"Developed areas on moderate soils (mixed pervious/impervious, intermediate ET)\"\n    },\n    {\n      \"group\": \"developed_poorly_drained\",\n      \"n\": 1,\n      \"reason\": \"Developed lowlands (potential drainage modification, reduced ET from impervious surfaces)\"\n    },\n    {\n      \"group\": \"wetland_poorly_drained\",\n      \"n\": 3,\n      \"reason\": \"Wetlands on poorly-drained/organic soils (high ET when wet, potential for saturation-excess conditions)\"\n    },\n    {\n      \"group\": \"wetland_moderate_drained\",\n      \"n\": 2,\n      \"reason\": \"Transitional wetlands on moderately-drained soils (seasonal wetness, variable ET dynamics)\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"evapotranspiration (ET)\",\n      \"observation_source\": \"eddy-covariance flux towers\",\n      \"in_domain_available\": false,\n      \"comparison\": \"NOT POSSIBLE \u2014 no flux tower data in stack\",\n      \"metric\": \"N/A\",\n      \"n_validation_points\": \"0 (observations missing)\"\n    },\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located (wells pinned to observation locations) \u2014 indirect process constraint on root-zone moisture availability and ET stress\",\n      \"metric\": \"bias, RMSE, seasonal correlation\",\n      \"n_validation_points\": \"unknown \u2014 depends on USGS well density in basin; likely 5\u201315 wells\"\n    },\n    {\n      \"target_variable\": \"streamflow (basin water balance)\",\n      \"observation_source\": \"USGS gauges\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated (requires routing point runoff to basin outlet) \u2014 indirect constraint on total water partitioning (P - ET - \u0394S \u2248 Q)\",\n      \"metric\": \"monthly flow bias, NSE\",\n      \"n_validation_points\": \"1\u20133 gauges (basin outlet + potential sub-basins)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 15,\n    \"exploratory\": 15,\n    \"validation\": 0,\n    \"primary_treatment\": \"Transient forcing 1980\u20132018 (full available period to capture interannual variability and seasonal dynamics); native land cover and soil from gridded datasets at each column location\"\n  },\n  \"requires_capabilities\": [\n    {\n      \"capability\": \"Eddy-covariance flux tower data ingest and QA/QC pipeline\",\n      \"why\": \"User's stated validation goal is to validate ET against local flux towers, but no flux tower observations exist in the data stack.\",\n      \"blocks\": \"Direct co-located ET validation (the primary validation goal)\"\n    },\n    {\n      \"capability\": \"Gridded land cover dataset sampling (e.g., NLCD or similar)\",\n      \"why\": \"Sampling strategy stratifies by land cover class; need to query land cover at candidate column locations.\",\n      \"blocks\": \"Land cover stratification and column placement\"\n    },\n    {\n      \"capability\": \"Gridded soil texture/drainage class dataset sampling (e.g., SSURGO, gNATSGO)\",\n      \"why\": \"Sampling strategy stratifies by soil drainage class; need to query soil properties at candidate locations.\",\n      \"blocks\": \"Soil stratification and column placement\"\n    },\n    {\n      \"capability\": \"DEM-derived topographic position index (upland vs lowland)\",\n      \"why\": \"Placement logic uses topographic position to guide soil-class sampling (upland well-drained vs lowland poorly-drained).\",\n      \"blocks\": \"Refined placement within soil strata\"\n    },\n    {\n      \"capability\": \"USGS well observation ingest and co-location with ELM columns\",\n      \"why\": \"Water table validation requires well data and spatial matching to column locations.\",\n      \"blocks\": \"Water table depth validation (the only feasible direct validation)\"\n    },\n    {\n      \"capability\": \"Runoff routing and basin aggregation\",\n      \"why\": \"USGS streamflow gauges measure basin-integrated flow; ELM produces point runoff. Aggregation requires routing.\",\n      \"blocks\": \"Streamflow validation (indirect water-balance constraint)\"\n    },\n    {\n      \"capability\": \"ELM water table depth output (ZWT or equivalent)\",\n      \"why\": \"Need to output water table depth for validation against USGS wells; may not be in default history fields.\",\n      \"blocks\": \"Water table validation if not in default output\"\n    }\n  ],\n  \"assumptions\": [\n    \"Land cover classes in the Passaic basin include deciduous forest, developed (urban/suburban), and wetlands as dominant types (requires confirmation from NLCD or similar dataset).\",\n    \"Soil drainage classes can be derived from SSURGO or gNATSGO hydrologic soil groups or texture classes.\",\n    \"USGS well density in the basin is sufficient (5\u201315 wells) for meaningful water table validation; actual count unknown.\",\n    \"Forcing is spatially uniform across the basin (no elevation downscaling), so elevation effects are limited to topographic position (soil moisture redistribution), not climate gradients.\",\n    \"ELM single-column mode with appropriate surface datasets (fsurdat with correct land cover, soil parameters) can represent the land cover and soil heterogeneity.\",\n    \"Transient forcing 1980\u20132018 captures representative seasonal and interannual ET variability.\",\n    \"No model spin-up is specified; assume ELM will be spun up to equilibrium soil moisture and vegetation state before the analysis period.\"\n  ],\n  \"open_questions\": [\n    \"Are eddy-covariance flux tower data available from nearby regions (e.g., AmeriFlux Mid-Atlantic sites) for analog-site validation, or is the user willing to accept water table / streamflow validation as indirect constraints?\",\n    \"What is the actual USGS well density in the Passaic basin, and are the wells screened at depths relevant to ELM's water table simulation?\",\n    \"Does the user prioritize seasonal ET dynamics (monthly/seasonal means) or event-scale dynamics (daily)? This affects forcing temporal resolution and output frequency.\",\n    \"Is there interest in ET partitioning (transpiration vs soil evaporation vs canopy interception) or just total ET?\",\n    \"Should the design include sensitivity to forcing period (e.g., wet vs dry years) to assess interannual variability, or is the full 1980\u20132018 transient run sufficient?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: Characterize seasonal ET dynamics and spatial variability across land cover and soil types in the Passaic basin",
+        "Validation: Validate ET against local eddy-covariance flux towers (user-stated goal)"
+      ],
+      "key_processes": [
+        "Evapotranspiration partitioning (transpiration, soil evaporation, canopy interception)",
+        "Seasonal ET dynamics driven by phenology, soil moisture availability, and atmospheric demand",
+        "Land cover control on ET magnitude and timing (forest vs developed vs wetland)",
+        "Soil texture control on moisture availability and dry-season stress"
+      ],
+      "drivers_to_resolve": [
+        "land_cover",
+        "soil_texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM can simulate ET partitioning and seasonal dynamics at stratified locations across the basin's land cover and soil heterogeneity. Site archetype is appropriate for spatial sampling and validation against observations.",
+      "coupling_needed": false,
+      "coupling_note": null
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Mechanistic characterization of seasonal ET dynamics across land cover and soil types (ELM can simulate ET partitioning, phenology, soil moisture stress)",
+        "Spatial variability in ET driven by land cover (vegetation type, LAI, rooting depth) and soil texture (moisture availability)",
+        "Process validation of water table depth against USGS wells (indirect constraint on root-zone moisture and ET)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Direct validation of ET against eddy-covariance flux towers",
+          "why": "No eddy-covariance flux tower observations exist in the data stack (observations_missing). Co-located ET validation is impossible.",
+          "needs": "Eddy-covariance flux tower data ingest and QA/QC pipeline"
+        },
+        {
+          "aspect": "Validation of basin-scale water balance via streamflow",
+          "why": "USGS streamflow gauges are available, but ELM single-column produces point runoff. Basin aggregation requires runoff routing (not implemented).",
+          "needs": "Runoff routing and basin aggregation capability"
+        },
+        {
+          "aspect": "Elevation/climate gradient effects on ET",
+          "why": "Elevation range is 3\u2013390 m, but forcing is spatially uniform (no elevation downscaling). Elevation cannot isolate a climate/temperature effect; only topographic position (via soil) is weakly represented.",
+          "needs": "Elevation-downscaled meteorological forcing"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified by land cover \u00d7 soil texture",
+      "strata": [
+        {
+          "driver": "land_cover",
+          "bands": [
+            "deciduous_forest",
+            "developed_urban_suburban",
+            "wetland"
+          ]
+        },
+        {
+          "driver": "soil_texture",
+          "classes": [
+            "well_drained_upland (loam/sandy loam)",
+            "moderately_drained (silt loam)",
+            "poorly_drained_lowland (clay/organic)"
+          ]
+        }
+      ],
+      "n_exploratory": 15,
+      "n_justification": "3 land cover classes \u00d7 3 soil drainage classes = 9 strata. Light replication (~1.5\u20132 per stratum) for robustness and coverage of within-stratum variability yields ~15 exploratory columns. This resolves the primary drivers (land cover, soil) without oversampling, given that validation is limited.",
+      "placement_logic": "Concentrate columns in representative landscape positions for each land cover\u2013soil combination: upland forests on well-drained soils (ridges/slopes), valley/riparian forests on poorly-drained soils, developed areas on mixed soils (suburban matrix), wetlands in lowland/floodplain positions. Avoid isolated patches or edge cases. Use DEM-derived topographic position (upland vs lowland) to guide placement within soil classes.",
+      "replication": "Light replication (~2 per stratum) to capture within-stratum variability and provide robustness against outlier locations or data artifacts."
+    },
+    "sampling_plan": [
+      {
+        "group": "upland_forest_well_drained",
+        "n": 2,
+        "reason": "Isolates deciduous forest ET on well-drained upland soils (high transpiration, minimal moisture stress)"
+      },
+      {
+        "group": "upland_forest_moderate_drained",
+        "n": 2,
+        "reason": "Deciduous forest on moderately-drained soils (intermediate moisture availability, seasonal stress)"
+      },
+      {
+        "group": "lowland_forest_poorly_drained",
+        "n": 2,
+        "reason": "Riparian/valley forest on poorly-drained soils (high moisture, potential saturation effects on ET)"
+      },
+      {
+        "group": "developed_well_drained",
+        "n": 2,
+        "reason": "Urban/suburban land cover on well-drained soils (reduced transpiration, increased impervious fraction)"
+      },
+      {
+        "group": "developed_moderate_drained",
+        "n": 1,
+        "reason": "Developed areas on moderate soils (mixed pervious/impervious, intermediate ET)"
+      },
+      {
+        "group": "developed_poorly_drained",
+        "n": 1,
+        "reason": "Developed lowlands (potential drainage modification, reduced ET from impervious surfaces)"
+      },
+      {
+        "group": "wetland_poorly_drained",
+        "n": 3,
+        "reason": "Wetlands on poorly-drained/organic soils (high ET when wet, potential for saturation-excess conditions)"
+      },
+      {
+        "group": "wetland_moderate_drained",
+        "n": 2,
+        "reason": "Transitional wetlands on moderately-drained soils (seasonal wetness, variable ET dynamics)"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "evapotranspiration (ET)",
+        "observation_source": "eddy-covariance flux towers",
+        "in_domain_available": false,
+        "comparison": "NOT POSSIBLE \u2014 no flux tower data in stack",
+        "metric": "N/A",
+        "n_validation_points": "0 (observations missing)"
+      },
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells",
+        "in_domain_available": true,
+        "comparison": "co-located (wells pinned to observation locations) \u2014 indirect process constraint on root-zone moisture availability and ET stress",
+        "metric": "bias, RMSE, seasonal correlation",
+        "n_validation_points": "unknown \u2014 depends on USGS well density in basin; likely 5\u201315 wells"
+      },
+      {
+        "target_variable": "streamflow (basin water balance)",
+        "observation_source": "USGS gauges",
+        "in_domain_available": true,
+        "comparison": "aggregated (requires routing point runoff to basin outlet) \u2014 indirect constraint on total water partitioning (P - ET - \u0394S \u2248 Q)",
+        "metric": "monthly flow bias, NSE",
+        "n_validation_points": "1\u20133 gauges (basin outlet + potential sub-basins)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 15,
+      "exploratory": 15,
+      "validation": 0,
+      "primary_treatment": "Transient forcing 1980\u20132018 (full available period to capture interannual variability and seasonal dynamics); native land cover and soil from gridded datasets at each column location"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "Eddy-covariance flux tower data ingest and QA/QC pipeline",
+        "why": "User's stated validation goal is to validate ET against local flux towers, but no flux tower observations exist in the data stack.",
+        "blocks": "Direct co-located ET validation (the primary validation goal)"
+      },
+      {
+        "capability": "Gridded land cover dataset sampling (e.g., NLCD or similar)",
+        "why": "Sampling strategy stratifies by land cover class; need to query land cover at candidate column locations.",
+        "blocks": "Land cover stratification and column placement"
+      },
+      {
+        "capability": "Gridded soil texture/drainage class dataset sampling (e.g., SSURGO, gNATSGO)",
+        "why": "Sampling strategy stratifies by soil drainage class; need to query soil properties at candidate locations.",
+        "blocks": "Soil stratification and column placement"
+      },
+      {
+        "capability": "DEM-derived topographic position index (upland vs lowland)",
+        "why": "Placement logic uses topographic position to guide soil-class sampling (upland well-drained vs lowland poorly-drained).",
+        "blocks": "Refined placement within soil strata"
+      },
+      {
+        "capability": "USGS well observation ingest and co-location with ELM columns",
+        "why": "Water table validation requires well data and spatial matching to column locations.",
+        "blocks": "Water table depth validation (the only feasible direct validation)"
+      },
+      {
+        "capability": "Runoff routing and basin aggregation",
+        "why": "USGS streamflow gauges measure basin-integrated flow; ELM produces point runoff. Aggregation requires routing.",
+        "blocks": "Streamflow validation (indirect water-balance constraint)"
+      },
+      {
+        "capability": "ELM water table depth output (ZWT or equivalent)",
+        "why": "Need to output water table depth for validation against USGS wells; may not be in default history fields.",
+        "blocks": "Water table validation if not in default output"
+      }
+    ],
+    "assumptions": [
+      "Land cover classes in the Passaic basin include deciduous forest, developed (urban/suburban), and wetlands as dominant types (requires confirmation from NLCD or similar dataset).",
+      "Soil drainage classes can be derived from SSURGO or gNATSGO hydrologic soil groups or texture classes.",
+      "USGS well density in the basin is sufficient (5\u201315 wells) for meaningful water table validation; actual count unknown.",
+      "Forcing is spatially uniform across the basin (no elevation downscaling), so elevation effects are limited to topographic position (soil moisture redistribution), not climate gradients.",
+      "ELM single-column mode with appropriate surface datasets (fsurdat with correct land cover, soil parameters) can represent the land cover and soil heterogeneity.",
+      "Transient forcing 1980\u20132018 captures representative seasonal and interannual ET variability.",
+      "No model spin-up is specified; assume ELM will be spun up to equilibrium soil moisture and vegetation state before the analysis period."
+    ],
+    "open_questions": [
+      "Are eddy-covariance flux tower data available from nearby regions (e.g., AmeriFlux Mid-Atlantic sites) for analog-site validation, or is the user willing to accept water table / streamflow validation as indirect constraints?",
+      "What is the actual USGS well density in the Passaic basin, and are the wells screened at depths relevant to ELM's water table simulation?",
+      "Does the user prioritize seasonal ET dynamics (monthly/seasonal means) or event-scale dynamics (daily)? This affects forcing temporal resolution and output frequency.",
+      "Is there interest in ET partitioning (transpiration vs soil evaporation vs canopy interception) or just total ET?",
+      "Should the design include sensitivity to forcing period (e.g., wet vs dry years) to assess interannual variability, or is the full 1980\u20132018 transient run sufficient?"
+    ]
+  },
+  "model_reported": "claude-sonnet-4-5-20250929-v1-project"
+}
