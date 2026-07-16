@@ -52,28 +52,39 @@ BATCH_SENTINEL = ("(non-interactive — no human available; use your best "
 
 
 def _open_tty():
-    """Open the controlling terminal for prompting, or return (None, reason).
+    """Return (readable_terminal_stream, reason) for prompting the human.
 
     Must be called ONCE at startup, before any MCP call: each MCP tool call
     runs asyncio.run() which spawns a server subprocess and tears down the
     event loop, and that churn makes a later open('/dev/tty') fail with ENXIO
-    even though it was openable at startup. We grab the handle early and hold
-    it. fd 0 is not usable here either — the same subprocesses leave it at EOF.
+    even though it was openable at startup. So we grab a terminal stream early
+    and hold it. Two sources, in order:
+      1. a fresh open of /dev/tty (works when this process has a controlling
+         terminal — the direct `python run_pipeline.py` case);
+      2. fd 0, when a caller already connected it to the terminal (the shell
+         wrapper runs us with `< /dev/tty`). An inherited, already-open fd
+         survives the churn even when re-opening /dev/tty would not.
     """
     try:
         return open("/dev/tty", "r+"), None
     except OSError as e:
-        return None, repr(e)
+        reason = repr(e)
+    try:
+        if sys.stdin is not None and sys.stdin.isatty():
+            return sys.stdin, None
+    except (OSError, ValueError):
+        pass
+    return None, reason
 
 
 def _human_answer(question: str, tty, interactive: bool) -> Dict[str, Any]:
-    """Prompt the human on the pre-opened tty, else return the batch sentinel."""
+    """Prompt the human on the pre-opened terminal, else the batch sentinel."""
     print(f"\n  ❓ {question}")
     if interactive and tty is not None:
         try:
-            tty.write("  your answer> ")
-            tty.flush()
-            line = tty.readline()          # '' only on real EOF (Ctrl-D)
+            sys.stderr.write("  your answer> ")   # prompt to stderr (works for
+            sys.stderr.flush()                     # both /dev/tty and fd 0)
+            line = tty.readline()                  # '' only on real EOF (Ctrl-D)
             if line:
                 return {"answer": line.strip() or "(no answer given)"}
             print("  (end of input — using best-judgment fallback)")

@@ -57,7 +57,6 @@ while [ "${1:-}" ]; do
     esac
 done
 Q="${1:-}"
-[ -n "$Q" ] || { echo "usage: $0 [--execute] [--yes] \"<question with HUC8 ...>\""; exit 1; }
 
 # A controlling terminal enables interactive clarification + the gate by
 # default; --yes turns both off. Test /dev/tty is openable (not just [ -t 0 ]):
@@ -67,11 +66,27 @@ if { : < /dev/tty; } 2>/dev/null; then HAVE_TTY=1; fi
 if [ -z "$YES" ] && [ -n "$HAVE_TTY" ]; then INTERACTIVE="--interactive"; fi
 if [ -n "$YES" ]; then INTERACTIVE=""; fi
 
+# No question on the command line? Ask for it (needs a terminal).
+if [ -z "$Q" ]; then
+    if [ -n "$HAVE_TTY" ]; then
+        echo "Enter your scientific question (one line, then Enter):"
+        IFS= read -r Q < /dev/tty
+    fi
+    [ -n "$Q" ] || { echo "usage: $0 [--execute] [--yes] \"<question ...>\""; exit 1; }
+fi
+
 RD="workflow_outputs/pipeline_$(date +%Y%m%d_%H%M%S)"
 echo "==> run dir: $RD"
 
 echo "==> [1/6] plan (reception -> planner)"
-$PY tools/run_pipeline.py $INTERACTIVE --out "$RD" "$Q"
+# Connect the pipeline's stdin to the terminal so reception's clarifying
+# questions can read your answer (the MCP subprocess churn breaks a later
+# re-open of /dev/tty, so we hand it a real terminal fd from the start).
+if [ -n "$HAVE_TTY" ]; then
+    $PY tools/run_pipeline.py $INTERACTIVE --out "$RD" "$Q" < /dev/tty
+else
+    $PY tools/run_pipeline.py $INTERACTIVE --out "$RD" "$Q"
+fi
 if [ ! -f "$RD/plan.json" ]; then
     echo ""
     echo "✗ no plan.json — reception did not return a runnable site design"
