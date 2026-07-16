@@ -25,6 +25,7 @@ from pathlib import Path
 warnings.filterwarnings("ignore")          # quiet xarray/netCDF futurewarnings
 sys.path.insert(0, "src")
 from core.elm_results_analyzer import ELMResultsAnalyzer
+from core.limitations import select_limitations
 
 
 def soil_features(sp):
@@ -419,6 +420,22 @@ def main():
     print(f"analyzing {len(exps)} column(s) from {run_dir}")
 
     az = ELMResultsAnalyzer(exps, str(analysis_dir), last_year_only=args.last_year)
+    # honesty payload: run-config facts -> applicable limitations + ledger
+    rp = json.load(open(run_dir / args.plan_file)) if (run_dir / args.plan_file).exists() else {}
+    ccs = rp.get("CONDITIONS_COUPLERS") or [{}]
+    _y0 = int(ccs[0].get("DATM_CLMNCEP_YR_START", 1995) or 1995)
+    _y1 = int(ccs[0].get("DATM_CLMNCEP_YR_END", _y0) or _y0)
+    _warm = any(cc.get("FINIDAT") for cc in ccs)
+    _forcing = ((run_dir / "forcing.txt").read_text().strip()
+                if (run_dir / "forcing.txt").exists() else "nldas")
+    honesty = {
+        "limitations": select_limitations(
+            n_years=_y1 - _y0 + 1, warm_start=_warm, forcing=_forcing,
+            spinup_years=(_y1 - _y0) if args.last_year else 0),
+        "assumptions_ledger": (json.loads((run_dir / "assumptions.json").read_text())
+                               if (run_dir / "assumptions.json").exists() else []),
+    }
+    az.extra_summary = honesty
     az.extract_all()
     spatial = az._compute_spatial_summary()
     soil = az._compute_soil_attribution()

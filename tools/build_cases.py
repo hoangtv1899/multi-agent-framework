@@ -69,6 +69,12 @@ def main():
     (out / "forcing.txt").write_text(
         "NLDAS-2 (0.125°, ~12 km)" if args.forcing == "nldas"
         else "CLM_QIAN (Qian 2006, T62 ≈ 1.9°)")
+    ledger = list(plan.get("assumptions_ledger") or [])
+    ledger.append({"parameter": "met forcing",
+                   "value": "NLDAS-2 0.125°" if args.forcing == "nldas" else "Qian T62",
+                   "source": "DEFAULT" if args.forcing == "nldas" else "user",
+                   "note": "NLDAS-2 is the framework default for CONUS"})
+    (out / "assumptions.json").write_text(json.dumps(ledger, indent=2))
     exe = str(Path(args.ref) / "build" / "e3sm.exe")
     (out / "exe_path.txt").write_text(exe)
     print(f"\n{len(ok)}/{len(exps)} cloned -> {out / 'cases.json'}\nshared exe: {exe}")

@@ -88,6 +88,9 @@ class ELMResultsAnalyzer:
         # spin-up runs: analyze only the final full simulated year, so the
         # science year is not averaged together with the equilibration years
         self.last_year_only = last_year_only
+        # extra top-level fields merged into hydro_summary.json at save time
+        # (e.g. the assumptions ledger + limitations honesty payload)
+        self.extra_summary: Dict[str, Any] = {}
         self.results: Dict[str, Dict] = {}
         self.logger = logging.getLogger(__name__)
 
@@ -699,6 +702,7 @@ class ELMResultsAnalyzer:
                     'soil_attribution': self._compute_soil_attribution(),
                     'driver_matrix':    self._compute_driver_matrix(),
                     'units':            VARIABLE_UNITS,
+                    **self.extra_summary,
                 },
                 f, indent=2, default=str
             )

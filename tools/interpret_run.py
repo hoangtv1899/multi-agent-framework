@@ -31,6 +31,11 @@ Rules:
 - Reason only from the numbers given; cite them; never invent values.
 - Be mechanistic but brief (why clay impedes recharge in <=1 line) — no lecturing.
 - State the SINGLE most important caveat, not every limitation.
+- The payload includes an assumptions_ledger (source-tagged) and a limitations
+  catalog (structural vs configuration). In **Trust** you MUST name the most
+  consequential configuration limitation, and flag any DEFAULT-sourced
+  assumption that could plausibly change the answer (e.g. simulation period,
+  initialization). Do not list them all — pick what matters.
 - No throat-clearing, no restating the setup.
 
 Output MARKDOWN, UNDER 180 WORDS, exactly these four sections:
@@ -77,6 +82,8 @@ def main():
     plan = load(rd / "plan.json")
     val = load(rd / "04_analysis" / "validation.json")
     payload = {
+        "assumptions_ledger": hs.get("assumptions_ledger"),
+        "limitations": hs.get("limitations"),
         "question": brief.get("user_request") or "(controlled experiment — see design)",
         "domain": brief.get("domain"),
         "design": {"goals": (plan.get("scientific_decomposition") or {}).get("goals"),

@@ -202,6 +202,8 @@ def gather(rd: Path):
             "reasons": reasons, "execution": exec_summary(rd), "interp": interp,
             "evaluation": evaluation, "column_rows": rows,
             "forcing": forcing_label(rd),
+            "ledger": hs.get("assumptions_ledger") or [],
+            "limitations": hs.get("limitations") or {},
             "driver_matrix": hs.get("driver_matrix"),
             "plan_figs": figs, "result_figs": rfigs,
             "n_cols": len(ok),
@@ -396,6 +398,26 @@ def study_slides(prs, s, idx):
                 cell.text = v
                 pr = cell.text_frame.paragraphs[0]
                 pr.font.size = Pt(15); pr.font.bold = (r == 0 or c == 0)
+
+    # 4b · assumptions & scope — the honesty slide (ledger + limitations)
+    if s.get("ledger") or s.get("limitations"):
+        sl = blank(prs)
+        header(sl, f"{s['name']} — assumptions & scope",
+               "every load-bearing choice, source-tagged · what these results can and cannot claim")
+        left = [("Assumptions (source-tagged)", "")]
+        for a in s.get("ledger") or []:
+            tag = f"[{a.get('source', '?')}]"
+            left.append((f"{a.get('parameter')} = {a.get('value')}  {tag}",
+                         a.get("note") or ""))
+        text(sl, Inches(.5), Inches(1.35), Inches(6.3), Inches(5.9), left, size=11)
+        lim = s.get("limitations") or {}
+        right = [("Structural limits — the 1-D model class (reruns cannot fix)", "")]
+        for x in lim.get("structural") or []:
+            right.append("•  " + x.get("applies_to", "") + ": " + x.get("caveat", ""))
+        right.append(("This run's configuration limits (fixable by rerunning)", ""))
+        for x in lim.get("configuration") or []:
+            right.append("•  " + x.get("applies_to", "") + ": " + x.get("caveat", ""))
+        text(sl, Inches(7.0), Inches(1.35), Inches(5.9), Inches(5.9), right, size=10)
 
     # 5 · analyzer interpretation
     sl = blank(prs)

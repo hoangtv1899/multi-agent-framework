@@ -73,6 +73,36 @@ def main():
             m = fmap.get(cc["EXPERIMENT"])
             if m:
                 cc["FINIDAT"] = m["finidat"] if isinstance(m, dict) else m
+
+    # assumptions ledger — every load-bearing choice, tagged user vs default,
+    # so silent defaults cannot hide (surfaced by the deck + interpreter)
+    dflt = {a.dest: a.default for a in ap._actions}
+    src = lambda d: "user" if getattr(args, d) != dflt.get(d) else "DEFAULT"
+    n_years = args.yr_end - args.yr_start + 1
+    plan["assumptions_ledger"] = [
+        {"parameter": "simulation period", "value": f"{args.yr_start}-{args.yr_end}",
+         "source": ("user" if (src("yr_start") == "user" or src("yr_end") == "user")
+                    else "DEFAULT"),
+         "note": "science year = last simulated year; the year's climatic "
+                 "percentile is not characterized"},
+        {"parameter": "spin-up", "value": (f"{n_years - 1} yr (in-run)" if n_years > 1
+                                           else "none"),
+         "source": "derived", "note": "recharge/storage terms are transient "
+                                      "without >=3 spin-up years"},
+        {"parameter": "initialization",
+         "value": ("Fan-2013 warm start (finidat)" if args.finidat_map
+                   else "cold start (uniform ELM default)"),
+         "source": "user" if args.finidat_map else "DEFAULT",
+         "note": "initial water table controls recharge sign in 1-yr runs"},
+        {"parameter": "soil configuration", "value": args.soil_config,
+         "source": src("soil_config"), "note": f"substrate={args.substrate}"},
+        {"parameter": "forcing period class", "value": args.forcing_period,
+         "source": src("forcing_period"), "note": ""},
+        {"parameter": "N (columns)", "value": len(cols),
+         "source": ("user" if args.limit else "planner/expander"),
+         "note": "materialized by the deterministic expander from the "
+                 "planner's stratification"},
+    ]
     out = Path(args.out) if args.out else Path(args.columns).with_name("elm_plan.json")
     out.write_text(json.dumps(plan, indent=2))
     print(f"{len(plan['CONDITIONS_COUPLERS'])} columns -> {out}")
