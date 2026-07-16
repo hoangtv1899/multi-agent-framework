@@ -134,7 +134,7 @@ def main():
     fig.suptitle("ELM → PFLOTRAN one-way coupling — each column forced by its own "
                  "ELM daily infiltration (warm-started NLDAS year)", fontweight="bold")
     fig.tight_layout()
-    fig.savefig(rd / "pflotran_coupled.png", dpi=150, bbox_inches="tight")
+    fig.savefig(rd / "pflotran_coupled.png", dpi=300, bbox_inches="tight")
     print(f"\n   ✓ figure: {rd / 'pflotran_coupled.png'}")
 
     lags = [r["lag_days"] for r in ok]

@@ -84,7 +84,7 @@ def main():
                  f"{'/'.join(f'{r:.0f}' for r in rates)} mm/yr (uniform, steady)",
                  fontweight="bold")
     fig.tight_layout()
-    fig.savefig(sd / "pflotran_scenarios.png", dpi=150, bbox_inches="tight")
+    fig.savefig(sd / "pflotran_scenarios.png", dpi=300, bbox_inches="tight")
 
     # driver -> response relations grid (the ELM-style figure, PFLOTRAN edition)
     rel_facts = []
@@ -138,7 +138,7 @@ def main():
         figR.suptitle("PFLOTRAN driver → response relations (uniform forcing — "
                       "controls are the water table and the soil)", fontweight="bold", y=1.0)
         figR.tight_layout()
-        figR.savefig(sd / "pflotran_relations.png", dpi=150, bbox_inches="tight")
+        figR.savefig(sd / "pflotran_relations.png", dpi=300, bbox_inches="tight")
         print(f"✓ {sd}/pflotran_relations.png")
 
     # deterministic interpretation — facts only, no LLM

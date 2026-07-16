@@ -264,6 +264,44 @@ def plot_columns(res, out_path, forcing_year=None):
         a.set_aspect(1.0 / max(np.cos(np.radians(mlat)), 1e-3))
     a.set_title("Sample points over domain (terrain + watershed)")
     a.set_xlabel("lon"); a.set_ylabel("lat")
+
+    # scale bar + north arrow (publication map furniture)
+    if bbox:
+        import math
+        mlat = (bbox["min_lat"] + bbox["max_lat"]) / 2
+        km_per_deg = 111.32 * math.cos(math.radians(mlat))
+        bar_km = 20
+        bar_deg = bar_km / km_per_deg
+        x0 = bbox["min_lon"] + 0.05 * (bbox["max_lon"] - bbox["min_lon"])
+        y0 = bbox["min_lat"] + 0.045 * (bbox["max_lat"] - bbox["min_lat"])
+        a.plot([x0, x0 + bar_deg], [y0, y0], color="k", lw=2.5,
+               solid_capstyle="butt", zorder=6)
+        a.text(x0 + bar_deg / 2, y0 + 0.012, f"{bar_km} km", ha="center",
+               fontsize=7.5, zorder=6)
+        xn = bbox["min_lon"] + 0.07 * (bbox["max_lon"] - bbox["min_lon"])
+        yn = bbox["max_lat"] - 0.12 * (bbox["max_lat"] - bbox["min_lat"])
+        a.annotate("N", xy=(xn, yn + 0.05), xytext=(xn, yn), zorder=6,
+                   ha="center", fontsize=9, fontweight="bold",
+                   arrowprops=dict(arrowstyle="-|>", color="k", lw=1.5))
+
+    # locator inset (cartopy, optional — skipped gracefully if unavailable)
+    if bbox:
+        try:
+            import cartopy.crs as ccrs
+            import cartopy.feature as cfeature
+            ins = a.inset_axes([0.72, 0.02, 0.27, 0.27],
+                               projection=ccrs.PlateCarree())
+            ins.set_extent([-125, -110, 41, 50], crs=ccrs.PlateCarree())
+            ins.add_feature(cfeature.STATES.with_scale("50m"),
+                            edgecolor="0.5", linewidth=.4, facecolor="0.95")
+            ins.add_feature(cfeature.COASTLINE.with_scale("50m"), linewidth=.5)
+            ins.plot([bbox["min_lon"], bbox["max_lon"], bbox["max_lon"],
+                      bbox["min_lon"], bbox["min_lon"]],
+                     [bbox["min_lat"], bbox["min_lat"], bbox["max_lat"],
+                      bbox["max_lat"], bbox["min_lat"]],
+                     color="#b91c1c", lw=1.2, transform=ccrs.PlateCarree())
+        except Exception as e:
+            print(f"  (locator inset skipped: {str(e)[:60]})")
     a.legend(handles=[plt.Line2D([], [], marker="o", ls="", color=bcolor(b["band"]),
                                  markeredgecolor="white",
                                  label=f"band {b['band']}: {b['elev_lo_m']}-{b['elev_hi_m']} m")
@@ -357,7 +395,7 @@ def plot_columns(res, out_path, forcing_year=None):
         a.set_title("Forcing sampled (NLDAS)")
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
-    fig.savefig(out_path, dpi=130)
+    fig.savefig(out_path, dpi=300)
     plt.close(fig)
     return out_path
 

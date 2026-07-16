@@ -134,9 +134,15 @@ def plot_gradient(spatial, out_path, basin="Spatial ensemble"):
     frac = np.array([r["recharge_fraction"] for r in rows], float)
 
     bins = spatial["forcing"]["precip_mm_yr_distinct"]
-    palette = ["#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a"]
-    cmap = {b: palette[i % len(palette)] for i, b in enumerate(bins)}
-    cols = [cmap.get(round(pi), "#999999") if not np.isnan(pi) else "#999999" for pi in p]
+    many_bins = len(bins) > 6
+    if many_bins:                       # continuous forcing -> colorbar, not a legend
+        import matplotlib.cm as mcm
+        norm = plt.Normalize(min(bins), max(bins))
+        cols = [mcm.viridis(norm(pi)) if not np.isnan(pi) else "#999999" for pi in p]
+    else:
+        palette = ["#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a"]
+        cmap = {b: palette[i % len(palette)] for i, b in enumerate(bins)}
+        cols = [cmap.get(round(pi), "#999999") if not np.isnan(pi) else "#999999" for pi in p]
 
     fig, ax = plt.subplots(1, 3, figsize=(12.6, 3.9))
     ax[0].scatter(e, rech, c=cols, s=60, edgecolor="#222", zorder=3)
@@ -152,15 +158,20 @@ def plot_gradient(spatial, out_path, basin="Spatial ensemble"):
     ax[2].set_title("Recharge fraction vs elevation", fontweight="bold")
     ax[2].set_xlabel("elevation (m)"); ax[2].set_ylabel("recharge fraction"); ax[2].set_ylim(0, 1)
 
-    handles = [Line2D([0], [0], marker="o", ls="", mfc=cmap[b], mec="#222",
-                      label=f"{b} mm/yr") for b in bins]
-    ax[1].legend(handles=handles, title="forcing bin", frameon=False, fontsize=8)
+    if many_bins:
+        import matplotlib.cm as mcm
+        fig.colorbar(mcm.ScalarMappable(norm=norm, cmap="viridis"), ax=ax[1],
+                     label="forcing precip (mm/yr)", shrink=.85)
+    else:
+        handles = [Line2D([0], [0], marker="o", ls="", mfc=cmap[b], mec="#222",
+                          label=f"{b} mm/yr") for b in bins]
+        ax[1].legend(handles=handles, title="forcing bin", frameon=False, fontsize=8)
     for a in ax:
         a.spines[["top", "right"]].set_visible(False); a.grid(alpha=.25)
     fig.suptitle(f"{basin} — recharge is forcing/soil-controlled, "
                  "not a smooth elevation gradient", fontweight="bold", y=1.03)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"\n   ✓ figure: {out_path}")
 
 
@@ -217,7 +228,7 @@ def plot_soil(soil, out_path):
     fig.suptitle(f"Soil control on recharge — forcing held at "
                  f"{soil['forcing_held_mm_yr']} mm/yr", fontweight="bold", y=1.03)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"   ✓ soil figure: {out_path}")
 
 
@@ -268,7 +279,7 @@ def plot_budget(results, out_path):
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(alpha=.25, axis="y")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"   ✓ budget figure: {out_path}")
     return True
 
@@ -325,7 +336,7 @@ def plot_relations(results, out_path):
     fig.suptitle("Driver → response relations (each point = one column)",
                  fontweight="bold", y=1.0)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"   ✓ relations figure: {out_path}")
     return True
 
@@ -379,7 +390,7 @@ def plot_wtd(results, run_dir, out_path):
     ax.legend(frameon=False, fontsize=9)
     ax.grid(alpha=.25); ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"   ✓ WTD figure: {out_path}")
     return True
 

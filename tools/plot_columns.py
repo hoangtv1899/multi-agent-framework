@@ -104,7 +104,7 @@ def plot_surfaces(cases, out_path):
     fig.suptitle("Per-column soil — verify each column got a distinct profile",
                  fontweight="bold", y=1.0)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"   ✓ {out_path}")
     if mismatches:
         print(f"   ✗ {mismatches} column(s) with surface/domain coordinate mismatch — "
@@ -163,7 +163,7 @@ def plot_timeseries(cases, out_path):
     fig.suptitle("Per-column output dynamics — verify the run is sensible",
                  fontweight="bold", y=1.0)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"   ✓ {out_path}")
 
 

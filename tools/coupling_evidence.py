@@ -168,7 +168,7 @@ def main():
                  fontweight="bold")
     fig.tight_layout()
     out = cr / "coupling_evidence.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight")
+    fig.savefig(out, dpi=300, bbox_inches="tight")
     (cr / "coupling_evidence.json").write_text(json.dumps(rows, indent=2))
     print(f"\n   ✓ {out}")
 

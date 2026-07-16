@@ -399,6 +399,10 @@ def plot_validation(val, out_path):
     ax[1].set_xticklabels(labels, fontsize=8)
     ax[1].set_ylabel("mm / yr")
     ax[1].set_title(f"Water yield vs gauges ({val['sim_year']})", fontweight="bold")
+    if not sf["gauges"]:
+        ax[1].text(.5, .55, f"no in-domain gauge had\ndaily records for {val['sim_year']}\n(context-only — needs routing)",
+                   transform=ax[1].transAxes, ha="center", fontsize=9,
+                   color="#64748b", style="italic")
 
     # 3 · peak SWE — observed stations (+ model range when the run has H2OSNO)
     swe = val["swe_context"]
@@ -414,7 +418,7 @@ def plot_validation(val, out_path):
     if mswe:
         ax[2].axhspan(min(mswe), max(mswe) + 1, color="#2c7fb8", alpha=.3,
                       label="model columns (range)")
-        ax[2].legend(frameon=False, fontsize=8)
+        ax[2].legend(frameon=False, fontsize=8, loc="upper left")
         ax[2].set_title(f"Peak SWE, WY{val['sim_year']} — model vs SNOTEL",
                         fontweight="bold", fontsize=11)
     else:
@@ -426,7 +430,7 @@ def plot_validation(val, out_path):
     fig.suptitle(f"Observation validation — {val['domain'].get('name')} "
                  f"(HUC {val['domain'].get('huc')})", fontweight="bold", y=1.02)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"   ✓ {out_path}")
 
 
@@ -437,6 +441,12 @@ def main():
                     help="case-dir list, for the daily hydrograph (default cases.json)")
     ap.add_argument("--no-plot", action="store_true")
     args = ap.parse_args()
+    if args.replot:
+        rd = Path(args.run_dir)
+        vp = rd / "04_analysis" / "validation.json"
+        val = json.loads(vp.read_text())
+        plot_validation(val, rd / "04_analysis" / "validation.png")
+        return
 
     run_dir = Path(args.run_dir)
     if not (run_dir / "04_analysis" / "hydro_summary.json").exists():

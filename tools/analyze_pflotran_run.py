@@ -117,7 +117,7 @@ def main():
         fig.suptitle(f"Standalone PFLOTRAN ensemble — recharge {sc['recharge_mm_yr']:.0f} mm/yr, "
                      f"bottom BC: {sc['bottom_bc']}", fontweight="bold")
         fig.tight_layout()
-        fig.savefig(rd / "pflotran_profiles.png", dpi=150, bbox_inches="tight")
+        fig.savefig(rd / "pflotran_profiles.png", dpi=300, bbox_inches="tight")
         print(f"\n   ✓ figure: {rd / 'pflotran_profiles.png'}")
 
 
