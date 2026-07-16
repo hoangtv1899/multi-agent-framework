@@ -21,6 +21,10 @@ class SimpleLLMClient:
             base_url = "https://ai-incubator-api.pnnl.gov",
         )
         self.model = model
+        # reproducibility knobs (None = provider default, preserves old behavior)
+        self.temperature = None
+        self.seed = None
+        self.last_response_model = None      # provider-reported model version
 
     def ask(self,
             messages:       List[Dict[str, str]],
@@ -29,10 +33,22 @@ class SimpleLLMClient:
         if system_message:
             messages = [{"role": "system",
                          "content": system_message}] + messages
-        response = self.client.chat.completions.create(
-            model    = self.model,
-            messages = messages,
-        )
+        kwargs = {"model": self.model, "messages": messages}
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        if self.seed is not None:
+            kwargs["seed"] = self.seed
+        try:
+            response = self.client.chat.completions.create(**kwargs)
+        except Exception:
+            # some gateway backends reject optional sampling params — retry bare
+            if "temperature" in kwargs or "seed" in kwargs:
+                kwargs.pop("temperature", None)
+                kwargs.pop("seed", None)
+                response = self.client.chat.completions.create(**kwargs)
+            else:
+                raise
+        self.last_response_model = getattr(response, "model", None) or self.model
         return response.choices[0].message.content
 
 

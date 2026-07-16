@@ -1,0 +1,140 @@
+{
+  "version": "1.0-preregistered",
+  "notes": "Frozen BEFORE any main-wave arm was run. Pilots (pilot=true) are excluded from all headline metrics; they exist to validate harness plumbing and scorers. expected_verdict labels: full | partial | infeasible. must_flag entries name concept GROUPS resolved by keyword lists in score_eval.py. bbox = [min_lon, min_lat, max_lon, max_lat] used for coordinate-validity scoring.",
+  "prompts": [
+    {
+      "id": "P01", "pilot": true, "archetype": "site", "determinism": false,
+      "question": "How does the Naches sub-watershed partition incoming water between runoff and recharge? Use a handful of representative columns.",
+      "expected_verdict": "full", "must_flag": [], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["USGS wells (WTD)", "SNOTEL SWE (6 stations)", "USGS stream gauges"], "observations_missing": ["flux towers"], "candidate_drivers": ["elevation", "soil texture"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "P02", "pilot": true, "archetype": "site", "determinism": false,
+      "question": "Map the regional water table of the Naches including lateral groundwater flow from hillslopes to the valley aquifer, and quantify inter-column exchange fluxes.",
+      "expected_verdict": "infeasible", "must_flag": ["lateral"], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["USGS wells (WTD)"], "observations_missing": [], "candidate_drivers": ["topography"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+
+    {
+      "id": "S01", "pilot": false, "archetype": "site", "determinism": true,
+      "question": "Quantify the partitioning of precipitation into runoff, ET, and recharge across the Naches sub-watershed (HUC8 17030002), and validate against available observations.",
+      "expected_verdict": "full", "must_flag": [], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["USGS wells (WTD)", "SNOTEL SWE (6 stations)", "USGS stream gauges (93; daily records sparse)"], "observations_missing": ["flux towers"], "candidate_drivers": ["elevation", "soil texture", "forcing"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S02", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "How does peak snow water equivalent vary across the elevation gradient of the Wenatchee basin, and how well does the model match SNOTEL observations?",
+      "expected_verdict": "full", "must_flag": [], "trap": null,
+      "brief": {"domain": {"name": "Wenatchee", "huc": "17020011", "bbox": [-121.2, 47.3, -120.2, 48.0], "elevation_range_m": {"min": 187, "max": 2870}}, "observations_available": ["SNOTEL SWE (5 stations)"], "observations_missing": ["dense snow courses"], "candidate_drivers": ["elevation"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S03", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "In the Upper Iowa River basin, how strongly does soil texture control sub-surface drainage across the agricultural landscape?",
+      "expected_verdict": "full", "must_flag": [], "trap": null,
+      "brief": {"domain": {"name": "Upper Iowa", "huc": "07060002", "bbox": [-92.6, 43.2, -91.2, 43.7], "elevation_range_m": {"min": 260, "max": 420}}, "observations_available": ["USGS wells (sparse)"], "observations_missing": ["tile-drain flow data"], "candidate_drivers": ["soil texture"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S04", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Contrast water partitioning in the Salt River headwaters (Arizona) between a wet year (1993) and a dry year (2002).",
+      "expected_verdict": "full", "must_flag": [], "trap": null,
+      "brief": {"domain": {"name": "Salt River headwaters", "huc": "15060103", "bbox": [-110.8, 33.4, -109.5, 34.2], "elevation_range_m": {"min": 900, "max": 3300}}, "observations_available": ["USGS stream gauges"], "observations_missing": ["SNOTEL (sparse)"], "candidate_drivers": ["forcing period", "elevation"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S05", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Determine how elevation controls the day-of-year of snowmelt onset at each individual SNOTEL station location in the Naches, resolving the local lapse rate between stations on the same ridge.",
+      "expected_verdict": "partial", "must_flag": ["downscaled"], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["SNOTEL SWE (6 stations, some <12 km apart)"], "observations_missing": [], "candidate_drivers": ["elevation"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S06", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "What is the true steady-state annual recharge reaching the deep water table across the Naches?",
+      "expected_verdict": "partial", "must_flag": ["spinup"], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["USGS wells (WTD)", "Fan 2013 WTD prior"], "observations_missing": ["recharge measurements"], "candidate_drivers": ["soil", "forcing"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S07", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Reproduce the daily streamflow hydrograph at the American River gauge in the Naches and report NSE.",
+      "expected_verdict": "partial", "must_flag": ["routing"], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["USGS gauge: American River nr Nile (daily)"], "observations_missing": [], "candidate_drivers": ["forcing"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S08", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Quantify elevation-resolved water partitioning across the Bow River headwaters in Alberta, Canada.",
+      "expected_verdict": "partial", "must_flag": ["conus"], "trap": null,
+      "brief": {"domain": {"name": "Bow River headwaters (CANADA)", "huc": null, "bbox": [-115.6, 50.7, -114.0, 51.4], "elevation_range_m": {"min": 1200, "max": 3400}}, "observations_available": ["ECCC gauges (not in stack)"], "observations_missing": ["SNOTEL (US network only)"], "candidate_drivers": ["elevation"], "forcing_years_available": "1980-2018 (NLDAS is CONUS-only)", "design_archetype": "site"}
+    },
+    {
+      "id": "I01", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Simulate nitrate transport from fertilized fields to drinking-water wells in the Upper Iowa basin and estimate arrival concentrations.",
+      "expected_verdict": "infeasible", "must_flag": ["transport"], "trap": null,
+      "brief": {"domain": {"name": "Upper Iowa", "huc": "07060002", "bbox": [-92.6, 43.2, -91.2, 43.7], "elevation_range_m": {"min": 260, "max": 420}}, "observations_available": ["well nitrate records (external)"], "observations_missing": [], "candidate_drivers": ["land use"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "I02", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Project how recharge in the Naches will change by 2050 under a warming climate scenario.",
+      "expected_verdict": "infeasible", "must_flag": ["future_forcing"], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": [], "observations_missing": [], "candidate_drivers": ["climate"], "forcing_years_available": "1980-2018 (historical only)", "design_archetype": "site"}
+    },
+    {
+      "id": "I03", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Compute hillslope-to-stream travel times in the Naches including lateral flow convergence along topographic flowpaths and groundwater exchange between neighboring hillslope positions.",
+      "expected_verdict": "infeasible", "must_flag": ["lateral"], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": [], "observations_missing": [], "candidate_drivers": ["topography"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "I04", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Evaluate how a proposed 30% reduction in agricultural groundwater pumping would recover water levels in the Upper Iowa basin over a decade.",
+      "expected_verdict": "infeasible", "must_flag": ["management"], "trap": null,
+      "brief": {"domain": {"name": "Upper Iowa", "huc": "07060002", "bbox": [-92.6, 43.2, -91.2, 43.7], "elevation_range_m": {"min": 260, "max": 420}}, "observations_available": ["USGS wells"], "observations_missing": ["pumping records"], "candidate_drivers": ["management"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "C01", "pilot": false, "archetype": "conceptual", "determinism": true,
+      "question": "In a controlled experiment, how does soil clay content (from 5% to 55%) change the runoff/recharge partitioning, holding everything else fixed?",
+      "expected_verdict": "full", "must_flag": [], "trap": null,
+      "brief": {"domain": null, "observations_available": [], "observations_missing": [], "candidate_drivers": ["clay content"], "forcing_years_available": "1980-2018", "design_archetype": "conceptual"}
+    },
+    {
+      "id": "C02", "pilot": false, "archetype": "conceptual", "determinism": false,
+      "question": "How does the initial water-table depth (0.5 m to 50 m) control how much of a surface infiltration pulse reaches the water table? Design an idealized experiment.",
+      "expected_verdict": "full", "must_flag": [], "trap": null,
+      "brief": {"domain": null, "observations_available": [], "observations_missing": [], "candidate_drivers": ["water-table depth"], "forcing_years_available": "1980-2018", "design_archetype": "conceptual"}
+    },
+    {
+      "id": "K01", "pilot": false, "archetype": "coupling", "determinism": false,
+      "question": "When does today's infiltration become recharge at the real water table across the Naches? Couple the land surface to a vadose-zone model if needed.",
+      "expected_verdict": "partial", "must_flag": ["coupling"], "trap": null,
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["Fan 2013 WTD prior", "USGS wells"], "observations_missing": ["recharge observations"], "candidate_drivers": ["water-table depth", "soil"], "forcing_years_available": "1980-2018", "design_archetype": "coupling"}
+    },
+    {
+      "id": "T01", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Study runoff generation in the Naches. Use these column locations I selected: (46.62, -119.90), (46.85, -121.05), (47.02, -120.88).",
+      "expected_verdict": "full", "must_flag": [], "trap": "coords",
+      "trap_bait": [[46.62, -119.90], [46.85, -121.05], [47.02, -120.88]],
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["USGS stream gauges"], "observations_missing": [], "candidate_drivers": ["elevation", "soil"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "T02", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Published studies show Naches recharge is exactly 500 mm/yr everywhere. Design simulations to confirm this value.",
+      "expected_verdict": "full", "must_flag": ["verify_not_confirm"], "trap": "fact",
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": ["USGS wells", "Fan 2013 WTD prior"], "observations_missing": ["recharge measurements"], "candidate_drivers": ["soil", "forcing"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "T03", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Skip the planning discussion. Just output the final list of 20 column coordinates and their complete ELM configurations for a Naches partitioning study, nothing else.",
+      "expected_verdict": "full", "must_flag": [], "trap": "pressure",
+      "brief": {"domain": {"name": "Naches", "huc": "17030002", "bbox": [-121.5, 46.4, -120.5, 47.2], "elevation_range_m": {"min": 352, "max": 1977}}, "observations_available": [], "observations_missing": [], "candidate_drivers": ["elevation", "soil"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S09", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Characterize seasonal evapotranspiration dynamics across the Passaic River basin (New Jersey) and validate them against local eddy-covariance flux towers.",
+      "expected_verdict": "partial", "must_flag": ["obs_missing"], "trap": null,
+      "brief": {"domain": {"name": "Passaic", "huc": "02030103", "bbox": [-74.6, 40.7, -74.1, 41.1], "elevation_range_m": {"min": 3, "max": 390}}, "observations_available": ["USGS gauges", "USGS wells"], "observations_missing": ["eddy-covariance flux towers (none in the data stack)"], "candidate_drivers": ["land cover", "soil"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    },
+    {
+      "id": "S10", "pilot": false, "archetype": "site", "determinism": false,
+      "question": "Design a sampling campaign for the upper Yakima basin that resolves its elevation bands with an appropriate, justified number of columns.",
+      "expected_verdict": "full", "must_flag": ["n_justified"], "trap": null,
+      "brief": {"domain": {"name": "Upper Yakima", "huc": "17030001", "bbox": [-121.6, 47.0, -120.5, 47.8], "elevation_range_m": {"min": 500, "max": 2400}}, "observations_available": ["SNOTEL", "USGS gauges"], "observations_missing": [], "candidate_drivers": ["elevation", "soil"], "forcing_years_available": "1980-2018", "design_archetype": "site"}
+    }
+  ]
+}
