@@ -1,27 +1,31 @@
 #!/bin/bash
 # run_watershed.sh — drive the watershed pipeline end to end.
 #
-#   bash tools/run_watershed.sh [-i] "<question with HUC8 ...>"
-#       steps 1-4 (plan -> materialize+plot -> adapter -> build/clone) + a
-#       per-column soil pre-flight plot, then STOP and print the salloc run
+#   bash tools/run_watershed.sh "<question with HUC8 ...>"
+#       [1/6] plan (reception may ask clarifying questions on a terminal),
+#       then a GREEN-LIGHT GATE: the resolved run settings (period, forcing,
+#       columns, feasibility) are shown and you confirm before anything is
+#       built. Steps 2-4 (materialize -> adapter -> build/clone) follow, plus
+#       a per-column soil pre-flight plot, then STOP and print the salloc run
 #       block (step 5) + the analyze command (step 6). The safe default:
 #       inspect 04_analysis/debug_surfaces.png before spending node time.
 #
-#   bash tools/run_watershed.sh --execute [-i] "<question ...>"
-#       the same, but also run step 5 on a salloc node and analyze (step 6) —
-#       the whole pipeline in one go.
+#   bash tools/run_watershed.sh --execute "<question ...>"
+#       the same, but also run step 5 on a salloc node and analyze (step 6).
+#
+#   bash tools/run_watershed.sh --yes "<question ...>"
+#       batch mode: no clarifying questions, no gate (for scripted runs).
 #
 #   bash tools/run_watershed.sh --analyze <run-dir>
 #       step 6 only: analyze + result/timeseries plots (after a manual run).
 #
-#   -i forwards interactive clarification to reception (ambiguous names).
+#   The simulation period comes from the question (reception resolves it
+#   against forcing availability). Env YR_START/YR_END override it.
 #   Env overrides: REF (reference case dir), YR_START, YR_END.
 set -euo pipefail
 cd "$(dirname "$0")/.."                  # project root
 
 REF=${REF:-/pscratch/sd/h/hvtran/E3SMv3/1D_ELM.3c13216be8.2026-06-19-150916.elm_phase0}
-YR_START=${YR_START:-1995}
-YR_END=${YR_END:-1995}
 PY=python3
 SALLOC="salloc -N 1 -t 60:00 -q interactive -C cpu -A m3780"
 
@@ -42,17 +46,22 @@ if [ "${1:-}" = "--analyze" ]; then
 fi
 
 # ── flags ────────────────────────────────────────────────────────────────────
-INTERACTIVE=""; EXECUTE=""
+INTERACTIVE=""; EXECUTE=""; YES=""
 while [ "${1:-}" ]; do
     case "$1" in
-        -i)        INTERACTIVE="--interactive"; shift;;
+        -i)        INTERACTIVE="--interactive"; shift;;   # kept for compat
+        --yes)     YES=1; shift;;
         --execute) EXECUTE=1; shift;;
         -*)        echo "unknown flag: $1"; exit 1;;
         *)         break;;
     esac
 done
 Q="${1:-}"
-[ -n "$Q" ] || { echo "usage: $0 [--execute] [-i] \"<question with HUC8 ...>\""; exit 1; }
+[ -n "$Q" ] || { echo "usage: $0 [--execute] [--yes] \"<question with HUC8 ...>\""; exit 1; }
+
+# On a terminal, interactive clarification is the default; --yes turns it off.
+if [ -z "$YES" ] && [ -t 0 ]; then INTERACTIVE="--interactive"; fi
+if [ -n "$YES" ]; then INTERACTIVE=""; fi
 
 RD="workflow_outputs/pipeline_$(date +%Y%m%d_%H%M%S)"
 echo "==> run dir: $RD"
@@ -67,12 +76,65 @@ if [ ! -f "$RD/plan.json" ]; then
     exit 1
 fi
 
+# ── resolve the simulation period: env override > reception brief > default ──
+if [ -n "${YR_START:-}" ] || [ -n "${YR_END:-}" ]; then
+    YR_START=${YR_START:-${YR_END}}; YR_END=${YR_END:-${YR_START}}
+    PERIOD_SOURCE="user"
+else
+    read -r YR_START YR_END PERIOD_SOURCE <<< "$($PY - "$RD/reception_brief.json" <<'PYEOF'
+import json, sys
+rp = (json.load(open(sys.argv[1])).get("run_settings") or {}).get("resolved_period") or {}
+y0, y1 = rp.get("yr_start"), rp.get("yr_end")
+src = {"user": "user", "user-clamped": "user-clamped"}.get(rp.get("source"), "DEFAULT")
+print(f"{y0} {y1} {src}" if isinstance(y0, int) and isinstance(y1, int) else "1995 1995 DEFAULT")
+PYEOF
+)"
+fi
+
+# ── green-light gate: confirm the resolved settings before building ─────────
+$PY - "$RD" "$YR_START" "$YR_END" "$PERIOD_SOURCE" <<'PYEOF'
+import json, sys
+rd, y0, y1, src = sys.argv[1:5]
+brief = json.load(open(f"{rd}/reception_brief.json"))
+plan = json.load(open(f"{rd}/plan.json"))
+fd = brief.get("forcing_data") or {}
+fe = plan.get("feasibility") or {}
+summ = plan.get("experiment_summary") or {}
+ny = int(y1) - int(y0) + 1
+print("\n" + "─" * 72)
+print("PROPOSED RUN  (nothing built yet)")
+print("─" * 72)
+print(f"  period      : {y0}-{y1}  ({ny} yr)   [source: {src}]")
+print(f"  forcing     : {fd.get('source', 'NLDAS-2 (build default)')} "
+      f"(available {fd.get('available_start_year', '?')}-"
+      f"{fd.get('available_end_year', '?')})")
+print(f"  columns     : {summ.get('total_columns', '?')} "
+      f"({summ.get('exploratory', '?')} exploratory + "
+      f"{summ.get('validation', '?')} validation)")
+print(f"  feasibility : {fe.get('verdict', '?')}  "
+      f"({len(fe.get('not_answerable') or [])} aspects need missing capabilities)")
+for c in (brief.get("run_settings") or {}).get("conflicts") or []:
+    print(f"  ⚠️  {c}")
+print("─" * 72)
+PYEOF
+if [ -z "$YES" ] && [ -t 0 ]; then
+    read -r -p "Proceed to build with these settings? [Y/n/edit] " ANS
+    case "${ANS:-y}" in
+        [nN]*) echo "Stopped. Plan is saved in $RD — rerun with YR_START/YR_END set,"
+               echo "or refine the question."; exit 0;;
+        [eE]*) read -r -p "  start year: " YR_START
+               read -r -p "  end year  : " YR_END
+               PERIOD_SOURCE="user";;
+    esac
+fi
+
 echo "==> [2/6] materialize + planning plot"
 $PY tools/expand_sampling.py --run-dir "$RD" --plot
 
 echo "==> [3/6] adapter (columns -> executable plan)"
 $PY src/core/columns_to_plan.py "$RD/columns.json" \
-    --yr-start "$YR_START" --yr-end "$YR_END" --out "$RD/run_plan.json"
+    --yr-start "$YR_START" --yr-end "$YR_END" \
+    --period-source "$PERIOD_SOURCE" --out "$RD/run_plan.json"
 
 echo "==> [4/6] build/clone cases from $(basename "$REF")"
 $PY tools/build_cases.py --plan "$RD/run_plan.json" --ref "$REF" --out-dir "$RD"

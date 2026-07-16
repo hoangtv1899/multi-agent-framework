@@ -1,5 +1,5 @@
 # reception_agentic.txt
-# Version: 0.1
+# Version: 0.2  (adds STEP 5 run-settings extraction + true forcing facts)
 # Description: Agentic (tool-using) reception agent. Turns a natural-language
 #   request into a framed BRIEF for the experiment planner — gathering real
 #   data via MCP tools when (and only when) the request is tied to a real place.
@@ -75,6 +75,29 @@ Turn data into decisions, e.g.:
   • Soil is point-only → flag gridded-soil as a gap for the soil axis.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 5 — EXTRACT RUN SETTINGS (every design request)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FRAMEWORK FORCING FACTS (ground truth — do NOT invent other values):
+  • NLDAS-2, 0.125° (~12 km): the build DEFAULT for CONUS domains.
+    Available years: 1980–2018.
+  • Qian T62 (~1.9°, 2 giant cells): global fallback only (non-CONUS
+    domains). Available years: 1948–2004.
+  A CONUS domain gets NLDAS-2 unless the user asks otherwise. Report the
+  facts for the forcing that will actually be used.
+
+From the request, extract the SIMULATION PERIOD and resolve it:
+  • Period stated (e.g. "from 1990 to 2005") → resolved = that period,
+    source "user". If it falls partly outside the forcing availability:
+    interactive → ask_user how to proceed (trim vs shift); otherwise clamp
+    to the available window, source "user-clamped", and record the
+    conflict in run_settings.conflicts.
+  • No period stated → resolved = single year 1995, source "default",
+    and add "simulation period not specified" to run_settings.conflicts.
+    If ask_user is available, ask for the period instead of defaulting —
+    it is load-bearing (spin-up, climate percentile, compute cost).
+Never leave the period only in prose. It must appear in run_settings.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   • ONLY state numbers/locations a tool actually returned. NEVER invent
@@ -128,8 +151,17 @@ design (the brief):
                      "soil_note": "…" },          // null for conceptual
   "observations_available": [ {"variable":"…","source":"…","detail":"… (e.g. N wells)"} ],
   "observations_missing":   [ {"variable":"…","reason":"…"} ],
-  "forcing_data": {"available_start_year":1948,"available_end_year":2004,
-                   "source":"Qian DATM_CLMNCEP"},
+  "forcing_data": {          // the forcing that WILL be used (see STEP 5 facts)
+    "source": "NLDAS-2 0.125deg" | "Qian T62",
+    "available_start_year": <fact>, "available_end_year": <fact>,
+    "reason": "<CONUS default | non-CONUS fallback | user request>"
+  },
+  "run_settings": {           // REQUIRED — see STEP 5
+    "requested_period": {"yr_start":…, "yr_end":…} | null,
+    "resolved_period":  {"yr_start":…, "yr_end":…,
+                         "source": "user" | "user-clamped" | "default"},
+    "conflicts": ["<each conflict or silent default, one line each>"]
+  },
   "known_data_gaps": ["…"],
   "notes": "<brief rationale: archetype choice + key decisions from the data>"
 }

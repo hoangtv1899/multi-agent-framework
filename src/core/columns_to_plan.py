@@ -57,6 +57,11 @@ def main():
     ap.add_argument("--soil-config", default="native")
     ap.add_argument("--substrate", default="extrapolate")
     ap.add_argument("--limit", type=int, default=0, help="use only the first N columns")
+    ap.add_argument("--period-source", default=None,
+                    choices=("user", "user-clamped", "reception", "DEFAULT"),
+                    help="true origin of --yr-start/--yr-end for the ledger "
+                         "(wrappers pass years explicitly, so the != default "
+                         "heuristic would mislabel wrapper defaults as 'user')")
     ap.add_argument("--finidat-map", default=None,
                     help="warmstart.json (make_warmstart.py): col id -> finidat path")
     args = ap.parse_args()
@@ -81,8 +86,9 @@ def main():
     n_years = args.yr_end - args.yr_start + 1
     plan["assumptions_ledger"] = [
         {"parameter": "simulation period", "value": f"{args.yr_start}-{args.yr_end}",
-         "source": ("user" if (src("yr_start") == "user" or src("yr_end") == "user")
-                    else "DEFAULT"),
+         "source": (args.period_source if args.period_source
+                    else ("user" if (src("yr_start") == "user" or src("yr_end") == "user")
+                          else "DEFAULT")),
          "note": "science year = last simulated year; the year's climatic "
                  "percentile is not characterized"},
         {"parameter": "spin-up", "value": (f"{n_years - 1} yr (in-run)" if n_years > 1

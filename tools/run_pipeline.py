@@ -57,12 +57,17 @@ def run_planner(brief, request, model, max_tokens=8000):
     return resp.choices[0].message.content or ""
 
 
-def print_plan(plan):
+def print_plan(plan, brief=None):
     print("\n" + "=" * 72)
     print("PLAN SUMMARY   (full reasoning saved to transcript)")
     print("=" * 72)
     arche = (plan.get("model_choice") or {}).get("design_archetype", "?")
     print(f"archetype: {arche}")
+    rp = ((brief or {}).get("run_settings") or {}).get("resolved_period") or {}
+    if rp:
+        fd = (brief or {}).get("forcing_data") or {}
+        print(f"PERIOD: {rp.get('yr_start')}-{rp.get('yr_end')} "
+              f"[{rp.get('source', '?')}]   FORCING: {fd.get('source', '?')}")
     for g in (plan.get("scientific_decomposition") or {}).get("goals", []):
         print(f"  goal: {g}")
 
@@ -152,6 +157,16 @@ def main():
     print(f"\nreception: intent={brief.get('intent')} "
           f"archetype={brief.get('design_archetype', '-')} "
           f"({rec['rounds']} rounds, {len(rec['trace'])} tool calls)")
+    rs = brief.get("run_settings") or {}
+    rp = rs.get("resolved_period") or {}
+    if rp:
+        fd = brief.get("forcing_data") or {}
+        print(f"  period : {rp.get('yr_start')}-{rp.get('yr_end')} "
+              f"[{rp.get('source', '?')}]  |  forcing: {fd.get('source', '?')} "
+              f"({fd.get('available_start_year', '?')}-"
+              f"{fd.get('available_end_year', '?')})")
+        for c in rs.get("conflicts") or []:
+            print(f"  ⚠️  run-settings: {c}")
     for w in check_brief(brief):
         print(f"  ⚠️  brief check: {w}")
 
@@ -180,7 +195,7 @@ def main():
         (out_dir / "plan.json").write_text(json.dumps(plan, indent=2))
         for w in check_plan(plan, brief):
             print(f"  ⚠️  plan check: {w}")
-        print_plan(plan)
+        print_plan(plan, brief)
 
     print(f"\nDry pipeline complete. Transcripts in: {out_dir}\n")
 

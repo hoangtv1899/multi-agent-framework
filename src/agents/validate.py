@@ -38,6 +38,16 @@ def check_brief(brief: Any) -> List[str]:
     for k in ("observations_available", "observations_missing"):
         if k in brief and not isinstance(brief[k], list):
             issues.append(f"{k} should be a list")
+
+    if arche != "coupling":            # coupling inherits the prior run's period
+        rs = brief.get("run_settings") or {}
+        rp = rs.get("resolved_period") or {}
+        if not (isinstance(rp.get("yr_start"), int) and isinstance(rp.get("yr_end"), int)):
+            issues.append("run_settings.resolved_period missing/incomplete "
+                          "(period would fall back to the wrapper default)")
+        elif rp["yr_start"] > rp["yr_end"]:
+            issues.append(f"run_settings.resolved_period inverted "
+                          f"({rp['yr_start']} > {rp['yr_end']})")
     return issues
 
 
