@@ -47,25 +47,39 @@ ASK_USER_TOOL = {
 }
 
 
-def _human_answer(question: str, interactive: bool) -> Dict[str, Any]:
-    """Prompt the human (interactive) or return a batch-mode sentinel.
+BATCH_SENTINEL = ("(non-interactive — no human available; use your best "
+                  "judgment and record the assumption in the brief)")
 
-    Reads from the controlling terminal (/dev/tty), not fd 0: the MCP stdio
-    servers and the LLM client disturb the process stdin, so input() would hit
-    EOF and silently fall through to the batch sentinel even on a terminal.
+
+def _open_tty():
+    """Open the controlling terminal for prompting, or return (None, reason).
+
+    Must be called ONCE at startup, before any MCP call: each MCP tool call
+    runs asyncio.run() which spawns a server subprocess and tears down the
+    event loop, and that churn makes a later open('/dev/tty') fail with ENXIO
+    even though it was openable at startup. We grab the handle early and hold
+    it. fd 0 is not usable here either — the same subprocesses leave it at EOF.
     """
+    try:
+        return open("/dev/tty", "r+"), None
+    except OSError as e:
+        return None, repr(e)
+
+
+def _human_answer(question: str, tty, interactive: bool) -> Dict[str, Any]:
+    """Prompt the human on the pre-opened tty, else return the batch sentinel."""
     print(f"\n  ❓ {question}")
-    if interactive:
+    if interactive and tty is not None:
         try:
-            with open("/dev/tty", "r+") as tty:
-                tty.write("  your answer> ")
-                tty.flush()
-                ans = tty.readline().strip()
-            return {"answer": ans or "(no answer given)"}
-        except (OSError, EOFError):
-            pass
-    return {"answer": "(non-interactive — no human available; use your best "
-                      "judgment and record the assumption in the brief)"}
+            tty.write("  your answer> ")
+            tty.flush()
+            line = tty.readline()          # '' only on real EOF (Ctrl-D)
+            if line:
+                return {"answer": line.strip() or "(no answer given)"}
+            print("  (end of input — using best-judgment fallback)")
+        except (OSError, EOFError) as e:
+            print(f"  (could not read your answer: {e!r})")
+    return {"answer": BATCH_SENTINEL}
 
 
 class ToolLoopAgent:
@@ -85,8 +99,17 @@ class ToolLoopAgent:
         self.max_tokens = max_tokens
         self.verbose = verbose
         self.interactive = interactive
+        self._tty = None
+        if interactive:                       # grab the terminal BEFORE MCP churn
+            self._tty, reason = _open_tty()
+            if self._tty is None:
+                print("⚠️  interactive requested, but no controlling terminal is "
+                      f"available ({reason}).\n    Clarifying questions will be "
+                      "auto-answered with best-judgment defaults. To answer them "
+                      "yourself, run this directly in a terminal (not piped, "
+                      "nohup, or a job step).")
         self.tools, self.dispatch = self._build_tools(mcp_clients, allowlist)
-        if interactive:                       # expose the human-in-the-loop tool
+        if interactive:
             self.tools.append(ASK_USER_TOOL)
 
     # ── build OpenAI tool schemas from MCP servers ───────────────────────
@@ -155,7 +178,8 @@ class ToolLoopAgent:
                 except Exception:
                     args = {}
                 if fq == "ask_user":
-                    result = _human_answer(args.get("question", ""), self.interactive)
+                    result = _human_answer(args.get("question", ""),
+                                           self._tty, self.interactive)
                 elif fq not in self.dispatch:
                     result = {"error": f"unknown tool {fq}"}
                 else:
