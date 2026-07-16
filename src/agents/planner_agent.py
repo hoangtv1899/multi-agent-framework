@@ -131,9 +131,15 @@ class PlannerAgent(LLMAgent):
 
     def _report_strategy(self, plan: Dict) -> None:
         fe = plan.get("feasibility") or {}
-        verdict = fe.get("verdict", "(no verdict)")
+        verdict = fe.get("verdict", "(no verdict)") if isinstance(fe, dict) else str(fe)
         ss = plan.get("sampling_strategy") or {}
-        n = (plan.get("sampling_plan") or {}).get("n_exploratory") or ss.get("n_exploratory")
+        sp = plan.get("sampling_plan")
+        n = None
+        for src in (sp, ss):
+            if isinstance(src, dict):
+                n = n or src.get("n_exploratory") or src.get("n_columns")
+            elif isinstance(src, list):
+                n = n or len(src)
         print(f"   ✓ feasibility: {str(verdict)[:88]}")
         if n:
             print(f"   ✓ sampling: N={n} (strategy rules only — no coordinates)")
