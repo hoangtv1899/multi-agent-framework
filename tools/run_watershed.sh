@@ -59,8 +59,12 @@ done
 Q="${1:-}"
 [ -n "$Q" ] || { echo "usage: $0 [--execute] [--yes] \"<question with HUC8 ...>\""; exit 1; }
 
-# On a terminal, interactive clarification is the default; --yes turns it off.
-if [ -z "$YES" ] && [ -t 0 ]; then INTERACTIVE="--interactive"; fi
+# A controlling terminal enables interactive clarification + the gate by
+# default; --yes turns both off. Test /dev/tty is openable (not just [ -t 0 ]):
+# the MCP/LLM step disturbs fd 0, so we read prompts from /dev/tty later.
+HAVE_TTY=""
+if { : < /dev/tty; } 2>/dev/null; then HAVE_TTY=1; fi
+if [ -z "$YES" ] && [ -n "$HAVE_TTY" ]; then INTERACTIVE="--interactive"; fi
 if [ -n "$YES" ]; then INTERACTIVE=""; fi
 
 RD="workflow_outputs/pipeline_$(date +%Y%m%d_%H%M%S)"
@@ -100,10 +104,14 @@ plan = json.load(open(f"{rd}/plan.json"))
 fd = brief.get("forcing_data") or {}
 fe = plan.get("feasibility") or {}
 summ = plan.get("experiment_summary") or {}
+dom = brief.get("domain") or {}
 ny = int(y1) - int(y0) + 1
 print("\n" + "─" * 72)
 print("PROPOSED RUN  (nothing built yet)")
 print("─" * 72)
+area = dom.get("area_km2")
+print(f"  domain      : {dom.get('name', '?')} (HUC {dom.get('huc', '?')})"
+      + (f", {area:,.0f} km2" if isinstance(area, (int, float)) else ""))
 print(f"  period      : {y0}-{y1}  ({ny} yr)   [source: {src}]")
 print(f"  forcing     : {fd.get('source', 'NLDAS-2 (build default)')} "
       f"(available {fd.get('available_start_year', '?')}-"
@@ -117,13 +125,14 @@ for c in (brief.get("run_settings") or {}).get("conflicts") or []:
     print(f"  ⚠️  {c}")
 print("─" * 72)
 PYEOF
-if [ -z "$YES" ] && [ -t 0 ]; then
-    read -r -p "Proceed to build with these settings? [Y/n/edit] " ANS
+if [ -z "$YES" ] && [ -n "$HAVE_TTY" ]; then
+    # Read from /dev/tty, not fd 0 — the reception step leaves stdin at EOF.
+    read -r -p "Proceed to build with these settings? [Y/n/edit] " ANS < /dev/tty
     case "${ANS:-y}" in
         [nN]*) echo "Stopped. Plan is saved in $RD — rerun with YR_START/YR_END set,"
                echo "or refine the question."; exit 0;;
-        [eE]*) read -r -p "  start year: " YR_START
-               read -r -p "  end year  : " YR_END
+        [eE]*) read -r -p "  start year: " YR_START < /dev/tty
+               read -r -p "  end year  : " YR_END < /dev/tty
                PERIOD_SOURCE="user";;
     esac
 fi

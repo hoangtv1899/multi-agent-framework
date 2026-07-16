@@ -17,6 +17,7 @@ Usage:
     out["trace"]     # [{round, tool, args, result}, ...]
 """
 import json
+import sys
 from typing import Any, Dict, List, Optional
 
 from agents.llm_agent import SimpleLLMClient
@@ -47,12 +48,21 @@ ASK_USER_TOOL = {
 
 
 def _human_answer(question: str, interactive: bool) -> Dict[str, Any]:
-    """Prompt the human (interactive) or return a batch-mode sentinel."""
+    """Prompt the human (interactive) or return a batch-mode sentinel.
+
+    Reads from the controlling terminal (/dev/tty), not fd 0: the MCP stdio
+    servers and the LLM client disturb the process stdin, so input() would hit
+    EOF and silently fall through to the batch sentinel even on a terminal.
+    """
     print(f"\n  ❓ {question}")
     if interactive:
         try:
-            return {"answer": input("  your answer> ").strip() or "(no answer given)"}
-        except EOFError:
+            with open("/dev/tty", "r+") as tty:
+                tty.write("  your answer> ")
+                tty.flush()
+                ans = tty.readline().strip()
+            return {"answer": ans or "(no answer given)"}
+        except (OSError, EOFError):
             pass
     return {"answer": "(non-interactive — no human available; use your best "
                       "judgment and record the assumption in the brief)"}
