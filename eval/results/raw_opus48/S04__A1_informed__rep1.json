@@ -1,0 +1,94 @@
+{
+  "prompt_id": "S04",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Contrast of simulated water partitioning (ET vs. runoff vs. drainage vs. snow storage) between wet 1993 and dry 2002\",\n      \"Elevation control on rain/snow fractionation and evaporative fraction\",\n      \"Interannual differences in soil moisture, water-table depth, and total water storage\"\n    ],\n    \"not_answerable\": [\n      \"Basin-integrated streamflow validation against USGS gauges (single-column ELM has no lateral river routing; only local runoff generation is simulated)\",\n      \"Rigorous snowpack validation (SNOTEL coverage is sparse in this domain)\",\n      \"Fine-scale spatial heterogeneity of partitioning beyond the sampled elevation bands\"\n    ]\n  },\n  \"n_columns\": 3,\n  \"n_justification\": \"The domain spans 900-3300 m and the brief flags elevation as a key candidate driver of rain/snow partitioning and ET. Three columns (low desert-scrub, mid-elevation woodland, high-elevation conifer/snow zone) resolve the dominant elevation gradient while keeping the site-archetype design tractable; each is run for both 1993 and 2002 to isolate the wet/dry-year contrast.\",\n  \"columns\": [\n    {\n      \"id\": \"SALT_low_1000m\",\n      \"lat\": 33.52,\n      \"lon\": -110.65,\n      \"soil_texture\": \"sandy loam\"\n    },\n    {\n      \"id\": \"SALT_mid_2000m\",\n      \"lat\": 33.85,\n      \"lon\": -110.05,\n      \"soil_texture\": \"loam\"\n    },\n    {\n      \"id\": \"SALT_high_3000m\",\n      \"lat\": 34.05,\n      \"lon\": -109.62,\n      \"soil_texture\": \"gravelly sandy loam\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"12\",\n    \"RUN_STARTDATE\": \"1991-01-01\",\n    \"hist_variables\": [\n      \"RAIN\",\n      \"SNOW\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"FSNO\",\n      \"QSNOMELT\",\n      \"QSOIL\",\n      \"QVEGE\",\n      \"QVEGT\",\n      \"EFLX_LH_TOT\",\n      \"FCEV\",\n      \"FCTR\",\n      \"FGEV\",\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QINFL\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"H2OSOI\",\n      \"ZWT\",\n      \"TWS\",\n      \"RAIN\",\n      \"TSA\",\n      \"GPP\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"single-column ELM (I-compset, satellite phenology or BGC)\",\n    \"GSWP3 or CRUNCEP atmospheric forcing 1980-2018\",\n    \"accelerated-decomposition + final spinup prior to transient run\",\n    \"surface dataset with site-specific soil texture and PFT\"\n  ],\n  \"assumptions\": [\n    \"Run is initialized 1991-01-01 following AD/final spinup and integrated 12 years to fully cover both the 1993 wet year and 2002 dry year with consistent antecedent conditions.\",\n    \"Wet/dry-year designation (1993 wet, 2002 dry) reflects regional precipitation anomalies; each elevation column experiences the same forcing years so partitioning differences are driven by climate and elevation-dependent phase (rain vs. snow).\",\n    \"Single-column QRUNOFF represents locally generated runoff, not gauge streamflow; comparisons to USGS are qualitative (relative wet/dry response).\",\n    \"Default satellite-phenology vegetation appropriate to each elevation band (desert shrub, evergreen/deciduous woodland, needleleaf evergreen forest) is used.\",\n    \"Monthly and daily history output enabled to compute annual water-budget closure and seasonal snowmelt-driven partitioning.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Contrast of simulated water partitioning (ET vs. runoff vs. drainage vs. snow storage) between wet 1993 and dry 2002",
+        "Elevation control on rain/snow fractionation and evaporative fraction",
+        "Interannual differences in soil moisture, water-table depth, and total water storage"
+      ],
+      "not_answerable": [
+        "Basin-integrated streamflow validation against USGS gauges (single-column ELM has no lateral river routing; only local runoff generation is simulated)",
+        "Rigorous snowpack validation (SNOTEL coverage is sparse in this domain)",
+        "Fine-scale spatial heterogeneity of partitioning beyond the sampled elevation bands"
+      ]
+    },
+    "n_columns": 3,
+    "n_justification": "The domain spans 900-3300 m and the brief flags elevation as a key candidate driver of rain/snow partitioning and ET. Three columns (low desert-scrub, mid-elevation woodland, high-elevation conifer/snow zone) resolve the dominant elevation gradient while keeping the site-archetype design tractable; each is run for both 1993 and 2002 to isolate the wet/dry-year contrast.",
+    "columns": [
+      {
+        "id": "SALT_low_1000m",
+        "lat": 33.52,
+        "lon": -110.65,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "SALT_mid_2000m",
+        "lat": 33.85,
+        "lon": -110.05,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "SALT_high_3000m",
+        "lat": 34.05,
+        "lon": -109.62,
+        "soil_texture": "gravelly sandy loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "12",
+      "RUN_STARTDATE": "1991-01-01",
+      "hist_variables": [
+        "RAIN",
+        "SNOW",
+        "H2OSNO",
+        "SNOWDP",
+        "FSNO",
+        "QSNOMELT",
+        "QSOIL",
+        "QVEGE",
+        "QVEGT",
+        "EFLX_LH_TOT",
+        "FCEV",
+        "FCTR",
+        "FGEV",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QINFL",
+        "SOILLIQ",
+        "SOILICE",
+        "H2OSOI",
+        "ZWT",
+        "TWS",
+        "RAIN",
+        "TSA",
+        "GPP"
+      ]
+    },
+    "requires_capabilities": [
+      "single-column ELM (I-compset, satellite phenology or BGC)",
+      "GSWP3 or CRUNCEP atmospheric forcing 1980-2018",
+      "accelerated-decomposition + final spinup prior to transient run",
+      "surface dataset with site-specific soil texture and PFT"
+    ],
+    "assumptions": [
+      "Run is initialized 1991-01-01 following AD/final spinup and integrated 12 years to fully cover both the 1993 wet year and 2002 dry year with consistent antecedent conditions.",
+      "Wet/dry-year designation (1993 wet, 2002 dry) reflects regional precipitation anomalies; each elevation column experiences the same forcing years so partitioning differences are driven by climate and elevation-dependent phase (rain vs. snow).",
+      "Single-column QRUNOFF represents locally generated runoff, not gauge streamflow; comparisons to USGS are qualitative (relative wet/dry response).",
+      "Default satellite-phenology vegetation appropriate to each elevation band (desert shrub, evergreen/deciduous woodland, needleleaf evergreen forest) is used.",
+      "Monthly and daily history output enabled to compute annual water-budget closure and seasonal snowmelt-driven partitioning."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

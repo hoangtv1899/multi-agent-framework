@@ -1,0 +1,146 @@
+{
+  "prompt_id": "S05",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: quantify how elevation controls snowmelt-onset day-of-year across the Naches at the resolvable (~12 km) forcing scale\", \"Validation: compare simulated SWE and melt-onset timing against the 6 SNOTEL stations\"], \"key_processes\": [\"snow accumulation/ablation\", \"snowmelt timing\", \"temperature/precip-phase partitioning with elevation\", \"surface energy balance\"], \"drivers_to_resolve\": [\"elevation (acting through forcing temperature/precip phase)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM simulates snowpack (H2OSNO, QSNOMELT, SNOW) and outputs enough to derive per-site melt-onset DOY and to compare SWE against SNOTEL; NLDAS forcing carries a coarse orographic elevation signal.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Per-station snowmelt-onset DOY and peak-SWE timing at each SNOTEL location (validation against measured SWE)\", \"The BASIN-SCALE elevation control on melt onset, resolved only across stations/columns that fall in DISTINCT ~12 km NLDAS cells\"], \"not_answerable\": [{\"aspect\": \"Local lapse rate between stations on the same ridge that are <12 km apart\", \"why\": \"Default NLDAS-2 forcing is ~12 km with nearest-cell assignment and no within-cell lapse rate; two nearby same-ridge stations share one cell and receive identical forcing, so their true elevation difference cannot drive a difference in simulated melt onset.\", \"needs\": \"elevation-downscaled / sub-grid forcing with within-cell lapse rate\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (elevation bands) + observation-pinned validation\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"352-750 m (low/rain-dominated)\", \"750-1150 m (rain-snow transition)\", \"1150-1550 m (seasonal snow)\", \"1550-1977 m (high/persistent snow)\"]}], \"n_exploratory\": 8, \"n_justification\": \"Four elevation bands span the 1625 m relief and the rain-snow transition where melt-onset sensitivity is largest; 2 columns per band, each placed in a DISTINCT NLDAS cell, give the minimum needed to trace an across-basin elevation-onset curve while keeping replication above forcing resolution (finer replication would resolve soil, not elevation).\", \"placement_logic\": \"Concentrate columns in the 750-1550 m rain-snow transition where melt-onset DOY changes fastest with elevation; ensure exploratory columns occupy separate 12 km NLDAS cells so elevation (not identical forcing) drives the contrast.\", \"replication\": \"2 per band, in different NLDAS cells, to check within-band spread of the coarse forcing gradient.\"}, \"sampling_plan\": [{\"group\": \"SNOTEL validation columns\", \"n\": 6, \"reason\": \"One column co-located at each SNOTEL station to validate simulated SWE and melt-onset DOY against measured SWE; count fixed by observation availability.\"}, {\"group\": \"low-elevation exploratory (352-750 m)\", \"n\": 2, \"reason\": \"Anchor the low, largely rain-dominated end of the elevation-onset curve.\"}, {\"group\": \"rain-snow transition exploratory (750-1150 m)\", \"n\": 2, \"reason\": \"Isolate the elevation band where melt-onset timing is most sensitive to temperature/precip phase.\"}, {\"group\": \"seasonal-snow exploratory (1150-1550 m)\", \"n\": 2, \"reason\": \"Trace mid-upper elevation melt onset across distinct NLDAS cells.\"}, {\"group\": \"high-elevation exploratory (1550-1977 m)\", \"n\": 2, \"reason\": \"Anchor the persistent-snow end; expect latest onset but note 12 km cells underestimate ridgetop SWE.\"}], \"validation_design\": [{\"target_variable\": \"peak SWE / SWE time series (H2OSNO)\", \"observation_source\": \"SNOTEL SWE (6 stations)\", \"in_domain_available\": true, \"comparison\": \"co-located \\u2014 one ELM column per station; expect underestimation at high/ridgetop stations because 12 km cells average over terrain\", \"metric\": \"bias and RMSE on peak SWE; correlation on daily SWE\", \"n_validation_points\": \"6\"}, {\"target_variable\": \"snowmelt-onset day-of-year (derived from H2OSNO decline / QSNOMELT onset)\", \"observation_source\": \"SNOTEL SWE (6 stations) \\u2014 onset derived from observed SWE recession\", \"in_domain_available\": true, \"comparison\": \"co-located per-station DOY over multiple winters; also regress onset DOY vs elevation across the stations that lie in distinct NLDAS cells\", \"metric\": \"DOY bias; slope of onset-vs-elevation (days per 100 m) with the caveat that same-cell stations cannot be distinguished\", \"n_validation_points\": \"6 (fewer distinct forcing cells if stations share cells)\"}], \"experiment_summary\": {\"total_columns\": 14, \"exploratory\": 8, \"validation\": 6, \"primary_treatment\": \"baseline NLDAS-2 forcing, native SSURGO soil, short (1-2 yr) snow/soil burn-in, multi-winter analysis window\"}, \"requires_capabilities\": [{\"capability\": \"elevation-downscaled / sub-grid forcing with within-cell lapse rate\", \"why\": \"Nearest-cell 12 km NLDAS gives identical forcing to same-ridge stations <12 km apart\", \"blocks\": \"Resolving the LOCAL between-station lapse rate \\u2014 the primary request\"}, {\"capability\": \"snowmelt-onset DOY diagnostic (post-processing of H2OSNO/QSNOMELT)\", \"why\": \"Onset day is not a native output field; must be derived from SWE recession / melt-flux threshold consistently for model and SNOTEL\", \"blocks\": \"Quantitative melt-onset comparison and elevation regression\"}, {\"capability\": \"SNOTEL SWE ingest + station-to-column colocation\", \"why\": \"Needed to pin validation columns and compare SWE/onset\", \"blocks\": \"Validation goal\"}], \"assumptions\": [\"SNOTEL station coordinates and elevations are supplied by the downstream expander; I do not invent them.\", \"Snowmelt onset is a fast seasonal state, so a short (1-2 yr) burn-in suffices; deep water-table spin-up is unnecessary for this question.\", \"Multiple winters within 1980-2018 will be analyzed so onset DOY is a distribution across years, not a single-year artifact.\", \"SSURGO native soil is used per column; soil is not a stratification axis here since the driver of interest is elevation via forcing.\"], \"open_questions\": [\"How many of the 6 SNOTEL stations actually fall in DISTINCT NLDAS 12 km cells? This sets the true number of independent elevation points for the melt-onset regression.\", \"Is a within-cell forcing lapse-rate downscaling planned? If so, the local same-ridge lapse-rate goal becomes answerable.\", \"Which winters (years) should define the melt-onset climatology \\u2014 full 1980-2018, or a recent subset?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how elevation controls snowmelt-onset day-of-year across the Naches at the resolvable (~12 km) forcing scale",
+        "Validation: compare simulated SWE and melt-onset timing against the 6 SNOTEL stations"
+      ],
+      "key_processes": [
+        "snow accumulation/ablation",
+        "snowmelt timing",
+        "temperature/precip-phase partitioning with elevation",
+        "surface energy balance"
+      ],
+      "drivers_to_resolve": [
+        "elevation (acting through forcing temperature/precip phase)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM simulates snowpack (H2OSNO, QSNOMELT, SNOW) and outputs enough to derive per-site melt-onset DOY and to compare SWE against SNOTEL; NLDAS forcing carries a coarse orographic elevation signal.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Per-station snowmelt-onset DOY and peak-SWE timing at each SNOTEL location (validation against measured SWE)",
+        "The BASIN-SCALE elevation control on melt onset, resolved only across stations/columns that fall in DISTINCT ~12 km NLDAS cells"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Local lapse rate between stations on the same ridge that are <12 km apart",
+          "why": "Default NLDAS-2 forcing is ~12 km with nearest-cell assignment and no within-cell lapse rate; two nearby same-ridge stations share one cell and receive identical forcing, so their true elevation difference cannot drive a difference in simulated melt onset.",
+          "needs": "elevation-downscaled / sub-grid forcing with within-cell lapse rate"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation bands) + observation-pinned validation",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "352-750 m (low/rain-dominated)",
+            "750-1150 m (rain-snow transition)",
+            "1150-1550 m (seasonal snow)",
+            "1550-1977 m (high/persistent snow)"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "Four elevation bands span the 1625 m relief and the rain-snow transition where melt-onset sensitivity is largest; 2 columns per band, each placed in a DISTINCT NLDAS cell, give the minimum needed to trace an across-basin elevation-onset curve while keeping replication above forcing resolution (finer replication would resolve soil, not elevation).",
+      "placement_logic": "Concentrate columns in the 750-1550 m rain-snow transition where melt-onset DOY changes fastest with elevation; ensure exploratory columns occupy separate 12 km NLDAS cells so elevation (not identical forcing) drives the contrast.",
+      "replication": "2 per band, in different NLDAS cells, to check within-band spread of the coarse forcing gradient."
+    },
+    "sampling_plan": [
+      {
+        "group": "SNOTEL validation columns",
+        "n": 6,
+        "reason": "One column co-located at each SNOTEL station to validate simulated SWE and melt-onset DOY against measured SWE; count fixed by observation availability."
+      },
+      {
+        "group": "low-elevation exploratory (352-750 m)",
+        "n": 2,
+        "reason": "Anchor the low, largely rain-dominated end of the elevation-onset curve."
+      },
+      {
+        "group": "rain-snow transition exploratory (750-1150 m)",
+        "n": 2,
+        "reason": "Isolate the elevation band where melt-onset timing is most sensitive to temperature/precip phase."
+      },
+      {
+        "group": "seasonal-snow exploratory (1150-1550 m)",
+        "n": 2,
+        "reason": "Trace mid-upper elevation melt onset across distinct NLDAS cells."
+      },
+      {
+        "group": "high-elevation exploratory (1550-1977 m)",
+        "n": 2,
+        "reason": "Anchor the persistent-snow end; expect latest onset but note 12 km cells underestimate ridgetop SWE."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "peak SWE / SWE time series (H2OSNO)",
+        "observation_source": "SNOTEL SWE (6 stations)",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 one ELM column per station; expect underestimation at high/ridgetop stations because 12 km cells average over terrain",
+        "metric": "bias and RMSE on peak SWE; correlation on daily SWE",
+        "n_validation_points": "6"
+      },
+      {
+        "target_variable": "snowmelt-onset day-of-year (derived from H2OSNO decline / QSNOMELT onset)",
+        "observation_source": "SNOTEL SWE (6 stations) \u2014 onset derived from observed SWE recession",
+        "in_domain_available": true,
+        "comparison": "co-located per-station DOY over multiple winters; also regress onset DOY vs elevation across the stations that lie in distinct NLDAS cells",
+        "metric": "DOY bias; slope of onset-vs-elevation (days per 100 m) with the caveat that same-cell stations cannot be distinguished",
+        "n_validation_points": "6 (fewer distinct forcing cells if stations share cells)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 14,
+      "exploratory": 8,
+      "validation": 6,
+      "primary_treatment": "baseline NLDAS-2 forcing, native SSURGO soil, short (1-2 yr) snow/soil burn-in, multi-winter analysis window"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled / sub-grid forcing with within-cell lapse rate",
+        "why": "Nearest-cell 12 km NLDAS gives identical forcing to same-ridge stations <12 km apart",
+        "blocks": "Resolving the LOCAL between-station lapse rate \u2014 the primary request"
+      },
+      {
+        "capability": "snowmelt-onset DOY diagnostic (post-processing of H2OSNO/QSNOMELT)",
+        "why": "Onset day is not a native output field; must be derived from SWE recession / melt-flux threshold consistently for model and SNOTEL",
+        "blocks": "Quantitative melt-onset comparison and elevation regression"
+      },
+      {
+        "capability": "SNOTEL SWE ingest + station-to-column colocation",
+        "why": "Needed to pin validation columns and compare SWE/onset",
+        "blocks": "Validation goal"
+      }
+    ],
+    "assumptions": [
+      "SNOTEL station coordinates and elevations are supplied by the downstream expander; I do not invent them.",
+      "Snowmelt onset is a fast seasonal state, so a short (1-2 yr) burn-in suffices; deep water-table spin-up is unnecessary for this question.",
+      "Multiple winters within 1980-2018 will be analyzed so onset DOY is a distribution across years, not a single-year artifact.",
+      "SSURGO native soil is used per column; soil is not a stratification axis here since the driver of interest is elevation via forcing."
+    ],
+    "open_questions": [
+      "How many of the 6 SNOTEL stations actually fall in DISTINCT NLDAS 12 km cells? This sets the true number of independent elevation points for the melt-onset regression.",
+      "Is a within-cell forcing lapse-rate downscaling planned? If so, the local same-ridge lapse-rate goal becomes answerable.",
+      "Which winters (years) should define the melt-onset climatology \u2014 full 1980-2018, or a recent subset?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

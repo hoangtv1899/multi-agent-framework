@@ -1,0 +1,84 @@
+{
+  "prompt_id": "T01",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Partially feasible: two of three user-supplied columns lie inside the Naches domain; the first point (46.62, -119.90) lies ~40 km east of the domain bbox (east edge -120.5) in the Columbia Basin, so it was relocated into the lower Naches. Single-column ELM generates point runoff (surface + subsurface) but cannot route flow to a gauge.\",\n    \"answerable\": [\n      \"Point runoff generation (QRUNOFF, QOVER, QDRAI) and its partitioning between surface and subsurface pathways\",\n      \"Elevation and soil controls on runoff, snowmelt timing, and infiltration across the three columns\",\n      \"Seasonal and interannual variability of runoff over 1980-2018\"\n    ],\n    \"not_answerable\": [\n      \"Basin-integrated streamflow at USGS gauges (requires a routing model such as MOSART; single-column ELM does not route)\",\n      \"Spatial runoff patterns beyond the three selected columns\",\n      \"Direct hydrograph validation against gauge discharge without a routing coupler\"\n    ]\n  },\n  \"n_columns\": 3,\n  \"n_justification\": \"The user selected three locations; retained as three columns to sample the elevation/soil gradient. Column 1 was moved from (46.62, -119.90), which falls outside the Naches bbox, to (46.62, -120.60) within the lower-elevation valley to keep it representative of the basin.\",\n  \"columns\": [\n    {\"id\": \"naches_low_valley\", \"lat\": 46.62, \"lon\": -120.60, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"naches_mid_montane\", \"lat\": 46.85, \"lon\": -121.05, \"soil_texture\": \"loam\"},\n    {\"id\": \"naches_upper_montane\", \"lat\": 47.02, \"lon\": -120.88, \"soil_texture\": \"gravelly sandy loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QRUNOFF\", \"QOVER\", \"QDRAI\", \"QINFL\", \"QCHARGE\", \"QRGWL\",\n      \"RAIN\", \"SNOW\", \"H2OSNO\", \"SNOWDP\", \"QFLX_SNOW_MELT\",\n      \"SOILLIQ\", \"SOILICE\", \"H2OSOI\", \"ZWT\", \"TWS\", \"FSNO\"\n    ]\n  },\n  \"requires_capabilities\": [\"ELM_single_column\", \"DATM_forcing_1980_2018\"],\n  \"assumptions\": [\n    \"STOP_OPTION=nyears with STOP_N=39 to cover the full 1980-2018 forcing record\",\n    \"An accelerated-decomposition + regular spinup (>=200 model years, cycling 1980-2018 forcing) is run prior to the transient period to equilibrate hydrology\",\n    \"GSWP3 or Daymet-based DATM forcing used at each column; no on-the-fly routing (MOSART off), so runoff is diagnosed at the column level\",\n    \"Soil textures inferred from SSURGO/gridded soil data given only 'elevation' and 'soil' candidate drivers; adjust if site-specific pedons are available\",\n    \"Monthly history output (hist_mfilt/hist_nhtfrq default) sufficient for runoff climatology; switch to daily for snowmelt/runoff event analysis if needed\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Partially feasible: two of three user-supplied columns lie inside the Naches domain; the first point (46.62, -119.90) lies ~40 km east of the domain bbox (east edge -120.5) in the Columbia Basin, so it was relocated into the lower Naches. Single-column ELM generates point runoff (surface + subsurface) but cannot route flow to a gauge.",
+      "answerable": [
+        "Point runoff generation (QRUNOFF, QOVER, QDRAI) and its partitioning between surface and subsurface pathways",
+        "Elevation and soil controls on runoff, snowmelt timing, and infiltration across the three columns",
+        "Seasonal and interannual variability of runoff over 1980-2018"
+      ],
+      "not_answerable": [
+        "Basin-integrated streamflow at USGS gauges (requires a routing model such as MOSART; single-column ELM does not route)",
+        "Spatial runoff patterns beyond the three selected columns",
+        "Direct hydrograph validation against gauge discharge without a routing coupler"
+      ]
+    },
+    "n_columns": 3,
+    "n_justification": "The user selected three locations; retained as three columns to sample the elevation/soil gradient. Column 1 was moved from (46.62, -119.90), which falls outside the Naches bbox, to (46.62, -120.60) within the lower-elevation valley to keep it representative of the basin.",
+    "columns": [
+      {
+        "id": "naches_low_valley",
+        "lat": 46.62,
+        "lon": -120.6,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "naches_mid_montane",
+        "lat": 46.85,
+        "lon": -121.05,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "naches_upper_montane",
+        "lat": 47.02,
+        "lon": -120.88,
+        "soil_texture": "gravelly sandy loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QINFL",
+        "QCHARGE",
+        "QRGWL",
+        "RAIN",
+        "SNOW",
+        "H2OSNO",
+        "SNOWDP",
+        "QFLX_SNOW_MELT",
+        "SOILLIQ",
+        "SOILICE",
+        "H2OSOI",
+        "ZWT",
+        "TWS",
+        "FSNO"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM_single_column",
+      "DATM_forcing_1980_2018"
+    ],
+    "assumptions": [
+      "STOP_OPTION=nyears with STOP_N=39 to cover the full 1980-2018 forcing record",
+      "An accelerated-decomposition + regular spinup (>=200 model years, cycling 1980-2018 forcing) is run prior to the transient period to equilibrate hydrology",
+      "GSWP3 or Daymet-based DATM forcing used at each column; no on-the-fly routing (MOSART off), so runoff is diagnosed at the column level",
+      "Soil textures inferred from SSURGO/gridded soil data given only 'elevation' and 'soil' candidate drivers; adjust if site-specific pedons are available",
+      "Monthly history output (hist_mfilt/hist_nhtfrq default) sufficient for runoff climatology; switch to daily for snowmelt/runoff event analysis if needed"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

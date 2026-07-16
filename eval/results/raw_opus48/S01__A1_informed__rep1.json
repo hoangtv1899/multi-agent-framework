@@ -1,0 +1,107 @@
+{
+  "prompt_id": "S01",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Partially feasible: water-balance partitioning (P into runoff, ET, recharge) is fully computable in ELM; runoff and snow states can be validated directly, water-table depth semi-quantitatively, but ET cannot be validated directly due to absent flux towers.\",\n    \"answerable\": [\n      \"Simulated partitioning of precipitation into surface/subsurface runoff, evapotranspiration, and groundwater recharge (QCHARGE/QDRAI) along the Naches elevation gradient\",\n      \"Validation of streamflow-relevant total runoff (QRUNOFF) against USGS stream gauges with usable daily records\",\n      \"Validation of snow accumulation/ablation (SWE) against 6 SNOTEL stations, constraining the P-partitioning at higher elevations\",\n      \"Semi-quantitative validation of simulated water-table depth (ZWT) against USGS well WTD observations\",\n      \"Sensitivity of partitioning to elevation, soil texture, and forcing gradients\"\n    ],\n    \"not_answerable\": [\n      \"Direct validation of ET against eddy-covariance flux-tower observations (none available in domain)\",\n      \"Fully distributed, spatially continuous watershed water budget (single-column ELM represents discrete points, not lateral routing)\",\n      \"Lateral groundwater flow and stream-aquifer exchange (requires coupled routing/PFLOTRAN, not native single-column ELM)\"\n    ]\n  },\n  \"n_columns\": 5,\n  \"n_justification\": \"The dominant control on P-partitioning here is the 352-1977 m elevation gradient (governing snow vs. rain, ET demand, and recharge), co-varying with forcing and soil texture. Five columns sample low, mid-low, mid, mid-high, and high elevation bands, each co-located near a SNOTEL and/or gauge/well for validation, giving a defensible gradient with minimal redundancy.\",\n  \"columns\": [\n    {\"id\": \"NAC_low_valley\", \"lat\": 46.62, \"lon\": -120.55, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NAC_midlow_foothill\", \"lat\": 46.75, \"lon\": -120.85, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_mid_forest\", \"lat\": 46.90, \"lon\": -121.05, \"soil_texture\": \"gravelly_loam\"},\n    {\"id\": \"NAC_midhigh_subalpine\", \"lat\": 46.98, \"lon\": -121.25, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NAC_high_alpine\", \"lat\": 46.88, \"lon\": -121.45, \"soil_texture\": \"loamy_sand\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"RAIN\",\n      \"SNOW\",\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRGWL\",\n      \"QCHARGE\",\n      \"EFLX_LH_TOT\",\n      \"QVEGT\",\n      \"QVEGE\",\n      \"QSOIL\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"H2OSOI\",\n      \"ZWT\",\n      \"WA\",\n      \"TWS\",\n      \"FSNO\",\n      \"TSA\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"single_column_ELM\",\n    \"GSWP3_or_CRUNCEP_forcing_1980_2018\",\n    \"site_surface_data_generation_per_column\",\n    \"accelerated_decomposition_spinup_then_transient\",\n    \"USGS_streamgauge_extraction_for_runoff_validation\",\n    \"SNOTEL_SWE_retrieval\",\n    \"USGS_well_WTD_retrieval\"\n  ],\n  \"assumptions\": [\n    \"Each column is spun up (AD + final spinup ~200+ yr recycling 1980-2018 forcing) to hydrologic equilibrium before the 1980-2018 transient run reported here.\",\n    \"Total runoff (QOVER+QDRAI+QRGWL) is used as a proxy for gauge streamflow after normalizing by contributing area; single-column ELM lacks routing, so validation is on runoff-depth/timing, not routed hydrographs.\",\n    \"Recharge is approximated by QCHARGE (flux to the unconfined aquifer) / QDRAI; PFLOTRAN coupling would be required for detailed vadose-zone/aquifer recharge dynamics.\",\n    \"ET (EFLX_LH_TOT converted to mm) is reported but validated only indirectly via closure of the water balance and SWE/runoff constraints, given missing flux towers.\",\n    \"Soil textures assigned from SSURGO/gridded soil data typical of each elevation band; refine with site-specific pedon data if available.\",\n    \"Column coordinates approximate representative points within HUC 17030002 near validation assets; snap to nearest forcing grid cell.\",\n    \"Default vegetation/PFT from surface dataset (evergreen needleleaf forest at mid/high, shrub/grass at low elevations) is assumed adequate.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Partially feasible: water-balance partitioning (P into runoff, ET, recharge) is fully computable in ELM; runoff and snow states can be validated directly, water-table depth semi-quantitatively, but ET cannot be validated directly due to absent flux towers.",
+      "answerable": [
+        "Simulated partitioning of precipitation into surface/subsurface runoff, evapotranspiration, and groundwater recharge (QCHARGE/QDRAI) along the Naches elevation gradient",
+        "Validation of streamflow-relevant total runoff (QRUNOFF) against USGS stream gauges with usable daily records",
+        "Validation of snow accumulation/ablation (SWE) against 6 SNOTEL stations, constraining the P-partitioning at higher elevations",
+        "Semi-quantitative validation of simulated water-table depth (ZWT) against USGS well WTD observations",
+        "Sensitivity of partitioning to elevation, soil texture, and forcing gradients"
+      ],
+      "not_answerable": [
+        "Direct validation of ET against eddy-covariance flux-tower observations (none available in domain)",
+        "Fully distributed, spatially continuous watershed water budget (single-column ELM represents discrete points, not lateral routing)",
+        "Lateral groundwater flow and stream-aquifer exchange (requires coupled routing/PFLOTRAN, not native single-column ELM)"
+      ]
+    },
+    "n_columns": 5,
+    "n_justification": "The dominant control on P-partitioning here is the 352-1977 m elevation gradient (governing snow vs. rain, ET demand, and recharge), co-varying with forcing and soil texture. Five columns sample low, mid-low, mid, mid-high, and high elevation bands, each co-located near a SNOTEL and/or gauge/well for validation, giving a defensible gradient with minimal redundancy.",
+    "columns": [
+      {
+        "id": "NAC_low_valley",
+        "lat": 46.62,
+        "lon": -120.55,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NAC_midlow_foothill",
+        "lat": 46.75,
+        "lon": -120.85,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_mid_forest",
+        "lat": 46.9,
+        "lon": -121.05,
+        "soil_texture": "gravelly_loam"
+      },
+      {
+        "id": "NAC_midhigh_subalpine",
+        "lat": 46.98,
+        "lon": -121.25,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NAC_high_alpine",
+        "lat": 46.88,
+        "lon": -121.45,
+        "soil_texture": "loamy_sand"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "RAIN",
+        "SNOW",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QRGWL",
+        "QCHARGE",
+        "EFLX_LH_TOT",
+        "QVEGT",
+        "QVEGE",
+        "QSOIL",
+        "H2OSNO",
+        "SNOWDP",
+        "H2OSOI",
+        "ZWT",
+        "WA",
+        "TWS",
+        "FSNO",
+        "TSA"
+      ]
+    },
+    "requires_capabilities": [
+      "single_column_ELM",
+      "GSWP3_or_CRUNCEP_forcing_1980_2018",
+      "site_surface_data_generation_per_column",
+      "accelerated_decomposition_spinup_then_transient",
+      "USGS_streamgauge_extraction_for_runoff_validation",
+      "SNOTEL_SWE_retrieval",
+      "USGS_well_WTD_retrieval"
+    ],
+    "assumptions": [
+      "Each column is spun up (AD + final spinup ~200+ yr recycling 1980-2018 forcing) to hydrologic equilibrium before the 1980-2018 transient run reported here.",
+      "Total runoff (QOVER+QDRAI+QRGWL) is used as a proxy for gauge streamflow after normalizing by contributing area; single-column ELM lacks routing, so validation is on runoff-depth/timing, not routed hydrographs.",
+      "Recharge is approximated by QCHARGE (flux to the unconfined aquifer) / QDRAI; PFLOTRAN coupling would be required for detailed vadose-zone/aquifer recharge dynamics.",
+      "ET (EFLX_LH_TOT converted to mm) is reported but validated only indirectly via closure of the water balance and SWE/runoff constraints, given missing flux towers.",
+      "Soil textures assigned from SSURGO/gridded soil data typical of each elevation band; refine with site-specific pedon data if available.",
+      "Column coordinates approximate representative points within HUC 17030002 near validation assets; snap to nearest forcing grid cell.",
+      "Default vegetation/PFT from surface dataset (evergreen needleleaf forest at mid/high, shrub/grass at low elevations) is assumed adequate."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

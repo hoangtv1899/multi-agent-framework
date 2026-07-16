@@ -1,0 +1,152 @@
+{
+  "prompt_id": "I02",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"PROJECTION GOAL (as posed): quantify recharge change in the Naches by 2050 under a warming scenario\", \"FEASIBLE SURROGATE GOAL: quantify recharge sensitivity to climate (temperature/precip) using historical warm-dry vs cool-wet analogs and the resolved elevation climate gradient\"], \"key_processes\": [\"sub-surface drainage / recharge (QDRAI, QRECHARGE)\", \"snowpack accumulation & melt timing (rain-snow partition under warming)\", \"ET vs infiltration partitioning of precipitation\", \"soil-moisture storage / water-table response (slow states)\"], \"drivers_to_resolve\": [\"climate (via elevation gradient)\", \"soil (SSURGO, modulates recharge)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM simulates the full water balance including recharge/drainage and snow; the elevation gradient of the Naches is partly resolved by NLDAS forcing, letting us sample climate-driven recharge sensitivity across the basin.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"recharge sensitivity to climate variability using historical warm-dry vs cool-wet year analogs (space/time-for-warming surrogate)\", \"recharge variation across the resolved elevation climate gradient (NLDAS gives multiple distinct precip/temperature cells over 1625 m relief)\", \"soil control on how much infiltration becomes recharge vs ET\"], \"not_answerable\": [{\"aspect\": \"an actual dated 2050 projection under a warming scenario\", \"why\": \"Forcing is NLDAS-2 historical only (1980-2018); the stack has no future/GCM-downscaled climate forcing and no delta-change engine, so no 2050 boundary conditions exist.\", \"needs\": \"future-climate (CMIP/GCM) downscaled forcing or a delta-change forcing generator\"}, {\"aspect\": \"validation of recharge magnitude against observations\", \"why\": \"observations_available is empty for this domain; no recharge/WTD/streamflow obs to compare against.\", \"needs\": \"in-domain observation ingest (well WTD, baseflow-derived recharge, or SNOTEL SWE)\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (elevation band x dominant soil), crossed with a historical warm/cool climate-analog treatment\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"valley/low ~352-750 m\", \"mid/rain-snow transition ~750-1350 m\", \"high/snow-dominated ~1350-1977 m\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse (high-infiltration)\", \"medium/loam\", \"fine (low-permeability)\"]}], \"n_exploratory\": 18, \"n_justification\": \"3 elevation bands x up to 3 dominant SSURGO classes ~= 9 landscape strata (expander drops absent combinations); each run under 2 climate analogs (warm-dry vs cool-wet years) = ~18 columns. This spans the recharge-controlling gradient (rain-snow transition is the key zone under warming) and the soil control, at the smallest N that resolves both factors and the warming surrogate.\", \"placement_logic\": \"Concentrate columns in the mid-elevation rain-snow transition band, where warming most changes snow-vs-rain partitioning and thus recharge timing/magnitude; sample valley bottoms where recharge/storage is largest and high snow zones as the melt-source end-member.\", \"replication\": \"The warm/cool analog pairing provides the primary contrast; no additional replication to keep N defensible.\"}, \"sampling_plan\": [{\"group\": \"valley low-elevation, coarse & medium soils\", \"n\": 4, \"reason\": \"high-infiltration valley bottoms where recharge is largest; baseline low-elevation climate response.\"}, {\"group\": \"mid-elevation rain-snow transition, all soils\", \"n\": 8, \"reason\": \"the recharge-critical zone where warming shifts snow to rain and melt timing; oversampled as the primary sensitivity target.\"}, {\"group\": \"high-elevation snow-dominated, medium & fine soils\", \"n\": 4, \"reason\": \"snowpack melt-source end-member; sets the upper-basin recharge response to warming.\"}, {\"group\": \"climate-analog pairing across above groups\", \"n\": 2, \"reason\": \"each landscape column is run under warm-dry vs cool-wet historical years as the space/time-for-warming surrogate contrast (counted within group N).\"}], \"validation_design\": [{\"target_variable\": \"recharge / sub-surface drainage (QDRAI, QRECHARGE)\", \"observation_source\": \"none available in-domain\", \"in_domain_available\": false, \"comparison\": \"none \\u2014 no co-located or analog recharge observations provided; results are model-internal sensitivity only\", \"metric\": \"n/a (report modeled recharge deltas between climate analogs and across strata, not skill)\", \"n_validation_points\": \"0 \\u2014 no observations in domain\"}], \"experiment_summary\": {\"total_columns\": 18, \"exploratory\": 18, \"validation\": 0, \"primary_treatment\": \"WTD-informed warm start (Fan 2013) + spin-up; native SSURGO soil; NLDAS historical forcing under warm-dry vs cool-wet analog year selections\"}, \"requires_capabilities\": [{\"capability\": \"future-climate (CMIP/GCM) downscaled forcing or delta-change forcing generator\", \"why\": \"the request is a 2050 warming projection but only 1980-2018 historical forcing exists\", \"blocks\": \"any genuine dated future projection of recharge\"}, {\"capability\": \"WTD-informed warm start / multi-year spin-up\", \"why\": \"recharge and water table are slow states; cold start at default 8.8 m water table makes recharge an initialization artifact\", \"blocks\": \"any trustworthy recharge magnitude\"}, {\"capability\": \"in-domain observation ingest (well WTD, baseflow recharge, SNOTEL SWE)\", \"why\": \"observations_available is empty; nothing to validate against\", \"blocks\": \"validation of modeled recharge/snow\"}, {\"capability\": \"historical warm-dry / cool-wet year classifier\", \"why\": \"needed to define the climate-analog treatment as a defensible warming surrogate\", \"blocks\": \"the sensitivity-surrogate contrast\"}], \"assumptions\": [\"The domain is CONUS, so NLDAS-2 at 12 km applies and resolves several distinct precip/temperature cells over the 1625 m relief.\", \"SSURGO soil classes vary across the basin; the downstream expander samples real rasters to assign dominant classes per stratum.\", \"The user will accept a climate-SENSITIVITY surrogate (historical analogs + elevation gradient) in place of an unattainable dated 2050 projection, pending future-forcing capability.\", \"A short carrier run per column is available to build the Fan (2013) warm start.\"], \"open_questions\": [\"Can a CMIP5/6 downscaled or delta-change forcing be provided for the Naches? Which scenario (e.g. RCP4.5/8.5, SSP) and target window is intended?\", \"Is any in-domain recharge/WTD/SWE observation (e.g. nearby SNOTEL or USGS wells) available to enable validation?\", \"Is a historical analog surrogate acceptable, or must the deliverable be a dated 2050 projection (which is currently infeasible)?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "PROJECTION GOAL (as posed): quantify recharge change in the Naches by 2050 under a warming scenario",
+        "FEASIBLE SURROGATE GOAL: quantify recharge sensitivity to climate (temperature/precip) using historical warm-dry vs cool-wet analogs and the resolved elevation climate gradient"
+      ],
+      "key_processes": [
+        "sub-surface drainage / recharge (QDRAI, QRECHARGE)",
+        "snowpack accumulation & melt timing (rain-snow partition under warming)",
+        "ET vs infiltration partitioning of precipitation",
+        "soil-moisture storage / water-table response (slow states)"
+      ],
+      "drivers_to_resolve": [
+        "climate (via elevation gradient)",
+        "soil (SSURGO, modulates recharge)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM simulates the full water balance including recharge/drainage and snow; the elevation gradient of the Naches is partly resolved by NLDAS forcing, letting us sample climate-driven recharge sensitivity across the basin.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "recharge sensitivity to climate variability using historical warm-dry vs cool-wet year analogs (space/time-for-warming surrogate)",
+        "recharge variation across the resolved elevation climate gradient (NLDAS gives multiple distinct precip/temperature cells over 1625 m relief)",
+        "soil control on how much infiltration becomes recharge vs ET"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "an actual dated 2050 projection under a warming scenario",
+          "why": "Forcing is NLDAS-2 historical only (1980-2018); the stack has no future/GCM-downscaled climate forcing and no delta-change engine, so no 2050 boundary conditions exist.",
+          "needs": "future-climate (CMIP/GCM) downscaled forcing or a delta-change forcing generator"
+        },
+        {
+          "aspect": "validation of recharge magnitude against observations",
+          "why": "observations_available is empty for this domain; no recharge/WTD/streamflow obs to compare against.",
+          "needs": "in-domain observation ingest (well WTD, baseflow-derived recharge, or SNOTEL SWE)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation band x dominant soil), crossed with a historical warm/cool climate-analog treatment",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley/low ~352-750 m",
+            "mid/rain-snow transition ~750-1350 m",
+            "high/snow-dominated ~1350-1977 m"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (high-infiltration)",
+            "medium/loam",
+            "fine (low-permeability)"
+          ]
+        }
+      ],
+      "n_exploratory": 18,
+      "n_justification": "3 elevation bands x up to 3 dominant SSURGO classes ~= 9 landscape strata (expander drops absent combinations); each run under 2 climate analogs (warm-dry vs cool-wet years) = ~18 columns. This spans the recharge-controlling gradient (rain-snow transition is the key zone under warming) and the soil control, at the smallest N that resolves both factors and the warming surrogate.",
+      "placement_logic": "Concentrate columns in the mid-elevation rain-snow transition band, where warming most changes snow-vs-rain partitioning and thus recharge timing/magnitude; sample valley bottoms where recharge/storage is largest and high snow zones as the melt-source end-member.",
+      "replication": "The warm/cool analog pairing provides the primary contrast; no additional replication to keep N defensible."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley low-elevation, coarse & medium soils",
+        "n": 4,
+        "reason": "high-infiltration valley bottoms where recharge is largest; baseline low-elevation climate response."
+      },
+      {
+        "group": "mid-elevation rain-snow transition, all soils",
+        "n": 8,
+        "reason": "the recharge-critical zone where warming shifts snow to rain and melt timing; oversampled as the primary sensitivity target."
+      },
+      {
+        "group": "high-elevation snow-dominated, medium & fine soils",
+        "n": 4,
+        "reason": "snowpack melt-source end-member; sets the upper-basin recharge response to warming."
+      },
+      {
+        "group": "climate-analog pairing across above groups",
+        "n": 2,
+        "reason": "each landscape column is run under warm-dry vs cool-wet historical years as the space/time-for-warming surrogate contrast (counted within group N)."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "recharge / sub-surface drainage (QDRAI, QRECHARGE)",
+        "observation_source": "none available in-domain",
+        "in_domain_available": false,
+        "comparison": "none \u2014 no co-located or analog recharge observations provided; results are model-internal sensitivity only",
+        "metric": "n/a (report modeled recharge deltas between climate analogs and across strata, not skill)",
+        "n_validation_points": "0 \u2014 no observations in domain"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 18,
+      "exploratory": 18,
+      "validation": 0,
+      "primary_treatment": "WTD-informed warm start (Fan 2013) + spin-up; native SSURGO soil; NLDAS historical forcing under warm-dry vs cool-wet analog year selections"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "future-climate (CMIP/GCM) downscaled forcing or delta-change forcing generator",
+        "why": "the request is a 2050 warming projection but only 1980-2018 historical forcing exists",
+        "blocks": "any genuine dated future projection of recharge"
+      },
+      {
+        "capability": "WTD-informed warm start / multi-year spin-up",
+        "why": "recharge and water table are slow states; cold start at default 8.8 m water table makes recharge an initialization artifact",
+        "blocks": "any trustworthy recharge magnitude"
+      },
+      {
+        "capability": "in-domain observation ingest (well WTD, baseflow recharge, SNOTEL SWE)",
+        "why": "observations_available is empty; nothing to validate against",
+        "blocks": "validation of modeled recharge/snow"
+      },
+      {
+        "capability": "historical warm-dry / cool-wet year classifier",
+        "why": "needed to define the climate-analog treatment as a defensible warming surrogate",
+        "blocks": "the sensitivity-surrogate contrast"
+      }
+    ],
+    "assumptions": [
+      "The domain is CONUS, so NLDAS-2 at 12 km applies and resolves several distinct precip/temperature cells over the 1625 m relief.",
+      "SSURGO soil classes vary across the basin; the downstream expander samples real rasters to assign dominant classes per stratum.",
+      "The user will accept a climate-SENSITIVITY surrogate (historical analogs + elevation gradient) in place of an unattainable dated 2050 projection, pending future-forcing capability.",
+      "A short carrier run per column is available to build the Fan (2013) warm start."
+    ],
+    "open_questions": [
+      "Can a CMIP5/6 downscaled or delta-change forcing be provided for the Naches? Which scenario (e.g. RCP4.5/8.5, SSP) and target window is intended?",
+      "Is any in-domain recharge/WTD/SWE observation (e.g. nearby SNOTEL or USGS wells) available to enable validation?",
+      "Is a historical analog surrogate acceptable, or must the deliverable be a dated 2050 projection (which is currently infeasible)?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

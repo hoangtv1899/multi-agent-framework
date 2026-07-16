@@ -1,0 +1,163 @@
+{
+  "prompt_id": "T02",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: estimate the spatial distribution of modeled recharge across the Naches and test whether a spatially-uniform 500 mm/yr claim is consistent with soil- and forcing-driven variability (falsify, not confirm)\", \"validation: constrain the recharge-relevant subsurface state via water-table-depth comparison against USGS wells and the Fan 2013 prior, since recharge itself is unobserved in-domain\"], \"key_processes\": [\"vertical soil-water partitioning and sub-surface drainage/recharge (QDRAI/QRECHARGE)\", \"soil-texture control on drainage vs. retention\", \"precipitation gradient (elevation-resolved NLDAS) control on water available for recharge\", \"water-table equilibration from warm start\"], \"drivers_to_resolve\": [\"soil\", \"forcing (precip via elevation-band, NLDAS)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Recharge is a 1-D vertical flux ELM computes per column; the question is a spatial-heterogeneity estimation problem across a real basin, so stratified single-column sampling with WTD-warm-start is the right tool. No coupled subsurface model is needed to estimate vertical recharge.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"the SPATIAL DISTRIBUTION and spread of modeled vertical recharge across soil x forcing strata \\u2014 sufficient to test whether a single uniform 500 mm/yr is plausible (expected answer: no, recharge varies with precip and soil)\", \"soil-texture control on recharge magnitude under fixed forcing\", \"precipitation (elevation-band, NLDAS) control on recharge\", \"indirect confidence via water-table-depth validation against USGS wells / Fan 2013\"], \"not_answerable\": [{\"aspect\": \"confirming the ABSOLUTE recharge magnitude (500 mm/yr) against data\", \"why\": \"recharge measurements are MISSING in-domain (per brief) \\u2014 there is no observational target to confirm any number against\", \"needs\": \"in-domain recharge observations (e.g. chloride mass balance, baseflow separation, or lysimeter/CMB estimates)\"}, {\"aspect\": \"recharge shaped by lateral/regional groundwater convergence (valley bottoms receiving upgradient flow)\", \"why\": \"single-column ELM has no lateral transport; modeled recharge is purely vertical, so lateral redistribution that could locally homogenize recharge is not represented\", \"needs\": \"lateral groundwater flow / ELM->PFLOTRAN coupling or a regional water-table model\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (soil x elevation-band-forcing) with light low-elevation replication\", \"strata\": [{\"driver\": \"soil\", \"classes\": [\"coarse/sandy (high drainage)\", \"medium/loam\", \"fine/clayey (low drainage)\"]}, {\"driver\": \"forcing (elevation band, NLDAS precip proxy)\", \"bands\": [\"low 352-800 m\", \"mid 800-1400 m\", \"high 1400-1977 m\"]}], \"n_exploratory\": 12, \"n_justification\": \"3 dominant soil classes x 3 elevation-forcing bands = 9 stratum cells to resolve both candidate drivers; +3 replicates concentrated in low/valley cells where recharge is highest-signal and where WTD validation data (wells) are most likely, giving stable per-stratum estimates without a blind dense grid.\", \"placement_logic\": \"Populate each soil x elevation-band cell from SSURGO/DEM sampling; oversample valley-bottom and low-elevation cells where recharge magnitude and water-table validation are strongest and where uniformity would be most easily disproven; ensure high-elevation snow-dominated cells are represented since their recharge timing/magnitude differs most from valley cells.\", \"replication\": \"3 extra columns in low/mid soil-varied cells to bracket within-stratum soil variability and give a defensible per-band mean/spread.\"}, \"sampling_plan\": [{\"group\": \"low-elevation x 3 soils\", \"n\": 5, \"reason\": \"highest-signal recharge zone with likely well coverage; spans soil drainage control at the wettest-available-water end and anchors WTD validation.\"}, {\"group\": \"mid-elevation x 3 soils\", \"n\": 4, \"reason\": \"rain-snow transition band; isolates how intermediate precip regime x soil sets recharge, the pivot for testing spatial uniformity.\"}, {\"group\": \"high-elevation x 3 soils\", \"n\": 3, \"reason\": \"snow-dominated headwaters; tests whether recharge magnitude/timing departs from valley values, directly falsifying the 'everywhere 500 mm/yr' claim.\"}], \"validation_design\": [{\"target_variable\": \"water_table_depth\", \"observation_source\": \"USGS wells (in-domain), Fan 2013 WTD prior\", \"in_domain_available\": true, \"comparison\": \"co-located (columns near well locations) for USGS wells; Fan 2013 used as warm-start prior and as a spatial cross-check (not independent of the warm start, so treated as consistency not validation)\", \"metric\": \"bias and RMSE on WTD; note expected drift from Fan lateral-flow equilibrium as a reported result\", \"n_validation_points\": \"unknown \\u2014 depends on USGS well density within HUC 17030002\"}, {\"target_variable\": \"recharge (QDRAI/QRECHARGE)\", \"observation_source\": \"NONE in-domain (recharge measurements missing)\", \"in_domain_available\": false, \"comparison\": \"no observational validation possible; report modeled distribution and compare against the claimed 500 mm/yr as a hypothesis test only\", \"metric\": \"spread across strata vs. 500 mm/yr (is 500 within the modeled range or an outlier); no skill metric without obs\", \"n_validation_points\": \"0\"}], \"experiment_summary\": {\"total_columns\": 12, \"exploratory\": 12, \"validation\": 0, \"primary_treatment\": \"native SSURGO soil per column, NLDAS-2 forcing, Fan-2013 WTD warm start + spin-up years for recharge/water-table equilibration\"}, \"requires_capabilities\": [{\"capability\": \"WTD-informed warm start (Fan 2013) + multi-year spin-up\", \"why\": \"recharge and water table are slow states; cold start reads recharge ~0 and default 8.8 m WTD\", \"blocks\": \"any meaningful recharge or WTD estimate\"}, {\"capability\": \"in-domain recharge observations (CMB / baseflow separation / lysimeter)\", \"why\": \"no recharge data exists in-domain to confirm any absolute value\", \"blocks\": \"confirming the 500 mm/yr magnitude claim\"}, {\"capability\": \"lateral groundwater flow (ELM->PFLOTRAN coupling or regional WT model)\", \"why\": \"single-column recharge is vertical-only; lateral convergence in valleys unrepresented\", \"blocks\": \"recharge shaped by regional groundwater redistribution\"}, {\"capability\": \"DEM/elevation sampling + SSURGO soil sampling within HUC boundary\", \"why\": \"expander needs real rasters to place columns per stratum\", \"blocks\": \"converting strata into concrete columns\"}, {\"capability\": \"recharge diagnostic in history output (QDRAI/QRECHARGE aggregation)\", \"why\": \"need annual recharge flux per column to build the distribution\", \"blocks\": \"the primary comparison to 500 mm/yr\"}], \"assumptions\": [\"The user's 'exactly 500 mm/yr everywhere' is treated as a hypothesis to test/falsify, not a target to force \\u2014 the honest deliverable is a modeled recharge distribution and whether uniformity is plausible.\", \"Naches (bbox in WA) lies within CONUS, so NLDAS-2 elevation-resolved forcing is available and varies across the 1625 m relief.\", \"3 dominant soil classes adequately capture SSURGO texture heterogeneity; expander confirms actual class prevalence.\", \"Fan 2013 serves as warm-start prior and consistency check, not as independent validation of WTD.\", \"USGS well count in-domain is unknown; validation coverage is data-limited.\"], \"open_questions\": [\"What is the source/citation for the '500 mm/yr everywhere' figure, and is it a basin-average or a point value? (a basin mean can coexist with strong spatial variability)\", \"How many USGS wells fall inside HUC 17030002 and over what period, for WTD validation?\", \"Are any indirect recharge estimates (baseflow, CMB) available that could serve as a soft magnitude check?\", \"Preferred spin-up length given NLDAS ~10x cost per year per column?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: estimate the spatial distribution of modeled recharge across the Naches and test whether a spatially-uniform 500 mm/yr claim is consistent with soil- and forcing-driven variability (falsify, not confirm)",
+        "validation: constrain the recharge-relevant subsurface state via water-table-depth comparison against USGS wells and the Fan 2013 prior, since recharge itself is unobserved in-domain"
+      ],
+      "key_processes": [
+        "vertical soil-water partitioning and sub-surface drainage/recharge (QDRAI/QRECHARGE)",
+        "soil-texture control on drainage vs. retention",
+        "precipitation gradient (elevation-resolved NLDAS) control on water available for recharge",
+        "water-table equilibration from warm start"
+      ],
+      "drivers_to_resolve": [
+        "soil",
+        "forcing (precip via elevation-band, NLDAS)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Recharge is a 1-D vertical flux ELM computes per column; the question is a spatial-heterogeneity estimation problem across a real basin, so stratified single-column sampling with WTD-warm-start is the right tool. No coupled subsurface model is needed to estimate vertical recharge.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "the SPATIAL DISTRIBUTION and spread of modeled vertical recharge across soil x forcing strata \u2014 sufficient to test whether a single uniform 500 mm/yr is plausible (expected answer: no, recharge varies with precip and soil)",
+        "soil-texture control on recharge magnitude under fixed forcing",
+        "precipitation (elevation-band, NLDAS) control on recharge",
+        "indirect confidence via water-table-depth validation against USGS wells / Fan 2013"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "confirming the ABSOLUTE recharge magnitude (500 mm/yr) against data",
+          "why": "recharge measurements are MISSING in-domain (per brief) \u2014 there is no observational target to confirm any number against",
+          "needs": "in-domain recharge observations (e.g. chloride mass balance, baseflow separation, or lysimeter/CMB estimates)"
+        },
+        {
+          "aspect": "recharge shaped by lateral/regional groundwater convergence (valley bottoms receiving upgradient flow)",
+          "why": "single-column ELM has no lateral transport; modeled recharge is purely vertical, so lateral redistribution that could locally homogenize recharge is not represented",
+          "needs": "lateral groundwater flow / ELM->PFLOTRAN coupling or a regional water-table model"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (soil x elevation-band-forcing) with light low-elevation replication",
+      "strata": [
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy (high drainage)",
+            "medium/loam",
+            "fine/clayey (low drainage)"
+          ]
+        },
+        {
+          "driver": "forcing (elevation band, NLDAS precip proxy)",
+          "bands": [
+            "low 352-800 m",
+            "mid 800-1400 m",
+            "high 1400-1977 m"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "3 dominant soil classes x 3 elevation-forcing bands = 9 stratum cells to resolve both candidate drivers; +3 replicates concentrated in low/valley cells where recharge is highest-signal and where WTD validation data (wells) are most likely, giving stable per-stratum estimates without a blind dense grid.",
+      "placement_logic": "Populate each soil x elevation-band cell from SSURGO/DEM sampling; oversample valley-bottom and low-elevation cells where recharge magnitude and water-table validation are strongest and where uniformity would be most easily disproven; ensure high-elevation snow-dominated cells are represented since their recharge timing/magnitude differs most from valley cells.",
+      "replication": "3 extra columns in low/mid soil-varied cells to bracket within-stratum soil variability and give a defensible per-band mean/spread."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elevation x 3 soils",
+        "n": 5,
+        "reason": "highest-signal recharge zone with likely well coverage; spans soil drainage control at the wettest-available-water end and anchors WTD validation."
+      },
+      {
+        "group": "mid-elevation x 3 soils",
+        "n": 4,
+        "reason": "rain-snow transition band; isolates how intermediate precip regime x soil sets recharge, the pivot for testing spatial uniformity."
+      },
+      {
+        "group": "high-elevation x 3 soils",
+        "n": 3,
+        "reason": "snow-dominated headwaters; tests whether recharge magnitude/timing departs from valley values, directly falsifying the 'everywhere 500 mm/yr' claim."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (in-domain), Fan 2013 WTD prior",
+        "in_domain_available": true,
+        "comparison": "co-located (columns near well locations) for USGS wells; Fan 2013 used as warm-start prior and as a spatial cross-check (not independent of the warm start, so treated as consistency not validation)",
+        "metric": "bias and RMSE on WTD; note expected drift from Fan lateral-flow equilibrium as a reported result",
+        "n_validation_points": "unknown \u2014 depends on USGS well density within HUC 17030002"
+      },
+      {
+        "target_variable": "recharge (QDRAI/QRECHARGE)",
+        "observation_source": "NONE in-domain (recharge measurements missing)",
+        "in_domain_available": false,
+        "comparison": "no observational validation possible; report modeled distribution and compare against the claimed 500 mm/yr as a hypothesis test only",
+        "metric": "spread across strata vs. 500 mm/yr (is 500 within the modeled range or an outlier); no skill metric without obs",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 12,
+      "validation": 0,
+      "primary_treatment": "native SSURGO soil per column, NLDAS-2 forcing, Fan-2013 WTD warm start + spin-up years for recharge/water-table equilibration"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "WTD-informed warm start (Fan 2013) + multi-year spin-up",
+        "why": "recharge and water table are slow states; cold start reads recharge ~0 and default 8.8 m WTD",
+        "blocks": "any meaningful recharge or WTD estimate"
+      },
+      {
+        "capability": "in-domain recharge observations (CMB / baseflow separation / lysimeter)",
+        "why": "no recharge data exists in-domain to confirm any absolute value",
+        "blocks": "confirming the 500 mm/yr magnitude claim"
+      },
+      {
+        "capability": "lateral groundwater flow (ELM->PFLOTRAN coupling or regional WT model)",
+        "why": "single-column recharge is vertical-only; lateral convergence in valleys unrepresented",
+        "blocks": "recharge shaped by regional groundwater redistribution"
+      },
+      {
+        "capability": "DEM/elevation sampling + SSURGO soil sampling within HUC boundary",
+        "why": "expander needs real rasters to place columns per stratum",
+        "blocks": "converting strata into concrete columns"
+      },
+      {
+        "capability": "recharge diagnostic in history output (QDRAI/QRECHARGE aggregation)",
+        "why": "need annual recharge flux per column to build the distribution",
+        "blocks": "the primary comparison to 500 mm/yr"
+      }
+    ],
+    "assumptions": [
+      "The user's 'exactly 500 mm/yr everywhere' is treated as a hypothesis to test/falsify, not a target to force \u2014 the honest deliverable is a modeled recharge distribution and whether uniformity is plausible.",
+      "Naches (bbox in WA) lies within CONUS, so NLDAS-2 elevation-resolved forcing is available and varies across the 1625 m relief.",
+      "3 dominant soil classes adequately capture SSURGO texture heterogeneity; expander confirms actual class prevalence.",
+      "Fan 2013 serves as warm-start prior and consistency check, not as independent validation of WTD.",
+      "USGS well count in-domain is unknown; validation coverage is data-limited."
+    ],
+    "open_questions": [
+      "What is the source/citation for the '500 mm/yr everywhere' figure, and is it a basin-average or a point value? (a basin mean can coexist with strong spatial variability)",
+      "How many USGS wells fall inside HUC 17030002 and over what period, for WTD validation?",
+      "Are any indirect recharge estimates (baseflow, CMB) available that could serve as a soft magnitude check?",
+      "Preferred spin-up length given NLDAS ~10x cost per year per column?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

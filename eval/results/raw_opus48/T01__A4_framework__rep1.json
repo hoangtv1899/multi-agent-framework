@@ -1,0 +1,161 @@
+{
+  "prompt_id": "T01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: characterize runoff generation (surface runoff vs subsurface drainage; rain vs snowmelt timing) across the Naches elevation and soil gradient\", \"Validation: compare simulated runoff to USGS stream gauge discharge (latent, see feasibility)\"], \"key_processes\": [\"snow accumulation/melt\", \"surface (saturation/infiltration-excess) runoff\", \"subsurface drainage/recharge\", \"soil-texture control on infiltration partitioning\"], \"drivers_to_resolve\": [\"elevation\", \"soil\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM resolves the vertical water balance and snowpack that generate runoff locally; NLDAS forcing makes elevation act through precip/temperature across this 1625 m relief, and SSURGO gives the soil lever.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Elevation control on runoff generation via NLDAS elevation-resolved precip/temperature and simulated snow (rain-snow transition, melt timing)\", \"Soil-texture control on surface-runoff vs drainage partitioning\", \"Column-local runoff terms (QOVER surface runoff, QDRAI drainage, total QRUNOFF)\"], \"not_answerable\": [{\"aspect\": \"Validation of simulated runoff against USGS stream gauge discharge\", \"why\": \"Single-column, no lateral transport/routing: independent 1-D columns produce no integrated basin streamflow, so gauge discharge cannot be reproduced co-located\", \"needs\": \"runoff routing / column aggregation to basin outlet\"}, {\"aspect\": \"Absolute subsurface drainage / recharge magnitudes\", \"why\": \"Slow states cold-start at default ~8.8 m water table; recharge reads ~0 while storage fills\", \"needs\": \"spin-up years or Fan-2013 WTD-informed warm start\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (elevation bands x dominant soil classes), transect-biased along valley->ridge\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"valley 352-800 m\", \"mid / rain-snow transition 800-1400 m\", \"upper snow-dominated 1400-1977 m\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse (sandy/high-infiltration)\", \"medium (loam)\", \"fine (clay/low-infiltration)\"]}], \"n_exploratory\": 8, \"n_justification\": \"3 elevation bands span the rain->snow gradient that dominates runoff timing; within each band the 2-3 dominant SSURGO textures (expander-selected, not all 9 combos) isolate the infiltration-partitioning control. ~8 columns span the strata with light replication in the rain-snow transition band where runoff mechanism switches \\u2014 the smallest set that resolves both drivers.\", \"placement_logic\": \"Concentrate columns in the mid-elevation rain-snow transition (800-1400 m) where melt-driven vs rain-driven runoff generation and soil control are strongest; anchor one column low (valley) and one high (snow-dominated) as gradient endpoints. Honor the user's valley->ridge transect intent.\", \"replication\": \"One extra column in the transition band to sample a second dominant soil there, since that band is where the runoff mechanism transitions.\"}, \"sampling_plan\": [{\"group\": \"valley low-elevation\", \"n\": 2, \"reason\": \"Rain-dominated basin floor; establishes low-elevation surface-runoff/drainage baseline across coarse vs fine soil.\"}, {\"group\": \"rain-snow transition, mid-elevation\", \"n\": 4, \"reason\": \"Core of the runoff question: samples where melt vs rain timing switches, replicated across dominant soils to isolate infiltration control.\"}, {\"group\": \"upper snow-dominated\", \"n\": 2, \"reason\": \"Snowmelt-driven runoff generation endpoint; tests high-elevation SWE and melt partitioning.\"}], \"validation_design\": [{\"target_variable\": \"total_runoff (QRUNOFF, column-local)\", \"observation_source\": \"USGS stream gauges (in-domain)\", \"in_domain_available\": true, \"comparison\": \"aggregated \\u2014 NOT possible without routing; a qualitative comparison of column-summed runoff seasonality vs gauge hydrograph shape is the best available, and is only indicative, not co-located\", \"metric\": \"seasonal-timing correlation (qualitative) \\u2014 quantitative bias/NSE blocked until routing exists\", \"n_validation_points\": \"unknown \\u2014 gauge count/locations not provided in brief\"}, {\"target_variable\": \"peak SWE (H2OSNO)\", \"observation_source\": \"SNOTEL (if any in-domain \\u2014 not listed in brief)\", \"in_domain_available\": false, \"comparison\": \"analog / not confirmed \\u2014 flagged as gap; would provide the only direct check on the snowmelt driver\", \"metric\": \"peak-SWE bias\", \"n_validation_points\": \"unknown \\u2014 depends on SNOTEL presence\"}], \"experiment_summary\": {\"total_columns\": 8, \"exploratory\": 8, \"validation\": 0, \"primary_treatment\": \"NLDAS-2 forcing (elevation-resolved), native SSURGO soil, WTD-informed warm start\"}, \"requires_capabilities\": [{\"capability\": \"runoff routing / column aggregation to basin outlet\", \"why\": \"convert independent column runoff into integrated streamflow\", \"blocks\": \"co-located USGS gauge validation \\u2014 the only in-domain observation\"}, {\"capability\": \"spin-up years or Fan-2013 WTD-informed warm start\", \"why\": \"slow subsurface states cold-start at default water table\", \"blocks\": \"quantitative subsurface drainage/recharge magnitudes\"}, {\"capability\": \"DEM/elevation sampling + SSURGO soil raster expander\", \"why\": \"turn elevation/soil strata rules into concrete in-domain columns\", \"blocks\": \"stratified placement\"}, {\"capability\": \"HUC 17030002 boundary resolver\", \"why\": \"constrain columns to the true watershed, not just bbox\", \"blocks\": \"valid placement / rejecting out-of-domain points\"}, {\"capability\": \"SNOTEL/snow observation ingest\", \"why\": \"validate the snowmelt driver central to runoff timing\", \"blocks\": \"snow-driver validation\"}], \"assumptions\": [\"User point (46.62, -119.90) is OUTSIDE the domain bbox (lon -119.90 vs eastern limit -120.5) \\u2014 treated as an error and excluded; the other two points inform the valley->ridge transect intent but are not used as literal coordinates.\", \"Domain is CONUS -> NLDAS-2 forcing applies and gives elevation-resolved precip/temperature.\", \"Dominant SSURGO textures per elevation band are selected downstream by the expander; the 3 listed classes are placeholders.\", \"Runoff generation studied here is column-local partitioning, not basin-integrated discharge.\"], \"open_questions\": [\"How many USGS gauges are in-domain and where (outlet vs tributary)? Needed to scope any future routing-based validation.\", \"Should the out-of-domain user point be corrected to an intended in-domain location, or dropped?\", \"Are SNOTEL stations available in-domain to validate the snow driver?\", \"Is basin-integrated streamflow the real target (requires routing development) or is column-scale runoff generation sufficient?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: characterize runoff generation (surface runoff vs subsurface drainage; rain vs snowmelt timing) across the Naches elevation and soil gradient",
+        "Validation: compare simulated runoff to USGS stream gauge discharge (latent, see feasibility)"
+      ],
+      "key_processes": [
+        "snow accumulation/melt",
+        "surface (saturation/infiltration-excess) runoff",
+        "subsurface drainage/recharge",
+        "soil-texture control on infiltration partitioning"
+      ],
+      "drivers_to_resolve": [
+        "elevation",
+        "soil"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM resolves the vertical water balance and snowpack that generate runoff locally; NLDAS forcing makes elevation act through precip/temperature across this 1625 m relief, and SSURGO gives the soil lever.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Elevation control on runoff generation via NLDAS elevation-resolved precip/temperature and simulated snow (rain-snow transition, melt timing)",
+        "Soil-texture control on surface-runoff vs drainage partitioning",
+        "Column-local runoff terms (QOVER surface runoff, QDRAI drainage, total QRUNOFF)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Validation of simulated runoff against USGS stream gauge discharge",
+          "why": "Single-column, no lateral transport/routing: independent 1-D columns produce no integrated basin streamflow, so gauge discharge cannot be reproduced co-located",
+          "needs": "runoff routing / column aggregation to basin outlet"
+        },
+        {
+          "aspect": "Absolute subsurface drainage / recharge magnitudes",
+          "why": "Slow states cold-start at default ~8.8 m water table; recharge reads ~0 while storage fills",
+          "needs": "spin-up years or Fan-2013 WTD-informed warm start"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation bands x dominant soil classes), transect-biased along valley->ridge",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley 352-800 m",
+            "mid / rain-snow transition 800-1400 m",
+            "upper snow-dominated 1400-1977 m"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy/high-infiltration)",
+            "medium (loam)",
+            "fine (clay/low-infiltration)"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "3 elevation bands span the rain->snow gradient that dominates runoff timing; within each band the 2-3 dominant SSURGO textures (expander-selected, not all 9 combos) isolate the infiltration-partitioning control. ~8 columns span the strata with light replication in the rain-snow transition band where runoff mechanism switches \u2014 the smallest set that resolves both drivers.",
+      "placement_logic": "Concentrate columns in the mid-elevation rain-snow transition (800-1400 m) where melt-driven vs rain-driven runoff generation and soil control are strongest; anchor one column low (valley) and one high (snow-dominated) as gradient endpoints. Honor the user's valley->ridge transect intent.",
+      "replication": "One extra column in the transition band to sample a second dominant soil there, since that band is where the runoff mechanism transitions."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley low-elevation",
+        "n": 2,
+        "reason": "Rain-dominated basin floor; establishes low-elevation surface-runoff/drainage baseline across coarse vs fine soil."
+      },
+      {
+        "group": "rain-snow transition, mid-elevation",
+        "n": 4,
+        "reason": "Core of the runoff question: samples where melt vs rain timing switches, replicated across dominant soils to isolate infiltration control."
+      },
+      {
+        "group": "upper snow-dominated",
+        "n": 2,
+        "reason": "Snowmelt-driven runoff generation endpoint; tests high-elevation SWE and melt partitioning."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "total_runoff (QRUNOFF, column-local)",
+        "observation_source": "USGS stream gauges (in-domain)",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 NOT possible without routing; a qualitative comparison of column-summed runoff seasonality vs gauge hydrograph shape is the best available, and is only indicative, not co-located",
+        "metric": "seasonal-timing correlation (qualitative) \u2014 quantitative bias/NSE blocked until routing exists",
+        "n_validation_points": "unknown \u2014 gauge count/locations not provided in brief"
+      },
+      {
+        "target_variable": "peak SWE (H2OSNO)",
+        "observation_source": "SNOTEL (if any in-domain \u2014 not listed in brief)",
+        "in_domain_available": false,
+        "comparison": "analog / not confirmed \u2014 flagged as gap; would provide the only direct check on the snowmelt driver",
+        "metric": "peak-SWE bias",
+        "n_validation_points": "unknown \u2014 depends on SNOTEL presence"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 8,
+      "exploratory": 8,
+      "validation": 0,
+      "primary_treatment": "NLDAS-2 forcing (elevation-resolved), native SSURGO soil, WTD-informed warm start"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "runoff routing / column aggregation to basin outlet",
+        "why": "convert independent column runoff into integrated streamflow",
+        "blocks": "co-located USGS gauge validation \u2014 the only in-domain observation"
+      },
+      {
+        "capability": "spin-up years or Fan-2013 WTD-informed warm start",
+        "why": "slow subsurface states cold-start at default water table",
+        "blocks": "quantitative subsurface drainage/recharge magnitudes"
+      },
+      {
+        "capability": "DEM/elevation sampling + SSURGO soil raster expander",
+        "why": "turn elevation/soil strata rules into concrete in-domain columns",
+        "blocks": "stratified placement"
+      },
+      {
+        "capability": "HUC 17030002 boundary resolver",
+        "why": "constrain columns to the true watershed, not just bbox",
+        "blocks": "valid placement / rejecting out-of-domain points"
+      },
+      {
+        "capability": "SNOTEL/snow observation ingest",
+        "why": "validate the snowmelt driver central to runoff timing",
+        "blocks": "snow-driver validation"
+      }
+    ],
+    "assumptions": [
+      "User point (46.62, -119.90) is OUTSIDE the domain bbox (lon -119.90 vs eastern limit -120.5) \u2014 treated as an error and excluded; the other two points inform the valley->ridge transect intent but are not used as literal coordinates.",
+      "Domain is CONUS -> NLDAS-2 forcing applies and gives elevation-resolved precip/temperature.",
+      "Dominant SSURGO textures per elevation band are selected downstream by the expander; the 3 listed classes are placeholders.",
+      "Runoff generation studied here is column-local partitioning, not basin-integrated discharge."
+    ],
+    "open_questions": [
+      "How many USGS gauges are in-domain and where (outlet vs tributary)? Needed to scope any future routing-based validation.",
+      "Should the out-of-domain user point be corrected to an intended in-domain location, or dropped?",
+      "Are SNOTEL stations available in-domain to validate the snow driver?",
+      "Is basin-integrated streamflow the real target (requires routing development) or is column-scale runoff generation sufficient?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

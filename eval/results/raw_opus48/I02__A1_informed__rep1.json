@@ -1,0 +1,89 @@
+{
+  "prompt_id": "I02",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"partially_feasible\",\n    \"answerable\": [\n      \"Direction and approximate magnitude of recharge change under a prescribed warming perturbation (delta-method: e.g., +2 to +4 K applied to historical 1980-2018 forcing).\",\n      \"Relative sensitivity of deep drainage (recharge proxy) to temperature-driven shifts in snowmelt timing and evapotranspiration across the Naches elevation gradient.\",\n      \"Baseline (historical) recharge climatology and interannual variability for 1980-2018.\"\n    ],\n    \"not_answerable\": [\n      \"A calendar-specific, scenario-accurate (e.g., RCP4.5/SSP2-4.5) projection for the exact year 2050, because no downscaled CMIP future forcing is available in the provided data (historical 1980-2018 only).\",\n      \"Precipitation-change effects on recharge with fidelity, since only a temperature warming perturbation can be robustly imposed; realistic future precipitation deltas are not provided.\",\n      \"Validation of simulated recharge against observations (no site observations available).\"\n    ]\n  },\n  \"n_columns\": 3,\n  \"n_justification\": \"The Naches HUC spans 352-1977 m elevation, and recharge is dominated by snowpack accumulation/melt dynamics that vary strongly with elevation. Three columns (low valley, mid transitional rain-snow, high snow-dominated) capture the key hydroclimatic regimes controlling recharge response to warming without over-proliferating single-column runs.\",\n  \"columns\": [\n    {\"id\": \"naches_low\", \"lat\": 46.72, \"lon\": -120.70, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"naches_mid\", \"lat\": 46.85, \"lon\": -121.05, \"soil_texture\": \"loam\"},\n    {\"id\": \"naches_high\", \"lat\": 46.95, \"lon\": -121.35, \"soil_texture\": \"gravelly_sandy_loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QDRAI\",\n      \"QRECHARGE\",\n      \"QOVER\",\n      \"QRUNOFF\",\n      \"QINFL\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"QFLX_SNOW_MELT\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QVEGT\",\n      \"QSOIL\",\n      \"EFLX_LH_TOT\",\n      \"TSA\",\n      \"TSOI\",\n      \"ZWT\",\n      \"WA\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"Baseline transient run using historical GSWP3/CLMNCEP forcing 1980-2018 after spin-up (accelerated + final spin-up to equilibrate soil moisture and water table).\",\n    \"Delta-warming perturbation capability: offline modification of DATM air temperature and derived longwave/humidity fields (e.g., +2 K and +4 K uniform, and optional seasonally varying deltas) to emulate a mid-century warming scenario.\",\n    \"Column-level output of deep drainage/recharge fluxes (QDRAI/QRECHARGE) at monthly and annual resolution.\",\n    \"Optional PFLOTRAN coupling for higher-fidelity variably-saturated subsurface flow if deep percolation/water-table recharge partitioning is a focus.\"\n  ],\n  \"assumptions\": [\n    \"Recharge is approximated by simulated bottom-boundary deep drainage flux (QDRAI/QRECHARGE) below the root zone.\",\n    \"In the absence of downscaled future CMIP forcing, a delta-method warming perturbation (+2 K and +4 K bracketing plausible 2050 warming for the Cascades) is applied to the historical 1980-2018 record; results are interpreted as scenario sensitivities, not a bias-corrected 2050 projection.\",\n    \"Precipitation amount is held at historical values unless future deltas are later supplied; phase repartitioning (snow vs rain) responds to the imposed temperature change.\",\n    \"Single-column (point) surface columns represent characteristic elevation bands rather than the full spatial distribution; results should be interpreted as regime-representative.\",\n    \"Model is spun up to hydrologic equilibrium prior to the 1980-2018 evaluation period; the STOP_N of 39 years covers the full forcing cycle for the analysis segment.\",\n    \"Soil textures are assigned from surdat/SSURGO-consistent estimates for each elevation band and can be refined if site data become available.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "partially_feasible",
+      "answerable": [
+        "Direction and approximate magnitude of recharge change under a prescribed warming perturbation (delta-method: e.g., +2 to +4 K applied to historical 1980-2018 forcing).",
+        "Relative sensitivity of deep drainage (recharge proxy) to temperature-driven shifts in snowmelt timing and evapotranspiration across the Naches elevation gradient.",
+        "Baseline (historical) recharge climatology and interannual variability for 1980-2018."
+      ],
+      "not_answerable": [
+        "A calendar-specific, scenario-accurate (e.g., RCP4.5/SSP2-4.5) projection for the exact year 2050, because no downscaled CMIP future forcing is available in the provided data (historical 1980-2018 only).",
+        "Precipitation-change effects on recharge with fidelity, since only a temperature warming perturbation can be robustly imposed; realistic future precipitation deltas are not provided.",
+        "Validation of simulated recharge against observations (no site observations available)."
+      ]
+    },
+    "n_columns": 3,
+    "n_justification": "The Naches HUC spans 352-1977 m elevation, and recharge is dominated by snowpack accumulation/melt dynamics that vary strongly with elevation. Three columns (low valley, mid transitional rain-snow, high snow-dominated) capture the key hydroclimatic regimes controlling recharge response to warming without over-proliferating single-column runs.",
+    "columns": [
+      {
+        "id": "naches_low",
+        "lat": 46.72,
+        "lon": -120.7,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "naches_mid",
+        "lat": 46.85,
+        "lon": -121.05,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "naches_high",
+        "lat": 46.95,
+        "lon": -121.35,
+        "soil_texture": "gravelly_sandy_loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QDRAI",
+        "QRECHARGE",
+        "QOVER",
+        "QRUNOFF",
+        "QINFL",
+        "SOILLIQ",
+        "SOILICE",
+        "H2OSNO",
+        "SNOWDP",
+        "QFLX_SNOW_MELT",
+        "RAIN",
+        "SNOW",
+        "QVEGT",
+        "QSOIL",
+        "EFLX_LH_TOT",
+        "TSA",
+        "TSOI",
+        "ZWT",
+        "WA"
+      ]
+    },
+    "requires_capabilities": [
+      "Baseline transient run using historical GSWP3/CLMNCEP forcing 1980-2018 after spin-up (accelerated + final spin-up to equilibrate soil moisture and water table).",
+      "Delta-warming perturbation capability: offline modification of DATM air temperature and derived longwave/humidity fields (e.g., +2 K and +4 K uniform, and optional seasonally varying deltas) to emulate a mid-century warming scenario.",
+      "Column-level output of deep drainage/recharge fluxes (QDRAI/QRECHARGE) at monthly and annual resolution.",
+      "Optional PFLOTRAN coupling for higher-fidelity variably-saturated subsurface flow if deep percolation/water-table recharge partitioning is a focus."
+    ],
+    "assumptions": [
+      "Recharge is approximated by simulated bottom-boundary deep drainage flux (QDRAI/QRECHARGE) below the root zone.",
+      "In the absence of downscaled future CMIP forcing, a delta-method warming perturbation (+2 K and +4 K bracketing plausible 2050 warming for the Cascades) is applied to the historical 1980-2018 record; results are interpreted as scenario sensitivities, not a bias-corrected 2050 projection.",
+      "Precipitation amount is held at historical values unless future deltas are later supplied; phase repartitioning (snow vs rain) responds to the imposed temperature change.",
+      "Single-column (point) surface columns represent characteristic elevation bands rather than the full spatial distribution; results should be interpreted as regime-representative.",
+      "Model is spun up to hydrologic equilibrium prior to the 1980-2018 evaluation period; the STOP_N of 39 years covers the full forcing cycle for the analysis segment.",
+      "Soil textures are assigned from surdat/SSURGO-consistent estimates for each elevation band and can be refined if site data become available."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

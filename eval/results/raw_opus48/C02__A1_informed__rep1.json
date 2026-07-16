@@ -1,0 +1,111 @@
+{
+  "prompt_id": "C02",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Partially feasible with ELM; deep-water-table cases require PFLOTRAN coupling.\",\n    \"answerable\": [\n      \"Fraction of an infiltration pulse that reaches the water table for shallow water tables (0.5-8 m) that lie within ELM's discretized soil-to-bedrock column\",\n      \"Sensitivity of recharge flux (QRECHARGE/QCHARGE) and water-table response (ZWT) to initial water-table depth in the shallow range\",\n      \"Travel-time and pulse attenuation behavior via a controlled idealized column ensemble varying only initial WTD\"\n    ],\n    \"not_answerable\": [\n      \"Pulse arrival and attenuation for deep water tables (10-50 m): ELM's default soil column terminates near ~8.5 m (bedrock) and cannot resolve a thick unsaturated zone or vertical Richards transport to 50 m \u2014 this requires PFLOTRAN\",\n      \"Precise vadose-zone travel time / hydraulic diffusion of the pulse through 50 m of unsaturated media (needs a variably saturated Richards solver, i.e., PFLOTRAN)\",\n      \"Any validation against observations (none available for this conceptual/idealized design)\"\n    ]\n  },\n  \"n_columns\": 7,\n  \"n_justification\": \"One idealized column per initial water-table depth level spanning the requested 0.5-50 m range on a log-like spacing (0.5, 1, 2, 5, 10, 20, 50 m). Location, soil texture, and forcing are held identical so the only varied control is initial WTD, isolating its effect on pulse-to-water-table transfer. Shallow cases (<=8 m) are run in ELM; deeper cases are flagged for PFLOTRAN.\",\n  \"columns\": [\n    {\"id\": \"WTD_0p5m\", \"lat\": 40.0, \"lon\": -100.0, \"soil_texture\": \"loam\"},\n    {\"id\": \"WTD_1m\",   \"lat\": 40.0, \"lon\": -100.0, \"soil_texture\": \"loam\"},\n    {\"id\": \"WTD_2m\",   \"lat\": 40.0, \"lon\": -100.0, \"soil_texture\": \"loam\"},\n    {\"id\": \"WTD_5m\",   \"lat\": 40.0, \"lon\": -100.0, \"soil_texture\": \"loam\"},\n    {\"id\": \"WTD_10m\",  \"lat\": 40.0, \"lon\": -100.0, \"soil_texture\": \"loam\"},\n    {\"id\": \"WTD_20m\",  \"lat\": 40.0, \"lon\": -100.0, \"soil_texture\": \"loam\"},\n    {\"id\": \"WTD_50m\",  \"lat\": 40.0, \"lon\": -100.0, \"soil_texture\": \"loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"2000\",\n    \"DATM_CLMNCEP_YR_END\": \"2001\",\n    \"STOP_N\": \"12\",\n    \"RUN_STARTDATE\": \"2000-01-01\",\n    \"hist_variables\": [\n      \"QINFL\", \"QOVER\", \"QDRAI\", \"QRECHARGE\", \"QCHARGE\",\n      \"ZWT\", \"WA\", \"H2OSOI\", \"SOILLIQ\", \"SOILICE\",\n      \"QRUNOFF\", \"RAIN\", \"TSOI\", \"WATSAT\", \"FROOT\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"PFLOTRAN coupling (variably saturated Richards flow) for water-table depths >8 m and for resolving pulse travel time through a thick vadose zone\",\n    \"Deep/extended soil-column configuration or custom vertical discretization to place the water table at prescribed depths\",\n    \"Ability to prescribe initial water-table depth / initial soil moisture profile per column\",\n    \"Idealized single-column point forcing with a controllable precipitation pulse (spike) inserted into the DATM stream\",\n    \"Sub-daily history output to capture pulse arrival timing\"\n  ],\n  \"assumptions\": [\n    \"Idealized homogeneous single soil texture (loam) and flat topography so infiltration is 1-D vertical; no lateral flow.\",\n    \"A single, short high-intensity rainfall pulse is imposed early in the run atop a common spun-up antecedent moisture state; the remainder of forcing is dry/low to track pulse redistribution.\",\n    \"Each column is spun up to an equilibrium profile consistent with its prescribed initial WTD before the pulse is applied.\",\n    \"Water-table 'reach' is quantified as cumulative QRECHARGE/QCHARGE (recharge crossing the saturated boundary) and ZWT rise relative to the infiltrated pulse volume (QINFL).\",\n    \"Shallow cases (0.5-5 m, arguably 8 m) are handled natively by ELM; the 10, 20, and 50 m cases are executed through PFLOTRAN with a deepened domain.\",\n    \"Location (40N, 100W) is a placeholder mid-latitude continental site chosen only to supply plausible atmospheric forcing; results are interpreted conceptually, not site-specifically.\",\n    \"Forcing years 2000-2001 are drawn from the 1980-2018 available record purely as a neutral background climate.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Partially feasible with ELM; deep-water-table cases require PFLOTRAN coupling.",
+      "answerable": [
+        "Fraction of an infiltration pulse that reaches the water table for shallow water tables (0.5-8 m) that lie within ELM's discretized soil-to-bedrock column",
+        "Sensitivity of recharge flux (QRECHARGE/QCHARGE) and water-table response (ZWT) to initial water-table depth in the shallow range",
+        "Travel-time and pulse attenuation behavior via a controlled idealized column ensemble varying only initial WTD"
+      ],
+      "not_answerable": [
+        "Pulse arrival and attenuation for deep water tables (10-50 m): ELM's default soil column terminates near ~8.5 m (bedrock) and cannot resolve a thick unsaturated zone or vertical Richards transport to 50 m \u2014 this requires PFLOTRAN",
+        "Precise vadose-zone travel time / hydraulic diffusion of the pulse through 50 m of unsaturated media (needs a variably saturated Richards solver, i.e., PFLOTRAN)",
+        "Any validation against observations (none available for this conceptual/idealized design)"
+      ]
+    },
+    "n_columns": 7,
+    "n_justification": "One idealized column per initial water-table depth level spanning the requested 0.5-50 m range on a log-like spacing (0.5, 1, 2, 5, 10, 20, 50 m). Location, soil texture, and forcing are held identical so the only varied control is initial WTD, isolating its effect on pulse-to-water-table transfer. Shallow cases (<=8 m) are run in ELM; deeper cases are flagged for PFLOTRAN.",
+    "columns": [
+      {
+        "id": "WTD_0p5m",
+        "lat": 40.0,
+        "lon": -100.0,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "WTD_1m",
+        "lat": 40.0,
+        "lon": -100.0,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "WTD_2m",
+        "lat": 40.0,
+        "lon": -100.0,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "WTD_5m",
+        "lat": 40.0,
+        "lon": -100.0,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "WTD_10m",
+        "lat": 40.0,
+        "lon": -100.0,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "WTD_20m",
+        "lat": 40.0,
+        "lon": -100.0,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "WTD_50m",
+        "lat": 40.0,
+        "lon": -100.0,
+        "soil_texture": "loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "2000",
+      "DATM_CLMNCEP_YR_END": "2001",
+      "STOP_N": "12",
+      "RUN_STARTDATE": "2000-01-01",
+      "hist_variables": [
+        "QINFL",
+        "QOVER",
+        "QDRAI",
+        "QRECHARGE",
+        "QCHARGE",
+        "ZWT",
+        "WA",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "QRUNOFF",
+        "RAIN",
+        "TSOI",
+        "WATSAT",
+        "FROOT"
+      ]
+    },
+    "requires_capabilities": [
+      "PFLOTRAN coupling (variably saturated Richards flow) for water-table depths >8 m and for resolving pulse travel time through a thick vadose zone",
+      "Deep/extended soil-column configuration or custom vertical discretization to place the water table at prescribed depths",
+      "Ability to prescribe initial water-table depth / initial soil moisture profile per column",
+      "Idealized single-column point forcing with a controllable precipitation pulse (spike) inserted into the DATM stream",
+      "Sub-daily history output to capture pulse arrival timing"
+    ],
+    "assumptions": [
+      "Idealized homogeneous single soil texture (loam) and flat topography so infiltration is 1-D vertical; no lateral flow.",
+      "A single, short high-intensity rainfall pulse is imposed early in the run atop a common spun-up antecedent moisture state; the remainder of forcing is dry/low to track pulse redistribution.",
+      "Each column is spun up to an equilibrium profile consistent with its prescribed initial WTD before the pulse is applied.",
+      "Water-table 'reach' is quantified as cumulative QRECHARGE/QCHARGE (recharge crossing the saturated boundary) and ZWT rise relative to the infiltrated pulse volume (QINFL).",
+      "Shallow cases (0.5-5 m, arguably 8 m) are handled natively by ELM; the 10, 20, and 50 m cases are executed through PFLOTRAN with a deepened domain.",
+      "Location (40N, 100W) is a placeholder mid-latitude continental site chosen only to supply plausible atmospheric forcing; results are interpreted conceptually, not site-specifically.",
+      "Forcing years 2000-2001 are drawn from the 1980-2018 available record purely as a neutral background climate."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

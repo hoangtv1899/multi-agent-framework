@@ -1,0 +1,181 @@
+{
+  "prompt_id": "S09",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: characterize seasonal ET dynamics and their land-cover/soil controls across the Passaic basin\", \"Validation: compare simulated ET against local eddy-covariance flux towers (NOT possible in-domain \\u2014 see feasibility)\"], \"key_processes\": [\"evapotranspiration partitioning (transpiration/soil evap/canopy evap)\", \"seasonal soil-moisture control on ET\", \"surface energy balance / latent heat flux\"], \"drivers_to_resolve\": [\"land cover\", \"soil\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"ELM single-column directly simulates ET and its seasonal cycle; land cover and soil are the named ET controls, resolvable via spatial sampling across the basin's heterogeneity.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Seasonal ET dynamics and their soil-texture control (SSURGO is a first-class lever; ELM outputs ET components natively)\", \"Land-cover control on ET IF per-column PFT/land-cover assignment is enabled (see requires_capabilities)\"], \"not_answerable\": [{\"aspect\": \"Validation of ET against local eddy-covariance flux towers\", \"why\": \"The brief lists EC flux towers under observations_missing \\u2014 there are no in-domain flux towers in the data stack, and ELM's other in-domain obs (gauges, wells) do not directly measure ET.\", \"needs\": \"eddy-covariance / AmeriFlux observation ingest (in-domain or analog site)\"}, {\"aspect\": \"Indirect ET validation via basin water balance (ET as residual of P - Q - dS)\", \"why\": \"Single-column stack has no routing/aggregation to produce integrated streamflow for USGS gauge comparison.\", \"needs\": \"runoff routing / multi-column aggregation to gage\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (land cover x soil texture)\", \"strata\": [{\"driver\": \"land cover\", \"classes\": [\"forest/upland\", \"developed/suburban\", \"agriculture/grass\", \"riparian/wetland\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse (sandy)\", \"medium (loam)\", \"fine (clay)\"]}], \"n_exploratory\": 12, \"n_justification\": \"4 dominant land-cover classes x 3 soil-texture classes spans the ET-relevant heterogeneity of the basin; a full crossing is ~12 columns. This is the smallest set that resolves both named drivers without dense infilling. Not all 12 cells need be equally populated \\u2014 the expander places columns where each combination actually occurs.\", \"placement_logic\": \"Oversample riparian/wetland valley bottoms (shallow water table sustains dry-season ET \\u2014 distinctive seasonal signature) and developed/suburban zones (impervious cover suppresses transpiration, altering the seasonal ET curve). Distribute forest and ag columns across the coarse/medium/fine soil classes present under them.\", \"replication\": \"Light: allow 1 replicate for the most common land-cover x soil combination to gauge within-stratum spread; otherwise one column per occupied stratum.\"}, \"sampling_plan\": [{\"group\": \"forested upland, medium soil\", \"n\": 2, \"reason\": \"Baseline transpiration-dominated ET seasonal cycle on the basin's dominant upland land cover.\"}, {\"group\": \"forested upland, coarse soil\", \"n\": 1, \"reason\": \"Isolates soil-texture effect on forest ET \\u2014 coarse soils drain fast, testing dry-season transpiration limitation.\"}, {\"group\": \"agriculture/grass, medium soil\", \"n\": 2, \"reason\": \"Captures shallow-rooted crop/grass ET seasonality distinct from forest phenology.\"}, {\"group\": \"agriculture/grass, fine soil\", \"n\": 1, \"reason\": \"Fine soils retain water \\u2014 tests soil control on late-season ET under grass/crop cover.\"}, {\"group\": \"developed/suburban, medium soil\", \"n\": 2, \"reason\": \"Impervious/managed cover suppresses transpiration; characterizes the urban ET signature of the lower Passaic.\"}, {\"group\": \"riparian/wetland, fine soil\", \"n\": 2, \"reason\": \"Valley-bottom shallow water table sustains dry-season ET \\u2014 distinctive seasonal maximum; oversampled.\"}, {\"group\": \"riparian/wetland, coarse soil\", \"n\": 1, \"reason\": \"Contrasts wetland ET on coarse vs fine substrate along the riparian corridor.\"}, {\"group\": \"forested upland, fine soil\", \"n\": 1, \"reason\": \"Completes forest x soil crossing to attribute ET differences to texture vs cover.\"}], \"validation_design\": [{\"target_variable\": \"evapotranspiration / latent heat flux (seasonal cycle)\", \"observation_source\": \"eddy-covariance flux tower (AmeriFlux)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 no in-domain EC tower exists; propose comparison of simulated seasonal ET against an out-of-domain AmeriFlux site in a similar Northeast temperate climate and matching land cover (forest / grass). Clearly labelled as analog process validation, NOT co-located.\", \"metric\": \"seasonal-cycle correlation + bias in monthly ET; timing of growing-season peak\", \"n_validation_points\": \"0 in-domain; 1-2 analog sites if AmeriFlux ingest is added\"}, {\"target_variable\": \"water table depth (supporting, not ET)\", \"observation_source\": \"USGS wells\", \"in_domain_available\": true, \"comparison\": \"co-located \\u2014 indirect support only: constrains riparian shallow-WTD columns whose ET depends on water-table access. Does not validate ET directly.\", \"metric\": \"bias in mean WTD\", \"n_validation_points\": \"unknown \\u2014 depends on well density in domain\"}], \"experiment_summary\": {\"total_columns\": 12, \"exploratory\": 12, \"validation\": 0, \"primary_treatment\": \"baseline NLDAS-2 forcing, native SSURGO soil, short spin-up for root-zone soil moisture\"}, \"requires_capabilities\": [{\"capability\": \"eddy-covariance / AmeriFlux observation ingest\", \"why\": \"User's stated validation target (EC ET) has no in-domain data; even analog validation needs a flux-obs ingest.\", \"blocks\": \"the entire ET validation goal\"}, {\"capability\": \"per-column land-cover / PFT assignment from a land-cover raster\", \"why\": \"Land cover is a named driver but is not among the enumerated per-column levers (soil, forcing, spin-up, location); stratifying ET by land cover requires setting PFT per column.\", \"blocks\": \"the land-cover stratification axis\"}, {\"capability\": \"runoff routing / multi-column aggregation to a USGS gage\", \"why\": \"Would enable indirect ET validation via basin water balance (P - Q - dS).\", \"blocks\": \"the fallback water-balance ET check\"}, {\"capability\": \"model spin-up (multi-year) support\", \"why\": \"Root-zone soil moisture governs growing-season ET; a few spin-up years prevent seasonal-cycle initialization artifacts.\", \"blocks\": \"trustworthy seasonal ET magnitude\"}], \"assumptions\": [\"Domain lies within CONUS, so NLDAS-2 (0.125 deg) forcing is available for all columns.\", \"Dominant land-cover classes are forest, developed, agriculture/grass, and riparian/wetland; the deterministic expander confirms actual occurrence and abundance.\", \"SSURGO soil textures collapse acceptably into coarse/medium/fine strata for ET purposes.\", \"Seasonal ET is treated as a fast/near-surface process; a short spin-up (not multi-decadal) suffices \\u2014 this is not a recharge/water-table study.\", \"Elevation relief (~387 m) is secondary for ET here and is not used as a stratification axis.\"], \"open_questions\": [\"Is any AmeriFlux/EC site acceptable as an analog for ET validation, and which one best matches Passaic land cover/climate?\", \"Should the study prioritize a specific land-cover class (e.g. urban ET in the lower basin) over an even crossing?\", \"Are USGS well data dense enough in riparian zones to support the supporting WTD check?\", \"What historical period (within 1980-2018) is of interest \\u2014 a representative recent decade, or specific wet/dry years?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: characterize seasonal ET dynamics and their land-cover/soil controls across the Passaic basin",
+        "Validation: compare simulated ET against local eddy-covariance flux towers (NOT possible in-domain \u2014 see feasibility)"
+      ],
+      "key_processes": [
+        "evapotranspiration partitioning (transpiration/soil evap/canopy evap)",
+        "seasonal soil-moisture control on ET",
+        "surface energy balance / latent heat flux"
+      ],
+      "drivers_to_resolve": [
+        "land cover",
+        "soil"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM single-column directly simulates ET and its seasonal cycle; land cover and soil are the named ET controls, resolvable via spatial sampling across the basin's heterogeneity.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Seasonal ET dynamics and their soil-texture control (SSURGO is a first-class lever; ELM outputs ET components natively)",
+        "Land-cover control on ET IF per-column PFT/land-cover assignment is enabled (see requires_capabilities)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Validation of ET against local eddy-covariance flux towers",
+          "why": "The brief lists EC flux towers under observations_missing \u2014 there are no in-domain flux towers in the data stack, and ELM's other in-domain obs (gauges, wells) do not directly measure ET.",
+          "needs": "eddy-covariance / AmeriFlux observation ingest (in-domain or analog site)"
+        },
+        {
+          "aspect": "Indirect ET validation via basin water balance (ET as residual of P - Q - dS)",
+          "why": "Single-column stack has no routing/aggregation to produce integrated streamflow for USGS gauge comparison.",
+          "needs": "runoff routing / multi-column aggregation to gage"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (land cover x soil texture)",
+      "strata": [
+        {
+          "driver": "land cover",
+          "classes": [
+            "forest/upland",
+            "developed/suburban",
+            "agriculture/grass",
+            "riparian/wetland"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy)",
+            "medium (loam)",
+            "fine (clay)"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "4 dominant land-cover classes x 3 soil-texture classes spans the ET-relevant heterogeneity of the basin; a full crossing is ~12 columns. This is the smallest set that resolves both named drivers without dense infilling. Not all 12 cells need be equally populated \u2014 the expander places columns where each combination actually occurs.",
+      "placement_logic": "Oversample riparian/wetland valley bottoms (shallow water table sustains dry-season ET \u2014 distinctive seasonal signature) and developed/suburban zones (impervious cover suppresses transpiration, altering the seasonal ET curve). Distribute forest and ag columns across the coarse/medium/fine soil classes present under them.",
+      "replication": "Light: allow 1 replicate for the most common land-cover x soil combination to gauge within-stratum spread; otherwise one column per occupied stratum."
+    },
+    "sampling_plan": [
+      {
+        "group": "forested upland, medium soil",
+        "n": 2,
+        "reason": "Baseline transpiration-dominated ET seasonal cycle on the basin's dominant upland land cover."
+      },
+      {
+        "group": "forested upland, coarse soil",
+        "n": 1,
+        "reason": "Isolates soil-texture effect on forest ET \u2014 coarse soils drain fast, testing dry-season transpiration limitation."
+      },
+      {
+        "group": "agriculture/grass, medium soil",
+        "n": 2,
+        "reason": "Captures shallow-rooted crop/grass ET seasonality distinct from forest phenology."
+      },
+      {
+        "group": "agriculture/grass, fine soil",
+        "n": 1,
+        "reason": "Fine soils retain water \u2014 tests soil control on late-season ET under grass/crop cover."
+      },
+      {
+        "group": "developed/suburban, medium soil",
+        "n": 2,
+        "reason": "Impervious/managed cover suppresses transpiration; characterizes the urban ET signature of the lower Passaic."
+      },
+      {
+        "group": "riparian/wetland, fine soil",
+        "n": 2,
+        "reason": "Valley-bottom shallow water table sustains dry-season ET \u2014 distinctive seasonal maximum; oversampled."
+      },
+      {
+        "group": "riparian/wetland, coarse soil",
+        "n": 1,
+        "reason": "Contrasts wetland ET on coarse vs fine substrate along the riparian corridor."
+      },
+      {
+        "group": "forested upland, fine soil",
+        "n": 1,
+        "reason": "Completes forest x soil crossing to attribute ET differences to texture vs cover."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "evapotranspiration / latent heat flux (seasonal cycle)",
+        "observation_source": "eddy-covariance flux tower (AmeriFlux)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 no in-domain EC tower exists; propose comparison of simulated seasonal ET against an out-of-domain AmeriFlux site in a similar Northeast temperate climate and matching land cover (forest / grass). Clearly labelled as analog process validation, NOT co-located.",
+        "metric": "seasonal-cycle correlation + bias in monthly ET; timing of growing-season peak",
+        "n_validation_points": "0 in-domain; 1-2 analog sites if AmeriFlux ingest is added"
+      },
+      {
+        "target_variable": "water table depth (supporting, not ET)",
+        "observation_source": "USGS wells",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 indirect support only: constrains riparian shallow-WTD columns whose ET depends on water-table access. Does not validate ET directly.",
+        "metric": "bias in mean WTD",
+        "n_validation_points": "unknown \u2014 depends on well density in domain"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 12,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS-2 forcing, native SSURGO soil, short spin-up for root-zone soil moisture"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "eddy-covariance / AmeriFlux observation ingest",
+        "why": "User's stated validation target (EC ET) has no in-domain data; even analog validation needs a flux-obs ingest.",
+        "blocks": "the entire ET validation goal"
+      },
+      {
+        "capability": "per-column land-cover / PFT assignment from a land-cover raster",
+        "why": "Land cover is a named driver but is not among the enumerated per-column levers (soil, forcing, spin-up, location); stratifying ET by land cover requires setting PFT per column.",
+        "blocks": "the land-cover stratification axis"
+      },
+      {
+        "capability": "runoff routing / multi-column aggregation to a USGS gage",
+        "why": "Would enable indirect ET validation via basin water balance (P - Q - dS).",
+        "blocks": "the fallback water-balance ET check"
+      },
+      {
+        "capability": "model spin-up (multi-year) support",
+        "why": "Root-zone soil moisture governs growing-season ET; a few spin-up years prevent seasonal-cycle initialization artifacts.",
+        "blocks": "trustworthy seasonal ET magnitude"
+      }
+    ],
+    "assumptions": [
+      "Domain lies within CONUS, so NLDAS-2 (0.125 deg) forcing is available for all columns.",
+      "Dominant land-cover classes are forest, developed, agriculture/grass, and riparian/wetland; the deterministic expander confirms actual occurrence and abundance.",
+      "SSURGO soil textures collapse acceptably into coarse/medium/fine strata for ET purposes.",
+      "Seasonal ET is treated as a fast/near-surface process; a short spin-up (not multi-decadal) suffices \u2014 this is not a recharge/water-table study.",
+      "Elevation relief (~387 m) is secondary for ET here and is not used as a stratification axis."
+    ],
+    "open_questions": [
+      "Is any AmeriFlux/EC site acceptable as an analog for ET validation, and which one best matches Passaic land cover/climate?",
+      "Should the study prioritize a specific land-cover class (e.g. urban ET in the lower basin) over an even crossing?",
+      "Are USGS well data dense enough in riparian zones to support the supporting WTD check?",
+      "What historical period (within 1980-2018) is of interest \u2014 a representative recent decade, or specific wet/dry years?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

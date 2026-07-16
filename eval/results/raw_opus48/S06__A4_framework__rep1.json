@@ -1,0 +1,190 @@
+{
+  "prompt_id": "S06",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Quantify spun-up annual vertical recharge flux (QDRAI / QDRAI+QCHARGE) and its controls across the Naches\", \"Validate the modeled water-table / storage state against USGS wells + Fan 2013 as an indirect check on recharge (recharge itself has no in-domain observation)\"], \"key_processes\": [\"vertical soil drainage past the root zone (recharge)\", \"ET vs drainage partitioning under soil-texture control\", \"orographic precipitation gradient and snowmelt-driven infiltration\", \"aquifer storage / water-table equilibration\"], \"drivers_to_resolve\": [\"soil\", \"forcing (via elevation/orographic precip)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"ELM's 1-D water partitioning gives per-column vertical recharge (QDRAI) once slow states are properly initialized; soil (SSURGO) and NLDAS forcing are the levers that control it.\", \"coupling_needed\": false, \"coupling_note\": \"A truly regional 'recharge to the deep water table' answer would need ELM QDRAI -> PFLOTRAN lateral groundwater flow, which is not implemented; flagged in requires_capabilities rather than designed here.\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Soil-texture control on annual vertical recharge flux (QDRAI) at each column\", \"Orographic/elevation control on recharge via NLDAS-resolved precipitation and simulated snowmelt (~15 distinct precip values across the relief)\", \"Spun-up per-column water-table / aquifer-storage state given Fan-2013 warm start\"], \"not_answerable\": [{\"aspect\": \"'True' steady-state recharge to a deep REGIONAL water table integrated across the basin\", \"why\": \"Single-column ELM has no lateral transport and no regional aquifer; each column yields only 1-D vertical drainage, not laterally-integrated regional recharge\", \"needs\": \"ELM->PFLOTRAN lateral-flow coupling / regional groundwater model\"}, {\"aspect\": \"Direct validation of the recharge magnitude\", \"why\": \"observations_missing lists recharge measurements \\u2014 no in-domain recharge data exists\", \"needs\": \"recharge observation dataset (e.g. chloride mass balance / baseflow-separation estimates) ingest\"}, {\"aspect\": \"Exact steady state\", \"why\": \"ELM reaches quasi-equilibrium via spin-up/warm-start but 1-D equilibrium differs from Fan's lateral-flow equilibrium; residual drift is expected\", \"needs\": \"model spin-up + WTD-informed warm start (available but must be enabled)\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (elevation band x soil class), with validation columns pinned to wells\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"valley 352-700 m\", \"mid 700-1100 m\", \"upper 1100-1500 m\", \"ridge 1500-1977 m\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse/sandy (free-draining)\", \"loam (intermediate)\", \"fine/clay (low-permeability)\"]}], \"n_exploratory\": 12, \"n_justification\": \"4 elevation bands capture the NLDAS orographic precip + snow gradient; 3 soil classes span the drainage-capacity gradient that dominates recharge. Their 4x3 crossing (12) is the smallest set that resolves both first-order controls without a blind dense grid.\", \"placement_logic\": \"Concentrate on high-elevation, coarse-soil terrain where snowmelt supply meets free-draining substrate (largest expected recharge), and sample valley fine soils as the low-recharge/high-ET end member. Avoid claiming elevation isolates climate alone \\u2014 pairing each band with soil classes separates the two.\", \"replication\": \"None initially; add light replication in the highest-recharge stratum if between-column variance is large.\"}, \"sampling_plan\": [{\"group\": \"ridge, coarse soil\", \"n\": 2, \"reason\": \"Snow-dominated wet uplands on free-draining soil \\u2014 expected recharge maximum; anchors the high end.\"}, {\"group\": \"upper, coarse/loam\", \"n\": 2, \"reason\": \"Rain-snow transition with moderate drainage; where recharge is most sensitive to melt timing.\"}, {\"group\": \"mid-elevation, loam\", \"n\": 3, \"reason\": \"Basin-representative supply x drainage combination; the modal recharge condition.\"}, {\"group\": \"mid/upper, fine soil\", \"n\": 2, \"reason\": \"Isolates soil texture: wet supply but low permeability shifts water to ET/runoff, suppressing recharge.\"}, {\"group\": \"valley, fine soil\", \"n\": 2, \"reason\": \"Dry valley + low-permeability soil \\u2014 expected recharge minimum; anchors the low end.\"}, {\"group\": \"valley, coarse soil\", \"n\": 1, \"reason\": \"Tests whether coarse substrate can sustain recharge even under the driest forcing.\"}], \"validation_design\": [{\"target_variable\": \"water_table_depth (ZWT)\", \"observation_source\": \"USGS wells (WTD)\", \"in_domain_available\": true, \"comparison\": \"co-located \\u2014 place validation columns at well locations, compare spun-up ZWT to measured WTD; indirect check on recharge/storage balance, NOT direct recharge validation\", \"metric\": \"bias, RMSE\", \"n_validation_points\": \"unknown \\u2014 depends on USGS well density in HUC 17030002\"}, {\"target_variable\": \"water_table_depth (initialization prior)\", \"observation_source\": \"Fan et al. 2013 WTD\", \"in_domain_available\": true, \"comparison\": \"co-located \\u2014 used as warm-start prior AND as spatial-pattern reference; drift from Fan equilibrium is itself a reported result\", \"metric\": \"bias, spatial correlation\", \"n_validation_points\": \"all columns (continuous prior)\"}, {\"target_variable\": \"annual recharge (QDRAI)\", \"observation_source\": \"none in-domain\", \"in_domain_available\": false, \"comparison\": \"n/a \\u2014 no recharge observations exist; reported as modeled quantity with WTD as only indirect constraint\", \"metric\": \"n/a (gap)\", \"n_validation_points\": \"0 \\u2014 GAP\"}], \"experiment_summary\": {\"total_columns\": 12, \"exploratory\": 12, \"validation\": 0, \"primary_treatment\": \"NLDAS-2 forcing at native location, SSURGO soil, Fan-2013 WTD-informed warm start + spin-up years\"}, \"requires_capabilities\": [{\"capability\": \"WTD-informed warm start (Fan 2013) + multi-year spin-up enabled\", \"why\": \"recharge and water table are slow states; cold start gives artifact recharge~0 and default 8.8 m WTD\", \"blocks\": \"any credible recharge / steady-state answer\"}, {\"capability\": \"ELM->PFLOTRAN lateral groundwater coupling\", \"why\": \"single-column ELM has no lateral transport or regional aquifer\", \"blocks\": \"'true' regional recharge to the deep water table\"}, {\"capability\": \"recharge observation dataset ingest (e.g. CMB, baseflow separation)\", \"why\": \"observations_missing = recharge; nothing to validate the flux against\", \"blocks\": \"direct recharge validation\"}, {\"capability\": \"USGS well / WTD observation ingest + co-location resolver\", \"why\": \"needed to pin validation columns and compare ZWT\", \"blocks\": \"indirect WTD validation\"}, {\"capability\": \"DEM + SSURGO raster sampling within HUC boundary\", \"why\": \"expander must turn elevation x soil strata into concrete points\", \"blocks\": \"sampling plan execution\"}], \"assumptions\": [\"Domain is within CONUS, so NLDAS-2 12 km forcing applies and resolves an orographic precip gradient across the relief.\", \"'Recharge' is operationalized as ELM vertical sub-surface drainage past the root zone (QDRAI), reported per column \\u2014 not laterally-integrated basin recharge.\", \"USGS wells and Fan 2013 provide enough spatial coverage to constrain WTD; validation column count is data-driven, not chosen.\", \"Fan-2013 warm start is used for initialization; residual drift from Fan's lateral equilibrium is expected and reported.\"], \"open_questions\": [\"How many USGS wells actually fall inside HUC 17030002, and at what depths (shallow vs deep aquifer)?\", \"Does the user want per-column vertical recharge flux, or a basin-integrated regional recharge (the latter needs coupling)?\", \"How many spin-up years are acceptable given NLDAS cost (~30 min/simulated-year/column)?\", \"Should recharge be reported as a long-term mean over a defined forcing window (which years in 1980-2018)?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Quantify spun-up annual vertical recharge flux (QDRAI / QDRAI+QCHARGE) and its controls across the Naches",
+        "Validate the modeled water-table / storage state against USGS wells + Fan 2013 as an indirect check on recharge (recharge itself has no in-domain observation)"
+      ],
+      "key_processes": [
+        "vertical soil drainage past the root zone (recharge)",
+        "ET vs drainage partitioning under soil-texture control",
+        "orographic precipitation gradient and snowmelt-driven infiltration",
+        "aquifer storage / water-table equilibration"
+      ],
+      "drivers_to_resolve": [
+        "soil",
+        "forcing (via elevation/orographic precip)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM's 1-D water partitioning gives per-column vertical recharge (QDRAI) once slow states are properly initialized; soil (SSURGO) and NLDAS forcing are the levers that control it.",
+      "coupling_needed": false,
+      "coupling_note": "A truly regional 'recharge to the deep water table' answer would need ELM QDRAI -> PFLOTRAN lateral groundwater flow, which is not implemented; flagged in requires_capabilities rather than designed here."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Soil-texture control on annual vertical recharge flux (QDRAI) at each column",
+        "Orographic/elevation control on recharge via NLDAS-resolved precipitation and simulated snowmelt (~15 distinct precip values across the relief)",
+        "Spun-up per-column water-table / aquifer-storage state given Fan-2013 warm start"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "'True' steady-state recharge to a deep REGIONAL water table integrated across the basin",
+          "why": "Single-column ELM has no lateral transport and no regional aquifer; each column yields only 1-D vertical drainage, not laterally-integrated regional recharge",
+          "needs": "ELM->PFLOTRAN lateral-flow coupling / regional groundwater model"
+        },
+        {
+          "aspect": "Direct validation of the recharge magnitude",
+          "why": "observations_missing lists recharge measurements \u2014 no in-domain recharge data exists",
+          "needs": "recharge observation dataset (e.g. chloride mass balance / baseflow-separation estimates) ingest"
+        },
+        {
+          "aspect": "Exact steady state",
+          "why": "ELM reaches quasi-equilibrium via spin-up/warm-start but 1-D equilibrium differs from Fan's lateral-flow equilibrium; residual drift is expected",
+          "needs": "model spin-up + WTD-informed warm start (available but must be enabled)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation band x soil class), with validation columns pinned to wells",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley 352-700 m",
+            "mid 700-1100 m",
+            "upper 1100-1500 m",
+            "ridge 1500-1977 m"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy (free-draining)",
+            "loam (intermediate)",
+            "fine/clay (low-permeability)"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "4 elevation bands capture the NLDAS orographic precip + snow gradient; 3 soil classes span the drainage-capacity gradient that dominates recharge. Their 4x3 crossing (12) is the smallest set that resolves both first-order controls without a blind dense grid.",
+      "placement_logic": "Concentrate on high-elevation, coarse-soil terrain where snowmelt supply meets free-draining substrate (largest expected recharge), and sample valley fine soils as the low-recharge/high-ET end member. Avoid claiming elevation isolates climate alone \u2014 pairing each band with soil classes separates the two.",
+      "replication": "None initially; add light replication in the highest-recharge stratum if between-column variance is large."
+    },
+    "sampling_plan": [
+      {
+        "group": "ridge, coarse soil",
+        "n": 2,
+        "reason": "Snow-dominated wet uplands on free-draining soil \u2014 expected recharge maximum; anchors the high end."
+      },
+      {
+        "group": "upper, coarse/loam",
+        "n": 2,
+        "reason": "Rain-snow transition with moderate drainage; where recharge is most sensitive to melt timing."
+      },
+      {
+        "group": "mid-elevation, loam",
+        "n": 3,
+        "reason": "Basin-representative supply x drainage combination; the modal recharge condition."
+      },
+      {
+        "group": "mid/upper, fine soil",
+        "n": 2,
+        "reason": "Isolates soil texture: wet supply but low permeability shifts water to ET/runoff, suppressing recharge."
+      },
+      {
+        "group": "valley, fine soil",
+        "n": 2,
+        "reason": "Dry valley + low-permeability soil \u2014 expected recharge minimum; anchors the low end."
+      },
+      {
+        "group": "valley, coarse soil",
+        "n": 1,
+        "reason": "Tests whether coarse substrate can sustain recharge even under the driest forcing."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth (ZWT)",
+        "observation_source": "USGS wells (WTD)",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 place validation columns at well locations, compare spun-up ZWT to measured WTD; indirect check on recharge/storage balance, NOT direct recharge validation",
+        "metric": "bias, RMSE",
+        "n_validation_points": "unknown \u2014 depends on USGS well density in HUC 17030002"
+      },
+      {
+        "target_variable": "water_table_depth (initialization prior)",
+        "observation_source": "Fan et al. 2013 WTD",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 used as warm-start prior AND as spatial-pattern reference; drift from Fan equilibrium is itself a reported result",
+        "metric": "bias, spatial correlation",
+        "n_validation_points": "all columns (continuous prior)"
+      },
+      {
+        "target_variable": "annual recharge (QDRAI)",
+        "observation_source": "none in-domain",
+        "in_domain_available": false,
+        "comparison": "n/a \u2014 no recharge observations exist; reported as modeled quantity with WTD as only indirect constraint",
+        "metric": "n/a (gap)",
+        "n_validation_points": "0 \u2014 GAP"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 12,
+      "validation": 0,
+      "primary_treatment": "NLDAS-2 forcing at native location, SSURGO soil, Fan-2013 WTD-informed warm start + spin-up years"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "WTD-informed warm start (Fan 2013) + multi-year spin-up enabled",
+        "why": "recharge and water table are slow states; cold start gives artifact recharge~0 and default 8.8 m WTD",
+        "blocks": "any credible recharge / steady-state answer"
+      },
+      {
+        "capability": "ELM->PFLOTRAN lateral groundwater coupling",
+        "why": "single-column ELM has no lateral transport or regional aquifer",
+        "blocks": "'true' regional recharge to the deep water table"
+      },
+      {
+        "capability": "recharge observation dataset ingest (e.g. CMB, baseflow separation)",
+        "why": "observations_missing = recharge; nothing to validate the flux against",
+        "blocks": "direct recharge validation"
+      },
+      {
+        "capability": "USGS well / WTD observation ingest + co-location resolver",
+        "why": "needed to pin validation columns and compare ZWT",
+        "blocks": "indirect WTD validation"
+      },
+      {
+        "capability": "DEM + SSURGO raster sampling within HUC boundary",
+        "why": "expander must turn elevation x soil strata into concrete points",
+        "blocks": "sampling plan execution"
+      }
+    ],
+    "assumptions": [
+      "Domain is within CONUS, so NLDAS-2 12 km forcing applies and resolves an orographic precip gradient across the relief.",
+      "'Recharge' is operationalized as ELM vertical sub-surface drainage past the root zone (QDRAI), reported per column \u2014 not laterally-integrated basin recharge.",
+      "USGS wells and Fan 2013 provide enough spatial coverage to constrain WTD; validation column count is data-driven, not chosen.",
+      "Fan-2013 warm start is used for initialization; residual drift from Fan's lateral equilibrium is expected and reported."
+    ],
+    "open_questions": [
+      "How many USGS wells actually fall inside HUC 17030002, and at what depths (shallow vs deep aquifer)?",
+      "Does the user want per-column vertical recharge flux, or a basin-integrated regional recharge (the latter needs coupling)?",
+      "How many spin-up years are acceptable given NLDAS cost (~30 min/simulated-year/column)?",
+      "Should recharge be reported as a long-term mean over a defined forcing window (which years in 1980-2018)?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

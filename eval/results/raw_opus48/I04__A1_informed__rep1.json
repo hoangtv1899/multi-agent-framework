@@ -1,0 +1,86 @@
+{
+  "prompt_id": "I04",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"partially_feasible\",\n    \"answerable\": [\n      \"Simulate natural recharge and unsaturated-zone soil moisture / water-table dynamics under 1980-2018 climate forcing at representative agricultural sites\",\n      \"Provide the recharge boundary condition and vadose-zone water storage response that would drive a coupled subsurface (PFLOTRAN) groundwater model\",\n      \"Bracket the relative sensitivity of water-table position to reduced net groundwater extraction via prescribed sink-term scenarios\"\n    ],\n    \"not_answerable\": [\n      \"Absolute basin-wide water-level recovery magnitude, because observed agricultural pumping records are missing and cannot be reconstructed reliably\",\n      \"Lateral groundwater flow, well interference, and aquifer transmissivity effects are not represented by single-column ELM alone (requires PFLOTRAN 3D)\",\n      \"Precise 30% reduction impact without calibrated pumping baseline; only scenario-relative differences can be estimated\"\n    ]\n  },\n  \"n_columns\": 3,\n  \"n_justification\": \"Three columns capture the basin's land-cover and topographic gradient: upland cropland recharge zone, mid-slope agricultural, and lowland/riparian discharge area near the Upper Iowa River. This spans the elevation range (260-420 m) and dominant agricultural soils controlling recharge that feeds the shallow aquifer, sufficient for a site-archetype pumping-scenario study while keeping computation tractable.\",\n  \"columns\": [\n    {\n      \"id\": \"upland_cropland\",\n      \"lat\": 43.62,\n      \"lon\": -92.35,\n      \"soil_texture\": \"silty_clay_loam\"\n    },\n    {\n      \"id\": \"midslope_ag\",\n      \"lat\": 43.45,\n      \"lon\": -91.85,\n      \"soil_texture\": \"silt_loam\"\n    },\n    {\n      \"id\": \"lowland_riparian\",\n      \"lat\": 43.30,\n      \"lon\": -91.40,\n      \"soil_texture\": \"loam\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"10\",\n    \"RUN_STARTDATE\": \"2009-01-01\",\n    \"hist_variables\": [\n      \"QDRAI\",\n      \"QRECHARGE\",\n      \"QOVER\",\n      \"QRUNOFF\",\n      \"ZWT\",\n      \"WA\",\n      \"H2OSOI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QINFL\",\n      \"QCHARGE\",\n      \"TWS\",\n      \"FGR\",\n      \"TSOI\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM-PFLOTRAN coupling for saturated-zone groundwater flow and prescribed pumping sink terms\",\n    \"PFLOTRAN 3D subsurface flow domain parameterized with aquifer hydraulic conductivity/storativity\",\n    \"Scenario management interface to prescribe baseline vs 30%-reduced extraction rates\",\n    \"USGS well time-series ingestion for water-level calibration/validation\"\n  ],\n  \"assumptions\": [\n    \"Missing pumping records are proxied by literature/USGS-estimated county-level agricultural withdrawal rates for the Upper Iowa (HUC 07060002); results are relative not absolute\",\n    \"10-year evaluation period (2009-2018) uses recent forcing to reflect current climate; a spin-up cycling of 1980-2008 forcing establishes equilibrium water table before scenario runs\",\n    \"Baseline extraction assumed steady seasonal (growing-season) sink; the 30% reduction is applied uniformly to the growing-season pumping flux\",\n    \"ELM provides recharge (QRECHARGE/QCHARGE) as the top boundary flux to PFLOTRAN; lateral aquifer dynamics handled entirely by PFLOTRAN\",\n    \"Soil textures assigned from SSURGO/gridded soil databases for the mapped column locations\",\n    \"Water-level 'recovery' quantified as difference in simulated water-table depth (ZWT / PFLOTRAN head) between reduced-pumping and baseline scenarios over the decade\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "partially_feasible",
+      "answerable": [
+        "Simulate natural recharge and unsaturated-zone soil moisture / water-table dynamics under 1980-2018 climate forcing at representative agricultural sites",
+        "Provide the recharge boundary condition and vadose-zone water storage response that would drive a coupled subsurface (PFLOTRAN) groundwater model",
+        "Bracket the relative sensitivity of water-table position to reduced net groundwater extraction via prescribed sink-term scenarios"
+      ],
+      "not_answerable": [
+        "Absolute basin-wide water-level recovery magnitude, because observed agricultural pumping records are missing and cannot be reconstructed reliably",
+        "Lateral groundwater flow, well interference, and aquifer transmissivity effects are not represented by single-column ELM alone (requires PFLOTRAN 3D)",
+        "Precise 30% reduction impact without calibrated pumping baseline; only scenario-relative differences can be estimated"
+      ]
+    },
+    "n_columns": 3,
+    "n_justification": "Three columns capture the basin's land-cover and topographic gradient: upland cropland recharge zone, mid-slope agricultural, and lowland/riparian discharge area near the Upper Iowa River. This spans the elevation range (260-420 m) and dominant agricultural soils controlling recharge that feeds the shallow aquifer, sufficient for a site-archetype pumping-scenario study while keeping computation tractable.",
+    "columns": [
+      {
+        "id": "upland_cropland",
+        "lat": 43.62,
+        "lon": -92.35,
+        "soil_texture": "silty_clay_loam"
+      },
+      {
+        "id": "midslope_ag",
+        "lat": 43.45,
+        "lon": -91.85,
+        "soil_texture": "silt_loam"
+      },
+      {
+        "id": "lowland_riparian",
+        "lat": 43.3,
+        "lon": -91.4,
+        "soil_texture": "loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "10",
+      "RUN_STARTDATE": "2009-01-01",
+      "hist_variables": [
+        "QDRAI",
+        "QRECHARGE",
+        "QOVER",
+        "QRUNOFF",
+        "ZWT",
+        "WA",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "RAIN",
+        "SNOW",
+        "QINFL",
+        "QCHARGE",
+        "TWS",
+        "FGR",
+        "TSOI"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM-PFLOTRAN coupling for saturated-zone groundwater flow and prescribed pumping sink terms",
+      "PFLOTRAN 3D subsurface flow domain parameterized with aquifer hydraulic conductivity/storativity",
+      "Scenario management interface to prescribe baseline vs 30%-reduced extraction rates",
+      "USGS well time-series ingestion for water-level calibration/validation"
+    ],
+    "assumptions": [
+      "Missing pumping records are proxied by literature/USGS-estimated county-level agricultural withdrawal rates for the Upper Iowa (HUC 07060002); results are relative not absolute",
+      "10-year evaluation period (2009-2018) uses recent forcing to reflect current climate; a spin-up cycling of 1980-2008 forcing establishes equilibrium water table before scenario runs",
+      "Baseline extraction assumed steady seasonal (growing-season) sink; the 30% reduction is applied uniformly to the growing-season pumping flux",
+      "ELM provides recharge (QRECHARGE/QCHARGE) as the top boundary flux to PFLOTRAN; lateral aquifer dynamics handled entirely by PFLOTRAN",
+      "Soil textures assigned from SSURGO/gridded soil databases for the mapped column locations",
+      "Water-level 'recovery' quantified as difference in simulated water-table depth (ZWT / PFLOTRAN head) between reduced-pumping and baseline scenarios over the decade"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

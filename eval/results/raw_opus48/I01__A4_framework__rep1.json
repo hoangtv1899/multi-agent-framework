@@ -1,0 +1,191 @@
+{
+  "prompt_id": "I01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: characterize deep drainage/recharge flux (water that would transport nitrate) beneath fertilized vs non-fertilized land on contrasting soils\", \"validation: compare predicted well nitrate arrival concentrations to external well nitrate records (NOT achievable with this stack \\u2014 see feasibility)\"], \"key_processes\": [\"vadose-zone recharge / deep drainage (QDRAI, QCHARGE)\", \"reactive nitrate transport in the saturated zone (NOT represented)\", \"lateral groundwater flow along field-to-well paths (NOT represented)\", \"well capture-zone travel time and mixing (NOT represented)\"], \"drivers_to_resolve\": [\"land use (crop vs non-crop)\", \"soil drainage class\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"ELM can resolve vadose-zone recharge/drainage as a loading-potential proxy, but the requested quantity (nitrate arrival concentration at wells) is a saturated-zone reactive-transport result outside the single-column stack.\", \"coupling_needed\": true, \"coupling_note\": \"Answering the question as posed requires ELM recharge + a nitrogen-leaching source term to drive a PFLOTRAN reactive-transport model toward well capture zones. This coupler, the reactive N chemistry, and the flow-path geometry are all unbuilt \\u2014 listed in requires_capabilities.\"}, \"feasibility\": {\"verdict\": \"infeasible\", \"answerable\": [\"seasonal magnitude and timing of deep drainage/recharge (QDRAI/QCHARGE) beneath fertilized row-crop vs non-crop land\", \"soil-drainage-class control on that recharge flux (SSURGO-driven)\", \"relative ranking of land-use x soil combinations by leaching-water potential (a proxy, not a concentration)\"], \"not_answerable\": [{\"aspect\": \"nitrate arrival concentration at drinking-water wells\", \"why\": \"single-column ELM carries no leachable nitrate tracer and has no lateral/saturated groundwater transport, so there is no field-to-well flow path or arrival concentration\", \"needs\": \"ELM->PFLOTRAN reactive-transport coupling with a nitrate species\"}, {\"aspect\": \"field-to-well travel time / capture-zone mixing\", \"why\": \"columns are independent 1-D points with no lateral flow or routing\", \"needs\": \"saturated-zone lateral flow + well capture-zone geometry\"}, {\"aspect\": \"fertilizer nitrate leaching flux\", \"why\": \"ELM land-use lever changes vegetation/ET, not an applied-fertilizer nitrate export concentration in drainage\", \"needs\": \"nitrogen application/leaching source-term model\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (land use x soil drainage class) \\u2014 screening design for recharge/loading potential only\", \"strata\": [{\"driver\": \"land_use\", \"classes\": [\"fertilized row-crop\", \"pasture/grass\", \"non-agricultural/forest\"]}, {\"driver\": \"soil_drainage_class\", \"classes\": [\"well-drained (coarse)\", \"poorly-drained (fine)\"]}], \"n_exploratory\": 8, \"n_justification\": \"3 land-use classes x 2 soil drainage classes = 6 cells; +2 light replicates in the dominant fertilized-row-crop x well-drained combination (the highest leaching-potential and most policy-relevant cell). Small N is appropriate because this is only a proxy screening of recharge \\u2014 the actual transport question is not answerable here, so a dense grid would over-claim.\", \"placement_logic\": \"concentrate columns in intensively fertilized row-crop areas on well-drained soils (highest recharge + highest nitrate loading potential) and in near-stream / high-recharge positions; contrast against poorly-drained and non-crop cells. Elevation is NOT a stratification axis (160 m relief; not the mechanism).\", \"replication\": \"2 extra columns in fertilized-row-crop x well-drained to gauge within-stratum soil variability for the highest-risk class\"}, \"sampling_plan\": [{\"group\": \"fertilized row-crop, well-drained soil\", \"n\": 3, \"reason\": \"highest recharge + highest nitrate-loading potential; the primary leaching-risk cell (includes 2 replicates for within-stratum variability)\"}, {\"group\": \"fertilized row-crop, poorly-drained soil\", \"n\": 1, \"reason\": \"row-crop loading but suppressed vertical recharge; contrasts drainage-class control on leaching water\"}, {\"group\": \"pasture/grass, well-drained soil\", \"n\": 1, \"reason\": \"isolates land-use effect on recharge at fixed favorable drainage\"}, {\"group\": \"pasture/grass, poorly-drained soil\", \"n\": 1, \"reason\": \"low-input, low-recharge reference\"}, {\"group\": \"non-agricultural/forest, well-drained soil\", \"n\": 1, \"reason\": \"background recharge with minimal N input, well-drained\"}, {\"group\": \"non-agricultural/forest, poorly-drained soil\", \"n\": 1, \"reason\": \"background low-recharge end member\"}], \"validation_design\": [{\"target_variable\": \"recharge / deep drainage (QDRAI, QCHARGE)\", \"observation_source\": \"none in-domain (no recharge observations provided)\", \"in_domain_available\": false, \"comparison\": \"none \\u2014 qualitative comparison to literature recharge ranges only\", \"metric\": \"relative ranking / order-of-magnitude plausibility\", \"n_validation_points\": \"0\"}, {\"target_variable\": \"well nitrate arrival concentration\", \"observation_source\": \"external well nitrate records\", \"in_domain_available\": true, \"comparison\": \"NOT POSSIBLE \\u2014 ELM produces no nitrate concentration and no field-to-well flow path; well records cannot validate any ELM output. Recorded as a gap, not a comparison.\", \"metric\": \"n/a\", \"n_validation_points\": \"0 (usable) \\u2014 records exist but are unmatchable to model output without reactive-transport coupling\"}], \"experiment_summary\": {\"total_columns\": 8, \"exploratory\": 8, \"validation\": 0, \"primary_treatment\": \"baseline NLDAS-2 forcing, native SSURGO soil per column, WTD-informed warm start; recharge screening only (not nitrate transport)\"}, \"requires_capabilities\": [{\"capability\": \"ELM->PFLOTRAN reactive-transport coupling with a nitrate species\", \"why\": \"the question is a saturated-zone reactive solute-transport problem; ELM recharge must drive PFLOTRAN reactive transport\", \"blocks\": \"any nitrate arrival-concentration estimate\"}, {\"capability\": \"nitrogen application / leaching source-term model\", \"why\": \"fertilizer input to leached-nitrate concentration in drainage is not an ELM output\", \"blocks\": \"the nitrate loading flux entering transport\"}, {\"capability\": \"saturated-zone lateral groundwater flow + well capture-zone geometry\", \"why\": \"single-column ELM has no lateral flow or field-to-well travel path\", \"blocks\": \"travel time, mixing, and arrival timing\"}, {\"capability\": \"runoff/recharge routing or flow-path aggregation\", \"why\": \"to connect distributed field recharge to specific well capture zones\", \"blocks\": \"spatial attribution of loading to wells\"}, {\"capability\": \"land-use / crop raster + fertilizer-application dataset\", \"why\": \"to place and parameterize fertilized-field strata\", \"blocks\": \"stratification and loading estimates\"}, {\"capability\": \"well-network location + nitrate-record ingest\", \"why\": \"to define receptors and enable any future validation\", \"blocks\": \"validation once transport is available\"}, {\"capability\": \"model spin-up (already supported) applied to recharge target\", \"why\": \"recharge/water-table states require spin-up or WTD warm start to be meaningful\", \"blocks\": \"credible recharge magnitudes\"}], \"assumptions\": [\"Upper Iowa is within CONUS, so NLDAS-2 12 km forcing applies.\", \"SSURGO soil and a land-use/crop raster are resolvable in-domain for the downstream expander.\", \"The 'well nitrate records (external)' are point concentration measurements with locations, not recharge or flux observations.\", \"Elevation relief (~160 m) is not a controlling driver here and is intentionally not a stratification axis.\", \"The recharge screening is a loading-potential proxy only and does not represent nitrate attenuation, denitrification in the saturated zone, or mixing.\"], \"open_questions\": [\"Is the goal a defensible nitrate arrival concentration (needs the full coupled reactive-transport stack), or an interim ranking of recharge/leaching-potential hotspots (achievable now)?\", \"Are fertilizer application rates/timing and crop rotation data available for the source-term model?\", \"Are well locations, depths, and screen intervals available to define capture zones for a future PFLOTRAN coupling?\", \"Is there any recharge or vadose-zone flux observation to validate the ELM recharge proxy, or is validation entirely dependent on the unbuilt transport chain?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: characterize deep drainage/recharge flux (water that would transport nitrate) beneath fertilized vs non-fertilized land on contrasting soils",
+        "validation: compare predicted well nitrate arrival concentrations to external well nitrate records (NOT achievable with this stack \u2014 see feasibility)"
+      ],
+      "key_processes": [
+        "vadose-zone recharge / deep drainage (QDRAI, QCHARGE)",
+        "reactive nitrate transport in the saturated zone (NOT represented)",
+        "lateral groundwater flow along field-to-well paths (NOT represented)",
+        "well capture-zone travel time and mixing (NOT represented)"
+      ],
+      "drivers_to_resolve": [
+        "land use (crop vs non-crop)",
+        "soil drainage class"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM can resolve vadose-zone recharge/drainage as a loading-potential proxy, but the requested quantity (nitrate arrival concentration at wells) is a saturated-zone reactive-transport result outside the single-column stack.",
+      "coupling_needed": true,
+      "coupling_note": "Answering the question as posed requires ELM recharge + a nitrogen-leaching source term to drive a PFLOTRAN reactive-transport model toward well capture zones. This coupler, the reactive N chemistry, and the flow-path geometry are all unbuilt \u2014 listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "seasonal magnitude and timing of deep drainage/recharge (QDRAI/QCHARGE) beneath fertilized row-crop vs non-crop land",
+        "soil-drainage-class control on that recharge flux (SSURGO-driven)",
+        "relative ranking of land-use x soil combinations by leaching-water potential (a proxy, not a concentration)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "nitrate arrival concentration at drinking-water wells",
+          "why": "single-column ELM carries no leachable nitrate tracer and has no lateral/saturated groundwater transport, so there is no field-to-well flow path or arrival concentration",
+          "needs": "ELM->PFLOTRAN reactive-transport coupling with a nitrate species"
+        },
+        {
+          "aspect": "field-to-well travel time / capture-zone mixing",
+          "why": "columns are independent 1-D points with no lateral flow or routing",
+          "needs": "saturated-zone lateral flow + well capture-zone geometry"
+        },
+        {
+          "aspect": "fertilizer nitrate leaching flux",
+          "why": "ELM land-use lever changes vegetation/ET, not an applied-fertilizer nitrate export concentration in drainage",
+          "needs": "nitrogen application/leaching source-term model"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (land use x soil drainage class) \u2014 screening design for recharge/loading potential only",
+      "strata": [
+        {
+          "driver": "land_use",
+          "classes": [
+            "fertilized row-crop",
+            "pasture/grass",
+            "non-agricultural/forest"
+          ]
+        },
+        {
+          "driver": "soil_drainage_class",
+          "classes": [
+            "well-drained (coarse)",
+            "poorly-drained (fine)"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "3 land-use classes x 2 soil drainage classes = 6 cells; +2 light replicates in the dominant fertilized-row-crop x well-drained combination (the highest leaching-potential and most policy-relevant cell). Small N is appropriate because this is only a proxy screening of recharge \u2014 the actual transport question is not answerable here, so a dense grid would over-claim.",
+      "placement_logic": "concentrate columns in intensively fertilized row-crop areas on well-drained soils (highest recharge + highest nitrate loading potential) and in near-stream / high-recharge positions; contrast against poorly-drained and non-crop cells. Elevation is NOT a stratification axis (160 m relief; not the mechanism).",
+      "replication": "2 extra columns in fertilized-row-crop x well-drained to gauge within-stratum soil variability for the highest-risk class"
+    },
+    "sampling_plan": [
+      {
+        "group": "fertilized row-crop, well-drained soil",
+        "n": 3,
+        "reason": "highest recharge + highest nitrate-loading potential; the primary leaching-risk cell (includes 2 replicates for within-stratum variability)"
+      },
+      {
+        "group": "fertilized row-crop, poorly-drained soil",
+        "n": 1,
+        "reason": "row-crop loading but suppressed vertical recharge; contrasts drainage-class control on leaching water"
+      },
+      {
+        "group": "pasture/grass, well-drained soil",
+        "n": 1,
+        "reason": "isolates land-use effect on recharge at fixed favorable drainage"
+      },
+      {
+        "group": "pasture/grass, poorly-drained soil",
+        "n": 1,
+        "reason": "low-input, low-recharge reference"
+      },
+      {
+        "group": "non-agricultural/forest, well-drained soil",
+        "n": 1,
+        "reason": "background recharge with minimal N input, well-drained"
+      },
+      {
+        "group": "non-agricultural/forest, poorly-drained soil",
+        "n": 1,
+        "reason": "background low-recharge end member"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "recharge / deep drainage (QDRAI, QCHARGE)",
+        "observation_source": "none in-domain (no recharge observations provided)",
+        "in_domain_available": false,
+        "comparison": "none \u2014 qualitative comparison to literature recharge ranges only",
+        "metric": "relative ranking / order-of-magnitude plausibility",
+        "n_validation_points": "0"
+      },
+      {
+        "target_variable": "well nitrate arrival concentration",
+        "observation_source": "external well nitrate records",
+        "in_domain_available": true,
+        "comparison": "NOT POSSIBLE \u2014 ELM produces no nitrate concentration and no field-to-well flow path; well records cannot validate any ELM output. Recorded as a gap, not a comparison.",
+        "metric": "n/a",
+        "n_validation_points": "0 (usable) \u2014 records exist but are unmatchable to model output without reactive-transport coupling"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 8,
+      "exploratory": 8,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS-2 forcing, native SSURGO soil per column, WTD-informed warm start; recharge screening only (not nitrate transport)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM->PFLOTRAN reactive-transport coupling with a nitrate species",
+        "why": "the question is a saturated-zone reactive solute-transport problem; ELM recharge must drive PFLOTRAN reactive transport",
+        "blocks": "any nitrate arrival-concentration estimate"
+      },
+      {
+        "capability": "nitrogen application / leaching source-term model",
+        "why": "fertilizer input to leached-nitrate concentration in drainage is not an ELM output",
+        "blocks": "the nitrate loading flux entering transport"
+      },
+      {
+        "capability": "saturated-zone lateral groundwater flow + well capture-zone geometry",
+        "why": "single-column ELM has no lateral flow or field-to-well travel path",
+        "blocks": "travel time, mixing, and arrival timing"
+      },
+      {
+        "capability": "runoff/recharge routing or flow-path aggregation",
+        "why": "to connect distributed field recharge to specific well capture zones",
+        "blocks": "spatial attribution of loading to wells"
+      },
+      {
+        "capability": "land-use / crop raster + fertilizer-application dataset",
+        "why": "to place and parameterize fertilized-field strata",
+        "blocks": "stratification and loading estimates"
+      },
+      {
+        "capability": "well-network location + nitrate-record ingest",
+        "why": "to define receptors and enable any future validation",
+        "blocks": "validation once transport is available"
+      },
+      {
+        "capability": "model spin-up (already supported) applied to recharge target",
+        "why": "recharge/water-table states require spin-up or WTD warm start to be meaningful",
+        "blocks": "credible recharge magnitudes"
+      }
+    ],
+    "assumptions": [
+      "Upper Iowa is within CONUS, so NLDAS-2 12 km forcing applies.",
+      "SSURGO soil and a land-use/crop raster are resolvable in-domain for the downstream expander.",
+      "The 'well nitrate records (external)' are point concentration measurements with locations, not recharge or flux observations.",
+      "Elevation relief (~160 m) is not a controlling driver here and is intentionally not a stratification axis.",
+      "The recharge screening is a loading-potential proxy only and does not represent nitrate attenuation, denitrification in the saturated zone, or mixing."
+    ],
+    "open_questions": [
+      "Is the goal a defensible nitrate arrival concentration (needs the full coupled reactive-transport stack), or an interim ranking of recharge/leaching-potential hotspots (achievable now)?",
+      "Are fertilizer application rates/timing and crop rotation data available for the source-term model?",
+      "Are well locations, depths, and screen intervals available to define capture zones for a future PFLOTRAN coupling?",
+      "Is there any recharge or vadose-zone flux observation to validate the ELM recharge proxy, or is validation entirely dependent on the unbuilt transport chain?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

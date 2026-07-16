@@ -1,0 +1,138 @@
+{
+  "prompt_id": "C01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: quantify how increasing soil clay fraction shifts precipitation partitioning from sub-surface drainage/recharge toward surface runoff, all else fixed\", \"Validation (optional): check the response against physical/hydrological expectation (monotonic runoff increase, recharge decrease with clay) rather than co-located observations\"], \"key_processes\": [\"infiltration vs infiltration-excess/saturation-excess surface runoff\", \"unsaturated-zone vertical drainage (recharge) governed by saturated hydraulic conductivity and matric potential\", \"column water storage / water-table equilibration\"], \"drivers_to_resolve\": [\"clay content\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"Single-column ELM simulates water partitioning (surface runoff QOVER, sub-surface drainage QDRAI/recharge, per-layer soil moisture) and soil texture is a directly configurable per-column property, so a controlled clay ladder isolates the mechanism.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"full\", \"answerable\": [\"clay-content control on surface-runoff vs sub-surface-drainage partitioning under fixed forcing and vegetation\", \"sensitivity of soil-moisture profile and recharge flux to texture via ELM pedotransfer functions\"], \"not_answerable\": []}, \"sampling_strategy\": {\"approach\": \"controlled / not spatial\", \"strata\": [{\"driver\": \"clay content\", \"classes\": [\"5%\", \"15%\", \"25%\", \"35%\", \"45%\", \"55%\"]}], \"n_exploratory\": 6, \"n_justification\": \"Six clay levels evenly span the requested 5\\u201355% range at 10% steps \\u2014 enough resolution to resolve the expected nonlinear (Ksat-driven) decline in drainage/recharge and rise in surface runoff, while keeping the controlled experiment small. This is a single-factor ladder, so N = number of factor levels.\", \"placement_logic\": \"Controlled / not spatial: one synthetic column per clay level, identical location proxy, identical forcing, identical vegetation and slope; only clay (and its pedotransfer-derived hydraulic properties) varies.\", \"replication\": \"None needed \\u2014 deterministic single-column runs under identical forcing; the response curve is the result.\"}, \"sampling_plan\": [{\"group\": \"clay 5% (near-sandy)\", \"n\": 1, \"reason\": \"Low-clay endmember: high Ksat, expect infiltration-dominated column with maximal deep drainage/recharge and minimal surface runoff\"}, {\"group\": \"clay 15%\", \"n\": 1, \"reason\": \"Loamy-sand/loam range to resolve the high-conductivity end of the response curve\"}, {\"group\": \"clay 25%\", \"n\": 1, \"reason\": \"Mid loam range \\u2014 transition zone where partitioning begins to shift\"}, {\"group\": \"clay 35%\", \"n\": 1, \"reason\": \"Clay-loam: expected inflection where reduced Ksat drives rising surface runoff\"}, {\"group\": \"clay 45%\", \"n\": 1, \"reason\": \"High-clay: low Ksat, expect runoff-dominated partitioning and suppressed recharge\"}, {\"group\": \"clay 55% (heavy clay)\", \"n\": 1, \"reason\": \"High-clay endmember bounding the requested range; maximal surface runoff, minimal recharge\"}], \"validation_design\": [{\"target_variable\": \"runoff/recharge partitioning (QOVER vs QDRAI, and recharge)\", \"observation_source\": \"physical/hydrological expectation and pedotransfer literature (no co-located field observations in this conceptual study)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 response curve checked for monotonic, physically consistent behavior (runoff\\u2191, drainage/recharge\\u2193 with clay); not a co-located data comparison\", \"metric\": \"qualitative monotonicity + partitioning ratio (fraction of P to runoff vs drainage) per clay level\", \"n_validation_points\": \"0 (conceptual experiment; no observations)\"}], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 6, \"validation\": 0, \"primary_treatment\": \"fixed multi-year NLDAS-2 forcing window (spanning wet+dry years), uniform synthetic soil profile, fixed vegetation/slope; only clay fraction varied 5\\u201355%, WITH spin-up / WTD warm start so recharge and water table are equilibrated\"}, \"requires_capabilities\": [{\"capability\": \"model spin-up (multi-year) or WTD-informed warm start per column\", \"why\": \"Recharge and sub-surface drainage are slow states; columns cold-start at the default ~8.8 m water table with recharge \\u22480 while storage fills, so without equilibration the partitioning is an initialization artifact\", \"blocks\": \"trustworthy recharge/drainage partitioning \\u2014 the primary quantity of interest\"}, {\"capability\": \"synthetic uniform-soil configuration with independent control of clay fraction (and, ideally, the option to hold porosity fixed)\", \"why\": \"The experiment requires prescribing clay 5\\u201355% on an otherwise identical soil profile rather than sampling real SSURGO heterogeneity\", \"blocks\": \"clean single-factor isolation of clay\"}, {\"capability\": \"history output of partitioning fluxes (QOVER surface runoff, QDRAI sub-surface drainage/recharge, infiltration)\", \"why\": \"Needed to compute the runoff/recharge ratio per treatment\", \"blocks\": \"quantifying the partitioning response\"}], \"assumptions\": [\"No domain or observations provided \\u2014 treated strictly as an idealized controlled experiment.\", \"A single representative multi-year forcing window (within 1980\\u20132018) is chosen and held identical across all six columns; it should include both wet and dry years so the partitioning result is not driven by one anomalous year.\", \"Vegetation, slope, soil depth, and all non-clay soil attributes are held fixed across treatments.\", \"Clay is set via ELM pedotransfer functions, which propagate to porosity, Ksat, matric potential, and the b exponent simultaneously \\u2014 so 'clay effect' includes these co-varying derived properties unless porosity is explicitly held fixed.\"], \"open_questions\": [\"Should clay be varied as the only free input (letting porosity/Ksat co-vary via pedotransfer, the realistic case) or should porosity be held fixed to isolate conductivity alone?\", \"Preferred forcing window and length, and preferred equilibration approach (multi-year spin-up vs WTD warm start)?\", \"Is a fixed sand/silt split assumed as clay rises (e.g. sand held constant, silt as remainder), or a specific texture trajectory?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how increasing soil clay fraction shifts precipitation partitioning from sub-surface drainage/recharge toward surface runoff, all else fixed",
+        "Validation (optional): check the response against physical/hydrological expectation (monotonic runoff increase, recharge decrease with clay) rather than co-located observations"
+      ],
+      "key_processes": [
+        "infiltration vs infiltration-excess/saturation-excess surface runoff",
+        "unsaturated-zone vertical drainage (recharge) governed by saturated hydraulic conductivity and matric potential",
+        "column water storage / water-table equilibration"
+      ],
+      "drivers_to_resolve": [
+        "clay content"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column ELM simulates water partitioning (surface runoff QOVER, sub-surface drainage QDRAI/recharge, per-layer soil moisture) and soil texture is a directly configurable per-column property, so a controlled clay ladder isolates the mechanism.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "clay-content control on surface-runoff vs sub-surface-drainage partitioning under fixed forcing and vegetation",
+        "sensitivity of soil-moisture profile and recharge flux to texture via ELM pedotransfer functions"
+      ],
+      "not_answerable": []
+    },
+    "sampling_strategy": {
+      "approach": "controlled / not spatial",
+      "strata": [
+        {
+          "driver": "clay content",
+          "classes": [
+            "5%",
+            "15%",
+            "25%",
+            "35%",
+            "45%",
+            "55%"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "Six clay levels evenly span the requested 5\u201355% range at 10% steps \u2014 enough resolution to resolve the expected nonlinear (Ksat-driven) decline in drainage/recharge and rise in surface runoff, while keeping the controlled experiment small. This is a single-factor ladder, so N = number of factor levels.",
+      "placement_logic": "Controlled / not spatial: one synthetic column per clay level, identical location proxy, identical forcing, identical vegetation and slope; only clay (and its pedotransfer-derived hydraulic properties) varies.",
+      "replication": "None needed \u2014 deterministic single-column runs under identical forcing; the response curve is the result."
+    },
+    "sampling_plan": [
+      {
+        "group": "clay 5% (near-sandy)",
+        "n": 1,
+        "reason": "Low-clay endmember: high Ksat, expect infiltration-dominated column with maximal deep drainage/recharge and minimal surface runoff"
+      },
+      {
+        "group": "clay 15%",
+        "n": 1,
+        "reason": "Loamy-sand/loam range to resolve the high-conductivity end of the response curve"
+      },
+      {
+        "group": "clay 25%",
+        "n": 1,
+        "reason": "Mid loam range \u2014 transition zone where partitioning begins to shift"
+      },
+      {
+        "group": "clay 35%",
+        "n": 1,
+        "reason": "Clay-loam: expected inflection where reduced Ksat drives rising surface runoff"
+      },
+      {
+        "group": "clay 45%",
+        "n": 1,
+        "reason": "High-clay: low Ksat, expect runoff-dominated partitioning and suppressed recharge"
+      },
+      {
+        "group": "clay 55% (heavy clay)",
+        "n": 1,
+        "reason": "High-clay endmember bounding the requested range; maximal surface runoff, minimal recharge"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "runoff/recharge partitioning (QOVER vs QDRAI, and recharge)",
+        "observation_source": "physical/hydrological expectation and pedotransfer literature (no co-located field observations in this conceptual study)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 response curve checked for monotonic, physically consistent behavior (runoff\u2191, drainage/recharge\u2193 with clay); not a co-located data comparison",
+        "metric": "qualitative monotonicity + partitioning ratio (fraction of P to runoff vs drainage) per clay level",
+        "n_validation_points": "0 (conceptual experiment; no observations)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "fixed multi-year NLDAS-2 forcing window (spanning wet+dry years), uniform synthetic soil profile, fixed vegetation/slope; only clay fraction varied 5\u201355%, WITH spin-up / WTD warm start so recharge and water table are equilibrated"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "model spin-up (multi-year) or WTD-informed warm start per column",
+        "why": "Recharge and sub-surface drainage are slow states; columns cold-start at the default ~8.8 m water table with recharge \u22480 while storage fills, so without equilibration the partitioning is an initialization artifact",
+        "blocks": "trustworthy recharge/drainage partitioning \u2014 the primary quantity of interest"
+      },
+      {
+        "capability": "synthetic uniform-soil configuration with independent control of clay fraction (and, ideally, the option to hold porosity fixed)",
+        "why": "The experiment requires prescribing clay 5\u201355% on an otherwise identical soil profile rather than sampling real SSURGO heterogeneity",
+        "blocks": "clean single-factor isolation of clay"
+      },
+      {
+        "capability": "history output of partitioning fluxes (QOVER surface runoff, QDRAI sub-surface drainage/recharge, infiltration)",
+        "why": "Needed to compute the runoff/recharge ratio per treatment",
+        "blocks": "quantifying the partitioning response"
+      }
+    ],
+    "assumptions": [
+      "No domain or observations provided \u2014 treated strictly as an idealized controlled experiment.",
+      "A single representative multi-year forcing window (within 1980\u20132018) is chosen and held identical across all six columns; it should include both wet and dry years so the partitioning result is not driven by one anomalous year.",
+      "Vegetation, slope, soil depth, and all non-clay soil attributes are held fixed across treatments.",
+      "Clay is set via ELM pedotransfer functions, which propagate to porosity, Ksat, matric potential, and the b exponent simultaneously \u2014 so 'clay effect' includes these co-varying derived properties unless porosity is explicitly held fixed."
+    ],
+    "open_questions": [
+      "Should clay be varied as the only free input (letting porosity/Ksat co-vary via pedotransfer, the realistic case) or should porosity be held fixed to isolate conductivity alone?",
+      "Preferred forcing window and length, and preferred equilibration approach (multi-year spin-up vs WTD warm start)?",
+      "Is a fixed sand/silt split assumed as clay rises (e.g. sand held constant, silt as remainder), or a specific texture trajectory?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

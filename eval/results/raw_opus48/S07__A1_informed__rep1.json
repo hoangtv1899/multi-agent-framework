@@ -1,0 +1,84 @@
+{
+  "prompt_id": "S07",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Simulate daily runoff generation (surface + subsurface, QRUNOFF) at representative columns within the American River drainage.\",\n      \"Produce a daily basin-aggregated runoff time series that can be qualitatively compared to the shape/seasonality of the observed hydrograph.\",\n      \"Characterize snowmelt-driven spring freshet timing and evapotranspiration partitioning that control hydrograph shape.\"\n    ],\n    \"not_answerable\": [\n      \"A true routed daily STREAMFLOW hydrograph AT the USGS gauge cannot be produced by single-column ELM alone \u2014 channel routing (MOSART) plus a delineated drainage network and area weighting are required to convert column runoff (mm/s) to gauge discharge (m3/s).\",\n      \"A rigorous NSE against observed discharge is therefore not defensible from single-column runoff without routing; only an approximate NSE on area-scaled, un-routed runoff can be reported and it will be biased low on timing/attenuation.\"\n    ]\n  },\n  \"n_columns\": 3,\n  \"n_justification\": \"The American River basin above the Nile gauge spans ~350-1977 m elevation; runoff is dominated by an elevation-banded snowpack. Three columns representing low (rain/rain-snow), mid (transitional snow), and high (seasonal snowpack) elevation bands capture the dominant control on freshet timing and volume while keeping the design tractable for a site archetype.\",\n  \"columns\": [\n    {\"id\": \"AR_low_forest\", \"lat\": 46.98, \"lon\": -121.10, \"soil_texture\": \"gravelly-loam\"},\n    {\"id\": \"AR_mid_transitional\", \"lat\": 46.95, \"lon\": -121.20, \"soil_texture\": \"sandy-loam\"},\n    {\"id\": \"AR_high_snow\", \"lat\": 46.92, \"lon\": -121.32, \"soil_texture\": \"loamy-sand-over-bedrock\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QH2OSFC\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"QSNOMELT\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QINFL\",\n      \"ZWT\",\n      \"QFLX_EVAP_TOT\",\n      \"FSNO\",\n      \"TSA\",\n      \"SOILLIQ\",\n      \"SOILICE\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"MOSART channel routing coupled to ELM to convert gridded/column runoff to discharge at the gauge outlet\",\n    \"Sub-basin delineation and drainage-area weighting for the American River above USGS Nile gauge to aggregate the three elevation-band columns\",\n    \"USGS daily discharge retrieval and NSE computation utility (obs-vs-sim alignment, unit conversion mm/s -> m3/s)\",\n    \"Elevation-band area fractions (hypsometry) to weight columns\"\n  ],\n  \"assumptions\": [\n    \"Gauge is USGS 'American River near Nile, WA' at approximately 46.98N, -121.17W; exact column coordinates place elevation bands within the contributing area.\",\n    \"Single-column runoff is treated as instantaneous local generation; without MOSART no in-channel travel time, storage, or attenuation is represented, so simulated peaks will be early/flashier than observed.\",\n    \"Forcing is the standard GSWP3/CLMNCEP-style dataset available 1980-2018; a spin-up (recycled early years) is assumed prior to the analysis period.\",\n    \"Column soil textures are approximate glacial/volcanic mountain profiles; a surface dataset with local soil/PFT is assumed available.\",\n    \"Reported NSE, if required now, will be computed on area-weighted un-routed daily runoff versus observed discharge and clearly flagged as an upper-bound-timing-limited approximation; a defensible NSE requires the routing capability above.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Simulate daily runoff generation (surface + subsurface, QRUNOFF) at representative columns within the American River drainage.",
+        "Produce a daily basin-aggregated runoff time series that can be qualitatively compared to the shape/seasonality of the observed hydrograph.",
+        "Characterize snowmelt-driven spring freshet timing and evapotranspiration partitioning that control hydrograph shape."
+      ],
+      "not_answerable": [
+        "A true routed daily STREAMFLOW hydrograph AT the USGS gauge cannot be produced by single-column ELM alone \u2014 channel routing (MOSART) plus a delineated drainage network and area weighting are required to convert column runoff (mm/s) to gauge discharge (m3/s).",
+        "A rigorous NSE against observed discharge is therefore not defensible from single-column runoff without routing; only an approximate NSE on area-scaled, un-routed runoff can be reported and it will be biased low on timing/attenuation."
+      ]
+    },
+    "n_columns": 3,
+    "n_justification": "The American River basin above the Nile gauge spans ~350-1977 m elevation; runoff is dominated by an elevation-banded snowpack. Three columns representing low (rain/rain-snow), mid (transitional snow), and high (seasonal snowpack) elevation bands capture the dominant control on freshet timing and volume while keeping the design tractable for a site archetype.",
+    "columns": [
+      {
+        "id": "AR_low_forest",
+        "lat": 46.98,
+        "lon": -121.1,
+        "soil_texture": "gravelly-loam"
+      },
+      {
+        "id": "AR_mid_transitional",
+        "lat": 46.95,
+        "lon": -121.2,
+        "soil_texture": "sandy-loam"
+      },
+      {
+        "id": "AR_high_snow",
+        "lat": 46.92,
+        "lon": -121.32,
+        "soil_texture": "loamy-sand-over-bedrock"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QH2OSFC",
+        "H2OSNO",
+        "SNOWDP",
+        "QSNOMELT",
+        "RAIN",
+        "SNOW",
+        "QINFL",
+        "ZWT",
+        "QFLX_EVAP_TOT",
+        "FSNO",
+        "TSA",
+        "SOILLIQ",
+        "SOILICE"
+      ]
+    },
+    "requires_capabilities": [
+      "MOSART channel routing coupled to ELM to convert gridded/column runoff to discharge at the gauge outlet",
+      "Sub-basin delineation and drainage-area weighting for the American River above USGS Nile gauge to aggregate the three elevation-band columns",
+      "USGS daily discharge retrieval and NSE computation utility (obs-vs-sim alignment, unit conversion mm/s -> m3/s)",
+      "Elevation-band area fractions (hypsometry) to weight columns"
+    ],
+    "assumptions": [
+      "Gauge is USGS 'American River near Nile, WA' at approximately 46.98N, -121.17W; exact column coordinates place elevation bands within the contributing area.",
+      "Single-column runoff is treated as instantaneous local generation; without MOSART no in-channel travel time, storage, or attenuation is represented, so simulated peaks will be early/flashier than observed.",
+      "Forcing is the standard GSWP3/CLMNCEP-style dataset available 1980-2018; a spin-up (recycled early years) is assumed prior to the analysis period.",
+      "Column soil textures are approximate glacial/volcanic mountain profiles; a surface dataset with local soil/PFT is assumed available.",
+      "Reported NSE, if required now, will be computed on area-weighted un-routed daily runoff versus observed discharge and clearly flagged as an upper-bound-timing-limited approximation; a defensible NSE requires the routing capability above."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

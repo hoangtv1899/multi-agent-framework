@@ -1,0 +1,169 @@
+{
+  "prompt_id": "C02",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: quantify how initial water-table depth controls the fraction of a surface infiltration pulse that reaches the saturated zone (recharge) versus being stored/evaporated/drained in the unsaturated column\", \"Secondary: characterize the LAG between the surface pulse and the water-table response as a function of initial WTD\"], \"key_processes\": [\"unsaturated-zone storage and wetting-front propagation\", \"recharge to the aquifer store (QDRAI / aquifer recharge)\", \"water-table position response (ZWT)\", \"partitioning of infiltrated water between recharge, ET, and drainage\"], \"drivers_to_resolve\": [\"initial water-table depth\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"Single-column 1-D ELM directly represents per-layer soil moisture, an aquifer store, and recharge \\u2014 the ideal testbed for an idealized WTD-vs-recharge sensitivity with everything but initial WTD held fixed.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"WTD control on pulse-to-recharge fraction for the SHALLOW-to-intermediate range (~0.5 m to ~28.8 m), the ELM aquifer range\", \"lag / timing of water-table response as a function of initial WTD within that range\", \"monotonicity and approximate shape of the recharge-fraction vs WTD relationship\"], \"not_answerable\": [{\"aspect\": \"WTD levels deeper than ~28.8 m (i.e. the 30-50 m end of the requested range)\", \"why\": \"ELM's aquifer range is 0.05-28.8 m; the WTD-informed warm start clamps deeper targets and pins the aquifer empty, so all deep levels collapse to the same clamped state and cannot be distinguished\", \"needs\": \"extended/deep aquifer representation in ELM (or an alternative deep vadose-zone model)\"}, {\"aspect\": \"a clean, prescribed unit infiltration pulse at the top boundary\", \"why\": \"the runs can only pull forcing PERIOD, not inject a synthetic top-boundary water flux; the pulse must be approximated by a selected real precipitation event\", \"needs\": \"synthetic/prescribed top-boundary infiltration forcing capability\"}]}, \"sampling_strategy\": {\"approach\": \"controlled / not spatial \\u2014 single-factor idealized sweep on initial water-table depth\", \"strata\": [{\"driver\": \"initial water-table depth\", \"bands\": [\"0.5 m\", \"1 m\", \"2 m\", \"4 m\", \"8 m\", \"16 m\", \"28.8 m (ELM clamp)\"]}], \"n_exploratory\": 7, \"n_justification\": \"Seven log-spaced WTD levels span shallow (near-saturated, pulse->recharge expected ~1) to the deepest depth ELM can represent (~28.8 m); log spacing resolves the expected nonlinear roll-off in recharge fraction with fewer runs than linear spacing. The requested 30-50 m levels are omitted as infeasible (see feasibility).\", \"placement_logic\": \"Not spatial. One representative CONUS single-column location so that NLDAS-2 forcing is available and a discrete wet event can be selected; all columns share this location and forcing.\", \"replication\": \"None in the baseline (deterministic idealized sweep). Optional second uniform soil texture (sand vs clay) could be added later to test texture-dependence of the WTD effect; excluded here to keep the single-factor design clean.\"}, \"sampling_plan\": [{\"group\": \"very shallow WTD (0.5 m)\", \"n\": 1, \"reason\": \"near-saturated column: expected upper bound where nearly all of the pulse reaches the water table with minimal lag\"}, {\"group\": \"shallow WTD (1 m)\", \"n\": 1, \"reason\": \"resolves the high-recharge-fraction regime just below the root zone\"}, {\"group\": \"shallow-intermediate WTD (2 m)\", \"n\": 1, \"reason\": \"captures onset of unsaturated-zone buffering\"}, {\"group\": \"intermediate WTD (4 m)\", \"n\": 1, \"reason\": \"mid-range level to resolve the nonlinear roll-off of recharge fraction\"}, {\"group\": \"intermediate-deep WTD (8 m)\", \"n\": 1, \"reason\": \"thick vadose zone: strong attenuation and lengthening lag expected\"}, {\"group\": \"deep WTD (16 m)\", \"n\": 1, \"reason\": \"approaches the regime where little of a single pulse reaches the table within the event window\"}, {\"group\": \"deepest representable WTD (28.8 m, ELM clamp)\", \"n\": 1, \"reason\": \"lower bound of resolvable response; marks the edge of ELM's aquifer range beyond which levels cannot be distinguished\"}], \"validation_design\": [{\"target_variable\": \"pulse-to-recharge fraction (aquifer recharge / infiltrated pulse) and water-table response lag\", \"observation_source\": \"physical expectation / vadose-zone theory (monotonic decline of recharge fraction and increasing lag with WTD); no in-domain observations exist for an idealized column\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 qualitative/quantitative consistency check against expected monotonic, saturating behavior rather than co-located data\", \"metric\": \"monotonicity of recharge-fraction vs WTD; magnitude and sign of lag trend; internal water-balance closure\", \"n_validation_points\": \"0 (conceptual \\u2014 validated against physical expectation, not data)\"}], \"experiment_summary\": {\"total_columns\": 7, \"exploratory\": 7, \"validation\": 0, \"primary_treatment\": \"uniform synthetic soil (single texture, e.g. loam), single representative CONUS location, identical selected wet-event forcing, WTD-informed warm start to each target depth; only initial WTD varies\"}, \"requires_capabilities\": [{\"capability\": \"WTD-informed warm start per column\", \"why\": \"initial WTD IS the treatment; each column must be initialized to its target water table via the Fan-2013 warm start (one carrier run each)\", \"blocks\": \"the entire experiment \\u2014 without it columns cold-start at default ~8.8 m and the factor is not set\"}, {\"capability\": \"extended/deep aquifer representation (>28.8 m)\", \"why\": \"the requested 30-50 m range exceeds ELM's aquifer range and is clamped\", \"blocks\": \"the deep half of the requested WTD sweep\"}, {\"capability\": \"prescribed/synthetic top-boundary infiltration pulse\", \"why\": \"the runs cannot inject a controlled water flux; the pulse must be approximated by a selected real event\", \"blocks\": \"a clean unit-impulse interpretation of pulse-to-recharge fraction\"}, {\"capability\": \"recharge / aquifer-flux diagnostic tracking (per-event recharge accounting)\", \"why\": \"need to isolate the fraction of the specific infiltration pulse reaching the water table and its timing\", \"blocks\": \"quantitative pulse-to-recharge partitioning and lag estimation\"}, {\"capability\": \"spin-up / multi-year run support\", \"why\": \"recharge and water table are slow states; short warm-started runs plus adequate settle time are needed before/after the pulse\", \"blocks\": \"meaningful slow-state response\"}], \"assumptions\": [\"A single uniform synthetic soil texture (e.g. loam) is used so the response reflects WTD alone; texture sensitivity is out of scope for the baseline.\", \"The infiltration pulse is approximated by a discrete wet precipitation event selected from 1980-2018 NLDAS-2 forcing, applied identically to all columns.\", \"Root-zone soil moisture (a fast state) is left at default by the warm start and is assumed to have secondary influence relative to WTD; this is a known caveat, not a controlled variable.\", \"ELM's 1-D equilibrium differs from Fan's lateral-flow equilibrium, so some drift from the target initial WTD is expected and is itself part of the recorded result.\", \"A single representative CONUS location adequately supplies forcing; the location choice is not itself a driver.\"], \"open_questions\": [\"Should the deep end (>28.8 m) be pursued with an alternative deep-vadose-zone model, or is capping at the ELM aquifer range acceptable for the study's intent?\", \"Is a natural selected wet event acceptable as the 'pulse', or is a truly prescribed synthetic impulse required (which needs a new forcing capability)?\", \"Should a second soil texture be added to test whether the WTD control is texture-dependent?\", \"What post-pulse window defines 'reaches the water table' \\u2014 days, weeks, or full seasonal recharge?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how initial water-table depth controls the fraction of a surface infiltration pulse that reaches the saturated zone (recharge) versus being stored/evaporated/drained in the unsaturated column",
+        "Secondary: characterize the LAG between the surface pulse and the water-table response as a function of initial WTD"
+      ],
+      "key_processes": [
+        "unsaturated-zone storage and wetting-front propagation",
+        "recharge to the aquifer store (QDRAI / aquifer recharge)",
+        "water-table position response (ZWT)",
+        "partitioning of infiltrated water between recharge, ET, and drainage"
+      ],
+      "drivers_to_resolve": [
+        "initial water-table depth"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column 1-D ELM directly represents per-layer soil moisture, an aquifer store, and recharge \u2014 the ideal testbed for an idealized WTD-vs-recharge sensitivity with everything but initial WTD held fixed.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "WTD control on pulse-to-recharge fraction for the SHALLOW-to-intermediate range (~0.5 m to ~28.8 m), the ELM aquifer range",
+        "lag / timing of water-table response as a function of initial WTD within that range",
+        "monotonicity and approximate shape of the recharge-fraction vs WTD relationship"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "WTD levels deeper than ~28.8 m (i.e. the 30-50 m end of the requested range)",
+          "why": "ELM's aquifer range is 0.05-28.8 m; the WTD-informed warm start clamps deeper targets and pins the aquifer empty, so all deep levels collapse to the same clamped state and cannot be distinguished",
+          "needs": "extended/deep aquifer representation in ELM (or an alternative deep vadose-zone model)"
+        },
+        {
+          "aspect": "a clean, prescribed unit infiltration pulse at the top boundary",
+          "why": "the runs can only pull forcing PERIOD, not inject a synthetic top-boundary water flux; the pulse must be approximated by a selected real precipitation event",
+          "needs": "synthetic/prescribed top-boundary infiltration forcing capability"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "controlled / not spatial \u2014 single-factor idealized sweep on initial water-table depth",
+      "strata": [
+        {
+          "driver": "initial water-table depth",
+          "bands": [
+            "0.5 m",
+            "1 m",
+            "2 m",
+            "4 m",
+            "8 m",
+            "16 m",
+            "28.8 m (ELM clamp)"
+          ]
+        }
+      ],
+      "n_exploratory": 7,
+      "n_justification": "Seven log-spaced WTD levels span shallow (near-saturated, pulse->recharge expected ~1) to the deepest depth ELM can represent (~28.8 m); log spacing resolves the expected nonlinear roll-off in recharge fraction with fewer runs than linear spacing. The requested 30-50 m levels are omitted as infeasible (see feasibility).",
+      "placement_logic": "Not spatial. One representative CONUS single-column location so that NLDAS-2 forcing is available and a discrete wet event can be selected; all columns share this location and forcing.",
+      "replication": "None in the baseline (deterministic idealized sweep). Optional second uniform soil texture (sand vs clay) could be added later to test texture-dependence of the WTD effect; excluded here to keep the single-factor design clean."
+    },
+    "sampling_plan": [
+      {
+        "group": "very shallow WTD (0.5 m)",
+        "n": 1,
+        "reason": "near-saturated column: expected upper bound where nearly all of the pulse reaches the water table with minimal lag"
+      },
+      {
+        "group": "shallow WTD (1 m)",
+        "n": 1,
+        "reason": "resolves the high-recharge-fraction regime just below the root zone"
+      },
+      {
+        "group": "shallow-intermediate WTD (2 m)",
+        "n": 1,
+        "reason": "captures onset of unsaturated-zone buffering"
+      },
+      {
+        "group": "intermediate WTD (4 m)",
+        "n": 1,
+        "reason": "mid-range level to resolve the nonlinear roll-off of recharge fraction"
+      },
+      {
+        "group": "intermediate-deep WTD (8 m)",
+        "n": 1,
+        "reason": "thick vadose zone: strong attenuation and lengthening lag expected"
+      },
+      {
+        "group": "deep WTD (16 m)",
+        "n": 1,
+        "reason": "approaches the regime where little of a single pulse reaches the table within the event window"
+      },
+      {
+        "group": "deepest representable WTD (28.8 m, ELM clamp)",
+        "n": 1,
+        "reason": "lower bound of resolvable response; marks the edge of ELM's aquifer range beyond which levels cannot be distinguished"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "pulse-to-recharge fraction (aquifer recharge / infiltrated pulse) and water-table response lag",
+        "observation_source": "physical expectation / vadose-zone theory (monotonic decline of recharge fraction and increasing lag with WTD); no in-domain observations exist for an idealized column",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 qualitative/quantitative consistency check against expected monotonic, saturating behavior rather than co-located data",
+        "metric": "monotonicity of recharge-fraction vs WTD; magnitude and sign of lag trend; internal water-balance closure",
+        "n_validation_points": "0 (conceptual \u2014 validated against physical expectation, not data)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 7,
+      "exploratory": 7,
+      "validation": 0,
+      "primary_treatment": "uniform synthetic soil (single texture, e.g. loam), single representative CONUS location, identical selected wet-event forcing, WTD-informed warm start to each target depth; only initial WTD varies"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "WTD-informed warm start per column",
+        "why": "initial WTD IS the treatment; each column must be initialized to its target water table via the Fan-2013 warm start (one carrier run each)",
+        "blocks": "the entire experiment \u2014 without it columns cold-start at default ~8.8 m and the factor is not set"
+      },
+      {
+        "capability": "extended/deep aquifer representation (>28.8 m)",
+        "why": "the requested 30-50 m range exceeds ELM's aquifer range and is clamped",
+        "blocks": "the deep half of the requested WTD sweep"
+      },
+      {
+        "capability": "prescribed/synthetic top-boundary infiltration pulse",
+        "why": "the runs cannot inject a controlled water flux; the pulse must be approximated by a selected real event",
+        "blocks": "a clean unit-impulse interpretation of pulse-to-recharge fraction"
+      },
+      {
+        "capability": "recharge / aquifer-flux diagnostic tracking (per-event recharge accounting)",
+        "why": "need to isolate the fraction of the specific infiltration pulse reaching the water table and its timing",
+        "blocks": "quantitative pulse-to-recharge partitioning and lag estimation"
+      },
+      {
+        "capability": "spin-up / multi-year run support",
+        "why": "recharge and water table are slow states; short warm-started runs plus adequate settle time are needed before/after the pulse",
+        "blocks": "meaningful slow-state response"
+      }
+    ],
+    "assumptions": [
+      "A single uniform synthetic soil texture (e.g. loam) is used so the response reflects WTD alone; texture sensitivity is out of scope for the baseline.",
+      "The infiltration pulse is approximated by a discrete wet precipitation event selected from 1980-2018 NLDAS-2 forcing, applied identically to all columns.",
+      "Root-zone soil moisture (a fast state) is left at default by the warm start and is assumed to have secondary influence relative to WTD; this is a known caveat, not a controlled variable.",
+      "ELM's 1-D equilibrium differs from Fan's lateral-flow equilibrium, so some drift from the target initial WTD is expected and is itself part of the recorded result.",
+      "A single representative CONUS location adequately supplies forcing; the location choice is not itself a driver."
+    ],
+    "open_questions": [
+      "Should the deep end (>28.8 m) be pursued with an alternative deep-vadose-zone model, or is capping at the ELM aquifer range acceptable for the study's intent?",
+      "Is a natural selected wet event acceptable as the 'pulse', or is a truly prescribed synthetic impulse required (which needs a new forcing capability)?",
+      "Should a second soil texture be added to test whether the WTD control is texture-dependent?",
+      "What post-pulse window defines 'reaches the water table' \u2014 days, weeks, or full seasonal recharge?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

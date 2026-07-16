@@ -1,0 +1,140 @@
+{
+  "prompt_id": "C01",
+  "arm": "A4_framework",
+  "rep": 2,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: quantify how soil clay content controls the partitioning of precipitation between surface runoff and deep drainage/recharge, all else fixed\"], \"key_processes\": [\"infiltration vs infiltration-excess/saturation-excess runoff\", \"unsaturated hydraulic conductivity and its dependence on texture\", \"deep drainage / recharge to the water table\", \"soil-moisture storage and its seasonal cycle\"], \"drivers_to_resolve\": [\"clay content\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"Single-column ELM natively partitions incoming water into surface runoff (QOVER/QRUNOFF) and sub-surface drainage/recharge (QDRAI); soil texture is a first-class per-column lever. A controlled uniform-soil sweep isolates the clay effect exactly.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"full\", \"answerable\": [\"clay control on surface-runoff vs deep-drainage partitioning under fixed forcing\", \"shape (monotonicity/curvature) of the partitioning response across 5-55% clay\"], \"not_answerable\": []}, \"sampling_strategy\": {\"approach\": \"controlled factor sweep (not spatial)\", \"strata\": [{\"driver\": \"clay content\", \"classes\": [\"5%\", \"15%\", \"25%\", \"35%\", \"45%\", \"55%\"]}], \"n_exploratory\": 6, \"n_justification\": \"6 clay levels evenly span the requested 5-55% range; enough to resolve the expected nonlinear (steepest at low-mid clay) runoff-up/recharge-down response without wasted runs. All other properties held identical, so each level is one treatment column.\", \"placement_logic\": \"controlled / not spatial \\u2014 one representative CONUS location and one forcing window shared by all columns; only clay fraction differs.\", \"replication\": \"none \\u2014 deterministic model, controlled treatments; replication adds no information here.\"}, \"sampling_plan\": [{\"group\": \"clay 5% (sandy end-member)\", \"n\": 1, \"reason\": \"high-conductivity end-member: expected maximum recharge, minimum runoff \\u2014 anchors the low-clay end of the response curve.\"}, {\"group\": \"clay 15%\", \"n\": 1, \"reason\": \"low-clay loam; samples the steep early part of the texture-conductivity response.\"}, {\"group\": \"clay 25%\", \"n\": 1, \"reason\": \"mid-range loam; resolves curvature in the partitioning transition.\"}, {\"group\": \"clay 35%\", \"n\": 1, \"reason\": \"clay-loam; captures declining infiltration capacity.\"}, {\"group\": \"clay 45%\", \"n\": 1, \"reason\": \"high clay; runoff-dominated regime emerging.\"}, {\"group\": \"clay 55% (clay end-member)\", \"n\": 1, \"reason\": \"low-conductivity end-member: expected maximum runoff, minimum recharge \\u2014 anchors the high-clay end of the curve.\"}], \"validation_design\": [{\"target_variable\": \"runoff/recharge partitioning (QRUNOFF/QOVER vs QDRAI)\", \"observation_source\": \"physical expectation / pedotransfer & Richards-flow theory (no in-domain observations provided)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 qualitative check that response is monotonic (runoff increasing, recharge decreasing with clay) and consistent with hydraulic-conductivity theory; no co-located field data\", \"metric\": \"sign and monotonicity of partitioning trend; magnitude of runoff fraction shift across clay range\", \"n_validation_points\": \"0 \\u2014 conceptual experiment, validated against expectation only\"}], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 6, \"validation\": 0, \"primary_treatment\": \"synthetic uniform soil, clay varied 5-55% (sand+silt rebalanced at fixed ratio), single representative CONUS forcing window, identical layering/vegetation, with spin-up\"}, \"requires_capabilities\": [{\"capability\": \"model spin-up (multi-year) or WTD-informed warm start\", \"why\": \"recharge/drainage is a slow state; cold-start at default ~8.8 m water table makes QDRAI an initialization artifact\", \"blocks\": \"credible recharge partitioning \\u2014 the primary output\"}, {\"capability\": \"synthetic uniform-soil column configuration with prescribed clay fraction\", \"why\": \"controlled sweep needs texture set directly (not sampled from SSURGO), varying clay while holding all else fixed\", \"blocks\": \"isolating the clay effect\"}, {\"capability\": \"runoff and drainage flux history output (QOVER/QRUNOFF, QDRAI)\", \"why\": \"these are the partitioning targets to be reported\", \"blocks\": \"measuring the response\"}], \"assumptions\": [\"Clay cannot vary in isolation; sand and silt are rebalanced at a fixed ratio as clay changes, so the sweep is a clay-vs-(sand+silt) axis.\", \"A single representative CONUS location and one multi-year forcing window (within 1980-2018) adequately exercise a range of storm intensities and a full seasonal wet/dry cycle.\", \"Soil is vertically uniform (single texture through the profile) to keep the treatment clean.\", \"Vegetation, layering, slope and all non-texture parameters are held at fixed defaults across all six columns.\", \"Spin-up length is sufficient to bring drainage/storage to quasi-equilibrium before the analysis window.\"], \"open_questions\": [\"Preferred forcing location and window (climate regime strongly conditions the absolute runoff/recharge split)?\", \"Should sand:silt be held at a fixed ratio, or should sand be held constant and only silt traded against clay?\", \"Report partitioning as long-term water-balance fractions, or also resolve seasonal/event-scale behavior?\", \"Warm-start via Fan-2013 WTD vs explicit multi-year spin-up \\u2014 which is preferred given the idealized soils?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: quantify how soil clay content controls the partitioning of precipitation between surface runoff and deep drainage/recharge, all else fixed"
+      ],
+      "key_processes": [
+        "infiltration vs infiltration-excess/saturation-excess runoff",
+        "unsaturated hydraulic conductivity and its dependence on texture",
+        "deep drainage / recharge to the water table",
+        "soil-moisture storage and its seasonal cycle"
+      ],
+      "drivers_to_resolve": [
+        "clay content"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column ELM natively partitions incoming water into surface runoff (QOVER/QRUNOFF) and sub-surface drainage/recharge (QDRAI); soil texture is a first-class per-column lever. A controlled uniform-soil sweep isolates the clay effect exactly.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "clay control on surface-runoff vs deep-drainage partitioning under fixed forcing",
+        "shape (monotonicity/curvature) of the partitioning response across 5-55% clay"
+      ],
+      "not_answerable": []
+    },
+    "sampling_strategy": {
+      "approach": "controlled factor sweep (not spatial)",
+      "strata": [
+        {
+          "driver": "clay content",
+          "classes": [
+            "5%",
+            "15%",
+            "25%",
+            "35%",
+            "45%",
+            "55%"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "6 clay levels evenly span the requested 5-55% range; enough to resolve the expected nonlinear (steepest at low-mid clay) runoff-up/recharge-down response without wasted runs. All other properties held identical, so each level is one treatment column.",
+      "placement_logic": "controlled / not spatial \u2014 one representative CONUS location and one forcing window shared by all columns; only clay fraction differs.",
+      "replication": "none \u2014 deterministic model, controlled treatments; replication adds no information here."
+    },
+    "sampling_plan": [
+      {
+        "group": "clay 5% (sandy end-member)",
+        "n": 1,
+        "reason": "high-conductivity end-member: expected maximum recharge, minimum runoff \u2014 anchors the low-clay end of the response curve."
+      },
+      {
+        "group": "clay 15%",
+        "n": 1,
+        "reason": "low-clay loam; samples the steep early part of the texture-conductivity response."
+      },
+      {
+        "group": "clay 25%",
+        "n": 1,
+        "reason": "mid-range loam; resolves curvature in the partitioning transition."
+      },
+      {
+        "group": "clay 35%",
+        "n": 1,
+        "reason": "clay-loam; captures declining infiltration capacity."
+      },
+      {
+        "group": "clay 45%",
+        "n": 1,
+        "reason": "high clay; runoff-dominated regime emerging."
+      },
+      {
+        "group": "clay 55% (clay end-member)",
+        "n": 1,
+        "reason": "low-conductivity end-member: expected maximum runoff, minimum recharge \u2014 anchors the high-clay end of the curve."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "runoff/recharge partitioning (QRUNOFF/QOVER vs QDRAI)",
+        "observation_source": "physical expectation / pedotransfer & Richards-flow theory (no in-domain observations provided)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 qualitative check that response is monotonic (runoff increasing, recharge decreasing with clay) and consistent with hydraulic-conductivity theory; no co-located field data",
+        "metric": "sign and monotonicity of partitioning trend; magnitude of runoff fraction shift across clay range",
+        "n_validation_points": "0 \u2014 conceptual experiment, validated against expectation only"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "synthetic uniform soil, clay varied 5-55% (sand+silt rebalanced at fixed ratio), single representative CONUS forcing window, identical layering/vegetation, with spin-up"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "model spin-up (multi-year) or WTD-informed warm start",
+        "why": "recharge/drainage is a slow state; cold-start at default ~8.8 m water table makes QDRAI an initialization artifact",
+        "blocks": "credible recharge partitioning \u2014 the primary output"
+      },
+      {
+        "capability": "synthetic uniform-soil column configuration with prescribed clay fraction",
+        "why": "controlled sweep needs texture set directly (not sampled from SSURGO), varying clay while holding all else fixed",
+        "blocks": "isolating the clay effect"
+      },
+      {
+        "capability": "runoff and drainage flux history output (QOVER/QRUNOFF, QDRAI)",
+        "why": "these are the partitioning targets to be reported",
+        "blocks": "measuring the response"
+      }
+    ],
+    "assumptions": [
+      "Clay cannot vary in isolation; sand and silt are rebalanced at a fixed ratio as clay changes, so the sweep is a clay-vs-(sand+silt) axis.",
+      "A single representative CONUS location and one multi-year forcing window (within 1980-2018) adequately exercise a range of storm intensities and a full seasonal wet/dry cycle.",
+      "Soil is vertically uniform (single texture through the profile) to keep the treatment clean.",
+      "Vegetation, layering, slope and all non-texture parameters are held at fixed defaults across all six columns.",
+      "Spin-up length is sufficient to bring drainage/storage to quasi-equilibrium before the analysis window."
+    ],
+    "open_questions": [
+      "Preferred forcing location and window (climate regime strongly conditions the absolute runoff/recharge split)?",
+      "Should sand:silt be held at a fixed ratio, or should sand be held constant and only silt traded against clay?",
+      "Report partitioning as long-term water-balance fractions, or also resolve seasonal/event-scale behavior?",
+      "Warm-start via Fan-2013 WTD vs explicit multi-year spin-up \u2014 which is preferred given the idealized soils?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

@@ -1,0 +1,117 @@
+{
+  "prompt_id": "S08",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Feasible as an elevation-gradient single-column ELM experiment using global GSWP3 forcing; water-balance partitioning is fully diagnosable from model output, but formal gauge/SWE validation is limited because the listed observation networks are not in the stack.\",\n    \"answerable\": [\n      \"Elevation-resolved partitioning of precipitation into evapotranspiration, surface runoff, subsurface drainage, and snowmelt\",\n      \"Elevation dependence of snow accumulation/ablation timing (SWE, snow depth, fractional snow cover)\",\n      \"Rain-vs-snow phase partitioning and its shift with elevation\",\n      \"Seasonal (nival) hydrograph character of melt-driven runoff at each elevation band\",\n      \"Inter-annual variability of water partitioning over 1980-2014\"\n    ],\n    \"not_answerable\": [\n      \"Quantitative streamflow validation against ECCC gauges (gauges not ingested in the stack)\",\n      \"SWE validation against SNOTEL (US-only network, absent for Canada)\",\n      \"Lateral/routed basin discharge (single-column ELM has no channel routing; only vertical column fluxes are produced)\",\n      \"Glacier mass balance for the highest peaks (ELM has no dynamic glacier ice model)\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"The only candidate driver is elevation over a 1200-3400 m range. Six columns spaced ~400 m in elevation resolve the montane-to-alpine transition (rain/snow phase line, snowpack persistence, ET decline) with enough density to characterize the gradient while keeping the campaign tractable.\",\n  \"columns\": [\n    {\"id\": \"BOW-1200-valley\", \"lat\": 50.88, \"lon\": -115.05, \"soil_texture\": \"loam\"},\n    {\"id\": \"BOW-1600-montane\", \"lat\": 50.92, \"lon\": -115.15, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"BOW-2000-subalpine\", \"lat\": 50.96, \"lon\": -115.25, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"BOW-2400-treeline\", \"lat\": 51.00, \"lon\": -115.35, \"soil_texture\": \"gravelly sandy loam\"},\n    {\"id\": \"BOW-2800-alpine\", \"lat\": 51.05, \"lon\": -115.42, \"soil_texture\": \"loamy sand\"},\n    {\"id\": \"BOW-3200-alpine-rock\", \"lat\": 51.10, \"lon\": -115.50, \"soil_texture\": \"sand\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2014\",\n    \"STOP_N\": \"35\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"RAIN\", \"SNOW\", \"FSDS\", \"TSA\", \"RH2M\",\n      \"QFLX_EVAP_TOT\", \"EFLX_LH_TOT\", \"QVEGT\", \"QVEGE\", \"QSOIL\",\n      \"QRUNOFF\", \"QOVER\", \"QDRAI\", \"QINFL\", \"QCHARGE\",\n      \"QSNOMELT\", \"H2OSNO\", \"SNOWDP\", \"FSNO\", \"SNOW_DEPTH\",\n      \"H2OSOI\", \"SOILLIQ\", \"SOILICE\", \"TSOI\", \"ZWT\", \"WA\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"GSWP3 global atmospheric forcing (NLDAS is CONUS-only and cannot cover Alberta)\",\n    \"Single-column (PTS_MODE) ELM configuration with per-site surface datasets\",\n    \"Site-specific elevation, PFT, and soil-texture surface data generation for each column\",\n    \"Cold-start with multi-decadal spin-up (accelerated-decomposition or repeated forcing loop) to equilibrate soil moisture/snow states\"\n  ],\n  \"assumptions\": [\n    \"Water partitioning is quantified from vertical column fluxes; no lateral routing or channel discharge is produced\",\n    \"GSWP3 1980-2014 forcing is downscaled/lapse-adjusted per column elevation; without lapse correction low-elevation forcing biases the highest sites\",\n    \"First 15-20 years treated as spin-up; analysis focuses on a stabilized post-spin-up period\",\n    \"Highest column (3200 m) approximated as bare/sparse alpine soil rather than glacier ice\",\n    \"Default ELM SNICAR snow physics and no dynamic glacier component\",\n    \"ECCC gauge and SNOTEL data are used only qualitatively (if at all) since they are not in the ingest stack\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible as an elevation-gradient single-column ELM experiment using global GSWP3 forcing; water-balance partitioning is fully diagnosable from model output, but formal gauge/SWE validation is limited because the listed observation networks are not in the stack.",
+      "answerable": [
+        "Elevation-resolved partitioning of precipitation into evapotranspiration, surface runoff, subsurface drainage, and snowmelt",
+        "Elevation dependence of snow accumulation/ablation timing (SWE, snow depth, fractional snow cover)",
+        "Rain-vs-snow phase partitioning and its shift with elevation",
+        "Seasonal (nival) hydrograph character of melt-driven runoff at each elevation band",
+        "Inter-annual variability of water partitioning over 1980-2014"
+      ],
+      "not_answerable": [
+        "Quantitative streamflow validation against ECCC gauges (gauges not ingested in the stack)",
+        "SWE validation against SNOTEL (US-only network, absent for Canada)",
+        "Lateral/routed basin discharge (single-column ELM has no channel routing; only vertical column fluxes are produced)",
+        "Glacier mass balance for the highest peaks (ELM has no dynamic glacier ice model)"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "The only candidate driver is elevation over a 1200-3400 m range. Six columns spaced ~400 m in elevation resolve the montane-to-alpine transition (rain/snow phase line, snowpack persistence, ET decline) with enough density to characterize the gradient while keeping the campaign tractable.",
+    "columns": [
+      {
+        "id": "BOW-1200-valley",
+        "lat": 50.88,
+        "lon": -115.05,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "BOW-1600-montane",
+        "lat": 50.92,
+        "lon": -115.15,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "BOW-2000-subalpine",
+        "lat": 50.96,
+        "lon": -115.25,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "BOW-2400-treeline",
+        "lat": 51.0,
+        "lon": -115.35,
+        "soil_texture": "gravelly sandy loam"
+      },
+      {
+        "id": "BOW-2800-alpine",
+        "lat": 51.05,
+        "lon": -115.42,
+        "soil_texture": "loamy sand"
+      },
+      {
+        "id": "BOW-3200-alpine-rock",
+        "lat": 51.1,
+        "lon": -115.5,
+        "soil_texture": "sand"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2014",
+      "STOP_N": "35",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "RAIN",
+        "SNOW",
+        "FSDS",
+        "TSA",
+        "RH2M",
+        "QFLX_EVAP_TOT",
+        "EFLX_LH_TOT",
+        "QVEGT",
+        "QVEGE",
+        "QSOIL",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QINFL",
+        "QCHARGE",
+        "QSNOMELT",
+        "H2OSNO",
+        "SNOWDP",
+        "FSNO",
+        "SNOW_DEPTH",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "TSOI",
+        "ZWT",
+        "WA"
+      ]
+    },
+    "requires_capabilities": [
+      "GSWP3 global atmospheric forcing (NLDAS is CONUS-only and cannot cover Alberta)",
+      "Single-column (PTS_MODE) ELM configuration with per-site surface datasets",
+      "Site-specific elevation, PFT, and soil-texture surface data generation for each column",
+      "Cold-start with multi-decadal spin-up (accelerated-decomposition or repeated forcing loop) to equilibrate soil moisture/snow states"
+    ],
+    "assumptions": [
+      "Water partitioning is quantified from vertical column fluxes; no lateral routing or channel discharge is produced",
+      "GSWP3 1980-2014 forcing is downscaled/lapse-adjusted per column elevation; without lapse correction low-elevation forcing biases the highest sites",
+      "First 15-20 years treated as spin-up; analysis focuses on a stabilized post-spin-up period",
+      "Highest column (3200 m) approximated as bare/sparse alpine soil rather than glacier ice",
+      "Default ELM SNICAR snow physics and no dynamic glacier component",
+      "ECCC gauge and SNOTEL data are used only qualitatively (if at all) since they are not in the ingest stack"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

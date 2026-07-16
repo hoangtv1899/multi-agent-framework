@@ -1,0 +1,103 @@
+{
+  "prompt_id": "C01",
+  "arm": "A1_informed",
+  "rep": 3,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Feasible as a controlled single-column sensitivity experiment varying only soil clay fraction while holding climate, vegetation, and all other soil properties fixed.\",\n    \"answerable\": [\n      \"Direction and magnitude of surface runoff vs. deep drainage (recharge) partitioning as clay content increases from 5% to 55%\",\n      \"Sensitivity of infiltration capacity and saturated hydraulic conductivity (via pedotransfer of clay) on partitioning\",\n      \"Changes in soil moisture storage and evapotranspiration feedbacks across the clay gradient\"\n    ],\n    \"not_answerable\": [\n      \"Real-site validation against observed runoff/recharge (no observations available)\",\n      \"Effects of concurrently varying sand/silt/organic matter (design isolates clay only)\",\n      \"Lateral/subsurface flow interactions requiring 3D subsurface (single-column limitation)\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"One column per clay level (5, 15, 25, 35, 45, 55%) to sweep the requested 5-55% range at 10% increments. All columns share identical location, forcing, vegetation, and non-clay soil settings so the only varied factor is clay fraction, isolating its effect on runoff/recharge partitioning.\",\n  \"columns\": [\n    {\"id\": \"clay05\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=5%, sand=45%, silt=50% (silt loam end-member)\"},\n    {\"id\": \"clay15\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=15%, sand=45%, silt=40%\"},\n    {\"id\": \"clay25\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=25%, sand=40%, silt=35%\"},\n    {\"id\": \"clay35\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=35%, sand=35%, silt=30%\"},\n    {\"id\": \"clay45\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=45%, sand=30%, silt=25%\"},\n    {\"id\": \"clay55\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=55%, sand=25%, silt=20% (clay end-member)\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRECHARGE\",\n      \"QINFL\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QFLX_EVAP_TOT\",\n      \"H2OSOI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"ZWT\",\n      \"WA\",\n      \"TSOI\",\n      \"SMP\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"Single-column (single-point) ELM configuration\",\n    \"User-modifiable surface dataset to override PCT_CLAY (and complementary sand) per column\",\n    \"GSWP3/CRUNCEP atmospheric forcing 1980-2018\",\n    \"Pedotransfer functions in ELM soil hydrology linking clay to hydraulic properties\"\n  ],\n  \"assumptions\": [\n    \"All columns use identical vegetation (single PFT), atmospheric forcing, and topographic/aquifer parameters; only PCT_CLAY (with sand adjusted, silt as residual) differs\",\n    \"Soil organic matter, color, and layer structure held constant across columns\",\n    \"First 5-10 years treated as spin-up/warm-up; partitioning analysis on quasi-equilibrium remaining years\",\n    \"Location chosen as a temperate sub-humid grassland (Konza-like, Kansas) to give a meaningful, non-saturated runoff/recharge signal; results interpreted as conceptual sensitivity, not site validation\",\n    \"Default ELM SIMTOP/VIC or standard surface-runoff scheme retained and held fixed across the ensemble\",\n    \"Silt = 100 - clay - sand, kept within valid texture-triangle bounds for each level\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible as a controlled single-column sensitivity experiment varying only soil clay fraction while holding climate, vegetation, and all other soil properties fixed.",
+      "answerable": [
+        "Direction and magnitude of surface runoff vs. deep drainage (recharge) partitioning as clay content increases from 5% to 55%",
+        "Sensitivity of infiltration capacity and saturated hydraulic conductivity (via pedotransfer of clay) on partitioning",
+        "Changes in soil moisture storage and evapotranspiration feedbacks across the clay gradient"
+      ],
+      "not_answerable": [
+        "Real-site validation against observed runoff/recharge (no observations available)",
+        "Effects of concurrently varying sand/silt/organic matter (design isolates clay only)",
+        "Lateral/subsurface flow interactions requiring 3D subsurface (single-column limitation)"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "One column per clay level (5, 15, 25, 35, 45, 55%) to sweep the requested 5-55% range at 10% increments. All columns share identical location, forcing, vegetation, and non-clay soil settings so the only varied factor is clay fraction, isolating its effect on runoff/recharge partitioning.",
+    "columns": [
+      {
+        "id": "clay05",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=5%, sand=45%, silt=50% (silt loam end-member)"
+      },
+      {
+        "id": "clay15",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=15%, sand=45%, silt=40%"
+      },
+      {
+        "id": "clay25",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=25%, sand=40%, silt=35%"
+      },
+      {
+        "id": "clay35",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=35%, sand=35%, silt=30%"
+      },
+      {
+        "id": "clay45",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=45%, sand=30%, silt=25%"
+      },
+      {
+        "id": "clay55",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=55%, sand=25%, silt=20% (clay end-member)"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QRECHARGE",
+        "QINFL",
+        "RAIN",
+        "SNOW",
+        "QFLX_EVAP_TOT",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "ZWT",
+        "WA",
+        "TSOI",
+        "SMP"
+      ]
+    },
+    "requires_capabilities": [
+      "Single-column (single-point) ELM configuration",
+      "User-modifiable surface dataset to override PCT_CLAY (and complementary sand) per column",
+      "GSWP3/CRUNCEP atmospheric forcing 1980-2018",
+      "Pedotransfer functions in ELM soil hydrology linking clay to hydraulic properties"
+    ],
+    "assumptions": [
+      "All columns use identical vegetation (single PFT), atmospheric forcing, and topographic/aquifer parameters; only PCT_CLAY (with sand adjusted, silt as residual) differs",
+      "Soil organic matter, color, and layer structure held constant across columns",
+      "First 5-10 years treated as spin-up/warm-up; partitioning analysis on quasi-equilibrium remaining years",
+      "Location chosen as a temperate sub-humid grassland (Konza-like, Kansas) to give a meaningful, non-saturated runoff/recharge signal; results interpreted as conceptual sensitivity, not site validation",
+      "Default ELM SIMTOP/VIC or standard surface-runoff scheme retained and held fixed across the ensemble",
+      "Silt = 100 - clay - sand, kept within valid texture-triangle bounds for each level"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

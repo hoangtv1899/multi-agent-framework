@@ -1,0 +1,95 @@
+{
+  "prompt_id": "I01",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Partially feasible: ELM (single-column) can simulate agricultural nitrogen cycling and vertical nitrate leaching below the root zone; ELM-PFLOTRAN coupling can add 1-D vertical reactive transport of nitrate through the vadose/saturated column. However, lateral saturated groundwater transport from fields to specific drinking-water wells and true well 'arrival concentrations' require a 3-D groundwater flow-and-transport model (well-field geometry, pumping, aquifer heterogeneity) that a single-column configuration cannot represent.\",\n    \"answerable\": [\n      \"Field-scale fertilizer N inputs, plant uptake, mineralization/nitrification/denitrification, and nitrate leaching flux below the root zone (kg N ha-1 yr-1)\",\n      \"Vertical nitrate concentration profiles and downward leaching to the water table via ELM-PFLOTRAN 1-D reactive transport\",\n      \"Interannual and seasonal variability of leaching driven by 1980-2018 meteorology and land-use (corn/soy) management\"\n    ],\n    \"not_answerable\": [\n      \"Lateral groundwater transport from fields to a specific well location (needs 3-D flow/transport)\",\n      \"Actual nitrate arrival concentration and travel time at a pumping drinking-water well (needs aquifer model with well capture zone)\",\n      \"Mixing/dilution in the regional aquifer and dispersion along flow paths\",\n      \"Well-specific pumping-induced drawdown and capture-zone dynamics\"\n    ]\n  },\n  \"n_columns\": 3,\n  \"n_justification\": \"Three single columns capture the dominant nitrate-source and land-management gradients of the Upper Iowa basin (HUC 07060002): an upland well-drained loamy tile-drained corn-soy field, a low-terrace poorly drained silty clay loam field, and a near-stream sandy-loam recharge zone that most directly connects to shallow drinking-water wells. This spans the leaching-controlling variability (texture, drainage, position) without implying lateral connectivity the model cannot resolve.\",\n  \"columns\": [\n    {\n      \"id\": \"upland_cornsoy_loam\",\n      \"lat\": 43.45,\n      \"lon\": -92.10,\n      \"soil_texture\": \"loam\"\n    },\n    {\n      \"id\": \"lowterrace_siltyclayloam\",\n      \"lat\": 43.35,\n      \"lon\": -91.75,\n      \"soil_texture\": \"silty clay loam\"\n    },\n    {\n      \"id\": \"nearstream_recharge_sandyloam\",\n      \"lat\": 43.30,\n      \"lon\": -91.45,\n      \"soil_texture\": \"sandy loam\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"FERT\",\n      \"NFERTILIZATION\",\n      \"SMINN_TO_PLANT\",\n      \"GROSS_NMIN\",\n      \"NET_NMIN\",\n      \"SMIN_NO3_LEACHED\",\n      \"SMIN_NO3_RUNOFF\",\n      \"F_DENIT\",\n      \"F_NIT\",\n      \"SMIN_NO3_vr\",\n      \"SMIN_NH4_vr\",\n      \"QDRAI\",\n      \"QOVER\",\n      \"QRECHARGE\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"H2OSOI\",\n      \"ZWT\",\n      \"NPP\",\n      \"GPP\",\n      \"TOTVEGN\",\n      \"COL_NTRUNC\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM active biogeochemistry (CN/CNP) with agricultural crop and fertilizer management (mksurfdata crop PFTs, prescribed fertilizer)\",\n    \"ELM-PFLOTRAN coupling for 1-D vertical reactive nitrate transport through the vadose and saturated zone\",\n    \"PFLOTRAN nitrification/denitrification reaction network configured to match ELM soil N pools\",\n    \"GSWP3 or Daymet meteorological forcing (1980-2018) for the domain\",\n    \"External well nitrate records for benchmarking leaching output (not directly comparable without a groundwater model)\",\n    \"3-D groundwater flow-and-transport model (e.g., standalone PFLOTRAN 3-D or MODFLOW-MT3D) to translate leaching flux into well arrival concentrations \u2014 OUTSIDE single-column scope\"\n  ],\n  \"assumptions\": [\n    \"Fertilizer application follows standard Midwest corn-soybean rotation rates unless site-specific rates are supplied\",\n    \"Land use is agricultural row crop for all three columns, consistent with the single 'land use' driver available\",\n    \"First few simulation years serve as spin-up; an additional accelerated-decomposition BGC spin-up is run before the transient period\",\n    \"Nitrate leaching below the root zone is reported as a flux boundary; conversion to well concentration requires downstream 3-D groundwater modeling not performed here\",\n    \"Aquifer/well geometry, pumping rates, and dispersivity are unknown and therefore not represented\",\n    \"Drinking-water wells tap the shallow alluvial/karst aquifer hydraulically connected to the near-stream recharge zone (used only to select the most relevant recharge column, not to compute transport)\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Partially feasible: ELM (single-column) can simulate agricultural nitrogen cycling and vertical nitrate leaching below the root zone; ELM-PFLOTRAN coupling can add 1-D vertical reactive transport of nitrate through the vadose/saturated column. However, lateral saturated groundwater transport from fields to specific drinking-water wells and true well 'arrival concentrations' require a 3-D groundwater flow-and-transport model (well-field geometry, pumping, aquifer heterogeneity) that a single-column configuration cannot represent.",
+      "answerable": [
+        "Field-scale fertilizer N inputs, plant uptake, mineralization/nitrification/denitrification, and nitrate leaching flux below the root zone (kg N ha-1 yr-1)",
+        "Vertical nitrate concentration profiles and downward leaching to the water table via ELM-PFLOTRAN 1-D reactive transport",
+        "Interannual and seasonal variability of leaching driven by 1980-2018 meteorology and land-use (corn/soy) management"
+      ],
+      "not_answerable": [
+        "Lateral groundwater transport from fields to a specific well location (needs 3-D flow/transport)",
+        "Actual nitrate arrival concentration and travel time at a pumping drinking-water well (needs aquifer model with well capture zone)",
+        "Mixing/dilution in the regional aquifer and dispersion along flow paths",
+        "Well-specific pumping-induced drawdown and capture-zone dynamics"
+      ]
+    },
+    "n_columns": 3,
+    "n_justification": "Three single columns capture the dominant nitrate-source and land-management gradients of the Upper Iowa basin (HUC 07060002): an upland well-drained loamy tile-drained corn-soy field, a low-terrace poorly drained silty clay loam field, and a near-stream sandy-loam recharge zone that most directly connects to shallow drinking-water wells. This spans the leaching-controlling variability (texture, drainage, position) without implying lateral connectivity the model cannot resolve.",
+    "columns": [
+      {
+        "id": "upland_cornsoy_loam",
+        "lat": 43.45,
+        "lon": -92.1,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "lowterrace_siltyclayloam",
+        "lat": 43.35,
+        "lon": -91.75,
+        "soil_texture": "silty clay loam"
+      },
+      {
+        "id": "nearstream_recharge_sandyloam",
+        "lat": 43.3,
+        "lon": -91.45,
+        "soil_texture": "sandy loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "FERT",
+        "NFERTILIZATION",
+        "SMINN_TO_PLANT",
+        "GROSS_NMIN",
+        "NET_NMIN",
+        "SMIN_NO3_LEACHED",
+        "SMIN_NO3_RUNOFF",
+        "F_DENIT",
+        "F_NIT",
+        "SMIN_NO3_vr",
+        "SMIN_NH4_vr",
+        "QDRAI",
+        "QOVER",
+        "QRECHARGE",
+        "SOILLIQ",
+        "SOILICE",
+        "H2OSOI",
+        "ZWT",
+        "NPP",
+        "GPP",
+        "TOTVEGN",
+        "COL_NTRUNC"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM active biogeochemistry (CN/CNP) with agricultural crop and fertilizer management (mksurfdata crop PFTs, prescribed fertilizer)",
+      "ELM-PFLOTRAN coupling for 1-D vertical reactive nitrate transport through the vadose and saturated zone",
+      "PFLOTRAN nitrification/denitrification reaction network configured to match ELM soil N pools",
+      "GSWP3 or Daymet meteorological forcing (1980-2018) for the domain",
+      "External well nitrate records for benchmarking leaching output (not directly comparable without a groundwater model)",
+      "3-D groundwater flow-and-transport model (e.g., standalone PFLOTRAN 3-D or MODFLOW-MT3D) to translate leaching flux into well arrival concentrations \u2014 OUTSIDE single-column scope"
+    ],
+    "assumptions": [
+      "Fertilizer application follows standard Midwest corn-soybean rotation rates unless site-specific rates are supplied",
+      "Land use is agricultural row crop for all three columns, consistent with the single 'land use' driver available",
+      "First few simulation years serve as spin-up; an additional accelerated-decomposition BGC spin-up is run before the transient period",
+      "Nitrate leaching below the root zone is reported as a flux boundary; conversion to well concentration requires downstream 3-D groundwater modeling not performed here",
+      "Aquifer/well geometry, pumping rates, and dispersivity are unknown and therefore not represented",
+      "Drinking-water wells tap the shallow alluvial/karst aquifer hydraulically connected to the near-stream recharge zone (used only to select the most relevant recharge column, not to compute transport)"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

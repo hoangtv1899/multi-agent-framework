@@ -1,0 +1,196 @@
+{
+  "prompt_id": "T03",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"feasible_modeling_only\",\n    \"answerable\": [\n      \"Simulated evapotranspiration partitioning (transpiration vs. soil/canopy evaporation) across the Naches elevation and soil gradient\",\n      \"Relative sensitivity of ET partitioning to elevation-driven climate and soil texture using ELM diagnostics\"\n    ],\n    \"not_answerable\": [\n      \"Validation of partitioning against observed fluxes (no eddy-covariance, sap-flow, or isotope observations available in domain)\",\n      \"Bias correction against site measurements\"\n    ]\n  },\n  \"n_columns\": 20,\n  \"n_justification\": \"20 columns sample the 352-1977 m elevation gradient (primary driver) crossed with representative soil textures (secondary driver) within HUC 17030002; this stratified factorial (5 elevation bands x 4 soil textures) resolves partitioning controls without observational calibration.\",\n  \"columns\": [\n    {\"id\": \"NAC_e1_sand\",       \"lat\": 46.45, \"lon\": -120.55, \"soil_texture\": \"sand\"},\n    {\"id\": \"NAC_e1_loam\",       \"lat\": 46.50, \"lon\": -120.60, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_e1_siltloam\",   \"lat\": 46.55, \"lon\": -120.65, \"soil_texture\": \"silt_loam\"},\n    {\"id\": \"NAC_e1_clayloam\",   \"lat\": 46.48, \"lon\": -120.70, \"soil_texture\": \"clay_loam\"},\n    {\"id\": \"NAC_e2_sand\",       \"lat\": 46.60, \"lon\": -120.75, \"soil_texture\": \"sand\"},\n    {\"id\": \"NAC_e2_loam\",       \"lat\": 46.65, \"lon\": -120.80, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_e2_siltloam\",   \"lat\": 46.62, \"lon\": -120.85, \"soil_texture\": \"silt_loam\"},\n    {\"id\": \"NAC_e2_clayloam\",   \"lat\": 46.68, \"lon\": -120.90, \"soil_texture\": \"clay_loam\"},\n    {\"id\": \"NAC_e3_sand\",       \"lat\": 46.75, \"lon\": -120.95, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NAC_e3_loam\",       \"lat\": 46.78, \"lon\": -121.00, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_e3_siltloam\",   \"lat\": 46.72, \"lon\": -121.05, \"soil_texture\": \"silt_loam\"},\n    {\"id\": \"NAC_e3_clayloam\",   \"lat\": 46.80, \"lon\": -121.10, \"soil_texture\": \"clay_loam\"},\n    {\"id\": \"NAC_e4_sandyloam\",  \"lat\": 46.88, \"lon\": -121.15, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NAC_e4_loam\",       \"lat\": 46.90, \"lon\": -121.20, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_e4_siltloam\",   \"lat\": 46.85, \"lon\": -121.25, \"soil_texture\": \"silt_loam\"},\n    {\"id\": \"NAC_e4_clayloam\",   \"lat\": 46.95, \"lon\": -121.30, \"soil_texture\": \"clay_loam\"},\n    {\"id\": \"NAC_e5_sandyloam\",  \"lat\": 47.05, \"lon\": -121.35, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NAC_e5_loam\",       \"lat\": 47.10, \"lon\": -121.40, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_e5_siltloam\",   \"lat\": 47.08, \"lon\": -121.45, \"soil_texture\": \"silt_loam\"},\n    {\"id\": \"NAC_e5_clayloam\",   \"lat\": 47.15, \"lon\": -121.48, \"soil_texture\": \"clay_loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QVEGT\", \"QVEGE\", \"QSOIL\", \"QFLX_EVAP_TOT\",\n      \"FCTR\", \"FCEV\", \"FGEV\", \"EFLX_LH_TOT\",\n      \"GPP\", \"NPP\", \"TLAI\", \"ELAI\",\n      \"H2OSOI\", \"SOILWATER_10CM\", \"SMP\",\n      \"QRUNOFF\", \"QDRAI\", \"QOVER\", \"RAIN\", \"SNOW\",\n      \"FSH\", \"FSDS\", \"TBOT\", \"RH2M\", \"TSA\",\n      \"BTRAN\", \"SNOWDP\", \"H2OSNO\"\n    ]\n  },\n  \"requires_capabilities\": [\"ELM_single_column\", \"DATM_GSWP3_or_CLMNCEP_forcing\", \"surface_dataset_generation\"],\n  \"assumptions\": [\n    \"Study target is ELM-simulated ET partitioning (transpiration vs. evaporation) given no in-domain flux observations\",\n    \"STOP_OPTION=nyears with a preceding accelerated/spin-up cycle before the 1980-2018 transient run\",\n    \"Elevation bands e1-e5 map monotonically from ~352 m (valley) to ~1977 m (ridge) across the HUC 17030002 bbox\",\n    \"PFT and soil texture assigned from default ELM surface dataset overridden per-column texture where specified\",\n    \"Coordinates are placed inside bbox lon [-121.5,-120.5], lat [46.4,47.2]\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible_modeling_only",
+      "answerable": [
+        "Simulated evapotranspiration partitioning (transpiration vs. soil/canopy evaporation) across the Naches elevation and soil gradient",
+        "Relative sensitivity of ET partitioning to elevation-driven climate and soil texture using ELM diagnostics"
+      ],
+      "not_answerable": [
+        "Validation of partitioning against observed fluxes (no eddy-covariance, sap-flow, or isotope observations available in domain)",
+        "Bias correction against site measurements"
+      ]
+    },
+    "n_columns": 20,
+    "n_justification": "20 columns sample the 352-1977 m elevation gradient (primary driver) crossed with representative soil textures (secondary driver) within HUC 17030002; this stratified factorial (5 elevation bands x 4 soil textures) resolves partitioning controls without observational calibration.",
+    "columns": [
+      {
+        "id": "NAC_e1_sand",
+        "lat": 46.45,
+        "lon": -120.55,
+        "soil_texture": "sand"
+      },
+      {
+        "id": "NAC_e1_loam",
+        "lat": 46.5,
+        "lon": -120.6,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_e1_siltloam",
+        "lat": 46.55,
+        "lon": -120.65,
+        "soil_texture": "silt_loam"
+      },
+      {
+        "id": "NAC_e1_clayloam",
+        "lat": 46.48,
+        "lon": -120.7,
+        "soil_texture": "clay_loam"
+      },
+      {
+        "id": "NAC_e2_sand",
+        "lat": 46.6,
+        "lon": -120.75,
+        "soil_texture": "sand"
+      },
+      {
+        "id": "NAC_e2_loam",
+        "lat": 46.65,
+        "lon": -120.8,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_e2_siltloam",
+        "lat": 46.62,
+        "lon": -120.85,
+        "soil_texture": "silt_loam"
+      },
+      {
+        "id": "NAC_e2_clayloam",
+        "lat": 46.68,
+        "lon": -120.9,
+        "soil_texture": "clay_loam"
+      },
+      {
+        "id": "NAC_e3_sand",
+        "lat": 46.75,
+        "lon": -120.95,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NAC_e3_loam",
+        "lat": 46.78,
+        "lon": -121.0,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_e3_siltloam",
+        "lat": 46.72,
+        "lon": -121.05,
+        "soil_texture": "silt_loam"
+      },
+      {
+        "id": "NAC_e3_clayloam",
+        "lat": 46.8,
+        "lon": -121.1,
+        "soil_texture": "clay_loam"
+      },
+      {
+        "id": "NAC_e4_sandyloam",
+        "lat": 46.88,
+        "lon": -121.15,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NAC_e4_loam",
+        "lat": 46.9,
+        "lon": -121.2,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_e4_siltloam",
+        "lat": 46.85,
+        "lon": -121.25,
+        "soil_texture": "silt_loam"
+      },
+      {
+        "id": "NAC_e4_clayloam",
+        "lat": 46.95,
+        "lon": -121.3,
+        "soil_texture": "clay_loam"
+      },
+      {
+        "id": "NAC_e5_sandyloam",
+        "lat": 47.05,
+        "lon": -121.35,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NAC_e5_loam",
+        "lat": 47.1,
+        "lon": -121.4,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_e5_siltloam",
+        "lat": 47.08,
+        "lon": -121.45,
+        "soil_texture": "silt_loam"
+      },
+      {
+        "id": "NAC_e5_clayloam",
+        "lat": 47.15,
+        "lon": -121.48,
+        "soil_texture": "clay_loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QVEGT",
+        "QVEGE",
+        "QSOIL",
+        "QFLX_EVAP_TOT",
+        "FCTR",
+        "FCEV",
+        "FGEV",
+        "EFLX_LH_TOT",
+        "GPP",
+        "NPP",
+        "TLAI",
+        "ELAI",
+        "H2OSOI",
+        "SOILWATER_10CM",
+        "SMP",
+        "QRUNOFF",
+        "QDRAI",
+        "QOVER",
+        "RAIN",
+        "SNOW",
+        "FSH",
+        "FSDS",
+        "TBOT",
+        "RH2M",
+        "TSA",
+        "BTRAN",
+        "SNOWDP",
+        "H2OSNO"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM_single_column",
+      "DATM_GSWP3_or_CLMNCEP_forcing",
+      "surface_dataset_generation"
+    ],
+    "assumptions": [
+      "Study target is ELM-simulated ET partitioning (transpiration vs. evaporation) given no in-domain flux observations",
+      "STOP_OPTION=nyears with a preceding accelerated/spin-up cycle before the 1980-2018 transient run",
+      "Elevation bands e1-e5 map monotonically from ~352 m (valley) to ~1977 m (ridge) across the HUC 17030002 bbox",
+      "PFT and soil texture assigned from default ELM surface dataset overridden per-column texture where specified",
+      "Coordinates are placed inside bbox lon [-121.5,-120.5], lat [46.4,47.2]"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

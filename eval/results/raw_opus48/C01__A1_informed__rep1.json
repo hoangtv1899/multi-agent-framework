@@ -1,0 +1,110 @@
+{
+  "prompt_id": "C01",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Feasible as an idealized single-factor sensitivity experiment. Clay fraction is a mineral soil property that ELM maps to hydraulic parameters (via pedotransfer/Clapp-Hornberger or van Genuchten), so a controlled sweep holding forcing, PFT, and all other soil properties fixed cleanly isolates its effect on surface runoff vs. deep recharge partitioning.\",\n    \"answerable\": [\n      \"Direction and magnitude of change in surface runoff (QOVER) vs. deep drainage/recharge (QDRAI) as clay increases from 5% to 55%\",\n      \"How infiltration capacity, saturated hydraulic conductivity, and soil moisture storage shift the partitioning\",\n      \"Whether the response is monotonic or saturates across the clay gradient\",\n      \"Effect on evapotranspiration as a competing sink that mediates the partition\"\n    ],\n    \"not_answerable\": [\n      \"Site-specific validation against observed runoff/recharge (no observations provided)\",\n      \"Lateral/subsurface flow interactions (single-column has no lateral connectivity)\",\n      \"Effects of clay-dependent macropore/preferential flow not represented in default ELM hydrology\",\n      \"Interactions with sand/silt co-variation (only clay is varied here; texture triangle closure is assumed)\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"Six identical columns differing only in prescribed clay fraction (5, 15, 25, 35, 45, 55%) evenly span the requested 5-55% range, enough to resolve monotonicity and any saturation/threshold behavior in the runoff/recharge partition while keeping the design minimal and interpretable.\",\n  \"columns\": [\n    {\"id\": \"clay05\", \"lat\": 36.61, \"lon\": -97.49, \"soil_texture\": \"clay=5%, sand=45%, silt=50% (loam-end member)\"},\n    {\"id\": \"clay15\", \"lat\": 36.61, \"lon\": -97.49, \"soil_texture\": \"clay=15%, sand=45%, silt=40%\"},\n    {\"id\": \"clay25\", \"lat\": 36.61, \"lon\": -97.49, \"soil_texture\": \"clay=25%, sand=40%, silt=35%\"},\n    {\"id\": \"clay35\", \"lat\": 36.61, \"lon\": -97.49, \"soil_texture\": \"clay=35%, sand=35%, silt=30%\"},\n    {\"id\": \"clay45\", \"lat\": 36.61, \"lon\": -97.49, \"soil_texture\": \"clay=45%, sand=30%, silt=25%\"},\n    {\"id\": \"clay55\", \"lat\": 36.61, \"lon\": -97.49, \"soil_texture\": \"clay=55%, sand=25%, silt=20% (clay-end member)\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QOVER\",\n      \"QRUNOFF\",\n      \"QDRAI\",\n      \"QDRAI_PERCH\",\n      \"QINFL\",\n      \"QRECHARGE\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QFLX_EVAP_TOT\",\n      \"QVEGT\",\n      \"QSOIL\",\n      \"H2OSOI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"ZWT\",\n      \"WA\",\n      \"TWS\",\n      \"FSAT\",\n      \"TSOI\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"single-column (SCM/PTS mode) ELM configuration\",\n    \"user-modifiable surface dataset to prescribe fsand/fclay per column\",\n    \"GSWP3 or CRUNCEP atmospheric forcing (1980-2018)\",\n    \"ELM default VIC/TOPMODEL runoff and Richards-based subsurface hydrology\",\n    \"history output at monthly and daily (h1) resolution for flux budgeting\"\n  ],\n  \"assumptions\": [\n    \"All columns share identical lat/lon, PFT, LAI, topography, forcing, and soil-color/organic properties; only clay (and complementary sand/silt) fraction differs.\",\n    \"Sand and silt are adjusted to close the texture fractions to 100% while keeping sand comparably low so that clay is the dominant varied control.\",\n    \"First ~5 years treated as spin-up/equilibration; analysis focuses on the quasi-steady period to remove initial-condition memory.\",\n    \"Recharge is diagnosed from QDRAI/QRECHARGE (bottom drainage below the root zone) and runoff from QOVER; ET (QFLX_EVAP_TOT) is tracked as the competing water sink.\",\n    \"Default ELM pedotransfer relationships translate clay fraction to hydraulic conductivity, porosity, and matric potential parameters.\",\n    \"No lateral groundwater exchange beyond the single-column baseflow parameterization.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible as an idealized single-factor sensitivity experiment. Clay fraction is a mineral soil property that ELM maps to hydraulic parameters (via pedotransfer/Clapp-Hornberger or van Genuchten), so a controlled sweep holding forcing, PFT, and all other soil properties fixed cleanly isolates its effect on surface runoff vs. deep recharge partitioning.",
+      "answerable": [
+        "Direction and magnitude of change in surface runoff (QOVER) vs. deep drainage/recharge (QDRAI) as clay increases from 5% to 55%",
+        "How infiltration capacity, saturated hydraulic conductivity, and soil moisture storage shift the partitioning",
+        "Whether the response is monotonic or saturates across the clay gradient",
+        "Effect on evapotranspiration as a competing sink that mediates the partition"
+      ],
+      "not_answerable": [
+        "Site-specific validation against observed runoff/recharge (no observations provided)",
+        "Lateral/subsurface flow interactions (single-column has no lateral connectivity)",
+        "Effects of clay-dependent macropore/preferential flow not represented in default ELM hydrology",
+        "Interactions with sand/silt co-variation (only clay is varied here; texture triangle closure is assumed)"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "Six identical columns differing only in prescribed clay fraction (5, 15, 25, 35, 45, 55%) evenly span the requested 5-55% range, enough to resolve monotonicity and any saturation/threshold behavior in the runoff/recharge partition while keeping the design minimal and interpretable.",
+    "columns": [
+      {
+        "id": "clay05",
+        "lat": 36.61,
+        "lon": -97.49,
+        "soil_texture": "clay=5%, sand=45%, silt=50% (loam-end member)"
+      },
+      {
+        "id": "clay15",
+        "lat": 36.61,
+        "lon": -97.49,
+        "soil_texture": "clay=15%, sand=45%, silt=40%"
+      },
+      {
+        "id": "clay25",
+        "lat": 36.61,
+        "lon": -97.49,
+        "soil_texture": "clay=25%, sand=40%, silt=35%"
+      },
+      {
+        "id": "clay35",
+        "lat": 36.61,
+        "lon": -97.49,
+        "soil_texture": "clay=35%, sand=35%, silt=30%"
+      },
+      {
+        "id": "clay45",
+        "lat": 36.61,
+        "lon": -97.49,
+        "soil_texture": "clay=45%, sand=30%, silt=25%"
+      },
+      {
+        "id": "clay55",
+        "lat": 36.61,
+        "lon": -97.49,
+        "soil_texture": "clay=55%, sand=25%, silt=20% (clay-end member)"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QOVER",
+        "QRUNOFF",
+        "QDRAI",
+        "QDRAI_PERCH",
+        "QINFL",
+        "QRECHARGE",
+        "RAIN",
+        "SNOW",
+        "QFLX_EVAP_TOT",
+        "QVEGT",
+        "QSOIL",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "ZWT",
+        "WA",
+        "TWS",
+        "FSAT",
+        "TSOI"
+      ]
+    },
+    "requires_capabilities": [
+      "single-column (SCM/PTS mode) ELM configuration",
+      "user-modifiable surface dataset to prescribe fsand/fclay per column",
+      "GSWP3 or CRUNCEP atmospheric forcing (1980-2018)",
+      "ELM default VIC/TOPMODEL runoff and Richards-based subsurface hydrology",
+      "history output at monthly and daily (h1) resolution for flux budgeting"
+    ],
+    "assumptions": [
+      "All columns share identical lat/lon, PFT, LAI, topography, forcing, and soil-color/organic properties; only clay (and complementary sand/silt) fraction differs.",
+      "Sand and silt are adjusted to close the texture fractions to 100% while keeping sand comparably low so that clay is the dominant varied control.",
+      "First ~5 years treated as spin-up/equilibration; analysis focuses on the quasi-steady period to remove initial-condition memory.",
+      "Recharge is diagnosed from QDRAI/QRECHARGE (bottom drainage below the root zone) and runoff from QOVER; ET (QFLX_EVAP_TOT) is tracked as the competing water sink.",
+      "Default ELM pedotransfer relationships translate clay fraction to hydraulic conductivity, porosity, and matric potential parameters.",
+      "No lateral groundwater exchange beyond the single-column baseflow parameterization."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

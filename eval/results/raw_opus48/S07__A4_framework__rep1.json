@@ -1,0 +1,165 @@
+{
+  "prompt_id": "S07",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: characterize elevation- and soil-controlled runoff generation and snowmelt timing across the Naches\", \"validation: compare aggregated basin water yield to the American River gauge (feasible only at monthly/seasonal scale, not daily NSE as posed)\"], \"key_processes\": [\"snow accumulation/melt\", \"surface runoff\", \"sub-surface drainage/baseflow\", \"ET partitioning\"], \"drivers_to_resolve\": [\"forcing (elevation-mediated precip/temperature, rain-snow gradient)\", \"soil texture\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM resolves per-point water balance and snow across the elevation/soil gradient; NLDAS gives elevation-varying forcing. It cannot route to a gauge.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"elevation/soil control on runoff generation and ET partitioning per column\", \"snowmelt timing and peak-SWE per elevation band (H2OSNO/QSNOMELT in default output)\", \"aggregated basin water YIELD at monthly/seasonal scale via area-weighted summation of column runoff\"], \"not_answerable\": [{\"aspect\": \"daily streamflow hydrograph at the gauge and its NSE (the stated deliverable)\", \"why\": \"single-column ELM has NO lateral transport or channel routing; there is no native integrated streamflow, and daily NSE is dominated by routing-controlled timing/recession the stack cannot reproduce\", \"needs\": \"runoff routing / hydrograph aggregation capability\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (elevation band x dominant soil), with runoff aggregation for validation\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"low ~350-750 m (rain-dominated valley)\", \"mid ~750-1250 m (rain-snow transition)\", \"high ~1250-1977 m (snow-dominated)\"]}, {\"driver\": \"soil\", \"classes\": [\"dominant coarse/sandy SSURGO class\", \"dominant fine/loam-clay SSURGO class\"]}], \"n_exploratory\": 12, \"n_justification\": \"3 elevation bands x 2 dominant soil classes = 6 cells, x2 light replication to capture within-band forcing spread from distinct NLDAS cells (~15 precip values at this relief) and soil variability = 12. Smallest design that spans the rain-snow gradient and the soil partitioning control while enabling an area-weighted yield estimate.\", \"placement_logic\": \"Oversample the mid-elevation rain-snow transition where melt timing controls seasonal yield; concentrate replicates where NLDAS cell boundaries and soil contrasts coincide; ensure each band's area weight is represented for aggregation.\", \"replication\": \"2 per stratum cell to sample distinct NLDAS forcing cells and soil sub-variability within each band.\"}, \"sampling_plan\": [{\"group\": \"low-elevation valley, coarse soil\", \"n\": 2, \"reason\": \"rain-dominated fast runoff on well-drained soil; sets warm-season low-flow behavior.\"}, {\"group\": \"low-elevation valley, fine soil\", \"n\": 2, \"reason\": \"isolates soil partitioning (more ET/less drainage) under valley forcing.\"}, {\"group\": \"mid-elevation rain-snow transition, coarse soil\", \"n\": 2, \"reason\": \"melt-timing-controlled runoff on drained soil; the dominant seasonal-yield lever.\"}, {\"group\": \"mid-elevation rain-snow transition, fine soil\", \"n\": 2, \"reason\": \"melt plus fine-soil retention; tests transition-zone partitioning.\"}, {\"group\": \"high-elevation snow zone, coarse soil\", \"n\": 2, \"reason\": \"snow accumulation/melt-dominated yield; note ridgetop SWE underestimation from 12 km cells.\"}, {\"group\": \"high-elevation snow zone, fine soil\", \"n\": 2, \"reason\": \"high-band soil control on meltwater partitioning.\"}], \"validation_design\": [{\"target_variable\": \"basin water yield (area-weighted sum of column QRUNOFF)\", \"observation_source\": \"USGS gauge: American River nr Nile (daily discharge)\", \"in_domain_available\": true, \"comparison\": \"aggregated \\u2014 sum column runoff x band area weights to a basin flux, then compare at MONTHLY/SEASONAL scale (daily comparison is invalid without routing)\", \"metric\": \"monthly bias and volume error; seasonal correlation. NSE on the daily hydrograph is NOT computable with current capability.\", \"n_validation_points\": \"1 gauge (single integrated series)\"}, {\"target_variable\": \"peak SWE / snowmelt timing\", \"observation_source\": \"SNOTEL (if a station falls in-basin \\u2014 not listed in brief)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 process check against nearest SNOTEL if available; expect ridgetop underestimation\", \"metric\": \"peak-SWE bias, melt-out date offset\", \"n_validation_points\": \"unknown \\u2014 depends on SNOTEL presence\"}], \"experiment_summary\": {\"total_columns\": 12, \"exploratory\": 12, \"validation\": 0, \"primary_treatment\": \"NLDAS-2 default forcing, native SSURGO soil, WTD-informed warm start + spin-up\"}, \"requires_capabilities\": [{\"capability\": \"runoff routing / hydrograph aggregation (column runoff -> channel network -> gauge daily discharge)\", \"why\": \"single-column ELM produces no integrated streamflow; daily NSE requires routed timing\", \"blocks\": \"the entire stated deliverable (daily hydrograph + NSE)\"}, {\"capability\": \"HUC boundary resolver + sub-basin/drainage-area weighting\", \"why\": \"needed to area-weight column runoff into a basin-integrated flux above the gauge\", \"blocks\": \"even the monthly/seasonal yield fallback comparison\"}, {\"capability\": \"USGS gauge daily-discharge ingest + drainage-area metadata\", \"why\": \"to align modeled yield with the observed series and correct for contributing area\", \"blocks\": \"any quantitative gauge comparison\"}, {\"capability\": \"SNOTEL SWE ingest\", \"why\": \"to validate snowmelt timing that drives seasonal yield\", \"blocks\": \"confidence in the snow-driven runoff mechanism\"}], \"assumptions\": [\"Naches is within CONUS, so NLDAS-2 elevation-varying forcing applies (default).\", \"Dominant soil classes will be derived downstream from SSURGO; exact classes not provided.\", \"A short run per column is available as the WTD-warm-start carrier state.\", \"The gauge's contributing area is a sub-basin of HUC 17030002, not the whole HUC \\u2014 aggregation must respect the gauge's drainage area.\"], \"open_questions\": [\"Is a daily NSE strictly required, or is a monthly/seasonal volume-and-timing skill acceptable given no routing?\", \"Is any routing/aggregation step (even a simple linear-reservoir or unit-hydrograph post-processor) permissible to build?\", \"What is the exact drainage area above the American River nr Nile gauge, and does it match the bbox?\", \"Are any in-basin SNOTEL stations available for snow validation?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: characterize elevation- and soil-controlled runoff generation and snowmelt timing across the Naches",
+        "validation: compare aggregated basin water yield to the American River gauge (feasible only at monthly/seasonal scale, not daily NSE as posed)"
+      ],
+      "key_processes": [
+        "snow accumulation/melt",
+        "surface runoff",
+        "sub-surface drainage/baseflow",
+        "ET partitioning"
+      ],
+      "drivers_to_resolve": [
+        "forcing (elevation-mediated precip/temperature, rain-snow gradient)",
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM resolves per-point water balance and snow across the elevation/soil gradient; NLDAS gives elevation-varying forcing. It cannot route to a gauge.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "elevation/soil control on runoff generation and ET partitioning per column",
+        "snowmelt timing and peak-SWE per elevation band (H2OSNO/QSNOMELT in default output)",
+        "aggregated basin water YIELD at monthly/seasonal scale via area-weighted summation of column runoff"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "daily streamflow hydrograph at the gauge and its NSE (the stated deliverable)",
+          "why": "single-column ELM has NO lateral transport or channel routing; there is no native integrated streamflow, and daily NSE is dominated by routing-controlled timing/recession the stack cannot reproduce",
+          "needs": "runoff routing / hydrograph aggregation capability"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation band x dominant soil), with runoff aggregation for validation",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low ~350-750 m (rain-dominated valley)",
+            "mid ~750-1250 m (rain-snow transition)",
+            "high ~1250-1977 m (snow-dominated)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "dominant coarse/sandy SSURGO class",
+            "dominant fine/loam-clay SSURGO class"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "3 elevation bands x 2 dominant soil classes = 6 cells, x2 light replication to capture within-band forcing spread from distinct NLDAS cells (~15 precip values at this relief) and soil variability = 12. Smallest design that spans the rain-snow gradient and the soil partitioning control while enabling an area-weighted yield estimate.",
+      "placement_logic": "Oversample the mid-elevation rain-snow transition where melt timing controls seasonal yield; concentrate replicates where NLDAS cell boundaries and soil contrasts coincide; ensure each band's area weight is represented for aggregation.",
+      "replication": "2 per stratum cell to sample distinct NLDAS forcing cells and soil sub-variability within each band."
+    },
+    "sampling_plan": [
+      {
+        "group": "low-elevation valley, coarse soil",
+        "n": 2,
+        "reason": "rain-dominated fast runoff on well-drained soil; sets warm-season low-flow behavior."
+      },
+      {
+        "group": "low-elevation valley, fine soil",
+        "n": 2,
+        "reason": "isolates soil partitioning (more ET/less drainage) under valley forcing."
+      },
+      {
+        "group": "mid-elevation rain-snow transition, coarse soil",
+        "n": 2,
+        "reason": "melt-timing-controlled runoff on drained soil; the dominant seasonal-yield lever."
+      },
+      {
+        "group": "mid-elevation rain-snow transition, fine soil",
+        "n": 2,
+        "reason": "melt plus fine-soil retention; tests transition-zone partitioning."
+      },
+      {
+        "group": "high-elevation snow zone, coarse soil",
+        "n": 2,
+        "reason": "snow accumulation/melt-dominated yield; note ridgetop SWE underestimation from 12 km cells."
+      },
+      {
+        "group": "high-elevation snow zone, fine soil",
+        "n": 2,
+        "reason": "high-band soil control on meltwater partitioning."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "basin water yield (area-weighted sum of column QRUNOFF)",
+        "observation_source": "USGS gauge: American River nr Nile (daily discharge)",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 sum column runoff x band area weights to a basin flux, then compare at MONTHLY/SEASONAL scale (daily comparison is invalid without routing)",
+        "metric": "monthly bias and volume error; seasonal correlation. NSE on the daily hydrograph is NOT computable with current capability.",
+        "n_validation_points": "1 gauge (single integrated series)"
+      },
+      {
+        "target_variable": "peak SWE / snowmelt timing",
+        "observation_source": "SNOTEL (if a station falls in-basin \u2014 not listed in brief)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 process check against nearest SNOTEL if available; expect ridgetop underestimation",
+        "metric": "peak-SWE bias, melt-out date offset",
+        "n_validation_points": "unknown \u2014 depends on SNOTEL presence"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 12,
+      "validation": 0,
+      "primary_treatment": "NLDAS-2 default forcing, native SSURGO soil, WTD-informed warm start + spin-up"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "runoff routing / hydrograph aggregation (column runoff -> channel network -> gauge daily discharge)",
+        "why": "single-column ELM produces no integrated streamflow; daily NSE requires routed timing",
+        "blocks": "the entire stated deliverable (daily hydrograph + NSE)"
+      },
+      {
+        "capability": "HUC boundary resolver + sub-basin/drainage-area weighting",
+        "why": "needed to area-weight column runoff into a basin-integrated flux above the gauge",
+        "blocks": "even the monthly/seasonal yield fallback comparison"
+      },
+      {
+        "capability": "USGS gauge daily-discharge ingest + drainage-area metadata",
+        "why": "to align modeled yield with the observed series and correct for contributing area",
+        "blocks": "any quantitative gauge comparison"
+      },
+      {
+        "capability": "SNOTEL SWE ingest",
+        "why": "to validate snowmelt timing that drives seasonal yield",
+        "blocks": "confidence in the snow-driven runoff mechanism"
+      }
+    ],
+    "assumptions": [
+      "Naches is within CONUS, so NLDAS-2 elevation-varying forcing applies (default).",
+      "Dominant soil classes will be derived downstream from SSURGO; exact classes not provided.",
+      "A short run per column is available as the WTD-warm-start carrier state.",
+      "The gauge's contributing area is a sub-basin of HUC 17030002, not the whole HUC \u2014 aggregation must respect the gauge's drainage area."
+    ],
+    "open_questions": [
+      "Is a daily NSE strictly required, or is a monthly/seasonal volume-and-timing skill acceptable given no routing?",
+      "Is any routing/aggregation step (even a simple linear-reservoir or unit-hydrograph post-processor) permissible to build?",
+      "What is the exact drainage area above the American River nr Nile gauge, and does it match the bbox?",
+      "Are any in-basin SNOTEL stations available for snow validation?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

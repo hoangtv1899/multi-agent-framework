@@ -1,0 +1,116 @@
+{
+  "prompt_id": "S01",
+  "arm": "A1_informed",
+  "rep": 2,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Partially feasible: precipitation partitioning into runoff, ET, and recharge can be simulated and internally closed via ELM water-balance diagnostics; SWE, water-table depth, and streamflow (as a proxy for basin runoff) can be validated against observations, but ET has no direct observational constraint (no flux towers in domain).\",\n    \"answerable\": [\n      \"Long-term mean partitioning of precipitation into runoff (QOVER+QDRAI), ET, and recharge (QCHARGE) at columns spanning the Naches elevation and soil-texture gradient\",\n      \"Elevation and soil-texture controls on partitioning (contrast high snow-dominated vs low rain-dominated columns)\",\n      \"Validation of snow (SWE) against 6 SNOTEL stations\",\n      \"Validation of water-table depth against USGS wells (via ELM ZWT)\",\n      \"Qualitative validation of runoff timing/magnitude against USGS stream gauges (recognizing scale mismatch between point column and gauged catchment)\"\n    ],\n    \"not_answerable\": [\n      \"Direct validation of ET (no flux-tower LE/H observations in domain)\",\n      \"Fully spatially distributed basin water budget or lateral routing (single-column ELM has no inter-column lateral flow; stream gauge comparison is only approximate)\",\n      \"Deep bedrock/regional groundwater recharge beyond ELM's soil-column bottom flux\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"Six columns span the 352-1977 m elevation gradient (the dominant control on rain-vs-snow partitioning) and align with the 6 SNOTEL SWE stations for snow validation, while sampling contrasting soil textures. This is the minimum set that resolves low-elevation rain-dominated, mid-elevation transitional, and high-elevation snow-dominated regimes for a robust site-archetype partitioning analysis without redundant columns.\",\n  \"columns\": [\n    {\"id\": \"NAC_low_valley\", \"lat\": 46.75, \"lon\": -120.55, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NAC_lower_mid\", \"lat\": 46.90, \"lon\": -120.80, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_transitional\", \"lat\": 46.95, \"lon\": -121.05, \"soil_texture\": \"gravelly_loam\"},\n    {\"id\": \"NAC_upper_mid\", \"lat\": 46.78, \"lon\": -121.20, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_subalpine\", \"lat\": 46.62, \"lon\": -121.35, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NAC_alpine_whitepass\", \"lat\": 46.63, \"lon\": -121.39, \"soil_texture\": \"loamy_sand\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"RAIN\",\n      \"SNOW\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"FSNO\",\n      \"QSNOMELT\",\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRGWL\",\n      \"QINFL\",\n      \"QCHARGE\",\n      \"QFLX_EVAP_TOT\",\n      \"EFLX_LH_TOT\",\n      \"QVEGE\",\n      \"QVEGT\",\n      \"QSOIL\",\n      \"ZWT\",\n      \"WA\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"SOILWATER_10CM\",\n      \"TWS\",\n      \"TSA\",\n      \"RH2M\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM single-column (PTS_MODE) with SNICAR snow physics for SWE\",\n    \"ELM variable-saturation soil hydrology with aquifer/ZWT (QCHARGE) for recharge diagnostics\",\n    \"GSWP3 or Daymet 1980-2018 atmospheric forcing downscaled to column lat/lon and elevation-corrected\",\n    \"SNOTEL SWE, USGS well WTD, and USGS daily streamflow data access for validation\",\n    \"Optional PFLOTRAN coupling to refine deep recharge / saturated-zone response below ELM soil column\"\n  ],\n  \"assumptions\": [\n    \"Spin-up of 200+ years (accelerated + final) precedes the 1980-2018 transient run to equilibrate soil moisture, snow, and water table; STOP_N=39 years covers the analysis period.\",\n    \"Streamflow validation is interpreted at long-term-mean and seasonal-cycle level only, since single-column runoff cannot represent routed catchment discharge or scale.\",\n    \"ET validation is indirect via water-balance closure (P = ET + Runoff + dStorage + Recharge) rather than flux-tower comparison, given no towers exist.\",\n    \"Soil textures assigned per column from SSURGO/gridded soil data; where uncertain, defaults reflect glacial/volcanic Cascade soils.\",\n    \"Recharge is defined as ELM QCHARGE (flux to the unconfined aquifer store); deep regional groundwater is out of scope without PFLOTRAN coupling.\",\n    \"Forcing is elevation-lapse-corrected to each column to preserve the rain/snow transition that drives partitioning.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Partially feasible: precipitation partitioning into runoff, ET, and recharge can be simulated and internally closed via ELM water-balance diagnostics; SWE, water-table depth, and streamflow (as a proxy for basin runoff) can be validated against observations, but ET has no direct observational constraint (no flux towers in domain).",
+      "answerable": [
+        "Long-term mean partitioning of precipitation into runoff (QOVER+QDRAI), ET, and recharge (QCHARGE) at columns spanning the Naches elevation and soil-texture gradient",
+        "Elevation and soil-texture controls on partitioning (contrast high snow-dominated vs low rain-dominated columns)",
+        "Validation of snow (SWE) against 6 SNOTEL stations",
+        "Validation of water-table depth against USGS wells (via ELM ZWT)",
+        "Qualitative validation of runoff timing/magnitude against USGS stream gauges (recognizing scale mismatch between point column and gauged catchment)"
+      ],
+      "not_answerable": [
+        "Direct validation of ET (no flux-tower LE/H observations in domain)",
+        "Fully spatially distributed basin water budget or lateral routing (single-column ELM has no inter-column lateral flow; stream gauge comparison is only approximate)",
+        "Deep bedrock/regional groundwater recharge beyond ELM's soil-column bottom flux"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "Six columns span the 352-1977 m elevation gradient (the dominant control on rain-vs-snow partitioning) and align with the 6 SNOTEL SWE stations for snow validation, while sampling contrasting soil textures. This is the minimum set that resolves low-elevation rain-dominated, mid-elevation transitional, and high-elevation snow-dominated regimes for a robust site-archetype partitioning analysis without redundant columns.",
+    "columns": [
+      {
+        "id": "NAC_low_valley",
+        "lat": 46.75,
+        "lon": -120.55,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NAC_lower_mid",
+        "lat": 46.9,
+        "lon": -120.8,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_transitional",
+        "lat": 46.95,
+        "lon": -121.05,
+        "soil_texture": "gravelly_loam"
+      },
+      {
+        "id": "NAC_upper_mid",
+        "lat": 46.78,
+        "lon": -121.2,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_subalpine",
+        "lat": 46.62,
+        "lon": -121.35,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NAC_alpine_whitepass",
+        "lat": 46.63,
+        "lon": -121.39,
+        "soil_texture": "loamy_sand"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "RAIN",
+        "SNOW",
+        "H2OSNO",
+        "SNOWDP",
+        "FSNO",
+        "QSNOMELT",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QRGWL",
+        "QINFL",
+        "QCHARGE",
+        "QFLX_EVAP_TOT",
+        "EFLX_LH_TOT",
+        "QVEGE",
+        "QVEGT",
+        "QSOIL",
+        "ZWT",
+        "WA",
+        "SOILLIQ",
+        "SOILICE",
+        "SOILWATER_10CM",
+        "TWS",
+        "TSA",
+        "RH2M"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM single-column (PTS_MODE) with SNICAR snow physics for SWE",
+      "ELM variable-saturation soil hydrology with aquifer/ZWT (QCHARGE) for recharge diagnostics",
+      "GSWP3 or Daymet 1980-2018 atmospheric forcing downscaled to column lat/lon and elevation-corrected",
+      "SNOTEL SWE, USGS well WTD, and USGS daily streamflow data access for validation",
+      "Optional PFLOTRAN coupling to refine deep recharge / saturated-zone response below ELM soil column"
+    ],
+    "assumptions": [
+      "Spin-up of 200+ years (accelerated + final) precedes the 1980-2018 transient run to equilibrate soil moisture, snow, and water table; STOP_N=39 years covers the analysis period.",
+      "Streamflow validation is interpreted at long-term-mean and seasonal-cycle level only, since single-column runoff cannot represent routed catchment discharge or scale.",
+      "ET validation is indirect via water-balance closure (P = ET + Runoff + dStorage + Recharge) rather than flux-tower comparison, given no towers exist.",
+      "Soil textures assigned per column from SSURGO/gridded soil data; where uncertain, defaults reflect glacial/volcanic Cascade soils.",
+      "Recharge is defined as ELM QCHARGE (flux to the unconfined aquifer store); deep regional groundwater is out of scope without PFLOTRAN coupling.",
+      "Forcing is elevation-lapse-corrected to each column to preserve the rain/snow transition that drives partitioning."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

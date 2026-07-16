@@ -1,0 +1,139 @@
+{
+  "prompt_id": "S02",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: characterize how peak SWE varies across the Wenatchee elevation gradient\", \"Validation: quantify model peak-SWE skill against the 5 in-domain SNOTEL stations\"], \"key_processes\": [\"snow accumulation\", \"precipitation phase partitioning (rain vs snow)\", \"snowmelt timing\", \"orographic precipitation\"], \"drivers_to_resolve\": [\"elevation\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM simulates SWE (H2OSNO) natively and outputs it by default; NLDAS-2 forcing varies precip/temperature orographically with elevation, so an elevation-stratified column set resolves the peak-SWE gradient and supports SNOTEL comparison.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Peak SWE vs elevation gradient at 12 km resolution (NLDAS-2 orographic precip/temp variation)\", \"Peak-SWE skill vs SNOTEL SWE at the 5 stations (co-located comparison)\", \"Rain-snow transition elevation and its interannual variability\"], \"not_answerable\": [{\"aspect\": \"Sub-12 km sharpness of the high-elevation / ridgetop SWE peak\", \"why\": \"NLDAS-2 0.125deg has no within-cell lapse rate; a 12 km cell averages over surrounding lower terrain, systematically underestimating ridgetop SWE\", \"needs\": \"elevation-downscaled forcing (sub-12 km lapse-rate correction)\"}]}, \"sampling_strategy\": {\"approach\": \"stratified by elevation band with light within-band replication\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"valley/rain-dominated <800 m\", \"lower rain-snow ~800-1300 m\", \"upper rain-snow / seasonal snow ~1300-1900 m\", \"alpine >1900 m\"]}], \"n_exploratory\": 12, \"n_justification\": \"4 elevation bands spanning the 187-2870 m gradient x ~3 columns/band captures the SWE-elevation curve including the sensitive rain-snow transition, plus within-band spread from aspect/soil, without a blind dense grid.\", \"placement_logic\": \"Oversample the rain-snow transition (~1000-1700 m) where peak SWE is most sensitive to precipitation phase and the gradient is steepest; anchor endpoints in the valley and alpine bands to bound the curve.\", \"replication\": \"~3 columns per band to expose within-band variability driven by distinct NLDAS cells, aspect and soil.\"}, \"sampling_plan\": [{\"group\": \"valley / rain-dominated (<800 m)\", \"n\": 3, \"reason\": \"Bounds the low end where little to no seasonal snowpack forms; establishes the rain-dominated baseline.\"}, {\"group\": \"lower rain-snow (~800-1300 m)\", \"n\": 3, \"reason\": \"Captures the onset of seasonal snow accumulation and high phase sensitivity.\"}, {\"group\": \"upper rain-snow / seasonal snow (~1300-1900 m)\", \"n\": 3, \"reason\": \"Steepest part of the SWE-elevation curve; where most SNOTEL stations sit and peak SWE grows fastest.\"}, {\"group\": \"alpine (>1900 m)\", \"n\": 3, \"reason\": \"Bounds the high end and tests the expected ridgetop SWE underestimation from 12 km forcing.\"}], \"validation_design\": [{\"target_variable\": \"peak_SWE (H2OSNO annual maximum)\", \"observation_source\": \"SNOTEL SWE (5 stations, in-domain)\", \"in_domain_available\": true, \"comparison\": \"co-located - place a validation column at each SNOTEL station and compare modeled vs observed annual peak SWE and its date over the overlapping years\", \"metric\": \"bias, RMSE, correlation on annual peak SWE; secondary: melt-out date bias\", \"n_validation_points\": \"5\"}], \"experiment_summary\": {\"total_columns\": 17, \"exploratory\": 12, \"validation\": 5, \"primary_treatment\": \"NLDAS-2 forcing (multi-year window overlapping SNOTEL record), native SSURGO soil per column\"}, \"requires_capabilities\": [{\"capability\": \"elevation-downscaled forcing (sub-12 km lapse-rate correction)\", \"why\": \"NLDAS-2 12 km cells cannot resolve within-cell terrain, biasing ridgetop/alpine SWE low\", \"blocks\": \"Sub-grid sharpness of the high-elevation SWE peak\"}, {\"capability\": \"SNOTEL SWE ingest + peak-SWE/melt-date extraction\", \"why\": \"Needed to align modeled H2OSNO with observed station time series and compute peak-SWE metrics\", \"blocks\": \"Validation goal\"}, {\"capability\": \"multi-year forcing period selection\", \"why\": \"Peak SWE is interannually variable; need several years overlapping the SNOTEL record\", \"blocks\": \"Robust gradient characterization and skill estimate\"}, {\"capability\": \"DEM / elevation-band sampling + HUC boundary resolver\", \"why\": \"Downstream expander must place columns by elevation band within HUC 17020011\", \"blocks\": \"Turning the stratification rules into concrete columns\"}], \"assumptions\": [\"Wenatchee (HUC 17020011) is within CONUS, so NLDAS-2 forcing (elevation-resolved) applies rather than Qian T62.\", \"The 5 SNOTEL stations lie within the basin and report SWE over years within 1980-2018.\", \"Peak SWE does not require multi-year spin-up (fast seasonal state); a short warm-up plus multi-year forcing suffices.\", \"SSURGO soil is available per column; snow response is dominated by forcing phase, not soil, so soil is left native rather than controlled.\"], \"open_questions\": [\"What are the elevations of the 5 SNOTEL stations, so validation columns land in the correct bands and the ridgetop-bias check is targeted?\", \"Which multi-year window best overlaps the SNOTEL records for all 5 stations?\", \"Is aspect a meaningful secondary driver worth adding to within-band replication, or is elevation alone sufficient for this question?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: characterize how peak SWE varies across the Wenatchee elevation gradient",
+        "Validation: quantify model peak-SWE skill against the 5 in-domain SNOTEL stations"
+      ],
+      "key_processes": [
+        "snow accumulation",
+        "precipitation phase partitioning (rain vs snow)",
+        "snowmelt timing",
+        "orographic precipitation"
+      ],
+      "drivers_to_resolve": [
+        "elevation"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM simulates SWE (H2OSNO) natively and outputs it by default; NLDAS-2 forcing varies precip/temperature orographically with elevation, so an elevation-stratified column set resolves the peak-SWE gradient and supports SNOTEL comparison.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Peak SWE vs elevation gradient at 12 km resolution (NLDAS-2 orographic precip/temp variation)",
+        "Peak-SWE skill vs SNOTEL SWE at the 5 stations (co-located comparison)",
+        "Rain-snow transition elevation and its interannual variability"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Sub-12 km sharpness of the high-elevation / ridgetop SWE peak",
+          "why": "NLDAS-2 0.125deg has no within-cell lapse rate; a 12 km cell averages over surrounding lower terrain, systematically underestimating ridgetop SWE",
+          "needs": "elevation-downscaled forcing (sub-12 km lapse-rate correction)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified by elevation band with light within-band replication",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley/rain-dominated <800 m",
+            "lower rain-snow ~800-1300 m",
+            "upper rain-snow / seasonal snow ~1300-1900 m",
+            "alpine >1900 m"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "4 elevation bands spanning the 187-2870 m gradient x ~3 columns/band captures the SWE-elevation curve including the sensitive rain-snow transition, plus within-band spread from aspect/soil, without a blind dense grid.",
+      "placement_logic": "Oversample the rain-snow transition (~1000-1700 m) where peak SWE is most sensitive to precipitation phase and the gradient is steepest; anchor endpoints in the valley and alpine bands to bound the curve.",
+      "replication": "~3 columns per band to expose within-band variability driven by distinct NLDAS cells, aspect and soil."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley / rain-dominated (<800 m)",
+        "n": 3,
+        "reason": "Bounds the low end where little to no seasonal snowpack forms; establishes the rain-dominated baseline."
+      },
+      {
+        "group": "lower rain-snow (~800-1300 m)",
+        "n": 3,
+        "reason": "Captures the onset of seasonal snow accumulation and high phase sensitivity."
+      },
+      {
+        "group": "upper rain-snow / seasonal snow (~1300-1900 m)",
+        "n": 3,
+        "reason": "Steepest part of the SWE-elevation curve; where most SNOTEL stations sit and peak SWE grows fastest."
+      },
+      {
+        "group": "alpine (>1900 m)",
+        "n": 3,
+        "reason": "Bounds the high end and tests the expected ridgetop SWE underestimation from 12 km forcing."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "peak_SWE (H2OSNO annual maximum)",
+        "observation_source": "SNOTEL SWE (5 stations, in-domain)",
+        "in_domain_available": true,
+        "comparison": "co-located - place a validation column at each SNOTEL station and compare modeled vs observed annual peak SWE and its date over the overlapping years",
+        "metric": "bias, RMSE, correlation on annual peak SWE; secondary: melt-out date bias",
+        "n_validation_points": "5"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 17,
+      "exploratory": 12,
+      "validation": 5,
+      "primary_treatment": "NLDAS-2 forcing (multi-year window overlapping SNOTEL record), native SSURGO soil per column"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled forcing (sub-12 km lapse-rate correction)",
+        "why": "NLDAS-2 12 km cells cannot resolve within-cell terrain, biasing ridgetop/alpine SWE low",
+        "blocks": "Sub-grid sharpness of the high-elevation SWE peak"
+      },
+      {
+        "capability": "SNOTEL SWE ingest + peak-SWE/melt-date extraction",
+        "why": "Needed to align modeled H2OSNO with observed station time series and compute peak-SWE metrics",
+        "blocks": "Validation goal"
+      },
+      {
+        "capability": "multi-year forcing period selection",
+        "why": "Peak SWE is interannually variable; need several years overlapping the SNOTEL record",
+        "blocks": "Robust gradient characterization and skill estimate"
+      },
+      {
+        "capability": "DEM / elevation-band sampling + HUC boundary resolver",
+        "why": "Downstream expander must place columns by elevation band within HUC 17020011",
+        "blocks": "Turning the stratification rules into concrete columns"
+      }
+    ],
+    "assumptions": [
+      "Wenatchee (HUC 17020011) is within CONUS, so NLDAS-2 forcing (elevation-resolved) applies rather than Qian T62.",
+      "The 5 SNOTEL stations lie within the basin and report SWE over years within 1980-2018.",
+      "Peak SWE does not require multi-year spin-up (fast seasonal state); a short warm-up plus multi-year forcing suffices.",
+      "SSURGO soil is available per column; snow response is dominated by forcing phase, not soil, so soil is left native rather than controlled."
+    ],
+    "open_questions": [
+      "What are the elevations of the 5 SNOTEL stations, so validation columns land in the correct bands and the ridgetop-bias check is targeted?",
+      "Which multi-year window best overlaps the SNOTEL records for all 5 stations?",
+      "Is aspect a meaningful secondary driver worth adding to within-band replication, or is elevation alone sufficient for this question?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

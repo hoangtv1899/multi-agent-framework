@@ -1,0 +1,109 @@
+{
+  "prompt_id": "S10",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Feasible: elevation banding across the 500-2400 m gradient can be resolved with single-column ELM simulations forced by 1980-2018 data and validated against SNOTEL SWE and USGS streamflow.\",\n    \"answerable\": [\n      \"How snowpack accumulation/ablation (SWE, snow depth) varies across elevation bands\",\n      \"Elevation control on soil moisture, ET, and runoff generation timing\",\n      \"Rain-snow partitioning transition zone in the upper Yakima\",\n      \"Comparison of modeled SWE against co-located SNOTEL stations\"\n    ],\n    \"not_answerable\": [\n      \"Lateral/routed streamflow at USGS gauges (single-column ELM has no lateral routing; gauge data used only as aggregate sanity check)\",\n      \"Spatially continuous distributed maps (point-column design, not gridded)\",\n      \"Deep groundwater lateral flow interactions (would require PFLOTRAN coupling not configured here)\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"The 500-2400 m range (1900 m relief) is divided into ~300 m elevation bands, yielding 6 bands that capture the dominant snow-dominated to transitional-to-rain-dominated hydrologic regimes. Six columns balance adequate resolution of the rain-snow transition (~1000-1500 m, where most sensitivity lies) against computational parsimony; each band is anchored near real SNOTEL sites where possible for validation.\",\n  \"columns\": [\n    {\"id\": \"yak_band1_500m\", \"lat\": 47.20, \"lon\": -120.95, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"yak_band2_800m\", \"lat\": 47.30, \"lon\": -121.05, \"soil_texture\": \"loam\"},\n    {\"id\": \"yak_band3_1100m\", \"lat\": 47.38, \"lon\": -121.15, \"soil_texture\": \"loam\"},\n    {\"id\": \"yak_band4_1400m\", \"lat\": 47.42, \"lon\": -121.30, \"soil_texture\": \"gravelly loam\"},\n    {\"id\": \"yak_band5_1750m\", \"lat\": 47.48, \"lon\": -121.40, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"yak_band6_2100m\", \"lat\": 47.55, \"lon\": -121.50, \"soil_texture\": \"gravelly sandy loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"SNOW\",\n      \"RAIN\",\n      \"FSNO\",\n      \"QSNOMELT\",\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"H2OSOI\",\n      \"TSOI\",\n      \"QVEGT\",\n      \"QSOIL\",\n      \"EFLX_LH_TOT\",\n      \"FSH\",\n      \"TG\",\n      \"TSA\",\n      \"RH2M\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"single-column ELM (I-compset, satellite phenology or BGC)\",\n    \"surface dataset generation (mksurfdata) per column lat/lon\",\n    \"GSWP3 or Daymet atmospheric forcing 1980-2018\",\n    \"SNOTEL SWE observations for validation\",\n    \"USGS streamflow for aggregate water-balance check\"\n  ],\n  \"assumptions\": [\n    \"Elevation bands approximated by real coordinates along the upper Yakima orographic gradient; exact SNOTEL co-location may require minor adjustment\",\n    \"Soil textures assigned from SSURGO/gridded soil products typical of Cascade montane soils; refine with site data if available\",\n    \"First 2-3 years treated as spin-up; analysis focuses on 1983-2018\",\n    \"Single-column runs neglect lateral hydrologic connectivity between bands\",\n    \"Vegetation set to dominant montane conifer/shrub PFTs per band via surface dataset\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible: elevation banding across the 500-2400 m gradient can be resolved with single-column ELM simulations forced by 1980-2018 data and validated against SNOTEL SWE and USGS streamflow.",
+      "answerable": [
+        "How snowpack accumulation/ablation (SWE, snow depth) varies across elevation bands",
+        "Elevation control on soil moisture, ET, and runoff generation timing",
+        "Rain-snow partitioning transition zone in the upper Yakima",
+        "Comparison of modeled SWE against co-located SNOTEL stations"
+      ],
+      "not_answerable": [
+        "Lateral/routed streamflow at USGS gauges (single-column ELM has no lateral routing; gauge data used only as aggregate sanity check)",
+        "Spatially continuous distributed maps (point-column design, not gridded)",
+        "Deep groundwater lateral flow interactions (would require PFLOTRAN coupling not configured here)"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "The 500-2400 m range (1900 m relief) is divided into ~300 m elevation bands, yielding 6 bands that capture the dominant snow-dominated to transitional-to-rain-dominated hydrologic regimes. Six columns balance adequate resolution of the rain-snow transition (~1000-1500 m, where most sensitivity lies) against computational parsimony; each band is anchored near real SNOTEL sites where possible for validation.",
+    "columns": [
+      {
+        "id": "yak_band1_500m",
+        "lat": 47.2,
+        "lon": -120.95,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "yak_band2_800m",
+        "lat": 47.3,
+        "lon": -121.05,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "yak_band3_1100m",
+        "lat": 47.38,
+        "lon": -121.15,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "yak_band4_1400m",
+        "lat": 47.42,
+        "lon": -121.3,
+        "soil_texture": "gravelly loam"
+      },
+      {
+        "id": "yak_band5_1750m",
+        "lat": 47.48,
+        "lon": -121.4,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "yak_band6_2100m",
+        "lat": 47.55,
+        "lon": -121.5,
+        "soil_texture": "gravelly sandy loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "H2OSNO",
+        "SNOWDP",
+        "SNOW",
+        "RAIN",
+        "FSNO",
+        "QSNOMELT",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "SOILLIQ",
+        "SOILICE",
+        "H2OSOI",
+        "TSOI",
+        "QVEGT",
+        "QSOIL",
+        "EFLX_LH_TOT",
+        "FSH",
+        "TG",
+        "TSA",
+        "RH2M"
+      ]
+    },
+    "requires_capabilities": [
+      "single-column ELM (I-compset, satellite phenology or BGC)",
+      "surface dataset generation (mksurfdata) per column lat/lon",
+      "GSWP3 or Daymet atmospheric forcing 1980-2018",
+      "SNOTEL SWE observations for validation",
+      "USGS streamflow for aggregate water-balance check"
+    ],
+    "assumptions": [
+      "Elevation bands approximated by real coordinates along the upper Yakima orographic gradient; exact SNOTEL co-location may require minor adjustment",
+      "Soil textures assigned from SSURGO/gridded soil products typical of Cascade montane soils; refine with site data if available",
+      "First 2-3 years treated as spin-up; analysis focuses on 1983-2018",
+      "Single-column runs neglect lateral hydrologic connectivity between bands",
+      "Vegetation set to dominant montane conifer/shrub PFTs per band via surface dataset"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

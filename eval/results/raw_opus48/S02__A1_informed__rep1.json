@@ -1,0 +1,96 @@
+{
+  "prompt_id": "S02",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Elevation gradient of peak (annual maximum) SWE across the Wenatchee basin\",\n      \"Model-vs-observed comparison of peak SWE and snow timing at the 5 SNOTEL locations\",\n      \"Interannual variability of peak SWE (1980-2018) at each elevation band\"\n    ],\n    \"not_answerable\": [\n      \"Spatially distributed/basin-wide SWE fields (no dense snow courses available for validation)\",\n      \"Attribution of biases to specific drivers other than elevation (only elevation provided as candidate driver)\"\n    ]\n  },\n  \"n_columns\": 5,\n  \"n_justification\": \"One single-column site is placed at each of the 5 SNOTEL stations so that simulated peak SWE can be directly compared to observations and the elevation gradient (low to high) can be resolved with matched validation data.\",\n  \"columns\": [\n    {\"id\": \"fish_lake_1036m\", \"lat\": 47.5556, \"lon\": -120.7175, \"soil_texture\": \"loam\"},\n    {\"id\": \"trinity_1128m\", \"lat\": 47.9036, \"lon\": -120.9142, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"stevens_pass_1238m\", \"lat\": 47.7442, \"lon\": -121.0894, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"tunnel_ave_1173m\", \"lat\": 47.7000, \"lon\": -121.0333, \"soil_texture\": \"loam\"},\n    {\"id\": \"miners_ridge_1856m\", \"lat\": 47.9825, \"lon\": -120.9550, \"soil_texture\": \"gravelly_sandy_loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"SNOW\",\n      \"RAIN\",\n      \"QSNOMELT\",\n      \"QFLX_SNOW_GRND\",\n      \"FSNO\",\n      \"SNOWICE\",\n      \"SNOWLIQ\",\n      \"TSA\",\n      \"TBOT\",\n      \"FSDS\",\n      \"FLDS\",\n      \"TG\",\n      \"TSOI\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"single_point_ELM\",\n    \"SNOTEL_SWE_observations\",\n    \"GSWP3_or_equivalent_atmospheric_forcing_1980_2018\",\n    \"surface_dataset_generation_per_site\"\n  ],\n  \"assumptions\": [\n    \"STOP_OPTION=nyears with a preceding multi-year accumulated spin-up to equilibrate soil/snow states before the 1980-2018 analysis period\",\n    \"Column elevations follow SNOTEL station metadata; forcing is lapse-rate corrected or elevation-adjusted to each site to represent the gradient\",\n    \"Peak SWE is defined as the annual maximum of daily/monthly H2OSNO per water year\",\n    \"Coordinates and elevations approximate the 5 Wenatchee-basin SNOTEL stations (Fish Lake, Trinity, Stevens Pass, Tunnel Ave, Miners Ridge); exact station IDs/coords should be confirmed against NRCS metadata\",\n    \"Land-cover set to evergreen needleleaf forest / montane vegetation typical of the basin at each site\",\n    \"Model output daily where possible to resolve snow accumulation/melt timing for comparison\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Elevation gradient of peak (annual maximum) SWE across the Wenatchee basin",
+        "Model-vs-observed comparison of peak SWE and snow timing at the 5 SNOTEL locations",
+        "Interannual variability of peak SWE (1980-2018) at each elevation band"
+      ],
+      "not_answerable": [
+        "Spatially distributed/basin-wide SWE fields (no dense snow courses available for validation)",
+        "Attribution of biases to specific drivers other than elevation (only elevation provided as candidate driver)"
+      ]
+    },
+    "n_columns": 5,
+    "n_justification": "One single-column site is placed at each of the 5 SNOTEL stations so that simulated peak SWE can be directly compared to observations and the elevation gradient (low to high) can be resolved with matched validation data.",
+    "columns": [
+      {
+        "id": "fish_lake_1036m",
+        "lat": 47.5556,
+        "lon": -120.7175,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "trinity_1128m",
+        "lat": 47.9036,
+        "lon": -120.9142,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "stevens_pass_1238m",
+        "lat": 47.7442,
+        "lon": -121.0894,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "tunnel_ave_1173m",
+        "lat": 47.7,
+        "lon": -121.0333,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "miners_ridge_1856m",
+        "lat": 47.9825,
+        "lon": -120.955,
+        "soil_texture": "gravelly_sandy_loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "H2OSNO",
+        "SNOWDP",
+        "SNOW",
+        "RAIN",
+        "QSNOMELT",
+        "QFLX_SNOW_GRND",
+        "FSNO",
+        "SNOWICE",
+        "SNOWLIQ",
+        "TSA",
+        "TBOT",
+        "FSDS",
+        "FLDS",
+        "TG",
+        "TSOI"
+      ]
+    },
+    "requires_capabilities": [
+      "single_point_ELM",
+      "SNOTEL_SWE_observations",
+      "GSWP3_or_equivalent_atmospheric_forcing_1980_2018",
+      "surface_dataset_generation_per_site"
+    ],
+    "assumptions": [
+      "STOP_OPTION=nyears with a preceding multi-year accumulated spin-up to equilibrate soil/snow states before the 1980-2018 analysis period",
+      "Column elevations follow SNOTEL station metadata; forcing is lapse-rate corrected or elevation-adjusted to each site to represent the gradient",
+      "Peak SWE is defined as the annual maximum of daily/monthly H2OSNO per water year",
+      "Coordinates and elevations approximate the 5 Wenatchee-basin SNOTEL stations (Fish Lake, Trinity, Stevens Pass, Tunnel Ave, Miners Ridge); exact station IDs/coords should be confirmed against NRCS metadata",
+      "Land-cover set to evergreen needleleaf forest / montane vegetation typical of the basin at each site",
+      "Model output daily where possible to resolve snow accumulation/melt timing for comparison"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

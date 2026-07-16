@@ -1,0 +1,93 @@
+{
+  "prompt_id": "K01",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"feasible_with_coupling\",\n    \"answerable\": [\n      \"Simulated timing/lag between surface infiltration and recharge arrival at the water table via ELM-PFLOTRAN vadose-zone coupling\",\n      \"How recharge travel time varies with real water-table depth (Fan 2013 + USGS wells) across the Naches elevation gradient\",\n      \"Sensitivity of recharge lag to soil texture and unsaturated-zone thickness\",\n      \"Seasonal partitioning of infiltration into storage vs. deep drainage\"\n    ],\n    \"not_answerable\": [\n      \"Absolute validation of recharge flux magnitude (no recharge observations available)\",\n      \"Lateral groundwater flow / regional aquifer response (single-column, 1-D vadose only)\",\n      \"Point-specific travel times without well co-location uncertainty from Fan 2013 prior\"\n    ]\n  },\n  \"n_columns\": 4,\n  \"n_justification\": \"Four columns span the Naches WTD and elevation gradient: a shallow-water-table valley site, an intermediate terrace, a deep-water-table upland, and a montane forested site. This isolates the primary control (unsaturated-zone thickness) on infiltration-to-recharge travel time while keeping the coupled ELM-PFLOTRAN runs tractable.\",\n  \"columns\": [\n    {\n      \"id\": \"naches_valley_shallow\",\n      \"lat\": 46.72,\n      \"lon\": -120.7,\n      \"soil_texture\": \"sandy loam\"\n    },\n    {\n      \"id\": \"naches_terrace_intermediate\",\n      \"lat\": 46.85,\n      \"lon\": -120.95,\n      \"soil_texture\": \"loam\"\n    },\n    {\n      \"id\": \"naches_upland_deep\",\n      \"lat\": 46.95,\n      \"lon\": -121.15,\n      \"soil_texture\": \"silt loam\"\n    },\n    {\n      \"id\": \"naches_montane_forest\",\n      \"lat\": 46.9,\n      \"lon\": -121.35,\n      \"soil_texture\": \"gravelly sandy loam\"\n    }\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QINFL\",\n      \"QDRAI\",\n      \"QRECHARGE\",\n      \"QOVER\",\n      \"ZWT\",\n      \"WA\",\n      \"H2OSOI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QFLX_EVAP_TOT\",\n      \"TSOI\",\n      \"SMP\",\n      \"QCHARGE\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM-PFLOTRAN coupling (vadose-zone Richards equation solver)\",\n    \"PFLOTRAN 1-D unsaturated flow with tracer/age tracking for travel-time diagnosis\",\n    \"Fan 2013 water-table-depth prior ingestion as lower boundary condition\",\n    \"USGS well WTD assimilation for boundary calibration\",\n    \"GSWP3/CLMNCEP atmospheric forcing 1980-2018\"\n  ],\n  \"assumptions\": [\n    \"Water-table depth from Fan 2013 and nearest USGS wells sets the PFLOTRAN lower boundary (fixed-head or seasonally varying)\",\n    \"1-D vertical flow adequately represents recharge timing; lateral flow neglected\",\n    \"Recharge magnitude is model-derived and unvalidated due to missing recharge observations\",\n    \"Soil textures assigned from SSURGO/gridded soil data at each column\",\n    \"Age/tracer tracking in PFLOTRAN quantifies infiltration-to-recharge travel time ('today's infiltration' pulse)\",\n    \"First years used as spin-up to equilibrate vadose-zone moisture profiles before travel-time analysis\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible_with_coupling",
+      "answerable": [
+        "Simulated timing/lag between surface infiltration and recharge arrival at the water table via ELM-PFLOTRAN vadose-zone coupling",
+        "How recharge travel time varies with real water-table depth (Fan 2013 + USGS wells) across the Naches elevation gradient",
+        "Sensitivity of recharge lag to soil texture and unsaturated-zone thickness",
+        "Seasonal partitioning of infiltration into storage vs. deep drainage"
+      ],
+      "not_answerable": [
+        "Absolute validation of recharge flux magnitude (no recharge observations available)",
+        "Lateral groundwater flow / regional aquifer response (single-column, 1-D vadose only)",
+        "Point-specific travel times without well co-location uncertainty from Fan 2013 prior"
+      ]
+    },
+    "n_columns": 4,
+    "n_justification": "Four columns span the Naches WTD and elevation gradient: a shallow-water-table valley site, an intermediate terrace, a deep-water-table upland, and a montane forested site. This isolates the primary control (unsaturated-zone thickness) on infiltration-to-recharge travel time while keeping the coupled ELM-PFLOTRAN runs tractable.",
+    "columns": [
+      {
+        "id": "naches_valley_shallow",
+        "lat": 46.72,
+        "lon": -120.7,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "naches_terrace_intermediate",
+        "lat": 46.85,
+        "lon": -120.95,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "naches_upland_deep",
+        "lat": 46.95,
+        "lon": -121.15,
+        "soil_texture": "silt loam"
+      },
+      {
+        "id": "naches_montane_forest",
+        "lat": 46.9,
+        "lon": -121.35,
+        "soil_texture": "gravelly sandy loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QINFL",
+        "QDRAI",
+        "QRECHARGE",
+        "QOVER",
+        "ZWT",
+        "WA",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "RAIN",
+        "SNOW",
+        "QFLX_EVAP_TOT",
+        "TSOI",
+        "SMP",
+        "QCHARGE"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM-PFLOTRAN coupling (vadose-zone Richards equation solver)",
+      "PFLOTRAN 1-D unsaturated flow with tracer/age tracking for travel-time diagnosis",
+      "Fan 2013 water-table-depth prior ingestion as lower boundary condition",
+      "USGS well WTD assimilation for boundary calibration",
+      "GSWP3/CLMNCEP atmospheric forcing 1980-2018"
+    ],
+    "assumptions": [
+      "Water-table depth from Fan 2013 and nearest USGS wells sets the PFLOTRAN lower boundary (fixed-head or seasonally varying)",
+      "1-D vertical flow adequately represents recharge timing; lateral flow neglected",
+      "Recharge magnitude is model-derived and unvalidated due to missing recharge observations",
+      "Soil textures assigned from SSURGO/gridded soil data at each column",
+      "Age/tracer tracking in PFLOTRAN quantifies infiltration-to-recharge travel time ('today's infiltration' pulse)",
+      "First years used as spin-up to equilibrate vadose-zone moisture profiles before travel-time analysis"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

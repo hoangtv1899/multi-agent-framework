@@ -1,0 +1,103 @@
+{
+  "prompt_id": "S05",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"answerable_with_configuration\",\n    \"answerable\": [\n      \"Day-of-year of snowmelt onset at each individual SNOTEL station via per-site single-column ELM runs validated against observed SWE\",\n      \"Elevation control on melt onset by comparing melt DOY across the 6 stations spanning ~1400-1800 m\",\n      \"Local lapse rate between closely-spaced (<12 km) stations on the same ridge, provided forcing is elevation-downscaled with a locally-fit temperature lapse rate\"\n    ],\n    \"not_answerable\": [\n      \"Aspect/slope or radiation-driven melt differences (no aspect data or multi-facet forcing provided)\",\n      \"Distributed spatial melt patterns between stations (site archetype gives point columns only, not a continuous surface)\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"One column per SNOTEL station is required to resolve site-specific melt onset and to fit a local lapse rate; 6 stations exist in the Naches (17030002), several <12 km apart on shared ridges, giving the elevation gradient needed to derive lapse-rate-controlled melt timing.\",\n  \"columns\": [\n    {\"id\": \"bumping_ridge\", \"lat\": 46.868, \"lon\": -121.310, \"soil_texture\": \"gravelly_sandy_loam\"},\n    {\"id\": \"morse_lake\", \"lat\": 46.928, \"lon\": -121.393, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"pigtail_peak\", \"lat\": 46.646, \"lon\": -121.402, \"soil_texture\": \"gravelly_loam\"},\n    {\"id\": \"white_pass_es\", \"lat\": 46.635, \"lon\": -121.391, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"cougar_flat\", \"lat\": 46.836, \"lon\": -121.117, \"soil_texture\": \"loam\"},\n    {\"id\": \"corral_pass\", \"lat\": 46.965, \"lon\": -121.470, \"soil_texture\": \"gravelly_sandy_loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"SNOW_DEPTH\",\n      \"QSNOMELT\",\n      \"QFLX_SNOMELT\",\n      \"FSNO\",\n      \"SNOWLIQ\",\n      \"SNOWICE\",\n      \"TSA\",\n      \"TBOT\",\n      \"TSOI\",\n      \"FSDS\",\n      \"FLDS\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QRUNOFF\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"Elevation-based downscaling of atmospheric forcing (temperature lapse-rate and precipitation adjustment) to each station elevation\",\n    \"Locally-fit temperature lapse rate between same-ridge station pairs (e.g., White Pass/Pigtail; Morse Lake/Corral Pass)\",\n    \"Snowmelt-onset detection algorithm (first sustained SWE decline / DOY of peak-SWE-to-melt transition) applied to daily H2OSNO output\",\n    \"SNOTEL SWE ingestion for per-site calibration/validation\",\n    \"STOP_N units set to nyears; multi-year spinup (recycle 1980-2000 forcing) to equilibrate snow/soil states\"\n  ],\n  \"assumptions\": [\n    \"Station coordinates and elevations approximate real Naches (HUC 17030002) SNOTEL sites; exact metadata should be pulled from NRCS before production runs\",\n    \"Base CLMNCEP forcing is downscaled to each column elevation using a lapse rate initially set to -6.5 K/km then refined from observed inter-station temperature contrasts\",\n    \"Melt onset defined as the first DOY after peak SWE with a sustained multi-day SWE decrease exceeding a noise threshold\",\n    \"Vegetation set to evergreen needleleaf boreal/temperate consistent with subalpine forest at these elevations\",\n    \"Soil textures assigned from SSURGO/gridded estimates and held per-column; refine with site data if available\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "answerable_with_configuration",
+      "answerable": [
+        "Day-of-year of snowmelt onset at each individual SNOTEL station via per-site single-column ELM runs validated against observed SWE",
+        "Elevation control on melt onset by comparing melt DOY across the 6 stations spanning ~1400-1800 m",
+        "Local lapse rate between closely-spaced (<12 km) stations on the same ridge, provided forcing is elevation-downscaled with a locally-fit temperature lapse rate"
+      ],
+      "not_answerable": [
+        "Aspect/slope or radiation-driven melt differences (no aspect data or multi-facet forcing provided)",
+        "Distributed spatial melt patterns between stations (site archetype gives point columns only, not a continuous surface)"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "One column per SNOTEL station is required to resolve site-specific melt onset and to fit a local lapse rate; 6 stations exist in the Naches (17030002), several <12 km apart on shared ridges, giving the elevation gradient needed to derive lapse-rate-controlled melt timing.",
+    "columns": [
+      {
+        "id": "bumping_ridge",
+        "lat": 46.868,
+        "lon": -121.31,
+        "soil_texture": "gravelly_sandy_loam"
+      },
+      {
+        "id": "morse_lake",
+        "lat": 46.928,
+        "lon": -121.393,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "pigtail_peak",
+        "lat": 46.646,
+        "lon": -121.402,
+        "soil_texture": "gravelly_loam"
+      },
+      {
+        "id": "white_pass_es",
+        "lat": 46.635,
+        "lon": -121.391,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "cougar_flat",
+        "lat": 46.836,
+        "lon": -121.117,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "corral_pass",
+        "lat": 46.965,
+        "lon": -121.47,
+        "soil_texture": "gravelly_sandy_loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "H2OSNO",
+        "SNOWDP",
+        "SNOW_DEPTH",
+        "QSNOMELT",
+        "QFLX_SNOMELT",
+        "FSNO",
+        "SNOWLIQ",
+        "SNOWICE",
+        "TSA",
+        "TBOT",
+        "TSOI",
+        "FSDS",
+        "FLDS",
+        "RAIN",
+        "SNOW",
+        "QRUNOFF"
+      ]
+    },
+    "requires_capabilities": [
+      "Elevation-based downscaling of atmospheric forcing (temperature lapse-rate and precipitation adjustment) to each station elevation",
+      "Locally-fit temperature lapse rate between same-ridge station pairs (e.g., White Pass/Pigtail; Morse Lake/Corral Pass)",
+      "Snowmelt-onset detection algorithm (first sustained SWE decline / DOY of peak-SWE-to-melt transition) applied to daily H2OSNO output",
+      "SNOTEL SWE ingestion for per-site calibration/validation",
+      "STOP_N units set to nyears; multi-year spinup (recycle 1980-2000 forcing) to equilibrate snow/soil states"
+    ],
+    "assumptions": [
+      "Station coordinates and elevations approximate real Naches (HUC 17030002) SNOTEL sites; exact metadata should be pulled from NRCS before production runs",
+      "Base CLMNCEP forcing is downscaled to each column elevation using a lapse rate initially set to -6.5 K/km then refined from observed inter-station temperature contrasts",
+      "Melt onset defined as the first DOY after peak SWE with a sustained multi-day SWE decrease exceeding a noise threshold",
+      "Vegetation set to evergreen needleleaf boreal/temperate consistent with subalpine forest at these elevations",
+      "Soil textures assigned from SSURGO/gridded estimates and held per-column; refine with site data if available"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

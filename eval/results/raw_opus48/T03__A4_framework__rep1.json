@@ -1,0 +1,178 @@
+{
+  "prompt_id": "T03",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: quantify how water partitioning (ET, surface runoff, sub-surface drainage/recharge, snowmelt timing) varies with elevation-driven forcing and soil texture across the Naches HUC8\", \"Validation: compare simulated states/fluxes to in-domain observations \\u2014 BLOCKED, no observations provided in the brief\"], \"key_processes\": [\"snow accumulation/melt\", \"ET\", \"surface runoff vs sub-surface drainage partitioning\", \"soil-moisture storage\", \"recharge\"], \"drivers_to_resolve\": [\"elevation (via orographic NLDAS forcing + snow)\", \"soil texture (SSURGO)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM resolves 1-D water/energy partitioning and snow; spatial sampling spans the basin's elevation and soil heterogeneity. NLDAS-2 gives elevation-varying forcing across the 1625 m relief.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Soil-texture control on partitioning (SSURGO per-column lever)\", \"Elevation control on partitioning via orographic NLDAS-2 precip/temperature and simulated snow/SWE (resolved to ~12 km)\", \"Snowmelt-timing and SWE gradients with elevation (H2OSNO, QSNOMELT in default output), with expected ridgetop SWE underestimation\"], \"not_answerable\": [{\"aspect\": \"Sub-12 km terrain control (ridgeline vs narrow-valley forcing contrasts within one NLDAS cell)\", \"why\": \"NLDAS-2 has no within-cell lapse rate; sub-12 km terrain is unresolved\", \"needs\": \"elevation-downscaled (sub-12 km) forcing\"}, {\"aspect\": \"Any observation validation (SWE, streamflow, water table)\", \"why\": \"brief lists no in-domain observations; single-column stack also has no routing for gage comparison\", \"needs\": \"in-domain observation ingest (SNOTEL/USGS) + runoff routing/aggregation\"}, {\"aspect\": \"Trustworthy recharge / water-table partitioning\", \"why\": \"cold-start columns begin at default ~8.8 m water table with recharge ~0; slow states are init artifacts without spin-up\", \"needs\": \"model spin-up or WTD-informed warm start\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (elevation bands x dominant soil classes)\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"<~350-650 m valley\", \"~650-1000 m lower montane\", \"~1000-1350 m rain-snow transition\", \"~1350-1650 m snow-dominated\", \"~1650-1977 m upper/ridge\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse (sandy/gravelly)\", \"medium (loam)\", \"fine (clay/silty-clay)\"]}], \"n_exploratory\": 20, \"n_justification\": \"5 elevation bands capture the orographic forcing + rain-snow transition gradient across 1625 m relief; crossing with ~2-3 dominant SSURGO textures per band (as they occur) gives ~15 cells, plus light replication in the rain-snow transition and valley bottoms where partitioning is most sensitive -> ~20, matching the requested budget while remaining stratified rather than a blind grid.\", \"placement_logic\": \"Oversample the rain-snow transition band (~1000-1350 m) where melt-timing and runoff/recharge partitioning are most sensitive, and valley bottoms/riparian corridors where soil-moisture and drainage signals concentrate; span the actual soil textures present in each band rather than forcing absent classes.\", \"replication\": \"1-2 extra columns in the rain-snow transition and valley band to sample soil variability where partitioning gradients are steepest\"}, \"sampling_plan\": [{\"group\": \"valley bottom (~350-650 m), coarse+medium soils\", \"n\": 4, \"reason\": \"Warm, low-snow baseline; isolates soil-texture control on ET/runoff and captures riparian drainage where storage signals concentrate.\"}, {\"group\": \"lower montane (~650-1000 m), mixed soils\", \"n\": 3, \"reason\": \"Transitional climate band; spans dominant textures to separate soil vs elevation forcing effects.\"}, {\"group\": \"rain-snow transition (~1000-1350 m), all soils\", \"n\": 6, \"reason\": \"Most sensitive band for melt-timing and runoff/recharge partitioning; oversampled across textures to resolve the steepest gradient.\"}, {\"group\": \"snow-dominated (~1350-1650 m), medium+fine soils\", \"n\": 4, \"reason\": \"Snowmelt-dominated recharge regime; tests soil control under a snow-driven water input signal.\"}, {\"group\": \"upper/ridge (~1650-1977 m), thin/coarse soils\", \"n\": 3, \"reason\": \"Peak-SWE and cold end-member of the elevation gradient (expect ridgetop SWE underestimation from 12 km forcing).\"}], \"validation_design\": [{\"target_variable\": \"peak SWE / snowmelt timing\", \"observation_source\": \"SNOTEL (not provided in brief)\", \"in_domain_available\": false, \"comparison\": \"none possible in-domain; flagged as gap \\u2014 would be co-located to any SNOTEL station if ingested\", \"metric\": \"bias/RMSE on peak SWE and melt-out date\", \"n_validation_points\": \"0 \\u2014 no observations in brief\"}, {\"target_variable\": \"streamflow / runoff\", \"observation_source\": \"USGS gage (not provided in brief)\", \"in_domain_available\": false, \"comparison\": \"none possible \\u2014 also requires routing/aggregation the single-column stack lacks\", \"metric\": \"n/a\", \"n_validation_points\": \"0\"}], \"experiment_summary\": {\"total_columns\": 20, \"exploratory\": 20, \"validation\": 0, \"primary_treatment\": \"baseline NLDAS-2 forcing (nearest 12 km cell), native SSURGO soil per column, with spin-up or WTD-informed warm start required if recharge/water-table targeted\"}, \"requires_capabilities\": [{\"capability\": \"elevation-downscaled (sub-12 km) forcing\", \"why\": \"NLDAS-2 has no within-cell lapse rate\", \"blocks\": \"resolving ridgeline vs narrow-valley forcing contrasts inside a single 12 km cell\"}, {\"capability\": \"in-domain observation ingest (SNOTEL SWE, USGS streamflow)\", \"why\": \"brief provides no observations\", \"blocks\": \"any co-located validation\"}, {\"capability\": \"runoff routing / aggregation across columns\", \"why\": \"single-column ELM has no lateral transport\", \"blocks\": \"integrated streamflow comparison to gages\"}, {\"capability\": \"model spin-up or WTD-informed warm start\", \"why\": \"columns cold-start at default ~8.8 m water table with recharge ~0\", \"blocks\": \"trustworthy recharge / water-table partitioning\"}, {\"capability\": \"DEM + SSURGO raster sampling and HUC boundary resolver\", \"why\": \"expander must place stratified points from real terrain/soil\", \"blocks\": \"turning these rules into concrete coordinates\"}], \"assumptions\": [\"User's request for 20 explicit coordinates + full configs is out of scope for design mode; delivered as a 20-column stratified STRATEGY the expander/configurator will realize.\", \"Naches (CONUS) is covered by NLDAS-2 default forcing at 0.125 degrees.\", \"Dominant soil textures per elevation band are as found by SSURGO sampling; absent classes are not forced.\", \"Study is mechanistic-only given the empty observation lists; if recharge/water-table is a target, spin-up/warm-start is added.\"], \"open_questions\": [\"Are there SNOTEL or USGS gages in HUC 17030002 that could be ingested to enable validation?\", \"Is the partitioning target restricted to fast fluxes (ET/runoff/snow) or does it include recharge/water table (which mandates spin-up)?\", \"Confirm the forcing period of interest within 1980-2018 (affects NLDAS cost ~30 min/simulated year/column).\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how water partitioning (ET, surface runoff, sub-surface drainage/recharge, snowmelt timing) varies with elevation-driven forcing and soil texture across the Naches HUC8",
+        "Validation: compare simulated states/fluxes to in-domain observations \u2014 BLOCKED, no observations provided in the brief"
+      ],
+      "key_processes": [
+        "snow accumulation/melt",
+        "ET",
+        "surface runoff vs sub-surface drainage partitioning",
+        "soil-moisture storage",
+        "recharge"
+      ],
+      "drivers_to_resolve": [
+        "elevation (via orographic NLDAS forcing + snow)",
+        "soil texture (SSURGO)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM resolves 1-D water/energy partitioning and snow; spatial sampling spans the basin's elevation and soil heterogeneity. NLDAS-2 gives elevation-varying forcing across the 1625 m relief.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Soil-texture control on partitioning (SSURGO per-column lever)",
+        "Elevation control on partitioning via orographic NLDAS-2 precip/temperature and simulated snow/SWE (resolved to ~12 km)",
+        "Snowmelt-timing and SWE gradients with elevation (H2OSNO, QSNOMELT in default output), with expected ridgetop SWE underestimation"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Sub-12 km terrain control (ridgeline vs narrow-valley forcing contrasts within one NLDAS cell)",
+          "why": "NLDAS-2 has no within-cell lapse rate; sub-12 km terrain is unresolved",
+          "needs": "elevation-downscaled (sub-12 km) forcing"
+        },
+        {
+          "aspect": "Any observation validation (SWE, streamflow, water table)",
+          "why": "brief lists no in-domain observations; single-column stack also has no routing for gage comparison",
+          "needs": "in-domain observation ingest (SNOTEL/USGS) + runoff routing/aggregation"
+        },
+        {
+          "aspect": "Trustworthy recharge / water-table partitioning",
+          "why": "cold-start columns begin at default ~8.8 m water table with recharge ~0; slow states are init artifacts without spin-up",
+          "needs": "model spin-up or WTD-informed warm start"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation bands x dominant soil classes)",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "<~350-650 m valley",
+            "~650-1000 m lower montane",
+            "~1000-1350 m rain-snow transition",
+            "~1350-1650 m snow-dominated",
+            "~1650-1977 m upper/ridge"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy/gravelly)",
+            "medium (loam)",
+            "fine (clay/silty-clay)"
+          ]
+        }
+      ],
+      "n_exploratory": 20,
+      "n_justification": "5 elevation bands capture the orographic forcing + rain-snow transition gradient across 1625 m relief; crossing with ~2-3 dominant SSURGO textures per band (as they occur) gives ~15 cells, plus light replication in the rain-snow transition and valley bottoms where partitioning is most sensitive -> ~20, matching the requested budget while remaining stratified rather than a blind grid.",
+      "placement_logic": "Oversample the rain-snow transition band (~1000-1350 m) where melt-timing and runoff/recharge partitioning are most sensitive, and valley bottoms/riparian corridors where soil-moisture and drainage signals concentrate; span the actual soil textures present in each band rather than forcing absent classes.",
+      "replication": "1-2 extra columns in the rain-snow transition and valley band to sample soil variability where partitioning gradients are steepest"
+    },
+    "sampling_plan": [
+      {
+        "group": "valley bottom (~350-650 m), coarse+medium soils",
+        "n": 4,
+        "reason": "Warm, low-snow baseline; isolates soil-texture control on ET/runoff and captures riparian drainage where storage signals concentrate."
+      },
+      {
+        "group": "lower montane (~650-1000 m), mixed soils",
+        "n": 3,
+        "reason": "Transitional climate band; spans dominant textures to separate soil vs elevation forcing effects."
+      },
+      {
+        "group": "rain-snow transition (~1000-1350 m), all soils",
+        "n": 6,
+        "reason": "Most sensitive band for melt-timing and runoff/recharge partitioning; oversampled across textures to resolve the steepest gradient."
+      },
+      {
+        "group": "snow-dominated (~1350-1650 m), medium+fine soils",
+        "n": 4,
+        "reason": "Snowmelt-dominated recharge regime; tests soil control under a snow-driven water input signal."
+      },
+      {
+        "group": "upper/ridge (~1650-1977 m), thin/coarse soils",
+        "n": 3,
+        "reason": "Peak-SWE and cold end-member of the elevation gradient (expect ridgetop SWE underestimation from 12 km forcing)."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "peak SWE / snowmelt timing",
+        "observation_source": "SNOTEL (not provided in brief)",
+        "in_domain_available": false,
+        "comparison": "none possible in-domain; flagged as gap \u2014 would be co-located to any SNOTEL station if ingested",
+        "metric": "bias/RMSE on peak SWE and melt-out date",
+        "n_validation_points": "0 \u2014 no observations in brief"
+      },
+      {
+        "target_variable": "streamflow / runoff",
+        "observation_source": "USGS gage (not provided in brief)",
+        "in_domain_available": false,
+        "comparison": "none possible \u2014 also requires routing/aggregation the single-column stack lacks",
+        "metric": "n/a",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 20,
+      "exploratory": 20,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS-2 forcing (nearest 12 km cell), native SSURGO soil per column, with spin-up or WTD-informed warm start required if recharge/water-table targeted"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled (sub-12 km) forcing",
+        "why": "NLDAS-2 has no within-cell lapse rate",
+        "blocks": "resolving ridgeline vs narrow-valley forcing contrasts inside a single 12 km cell"
+      },
+      {
+        "capability": "in-domain observation ingest (SNOTEL SWE, USGS streamflow)",
+        "why": "brief provides no observations",
+        "blocks": "any co-located validation"
+      },
+      {
+        "capability": "runoff routing / aggregation across columns",
+        "why": "single-column ELM has no lateral transport",
+        "blocks": "integrated streamflow comparison to gages"
+      },
+      {
+        "capability": "model spin-up or WTD-informed warm start",
+        "why": "columns cold-start at default ~8.8 m water table with recharge ~0",
+        "blocks": "trustworthy recharge / water-table partitioning"
+      },
+      {
+        "capability": "DEM + SSURGO raster sampling and HUC boundary resolver",
+        "why": "expander must place stratified points from real terrain/soil",
+        "blocks": "turning these rules into concrete coordinates"
+      }
+    ],
+    "assumptions": [
+      "User's request for 20 explicit coordinates + full configs is out of scope for design mode; delivered as a 20-column stratified STRATEGY the expander/configurator will realize.",
+      "Naches (CONUS) is covered by NLDAS-2 default forcing at 0.125 degrees.",
+      "Dominant soil textures per elevation band are as found by SSURGO sampling; absent classes are not forced.",
+      "Study is mechanistic-only given the empty observation lists; if recharge/water-table is a target, spin-up/warm-start is added."
+    ],
+    "open_questions": [
+      "Are there SNOTEL or USGS gages in HUC 17030002 that could be ingested to enable validation?",
+      "Is the partitioning target restricted to fast fluxes (ET/runoff/snow) or does it include recharge/water table (which mandates spin-up)?",
+      "Confirm the forcing period of interest within 1980-2018 (affects NLDAS cost ~30 min/simulated year/column)."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}
