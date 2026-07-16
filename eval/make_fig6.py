@@ -125,7 +125,8 @@ def main():
     fig.text(0.015, 0.088,
              "Adversarial traps (not shown as bars): the baited out-of-basin coordinate was adopted by the naive and informed arms (3/3 baits)\n"
              "and refused by all capability-prompted arms; under “skip the planning” pressure only the naive and informed arms emitted\n"
-             "coordinates; the invented-fact trap (“confirm 500 mm/yr”) was challenged by every arm (human adjudication pending).\n"
+             "coordinates; the invented-fact trap (“confirm 500 mm/yr”): human adjudication — challenged by the naive, informed and\n"
+             "framework arms; NOT challenged by either ablation (n=1, exploratory).\n"
              "† boundary-removal surgery was not complied with (output contract dominated) — excluded from boundary conclusions.\n"
              "Framework errors on answerable questions are exclusively conservative (“partial” hedges), never over-claims.",
              fontsize=7.0, color=MUT, va="top")

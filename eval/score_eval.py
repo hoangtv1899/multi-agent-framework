@@ -25,7 +25,7 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RAW = ROOT / "eval" / "results" / "raw"
+RAW = None  # set in main()
 
 KEYWORDS = {
     "routing":        ["routing", "aggregat", "integrated streamflow", "flow accumulation"],
@@ -191,6 +191,12 @@ def score_record(rec, prompt) -> dict:
 
 
 def main():
+    import argparse, sys as _sys
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--raw-subdir", default="raw")
+    args = ap.parse_args()
+    global RAW
+    RAW = ROOT / "eval" / "results" / args.raw_subdir
     suite = json.loads((ROOT / "eval" / "prompt_suite.json").read_text())
     pmap = {p["id"]: p for p in suite["prompts"]}
     rows = []
@@ -274,7 +280,7 @@ def main():
         print("\nDETERMINISM (reps):")
         [print(l) for l in dlines]
 
-    out = ROOT / "eval" / "results" / "scores.json"
+    out = ROOT / "eval" / "results" / f"scores_{args.raw_subdir.replace('raw', '').strip('_') or 'main'}.json" if args.raw_subdir != "raw" else ROOT / "eval" / "results" / "scores.json"
     out.write_text(json.dumps({"scope": tag, "per_arm": agg, "records": rows},
                               indent=2))
     print(f"\n-> {out}")

@@ -44,8 +44,8 @@ from agents.llm_agent import LLMAgent                      # noqa: E402
 from agents.planner_agent import PlannerAgent              # noqa: E402
 from agents.prompts import load_prompt                     # noqa: E402
 
-MODEL = "claude-sonnet-4-5-20250929-v1-project"            # same for ALL arms
-TEMPERATURE, SEED = 0.0, 1995
+DEFAULT_MODEL = "claude-sonnet-4-5-20250929-v1-project"    # same for ALL arms
+TEMPERATURE, SEED, MAX_TOKENS = 0.0, 1995, 8192
 DET_REPS = 3                                               # reps on determinism prompts
 DET_ARMS = ("A1_informed", "A4_framework")
 
@@ -114,12 +114,13 @@ def make_brief(p: dict) -> dict:
     return b
 
 
-def call_arm(arm: str, p: dict) -> dict:
+def call_arm(arm: str, p: dict, model: str) -> dict:
     """Run one (arm, prompt) -> {raw, parsed|None, model_reported}."""
     brief = make_brief(p)
     if arm == "A4_framework":
-        agent = PlannerAgent(model=MODEL, model_type="elm", capability_aware=True)
+        agent = PlannerAgent(model=model, model_type="elm", capability_aware=True)
         agent.llm.temperature, agent.llm.seed = TEMPERATURE, SEED
+        agent.llm.max_tokens = MAX_TOKENS
         plan = agent.create_plan(brief)
         return {"raw": json.dumps(plan), "parsed": plan,
                 "model_reported": agent.llm.last_response_model}
@@ -144,8 +145,9 @@ def call_arm(arm: str, p: dict) -> dict:
     else:
         raise ValueError(arm)
 
-    agent = LLMAgent(f"eval_{arm}", system, MODEL)
+    agent = LLMAgent(f"eval_{arm}", system, model)
     agent.llm.temperature, agent.llm.seed = TEMPERATURE, SEED
+    agent.llm.max_tokens = MAX_TOKENS
     raw = agent.ask_with_system(user_message=user, system_message=system)
     try:
         parsed = agent.parse_json(raw)
@@ -162,6 +164,9 @@ def main():
     ap.add_argument("--arms", default="A0_naive,A1_informed,A2_no_boundary,"
                                       "A3_no_limits,A4_framework")
     ap.add_argument("--prompts", default=None, help="comma list of prompt ids")
+    ap.add_argument("--model", default=DEFAULT_MODEL)
+    ap.add_argument("--raw-subdir", default="raw",
+                    help="results subdir (use e.g. raw_opus48 for sensitivity waves)")
     args = ap.parse_args()
 
     suite = json.loads((ROOT / "eval" / "prompt_suite.json").read_text())
@@ -177,7 +182,7 @@ def main():
         prompts = [p for p in prompts if p["id"] in want]
     arms = args.arms.split(",")
 
-    out = ROOT / "eval" / "results" / "raw"
+    out = ROOT / "eval" / "results" / args.raw_subdir
     out.mkdir(parents=True, exist_ok=True)
     n_done = n_err = 0
     for p in prompts:
@@ -189,16 +194,18 @@ def main():
                     print(f"  skip (exists): {dst.name}")
                     continue
                 rec = {"prompt_id": p["id"], "arm": arm, "rep": rep,
-                       "suite_sha": suite_sha, "model_requested": MODEL,
+                       "suite_sha": suite_sha, "model_requested": args.model,
                        "temperature": TEMPERATURE, "seed": SEED}
                 try:
-                    rec.update(call_arm(arm, p))
+                    rec.update(call_arm(arm, p, args.model))
                     ok = rec["parsed"] is not None
                     print(f"  ✓ {p['id']} {arm} rep{rep}"
                           f"{'' if ok else '  (JSON parse failed)'}")
                     n_done += 1
                 except Exception as e:
                     rec["error"] = f"{e}\n{traceback.format_exc()[-800:]}"
+                    rec.setdefault("raw", getattr(e, "raw_response", None))
+                    rec.setdefault("parsed", None)
                     print(f"  ✗ {p['id']} {arm} rep{rep}: {str(e)[:90]}")
                     n_err += 1
                 dst.write_text(json.dumps(rec, indent=2))

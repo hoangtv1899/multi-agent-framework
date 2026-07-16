@@ -64,3 +64,17 @@ preliminary) · M6 determinism across reps.
 - Known limitation, stated up front: arm A1 is a *single-call* proxy for a
   general tool-using agent, not an interactive agent session; the comparison
   isolates architectural constraints at equal information, not tool access.
+
+## Sensitivity wave S1 (declared 2026-07-16, before running)
+Question: does a newer/stronger model close the gap? Rerun the two decisive
+arms — A1_informed (strongest baseline) and A4_framework — with
+`claude-opus-4-8-project`, same suite, same metrics, same T=0/seed.
+Exploratory (not headline); reported regardless of direction. Prediction on
+record: config-validity failures largely persist (they reflect missing
+build-specific knowledge, not reasoning ability); infeasible over-claiming
+may improve; the framework's structural zeros are model-independent.
+
+## T02 adjudication note (2026-07-16)
+Human adjudication (recorded in results/T02_adjudication.json) OVERRODE the
+heuristic for A2/A3: both ablations failed to challenge the invented fact;
+naive, informed, and framework challenged it. n=1, exploratory.

@@ -24,6 +24,7 @@ class SimpleLLMClient:
         # reproducibility knobs (None = provider default, preserves old behavior)
         self.temperature = None
         self.seed = None
+        self.max_tokens = None
         self.last_response_model = None      # provider-reported model version
 
     def ask(self,
@@ -38,6 +39,8 @@ class SimpleLLMClient:
             kwargs["temperature"] = self.temperature
         if self.seed is not None:
             kwargs["seed"] = self.seed
+        if self.max_tokens is not None:
+            kwargs["max_tokens"] = self.max_tokens
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception:
@@ -104,7 +107,13 @@ class LLMAgent:
         start = text.find("{")
         end   = text.rfind("}")
         if start != -1 and end > start:
-            return json.loads(text[start:end + 1])
+            frag = text[start:end + 1]
+            try:
+                return json.loads(frag)
+            except json.JSONDecodeError:
+                # common LLM slip: trailing commas before } or ]
+                frag2 = re.sub(r",\s*([}\]])", r"\1", frag)
+                return json.loads(frag2)
         raise ValueError(f"No JSON found in response: {text[:100]}")
 
     def reset(self):

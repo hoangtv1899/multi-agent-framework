@@ -89,12 +89,15 @@ class PlannerAgent(LLMAgent):
             f"requires_capabilities backlog, and recorded assumptions. "
             f"Return JSON only.\n\n{json.dumps(brief, indent=2)}"
         )
+        response = None
         try:
             response = self.ask_with_system(
                 user_message=prompt, system_message=self.prompt_design)
             plan = self.parse_json(response)
         except Exception as e:
-            raise RuntimeError(f"Strategy design failed: {e}") from e
+            err = RuntimeError(f"Strategy design failed: {e}")
+            err.raw_response = response
+            raise err from e
 
         # deterministic, reproducible schema check (replaces the LLM fix call)
         missing = [k for k in STRATEGY_REQUIRED if not plan.get(k)]
