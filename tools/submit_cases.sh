@@ -1,22 +1,26 @@
 #!/bin/bash
 # submit_cases.sh — run a study's columns as ONE batch job, all columns
 # CONCURRENTLY on a single node (each is tiny: 1 task / 2 cores, so ~60 fit on a
-# 128-core node). Submit-and-forget — no interactive salloc, ~3 min wall time.
+# 128-core node). Default is submit-and-forget; --wait blocks until the job
+# finishes and prints a per-column summary; --analyze runs step 6 after that.
 #
-#   bash tools/submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00] [--dry]
+#   bash tools/submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00]
+#                              [--dry] [--wait] [--analyze]
 #
 # Reads <run-dir>/exe_path.txt + cases.json; the job writes <run-dir>/run.log.
 # --dry writes the sbatch script but does not submit (inspect it first).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-RD="${1:?usage: submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00] [--dry]}"; shift || true
-QUEUE=debug; TLIMIT=00:30:00; DRY=""
+RD="${1:?usage: submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00] [--dry] [--wait] [--analyze]}"; shift || true
+QUEUE=debug; TLIMIT=00:30:00; DRY=""; WAIT=""; ANALYZE=""
 while [ "${1:-}" ]; do
     case "$1" in
         -q) QUEUE="$2"; shift 2;;
         -t) TLIMIT="$2"; shift 2;;
         --dry) DRY=1; shift;;
+        --wait) WAIT=1; shift;;
+        --analyze) ANALYZE=1; shift;;
         *) echo "unknown arg: $1"; exit 1;;
     esac
 done
@@ -57,7 +61,48 @@ SBATCH
 
 echo "wrote $SB  ($N columns, queue=$QUEUE, t=$TLIMIT)"
 if [ "$DRY" ]; then echo "(--dry — not submitted; inspect the script above)"; exit 0; fi
-JID=$(sbatch --parsable "$SB")
-echo "submitted job $JID  →  log: $RD/run.log"
-echo "  watch:   squeue -j $JID    |    tail -f $RD/run.log"
-echo "  analyze: bash tools/run_watershed.sh --analyze $RD"
+
+if [ -z "$WAIT" ]; then
+    JID=$(sbatch --parsable "$SB")
+    echo "submitted job $JID  →  log: $RD/run.log"
+    echo "  watch:   squeue -j $JID    |    tail -f $RD/run.log"
+    echo "  analyze: bash tools/run_watershed.sh --analyze $RD"
+    exit 0
+fi
+
+# ── --wait: block until the job finishes, then summarize per-column results ──
+echo "submitting and waiting (sbatch --wait) ..."
+RC=0
+JID=$(sbatch --parsable --wait "$SB") || RC=$?
+echo "job ${JID:-?} finished (sbatch rc=$RC)"
+if command -v sacct >/dev/null && [ -n "${JID:-}" ]; then
+    sacct -j "$JID" --format=JobID,State,Elapsed,MaxRSS -n 2>/dev/null | head -3 || true
+fi
+
+echo ""
+echo "── per-column results ($RD/run.log) ──"
+if [ ! -f "$RD/run.log" ]; then
+    echo "✗ no run.log — job produced no output (check queue limits / sacct above)"
+    exit 1
+fi
+grep "rc=" "$RD/run.log" || true
+NOK=$(awk '/rc=/{ if ($0 ~ /rc=0( |$)/) n++ } END{print n+0}' "$RD/run.log")
+NBAD=$(awk '/rc=/{ if ($0 !~ /rc=0( |$)/) n++ } END{print n+0}' "$RD/run.log")
+if ! grep -q "ALL_DONE" "$RD/run.log"; then
+    echo "⚠️  job ended WITHOUT ALL_DONE — likely hit the $TLIMIT wall time."
+    echo "    Resubmit with more time, e.g.: bash tools/submit_cases.sh $RD -q regular -t 02:00:00 --wait"
+    exit 1
+fi
+if [ "$NBAD" -gt 0 ]; then
+    echo "── $NOK/$N columns succeeded, $NBAD failed (see srun.out in each failed case's run/) ──"
+else
+    echo "── $NOK/$N columns succeeded ──"
+fi
+
+if [ -n "$ANALYZE" ]; then
+    if [ "${NOK:-0}" -eq 0 ]; then
+        echo "✗ nothing succeeded — skipping analysis"; exit 1
+    fi
+    echo ""
+    bash tools/run_watershed.sh --analyze "$RD"
+fi

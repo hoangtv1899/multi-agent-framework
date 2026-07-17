@@ -10,8 +10,14 @@
 #       block (step 5) + the analyze command (step 6). The safe default:
 #       inspect 04_analysis/debug_surfaces.png before spending node time.
 #
+#   bash tools/run_watershed.sh --submit "<question ...>"
+#       the same, but after the build submit ONE batch job that runs every
+#       column in parallel on a compute node, wait for it to finish, and
+#       analyze (step 6). Queue/wall time scale with the simulation length
+#       (override: SUBMIT_Q, SUBMIT_T). The recommended hands-off path.
+#
 #   bash tools/run_watershed.sh --execute "<question ...>"
-#       the same, but also run step 5 on a salloc node and analyze (step 6).
+#       like --submit but on a blocking interactive salloc (legacy path).
 #
 #   bash tools/run_watershed.sh --yes "<question ...>"
 #       batch mode: no clarifying questions, no gate (for scripted runs).
@@ -46,12 +52,13 @@ if [ "${1:-}" = "--analyze" ]; then
 fi
 
 # ── flags ────────────────────────────────────────────────────────────────────
-INTERACTIVE=""; EXECUTE=""; YES=""
+INTERACTIVE=""; EXECUTE=""; YES=""; SUBMIT=""
 while [ "${1:-}" ]; do
     case "$1" in
         -i)        INTERACTIVE="--interactive"; shift;;   # kept for compat
         --yes)     YES=1; shift;;
         --execute) EXECUTE=1; shift;;
+        --submit)  SUBMIT=1; shift;;
         -*)        echo "unknown flag: $1"; exit 1;;
         *)         break;;
     esac
@@ -175,7 +182,17 @@ $PY tools/plot_columns.py --run-dir "$RD" --cases-file cases.json --surfaces || 
 NCOL=$($PY -c "import json;print(len(json.load(open('$RD/cases.json'))))")
 
 # ── step 5 + 6 ───────────────────────────────────────────────────────────────
-if [ "$EXECUTE" ]; then
+if [ "$SUBMIT" ]; then
+    # One batch job, all columns in parallel; wall time scales with years.
+    NYR=$((YR_END - YR_START + 1))
+    TMIN=$((15 + NYR * 5))
+    if [ -z "${SUBMIT_Q:-}" ]; then
+        if [ "$TMIN" -le 30 ]; then SUBMIT_Q=debug; else SUBMIT_Q=regular; fi
+    fi
+    SUBMIT_T=${SUBMIT_T:-$(printf "%02d:%02d:00" $((TMIN / 60)) $((TMIN % 60)))}
+    echo "==> [5+6/6] submit $NCOL columns in parallel (queue=$SUBMIT_Q, t=$SUBMIT_T), wait, analyze"
+    bash tools/submit_cases.sh "$RD" -q "$SUBMIT_Q" -t "$SUBMIT_T" --wait --analyze
+elif [ "$EXECUTE" ]; then
     echo "==> [5/6] run $NCOL columns on a salloc node (this blocks until the node is granted)"
     EXE=$(cat "$RD/exe_path.txt")
     CASES=$($PY -c "import json;print(' '.join(json.load(open('$RD/cases.json'))))")
@@ -188,16 +205,21 @@ else
 ✓ built $NCOL columns.  First check $RD/04_analysis/debug_surfaces.png
   (distinct soil profiles per column?), then:
 
-NEXT — [5/6] run on a compute node (copy-paste):
+NEXT — [5+6/6] run all columns in parallel as one batch job, wait, analyze:
+
+  bash tools/submit_cases.sh $RD -q debug -t 00:30:00 --wait --analyze
+
+  (multi-year runs need more time, e.g.:  -q regular -t 02:00:00
+   submit-and-forget instead: drop --wait --analyze, then later run
+   bash tools/run_watershed.sh --analyze $RD)
+
+OR the interactive salloc path (copy-paste):
 
   $SALLOC
   EXE=\$(cat $RD/exe_path.txt)
   CASES=\$($PY -c "import json;print(' '.join(json.load(open('$RD/cases.json'))))")
   bash tools/run_cases.sh "\$EXE" \$CASES | tee $RD/run.log
   exit
-
-THEN — [6/6] analyze:
-
   bash tools/run_watershed.sh --analyze $RD
 ────────────────────────────────────────────────────────────────────────
 EOF
