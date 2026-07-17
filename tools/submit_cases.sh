@@ -6,24 +6,37 @@
 #
 #   bash tools/submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00]
 #                              [--dry] [--wait] [--analyze]
+#                              [--analyze-in-job] [-m <email>]
 #
 # Reads <run-dir>/exe_path.txt + cases.json; the job writes <run-dir>/run.log.
 # --dry writes the sbatch script but does not submit (inspect it first).
+# --analyze-in-job appends the analysis to the batch job itself (runs right
+#   after the columns finish, on the already-allocated node) — submit and
+#   walk away; results appear without any process waiting on a login node.
+# -m <email> adds Slurm mail (END,FAIL) so you are notified when it is done.
+# --wait/--analyze remain for the synchronous flow; do not combine --analyze
+#   with --analyze-in-job (the analysis would run twice).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT=$(pwd)
 
-RD="${1:?usage: submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00] [--dry] [--wait] [--analyze]}"; shift || true
-QUEUE=debug; TLIMIT=00:30:00; DRY=""; WAIT=""; ANALYZE=""
+RD="${1:?usage: submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00] [--dry] [--wait] [--analyze] [--analyze-in-job] [-m <email>]}"; shift || true
+QUEUE=debug; TLIMIT=00:30:00; DRY=""; WAIT=""; ANALYZE=""; AJOB=""; MAIL=""
 while [ "${1:-}" ]; do
     case "$1" in
         -q) QUEUE="$2"; shift 2;;
         -t) TLIMIT="$2"; shift 2;;
+        -m) MAIL="$2"; shift 2;;
         --dry) DRY=1; shift;;
         --wait) WAIT=1; shift;;
         --analyze) ANALYZE=1; shift;;
+        --analyze-in-job) AJOB=1; shift;;
         *) echo "unknown arg: $1"; exit 1;;
     esac
 done
+if [ -n "$ANALYZE" ] && [ -n "$AJOB" ]; then
+    echo "use --analyze OR --analyze-in-job, not both"; exit 1
+fi
 
 [ -f "$RD/exe_path.txt" ] && [ -f "$RD/cases.json" ] || { echo "need $RD/exe_path.txt + cases.json (build first)"; exit 1; }
 EXE=$(cat "$RD/exe_path.txt")
@@ -31,6 +44,18 @@ CASES=$(python3 -c "import json;print(' '.join(json.load(open('$RD/cases.json'))
 N=$(python3 -c "import json;print(len(json.load(open('$RD/cases.json'))))")
 ABS_RD=$(readlink -f "$RD")
 SB="$RD/submit_cases.sbatch"
+
+MAILLINES=""
+[ -n "$MAIL" ] && MAILLINES="#SBATCH --mail-user=$MAIL
+#SBATCH --mail-type=END,FAIL"
+
+AJOBLINES=""
+[ -n "$AJOB" ] && AJOBLINES="
+echo \"── in-job analysis ──\"
+module load pytorch/2.8.0 2>/dev/null || true
+cd $ROOT
+bash tools/run_watershed.sh --analyze $ABS_RD \\
+  || echo \"analysis failed — rerun with: bash tools/run_watershed.sh --analyze $ABS_RD\""
 
 cat > "$SB" <<SBATCH
 #!/bin/bash
@@ -41,6 +66,7 @@ cat > "$SB" <<SBATCH
 #SBATCH -A m3780
 #SBATCH -t $TLIMIT
 #SBATCH -o $ABS_RD/run.log
+$MAILLINES
 # Run every column concurrently: each srun step takes exactly 1 task / 2 cores
 # (--exact), so they pack onto the node instead of serialising.
 EXE="$EXE"
@@ -57,6 +83,7 @@ for C in $CASES; do
 done
 wait
 echo "ALL_DONE in \$(( (SECONDS - t0) / 60 ))min"
+$AJOBLINES
 SBATCH
 
 echo "wrote $SB  ($N columns, queue=$QUEUE, t=$TLIMIT)"
@@ -66,7 +93,13 @@ if [ -z "$WAIT" ]; then
     JID=$(sbatch --parsable "$SB")
     echo "submitted job $JID  →  log: $RD/run.log"
     echo "  watch:   squeue -j $JID    |    tail -f $RD/run.log"
-    echo "  analyze: bash tools/run_watershed.sh --analyze $RD"
+    if [ -n "$AJOB" ]; then
+        echo "  analysis runs inside the job after the columns finish"
+        echo "  results will appear in $RD/04_analysis/"
+    else
+        echo "  analyze: bash tools/run_watershed.sh --analyze $RD"
+    fi
+    [ -n "$MAIL" ] && echo "  email notification (END,FAIL) → $MAIL"
     exit 0
 fi
 

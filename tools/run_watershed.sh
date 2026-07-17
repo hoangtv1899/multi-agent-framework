@@ -183,15 +183,24 @@ NCOL=$($PY -c "import json;print(len(json.load(open('$RD/cases.json'))))")
 
 # ── step 5 + 6 ───────────────────────────────────────────────────────────────
 if [ "$SUBMIT" ]; then
-    # One batch job, all columns in parallel; wall time scales with years.
+    # One batch job, all columns in parallel, analysis in-job after they
+    # finish — submit and walk away. Wall time scales with years (observed
+    # ~1 h per simulated year for a concurrent column ensemble, + margin).
     NYR=$((YR_END - YR_START + 1))
-    TMIN=$((15 + NYR * 5))
+    TMIN=$((30 + NYR * 60))
     if [ -z "${SUBMIT_Q:-}" ]; then
         if [ "$TMIN" -le 30 ]; then SUBMIT_Q=debug; else SUBMIT_Q=regular; fi
     fi
     SUBMIT_T=${SUBMIT_T:-$(printf "%02d:%02d:00" $((TMIN / 60)) $((TMIN % 60)))}
-    echo "==> [5+6/6] submit $NCOL columns in parallel (queue=$SUBMIT_Q, t=$SUBMIT_T), wait, analyze"
-    bash tools/submit_cases.sh "$RD" -q "$SUBMIT_Q" -t "$SUBMIT_T" --wait --analyze
+    MAILARG=()
+    if [ -z "$YES" ] && [ -n "$HAVE_TTY" ]; then
+        drain_tty
+        read -r -u 3 -p "Email for job-completion notification (Enter to skip): " EMAIL
+        [ -n "$EMAIL" ] && MAILARG=(-m "$EMAIL")
+    fi
+    echo "==> [5+6/6] submit $NCOL columns in parallel (queue=$SUBMIT_Q, t=$SUBMIT_T);"
+    echo "    analysis runs inside the job after the columns finish — safe to log out"
+    bash tools/submit_cases.sh "$RD" -q "$SUBMIT_Q" -t "$SUBMIT_T" --analyze-in-job "${MAILARG[@]}"
 elif [ "$EXECUTE" ]; then
     echo "==> [5/6] run $NCOL columns on a salloc node (this blocks until the node is granted)"
     EXE=$(cat "$RD/exe_path.txt")
@@ -205,13 +214,13 @@ else
 ✓ built $NCOL columns.  First check $RD/04_analysis/debug_surfaces.png
   (distinct soil profiles per column?), then:
 
-NEXT — [5+6/6] run all columns in parallel as one batch job, wait, analyze:
+NEXT — [5+6/6] run all columns in parallel as one batch job; the analysis
+runs inside the job when they finish (submit and walk away):
 
-  bash tools/submit_cases.sh $RD -q debug -t 00:30:00 --wait --analyze
+  bash tools/submit_cases.sh $RD -q regular -t 01:30:00 --analyze-in-job -m you@email.gov
 
-  (multi-year runs need more time, e.g.:  -q regular -t 02:00:00
-   submit-and-forget instead: drop --wait --analyze, then later run
-   bash tools/run_watershed.sh --analyze $RD)
+  (budget ~1 h wall time per simulated year; -m adds a completion email.
+   synchronous instead: swap --analyze-in-job for --wait --analyze)
 
 OR the interactive salloc path (copy-paste):
 
