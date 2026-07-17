@@ -17,9 +17,11 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 ROOT = Path(__file__).resolve().parents[1]
 PAPER = ROOT / "docs" / "paper"
 
-TITLE = ("A Capability-Aware Multi-Agent Framework for Trustworthy, "
-         "Observation-Validated Hydrologic Simulation: From Natural-Language "
-         "Question to ELM-PFLOTRAN Experiment")
+# GMD title format: "Name vX.Y: description". NAME is a pending user decision;
+# [NAME] is the placeholder until then.
+TITLE = ("[NAME] v1.0: a capability-aware multi-agent framework for "
+         "trustworthy, observation-validated hydrologic simulation from "
+         "natural-language questions (ELM and PFLOTRAN)")
 
 FIGURES = [
     ("fig1_framework.png",
