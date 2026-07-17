@@ -62,15 +62,20 @@ Q="${1:-}"
 # default; --yes turns both off. Test /dev/tty is openable (not just [ -t 0 ]):
 # the MCP/LLM step disturbs fd 0, so we read prompts from /dev/tty later.
 HAVE_TTY=""
-if { : < /dev/tty; } 2>/dev/null; then HAVE_TTY=1; fi
+if { : < /dev/tty; } 2>/dev/null; then HAVE_TTY=1; exec 3</dev/tty; fi
 if [ -z "$YES" ] && [ -n "$HAVE_TTY" ]; then INTERACTIVE="--interactive"; fi
 if [ -n "$YES" ]; then INTERACTIVE=""; fi
+
+# Drain any type-ahead the user pressed while a long step was running, so the
+# NEXT prompt does not silently consume a stray keystroke (a buffered Enter
+# would read as an empty answer and fall through to the default).
+drain_tty() { [ -n "$HAVE_TTY" ] && while read -r -u 3 -t 0.05 _junk; do :; done; return 0; }
 
 # No question on the command line? Ask for it (needs a terminal).
 if [ -z "$Q" ]; then
     if [ -n "$HAVE_TTY" ]; then
         echo "Enter your scientific question (one line, then Enter):"
-        IFS= read -r Q < /dev/tty
+        IFS= read -r -u 3 Q
     fi
     [ -n "$Q" ] || { echo "usage: $0 [--execute] [--yes] \"<question ...>\""; exit 1; }
 fi
@@ -91,7 +96,7 @@ if [ ! -f "$RD/plan.json" ]; then
     echo ""
     echo "✗ no plan.json — reception did not return a runnable site design"
     echo "  (likely clarification_needed or a non-site question)."
-    echo "  See $RD/reception_brief.json; refine the question or rerun with -i."
+    echo "  See $RD/reception_brief.json; refine the question and rerun."
     exit 1
 fi
 
@@ -141,13 +146,15 @@ for c in (brief.get("run_settings") or {}).get("conflicts") or []:
 print("─" * 72)
 PYEOF
 if [ -z "$YES" ] && [ -n "$HAVE_TTY" ]; then
-    # Read from /dev/tty, not fd 0 — the reception step leaves stdin at EOF.
-    read -r -p "Proceed to build with these settings? [Y/n/edit] " ANS < /dev/tty
+    # Read from the held terminal fd (3), and drain type-ahead first so a stray
+    # Enter pressed during planning cannot answer the prompt for you.
+    drain_tty
+    read -r -u 3 -p "Proceed to build with these settings? [Y/n/edit] " ANS
     case "${ANS:-y}" in
         [nN]*) echo "Stopped. Plan is saved in $RD — rerun with YR_START/YR_END set,"
                echo "or refine the question."; exit 0;;
-        [eE]*) read -r -p "  start year: " YR_START < /dev/tty
-               read -r -p "  end year  : " YR_END < /dev/tty
+        [eE]*) read -r -u 3 -p "  start year: " YR_START
+               read -r -u 3 -p "  end year  : " YR_END
                PERIOD_SOURCE="user";;
     esac
 fi
