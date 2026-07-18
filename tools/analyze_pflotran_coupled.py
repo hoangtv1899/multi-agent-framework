@@ -96,8 +96,10 @@ def main():
     print("-" * 44)
     for r in sorted(rows, key=lambda r: r["fan_wtd_m"]):
         lg = f"{r['lag_days']}" if r["lag_days"] is not None else "—"
+        at = (f"{r['attenuation']:.3f}" if r["attenuation"] is not None
+              else "—  (no arrival)")
         print(f"{r['id']:<8}{r['fan_wtd_m']:>9.1f}{r['flux_annual_mm_yr']:>10.0f}"
-              f"{lg:>7}{r['attenuation']:>8.3f}")
+              f"{lg:>7}{at:>16}")
 
     # figure: example columns + lag/attenuation vs WTD
     import matplotlib
