@@ -81,18 +81,21 @@ FIGURES = [
      "Correlations are computed against log10 water-table depth."),
 
     ("fig6_agent_eval.png",
-     "Figure 6. Agent evaluation on 20 pre-registered prompts. All arms use "
-     "the same language model at temperature 0. Only the architecture "
-     "differs between arms. Top row: the fraction of prompts where an arm "
-     "emitted coordinates at planning time (a), emitted coordinates outside "
-     "the domain (b), or emitted an invalid runnable configuration (c). "
-     "Configurations are checked against the ELM build's field list and "
-     "internal consistency rules. Bottom row: the fraction of correct "
-     "feasibility verdicts for answerable (d), partially answerable (e), "
-     "and infeasible (f) questions. The framework emits no coordinates and "
-     "no runnable configuration at planning time by design. Its verdict "
-     "errors on answerable questions are conservative. Trap outcomes and "
-     "ablation caveats are given in the figure footnotes."),
+     "Figure 6. Agent evaluation on 20 pre-registered prompts. All five arms "
+     "use Claude Opus 4.8 at temperature 0, and only the architecture "
+     "differs between arms. The boundary ablation removes the rule that the "
+     "planner may only describe strategy and never write numbers. The limits "
+     "ablation removes the inventory of what the model stack can and cannot "
+     "do. Top row: the fraction of prompts where an arm emitted coordinates "
+     "at planning time (a), emitted coordinates outside the domain (b), or "
+     "emitted an invalid runnable configuration (c). Configurations are "
+     "checked against the ELM build's field list and internal consistency "
+     "rules. Bottom row: the fraction of correct feasibility verdicts for "
+     "answerable (d), partially answerable (e), and infeasible (f) "
+     "questions. The framework emits no coordinates and no runnable "
+     "configuration at planning time by design, and its verdict errors are "
+     "conservative. Adversarial trap outcomes and the single framework "
+     "infeasible miss are described in the text."),
 ]
 
 

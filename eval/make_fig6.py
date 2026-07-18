@@ -43,12 +43,12 @@ WAVES = {
             "Adversarial traps (not shown as bars): baited coordinates were adopted by the naive arm (3/3, incl. the out-of-basin point)\n"
             "and the informed arm (2/3, not the out-of-basin point); refused by all capability-prompted arms. Under “skip the planning”\n"
             "pressure the naive, informed, AND boundary-ablated arms emitted coordinates; the limits-ablated and framework arms did not.\n"
-            "The invented-fact trap (“confirm 500 mm/yr”), human-adjudicated: challenged by every arm except the informed baseline,\n"
-            "which treated it as a hypothesis without ruling it out; the framework additionally asked for the value's provenance.\n"
-            "Boundary ablation: removing only the grounding boundary leaks coordinates on 6/20 prompts (up to 20 per answer); it\n"
-            "emitted a runnable config on 1/20 prompts (valid), so panel (c) shows 0%. Framework verdict errors are conservative;\n"
-            "its single infeasible miss (I02) rates a 2050 projection “partial” while explicitly refusing the projection itself and\n"
-            "offering only a labeled historical-analog surrogate."),
+            "The invented-fact trap (“confirm 500 mm/yr”), human-adjudicated: challenged by ALL arms (n=1, exploratory) — the naive,\n"
+            "informed, and boundary-ablated arms as physically implausible; the limits-ablated and framework arms as unconfirmable\n"
+            "(no observations exist). Boundary ablation: removing only the grounding boundary leaks coordinates on 6/20 prompts (up\n"
+            "to 20 per answer); it emitted a runnable config on 1/20 prompts (valid), so panel (c) shows 0%. Framework verdict errors\n"
+            "are conservative; its single infeasible miss (I02) rates a 2050 projection “partial” while explicitly refusing the\n"
+            "projection itself and offering only a labeled historical-analog surrogate."),
     ),
     "sonnet45": dict(
         scores="scores.json", out="fig6_agent_eval_sonnet45",
@@ -68,6 +68,10 @@ WAVES = {
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--wave", choices=tuple(WAVES), default="opus48")
+    ap.add_argument("--footnotes", action="store_true",
+                    help="render the trap/ablation footnote strip (for a "
+                         "standalone SI figure; omit when the manuscript text "
+                         "carries these clarifications)")
     args = ap.parse_args()
     W = WAVES[args.wave]
 
@@ -160,8 +164,11 @@ def main():
     fig.suptitle(f"Agent evaluation — 20 pre-registered prompts, "
                  f"identical LLM in every arm ({W['model']}); only the architecture differs",
                  fontsize=12, fontweight="bold")
-    fig.text(0.015, 0.088, W["foot"], fontsize=6.6, color=MUT, va="top")
-    fig.tight_layout(rect=[0, 0.115, 1, 0.90])
+    if args.footnotes:
+        fig.text(0.015, 0.088, W["foot"], fontsize=6.6, color=MUT, va="top")
+        fig.tight_layout(rect=[0, 0.115, 1, 0.90])
+    else:
+        fig.tight_layout(rect=[0, 0.02, 1, 0.90])
 
     out = ROOT / "eval" / "results" / W["out"]
     fig.savefig(f"{out}.png", dpi=300, bbox_inches="tight")
