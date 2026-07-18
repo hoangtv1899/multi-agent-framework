@@ -178,39 +178,12 @@ def main():
     if args.layout == "main4":
         for ax, (title, vals) in zip(axes[:3], top.items()):
             panel(ax, title, vals, f"% of {n_prompts} prompts (lower is better)")
-        # panel (d): paired directional bars — over-claims (solid, the unsafe
-        # direction) and under-claims (light, the conservative cost).
-        ax = axes[3]
-        for y, (arm, label) in zip(ypos, ARMS):
-            over, under = dirs[arm]
-            color = ACCENT if arm == "A4_framework" else NEUTRAL
-            ax.barh(y + 0.17, over, height=0.30, color=color, zorder=3)
-            ax.barh(y - 0.17, under, height=0.30, color=UNDER, zorder=3)
-            ax.text(over + 0.02, y + 0.17, f"{over * 100:.0f}%", va="center",
-                    fontsize=7.6, color=INK)
-            ax.text(under + 0.02, y - 0.17, f"{under * 100:.0f}%", va="center",
-                    fontsize=7.0, color=MUT)
-        ax.set_ylim(-0.65, len(ARMS) - 0.35)
-        ax.set_yticks(list(ypos))
-        ax.set_yticklabels([lab for _, lab in ARMS], fontsize=7.6)
-        ax.set_xlim(0, 1.14)
-        ax.set_xticks([0, .25, .5, .75, 1.0])
-        ax.set_xticklabels(["0", "25", "50", "75", "100%"], fontsize=7.5)
-        ax.set_title("(d) feasibility verdicts that over-claim",
-                     fontsize=9.5, fontweight="bold", loc="left")
-        ax.set_xlabel(f"% of {n_prompts} prompts (lower is better)",
-                      fontsize=8, color=MUT)
-        ax.grid(axis="x", alpha=.25, zorder=0)
-        for sp in ("top", "right", "left"):
-            ax.spines[sp].set_visible(False)
-        ax.tick_params(left=False)
-        ax.legend(handles=[
-            plt.Rectangle((0, 0), 1, 1, color=NEUTRAL,
-                          label="over-claims (unsafe)"),
-            plt.Rectangle((0, 0), 1, 1, color=UNDER,
-                          label="under-claims (hedges)")],
-            loc="upper right", bbox_to_anchor=(1.0, 1.02), frameon=False,
-            fontsize=6.8, handlelength=1.1, borderaxespad=0.1)
+        # panel (d): over-claim rate only, same visual grammar as (a)-(c).
+        # Under-claims (conservative hedges) go to the caption, keeping one
+        # color system: blue/gray = arm identity, never metric type.
+        panel(axes[3], "(d) feasibility verdicts that over-claim",
+              {a: dirs[a][0] for a, _ in ARMS},
+              f"% of {n_prompts} prompts (lower is better)")
     else:
         for ax, (title, vals) in zip(axes[0], top.items()):
             panel(ax, title, vals, f"% of {n_prompts} prompts (lower is better)")

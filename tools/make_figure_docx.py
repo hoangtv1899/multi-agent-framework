@@ -91,13 +91,14 @@ FIGURES = [
      "(a), emitted coordinates outside the domain (b), emitted an invalid "
      "runnable configuration (c), or gave a feasibility verdict that claims "
      "more than the question allows (d). Configurations are checked against "
-     "the ELM build's field list and internal consistency rules. In (d), "
-     "solid bars are over-claims and light bars are conservative hedges; "
-     "the two directions are not symmetric costs. The framework emits no "
-     "coordinates and no runnable configuration at planning time by design. "
-     "Its single over-claim rates an impossible 2050 projection as partial "
-     "while explicitly refusing the projection itself. Per-class verdict "
-     "accuracies for both model waves are in the supplement."),
+     "the ELM build's field list and internal consistency rules. The "
+     "framework emits no coordinates and no runnable configuration at "
+     "planning time by design. Its single over-claim rates an impossible "
+     "2050 projection as partial while explicitly refusing the projection "
+     "itself. Errors in the conservative direction are not shown as bars: "
+     "the framework instead hedges answerable questions on 11 of 20 "
+     "prompts, the ablations on 10, and the baselines on 4 to 6. Per-class "
+     "verdict accuracies for both model waves are in the supplement."),
 ]
 
 
