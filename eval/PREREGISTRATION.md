@@ -108,3 +108,24 @@ Declared now, before any new data:
    are reported.
 4. Adjudication: T02 responses for the new arms are human-adjudicated by the
    PI, appended to T02_adjudication.json, as before.
+
+---
+
+## Addendum 4 (2026-07-18, declared BEFORE running): instrumentation wave for token accounting
+
+Purpose: exact per-call token usage for the cost panel of Figure 6. The
+runner now records gateway-reported usage (prompt/completion tokens).
+
+Declared now, before any new data:
+1. Re-run all five arms on the 20 main prompts, identical model
+   (claude-opus-4-8-project), temperature 0, seed 1995, max_tokens 8192,
+   into eval/results/raw_opus48_usage/.
+2. This wave is used ONLY for token statistics. The frozen Opus wave
+   (raw_opus48) remains the wave of record for every scored metric; no
+   score, verdict, or trap statistic in the paper may be sourced from the
+   instrumentation wave.
+3. As a free determinism check, the instrumentation wave will be scored
+   with the unchanged scorer and its per-arm summary compared to the wave
+   of record. Agreement or disagreement is reported either way; any
+   disagreement is a statement about gateway nondeterminism, not grounds
+   to switch waves.
