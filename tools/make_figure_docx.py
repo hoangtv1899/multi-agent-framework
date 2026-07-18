@@ -101,10 +101,12 @@ FIGURES = [
      "arm on 6 of 20 prompts and by no other arm. Conservative errors are "
      "not shown: SAGE-Hydro hedges answerable questions on 11 of 20 "
      "prompts, the ablations on 10, the baselines on 4 to 6. Token counts "
-     "are gateway-reported from a declared instrumentation re-run; a "
-     "planning call costs on the order of cents at current API prices, and "
-     "a full campaign uses about a dozen calls. Per-class verdict "
-     "accuracies for both model waves are in the supplement."),
+     "are gateway-reported from a declared instrumentation re-run. A "
+     "capability-aware planning call totals about 11,000 tokens, well "
+     "under a dollar at published list prices, and a full campaign uses "
+     "about a dozen calls, so the planning budget is bounded and small. "
+     "Per-class verdict accuracies for both model waves are in the "
+     "supplement."),
 ]
 
 
