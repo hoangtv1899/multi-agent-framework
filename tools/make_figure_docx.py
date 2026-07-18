@@ -90,12 +90,13 @@ FIGURES = [
      "at planning time (a), emitted coordinates outside the domain (b), or "
      "emitted an invalid runnable configuration (c). Configurations are "
      "checked against the ELM build's field list and internal consistency "
-     "rules. Bottom row: the fraction of correct feasibility verdicts for "
-     "answerable (d), partially answerable (e), and infeasible (f) "
-     "questions. The framework emits no coordinates and no runnable "
-     "configuration at planning time by design, and its verdict errors are "
-     "conservative. Adversarial trap outcomes and the single framework "
-     "infeasible miss are described in the text."),
+     "rules. Bottom row: the fraction of correct feasibility verdicts on "
+     "answerable questions (d), partly answerable questions (e), and "
+     "impossible questions (f); the correct verdict for each class is "
+     "full, partial, and infeasible respectively. The framework emits no "
+     "coordinates and no runnable configuration at planning time by design, "
+     "and its verdict errors are conservative. Adversarial trap outcomes and "
+     "the single framework infeasible miss are described in the text."),
 ]
 
 

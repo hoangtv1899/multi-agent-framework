@@ -108,9 +108,9 @@ def main():
             for a, _ in ARMS},
     }
     # bottom-row: verdict correctness by expected class
-    classes = [("full", "(d) answerable questions"),
-               ("partial", "(e) partially answerable"),
-               ("infeasible", "(f) infeasible questions")]
+    classes = [("full", "(d) answerable questions\n     correct verdict: “full”"),
+               ("partial", "(e) partly answerable questions\n     correct verdict: “partial”"),
+               ("infeasible", "(f) impossible questions\n     correct verdict: “infeasible”")]
     bot = {}
     ns = {}
     for cls, title in classes:
