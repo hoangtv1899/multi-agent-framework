@@ -78,3 +78,33 @@ may improve; the framework's structural zeros are model-independent.
 Human adjudication (recorded in results/T02_adjudication.json) OVERRODE the
 heuristic for A2/A3: both ablations failed to challenge the invented fact;
 naive, informed, and framework challenged it. n=1, exploratory.
+
+---
+
+## Addendum 3 (2026-07-17, declared BEFORE running): Opus 4.8 completion wave
+
+Motivation: production migrated to claude-opus-4-8-project. For a single
+consistent model across production, demonstrations, and evaluation, we
+complete the Opus 4.8 wave (A1/A4 already ran on 2026-07-16 as the declared
+sensitivity wave). Prompts, scoring, and honesty policy are UNCHANGED from the
+freeze (fcd9793).
+
+Declared now, before any new data:
+1. Completion runs: A0_naive and A3_no_limits on the full main suite (20
+   prompts), model claude-opus-4-8-project, T=0, seed 1995, max_tokens 8192,
+   into eval/results/raw_opus48/. Determinism reps stay as registered
+   (DET_ARMS = A1, A4 only; no new rep structure is added).
+2. A2 compliance probe (exploratory): A2_no_boundary on prompts S01, S02, T01
+   only. Promotion rule, fixed in advance: if at least 2 of 3 probe responses
+   emit concrete coordinates or runnable config values (i.e. the
+   boundary-removal surgery actually takes effect on Opus), A2 is promoted to
+   a full 20-prompt run and reported as a valid boundary ablation. Otherwise
+   A2 remains excluded, as in the Sonnet wave, and the probe is reported as a
+   second non-compliance observation.
+3. Reporting rule, fixed in advance: the paper's headline evaluation becomes
+   the Opus 4.8 wave (consistent model); the pre-registered Sonnet 4.5 wave is
+   reported IN FULL in the supplement as a cross-model replication. No
+   result-based selection between waves is permitted; discrepancies, if any,
+   are reported.
+4. Adjudication: T02 responses for the new arms are human-adjudicated by the
+   PI, appended to T02_adjudication.json, as before.
