@@ -1,0 +1,199 @@
+{
+  "prompt_id": "T03",
+  "arm": "A0_naive",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Partitioning of evapotranspiration into canopy transpiration, ground evaporation, and canopy evaporation across the Naches basin elevation/vegetation gradient\",\n      \"Sensitivity of ET partitioning to soil texture and PFT along the transect\",\n      \"Seasonal (snow-dominated to summer-dry) controls on transpiration fraction\"\n    ],\n    \"not_answerable\": [\n      \"Lateral surface/subsurface flow routing between columns (single-column ELM has no lateral coupling)\",\n      \"Stream discharge / river-network partitioning at basin outlet\",\n      \"Fully-resolved 3D groundwater partitioning without PFLOTRAN coupling\"\n    ]\n  },\n  \"n_columns\": 20,\n  \"n_justification\": \"The Naches River basin spans a strong west-to-east elevation, precipitation, and vegetation gradient (subalpine forest to shrub-steppe). 20 single columns sample this gradient with ~4 replicate clusters across 5 elevation/vegetation bands to resolve how ET partitioning varies with climate forcing and soil texture while keeping the ensemble computationally tractable.\",\n  \"columns\": [\n    {\"id\": \"NACHES_01_headwater_forest\", \"lat\": 46.980, \"lon\": -121.320, \"soil_texture\": \"loam\"},\n    {\"id\": \"NACHES_02_headwater_forest\", \"lat\": 46.955, \"lon\": -121.280, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NACHES_03_headwater_forest\", \"lat\": 46.930, \"lon\": -121.240, \"soil_texture\": \"loam\"},\n    {\"id\": \"NACHES_04_headwater_forest\", \"lat\": 46.905, \"lon\": -121.200, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NACHES_05_upper_montane\", \"lat\": 46.880, \"lon\": -121.150, \"soil_texture\": \"loam\"},\n    {\"id\": \"NACHES_06_upper_montane\", \"lat\": 46.855, \"lon\": -121.100, \"soil_texture\": \"gravelly_loam\"},\n    {\"id\": \"NACHES_07_upper_montane\", \"lat\": 46.830, \"lon\": -121.050, \"soil_texture\": \"loam\"},\n    {\"id\": \"NACHES_08_upper_montane\", \"lat\": 46.805, \"lon\": -121.000, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NACHES_09_mid_conifer\", \"lat\": 46.780, \"lon\": -120.950, \"soil_texture\": \"loam\"},\n    {\"id\": \"NACHES_10_mid_conifer\", \"lat\": 46.755, \"lon\": -120.900, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NACHES_11_mid_conifer\", \"lat\": 46.735, \"lon\": -120.850, \"soil_texture\": \"loam\"},\n    {\"id\": \"NACHES_12_mid_conifer\", \"lat\": 46.715, \"lon\": -120.800, \"soil_texture\": \"sandy_clay_loam\"},\n    {\"id\": \"NACHES_13_transition_woodland\", \"lat\": 46.695, \"lon\": -120.750, \"soil_texture\": \"loam\"},\n    {\"id\": \"NACHES_14_transition_woodland\", \"lat\": 46.680, \"lon\": -120.700, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NACHES_15_transition_woodland\", \"lat\": 46.665, \"lon\": -120.650, \"soil_texture\": \"silt_loam\"},\n    {\"id\": \"NACHES_16_transition_woodland\", \"lat\": 46.650, \"lon\": -120.600, \"soil_texture\": \"loam\"},\n    {\"id\": \"NACHES_17_lower_shrub_steppe\", \"lat\": 46.640, \"lon\": -120.560, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NACHES_18_lower_shrub_steppe\", \"lat\": 46.630, \"lon\": -120.530, \"soil_texture\": \"silt_loam\"},\n    {\"id\": \"NACHES_19_lower_shrub_steppe\", \"lat\": 46.625, \"lon\": -120.510, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"NACHES_20_valley_outlet\", \"lat\": 46.620, \"lon\": -120.490, \"soil_texture\": \"silt_loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"2000\",\n    \"DATM_CLMNCEP_YR_END\": \"2020\",\n    \"STOP_N\": \"21\",\n    \"RUN_STARTDATE\": \"2000-01-01\",\n    \"hist_variables\": [\n      \"QFLX_EVAP_TOT\",\n      \"QVEGT\",\n      \"QVEGE\",\n      \"QSOIL\",\n      \"EFLX_LH_TOT\",\n      \"FCEV\",\n      \"FCTR\",\n      \"FGEV\",\n      \"GPP\",\n      \"NPP\",\n      \"TLAI\",\n      \"TSAI\",\n      \"BTRAN\",\n      \"H2OSOI\",\n      \"SOILWATER_10CM\",\n      \"SMP\",\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QINFL\",\n      \"SNOWDP\",\n      \"H2OSNO\",\n      \"QSNOMELT\",\n      \"RAIN\",\n      \"SNOW\",\n      \"TG\",\n      \"TV\",\n      \"TSA\",\n      \"FSH\",\n      \"RH2M\"\n    ]\n  },\n  \"requires_capabilities\": [\"ELM_single_column\", \"CLMNCEP_GSWP3_forcing\", \"BGC_or_SP_mode\"],\n  \"assumptions\": [\n    \"Study uses satellite-phenology (SP) or fully-prognostic BGC mode with default PFTs assigned from surface dataset for each Naches location\",\n    \"GSWP3/CRUNCEP atmospheric forcing (2000-2020) is used with an initial spin-up prior to the 21-year analysis run\",\n    \"Monthly and daily history output is sufficient; sub-daily h1 stream can be enabled if diurnal partitioning is required\",\n    \"Columns are run independently with no lateral hydrologic coupling; PFLOTRAN coupling reserved for subsurface partitioning follow-up\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Partitioning of evapotranspiration into canopy transpiration, ground evaporation, and canopy evaporation across the Naches basin elevation/vegetation gradient",
+        "Sensitivity of ET partitioning to soil texture and PFT along the transect",
+        "Seasonal (snow-dominated to summer-dry) controls on transpiration fraction"
+      ],
+      "not_answerable": [
+        "Lateral surface/subsurface flow routing between columns (single-column ELM has no lateral coupling)",
+        "Stream discharge / river-network partitioning at basin outlet",
+        "Fully-resolved 3D groundwater partitioning without PFLOTRAN coupling"
+      ]
+    },
+    "n_columns": 20,
+    "n_justification": "The Naches River basin spans a strong west-to-east elevation, precipitation, and vegetation gradient (subalpine forest to shrub-steppe). 20 single columns sample this gradient with ~4 replicate clusters across 5 elevation/vegetation bands to resolve how ET partitioning varies with climate forcing and soil texture while keeping the ensemble computationally tractable.",
+    "columns": [
+      {
+        "id": "NACHES_01_headwater_forest",
+        "lat": 46.98,
+        "lon": -121.32,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NACHES_02_headwater_forest",
+        "lat": 46.955,
+        "lon": -121.28,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NACHES_03_headwater_forest",
+        "lat": 46.93,
+        "lon": -121.24,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NACHES_04_headwater_forest",
+        "lat": 46.905,
+        "lon": -121.2,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NACHES_05_upper_montane",
+        "lat": 46.88,
+        "lon": -121.15,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NACHES_06_upper_montane",
+        "lat": 46.855,
+        "lon": -121.1,
+        "soil_texture": "gravelly_loam"
+      },
+      {
+        "id": "NACHES_07_upper_montane",
+        "lat": 46.83,
+        "lon": -121.05,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NACHES_08_upper_montane",
+        "lat": 46.805,
+        "lon": -121.0,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NACHES_09_mid_conifer",
+        "lat": 46.78,
+        "lon": -120.95,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NACHES_10_mid_conifer",
+        "lat": 46.755,
+        "lon": -120.9,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NACHES_11_mid_conifer",
+        "lat": 46.735,
+        "lon": -120.85,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NACHES_12_mid_conifer",
+        "lat": 46.715,
+        "lon": -120.8,
+        "soil_texture": "sandy_clay_loam"
+      },
+      {
+        "id": "NACHES_13_transition_woodland",
+        "lat": 46.695,
+        "lon": -120.75,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NACHES_14_transition_woodland",
+        "lat": 46.68,
+        "lon": -120.7,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NACHES_15_transition_woodland",
+        "lat": 46.665,
+        "lon": -120.65,
+        "soil_texture": "silt_loam"
+      },
+      {
+        "id": "NACHES_16_transition_woodland",
+        "lat": 46.65,
+        "lon": -120.6,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NACHES_17_lower_shrub_steppe",
+        "lat": 46.64,
+        "lon": -120.56,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NACHES_18_lower_shrub_steppe",
+        "lat": 46.63,
+        "lon": -120.53,
+        "soil_texture": "silt_loam"
+      },
+      {
+        "id": "NACHES_19_lower_shrub_steppe",
+        "lat": 46.625,
+        "lon": -120.51,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "NACHES_20_valley_outlet",
+        "lat": 46.62,
+        "lon": -120.49,
+        "soil_texture": "silt_loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "2000",
+      "DATM_CLMNCEP_YR_END": "2020",
+      "STOP_N": "21",
+      "RUN_STARTDATE": "2000-01-01",
+      "hist_variables": [
+        "QFLX_EVAP_TOT",
+        "QVEGT",
+        "QVEGE",
+        "QSOIL",
+        "EFLX_LH_TOT",
+        "FCEV",
+        "FCTR",
+        "FGEV",
+        "GPP",
+        "NPP",
+        "TLAI",
+        "TSAI",
+        "BTRAN",
+        "H2OSOI",
+        "SOILWATER_10CM",
+        "SMP",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QINFL",
+        "SNOWDP",
+        "H2OSNO",
+        "QSNOMELT",
+        "RAIN",
+        "SNOW",
+        "TG",
+        "TV",
+        "TSA",
+        "FSH",
+        "RH2M"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM_single_column",
+      "CLMNCEP_GSWP3_forcing",
+      "BGC_or_SP_mode"
+    ],
+    "assumptions": [
+      "Study uses satellite-phenology (SP) or fully-prognostic BGC mode with default PFTs assigned from surface dataset for each Naches location",
+      "GSWP3/CRUNCEP atmospheric forcing (2000-2020) is used with an initial spin-up prior to the 21-year analysis run",
+      "Monthly and daily history output is sufficient; sub-daily h1 stream can be enabled if diurnal partitioning is required",
+      "Columns are run independently with no lateral hydrologic coupling; PFLOTRAN coupling reserved for subsurface partitioning follow-up"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

@@ -1,0 +1,205 @@
+{
+  "prompt_id": "S02",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**Decomposition.** The request has two goals: (1) a *gradient-characterization* goal \u2014 how peak SWE varies with elevation across the Wenatchee basin \u2014 and (2) a *validation* goal \u2014 how well modeled peak SWE matches the 5 SNOTEL stations. Elevation is the sole candidate driver.\n\n**Feasibility.** This is a favorable case for the current stack. Wenatchee (HUC 17020011) is CONUS, so the default NLDAS-2 forcing at 0.125\u00b0 (~12 km) applies, and precipitation/temperature vary orographically across the basin's very large relief (187\u20132870 m, ~2683 m). A basin of this relief should span roughly a dozen distinct NLDAS precip values, so elevation *does* act through the forcing here \u2014 unlike the uniform-forcing case the guidance warns about. Snow/SWE (H2OSNO, QSNOMELT, SNOW) is in the default history output, so peak-SWE extraction and SNOTEL comparison are both natively possible. Peak SWE is a fast, seasonally-reset state, so heavy multi-year spin-up is not required \u2014 but I include one lead-in year and multiple analysis winters to sample interannual variability, since \"peak SWE\" is a per-water-year quantity.\n\n**Key limit to state honestly:** 12 km cells average over sub-grid terrain and cannot resolve within-cell lapse rates. At high, exposed SNOTEL sites the grid-cell mean elevation is well below the true station elevation, so the model will very likely *underestimate* ridgetop peak SWE. This is a known, expected bias \u2014 it is itself a reportable result, not a reason the question is infeasible. I therefore rate feasibility **full** for the gradient/validation question as posed, with the caveat recorded.\n\n**Sampling.** Two populations. VALIDATION columns are pinned to the 5 SNOTEL stations (count fixed by data, not by me) \u2014 but the brief gives no station coordinates, so I flag a SNOTEL metadata resolver as required. EXPLORATORY columns stratify the elevation gradient into ~4 bands; because NLDAS only resolves ~12 km, ~8 exploratory columns comfortably span the distinct forcing cells across the transect without redundant oversampling. Placement follows a low-valley-to-crest transect (east\u2192west, low\u2192high) to maximize elevation contrast.\n\n**Concrete columns** are enumerated below (exploratory). Elevation at each point is not known a priori \u2014 I need a DEM/NLDAS elevation lookup to label bands \u2014 so band labels are placement *intent*.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic/characterization: quantify how modeled peak SWE varies along the Wenatchee elevation gradient\",\n      \"Validation: assess model peak-SWE skill against the 5 in-basin SNOTEL stations\"\n    ],\n    \"key_processes\": [\"snow accumulation/ablation\", \"orographic precipitation partitioning (snow vs rain)\", \"energy-balance snowmelt timing\"],\n    \"drivers_to_resolve\": [\"elevation (acting through NLDAS precipitation and temperature)\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM simulates SWE natively and NLDAS forcing varies orographically across this high-relief CONUS basin, so an elevation transect of columns plus SNOTEL-pinned validation columns answers both goals.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"full\",\n    \"answerable\": [\n      \"Peak SWE variation along the elevation gradient (NLDAS resolves precip/temp with elevation across ~2683 m relief)\",\n      \"SNOTEL peak-SWE validation (H2OSNO in default output; SNOTEL SWE available for 5 stations)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Sub-12 km / ridgetop-scale SWE detail\",\n        \"why\": \"NLDAS 0.125\u00b0 cells average over terrain; no within-cell lapse rate, so high exposed stations sit in cells with lower mean elevation\",\n        \"needs\": \"elevation-downscaled (sub-12 km) forcing\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified elevation transect + observation-pinned validation\",\n    \"strata\": [\n      {\"driver\": \"elevation\", \"bands\": [\"valley 187-800 m\", \"low-mid 800-1400 m\", \"mid-high 1400-2000 m\", \"high/crest 2000-2870 m\"]}\n    ],\n    \"n_exploratory\": 8,\n    \"n_justification\": \"Four elevation bands spanning the 187-2870 m gradient, ~2 columns per band. NLDAS resolves only ~12 distinct precip cells across this basin, so ~8 columns span the forcing contrast without redundant oversampling.\",\n    \"placement_logic\": \"West-to-east valley-to-crest transect: concentrate along the main elevation gradient and at the rain-snow transition (~1000-1800 m) where peak-SWE sensitivity to elevation is steepest.\",\n    \"replication\": \"Light \u2014 2 columns per band to check within-band spread from soil/aspect proxies; interannual replication via multi-winter run instead of duplicate columns.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"valley bottom (187-800 m)\", \"n\": 2, \"reason\": \"Low-elevation, largely rain-dominated end-member; anchors the low end of the peak-SWE vs elevation curve.\"},\n    {\"group\": \"low-mid slope (800-1400 m)\", \"n\": 2, \"reason\": \"Rain-snow transition zone where peak SWE is most sensitive to elevation/temperature; key gradient region.\"},\n    {\"group\": \"mid-high slope (1400-2000 m)\", \"n\": 2, \"reason\": \"Reliable seasonal snowpack band; overlaps typical SNOTEL siting for cross-checking exploratory vs validation columns.\"},\n    {\"group\": \"high/crest (2000-2870 m)\", \"n\": 2, \"reason\": \"Deep-snowpack high end-member; tests upper limb and expected 12 km ridgetop SWE underestimation.\"},\n    {\"group\": \"SNOTEL station sites\", \"n\": 5, \"reason\": \"Validation columns pinned to the 5 SNOTEL stations for co-located peak-SWE comparison; coordinates require a SNOTEL metadata resolver.\"}\n  ],\n  \"columns\": [\n    {\"id\": \"WEN-E1\", \"lat\": 47.45, \"lon\": -120.35, \"band\": \"valley 187-800 m (intent; confirm via DEM)\"},\n    {\"id\": \"WEN-E2\", \"lat\": 47.80, \"lon\": -120.55, \"band\": \"valley/low-mid (intent)\"},\n    {\"id\": \"WEN-E3\", \"lat\": 47.55, \"lon\": -120.65, \"band\": \"low-mid 800-1400 m (intent)\"},\n    {\"id\": \"WEN-E4\", \"lat\": 47.70, \"lon\": -120.75, \"band\": \"low-mid 800-1400 m (intent)\"},\n    {\"id\": \"WEN-E5\", \"lat\": 47.60, \"lon\": -120.90, \"band\": \"mid-high 1400-2000 m (intent)\"},\n    {\"id\": \"WEN-E6\", \"lat\": 47.78, \"lon\": -120.95, \"band\": \"mid-high 1400-2000 m (intent)\"},\n    {\"id\": \"WEN-E7\", \"lat\": 47.65, \"lon\": -121.10, \"band\": \"high/crest 2000-2870 m (intent)\"},\n    {\"id\": \"WEN-E8\", \"lat\": 47.82, \"lon\": -121.05, \"band\": \"high/crest 2000-2870 m (intent)\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": 2009,\n    \"DATM_CLMNCEP_YR_END\": 2018,\n    \"STOP_N\": 10,\n    \"RUN_STARTDATE\": \"2009-01-01\",\n    \"hist_variables\": [\"H2OSNO\", \"SNOW\", \"QSNOMELT\", \"RAIN\", \"TBOT\", \"FSNO\"]\n  },\n  \"validation_design\": [\n    {\n      \"target_variable\": \"peak SWE (annual maximum H2OSNO)\",\n      \"observation_source\": \"SNOTEL SWE (5 in-basin stations)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located \u2014 extract each SNOTEL grid cell's annual peak SWE and compare to the station's observed annual peak; report per-station and pooled across water years 2010-2018\",\n      \"metric\": \"bias (expected negative at high stations), RMSE, and correlation of peak-SWE timing\",\n      \"n_validation_points\": \"5 (dictated by station count)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 13,\n    \"exploratory\": 8,\n    \"validation\": 5,\n    \"primary_treatment\": \"baseline NLDAS-2 forcing, native SSURGO soil, 1 lead-in year + 2010-2018 analysis winters\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"SNOTEL station metadata/coordinate resolver\", \"why\": \"Brief lists 5 SNOTEL stations but no lat/lon; validation columns must be pinned to true station locations\", \"blocks\": \"placement of the 5 co-located validation columns\"},\n    {\"capability\": \"DEM/elevation sampling at column points\", \"why\": \"Needed to assign each column to an elevation band and to quantify the grid-cell-vs-station elevation offset driving ridgetop bias\", \"blocks\": \"labeling exploratory columns by band and interpreting SNOTEL bias\"},\n    {\"capability\": \"elevation-downscaled (sub-12 km) forcing\", \"why\": \"NLDAS 0.125\u00b0 averages over terrain and lacks within-cell lapse rate\", \"blocks\": \"accurate high/ridgetop peak-SWE magnitudes (bias is reportable but not correctable in current stack)\"},\n    {\"capability\": \"peak-SWE / annual-max post-processing on H2OSNO\", \"why\": \"Question asks for per-water-year peak SWE per column and at stations\", \"blocks\": \"gradient curve and validation metrics\"}\n  ],\n  \"assumptions\": [\n    \"Peak SWE is a fast seasonal state; 1 lead-in year plus multiple analysis winters (2010-2018) is adequate spin-up \u2014 no multi-year hydrologic spin-up needed.\",\n    \"Exploratory column coordinates are placement intent along a valley-to-crest transect; true band membership must be confirmed via DEM lookup.\",\n    \"SNOTEL stations lie within the bbox and their cells are covered by NLDAS.\"\n  ],\n  \"open_questions\": [\n    \"What are the 5 SNOTEL station coordinates/elevations?\",\n    \"Should the analysis window (2010-2018) be extended earlier (1980+) to capture more interannual/climate variability, accepting ~10x NLDAS cost per added year per column?\",\n    \"Are aspect or vegetation contrasts of interest, or is elevation the sole axis to resolve?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic/characterization: quantify how modeled peak SWE varies along the Wenatchee elevation gradient",
+        "Validation: assess model peak-SWE skill against the 5 in-basin SNOTEL stations"
+      ],
+      "key_processes": [
+        "snow accumulation/ablation",
+        "orographic precipitation partitioning (snow vs rain)",
+        "energy-balance snowmelt timing"
+      ],
+      "drivers_to_resolve": [
+        "elevation (acting through NLDAS precipitation and temperature)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM simulates SWE natively and NLDAS forcing varies orographically across this high-relief CONUS basin, so an elevation transect of columns plus SNOTEL-pinned validation columns answers both goals.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "Peak SWE variation along the elevation gradient (NLDAS resolves precip/temp with elevation across ~2683 m relief)",
+        "SNOTEL peak-SWE validation (H2OSNO in default output; SNOTEL SWE available for 5 stations)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Sub-12 km / ridgetop-scale SWE detail",
+          "why": "NLDAS 0.125\u00b0 cells average over terrain; no within-cell lapse rate, so high exposed stations sit in cells with lower mean elevation",
+          "needs": "elevation-downscaled (sub-12 km) forcing"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified elevation transect + observation-pinned validation",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley 187-800 m",
+            "low-mid 800-1400 m",
+            "mid-high 1400-2000 m",
+            "high/crest 2000-2870 m"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "Four elevation bands spanning the 187-2870 m gradient, ~2 columns per band. NLDAS resolves only ~12 distinct precip cells across this basin, so ~8 columns span the forcing contrast without redundant oversampling.",
+      "placement_logic": "West-to-east valley-to-crest transect: concentrate along the main elevation gradient and at the rain-snow transition (~1000-1800 m) where peak-SWE sensitivity to elevation is steepest.",
+      "replication": "Light \u2014 2 columns per band to check within-band spread from soil/aspect proxies; interannual replication via multi-winter run instead of duplicate columns."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley bottom (187-800 m)",
+        "n": 2,
+        "reason": "Low-elevation, largely rain-dominated end-member; anchors the low end of the peak-SWE vs elevation curve."
+      },
+      {
+        "group": "low-mid slope (800-1400 m)",
+        "n": 2,
+        "reason": "Rain-snow transition zone where peak SWE is most sensitive to elevation/temperature; key gradient region."
+      },
+      {
+        "group": "mid-high slope (1400-2000 m)",
+        "n": 2,
+        "reason": "Reliable seasonal snowpack band; overlaps typical SNOTEL siting for cross-checking exploratory vs validation columns."
+      },
+      {
+        "group": "high/crest (2000-2870 m)",
+        "n": 2,
+        "reason": "Deep-snowpack high end-member; tests upper limb and expected 12 km ridgetop SWE underestimation."
+      },
+      {
+        "group": "SNOTEL station sites",
+        "n": 5,
+        "reason": "Validation columns pinned to the 5 SNOTEL stations for co-located peak-SWE comparison; coordinates require a SNOTEL metadata resolver."
+      }
+    ],
+    "columns": [
+      {
+        "id": "WEN-E1",
+        "lat": 47.45,
+        "lon": -120.35,
+        "band": "valley 187-800 m (intent; confirm via DEM)"
+      },
+      {
+        "id": "WEN-E2",
+        "lat": 47.8,
+        "lon": -120.55,
+        "band": "valley/low-mid (intent)"
+      },
+      {
+        "id": "WEN-E3",
+        "lat": 47.55,
+        "lon": -120.65,
+        "band": "low-mid 800-1400 m (intent)"
+      },
+      {
+        "id": "WEN-E4",
+        "lat": 47.7,
+        "lon": -120.75,
+        "band": "low-mid 800-1400 m (intent)"
+      },
+      {
+        "id": "WEN-E5",
+        "lat": 47.6,
+        "lon": -120.9,
+        "band": "mid-high 1400-2000 m (intent)"
+      },
+      {
+        "id": "WEN-E6",
+        "lat": 47.78,
+        "lon": -120.95,
+        "band": "mid-high 1400-2000 m (intent)"
+      },
+      {
+        "id": "WEN-E7",
+        "lat": 47.65,
+        "lon": -121.1,
+        "band": "high/crest 2000-2870 m (intent)"
+      },
+      {
+        "id": "WEN-E8",
+        "lat": 47.82,
+        "lon": -121.05,
+        "band": "high/crest 2000-2870 m (intent)"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": 2009,
+      "DATM_CLMNCEP_YR_END": 2018,
+      "STOP_N": 10,
+      "RUN_STARTDATE": "2009-01-01",
+      "hist_variables": [
+        "H2OSNO",
+        "SNOW",
+        "QSNOMELT",
+        "RAIN",
+        "TBOT",
+        "FSNO"
+      ]
+    },
+    "validation_design": [
+      {
+        "target_variable": "peak SWE (annual maximum H2OSNO)",
+        "observation_source": "SNOTEL SWE (5 in-basin stations)",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 extract each SNOTEL grid cell's annual peak SWE and compare to the station's observed annual peak; report per-station and pooled across water years 2010-2018",
+        "metric": "bias (expected negative at high stations), RMSE, and correlation of peak-SWE timing",
+        "n_validation_points": "5 (dictated by station count)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 13,
+      "exploratory": 8,
+      "validation": 5,
+      "primary_treatment": "baseline NLDAS-2 forcing, native SSURGO soil, 1 lead-in year + 2010-2018 analysis winters"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "SNOTEL station metadata/coordinate resolver",
+        "why": "Brief lists 5 SNOTEL stations but no lat/lon; validation columns must be pinned to true station locations",
+        "blocks": "placement of the 5 co-located validation columns"
+      },
+      {
+        "capability": "DEM/elevation sampling at column points",
+        "why": "Needed to assign each column to an elevation band and to quantify the grid-cell-vs-station elevation offset driving ridgetop bias",
+        "blocks": "labeling exploratory columns by band and interpreting SNOTEL bias"
+      },
+      {
+        "capability": "elevation-downscaled (sub-12 km) forcing",
+        "why": "NLDAS 0.125\u00b0 averages over terrain and lacks within-cell lapse rate",
+        "blocks": "accurate high/ridgetop peak-SWE magnitudes (bias is reportable but not correctable in current stack)"
+      },
+      {
+        "capability": "peak-SWE / annual-max post-processing on H2OSNO",
+        "why": "Question asks for per-water-year peak SWE per column and at stations",
+        "blocks": "gradient curve and validation metrics"
+      }
+    ],
+    "assumptions": [
+      "Peak SWE is a fast seasonal state; 1 lead-in year plus multiple analysis winters (2010-2018) is adequate spin-up \u2014 no multi-year hydrologic spin-up needed.",
+      "Exploratory column coordinates are placement intent along a valley-to-crest transect; true band membership must be confirmed via DEM lookup.",
+      "SNOTEL stations lie within the bbox and their cells are covered by NLDAS."
+    ],
+    "open_questions": [
+      "What are the 5 SNOTEL station coordinates/elevations?",
+      "Should the analysis window (2010-2018) be extended earlier (1980+) to capture more interannual/climate variability, accepting ~10x NLDAS cost per added year per column?",
+      "Are aspect or vegetation contrasts of interest, or is elevation the sole axis to resolve?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

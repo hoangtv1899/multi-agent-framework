@@ -1,0 +1,141 @@
+{
+  "prompt_id": "S02",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## Reasoning\n\nThe user asks two things: (1) how peak SWE varies along the Wenatchee elevation gradient (a mechanistic/gradient goal), and (2) how well ELM reproduces SNOTEL SWE (a validation goal). The declared driver is elevation, and the range is large (187\u20132870 m), spanning rain-dominated valleys through a rain\u2013snow transition to a seasonal-snow high country.\n\nThe critical feasibility issue: **peak SWE's dependence on elevation is overwhelmingly a climate effect** \u2014 air temperature (rain vs. snow partitioning, melt) and orographic precipitation both change with elevation via lapse rates. The framework can place ELM columns at different elevations, but it does **not** provide elevation-downscaled forcing. If every column is driven by the same uniform forcing, columns \"stratified by elevation\" will differ only by their soil column \u2014 which does **not** isolate the snow/elevation signal the question is about. So the primary mechanism is **not answerable as posed** without lapse-rate-based forcing downscaling. This makes the verdict *partial*.\n\nWhat IS answerable: the validation goal, provided each SNOTEL column is driven with forcing representative of that station's elevation (i.e., if downscaled forcing exists, the 5 stations give co-located peak-SWE validation). And, conditionally, the gradient question becomes answerable the moment elevation-downscaled forcing is added \u2014 so I design the sampling now (bands + placement rules) and put the forcing capability on the backlog.\n\nSampling is by elevation band, oversampling the rain\u2013snow transition where peak SWE is most sensitive and where model skill is hardest. Validation columns are pinned to the 5 SNOTEL sites (I cannot validate where there is no data). Exploratory columns span the bands to characterize the gradient once forcing is available.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: characterize how peak SWE varies across the Wenatchee elevation gradient\",\n      \"Validation: quantify ELM skill against SNOTEL SWE (magnitude and timing of peak)\"\n    ],\n    \"key_processes\": [\n      \"snow accumulation / rain-snow partitioning\",\n      \"snowpack energy balance and melt\",\n      \"orographic precipitation and temperature lapse (the actual elevation control)\"\n    ],\n    \"drivers_to_resolve\": [\"elevation\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM resolves snowpack (SWE) energy/mass balance; SNOTEL provides co-located SWE for validation. Spatial sampling spans the elevation gradient.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Co-located validation of ELM SWE against the 5 SNOTEL stations, CONDITIONAL on forcing representative of each station's elevation\",\n      \"Snowpack mass/energy balance and rain-snow partitioning at each column, once its forcing is set\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"How peak SWE varies ACROSS the elevation gradient\",\n        \"why\": \"The elevation control on peak SWE acts through temperature and precipitation lapse rates. With uniform forcing, elevation-stratified columns differ only by soil, which does not represent the snow/climate elevation signal.\",\n        \"needs\": \"elevation-downscaled meteorological forcing (T and precip lapse rates)\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified by elevation band, with validation columns pinned to SNOTEL sites\",\n    \"strata\": [\n      {\"driver\": \"elevation\", \"bands\": [\"low / rain-dominated (<1000 m)\", \"rain-snow transition (1000-1800 m)\", \"high / seasonal-snow (>1800 m)\"]}\n    ],\n    \"n_exploratory\": 9,\n    \"n_justification\": \"Three elevation bands x 3 columns per band spans the gradient with light replication to capture within-band variability (aspect/soil). The transition band gets equal weight because peak SWE is most sensitive there.\",\n    \"placement_logic\": \"Oversample the rain-snow transition (1000-1800 m) where peak SWE and model skill are most sensitive; anchor endpoints in the low valley and high snow zone to bracket the gradient.\",\n    \"replication\": \"3 columns/band as light replication to sample non-elevation heterogeneity (aspect, soil) without inflating N.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"low / rain-dominated (<1000 m)\", \"n\": 3, \"reason\": \"Brackets the low end of the gradient where snow is transient/absent; establishes rain-dominated baseline for peak SWE.\"},\n    {\"group\": \"rain-snow transition (1000-1800 m)\", \"n\": 3, \"reason\": \"Oversampled zone where peak SWE is most sensitive to lapse rate and hardest to model.\"},\n    {\"group\": \"high / seasonal-snow (>1800 m)\", \"n\": 3, \"reason\": \"Captures the deep-snowpack upper gradient that sets maximum basin peak SWE.\"},\n    {\"group\": \"SNOTEL validation columns\", \"n\": 5, \"reason\": \"Pinned to the 5 SNOTEL stations for co-located peak-SWE validation; count fixed by data availability.\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"peak_snow_water_equivalent\",\n      \"observation_source\": \"SNOTEL SWE (5 stations)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located \u2014 each SNOTEL column compared to its station record for annual peak SWE and timing\",\n      \"metric\": \"bias and RMSE of annual peak SWE; date-of-peak offset; correlation of daily SWE\",\n      \"n_validation_points\": \"5\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 14,\n    \"exploratory\": 9,\n    \"validation\": 5,\n    \"primary_treatment\": \"baseline 1980-2018 forcing, native soil; forcing ideally elevation-adjusted per column (see requires_capabilities)\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"elevation-downscaled meteorological forcing (T and precip lapse rates)\", \"why\": \"Peak-SWE variation across elevation is driven by lapse-rate climate change, not soil; uniform forcing cannot represent it.\", \"blocks\": \"the entire gradient (mechanistic) goal AND physically meaningful per-elevation SWE validation\"},\n    {\"capability\": \"snow / SWE output variable exposed from ELM\", \"why\": \"Need modeled SWE time series to extract annual peak and compare to SNOTEL.\", \"blocks\": \"both goals\"},\n    {\"capability\": \"SNOTEL SWE ingest / co-location tool\", \"why\": \"Need station coordinates, elevations, and daily SWE to pin validation columns and compute metrics.\", \"blocks\": \"validation goal\"},\n    {\"capability\": \"DEM / elevation raster sampling\", \"why\": \"To expand elevation bands into concrete column locations.\", \"blocks\": \"spatial sampling\"},\n    {\"capability\": \"snowpack spin-up / multi-year warmup\", \"why\": \"Stable snow climatology needs multi-year spin-up before peak-SWE statistics are trustworthy.\", \"blocks\": \"reliability of both goals\"}\n  ],\n  \"assumptions\": [\n    \"Peak SWE means the annual maximum of daily SWE, aggregated over the 1980-2018 record.\",\n    \"SNOTEL stations lie within the domain and span a useful portion of the elevation range.\",\n    \"Native gridded soil is acceptable per column; soil is a secondary driver here.\",\n    \"If elevation-downscaled forcing is unavailable, only the validation goal is attempted and reported as elevation-uncorrected (a known limitation).\"\n  ],\n  \"open_questions\": [\n    \"Is elevation-downscaled (lapse-rate) forcing available or planned? This determines whether the gradient question can be answered at all.\",\n    \"What are the SNOTEL station elevations and their distribution across the bands?\",\n    \"Preferred SWE metric emphasis: peak magnitude, peak timing, or full-season correlation?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: characterize how peak SWE varies across the Wenatchee elevation gradient",
+        "Validation: quantify ELM skill against SNOTEL SWE (magnitude and timing of peak)"
+      ],
+      "key_processes": [
+        "snow accumulation / rain-snow partitioning",
+        "snowpack energy balance and melt",
+        "orographic precipitation and temperature lapse (the actual elevation control)"
+      ],
+      "drivers_to_resolve": [
+        "elevation"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM resolves snowpack (SWE) energy/mass balance; SNOTEL provides co-located SWE for validation. Spatial sampling spans the elevation gradient.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Co-located validation of ELM SWE against the 5 SNOTEL stations, CONDITIONAL on forcing representative of each station's elevation",
+        "Snowpack mass/energy balance and rain-snow partitioning at each column, once its forcing is set"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "How peak SWE varies ACROSS the elevation gradient",
+          "why": "The elevation control on peak SWE acts through temperature and precipitation lapse rates. With uniform forcing, elevation-stratified columns differ only by soil, which does not represent the snow/climate elevation signal.",
+          "needs": "elevation-downscaled meteorological forcing (T and precip lapse rates)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified by elevation band, with validation columns pinned to SNOTEL sites",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "low / rain-dominated (<1000 m)",
+            "rain-snow transition (1000-1800 m)",
+            "high / seasonal-snow (>1800 m)"
+          ]
+        }
+      ],
+      "n_exploratory": 9,
+      "n_justification": "Three elevation bands x 3 columns per band spans the gradient with light replication to capture within-band variability (aspect/soil). The transition band gets equal weight because peak SWE is most sensitive there.",
+      "placement_logic": "Oversample the rain-snow transition (1000-1800 m) where peak SWE and model skill are most sensitive; anchor endpoints in the low valley and high snow zone to bracket the gradient.",
+      "replication": "3 columns/band as light replication to sample non-elevation heterogeneity (aspect, soil) without inflating N."
+    },
+    "sampling_plan": [
+      {
+        "group": "low / rain-dominated (<1000 m)",
+        "n": 3,
+        "reason": "Brackets the low end of the gradient where snow is transient/absent; establishes rain-dominated baseline for peak SWE."
+      },
+      {
+        "group": "rain-snow transition (1000-1800 m)",
+        "n": 3,
+        "reason": "Oversampled zone where peak SWE is most sensitive to lapse rate and hardest to model."
+      },
+      {
+        "group": "high / seasonal-snow (>1800 m)",
+        "n": 3,
+        "reason": "Captures the deep-snowpack upper gradient that sets maximum basin peak SWE."
+      },
+      {
+        "group": "SNOTEL validation columns",
+        "n": 5,
+        "reason": "Pinned to the 5 SNOTEL stations for co-located peak-SWE validation; count fixed by data availability."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "peak_snow_water_equivalent",
+        "observation_source": "SNOTEL SWE (5 stations)",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 each SNOTEL column compared to its station record for annual peak SWE and timing",
+        "metric": "bias and RMSE of annual peak SWE; date-of-peak offset; correlation of daily SWE",
+        "n_validation_points": "5"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 14,
+      "exploratory": 9,
+      "validation": 5,
+      "primary_treatment": "baseline 1980-2018 forcing, native soil; forcing ideally elevation-adjusted per column (see requires_capabilities)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled meteorological forcing (T and precip lapse rates)",
+        "why": "Peak-SWE variation across elevation is driven by lapse-rate climate change, not soil; uniform forcing cannot represent it.",
+        "blocks": "the entire gradient (mechanistic) goal AND physically meaningful per-elevation SWE validation"
+      },
+      {
+        "capability": "snow / SWE output variable exposed from ELM",
+        "why": "Need modeled SWE time series to extract annual peak and compare to SNOTEL.",
+        "blocks": "both goals"
+      },
+      {
+        "capability": "SNOTEL SWE ingest / co-location tool",
+        "why": "Need station coordinates, elevations, and daily SWE to pin validation columns and compute metrics.",
+        "blocks": "validation goal"
+      },
+      {
+        "capability": "DEM / elevation raster sampling",
+        "why": "To expand elevation bands into concrete column locations.",
+        "blocks": "spatial sampling"
+      },
+      {
+        "capability": "snowpack spin-up / multi-year warmup",
+        "why": "Stable snow climatology needs multi-year spin-up before peak-SWE statistics are trustworthy.",
+        "blocks": "reliability of both goals"
+      }
+    ],
+    "assumptions": [
+      "Peak SWE means the annual maximum of daily SWE, aggregated over the 1980-2018 record.",
+      "SNOTEL stations lie within the domain and span a useful portion of the elevation range.",
+      "Native gridded soil is acceptable per column; soil is a secondary driver here.",
+      "If elevation-downscaled forcing is unavailable, only the validation goal is attempted and reported as elevation-uncorrected (a known limitation)."
+    ],
+    "open_questions": [
+      "Is elevation-downscaled (lapse-rate) forcing available or planned? This determines whether the gradient question can be answered at all.",
+      "What are the SNOTEL station elevations and their distribution across the bands?",
+      "Preferred SWE metric emphasis: peak magnitude, peak timing, or full-season correlation?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

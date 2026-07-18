@@ -1,0 +1,179 @@
+{
+  "prompt_id": "S06",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**The question is a groundwater-recharge question posed to a land model.** \"True steady-state annual recharge reaching the deep water table\" has three loaded terms, and each collides with an execution limit:\n\n1. **\"recharge\"** \u2014 ELM does produce a bottom-of-column sub-surface drainage flux (QDRAI), which is the closest thing the stack has to recharge. Over 1980\u20132018 we can compute a long-term mean annual QDRAI. That part is genuinely answerable as a *proxy*.\n\n2. **\"reaching the deep water table\"** \u2014 ELM's column base is NOT the deep regional water table. Between the root zone and a 100s-of-m deep table in mountainous terrain sits a thick vadose zone plus lateral groundwater flow. The flux leaving an ELM column is not the flux *arriving* at the deep table (attenuation, lag, lateral redistribution). Converting column drainage into true deep recharge needs ELM\u2192PFLOTRAN coupling \u2014 unbuilt. So the literal question is only partially answerable.\n\n3. **\"true steady-state ... across the Naches\"** \u2014 recharge in this basin is overwhelmingly precipitation-driven, and precipitation here is orographic (352 \u2192 1977 m). The framework has NO elevation-downscaled forcing: forcing is uniform. A spatial column set stratified by elevation would therefore vary only by *soil*, not by the elevation/orographic-precip gradient that actually controls recharge. This is the single biggest threat to answering the question, and it must be stated plainly.\n\n**So the honest scope:** with uniform forcing, ELM can resolve the **soil-texture control on column drainage flux** and give a spatially-stratified estimate of long-term mean drainage \u2014 but it cannot resolve the orographic-precipitation control on recharge, cannot route drainage to a deep water table, and cannot be validated against recharge (no recharge observations in-domain). WTD observations exist but a single-column ELM does not simulate a deep regional water table, so WTD can only weakly/indirectly constrain recharge.\n\n**Drivers:** candidate_drivers = soil, forcing. I stratify exploratory columns by **soil texture class**. Forcing is a temporal axis (interannual variability over 1980\u20132018), not a spatial stratum. Elevation is deliberately excluded as a *stratification axis for recharge* because the stack cannot make it act through precipitation.\n\n**N:** small and defensible \u2014 span the dominant soil classes (~4\u20135) with light replication \u2192 ~10 exploratory columns. Validation columns are pinned to USGS well locations (count set by data, not by me), used only as a weak/indirect WTD cross-check.\n\nVerdict: **partial**.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: estimate long-term mean annual sub-surface drainage flux (recharge proxy) and its soil-texture control across the Naches\",\n      \"Validation: cross-check simulated hydrologic state against available WTD observations (weak/indirect, since no recharge data exist)\"\n    ],\n    \"key_processes\": [\n      \"vertical water partitioning (ET vs runoff vs sub-surface drainage)\",\n      \"per-layer soil moisture and column-base drainage (QDRAI) as recharge proxy\",\n      \"interannual variability of drainage over 1980-2018\"\n    ],\n    \"drivers_to_resolve\": [\"soil\", \"forcing (temporal/interannual)\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"ELM single-column resolves vertical partitioning and produces a column-base drainage flux (QDRAI) usable as a recharge proxy; spatial sampling spans soil heterogeneity. True deep-water-table recharge needs groundwater routing ELM cannot do.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"Converting ELM column-base drainage into TRUE recharge reaching the deep regional water table requires routing through a thick vadose zone plus lateral groundwater flow (ELM->PFLOTRAN one-way coupling), which is not implemented. Listed in requires_capabilities.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Long-term mean annual sub-surface drainage flux (QDRAI) at the ELM column base as a recharge PROXY\",\n      \"Soil-texture control on that drainage flux (dominant answerable driver under uniform forcing)\",\n      \"Interannual variability of drainage over 1980-2018\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Orographic (elevation-driven) precipitation control on recharge across the 352-1977 m range\",\n        \"why\": \"Forcing is uniform; the stack has no elevation-downscaled forcing, so an elevation-stratified column set would vary only by soil, not by the precipitation gradient that dominates recharge\",\n        \"needs\": \"elevation-downscaled forcing\"\n      },\n      {\n        \"aspect\": \"'Recharge REACHING the deep water table' (vs flux leaving the ELM column base)\",\n        \"why\": \"ELM column base is not the deep regional water table; deep vadose attenuation, lag, and lateral groundwater flow are not represented in single-column ELM\",\n        \"needs\": \"ELM->PFLOTRAN one-way coupling (deep vadose + saturated routing)\"\n      },\n      {\n        \"aspect\": \"Direct validation of recharge magnitude ('true' steady-state value)\",\n        \"why\": \"No recharge measurements exist in-domain (observations_missing)\",\n        \"needs\": \"in-domain recharge observation dataset\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified by soil texture class (single-driver spatial stratification; forcing handled as temporal replication, not spatial)\",\n    \"strata\": [\n      {\"driver\": \"soil\", \"classes\": [\"coarse/sandy\", \"loam\", \"silt/silt-loam\", \"clay/fine\", \"shallow-to-bedrock or organic (if present)\"]}\n    ],\n    \"n_exploratory\": 10,\n    \"n_justification\": \"Span the ~4-5 dominant soil texture classes that control column drainage, with light replication (1-2 per class) to sample within-class variability. Elevation is intentionally NOT a stratum because uniform forcing cannot make it act through precipitation; adding elevation bands would produce soil-driven variance mislabeled as elevation.\",\n    \"placement_logic\": \"Concentrate columns on the mapped dominant soil classes; oversample lowland/valley-bottom and alluvial units where deep-table recharge is most plausible, and ensure each major upland soil class is represented at least once. Placement is by soil raster, not elevation.\",\n    \"replication\": \"1-2 columns per soil class to capture within-class spread; interannual variability captured via the full 1980-2018 forcing period rather than extra columns.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"coarse/sandy soils\", \"n\": 2, \"reason\": \"High-permeability soils generate the largest drainage flux; isolates upper bound of soil-controlled recharge proxy\"},\n    {\"group\": \"loam soils\", \"n\": 2, \"reason\": \"Intermediate-texture baseline for partitioning; most common class\"},\n    {\"group\": \"silt/silt-loam soils\", \"n\": 2, \"reason\": \"Captures moderate-retention soils where drainage is sensitive to storage\"},\n    {\"group\": \"clay/fine soils\", \"n\": 2, \"reason\": \"Low-permeability end member; isolates lower bound of soil-controlled drainage flux\"},\n    {\"group\": \"valley-bottom/alluvial soils\", \"n\": 2, \"reason\": \"Lowlands where recharge to a deep table is most plausible; oversampled for the deep-recharge question\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells (WTD); Fan 2013 WTD prior\",\n      \"in_domain_available\": true,\n      \"comparison\": \"analog/indirect \u2014 single-column ELM does not simulate a deep regional water table, so WTD is used only as a weak consistency check on simulated soil-column wetness/drainage state, NOT as a direct recharge validation\",\n      \"metric\": \"qualitative consistency / rank correlation of relative wetness\",\n      \"n_validation_points\": \"unknown \u2014 depends on USGS well density within the bbox\"\n    },\n    {\n      \"target_variable\": \"annual_recharge\",\n      \"observation_source\": \"none in-domain (recharge measurements missing)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"GAP \u2014 no co-located or analog recharge data; simulated QDRAI reported as a proxy only, uncertainty unbounded by observation\",\n      \"metric\": \"n/a\",\n      \"n_validation_points\": \"0\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 10,\n    \"exploratory\": 10,\n    \"validation\": 0,\n    \"primary_treatment\": \"baseline uniform 1980-2018 forcing (long-term mean), native/mapped soil per column\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"elevation-downscaled forcing\", \"why\": \"Recharge is dominated by orographic precipitation across 352-1977 m; uniform forcing cannot represent this gradient\", \"blocks\": \"resolving elevation/climate control on recharge across the basin\"},\n    {\"capability\": \"ELM->PFLOTRAN one-way coupling (deep vadose + saturated groundwater routing)\", \"why\": \"Column-base drainage must be routed through the deep unsaturated zone and lateral flow to become recharge AT the deep water table\", \"blocks\": \"answering 'recharge REACHING the deep water table' as literally posed\"},\n    {\"capability\": \"in-domain recharge observation dataset\", \"why\": \"No recharge measurements exist to constrain the 'true' value\", \"blocks\": \"validation of simulated recharge magnitude\"},\n    {\"capability\": \"gridded soil raster sampling\", \"why\": \"Stratification by soil texture class requires soil property rasters\", \"blocks\": \"downstream expansion of soil-stratified column placement\"},\n    {\"capability\": \"HUC/bbox boundary resolver\", \"why\": \"Confining column placement to the Naches (HUC 17030002) domain\", \"blocks\": \"spatial sampling within the correct watershed\"},\n    {\"capability\": \"model spin-up + long-term flux aggregation\", \"why\": \"'Steady-state annual' recharge requires spun-up columns and multi-decadal mean of QDRAI\", \"blocks\": \"producing a defensible steady-state annual estimate\"},\n    {\"capability\": \"USGS well WTD ingest\", \"why\": \"To co-locate/compare simulated state against observed water-table depth\", \"blocks\": \"the (weak) WTD consistency check\"}\n  ],\n  \"assumptions\": [\n    \"ELM column-base sub-surface drainage (QDRAI) is used as the recharge PROXY; it is not equated with true deep-table recharge\",\n    \"Forcing is spatially uniform across the domain over 1980-2018; interannual variability is captured temporally, not by extra columns\",\n    \"'Steady-state annual recharge' is interpreted as the long-term (1980-2018) mean annual drainage flux\",\n    \"Dominant soil texture classes are recoverable from a gridded soil raster; exact classes to be confirmed at expansion time\"\n  ],\n  \"open_questions\": [\n    \"Is a QDRAI-based recharge PROXY acceptable, or is a true deep-table estimate (requiring PFLOTRAN coupling) required for the decision this supports?\",\n    \"How deep is the 'deep water table' of interest, and is lateral groundwater flow expected to be significant (i.e. is coupling mandatory)?\",\n    \"Are any interior precipitation/PRISM gradients available to approximate elevation-downscaled forcing, given orographic control on recharge?\",\n    \"What is the USGS well density within the bbox, and are wells screened in the deep unit relevant to recharge?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: estimate long-term mean annual sub-surface drainage flux (recharge proxy) and its soil-texture control across the Naches",
+        "Validation: cross-check simulated hydrologic state against available WTD observations (weak/indirect, since no recharge data exist)"
+      ],
+      "key_processes": [
+        "vertical water partitioning (ET vs runoff vs sub-surface drainage)",
+        "per-layer soil moisture and column-base drainage (QDRAI) as recharge proxy",
+        "interannual variability of drainage over 1980-2018"
+      ],
+      "drivers_to_resolve": [
+        "soil",
+        "forcing (temporal/interannual)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM single-column resolves vertical partitioning and produces a column-base drainage flux (QDRAI) usable as a recharge proxy; spatial sampling spans soil heterogeneity. True deep-water-table recharge needs groundwater routing ELM cannot do.",
+      "coupling_needed": true,
+      "coupling_note": "Converting ELM column-base drainage into TRUE recharge reaching the deep regional water table requires routing through a thick vadose zone plus lateral groundwater flow (ELM->PFLOTRAN one-way coupling), which is not implemented. Listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Long-term mean annual sub-surface drainage flux (QDRAI) at the ELM column base as a recharge PROXY",
+        "Soil-texture control on that drainage flux (dominant answerable driver under uniform forcing)",
+        "Interannual variability of drainage over 1980-2018"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Orographic (elevation-driven) precipitation control on recharge across the 352-1977 m range",
+          "why": "Forcing is uniform; the stack has no elevation-downscaled forcing, so an elevation-stratified column set would vary only by soil, not by the precipitation gradient that dominates recharge",
+          "needs": "elevation-downscaled forcing"
+        },
+        {
+          "aspect": "'Recharge REACHING the deep water table' (vs flux leaving the ELM column base)",
+          "why": "ELM column base is not the deep regional water table; deep vadose attenuation, lag, and lateral groundwater flow are not represented in single-column ELM",
+          "needs": "ELM->PFLOTRAN one-way coupling (deep vadose + saturated routing)"
+        },
+        {
+          "aspect": "Direct validation of recharge magnitude ('true' steady-state value)",
+          "why": "No recharge measurements exist in-domain (observations_missing)",
+          "needs": "in-domain recharge observation dataset"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified by soil texture class (single-driver spatial stratification; forcing handled as temporal replication, not spatial)",
+      "strata": [
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy",
+            "loam",
+            "silt/silt-loam",
+            "clay/fine",
+            "shallow-to-bedrock or organic (if present)"
+          ]
+        }
+      ],
+      "n_exploratory": 10,
+      "n_justification": "Span the ~4-5 dominant soil texture classes that control column drainage, with light replication (1-2 per class) to sample within-class variability. Elevation is intentionally NOT a stratum because uniform forcing cannot make it act through precipitation; adding elevation bands would produce soil-driven variance mislabeled as elevation.",
+      "placement_logic": "Concentrate columns on the mapped dominant soil classes; oversample lowland/valley-bottom and alluvial units where deep-table recharge is most plausible, and ensure each major upland soil class is represented at least once. Placement is by soil raster, not elevation.",
+      "replication": "1-2 columns per soil class to capture within-class spread; interannual variability captured via the full 1980-2018 forcing period rather than extra columns."
+    },
+    "sampling_plan": [
+      {
+        "group": "coarse/sandy soils",
+        "n": 2,
+        "reason": "High-permeability soils generate the largest drainage flux; isolates upper bound of soil-controlled recharge proxy"
+      },
+      {
+        "group": "loam soils",
+        "n": 2,
+        "reason": "Intermediate-texture baseline for partitioning; most common class"
+      },
+      {
+        "group": "silt/silt-loam soils",
+        "n": 2,
+        "reason": "Captures moderate-retention soils where drainage is sensitive to storage"
+      },
+      {
+        "group": "clay/fine soils",
+        "n": 2,
+        "reason": "Low-permeability end member; isolates lower bound of soil-controlled drainage flux"
+      },
+      {
+        "group": "valley-bottom/alluvial soils",
+        "n": 2,
+        "reason": "Lowlands where recharge to a deep table is most plausible; oversampled for the deep-recharge question"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (WTD); Fan 2013 WTD prior",
+        "in_domain_available": true,
+        "comparison": "analog/indirect \u2014 single-column ELM does not simulate a deep regional water table, so WTD is used only as a weak consistency check on simulated soil-column wetness/drainage state, NOT as a direct recharge validation",
+        "metric": "qualitative consistency / rank correlation of relative wetness",
+        "n_validation_points": "unknown \u2014 depends on USGS well density within the bbox"
+      },
+      {
+        "target_variable": "annual_recharge",
+        "observation_source": "none in-domain (recharge measurements missing)",
+        "in_domain_available": false,
+        "comparison": "GAP \u2014 no co-located or analog recharge data; simulated QDRAI reported as a proxy only, uncertainty unbounded by observation",
+        "metric": "n/a",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 10,
+      "exploratory": 10,
+      "validation": 0,
+      "primary_treatment": "baseline uniform 1980-2018 forcing (long-term mean), native/mapped soil per column"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled forcing",
+        "why": "Recharge is dominated by orographic precipitation across 352-1977 m; uniform forcing cannot represent this gradient",
+        "blocks": "resolving elevation/climate control on recharge across the basin"
+      },
+      {
+        "capability": "ELM->PFLOTRAN one-way coupling (deep vadose + saturated groundwater routing)",
+        "why": "Column-base drainage must be routed through the deep unsaturated zone and lateral flow to become recharge AT the deep water table",
+        "blocks": "answering 'recharge REACHING the deep water table' as literally posed"
+      },
+      {
+        "capability": "in-domain recharge observation dataset",
+        "why": "No recharge measurements exist to constrain the 'true' value",
+        "blocks": "validation of simulated recharge magnitude"
+      },
+      {
+        "capability": "gridded soil raster sampling",
+        "why": "Stratification by soil texture class requires soil property rasters",
+        "blocks": "downstream expansion of soil-stratified column placement"
+      },
+      {
+        "capability": "HUC/bbox boundary resolver",
+        "why": "Confining column placement to the Naches (HUC 17030002) domain",
+        "blocks": "spatial sampling within the correct watershed"
+      },
+      {
+        "capability": "model spin-up + long-term flux aggregation",
+        "why": "'Steady-state annual' recharge requires spun-up columns and multi-decadal mean of QDRAI",
+        "blocks": "producing a defensible steady-state annual estimate"
+      },
+      {
+        "capability": "USGS well WTD ingest",
+        "why": "To co-locate/compare simulated state against observed water-table depth",
+        "blocks": "the (weak) WTD consistency check"
+      }
+    ],
+    "assumptions": [
+      "ELM column-base sub-surface drainage (QDRAI) is used as the recharge PROXY; it is not equated with true deep-table recharge",
+      "Forcing is spatially uniform across the domain over 1980-2018; interannual variability is captured temporally, not by extra columns",
+      "'Steady-state annual recharge' is interpreted as the long-term (1980-2018) mean annual drainage flux",
+      "Dominant soil texture classes are recoverable from a gridded soil raster; exact classes to be confirmed at expansion time"
+    ],
+    "open_questions": [
+      "Is a QDRAI-based recharge PROXY acceptable, or is a true deep-table estimate (requiring PFLOTRAN coupling) required for the decision this supports?",
+      "How deep is the 'deep water table' of interest, and is lateral groundwater flow expected to be significant (i.e. is coupling mandatory)?",
+      "Are any interior precipitation/PRISM gradients available to approximate elevation-downscaled forcing, given orographic control on recharge?",
+      "What is the USGS well density within the bbox, and are wells screened in the deep unit relevant to recharge?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

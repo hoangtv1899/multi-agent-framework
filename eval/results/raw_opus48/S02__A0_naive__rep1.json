@@ -1,0 +1,101 @@
+{
+  "prompt_id": "S02",
+  "arm": "A0_naive",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Feasible with single-column ELM ensemble; snow physics and SWE are core ELM capabilities. SNOTEL-based validation is possible but requires the user to supply/ingest observed SWE separately since ELM does not read SNOTEL directly.\",\n    \"answerable\": [\n      \"Simulated peak (maximum annual) SWE at each elevation band along the Wenatchee gradient\",\n      \"Timing of peak SWE and melt-out date per column\",\n      \"Elevation-dependent SWE gradient (SWE vs. elevation lapse)\",\n      \"Model vs. SNOTEL bias/RMSE at co-located points if observed SWE is provided offline\"\n    ],\n    \"not_answerable\": [\n      \"Basin-integrated snow volume or spatially distributed snowpack (single-column, no lateral routing)\",\n      \"Wind redistribution / avalanche / drift processes not represented in ELM\",\n      \"Sub-grid canopy-gap snow heterogeneity beyond ELM's single-column parameterization\",\n      \"Direct automated SNOTEL retrieval/scoring inside ELM (validation is a post-processing step)\"\n    ]\n  },\n  \"n_columns\": 5,\n  \"n_justification\": \"Five single columns are placed at real SNOTEL locations spanning the Wenatchee basin elevation gradient (~1035 m to ~1875 m) so that simulated peak SWE can be compared point-by-point against long-term SNOTEL SWE records and the elevation dependence of peak SWE can be resolved.\",\n  \"columns\": [\n    {\"id\": \"fish_lake_1036m\", \"lat\": 47.5533, \"lon\": -120.8722, \"soil_texture\": \"gravelly sandy loam\"},\n    {\"id\": \"trinity_1451m\", \"lat\": 47.9928, \"lon\": -120.9925, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"stevens_pass_1238m\", \"lat\": 47.7325, \"lon\": -121.0872, \"soil_texture\": \"loam\"},\n    {\"id\": \"pope_ridge_1338m\", \"lat\": 47.7864, \"lon\": -120.7269, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"lyman_lake_1798m\", \"lat\": 48.1611, \"lon\": -120.9019, \"soil_texture\": \"loamy sand (thin alpine soil over bedrock)\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1991\",\n    \"DATM_CLMNCEP_YR_END\": \"2020\",\n    \"STOP_N\": \"30\",\n    \"RUN_STARTDATE\": \"1991-01-01\",\n    \"hist_variables\": [\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"SNOW_DEPTH\",\n      \"FSNO\",\n      \"QFLX_SNOW_MELT\",\n      \"QSNOMELT\",\n      \"QSNOFRZ\",\n      \"SNOWLIQ\",\n      \"SNOWICE\",\n      \"SNOW\",\n      \"RAIN\",\n      \"TSA\",\n      \"TSOI\",\n      \"FSDS\",\n      \"FLDS\",\n      \"QRUNOFF\",\n      \"QOVER\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM single-point/single-column mode (PTS_MODE) with site-specific surface datasets\",\n    \"Elevation-appropriate atmospheric forcing (GSWP3 or downscaled/lapse-adjusted reanalysis) per column\",\n    \"ELM snow model (multi-layer snowpack, SNICAR albedo) enabled\",\n    \"Post-processing/validation workflow to align model output with SNOTEL daily SWE observations\"\n  ],\n  \"assumptions\": [\n    \"STOP_N interpreted in years (STOP_OPTION=nyears) run after a spin-up sufficient to equilibrate soil/hydrology\",\n    \"Peak SWE defined as maximum daily H2OSNO in each water year (Oct 1 - Sep 30)\",\n    \"Forcing air temperature and precipitation are lapse-rate corrected to each column elevation since default GSWP3 grid is coarse relative to the Cascade terrain\",\n    \"Column locations correspond to established NRCS SNOTEL stations in/near the Wenatchee River basin for direct observational comparison\",\n    \"SNOTEL observed SWE time series are obtained externally and regridded to model daily output for bias/RMSE/correlation scoring\",\n    \"Land cover set to evergreen needleleaf forest for mid-elevation sites and to sparse alpine/barren for the highest site consistent with observed vegetation\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible with single-column ELM ensemble; snow physics and SWE are core ELM capabilities. SNOTEL-based validation is possible but requires the user to supply/ingest observed SWE separately since ELM does not read SNOTEL directly.",
+      "answerable": [
+        "Simulated peak (maximum annual) SWE at each elevation band along the Wenatchee gradient",
+        "Timing of peak SWE and melt-out date per column",
+        "Elevation-dependent SWE gradient (SWE vs. elevation lapse)",
+        "Model vs. SNOTEL bias/RMSE at co-located points if observed SWE is provided offline"
+      ],
+      "not_answerable": [
+        "Basin-integrated snow volume or spatially distributed snowpack (single-column, no lateral routing)",
+        "Wind redistribution / avalanche / drift processes not represented in ELM",
+        "Sub-grid canopy-gap snow heterogeneity beyond ELM's single-column parameterization",
+        "Direct automated SNOTEL retrieval/scoring inside ELM (validation is a post-processing step)"
+      ]
+    },
+    "n_columns": 5,
+    "n_justification": "Five single columns are placed at real SNOTEL locations spanning the Wenatchee basin elevation gradient (~1035 m to ~1875 m) so that simulated peak SWE can be compared point-by-point against long-term SNOTEL SWE records and the elevation dependence of peak SWE can be resolved.",
+    "columns": [
+      {
+        "id": "fish_lake_1036m",
+        "lat": 47.5533,
+        "lon": -120.8722,
+        "soil_texture": "gravelly sandy loam"
+      },
+      {
+        "id": "trinity_1451m",
+        "lat": 47.9928,
+        "lon": -120.9925,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "stevens_pass_1238m",
+        "lat": 47.7325,
+        "lon": -121.0872,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "pope_ridge_1338m",
+        "lat": 47.7864,
+        "lon": -120.7269,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "lyman_lake_1798m",
+        "lat": 48.1611,
+        "lon": -120.9019,
+        "soil_texture": "loamy sand (thin alpine soil over bedrock)"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1991",
+      "DATM_CLMNCEP_YR_END": "2020",
+      "STOP_N": "30",
+      "RUN_STARTDATE": "1991-01-01",
+      "hist_variables": [
+        "H2OSNO",
+        "SNOWDP",
+        "SNOW_DEPTH",
+        "FSNO",
+        "QFLX_SNOW_MELT",
+        "QSNOMELT",
+        "QSNOFRZ",
+        "SNOWLIQ",
+        "SNOWICE",
+        "SNOW",
+        "RAIN",
+        "TSA",
+        "TSOI",
+        "FSDS",
+        "FLDS",
+        "QRUNOFF",
+        "QOVER"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM single-point/single-column mode (PTS_MODE) with site-specific surface datasets",
+      "Elevation-appropriate atmospheric forcing (GSWP3 or downscaled/lapse-adjusted reanalysis) per column",
+      "ELM snow model (multi-layer snowpack, SNICAR albedo) enabled",
+      "Post-processing/validation workflow to align model output with SNOTEL daily SWE observations"
+    ],
+    "assumptions": [
+      "STOP_N interpreted in years (STOP_OPTION=nyears) run after a spin-up sufficient to equilibrate soil/hydrology",
+      "Peak SWE defined as maximum daily H2OSNO in each water year (Oct 1 - Sep 30)",
+      "Forcing air temperature and precipitation are lapse-rate corrected to each column elevation since default GSWP3 grid is coarse relative to the Cascade terrain",
+      "Column locations correspond to established NRCS SNOTEL stations in/near the Wenatchee River basin for direct observational comparison",
+      "SNOTEL observed SWE time series are obtained externally and regridded to model daily output for bias/RMSE/correlation scoring",
+      "Land cover set to evergreen needleleaf forest for mid-elevation sites and to sparse alpine/barren for the highest site consistent with observed vegetation"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

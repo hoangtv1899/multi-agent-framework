@@ -1,0 +1,129 @@
+{
+  "prompt_id": "S05",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**Decomposition.** The request has one mechanistic goal \u2014 quantify how elevation controls the *day-of-year of snowmelt onset* \u2014 and an implicit validation goal against SNOTEL SWE at the station locations. The user further asks to \"resolve the local lapse rate between stations on the same ridge,\" which is explicitly a *climate-with-elevation* question: melt onset is governed by the near-surface temperature and precipitation-phase gradient with height.\n\n**The central feasibility problem.** ELM single-column runs are driven by prescribed atmospheric forcing. The framework has NO elevation-downscaling of forcing \u2014 no temperature lapse-rate adjustment, no elevation-dependent precipitation or precip-phase partitioning. If I place columns at the 6 SNOTEL elevations but feed them the *same* forcing, every column sees the same air temperature and the same snowfall timing, so the modeled snowmelt-onset DOY would differ only through soil/land-surface energy balance \u2014 NOT through the atmospheric lapse rate the user actually wants to resolve. That means the design as posed **cannot isolate the elevation\u2192melt-onset control**, and it certainly cannot \"resolve the local lapse rate,\" which is a property of the *forcing* the stack does not vary with elevation. This is the well-known trap: a column set stratified by elevation under uniform forcing measures soil, not elevation/climate.\n\nSo the verdict is **partial \u2192 effectively infeasible for the primary mechanism**. What the stack *can* do honestly: run columns at the 6 SNOTEL sites and validate the snow model's SWE/melt-onset skill against observed SWE \u2014 a process-validation of ELM's snowpack, conditional on whatever forcing is supplied. The lapse-rate/elevation-control science requires elevation-downscaled forcing (and ideally SWE output + a melt-onset detection routine), which I place in the backlog.\n\n**Sampling.** Because observations dictate placement and the question is per-station, the validation columns are pinned to the 6 SNOTEL stations (not invented). No exploratory stratification beyond that is scientifically meaningful *until* downscaled forcing exists \u2014 adding intermediate-elevation exploratory columns under uniform forcing would produce misleading \"elevation\" signal. I therefore keep exploratory N minimal and tie any elevation banding to the requires_capabilities that would make it real.\n\n## JSON\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"mechanistic: quantify how elevation controls snowmelt-onset day-of-year across SNOTEL sites via the local temperature/precip-phase lapse rate\",\n      \"validation: assess ELM snowpack (SWE, melt-onset timing) skill against observed SNOTEL SWE at each station\"\n    ],\n    \"key_processes\": [\"snow accumulation\", \"snowmelt / energy balance\", \"precip-phase partitioning\", \"near-surface air-temperature lapse rate\"],\n    \"drivers_to_resolve\": [\"elevation (acting through downscaled temperature & precip phase)\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"ELM single-column resolves snowpack energy/mass balance and can be validated against SNOTEL SWE; the elevation-as-climate driver, however, lives in the FORCING, which the stack does not vary with elevation.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"ELM snowpack skill (modeled SWE, accumulation/ablation timing) validated against observed SNOTEL SWE at each of the 6 station locations, conditional on supplied forcing\",\n      \"melt-onset DOY as simulated at each site GIVEN its forcing\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"elevation control on snowmelt-onset DOY (the primary question)\",\n        \"why\": \"no elevation-downscaling of forcing: temperature lapse rate, elevation-dependent precip and precip-phase are not applied, so columns at different elevations receive identical atmospheric drivers and cannot express an elevation-driven melt-onset gradient\",\n        \"needs\": \"elevation-downscaled forcing (temperature lapse-rate + precip/phase adjustment)\"\n      },\n      {\n        \"aspect\": \"resolving the local lapse rate between same-ridge stations\",\n        \"why\": \"the lapse rate is a property of the forcing field, which is uniform across columns; the stack cannot derive or impose a station-to-station lapse rate\",\n        \"needs\": \"elevation-downscaled forcing with configurable/observation-constrained lapse rate\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"observation-pinned (validation-driven), no exploratory elevation stratification until downscaled forcing exists\",\n    \"strata\": [\n      {\"driver\": \"elevation\", \"bands\": [\"one band per SNOTEL station elevation \u2014 realized only if downscaled forcing is added; otherwise nominal\"]}\n    ],\n    \"n_exploratory\": 0,\n    \"n_justification\": \"Under uniform forcing, intermediate-elevation exploratory columns would produce a spurious 'elevation' signal (soil, not climate). No exploratory columns are added until elevation-downscaled forcing makes the elevation axis physically meaningful.\",\n    \"placement_logic\": \"Columns pinned to the 6 SNOTEL station locations, which by design span the elevation range and include same-ridge pairs (<12 km apart) needed for the lapse-rate question.\",\n    \"replication\": \"none \u2014 one column per station\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"SNOTEL station columns\",\n      \"n\": 6,\n      \"reason\": \"One ELM column co-located at each of the 6 SNOTEL SWE stations to validate modeled snowpack/melt-onset against observations; spans the elevation range and captures same-ridge station pairs.\"\n    }\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"snow_water_equivalent (SWE)\",\n      \"observation_source\": \"SNOTEL SWE (6 stations)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located \u2014 one ELM column per station compared to that station's daily SWE time series\",\n      \"metric\": \"bias, RMSE, and melt-onset DOY error (date SWE begins sustained decline)\",\n      \"n_validation_points\": \"6\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 6,\n    \"exploratory\": 0,\n    \"validation\": 6,\n    \"primary_treatment\": \"baseline forcing (1980-2018 subset), native soil\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"elevation-downscaled forcing (temperature lapse rate + elevation-dependent precip & precip-phase)\", \"why\": \"elevation controls melt onset through the atmospheric gradient, not the land surface; without it columns at different elevations see identical forcing\", \"blocks\": \"the entire primary question \u2014 elevation control on melt-onset DOY and local lapse-rate resolution\"},\n    {\"capability\": \"SWE / snowpack state output variable\", \"why\": \"melt-onset detection and SNOTEL comparison require exported daily SWE\", \"blocks\": \"melt-onset diagnosis and SWE validation\"},\n    {\"capability\": \"snowmelt-onset detection routine\", \"why\": \"day-of-year of onset must be extracted consistently from modeled and observed SWE series\", \"blocks\": \"quantifying the DOY metric the question asks for\"},\n    {\"capability\": \"SNOTEL data ingest / co-location resolver\", \"why\": \"map station coordinates and daily SWE records to columns for validation\", \"blocks\": \"validation\"},\n    {\"capability\": \"model spin-up for snowpack/soil state\", \"why\": \"credible seasonal snow energy balance needs equilibrated initial states\", \"blocks\": \"trustworthy melt-onset timing\"}\n  ],\n  \"assumptions\": [\n    \"SNOTEL station coordinates and elevations are resolvable downstream from the station metadata; not invented here.\",\n    \"The 6 stations collectively span the domain elevation range and include at least one same-ridge pair for the lapse-rate objective.\",\n    \"A representative forcing period within 1980-2018 will be selected downstream; melt-onset climatology needs multiple snow seasons.\"\n  ],\n  \"open_questions\": [\n    \"Can observation-constrained lapse rates be derived from the SNOTEL air-temperature records themselves to drive an elevation-downscaling capability?\",\n    \"Which specific stations form same-ridge pairs, and what is their elevation separation?\",\n    \"Is inter-annual variability in melt-onset (multi-year climatology) required, or a single representative water year?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: quantify how elevation controls snowmelt-onset day-of-year across SNOTEL sites via the local temperature/precip-phase lapse rate",
+        "validation: assess ELM snowpack (SWE, melt-onset timing) skill against observed SNOTEL SWE at each station"
+      ],
+      "key_processes": [
+        "snow accumulation",
+        "snowmelt / energy balance",
+        "precip-phase partitioning",
+        "near-surface air-temperature lapse rate"
+      ],
+      "drivers_to_resolve": [
+        "elevation (acting through downscaled temperature & precip phase)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM single-column resolves snowpack energy/mass balance and can be validated against SNOTEL SWE; the elevation-as-climate driver, however, lives in the FORCING, which the stack does not vary with elevation.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "ELM snowpack skill (modeled SWE, accumulation/ablation timing) validated against observed SNOTEL SWE at each of the 6 station locations, conditional on supplied forcing",
+        "melt-onset DOY as simulated at each site GIVEN its forcing"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "elevation control on snowmelt-onset DOY (the primary question)",
+          "why": "no elevation-downscaling of forcing: temperature lapse rate, elevation-dependent precip and precip-phase are not applied, so columns at different elevations receive identical atmospheric drivers and cannot express an elevation-driven melt-onset gradient",
+          "needs": "elevation-downscaled forcing (temperature lapse-rate + precip/phase adjustment)"
+        },
+        {
+          "aspect": "resolving the local lapse rate between same-ridge stations",
+          "why": "the lapse rate is a property of the forcing field, which is uniform across columns; the stack cannot derive or impose a station-to-station lapse rate",
+          "needs": "elevation-downscaled forcing with configurable/observation-constrained lapse rate"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "observation-pinned (validation-driven), no exploratory elevation stratification until downscaled forcing exists",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "one band per SNOTEL station elevation \u2014 realized only if downscaled forcing is added; otherwise nominal"
+          ]
+        }
+      ],
+      "n_exploratory": 0,
+      "n_justification": "Under uniform forcing, intermediate-elevation exploratory columns would produce a spurious 'elevation' signal (soil, not climate). No exploratory columns are added until elevation-downscaled forcing makes the elevation axis physically meaningful.",
+      "placement_logic": "Columns pinned to the 6 SNOTEL station locations, which by design span the elevation range and include same-ridge pairs (<12 km apart) needed for the lapse-rate question.",
+      "replication": "none \u2014 one column per station"
+    },
+    "sampling_plan": [
+      {
+        "group": "SNOTEL station columns",
+        "n": 6,
+        "reason": "One ELM column co-located at each of the 6 SNOTEL SWE stations to validate modeled snowpack/melt-onset against observations; spans the elevation range and captures same-ridge station pairs."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "snow_water_equivalent (SWE)",
+        "observation_source": "SNOTEL SWE (6 stations)",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 one ELM column per station compared to that station's daily SWE time series",
+        "metric": "bias, RMSE, and melt-onset DOY error (date SWE begins sustained decline)",
+        "n_validation_points": "6"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 0,
+      "validation": 6,
+      "primary_treatment": "baseline forcing (1980-2018 subset), native soil"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled forcing (temperature lapse rate + elevation-dependent precip & precip-phase)",
+        "why": "elevation controls melt onset through the atmospheric gradient, not the land surface; without it columns at different elevations see identical forcing",
+        "blocks": "the entire primary question \u2014 elevation control on melt-onset DOY and local lapse-rate resolution"
+      },
+      {
+        "capability": "SWE / snowpack state output variable",
+        "why": "melt-onset detection and SNOTEL comparison require exported daily SWE",
+        "blocks": "melt-onset diagnosis and SWE validation"
+      },
+      {
+        "capability": "snowmelt-onset detection routine",
+        "why": "day-of-year of onset must be extracted consistently from modeled and observed SWE series",
+        "blocks": "quantifying the DOY metric the question asks for"
+      },
+      {
+        "capability": "SNOTEL data ingest / co-location resolver",
+        "why": "map station coordinates and daily SWE records to columns for validation",
+        "blocks": "validation"
+      },
+      {
+        "capability": "model spin-up for snowpack/soil state",
+        "why": "credible seasonal snow energy balance needs equilibrated initial states",
+        "blocks": "trustworthy melt-onset timing"
+      }
+    ],
+    "assumptions": [
+      "SNOTEL station coordinates and elevations are resolvable downstream from the station metadata; not invented here.",
+      "The 6 stations collectively span the domain elevation range and include at least one same-ridge pair for the lapse-rate objective.",
+      "A representative forcing period within 1980-2018 will be selected downstream; melt-onset climatology needs multiple snow seasons."
+    ],
+    "open_questions": [
+      "Can observation-constrained lapse rates be derived from the SNOTEL air-temperature records themselves to drive an elevation-downscaling capability?",
+      "Which specific stations form same-ridge pairs, and what is their elevation separation?",
+      "Is inter-annual variability in melt-onset (multi-year climatology) required, or a single representative water year?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

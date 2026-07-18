@@ -1,0 +1,95 @@
+{
+  "prompt_id": "I02",
+  "arm": "A0_naive",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Partially feasible: ELM single-column can mechanistically simulate soil-water infiltration and deep drainage (a recharge proxy), but a defensible 2050 projection requires downscaled/bias-corrected future climate forcing, which is NOT part of the standard GSWP3/CLMNCEP dataset. A present-day baseline plus a delta-perturbed warming run is provided; true recharge magnitudes should be validated against basin observations.\",\n    \"answerable\": [\n      \"Baseline present-day recharge (deep drainage QDRAI + gravity drainage QCHARGE) across the Naches elevation gradient\",\n      \"Direction and relative change of recharge under a prescribed warming (delta-temperature) scenario\",\n      \"Shift in recharge seasonality driven by earlier snowmelt (rain-vs-snow partitioning, snowmelt timing)\",\n      \"Sensitivity of soil moisture, infiltration, and drainage to warming by soil texture and elevation\"\n    ],\n    \"not_answerable\": [\n      \"Absolute basin-integrated recharge volume (single-column, no lateral groundwater flow or aquifer storage)\",\n      \"A specific bias-corrected CMIP6 SSP scenario recharge value without externally supplied downscaled forcing\",\n      \"Precipitation-change effects unless a future precip perturbation is prescribed (delta approach here perturbs temperature only)\",\n      \"Managed diversion/irrigation return-flow recharge (regulated Yakima/Naches irrigation system not represented)\"\n    ]\n  },\n  \"n_columns\": 3,\n  \"n_justification\": \"The Naches basin is strongly elevation-controlled: recharge is dominated by snowmelt timing at high elevation and by rain infiltration in the valley. Three columns span the hydrologic gradient (snow-dominated headwaters, transitional mixed rain-snow forest, and rain-dominated valley), enough to capture divergent responses of recharge to warming without over-fitting a single-column framework.\",\n  \"columns\": [\n    {\"id\": \"naches_valley\", \"lat\": 46.73, \"lon\": -120.70, \"soil_texture\": \"loam\"},\n    {\"id\": \"naches_mid_forest\", \"lat\": 46.90, \"lon\": -121.05, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"naches_headwaters\", \"lat\": 46.96, \"lon\": -121.32, \"soil_texture\": \"gravelly_sandy_loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1991\",\n    \"DATM_CLMNCEP_YR_END\": \"2020\",\n    \"STOP_N\": \"30\",\n    \"RUN_STARTDATE\": \"1991-01-01\",\n    \"hist_variables\": [\n      \"QDRAI\",\n      \"QCHARGE\",\n      \"QRECHARGE\",\n      \"QINFL\",\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QSNOMELT\",\n      \"RAIN\",\n      \"SNOW\",\n      \"FSNO\",\n      \"SNOW_DEPTH\",\n      \"H2OSNO\",\n      \"H2OSOI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"TSOI\",\n      \"TSA\",\n      \"TWS\",\n      \"ZWT\",\n      \"QVEGT\",\n      \"EFLX_LH_TOT\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"Present-day GSWP3/CLMNCEP atmospheric forcing (1991-2020) for baseline\",\n    \"Delta-change forcing capability: apply +2 to +3 K air-temperature offset (with optional derived humidity/longwave adjustment) to represent ~2050 mid-century warming; ideally replace with bias-corrected downscaled CMIP6 SSP2-4.5/SSP5-8.5 forcing when available\",\n    \"ELM soil hydrology with unsaturated flow and gravity/aquifer drainage (QCHARGE/ZWT) enabled\",\n    \"Snow model active for snowmelt-recharge partitioning\",\n    \"Spin-up to hydrologic equilibrium prior to analysis period\",\n    \"Optional PFLOTRAN coupling for detailed variably-saturated subsurface flow / recharge to water table\"\n  ],\n  \"assumptions\": [\n    \"Deep drainage flux (QDRAI) plus gravity drainage (QCHARGE) is used as the recharge proxy at the column base\",\n    \"Warming scenario implemented as a temperature-delta perturbation of historical forcing; precipitation held at historical distribution unless downscaled projections are supplied\",\n    \"'By 2050' interpreted as a ~2036-2050 mid-century climatology compared against a 1991-2020 baseline; a matched-length perturbed run is required\",\n    \"Single-column columns represent point vertical fluxes, not lateral or basin-integrated groundwater flow\",\n    \"Irrigation, diversions, and managed reservoir operations in the Naches system are excluded\",\n    \"Model spun up (typically >100 yr accelerated / recycled forcing) before the 30-yr analysis window\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Partially feasible: ELM single-column can mechanistically simulate soil-water infiltration and deep drainage (a recharge proxy), but a defensible 2050 projection requires downscaled/bias-corrected future climate forcing, which is NOT part of the standard GSWP3/CLMNCEP dataset. A present-day baseline plus a delta-perturbed warming run is provided; true recharge magnitudes should be validated against basin observations.",
+      "answerable": [
+        "Baseline present-day recharge (deep drainage QDRAI + gravity drainage QCHARGE) across the Naches elevation gradient",
+        "Direction and relative change of recharge under a prescribed warming (delta-temperature) scenario",
+        "Shift in recharge seasonality driven by earlier snowmelt (rain-vs-snow partitioning, snowmelt timing)",
+        "Sensitivity of soil moisture, infiltration, and drainage to warming by soil texture and elevation"
+      ],
+      "not_answerable": [
+        "Absolute basin-integrated recharge volume (single-column, no lateral groundwater flow or aquifer storage)",
+        "A specific bias-corrected CMIP6 SSP scenario recharge value without externally supplied downscaled forcing",
+        "Precipitation-change effects unless a future precip perturbation is prescribed (delta approach here perturbs temperature only)",
+        "Managed diversion/irrigation return-flow recharge (regulated Yakima/Naches irrigation system not represented)"
+      ]
+    },
+    "n_columns": 3,
+    "n_justification": "The Naches basin is strongly elevation-controlled: recharge is dominated by snowmelt timing at high elevation and by rain infiltration in the valley. Three columns span the hydrologic gradient (snow-dominated headwaters, transitional mixed rain-snow forest, and rain-dominated valley), enough to capture divergent responses of recharge to warming without over-fitting a single-column framework.",
+    "columns": [
+      {
+        "id": "naches_valley",
+        "lat": 46.73,
+        "lon": -120.7,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "naches_mid_forest",
+        "lat": 46.9,
+        "lon": -121.05,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "naches_headwaters",
+        "lat": 46.96,
+        "lon": -121.32,
+        "soil_texture": "gravelly_sandy_loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1991",
+      "DATM_CLMNCEP_YR_END": "2020",
+      "STOP_N": "30",
+      "RUN_STARTDATE": "1991-01-01",
+      "hist_variables": [
+        "QDRAI",
+        "QCHARGE",
+        "QRECHARGE",
+        "QINFL",
+        "QRUNOFF",
+        "QOVER",
+        "QSNOMELT",
+        "RAIN",
+        "SNOW",
+        "FSNO",
+        "SNOW_DEPTH",
+        "H2OSNO",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "TSOI",
+        "TSA",
+        "TWS",
+        "ZWT",
+        "QVEGT",
+        "EFLX_LH_TOT"
+      ]
+    },
+    "requires_capabilities": [
+      "Present-day GSWP3/CLMNCEP atmospheric forcing (1991-2020) for baseline",
+      "Delta-change forcing capability: apply +2 to +3 K air-temperature offset (with optional derived humidity/longwave adjustment) to represent ~2050 mid-century warming; ideally replace with bias-corrected downscaled CMIP6 SSP2-4.5/SSP5-8.5 forcing when available",
+      "ELM soil hydrology with unsaturated flow and gravity/aquifer drainage (QCHARGE/ZWT) enabled",
+      "Snow model active for snowmelt-recharge partitioning",
+      "Spin-up to hydrologic equilibrium prior to analysis period",
+      "Optional PFLOTRAN coupling for detailed variably-saturated subsurface flow / recharge to water table"
+    ],
+    "assumptions": [
+      "Deep drainage flux (QDRAI) plus gravity drainage (QCHARGE) is used as the recharge proxy at the column base",
+      "Warming scenario implemented as a temperature-delta perturbation of historical forcing; precipitation held at historical distribution unless downscaled projections are supplied",
+      "'By 2050' interpreted as a ~2036-2050 mid-century climatology compared against a 1991-2020 baseline; a matched-length perturbed run is required",
+      "Single-column columns represent point vertical fluxes, not lateral or basin-integrated groundwater flow",
+      "Irrigation, diversions, and managed reservoir operations in the Naches system are excluded",
+      "Model spun up (typically >100 yr accelerated / recycled forcing) before the 30-yr analysis window"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

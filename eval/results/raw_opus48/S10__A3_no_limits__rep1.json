@@ -1,0 +1,182 @@
+{
+  "prompt_id": "S10",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user wants a sampling campaign for the Upper Yakima that \"resolves its elevation bands.\" This is the crux and the trap. Elevation is a candidate driver, but in a single-column ELM stack, elevation only *matters* through its effect on climate \u2014 lapse-rate temperature, orographic precipitation, and the rain/snow partition. That mechanism requires **elevation-downscaled forcing**. If the framework drives all columns with the same (or nearest-gridcell) forcing, then placing columns in different elevation bands does NOT isolate an elevation/climate effect \u2014 the between-column variation you'd see would be *soil*, mislabeled as elevation. This is exactly the hazard the guidance flags.\n\nSo I split feasibility honestly:\n- **Answerable now:** soil-texture control on water partitioning (ET / runoff / drainage / soil-moisture), and elevation-band organization of columns *as placement*.\n- **Not answerable without new capability:** the actual elevation\u2192snow\u2192melt\u2192partitioning signal, because that needs elevation-downscaled forcing and snow/SWE output. Likewise SNOTEL SWE validation needs snow output, and USGS gauge validation needs runoff routing/aggregation (a single column produces fluxes per unit area, not basin discharge).\n\nGiven the domain spans 500\u20132400 m with a rain-snow transition, the scientifically-honest design still *stratifies by elevation band* (so that once downscaled forcing exists the campaign is ready), crossed with dominant soils. I keep N small: 4 elevation bands \u00d7 2 dominant soils \u2248 8 exploratory columns, with light replication in the rain-snow transition where the melt/partitioning sensitivity is highest. Validation columns are pinned to SNOTEL and gauge locations (counts data-driven, unknown here).\n\nVerdict: **partial** \u2014 the campaign can resolve soil control and is elevation-*organized*, but the primary elevation/snow mechanism the request implies is blocked by missing downscaled forcing and snow output, which I list in the backlog.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: resolve how elevation band and soil texture control water partitioning (ET, surface runoff, sub-surface drainage, soil moisture) across the Upper Yakima\",\n      \"Validation: evaluate simulated snow (SWE) against SNOTEL and simulated runoff against USGS gauges where data exist in-domain\"\n    ],\n    \"key_processes\": [\n      \"snow accumulation/melt and rain-snow partition\",\n      \"soil-moisture storage and per-layer redistribution\",\n      \"ET vs runoff vs drainage partitioning\",\n      \"orographic/lapse-rate climate gradient (elevation-mediated)\"\n    ],\n    \"drivers_to_resolve\": [\"elevation\", \"soil\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column transient ELM resolves the water/energy/snow balance per (lat,lon); a stratified column set spans the basin's elevation-soil heterogeneity.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Soil-texture control on water partitioning under a common forcing\",\n      \"Elevation-band ORGANIZATION of columns (placement/stratification) ready for downscaled forcing\",\n      \"Per-column soil-moisture and flux climatology 1980-2018\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Elevation/climate control on partitioning (the rain-snow gradient the request implies)\",\n        \"why\": \"Elevation acts through lapse-rate temperature and orographic precipitation; with uniform/nearest-gridcell forcing, columns at different elevations see the same climate, so between-band differences reflect soil, not elevation.\",\n        \"needs\": \"elevation-downscaled forcing\"\n      },\n      {\n        \"aspect\": \"SNOTEL SWE validation\",\n        \"why\": \"Requires simulated snow water equivalent as an exported diagnostic and elevation-consistent forcing at the SNOTEL site elevation.\",\n        \"needs\": \"snow/SWE output + elevation-downscaled forcing\"\n      },\n      {\n        \"aspect\": \"USGS gauge (streamflow) validation\",\n        \"why\": \"A single column yields per-area runoff/drainage fluxes, not routed basin discharge; comparison to a gauge requires spatial aggregation and routing.\",\n        \"needs\": \"runoff routing / aggregation to gauge contributing area\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified (elevation band x dominant soil), with light replication in the rain-snow transition\",\n    \"strata\": [\n      {\"driver\": \"elevation\", \"bands\": [\"500-1000 m (rain-dominated)\", \"1000-1500 m (rain-snow transition)\", \"1500-2000 m (snow-dominated)\", \"2000-2400 m (high snow)\"]},\n      {\"driver\": \"soil\", \"classes\": [\"dominant coarse/sandy texture\", \"dominant fine/loam-clay texture (from gridded soil raster)\"]}\n    ],\n    \"n_exploratory\": 8,\n    \"n_justification\": \"4 elevation bands x 2 dominant soil textures = 8 columns spans the full elevation range crossed with the leading soil contrast without a blind dense grid. This is the smallest set that resolves both stratification axes; +1 replicate in the transition band gives sensitivity where melt/partitioning is most variable.\",\n    \"placement_logic\": \"Distribute one column per (band x dominant-soil) cell using the DEM and soil raster; concentrate/replicate in the 1000-1500 m rain-snow transition where partitioning is most sensitive to warming, and place columns on the dominant soil of each band rather than rare inclusions.\",\n    \"replication\": \"One extra column in the rain-snow transition band to capture within-band soil/aspect variability at the most sensitive elevation.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"rain-dominated low elevation (500-1000 m)\", \"n\": 2, \"reason\": \"Baseline low-elevation partitioning under two dominant soils; expected ET/runoff-dominated, minimal snow.\"},\n    {\"group\": \"rain-snow transition (1000-1500 m)\", \"n\": 3, \"reason\": \"Most partitioning-sensitive band; replicated across soils to capture melt-timing and runoff/drainage response.\"},\n    {\"group\": \"snow-dominated mid elevation (1500-2000 m)\", \"n\": 2, \"reason\": \"Seasonal snowpack control on soil recharge and delayed runoff across dominant soils.\"},\n    {\"group\": \"high snow (2000-2400 m)\", \"n\": 1, \"reason\": \"Upper-elevation snow-dominated end-member for the elevation gradient.\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"SWE (snow water equivalent)\",\n      \"observation_source\": \"SNOTEL\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located \u2014 pin validation columns to SNOTEL station coordinates/elevation; compare simulated SWE time series to station record. Contingent on snow output + elevation-consistent forcing.\",\n      \"metric\": \"bias, RMSE, peak-SWE date and melt-out date error\",\n      \"n_validation_points\": \"unknown \u2014 depends on number of SNOTEL sites within HUC 17030001\"\n    },\n    {\n      \"target_variable\": \"streamflow / runoff\",\n      \"observation_source\": \"USGS gauges\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated \u2014 requires routing column runoff+drainage to a gauge's contributing area; NOT a co-located point comparison. Blocked until routing/aggregation capability exists.\",\n      \"metric\": \"monthly/annual runoff bias, hydrograph correlation (Nash-Sutcliffe)\",\n      \"n_validation_points\": \"unknown \u2014 depends on number of in-domain USGS gauges\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 8,\n    \"exploratory\": 8,\n    \"validation\": 0,\n    \"primary_treatment\": \"baseline 1980-2018 forcing, native gridded soil per column\",\n    \"note\": \"Validation columns are additional and pinned to SNOTEL/USGS locations; their count is data-driven and unknown from this brief.\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"elevation-downscaled forcing (lapse-rate T, orographic precip)\", \"why\": \"Elevation only affects partitioning through climate; without it columns at different bands share the same forcing.\", \"blocks\": \"the elevation/snow control the request centers on, and SNOTEL SWE validation\"},\n    {\"capability\": \"snow/SWE diagnostic output\", \"why\": \"SNOTEL validation and snow-band interpretation require exported SWE.\", \"blocks\": \"SWE validation against SNOTEL\"},\n    {\"capability\": \"runoff routing / aggregation to gauge contributing area\", \"why\": \"Single columns yield per-area fluxes, not basin discharge.\", \"blocks\": \"USGS gauge streamflow validation\"},\n    {\"capability\": \"DEM/elevation sampling for band stratification\", \"why\": \"Needed to assign columns to elevation bands.\", \"blocks\": \"elevation stratification placement\"},\n    {\"capability\": \"gridded soil raster sampling\", \"why\": \"Needed to identify dominant soil texture per band.\", \"blocks\": \"soil stratification placement\"},\n    {\"capability\": \"SNOTEL and USGS observation ingest for HUC 17030001\", \"why\": \"To resolve in-domain station/gauge locations and counts.\", \"blocks\": \"validation column placement and N\"},\n    {\"capability\": \"model spin-up\", \"why\": \"Soil moisture and snow states must equilibrate before the 1980-2018 analysis period.\", \"blocks\": \"reliable partitioning climatology\"}\n  ],\n  \"assumptions\": [\n    \"Two dominant soil textures adequately capture the leading soil contrast per elevation band; rare inclusions are ignored.\",\n    \"The 1980-2018 forcing record is used as the baseline treatment for all columns.\",\n    \"Rain-snow transition is centered near 1000-1500 m; exact band edges are set downstream from the DEM.\",\n    \"SNOTEL and USGS gauges exist within the HUC but their number and locations are not supplied in the brief.\"\n  ],\n  \"open_questions\": [\n    \"Is elevation-downscaled forcing available or planned? If not, the campaign resolves soil, not elevation.\",\n    \"How many SNOTEL sites and USGS gauges fall inside HUC 17030001, and at what elevations?\",\n    \"Is a routing/aggregation step acceptable, or should streamflow validation be deferred?\",\n    \"Should aspect/slope be added as a third stratification axis, or is elevation x soil sufficient for this campaign?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: resolve how elevation band and soil texture control water partitioning (ET, surface runoff, sub-surface drainage, soil moisture) across the Upper Yakima",
+        "Validation: evaluate simulated snow (SWE) against SNOTEL and simulated runoff against USGS gauges where data exist in-domain"
+      ],
+      "key_processes": [
+        "snow accumulation/melt and rain-snow partition",
+        "soil-moisture storage and per-layer redistribution",
+        "ET vs runoff vs drainage partitioning",
+        "orographic/lapse-rate climate gradient (elevation-mediated)"
+      ],
+      "drivers_to_resolve": [
+        "elevation",
+        "soil"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column transient ELM resolves the water/energy/snow balance per (lat,lon); a stratified column set spans the basin's elevation-soil heterogeneity.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Soil-texture control on water partitioning under a common forcing",
+        "Elevation-band ORGANIZATION of columns (placement/stratification) ready for downscaled forcing",
+        "Per-column soil-moisture and flux climatology 1980-2018"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Elevation/climate control on partitioning (the rain-snow gradient the request implies)",
+          "why": "Elevation acts through lapse-rate temperature and orographic precipitation; with uniform/nearest-gridcell forcing, columns at different elevations see the same climate, so between-band differences reflect soil, not elevation.",
+          "needs": "elevation-downscaled forcing"
+        },
+        {
+          "aspect": "SNOTEL SWE validation",
+          "why": "Requires simulated snow water equivalent as an exported diagnostic and elevation-consistent forcing at the SNOTEL site elevation.",
+          "needs": "snow/SWE output + elevation-downscaled forcing"
+        },
+        {
+          "aspect": "USGS gauge (streamflow) validation",
+          "why": "A single column yields per-area runoff/drainage fluxes, not routed basin discharge; comparison to a gauge requires spatial aggregation and routing.",
+          "needs": "runoff routing / aggregation to gauge contributing area"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation band x dominant soil), with light replication in the rain-snow transition",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "500-1000 m (rain-dominated)",
+            "1000-1500 m (rain-snow transition)",
+            "1500-2000 m (snow-dominated)",
+            "2000-2400 m (high snow)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "dominant coarse/sandy texture",
+            "dominant fine/loam-clay texture (from gridded soil raster)"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "4 elevation bands x 2 dominant soil textures = 8 columns spans the full elevation range crossed with the leading soil contrast without a blind dense grid. This is the smallest set that resolves both stratification axes; +1 replicate in the transition band gives sensitivity where melt/partitioning is most variable.",
+      "placement_logic": "Distribute one column per (band x dominant-soil) cell using the DEM and soil raster; concentrate/replicate in the 1000-1500 m rain-snow transition where partitioning is most sensitive to warming, and place columns on the dominant soil of each band rather than rare inclusions.",
+      "replication": "One extra column in the rain-snow transition band to capture within-band soil/aspect variability at the most sensitive elevation."
+    },
+    "sampling_plan": [
+      {
+        "group": "rain-dominated low elevation (500-1000 m)",
+        "n": 2,
+        "reason": "Baseline low-elevation partitioning under two dominant soils; expected ET/runoff-dominated, minimal snow."
+      },
+      {
+        "group": "rain-snow transition (1000-1500 m)",
+        "n": 3,
+        "reason": "Most partitioning-sensitive band; replicated across soils to capture melt-timing and runoff/drainage response."
+      },
+      {
+        "group": "snow-dominated mid elevation (1500-2000 m)",
+        "n": 2,
+        "reason": "Seasonal snowpack control on soil recharge and delayed runoff across dominant soils."
+      },
+      {
+        "group": "high snow (2000-2400 m)",
+        "n": 1,
+        "reason": "Upper-elevation snow-dominated end-member for the elevation gradient."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "SWE (snow water equivalent)",
+        "observation_source": "SNOTEL",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 pin validation columns to SNOTEL station coordinates/elevation; compare simulated SWE time series to station record. Contingent on snow output + elevation-consistent forcing.",
+        "metric": "bias, RMSE, peak-SWE date and melt-out date error",
+        "n_validation_points": "unknown \u2014 depends on number of SNOTEL sites within HUC 17030001"
+      },
+      {
+        "target_variable": "streamflow / runoff",
+        "observation_source": "USGS gauges",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 requires routing column runoff+drainage to a gauge's contributing area; NOT a co-located point comparison. Blocked until routing/aggregation capability exists.",
+        "metric": "monthly/annual runoff bias, hydrograph correlation (Nash-Sutcliffe)",
+        "n_validation_points": "unknown \u2014 depends on number of in-domain USGS gauges"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 8,
+      "exploratory": 8,
+      "validation": 0,
+      "primary_treatment": "baseline 1980-2018 forcing, native gridded soil per column",
+      "note": "Validation columns are additional and pinned to SNOTEL/USGS locations; their count is data-driven and unknown from this brief."
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled forcing (lapse-rate T, orographic precip)",
+        "why": "Elevation only affects partitioning through climate; without it columns at different bands share the same forcing.",
+        "blocks": "the elevation/snow control the request centers on, and SNOTEL SWE validation"
+      },
+      {
+        "capability": "snow/SWE diagnostic output",
+        "why": "SNOTEL validation and snow-band interpretation require exported SWE.",
+        "blocks": "SWE validation against SNOTEL"
+      },
+      {
+        "capability": "runoff routing / aggregation to gauge contributing area",
+        "why": "Single columns yield per-area fluxes, not basin discharge.",
+        "blocks": "USGS gauge streamflow validation"
+      },
+      {
+        "capability": "DEM/elevation sampling for band stratification",
+        "why": "Needed to assign columns to elevation bands.",
+        "blocks": "elevation stratification placement"
+      },
+      {
+        "capability": "gridded soil raster sampling",
+        "why": "Needed to identify dominant soil texture per band.",
+        "blocks": "soil stratification placement"
+      },
+      {
+        "capability": "SNOTEL and USGS observation ingest for HUC 17030001",
+        "why": "To resolve in-domain station/gauge locations and counts.",
+        "blocks": "validation column placement and N"
+      },
+      {
+        "capability": "model spin-up",
+        "why": "Soil moisture and snow states must equilibrate before the 1980-2018 analysis period.",
+        "blocks": "reliable partitioning climatology"
+      }
+    ],
+    "assumptions": [
+      "Two dominant soil textures adequately capture the leading soil contrast per elevation band; rare inclusions are ignored.",
+      "The 1980-2018 forcing record is used as the baseline treatment for all columns.",
+      "Rain-snow transition is centered near 1000-1500 m; exact band edges are set downstream from the DEM.",
+      "SNOTEL and USGS gauges exist within the HUC but their number and locations are not supplied in the brief."
+    ],
+    "open_questions": [
+      "Is elevation-downscaled forcing available or planned? If not, the campaign resolves soil, not elevation.",
+      "How many SNOTEL sites and USGS gauges fall inside HUC 17030001, and at what elevations?",
+      "Is a routing/aggregation step acceptable, or should streamflow validation be deferred?",
+      "Should aspect/slope be added as a third stratification axis, or is elevation x soil sufficient for this campaign?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

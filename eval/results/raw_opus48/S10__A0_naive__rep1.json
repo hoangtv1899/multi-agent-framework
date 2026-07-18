@@ -1,0 +1,102 @@
+{
+  "prompt_id": "S10",
+  "arm": "A0_naive",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Elevation-band control on snow accumulation/melt (SWE, snow depth) across the upper Yakima gradient\",\n      \"Band-dependent surface energy and water partitioning (ET, sensible/latent heat, runoff timing)\",\n      \"Soil moisture and soil temperature differences between valley, montane, subalpine, and alpine columns\"\n    ],\n    \"not_answerable\": [\n      \"Lateral routing / streamflow accumulation between bands (single-column ELM has no lateral hydrologic connectivity)\",\n      \"Deep groundwater and bedrock aquifer dynamics (would require PFLOTRAN coupling)\",\n      \"Sub-grid spatial heterogeneity within a band beyond the prescribed representative point\"\n    ]\n  },\n  \"n_columns\": 5,\n  \"n_justification\": \"The upper Yakima basin spans roughly 500 m (Kittitas valley floor) to ~2000+ m (Cascade crest near Snoqualmie Pass). Snowpack, precipitation phase, and growing-season length vary strongly and monotonically with elevation, so the dominant hydrologic gradient is 1-D along elevation. Five columns place one representative point in each of five ~350-400 m elevation bands (valley, lower montane, mid montane, subalpine, alpine/crest), which resolves the rain-snow transition and the seasonal-snow-to-persistent-snow zones without redundant sampling. Fewer than 5 would merge the critical rain/snow transition band; more would add columns finer than the ~400 m band structure ELM soil/veg forcing can meaningfully distinguish here.\",\n  \"columns\": [\n    {\"id\": \"YAK_valley_500m\", \"lat\": 47.195, \"lon\": -120.945, \"soil_texture\": \"silt loam\"},\n    {\"id\": \"YAK_lowermontane_850m\", \"lat\": 47.255, \"lon\": -121.055, \"soil_texture\": \"loam\"},\n    {\"id\": \"YAK_midmontane_1250m\", \"lat\": 47.395, \"lon\": -121.185, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"YAK_subalpine_1650m\", \"lat\": 47.445, \"lon\": -121.355, \"soil_texture\": \"gravelly sandy loam\"},\n    {\"id\": \"YAK_alpine_2050m\", \"lat\": 47.505, \"lon\": -121.415, \"soil_texture\": \"loamy sand\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"2000\",\n    \"DATM_CLMNCEP_YR_END\": \"2014\",\n    \"STOP_N\": \"15\",\n    \"RUN_STARTDATE\": \"2000-01-01\",\n    \"hist_variables\": [\n      \"H2OSNO\", \"SNOWDP\", \"SNOW_DEPTH\", \"FSNO\", \"QSNOMELT\",\n      \"RAIN\", \"SNOW\", \"QRUNOFF\", \"QOVER\", \"QDRAI\",\n      \"QVEGE\", \"QVEGT\", \"QSOIL\", \"EFLX_LH_TOT\", \"FSH\",\n      \"TSOI\", \"H2OSOI\", \"SOILLIQ\", \"SOILICE\",\n      \"TG\", \"TV\", \"GPP\", \"TLAI\"\n    ]\n  },\n  \"requires_capabilities\": [\"elm_singlecolumn\"],\n  \"assumptions\": [\n    \"STOP_OPTION is set to nyears so STOP_N=15 runs 15 full years (2000-2014).\",\n    \"Each column is spun up (accelerated + final spin-up) to equilibrium prior to the 15-year transient run.\",\n    \"Atmospheric forcing is downscaled to each column's elevation (lapse-rate correction of temperature, pressure, and longwave) since coarse reanalysis will not capture the ~1500 m elevation range.\",\n    \"Soil textures are representative estimates for each band (glacial/valley alluvium at low elevation grading to thin, coarse, rocky soils near the crest) pending SSURGO/site verification.\",\n    \"Vegetation follows an elevation sequence (shrub-steppe/grass at valley floor to conifer forest and alpine at the crest) via the surface dataset PFT distribution.\",\n    \"No lateral flow between columns; each is an independent 1-D profile.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Elevation-band control on snow accumulation/melt (SWE, snow depth) across the upper Yakima gradient",
+        "Band-dependent surface energy and water partitioning (ET, sensible/latent heat, runoff timing)",
+        "Soil moisture and soil temperature differences between valley, montane, subalpine, and alpine columns"
+      ],
+      "not_answerable": [
+        "Lateral routing / streamflow accumulation between bands (single-column ELM has no lateral hydrologic connectivity)",
+        "Deep groundwater and bedrock aquifer dynamics (would require PFLOTRAN coupling)",
+        "Sub-grid spatial heterogeneity within a band beyond the prescribed representative point"
+      ]
+    },
+    "n_columns": 5,
+    "n_justification": "The upper Yakima basin spans roughly 500 m (Kittitas valley floor) to ~2000+ m (Cascade crest near Snoqualmie Pass). Snowpack, precipitation phase, and growing-season length vary strongly and monotonically with elevation, so the dominant hydrologic gradient is 1-D along elevation. Five columns place one representative point in each of five ~350-400 m elevation bands (valley, lower montane, mid montane, subalpine, alpine/crest), which resolves the rain-snow transition and the seasonal-snow-to-persistent-snow zones without redundant sampling. Fewer than 5 would merge the critical rain/snow transition band; more would add columns finer than the ~400 m band structure ELM soil/veg forcing can meaningfully distinguish here.",
+    "columns": [
+      {
+        "id": "YAK_valley_500m",
+        "lat": 47.195,
+        "lon": -120.945,
+        "soil_texture": "silt loam"
+      },
+      {
+        "id": "YAK_lowermontane_850m",
+        "lat": 47.255,
+        "lon": -121.055,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "YAK_midmontane_1250m",
+        "lat": 47.395,
+        "lon": -121.185,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "YAK_subalpine_1650m",
+        "lat": 47.445,
+        "lon": -121.355,
+        "soil_texture": "gravelly sandy loam"
+      },
+      {
+        "id": "YAK_alpine_2050m",
+        "lat": 47.505,
+        "lon": -121.415,
+        "soil_texture": "loamy sand"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "2000",
+      "DATM_CLMNCEP_YR_END": "2014",
+      "STOP_N": "15",
+      "RUN_STARTDATE": "2000-01-01",
+      "hist_variables": [
+        "H2OSNO",
+        "SNOWDP",
+        "SNOW_DEPTH",
+        "FSNO",
+        "QSNOMELT",
+        "RAIN",
+        "SNOW",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QVEGE",
+        "QVEGT",
+        "QSOIL",
+        "EFLX_LH_TOT",
+        "FSH",
+        "TSOI",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "TG",
+        "TV",
+        "GPP",
+        "TLAI"
+      ]
+    },
+    "requires_capabilities": [
+      "elm_singlecolumn"
+    ],
+    "assumptions": [
+      "STOP_OPTION is set to nyears so STOP_N=15 runs 15 full years (2000-2014).",
+      "Each column is spun up (accelerated + final spin-up) to equilibrium prior to the 15-year transient run.",
+      "Atmospheric forcing is downscaled to each column's elevation (lapse-rate correction of temperature, pressure, and longwave) since coarse reanalysis will not capture the ~1500 m elevation range.",
+      "Soil textures are representative estimates for each band (glacial/valley alluvium at low elevation grading to thin, coarse, rocky soils near the crest) pending SSURGO/site verification.",
+      "Vegetation follows an elevation sequence (shrub-steppe/grass at valley floor to conifer forest and alpine at the crest) via the surface dataset PFT distribution.",
+      "No lateral flow between columns; each is an independent 1-D profile."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

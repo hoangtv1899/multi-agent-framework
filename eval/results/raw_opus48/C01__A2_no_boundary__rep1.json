@@ -1,0 +1,139 @@
+{
+  "prompt_id": "C01",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe request is a textbook **conceptual / controlled experiment**: isolate a single factor (soil clay content) and trace its effect on how incoming precipitation splits between surface runoff and deep drainage/recharge, holding everything else fixed. This is exactly the archetype where spatial sampling and co-located observation validation are *not* appropriate \u2014 there is no domain, no observation network, and the \"answer\" is a monotonic response curve judged against hydrologic theory (soil physics), not against field data.\n\n**Decomposition.** One mechanistic goal: quantify the runoff\u2194recharge partitioning response to clay fraction. Clay content is a proxy for the physical levers that actually drive partitioning in ELM's soil hydrology: as clay rises, saturated hydraulic conductivity falls and the soil-water retention curve steepens, so infiltration capacity drops \u2192 more precipitation is rejected as surface runoff (QOVER) and less percolates to sub-surface drainage/recharge (QDRAI). The expected result is a monotonic shift from recharge-dominated (sandy, 5% clay) toward runoff-dominated (heavy clay, 55%).\n\n**Factor levels (N).** The factor is continuous over 5\u201355%. Six evenly spaced levels (5, 15, 25, 35, 45, 55%) resolve the shape of the curve (including any non-linearity/threshold near the infiltration-limited end) without wasting runs. N = 6, one column per treatment.\n\n**Controlled conditions.** All columns share one representative NLDAS forcing period at one fixed location, one fixed climate, identical layering, identical vegetation, identical slope. Only the clay fraction of a synthetic, otherwise-uniform soil is varied. Because sand/silt must sum with clay to 100%, I hold the sand:silt ratio fixed and absorb the change into both \u2014 this must be stated as an assumption (you cannot vary clay in isolation of the other two fractions).\n\n**Feasibility.** Partitioning between QOVER and QDRAI *is* representable \u2014 soil texture is a lever the runs can pull, and both fluxes are standard ELM outputs. The one hard requirement: **recharge/drainage is a slow state**, so a cold start (default ~8.8 m water table, ~0 recharge while storage fills) would be an initialization artifact. Each treatment MUST include spin-up (or a WTD-informed warm start) so the partitioning reflects equilibrium soil hydrology, not the fill-up transient. With spin-up included, the question is fully answerable. Validation is optional and here is against physical/theoretical expectation only (monotonic decline of recharge fraction with clay), clearly labelled \u2014 there are no observations in the brief.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: quantify how soil clay fraction shifts precipitation partitioning between surface runoff (QOVER) and sub-surface drainage/recharge (QDRAI) under fixed forcing\",\n      \"Validation (optional): check the response against physical expectation (monotonic decline of recharge fraction as clay rises); no field observations in brief\"\n    ],\n    \"key_processes\": [\n      \"infiltration capacity vs saturated hydraulic conductivity\",\n      \"soil-water retention / matric potential\",\n      \"surface runoff generation\",\n      \"deep drainage / recharge partitioning\"\n    ],\n    \"drivers_to_resolve\": [\"clay content\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"conceptual\",\n    \"rationale\": \"Single-column ELM resolves 1-D soil water partitioning (ET, QOVER, QDRAI) and lets soil texture be set directly, which is the exact lever this controlled experiment needs. No lateral transport or spatial heterogeneity is required.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"full\",\n    \"answerable\": [\n      \"soil clay control on runoff/recharge partitioning (QOVER vs QDRAI) under fixed forcing, provided spin-up is included\"\n    ],\n    \"not_answerable\": []\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"controlled / not spatial\",\n    \"strata\": [\n      {\"driver\": \"clay content\", \"classes\": [\"5%\", \"15%\", \"25%\", \"35%\", \"45%\", \"55%\"]}\n    ],\n    \"n_exploratory\": 6,\n    \"n_justification\": \"Six evenly spaced clay levels span the requested 5-55% range and resolve the shape of the partitioning response (including possible non-linearity toward the infiltration-limited, high-clay end) with minimal runs. One column per treatment; everything else held fixed.\",\n    \"placement_logic\": \"controlled / not spatial \u2014 all treatments occupy the same synthetic column (identical location, forcing, layering, vegetation, slope); only the clay fraction differs.\",\n    \"replication\": \"None \u2014 deterministic single-column runs under identical forcing produce no stochastic spread, so replication adds no information.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"clay = 5% (sandy end-member)\", \"n\": 1, \"reason\": \"Coarse-textured control: high infiltration, recharge-dominated partitioning expected.\"},\n    {\"group\": \"clay = 15%\", \"n\": 1, \"reason\": \"Loamy-sand level to trace the low-clay slope of the response curve.\"},\n    {\"group\": \"clay = 25%\", \"n\": 1, \"reason\": \"Mid-range loam level, near typical agricultural soils.\"},\n    {\"group\": \"clay = 35%\", \"n\": 1, \"reason\": \"Clay-loam level to capture the transition toward runoff dominance.\"},\n    {\"group\": \"clay = 45%\", \"n\": 1, \"reason\": \"High-clay level probing reduced infiltration capacity.\"},\n    {\"group\": \"clay = 55% (heavy-clay end-member)\", \"n\": 1, \"reason\": \"Infiltration-limited control: runoff-dominated partitioning expected.\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"recharge fraction (QDRAI / precipitation) vs clay\",\n      \"observation_source\": \"physical / theoretical expectation (soil hydraulics: recharge fraction should decline monotonically as clay rises)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"analog \u2014 qualitative check of the modeled response curve against established soil-physics expectation, not co-located data\",\n      \"metric\": \"monotonicity and sign of the QDRAI response; magnitude of runoff/recharge shift across the clay range\",\n      \"n_validation_points\": \"0 (no field observations in brief)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 6,\n    \"exploratory\": 6,\n    \"validation\": 0,\n    \"primary_treatment\": \"synthetic uniform soil, one representative NLDAS forcing period, single fixed location; only clay fraction varied (5-55%), with spin-up included\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"model spin-up (or WTD-informed warm start) for each treatment\", \"why\": \"recharge/drainage is a slow state; cold-start columns fill from the default ~8.8 m water table and report artificial near-zero recharge\", \"blocks\": \"meaningful equilibrium recharge partitioning \u2014 without it QDRAI is an initialization transient\"},\n    {\"capability\": \"synthetic uniform soil-texture specification (prescribed clay/sand/silt fractions overriding SSURGO)\", \"why\": \"the controlled experiment requires idealized soils that differ ONLY in clay fraction\", \"blocks\": \"isolating clay as the sole varied factor\"},\n    {\"capability\": \"QOVER and QDRAI in history output\", \"why\": \"these are the partitioning fluxes being measured\", \"blocks\": \"computing the runoff vs recharge split\"}\n  ],\n  \"assumptions\": [\n    \"Clay cannot be varied in true isolation because sand+silt+clay must sum to 100%; the sand:silt ratio is held fixed and the balance is absorbed into both fractions.\",\n    \"A single representative NLDAS forcing period and location are chosen and held identical across all six treatments.\",\n    \"Soil is treated as vertically uniform in texture so the clay signal is not confounded by layering; vegetation, slope, and depth-to-bedrock are held fixed.\",\n    \"Spin-up length is sufficient for QDRAI to reach quasi-steady behavior before the analysis window.\"\n  ],\n  \"open_questions\": [\n    \"Which representative climate/forcing site and years best expose the partitioning response (humid vs semi-arid regimes will show different sensitivity)?\",\n    \"Should the sand:silt balance be held at a fixed ratio, or should silt be held constant while only sand trades with clay?\",\n    \"Preferred equilibration method: multi-year spin-up vs WTD-informed warm start?\",\n    \"Is a vertically uniform soil desired, or should the clay perturbation apply only to specific layers (e.g. root zone)?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how soil clay fraction shifts precipitation partitioning between surface runoff (QOVER) and sub-surface drainage/recharge (QDRAI) under fixed forcing",
+        "Validation (optional): check the response against physical expectation (monotonic decline of recharge fraction as clay rises); no field observations in brief"
+      ],
+      "key_processes": [
+        "infiltration capacity vs saturated hydraulic conductivity",
+        "soil-water retention / matric potential",
+        "surface runoff generation",
+        "deep drainage / recharge partitioning"
+      ],
+      "drivers_to_resolve": [
+        "clay content"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column ELM resolves 1-D soil water partitioning (ET, QOVER, QDRAI) and lets soil texture be set directly, which is the exact lever this controlled experiment needs. No lateral transport or spatial heterogeneity is required.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "soil clay control on runoff/recharge partitioning (QOVER vs QDRAI) under fixed forcing, provided spin-up is included"
+      ],
+      "not_answerable": []
+    },
+    "sampling_strategy": {
+      "approach": "controlled / not spatial",
+      "strata": [
+        {
+          "driver": "clay content",
+          "classes": [
+            "5%",
+            "15%",
+            "25%",
+            "35%",
+            "45%",
+            "55%"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "Six evenly spaced clay levels span the requested 5-55% range and resolve the shape of the partitioning response (including possible non-linearity toward the infiltration-limited, high-clay end) with minimal runs. One column per treatment; everything else held fixed.",
+      "placement_logic": "controlled / not spatial \u2014 all treatments occupy the same synthetic column (identical location, forcing, layering, vegetation, slope); only the clay fraction differs.",
+      "replication": "None \u2014 deterministic single-column runs under identical forcing produce no stochastic spread, so replication adds no information."
+    },
+    "sampling_plan": [
+      {
+        "group": "clay = 5% (sandy end-member)",
+        "n": 1,
+        "reason": "Coarse-textured control: high infiltration, recharge-dominated partitioning expected."
+      },
+      {
+        "group": "clay = 15%",
+        "n": 1,
+        "reason": "Loamy-sand level to trace the low-clay slope of the response curve."
+      },
+      {
+        "group": "clay = 25%",
+        "n": 1,
+        "reason": "Mid-range loam level, near typical agricultural soils."
+      },
+      {
+        "group": "clay = 35%",
+        "n": 1,
+        "reason": "Clay-loam level to capture the transition toward runoff dominance."
+      },
+      {
+        "group": "clay = 45%",
+        "n": 1,
+        "reason": "High-clay level probing reduced infiltration capacity."
+      },
+      {
+        "group": "clay = 55% (heavy-clay end-member)",
+        "n": 1,
+        "reason": "Infiltration-limited control: runoff-dominated partitioning expected."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "recharge fraction (QDRAI / precipitation) vs clay",
+        "observation_source": "physical / theoretical expectation (soil hydraulics: recharge fraction should decline monotonically as clay rises)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 qualitative check of the modeled response curve against established soil-physics expectation, not co-located data",
+        "metric": "monotonicity and sign of the QDRAI response; magnitude of runoff/recharge shift across the clay range",
+        "n_validation_points": "0 (no field observations in brief)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "synthetic uniform soil, one representative NLDAS forcing period, single fixed location; only clay fraction varied (5-55%), with spin-up included"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "model spin-up (or WTD-informed warm start) for each treatment",
+        "why": "recharge/drainage is a slow state; cold-start columns fill from the default ~8.8 m water table and report artificial near-zero recharge",
+        "blocks": "meaningful equilibrium recharge partitioning \u2014 without it QDRAI is an initialization transient"
+      },
+      {
+        "capability": "synthetic uniform soil-texture specification (prescribed clay/sand/silt fractions overriding SSURGO)",
+        "why": "the controlled experiment requires idealized soils that differ ONLY in clay fraction",
+        "blocks": "isolating clay as the sole varied factor"
+      },
+      {
+        "capability": "QOVER and QDRAI in history output",
+        "why": "these are the partitioning fluxes being measured",
+        "blocks": "computing the runoff vs recharge split"
+      }
+    ],
+    "assumptions": [
+      "Clay cannot be varied in true isolation because sand+silt+clay must sum to 100%; the sand:silt ratio is held fixed and the balance is absorbed into both fractions.",
+      "A single representative NLDAS forcing period and location are chosen and held identical across all six treatments.",
+      "Soil is treated as vertically uniform in texture so the clay signal is not confounded by layering; vegetation, slope, and depth-to-bedrock are held fixed.",
+      "Spin-up length is sufficient for QDRAI to reach quasi-steady behavior before the analysis window."
+    ],
+    "open_questions": [
+      "Which representative climate/forcing site and years best expose the partitioning response (humid vs semi-arid regimes will show different sensitivity)?",
+      "Should the sand:silt balance be held at a fixed ratio, or should silt be held constant while only sand trades with clay?",
+      "Preferred equilibration method: multi-year spin-up vs WTD-informed warm start?",
+      "Is a vertically uniform soil desired, or should the clay perturbation apply only to specific layers (e.g. root zone)?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

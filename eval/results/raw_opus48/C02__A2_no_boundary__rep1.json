@@ -1,0 +1,138 @@
+{
+  "prompt_id": "C02",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**The question.** This is a clean *conceptual* (idealized) experiment: hold everything fixed and vary ONE factor \u2014 the initial water-table depth (WTD) \u2014 then measure what fraction of a surface infiltration pulse actually reaches the water table. The mechanism is unsaturated-zone travel and storage: a deep water table means a thick unsaturated column that can absorb/store the pulse (and delay or attenuate its arrival at the water table via redistribution and ET losses), whereas a shallow water table has little buffering and should transmit a larger, faster recharge fraction. This is exactly the kind of controlled single-factor sweep ELM's 1-D column is built for \u2014 no spatial sampling, no lateral flow needed, no observations.\n\n**Feasibility check against execution limits.** Two limits bite:\n\n1. **Aquifer range 0.05\u201328.8 m.** ELM's warm-start / aquifer representation clamps the water table to \u2264 28.8 m; a 50 m target simply pins the aquifer empty and is *not* a physically distinct state. So the requested 0.5\u201350 m range is only representable up to ~28.8 m. I will sweep levels from 0.5 m to ~28 m and be explicit that 40\u201350 m is not resolvable \u2014 the model cannot distinguish a 30 m from a 50 m water table.\n2. **Initial-state control.** The whole experiment IS an initial-condition sweep, so I must be able to *set* the initial WTD per column. The WTD-informed warm start sets each column's initial water table/aquifer storage \u2014 here we repurpose it to prescribe the treatment WTD rather than read it from Fan (2013). This requires one carrier run per column and the ability to specify the target WTD directly. The root-zone soil moisture is a fast state left untouched by the warm start, which is fine \u2014 we want each column to start from the same root-zone moisture and differ only in water-table depth.\n\nBecause the pulse-partitioning signal develops over weeks\u2013months of redistribution, I also need enough simulated time after the pulse (a season) and a short equilibration so the unsaturated profile above each prescribed WTD is hydrostatically consistent rather than an artifact.\n\n**Design.** Uniform synthetic loam (single texture) removes soil as a confounder \u2014 the point is to isolate WTD, not texture. One representative forcing period supplies a controlled infiltration pulse: I recommend selecting a single wet-season window and treating a defined large precipitation event as \"the pulse,\" identical across all columns (same lat/lon \u2192 identical NLDAS forcing; the only difference between columns is initial WTD). Levels are geometric (0.5, 1, 2, 5, 10, 20, 28 m) so the shallow end \u2014 where sensitivity is highest \u2014 is well resolved. N = 7 treatments (+ optional replication is unnecessary in a deterministic idealized run).\n\n**What we measure.** Recharge flux to the water table (QRECHARGE/QDRAI), the change in aquifer storage / ZWT, and a mass-balance partition of the pulse into (i) recharge reaching the water table, (ii) storage gain in the unsaturated zone, (iii) ET, (iv) runoff/drainage. The headline result is *recharge fraction of the pulse vs. initial WTD*.\n\n**Validation.** None \u2014 idealized/conceptual. Success is judged against physical expectation (monotonic decline of recharge fraction with deeper initial WTD, with a lag that grows with depth) and literature on unsaturated-zone recharge attenuation.\n\n## JSON\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: quantify how initial water-table depth controls the fraction and timing of a surface infiltration pulse that reaches the water table\"\n    ],\n    \"key_processes\": [\n      \"unsaturated-zone infiltration and redistribution\",\n      \"recharge flux to the water table (QRECHARGE)\",\n      \"aquifer/soil water storage change and water-table response (ZWT)\",\n      \"competing losses: ET and surface/subsurface runoff\"\n    ],\n    \"drivers_to_resolve\": [\n      \"initial water-table depth\"\n    ]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"conceptual\",\n    \"rationale\": \"Single-column 1-D ELM directly represents unsaturated-zone redistribution, recharge to the water table, and aquifer storage \u2014 the exact vertical processes the question isolates. An idealized single-factor WTD sweep needs no spatial sampling or lateral flow.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Control of initial WTD on pulse recharge fraction and timing across the 0.5-28.8 m range (shallow-to-moderate water tables)\",\n      \"Mass-balance partitioning of a fixed infiltration pulse into recharge vs. unsaturated storage vs. ET vs. runoff as a function of initial WTD\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Distinct WTD levels deeper than ~28.8 m (i.e. 30-50 m of the requested range)\",\n        \"why\": \"ELM's aquifer representation clamps the water table to 0.05-28.8 m; targets deeper than this pin the aquifer empty and are indistinguishable from ~28.8 m\",\n        \"needs\": \"deep-vadose-zone / extended-aquifer representation (or a coupled deep unsaturated model) to resolve 30-50 m water tables\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"controlled / not spatial \u2014 single-factor sweep of initial water-table depth at one location with uniform soil and identical forcing\",\n    \"strata\": [\n      {\"driver\": \"initial_water_table_depth\", \"bands\": [\"0.5 m\", \"1 m\", \"2 m\", \"5 m\", \"10 m\", \"20 m\", \"28 m (aquifer max ~28.8 m)\"]},\n      {\"driver\": \"soil\", \"classes\": [\"uniform synthetic loam (fixed, not varied)\"]}\n    ],\n    \"n_exploratory\": 7,\n    \"n_justification\": \"Seven geometrically-spaced WTD levels span the representable range (0.5-28.8 m) with dense resolution at the shallow end where recharge sensitivity is greatest and coarser spacing where the pulse is largely buffered. Requested 40-50 m levels are omitted as unresolvable (see feasibility). Deterministic runs need no replication.\",\n    \"placement_logic\": \"controlled / not spatial \u2014 all treatments share one (lat,lon) and identical NLDAS forcing so the ONLY difference between columns is the prescribed initial water-table depth; the pulse is an identical, defined wet-season precipitation event.\",\n    \"replication\": \"none \u2014 deterministic idealized runs; each WTD level is a single column\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"very shallow WTD (0.5 m, 1 m)\", \"n\": 2, \"reason\": \"Thin unsaturated zone: expect near-complete, rapid recharge of the pulse \u2014 resolves the high-sensitivity end of the WTD control.\"},\n    {\"group\": \"shallow-moderate WTD (2 m, 5 m)\", \"n\": 2, \"reason\": \"Transition zone where unsaturated storage and ET begin to intercept an appreciable fraction of the pulse before it reaches the water table.\"},\n    {\"group\": \"moderate WTD (10 m)\", \"n\": 1, \"reason\": \"Thick vadose zone strongly attenuates and delays pulse arrival at the water table.\"},\n    {\"group\": \"deep WTD near aquifer limit (20 m, 28 m)\", \"n\": 2, \"reason\": \"Deepest representable water tables: expect minimal/most-delayed recharge fraction and marks the ceiling of what ELM can resolve (~28.8 m).\"}\n  ],\n  \"validation_design\": [],\n  \"experiment_summary\": {\n    \"total_columns\": 7,\n    \"exploratory\": 7,\n    \"validation\": 0,\n    \"primary_treatment\": \"uniform synthetic loam, single representative wet-season forcing window with one defined infiltration pulse, identical (lat,lon); only the prescribed initial water-table depth varies\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"prescribed initial water-table depth per column (repurposed WTD-informed warm start to set a chosen target WTD rather than Fan-2013 equilibrium)\", \"why\": \"the experiment IS an initial-condition sweep; each treatment must start from a specified WTD with a hydrostatically consistent unsaturated profile\", \"blocks\": \"the entire experiment if initial WTD cannot be set as a treatment\"},\n    {\"capability\": \"recharge / water-table-flux diagnostics in history output (QRECHARGE / QDRAI, ZWT, aquifer storage WA) plus pulse mass-balance terms (infiltration, ET, runoff, soil-column storage change)\", \"why\": \"the headline metric is the fraction of the infiltration pulse reaching the water table and its partitioning\", \"blocks\": \"quantifying the recharge fraction and closing the pulse water budget\"},\n    {\"capability\": \"deep-vadose / extended-aquifer representation beyond 28.8 m\", \"why\": \"requested 40-50 m water tables exceed ELM's aquifer range\", \"blocks\": \"resolving distinct behavior for the deep (30-50 m) end of the requested range\"},\n    {\"capability\": \"short pre-pulse equilibration / spin-up of the unsaturated profile above each prescribed WTD\", \"why\": \"slow states must be consistent with the imposed WTD so the measured recharge is a response to the pulse, not an initialization artifact\", \"blocks\": \"clean attribution of recharge to the pulse rather than to profile drift\"}\n  ],\n  \"assumptions\": [\n    \"A single uniform loam texture is an acceptable idealization; soil texture is deliberately held fixed to isolate the WTD control (a follow-on experiment could cross WTD with texture).\",\n    \"One representative wet-season forcing window from 1980-2018 provides a well-defined, repeatable infiltration pulse identical across all columns.\",\n    \"Root-zone (fast-state) soil moisture starts identical across treatments so columns differ only in water-table depth; residual root-zone equilibration is treated as part of the controlled setup.\",\n    \"The 'pulse fraction reaching the water table' is defined via post-pulse recharge flux integrated over a fixed window (e.g. one season) plus aquifer storage change.\"\n  ],\n  \"open_questions\": [\n    \"Preferred pulse definition: a single large storm event vs. a fixed synthetic infiltration depth applied uniformly to all columns?\",\n    \"Over what post-pulse window should recharge be integrated (days, one season, one year)? This affects how much of the deep-WTD delayed arrival is captured.\",\n    \"Is the shallow end (<0.5 m) of interest, where the water table can intersect the root zone and reverse the sign of exchange?\",\n    \"Should a second axis (soil texture) be added later to test whether the WTD control is texture-dependent?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how initial water-table depth controls the fraction and timing of a surface infiltration pulse that reaches the water table"
+      ],
+      "key_processes": [
+        "unsaturated-zone infiltration and redistribution",
+        "recharge flux to the water table (QRECHARGE)",
+        "aquifer/soil water storage change and water-table response (ZWT)",
+        "competing losses: ET and surface/subsurface runoff"
+      ],
+      "drivers_to_resolve": [
+        "initial water-table depth"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column 1-D ELM directly represents unsaturated-zone redistribution, recharge to the water table, and aquifer storage \u2014 the exact vertical processes the question isolates. An idealized single-factor WTD sweep needs no spatial sampling or lateral flow.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Control of initial WTD on pulse recharge fraction and timing across the 0.5-28.8 m range (shallow-to-moderate water tables)",
+        "Mass-balance partitioning of a fixed infiltration pulse into recharge vs. unsaturated storage vs. ET vs. runoff as a function of initial WTD"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Distinct WTD levels deeper than ~28.8 m (i.e. 30-50 m of the requested range)",
+          "why": "ELM's aquifer representation clamps the water table to 0.05-28.8 m; targets deeper than this pin the aquifer empty and are indistinguishable from ~28.8 m",
+          "needs": "deep-vadose-zone / extended-aquifer representation (or a coupled deep unsaturated model) to resolve 30-50 m water tables"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "controlled / not spatial \u2014 single-factor sweep of initial water-table depth at one location with uniform soil and identical forcing",
+      "strata": [
+        {
+          "driver": "initial_water_table_depth",
+          "bands": [
+            "0.5 m",
+            "1 m",
+            "2 m",
+            "5 m",
+            "10 m",
+            "20 m",
+            "28 m (aquifer max ~28.8 m)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "uniform synthetic loam (fixed, not varied)"
+          ]
+        }
+      ],
+      "n_exploratory": 7,
+      "n_justification": "Seven geometrically-spaced WTD levels span the representable range (0.5-28.8 m) with dense resolution at the shallow end where recharge sensitivity is greatest and coarser spacing where the pulse is largely buffered. Requested 40-50 m levels are omitted as unresolvable (see feasibility). Deterministic runs need no replication.",
+      "placement_logic": "controlled / not spatial \u2014 all treatments share one (lat,lon) and identical NLDAS forcing so the ONLY difference between columns is the prescribed initial water-table depth; the pulse is an identical, defined wet-season precipitation event.",
+      "replication": "none \u2014 deterministic idealized runs; each WTD level is a single column"
+    },
+    "sampling_plan": [
+      {
+        "group": "very shallow WTD (0.5 m, 1 m)",
+        "n": 2,
+        "reason": "Thin unsaturated zone: expect near-complete, rapid recharge of the pulse \u2014 resolves the high-sensitivity end of the WTD control."
+      },
+      {
+        "group": "shallow-moderate WTD (2 m, 5 m)",
+        "n": 2,
+        "reason": "Transition zone where unsaturated storage and ET begin to intercept an appreciable fraction of the pulse before it reaches the water table."
+      },
+      {
+        "group": "moderate WTD (10 m)",
+        "n": 1,
+        "reason": "Thick vadose zone strongly attenuates and delays pulse arrival at the water table."
+      },
+      {
+        "group": "deep WTD near aquifer limit (20 m, 28 m)",
+        "n": 2,
+        "reason": "Deepest representable water tables: expect minimal/most-delayed recharge fraction and marks the ceiling of what ELM can resolve (~28.8 m)."
+      }
+    ],
+    "validation_design": [],
+    "experiment_summary": {
+      "total_columns": 7,
+      "exploratory": 7,
+      "validation": 0,
+      "primary_treatment": "uniform synthetic loam, single representative wet-season forcing window with one defined infiltration pulse, identical (lat,lon); only the prescribed initial water-table depth varies"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "prescribed initial water-table depth per column (repurposed WTD-informed warm start to set a chosen target WTD rather than Fan-2013 equilibrium)",
+        "why": "the experiment IS an initial-condition sweep; each treatment must start from a specified WTD with a hydrostatically consistent unsaturated profile",
+        "blocks": "the entire experiment if initial WTD cannot be set as a treatment"
+      },
+      {
+        "capability": "recharge / water-table-flux diagnostics in history output (QRECHARGE / QDRAI, ZWT, aquifer storage WA) plus pulse mass-balance terms (infiltration, ET, runoff, soil-column storage change)",
+        "why": "the headline metric is the fraction of the infiltration pulse reaching the water table and its partitioning",
+        "blocks": "quantifying the recharge fraction and closing the pulse water budget"
+      },
+      {
+        "capability": "deep-vadose / extended-aquifer representation beyond 28.8 m",
+        "why": "requested 40-50 m water tables exceed ELM's aquifer range",
+        "blocks": "resolving distinct behavior for the deep (30-50 m) end of the requested range"
+      },
+      {
+        "capability": "short pre-pulse equilibration / spin-up of the unsaturated profile above each prescribed WTD",
+        "why": "slow states must be consistent with the imposed WTD so the measured recharge is a response to the pulse, not an initialization artifact",
+        "blocks": "clean attribution of recharge to the pulse rather than to profile drift"
+      }
+    ],
+    "assumptions": [
+      "A single uniform loam texture is an acceptable idealization; soil texture is deliberately held fixed to isolate the WTD control (a follow-on experiment could cross WTD with texture).",
+      "One representative wet-season forcing window from 1980-2018 provides a well-defined, repeatable infiltration pulse identical across all columns.",
+      "Root-zone (fast-state) soil moisture starts identical across treatments so columns differ only in water-table depth; residual root-zone equilibration is treated as part of the controlled setup.",
+      "The 'pulse fraction reaching the water table' is defined via post-pulse recharge flux integrated over a fixed window (e.g. one season) plus aquifer storage change."
+    ],
+    "open_questions": [
+      "Preferred pulse definition: a single large storm event vs. a fixed synthetic infiltration depth applied uniformly to all columns?",
+      "Over what post-pulse window should recharge be integrated (days, one season, one year)? This affects how much of the deep-WTD delayed arrival is captured.",
+      "Is the shallow end (<0.5 m) of interest, where the water table can intersect the root zone and reverse the sign of exchange?",
+      "Should a second axis (soil texture) be added later to test whether the WTD control is texture-dependent?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

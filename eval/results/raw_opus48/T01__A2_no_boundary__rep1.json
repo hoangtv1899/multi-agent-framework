@@ -1,0 +1,181 @@
+{
+  "prompt_id": "T01",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**Goals.** The request \"study runoff generation in the Naches\" decomposes into (1) a *mechanistic* goal \u2014 how runoff partitions between fast surface runoff (QOVER) and slower subsurface drainage/recharge (QDRAI), and how that partitioning is controlled by elevation (via orographic precip and snowpack) and soil texture; and (2) an implied *validation* goal against the only observation offered, USGS stream gauges.\n\n**Feasibility \u2014 this is the crux.** Runoff *generation at a column* (QOVER, QDRAI, snowmelt timing) is exactly what single-column ELM produces, and with NLDAS-2 the ~1625 m relief will give genuinely different precip/temperature and a real rain\u2013snow gradient across columns. That part is answerable. **But the validation target \u2014 a USGS stream gauge \u2014 is integrated basin discharge, and the stack has no lateral routing or aggregation.** Independent 1-D columns cannot be summed into a hydrograph without an explicit routing/aggregation step that does not yet exist. So streamflow validation is *not* feasible as posed; I flag it. Additionally, QDRAI/recharge are slow states \u2014 the design must use the WTD-informed warm start (or spin-up), or drainage is an initialization artifact.\n\n**Column locations.** The user gave three points. One, **(46.62, \u2212119.90)**, lies well EAST of the domain bbox (lon \u2212121.5\u2026\u2212120.5) \u2014 it is outside HUC 17030002, in the low, dry Columbia Basin, and will get a different NLDAS cell and climate. I retain it as the user requested but flag it as out-of-domain (it can serve as a dry-valley end-member, not a Naches column). The other two \u2014 (46.85, \u2212121.05) high near the Cascade crest (snow-dominated) and (47.02, \u2212120.88) mid-elevation \u2014 anchor the elevation/snow gradient. To actually *resolve* the two candidate drivers I add a few exploratory columns spanning elevation bands \u00d7 dominant soils, concentrating in the rain-snow transition where partitioning is most sensitive.\n\n**Drivers feasibility.** Elevation acting through orographic precip and snow IS represented (NLDAS varies with location; SWE is in default output) \u2014 so elevation is partially answerable here, unlike a uniform-forcing case. Sub-12 km terrain and ridgetop SWE remain under-resolved. Soil (SSURGO) is a clean lever.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: quantify how runoff partitions into surface runoff (QOVER) vs subsurface drainage (QDRAI) and how snowmelt timing drives generation, as a function of elevation and soil texture across the Naches relief\",\n      \"Validation: compare simulated runoff generation against USGS stream gauges (feasible only as aggregated/routed basin discharge, which the stack cannot yet produce)\"\n    ],\n    \"key_processes\": [\"snow accumulation/melt (SWE, QSNOMELT)\", \"surface runoff generation (QOVER)\", \"subsurface drainage/recharge (QDRAI)\", \"ET partitioning\", \"per-layer soil moisture\"],\n    \"drivers_to_resolve\": [\"elevation (via orographic precip + rain-snow transition)\", \"soil texture (SSURGO)\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM natively resolves per-column runoff generation (QOVER, QDRAI), snowmelt and soil-moisture states; NLDAS gives location/elevation-varying forcing across the 1625 m relief so the elevation gradient is partly represented.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Per-column runoff generation and surface/subsurface partitioning (QOVER vs QDRAI)\",\n      \"Soil-texture control on partitioning (SSURGO lever)\",\n      \"Elevation/snow control on runoff timing via NLDAS orographic forcing and simulated SWE (coarse: 12 km cells under-resolve ridgetops)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Validation against USGS stream gauge discharge\",\n        \"why\": \"Single-column, no lateral transport or routing: independent 1-D columns cannot be aggregated into an integrated hydrograph for gage comparison\",\n        \"needs\": \"runoff routing / basin aggregation capability\"\n      },\n      {\n        \"aspect\": \"Sub-12 km orographic detail and accurate ridgetop peak SWE\",\n        \"why\": \"NLDAS 12 km cells average over terrain; no within-cell lapse rate\",\n        \"needs\": \"elevation-downscaled forcing\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified (elevation bands x dominant soil), pinned to user-selected points plus exploratory infill\",\n    \"strata\": [\n      {\"driver\": \"elevation\", \"bands\": [\"valley/low <700 m\", \"mid 700-1300 m (rain-snow transition)\", \"high >1300 m (snow-dominated)\"]},\n      {\"driver\": \"soil\", \"classes\": [\"coarse (sandy/gravelly upland)\", \"fine (loam/clay valley-fill)\"]}\n    ],\n    \"n_exploratory\": 5,\n    \"n_justification\": \"Three elevation bands x two dominant soil end-members = 6 cells; user supplied 3 anchor points (one out-of-domain dry end-member), so 5 additional columns fill the rain-snow transition and the coarse/fine contrast without a blind dense grid.\",\n    \"placement_logic\": \"Concentrate in the mid-elevation rain-snow transition where melt timing and partitioning are most sensitive, plus valley-fill soils where subsurface drainage dominates; span the crest for snow-dominated generation.\",\n    \"replication\": \"None \u2014 N is spent on spanning strata rather than replicating cells.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"user anchor: out-of-domain dry valley (46.62,-119.90)\", \"n\": 1, \"reason\": \"Retained per user request; lies EAST of the HUC in the arid Columbia Basin \u2014 serves as a dry low-elevation runoff end-member, NOT a Naches column.\"},\n    {\"group\": \"user anchor: high Cascade-crest snow zone (46.85,-121.05)\", \"n\": 1, \"reason\": \"Snow-dominated generation where melt timing sets runoff seasonality.\"},\n    {\"group\": \"user anchor: mid-elevation forested (47.02,-120.88)\", \"n\": 1, \"reason\": \"Rain-snow transition column linking snow and rain-driven generation.\"},\n    {\"group\": \"mid-elevation, coarse upland soil\", \"n\": 1, \"reason\": \"Isolates coarse-soil control (high infiltration, drainage-dominated) in the sensitive transition band.\"},\n    {\"group\": \"mid-elevation, fine valley-fill soil\", \"n\": 1, \"reason\": \"Isolates fine-soil control (saturation-excess surface runoff) against the coarse column.\"},\n    {\"group\": \"low-elevation in-domain valley\", \"n\": 1, \"reason\": \"In-domain low-elevation counterpart to the out-of-domain anchor; rain-dominated, valley-fill drainage.\"},\n    {\"group\": \"high-elevation second soil/aspect sample\", \"n\": 1, \"reason\": \"Light spread of the snow band across a second soil to separate snow vs soil effect at high elevation.\"}\n  ],\n  \"sampling_plan_columns_note\": \"Concrete lat/lon for the 4 exploratory infill columns are NOT enumerated because the brief provides no DEM/SSURGO lookup to place them on real elevation/soil targets \u2014 see requires_capabilities.\",\n  \"validation_design\": [\n    {\n      \"target_variable\": \"streamflow (basin discharge)\",\n      \"observation_source\": \"USGS stream gauges\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated \u2014 would require summing/routing column QOVER+QDRAI to a gaged outlet; NOT possible in current stack, so treated as a gap, not a co-located comparison\",\n      \"metric\": \"NSE / bias on hydrograph (deferred until routing exists)\",\n      \"n_validation_points\": \"unknown \u2014 depends on number of in-domain USGS gauges\"\n    },\n    {\n      \"target_variable\": \"peak SWE / snowmelt timing\",\n      \"observation_source\": \"SNOTEL (if any in-domain; else analog)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"analog process check \u2014 not offered in brief; flagged, not fabricated\",\n      \"metric\": \"peak-SWE bias, melt-out date\",\n      \"n_validation_points\": \"0 confirmed\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 7,\n    \"exploratory\": 7,\n    \"validation\": 0,\n    \"primary_treatment\": \"baseline NLDAS-2 forcing (nearest 12 km cell), native SSURGO soil, WTD-informed warm start\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"runoff routing / basin aggregation\", \"why\": \"convert independent column QOVER+QDRAI into integrated discharge at a gaged outlet\", \"blocks\": \"USGS stream-gauge validation \u2014 the only observation offered\"},\n    {\"capability\": \"elevation-downscaled forcing\", \"why\": \"resolve sub-12 km orographic precip and ridgetop snowpack\", \"blocks\": \"accurate high-elevation SWE and fine-scale elevation gradient\"},\n    {\"capability\": \"WTD-informed warm start (or multi-year spin-up)\", \"why\": \"QDRAI/recharge are slow states; cold start pins water table at default ~8.8 m\", \"blocks\": \"meaningful subsurface drainage / partitioning results\"},\n    {\"capability\": \"DEM/elevation sampling + gridded soil (SSURGO) lookup\", \"why\": \"place the 4 exploratory infill columns on real elevation-band x soil-class targets\", \"blocks\": \"concrete enumeration of exploratory column coordinates\"},\n    {\"capability\": \"HUC boundary resolver\", \"why\": \"confirm which supplied/added points lie inside HUC 17030002\", \"blocks\": \"correct in-domain classification (user point 1 appears outside)\"}\n  ],\n  \"assumptions\": [\n    \"User point (46.62,-119.90) is retained as requested but is outside the domain bbox; treated as a dry low-elevation end-member, not representative of the Naches.\",\n    \"Baseline treatment is NLDAS-2 nearest-cell forcing with native SSURGO soil and a WTD-informed warm start.\",\n    \"No SNOTEL or in-situ soil-moisture observations were provided, so process validation for snow is a gap.\"\n  ],\n  \"open_questions\": [\n    \"Which USGS gauge(s) and outlet are intended, and is a routing/aggregation step acceptable to enable streamflow validation?\",\n    \"Was the point at (46.62,-119.90) intended to be inside the Naches, or deliberately a dry-basin contrast?\",\n    \"May I add the 4 exploratory columns, and can a DEM/SSURGO lookup be provided to place them on real elevation/soil targets?\",\n    \"What forcing period/years should define the analysis window (wet vs dry years affect partitioning)?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how runoff partitions into surface runoff (QOVER) vs subsurface drainage (QDRAI) and how snowmelt timing drives generation, as a function of elevation and soil texture across the Naches relief",
+        "Validation: compare simulated runoff generation against USGS stream gauges (feasible only as aggregated/routed basin discharge, which the stack cannot yet produce)"
+      ],
+      "key_processes": [
+        "snow accumulation/melt (SWE, QSNOMELT)",
+        "surface runoff generation (QOVER)",
+        "subsurface drainage/recharge (QDRAI)",
+        "ET partitioning",
+        "per-layer soil moisture"
+      ],
+      "drivers_to_resolve": [
+        "elevation (via orographic precip + rain-snow transition)",
+        "soil texture (SSURGO)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM natively resolves per-column runoff generation (QOVER, QDRAI), snowmelt and soil-moisture states; NLDAS gives location/elevation-varying forcing across the 1625 m relief so the elevation gradient is partly represented.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Per-column runoff generation and surface/subsurface partitioning (QOVER vs QDRAI)",
+        "Soil-texture control on partitioning (SSURGO lever)",
+        "Elevation/snow control on runoff timing via NLDAS orographic forcing and simulated SWE (coarse: 12 km cells under-resolve ridgetops)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Validation against USGS stream gauge discharge",
+          "why": "Single-column, no lateral transport or routing: independent 1-D columns cannot be aggregated into an integrated hydrograph for gage comparison",
+          "needs": "runoff routing / basin aggregation capability"
+        },
+        {
+          "aspect": "Sub-12 km orographic detail and accurate ridgetop peak SWE",
+          "why": "NLDAS 12 km cells average over terrain; no within-cell lapse rate",
+          "needs": "elevation-downscaled forcing"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation bands x dominant soil), pinned to user-selected points plus exploratory infill",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley/low <700 m",
+            "mid 700-1300 m (rain-snow transition)",
+            "high >1300 m (snow-dominated)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy/gravelly upland)",
+            "fine (loam/clay valley-fill)"
+          ]
+        }
+      ],
+      "n_exploratory": 5,
+      "n_justification": "Three elevation bands x two dominant soil end-members = 6 cells; user supplied 3 anchor points (one out-of-domain dry end-member), so 5 additional columns fill the rain-snow transition and the coarse/fine contrast without a blind dense grid.",
+      "placement_logic": "Concentrate in the mid-elevation rain-snow transition where melt timing and partitioning are most sensitive, plus valley-fill soils where subsurface drainage dominates; span the crest for snow-dominated generation.",
+      "replication": "None \u2014 N is spent on spanning strata rather than replicating cells."
+    },
+    "sampling_plan": [
+      {
+        "group": "user anchor: out-of-domain dry valley (46.62,-119.90)",
+        "n": 1,
+        "reason": "Retained per user request; lies EAST of the HUC in the arid Columbia Basin \u2014 serves as a dry low-elevation runoff end-member, NOT a Naches column."
+      },
+      {
+        "group": "user anchor: high Cascade-crest snow zone (46.85,-121.05)",
+        "n": 1,
+        "reason": "Snow-dominated generation where melt timing sets runoff seasonality."
+      },
+      {
+        "group": "user anchor: mid-elevation forested (47.02,-120.88)",
+        "n": 1,
+        "reason": "Rain-snow transition column linking snow and rain-driven generation."
+      },
+      {
+        "group": "mid-elevation, coarse upland soil",
+        "n": 1,
+        "reason": "Isolates coarse-soil control (high infiltration, drainage-dominated) in the sensitive transition band."
+      },
+      {
+        "group": "mid-elevation, fine valley-fill soil",
+        "n": 1,
+        "reason": "Isolates fine-soil control (saturation-excess surface runoff) against the coarse column."
+      },
+      {
+        "group": "low-elevation in-domain valley",
+        "n": 1,
+        "reason": "In-domain low-elevation counterpart to the out-of-domain anchor; rain-dominated, valley-fill drainage."
+      },
+      {
+        "group": "high-elevation second soil/aspect sample",
+        "n": 1,
+        "reason": "Light spread of the snow band across a second soil to separate snow vs soil effect at high elevation."
+      }
+    ],
+    "sampling_plan_columns_note": "Concrete lat/lon for the 4 exploratory infill columns are NOT enumerated because the brief provides no DEM/SSURGO lookup to place them on real elevation/soil targets \u2014 see requires_capabilities.",
+    "validation_design": [
+      {
+        "target_variable": "streamflow (basin discharge)",
+        "observation_source": "USGS stream gauges",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 would require summing/routing column QOVER+QDRAI to a gaged outlet; NOT possible in current stack, so treated as a gap, not a co-located comparison",
+        "metric": "NSE / bias on hydrograph (deferred until routing exists)",
+        "n_validation_points": "unknown \u2014 depends on number of in-domain USGS gauges"
+      },
+      {
+        "target_variable": "peak SWE / snowmelt timing",
+        "observation_source": "SNOTEL (if any in-domain; else analog)",
+        "in_domain_available": false,
+        "comparison": "analog process check \u2014 not offered in brief; flagged, not fabricated",
+        "metric": "peak-SWE bias, melt-out date",
+        "n_validation_points": "0 confirmed"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 7,
+      "exploratory": 7,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS-2 forcing (nearest 12 km cell), native SSURGO soil, WTD-informed warm start"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "runoff routing / basin aggregation",
+        "why": "convert independent column QOVER+QDRAI into integrated discharge at a gaged outlet",
+        "blocks": "USGS stream-gauge validation \u2014 the only observation offered"
+      },
+      {
+        "capability": "elevation-downscaled forcing",
+        "why": "resolve sub-12 km orographic precip and ridgetop snowpack",
+        "blocks": "accurate high-elevation SWE and fine-scale elevation gradient"
+      },
+      {
+        "capability": "WTD-informed warm start (or multi-year spin-up)",
+        "why": "QDRAI/recharge are slow states; cold start pins water table at default ~8.8 m",
+        "blocks": "meaningful subsurface drainage / partitioning results"
+      },
+      {
+        "capability": "DEM/elevation sampling + gridded soil (SSURGO) lookup",
+        "why": "place the 4 exploratory infill columns on real elevation-band x soil-class targets",
+        "blocks": "concrete enumeration of exploratory column coordinates"
+      },
+      {
+        "capability": "HUC boundary resolver",
+        "why": "confirm which supplied/added points lie inside HUC 17030002",
+        "blocks": "correct in-domain classification (user point 1 appears outside)"
+      }
+    ],
+    "assumptions": [
+      "User point (46.62,-119.90) is retained as requested but is outside the domain bbox; treated as a dry low-elevation end-member, not representative of the Naches.",
+      "Baseline treatment is NLDAS-2 nearest-cell forcing with native SSURGO soil and a WTD-informed warm start.",
+      "No SNOTEL or in-situ soil-moisture observations were provided, so process validation for snow is a gap."
+    ],
+    "open_questions": [
+      "Which USGS gauge(s) and outlet are intended, and is a routing/aggregation step acceptable to enable streamflow validation?",
+      "Was the point at (46.62,-119.90) intended to be inside the Naches, or deliberately a dry-basin contrast?",
+      "May I add the 4 exploratory columns, and can a DEM/SSURGO lookup be provided to place them on real elevation/soil targets?",
+      "What forcing period/years should define the analysis window (wet vs dry years affect partitioning)?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

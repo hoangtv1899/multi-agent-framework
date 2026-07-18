@@ -1,0 +1,162 @@
+{
+  "prompt_id": "C02",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**Goal decomposition.** The question is single-mechanism and mechanistic: *how does initial water-table depth (WTD) modulate the fraction of a surface infiltration pulse that actually reaches the water table?* This is one controlled factor (initial WTD) swept across a wide range (0.5\u201350 m), under a fixed, idealized forcing pulse and a fixed soil column. This is a textbook \"conceptual\" archetype \u2014 no domain, no observations, no spatial sampling. N = the number of WTD treatment levels.\n\n**Physical expectation.** For a shallow water table (0.5\u20132 m) the unsaturated zone is thin, storage deficit is small, and a large fraction of the infiltration pulse arrives at the water table quickly (high recharge fraction, short lag). As WTD deepens, the thick unsaturated zone absorbs the pulse into soil-moisture storage, evaporates/transpires part of it, and delays/attenuates recharge \u2014 the fraction reaching the water table drops and the arrival lag grows, likely asymptoting toward near-zero prompt recharge at 20\u201350 m.\n\n**Feasibility \u2014 the honest catch.** ELM does carry a water-table state (zwt) and an unconfined-aquifer recharge parameterization, and it reports drainage/recharge (QDRAI/QCHARGE) and per-layer soil moisture. So the *shallow* end of the range (roughly \u2264 the resolved soil column, default order ~8\u201310 m) is genuinely representable as a vertical moisture front. But ELM does **not** resolve explicit vertical unsaturated transport through tens of meters \u2014 below the discretized soil column, recharge to a deep water table is a lumped bucket/parameterized flux, not a mechanistic pulse-propagation. Therefore the 10\u201350 m treatments do not truly *simulate* pulse travel through a deep vadose zone; they exercise a parameterization. I mark the deep range partial/not-mechanistic and record the needed capability (deep-column / explicit vadose-zone discretization). Setting initial WTD as a controlled IC and imposing a clean synthetic pulse also need explicit support.\n\n**Design.** Single column, synthetic uniform loam soil, one representative forcing year, spun up to equilibrium at each target WTD, then a single controlled infiltration pulse. Sweep WTD across ~7 log-spaced levels. Compare recharge fraction and arrival lag vs WTD. Validation is against physical/theoretical expectation only (no obs in brief).\n\n## JSON\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: quantify how initial water-table depth controls the fraction of a surface infiltration pulse that reaches the water table (recharge fraction) and the arrival lag\",\n      \"Interpretive: characterize the shape of the recharge-fraction vs WTD relationship (shallow high/fast -> deep low/delayed, asymptote)\"\n    ],\n    \"key_processes\": [\n      \"Infiltration and unsaturated-zone moisture front propagation\",\n      \"Unsaturated-zone storage deficit / capillary retention\",\n      \"Recharge to the water table (QCHARGE/QDRAI)\",\n      \"ET losses of the pulse before it recharges\"\n    ],\n    \"drivers_to_resolve\": [\"initial water-table depth\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"conceptual\",\n    \"rationale\": \"Idealized single-column mechanism test isolating one controlled factor (initial WTD) under fixed synthetic soil and forcing; no spatial heterogeneity or observations involved.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Effect of shallow-to-moderate initial WTD (roughly within the resolved soil column, ~0.5-8 m) on recharge fraction and arrival lag, as an explicit vertical moisture-front response\",\n      \"Relative ranking of recharge fraction across WTD levels and the qualitative shape of the relationship\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Mechanistic pulse propagation to a deep water table (roughly 10-50 m)\",\n        \"why\": \"ELM's discretized soil column is finite (default order ~8-10 m); below it, recharge to the water table is a lumped/parameterized aquifer flux, not explicit vertical unsaturated transport, so travel time and attenuation through a thick vadose zone are not physically resolved\",\n        \"needs\": \"deep / configurable explicit vadose-zone discretization (extended soil column with fine layering to 50 m)\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"controlled / not spatial \u2014 factor sweep on a single idealized column\",\n    \"strata\": [\n      {\"driver\": \"initial water-table depth\", \"bands\": [\"0.5 m\", \"1 m\", \"2 m\", \"5 m\", \"10 m\", \"20 m\", \"50 m\"]}\n    ],\n    \"n_exploratory\": 7,\n    \"n_justification\": \"One column per WTD treatment level. Seven log-spaced levels span the requested 0.5-50 m range densely at the shallow end (where the response is steep and mechanistically resolved) and coarsely at depth (where the model is parameterized). This is the smallest set that resolves the curvature/asymptote of recharge-fraction vs WTD.\",\n    \"placement_logic\": \"Not spatial. All treatments share one synthetic uniform-loam column, one representative forcing year, and identical infiltration pulse; only the initial WTD (zwt) differs.\",\n    \"replication\": \"None needed \u2014 deterministic idealized runs; optional secondary soil texture (sand/clay) could be added later to test generality but is out of scope for the primary question.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"very shallow WTD (0.5 m)\", \"n\": 1, \"reason\": \"Thin vadose zone, minimal storage deficit \u2014 expected upper bound on recharge fraction and shortest arrival lag\"},\n    {\"group\": \"shallow WTD (1 m)\", \"n\": 1, \"reason\": \"Resolves steep near-surface part of the recharge-fraction vs WTD curve\"},\n    {\"group\": \"shallow-moderate WTD (2 m)\", \"n\": 1, \"reason\": \"Captures decline in recharge fraction as unsaturated storage grows, still within resolved soil column\"},\n    {\"group\": \"moderate WTD (5 m)\", \"n\": 1, \"reason\": \"Mid-range mechanistic point where pulse attenuation and lag become significant\"},\n    {\"group\": \"deep WTD (10 m)\", \"n\": 1, \"reason\": \"Near/beyond edge of resolved soil column \u2014 transition where response becomes parameterization-dependent (flagged)\"},\n    {\"group\": \"very deep WTD (20 m)\", \"n\": 1, \"reason\": \"Deep-aquifer regime; tests low-recharge asymptote via lumped parameterization (not mechanistic)\"},\n    {\"group\": \"extreme WTD (50 m)\", \"n\": 1, \"reason\": \"Endpoint of requested range; expected near-zero prompt recharge \u2014 parameterized, not resolved transport (flagged)\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"recharge fraction (pulse water reaching water table / infiltrated pulse) and arrival lag\",\n      \"observation_source\": \"physical/theoretical expectation and vadose-zone literature (no in-domain observations in brief)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"analog \u2014 compare simulated recharge-fraction vs WTD monotonic decline and lag increase against theoretical Richards-equation / storage-deficit expectations\",\n      \"metric\": \"qualitative trend agreement (monotonicity, asymptote) plus reported recharge fraction and lag per treatment\",\n      \"n_validation_points\": \"0 (no observational dataset; conceptual validation only)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 7,\n    \"exploratory\": 7,\n    \"validation\": 0,\n    \"primary_treatment\": \"synthetic uniform-loam column, single representative forcing year (from 1980-2018), one controlled infiltration pulse; only initial WTD varies\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"controlled initial water-table depth (zwt) as an experiment IC\", \"why\": \"Each treatment must start from a prescribed WTD after spin-up\", \"blocks\": \"the entire factor sweep\"},\n    {\"capability\": \"deep / configurable explicit vadose-zone discretization (soil column extended and finely layered to ~50 m)\", \"why\": \"Mechanistic pulse propagation through a thick unsaturated zone is not resolved by default finite soil column\", \"blocks\": \"mechanistic answer for the 10-50 m treatments\"},\n    {\"capability\": \"synthetic controlled infiltration-pulse forcing\", \"why\": \"Need a clean, identical pulse (fixed depth/duration) isolated from noisy multi-year precip to define a measurable recharge fraction\", \"blocks\": \"clean quantification of pulse-to-water-table fraction\"},\n    {\"capability\": \"recharge/drainage diagnostic output (QCHARGE/QDRAI) plus per-layer soil moisture time series\", \"why\": \"Recharge fraction and arrival lag are derived from these fluxes/states\", \"blocks\": \"computing the target metrics\"},\n    {\"capability\": \"per-treatment hydrologic spin-up to equilibrium at the target WTD\", \"why\": \"Avoid transient drift contaminating the pulse response\", \"blocks\": \"clean initial-condition control\"}\n  ],\n  \"assumptions\": [\n    \"A single synthetic uniform soil texture (loam) is adequate to isolate the WTD control; texture generality is out of scope for the primary sweep.\",\n    \"One representative forcing year from 1980-2018 provides the antecedent conditions; the diagnostic pulse is imposed on top of/instead of natural precip.\",\n    \"'Fraction reaching the water table' is operationalized as cumulative recharge (QCHARGE) attributable to the pulse over a defined post-pulse window, normalized by infiltrated pulse volume.\",\n    \"Deep-WTD treatments (>~10 m) are retained to span the requested range but are interpreted as parameterized, not mechanistically resolved.\"\n  ],\n  \"open_questions\": [\n    \"Preferred pulse specification: depth (mm), duration, and post-pulse tracking window?\",\n    \"Is a single loam soil acceptable, or should sand/clay be added to test texture dependence?\",\n    \"How should recharge be attributed to the pulse vs background flux (e.g., difference from a no-pulse control run)?\",\n    \"Is a mechanistic answer required at 20-50 m, or is a parameterized/limiting-behavior answer acceptable there?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how initial water-table depth controls the fraction of a surface infiltration pulse that reaches the water table (recharge fraction) and the arrival lag",
+        "Interpretive: characterize the shape of the recharge-fraction vs WTD relationship (shallow high/fast -> deep low/delayed, asymptote)"
+      ],
+      "key_processes": [
+        "Infiltration and unsaturated-zone moisture front propagation",
+        "Unsaturated-zone storage deficit / capillary retention",
+        "Recharge to the water table (QCHARGE/QDRAI)",
+        "ET losses of the pulse before it recharges"
+      ],
+      "drivers_to_resolve": [
+        "initial water-table depth"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Idealized single-column mechanism test isolating one controlled factor (initial WTD) under fixed synthetic soil and forcing; no spatial heterogeneity or observations involved.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Effect of shallow-to-moderate initial WTD (roughly within the resolved soil column, ~0.5-8 m) on recharge fraction and arrival lag, as an explicit vertical moisture-front response",
+        "Relative ranking of recharge fraction across WTD levels and the qualitative shape of the relationship"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Mechanistic pulse propagation to a deep water table (roughly 10-50 m)",
+          "why": "ELM's discretized soil column is finite (default order ~8-10 m); below it, recharge to the water table is a lumped/parameterized aquifer flux, not explicit vertical unsaturated transport, so travel time and attenuation through a thick vadose zone are not physically resolved",
+          "needs": "deep / configurable explicit vadose-zone discretization (extended soil column with fine layering to 50 m)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "controlled / not spatial \u2014 factor sweep on a single idealized column",
+      "strata": [
+        {
+          "driver": "initial water-table depth",
+          "bands": [
+            "0.5 m",
+            "1 m",
+            "2 m",
+            "5 m",
+            "10 m",
+            "20 m",
+            "50 m"
+          ]
+        }
+      ],
+      "n_exploratory": 7,
+      "n_justification": "One column per WTD treatment level. Seven log-spaced levels span the requested 0.5-50 m range densely at the shallow end (where the response is steep and mechanistically resolved) and coarsely at depth (where the model is parameterized). This is the smallest set that resolves the curvature/asymptote of recharge-fraction vs WTD.",
+      "placement_logic": "Not spatial. All treatments share one synthetic uniform-loam column, one representative forcing year, and identical infiltration pulse; only the initial WTD (zwt) differs.",
+      "replication": "None needed \u2014 deterministic idealized runs; optional secondary soil texture (sand/clay) could be added later to test generality but is out of scope for the primary question."
+    },
+    "sampling_plan": [
+      {
+        "group": "very shallow WTD (0.5 m)",
+        "n": 1,
+        "reason": "Thin vadose zone, minimal storage deficit \u2014 expected upper bound on recharge fraction and shortest arrival lag"
+      },
+      {
+        "group": "shallow WTD (1 m)",
+        "n": 1,
+        "reason": "Resolves steep near-surface part of the recharge-fraction vs WTD curve"
+      },
+      {
+        "group": "shallow-moderate WTD (2 m)",
+        "n": 1,
+        "reason": "Captures decline in recharge fraction as unsaturated storage grows, still within resolved soil column"
+      },
+      {
+        "group": "moderate WTD (5 m)",
+        "n": 1,
+        "reason": "Mid-range mechanistic point where pulse attenuation and lag become significant"
+      },
+      {
+        "group": "deep WTD (10 m)",
+        "n": 1,
+        "reason": "Near/beyond edge of resolved soil column \u2014 transition where response becomes parameterization-dependent (flagged)"
+      },
+      {
+        "group": "very deep WTD (20 m)",
+        "n": 1,
+        "reason": "Deep-aquifer regime; tests low-recharge asymptote via lumped parameterization (not mechanistic)"
+      },
+      {
+        "group": "extreme WTD (50 m)",
+        "n": 1,
+        "reason": "Endpoint of requested range; expected near-zero prompt recharge \u2014 parameterized, not resolved transport (flagged)"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "recharge fraction (pulse water reaching water table / infiltrated pulse) and arrival lag",
+        "observation_source": "physical/theoretical expectation and vadose-zone literature (no in-domain observations in brief)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 compare simulated recharge-fraction vs WTD monotonic decline and lag increase against theoretical Richards-equation / storage-deficit expectations",
+        "metric": "qualitative trend agreement (monotonicity, asymptote) plus reported recharge fraction and lag per treatment",
+        "n_validation_points": "0 (no observational dataset; conceptual validation only)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 7,
+      "exploratory": 7,
+      "validation": 0,
+      "primary_treatment": "synthetic uniform-loam column, single representative forcing year (from 1980-2018), one controlled infiltration pulse; only initial WTD varies"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "controlled initial water-table depth (zwt) as an experiment IC",
+        "why": "Each treatment must start from a prescribed WTD after spin-up",
+        "blocks": "the entire factor sweep"
+      },
+      {
+        "capability": "deep / configurable explicit vadose-zone discretization (soil column extended and finely layered to ~50 m)",
+        "why": "Mechanistic pulse propagation through a thick unsaturated zone is not resolved by default finite soil column",
+        "blocks": "mechanistic answer for the 10-50 m treatments"
+      },
+      {
+        "capability": "synthetic controlled infiltration-pulse forcing",
+        "why": "Need a clean, identical pulse (fixed depth/duration) isolated from noisy multi-year precip to define a measurable recharge fraction",
+        "blocks": "clean quantification of pulse-to-water-table fraction"
+      },
+      {
+        "capability": "recharge/drainage diagnostic output (QCHARGE/QDRAI) plus per-layer soil moisture time series",
+        "why": "Recharge fraction and arrival lag are derived from these fluxes/states",
+        "blocks": "computing the target metrics"
+      },
+      {
+        "capability": "per-treatment hydrologic spin-up to equilibrium at the target WTD",
+        "why": "Avoid transient drift contaminating the pulse response",
+        "blocks": "clean initial-condition control"
+      }
+    ],
+    "assumptions": [
+      "A single synthetic uniform soil texture (loam) is adequate to isolate the WTD control; texture generality is out of scope for the primary sweep.",
+      "One representative forcing year from 1980-2018 provides the antecedent conditions; the diagnostic pulse is imposed on top of/instead of natural precip.",
+      "'Fraction reaching the water table' is operationalized as cumulative recharge (QCHARGE) attributable to the pulse over a defined post-pulse window, normalized by infiltrated pulse volume.",
+      "Deep-WTD treatments (>~10 m) are retained to span the requested range but are interpreted as parameterized, not mechanistically resolved."
+    ],
+    "open_questions": [
+      "Preferred pulse specification: depth (mm), duration, and post-pulse tracking window?",
+      "Is a single loam soil acceptable, or should sand/clay be added to test texture dependence?",
+      "How should recharge be attributed to the pulse vs background flux (e.g., difference from a no-pulse control run)?",
+      "Is a mechanistic answer required at 20-50 m, or is a parameterized/limiting-behavior answer acceptable there?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

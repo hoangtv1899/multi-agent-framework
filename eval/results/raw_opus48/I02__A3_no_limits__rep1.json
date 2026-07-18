@@ -1,0 +1,166 @@
+{
+  "prompt_id": "I02",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**Decompose.** The request has one explicit goal \u2014 *project 2050 recharge change under warming* \u2014 but it embeds several sub-problems: (a) establish a baseline recharge field across the Naches watershed, (b) impose a warming scenario, (c) attribute the recharge response to its mechanism. In a snowmelt-dominated Cascade-flank watershed (352\u20131977 m), recharge is overwhelmingly controlled by the rain-vs-snow partition and snowmelt timing \u2014 i.e. by *climate acting through elevation*.\n\n**The blocking feasibility problem.** The framework has **historical forcing only (1980\u20132018)**. There is no 2050 / RCP / SSP forcing, and no delta-perturbation or bias-correction capability to synthesize one. Therefore the *primary* question as posed \u2014 projecting future recharge \u2014 **cannot be answered**. I will not dress a historical run up as a projection.\n\n**Second limit \u2014 elevation/climate.** Even for a *sensitivity* study, the recharge driver here is snow, which responds to temperature and precipitation phase that vary with elevation. Single-column ELM with uniform (non-downscaled) forcing cannot represent elevation-driven climate: columns placed at different elevations would differ only by soil, not by climate/snow. So an elevation-stratified column set does **not** isolate the climate control on recharge. This needs elevation-downscaled forcing plus SWE/snow diagnostics.\n\n**What IS feasible.** With historical forcing we can characterize the *baseline* spatial variability of recharge (ELM sub-surface drainage, QDRAI) across the watershed's soils, and \u2014 as a clearly-labelled sensitivity, only if a forcing-perturbation capability is added \u2014 probe recharge response to imposed warming (temperature offset, precip-phase shift). No observations exist in-domain, so validation is a flagged gap.\n\nI therefore return **verdict: infeasible** for the projection as posed, with a feasible fallback (baseline characterization) and the capability backlog that would unlock the real question.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"PRIMARY (requested): project change in recharge in the Naches by ~2050 under a warming scenario\",\n      \"FALLBACK (feasible): characterize baseline (1980-2018) recharge and its soil/elevation spatial variability\",\n      \"SENSITIVITY (conditional): quantify recharge response to imposed warming perturbations, if forcing perturbation is enabled\"\n    ],\n    \"key_processes\": [\n      \"snow accumulation / melt timing (rain-snow partition)\",\n      \"infiltration vs surface runoff partitioning\",\n      \"sub-surface drainage / deep recharge (ELM QDRAI)\",\n      \"soil-moisture storage and evapotranspiration demand\"\n    ],\n    \"drivers_to_resolve\": [\"climate (via elevation/snow)\", \"soil texture\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"ELM resolves the full water balance including snow, ET, and sub-surface drainage (recharge proxy QDRAI) in a single column; spatial sampling spans watershed heterogeneity. But the requested future projection depends on forcing the stack does not have.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"infeasible\",\n    \"answerable\": [\n      \"baseline (1980-2018) recharge magnitude and its variability across dominant soils\",\n      \"relative recharge sensitivity to imposed warming ONLY IF a forcing-perturbation capability is added\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"projection of recharge to ~2050 under a warming scenario\",\n        \"why\": \"only historical forcing (1980-2018) is available; there is no future scenario forcing and no delta/bias-correction pathway to build one\",\n        \"needs\": \"future-scenario forcing ingest (RCP/SSP or delta-perturbed forcing generator)\"\n      },\n      {\n        \"aspect\": \"elevation/climate control on recharge (rain-snow transition, snowmelt timing)\",\n        \"why\": \"single-column forcing is not elevation-downscaled, so columns at different elevations differ only by soil, not by temperature/precip-phase \u2014 the snow-driven mechanism cannot be isolated\",\n        \"needs\": \"elevation-downscaled forcing\"\n      },\n      {\n        \"aspect\": \"validation of simulated recharge/snow against measurements\",\n        \"why\": \"no in-domain observations are provided\",\n        \"needs\": \"observation-dataset ingest (SNOTEL SWE, streamflow baseflow, or recharge estimates)\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified (elevation band x dominant soil) \u2014 for the FEASIBLE baseline characterization only\",\n    \"strata\": [\n      {\"driver\": \"elevation\", \"bands\": [\"valley/lowland (~350-800 m)\", \"mid-elevation rain-snow transition (~800-1400 m)\", \"upland snow-dominated (~1400-1977 m)\"]},\n      {\"driver\": \"soil\", \"classes\": [\"dominant coarse/sandy substrate\", \"dominant medium/loam substrate\", \"dominant fine/clay substrate\"]}\n    ],\n    \"n_exploratory\": 12,\n    \"n_justification\": \"3 elevation bands x up to 3 dominant soils = up to 9 strata; ~12 columns spans the populated strata with light replication in the rain-snow transition band where recharge is most sensitive. NOTE: elevation bands here index landscape position/soil context, NOT a resolved climate gradient (forcing is uniform) \u2014 see feasibility.not_answerable.\",\n    \"placement_logic\": \"concentrate columns in the mid-elevation rain-snow transition where snowmelt-driven recharge is largest and most sensitive; sample valley bottoms (thickest soils, focused recharge) and uplands for the storage endpoints. Downstream expander samples real DEM/soil rasters within the bbox.\",\n    \"replication\": \"light (1 extra column) in the rain-snow transition band to capture soil variability where the recharge signal concentrates\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"rain-snow transition, mid-elevation\", \"n\": 5, \"reason\": \"zone of largest and most sensitive snowmelt-driven recharge; oversampled across soil classes to resolve infiltration-vs-drainage partitioning\"},\n    {\"group\": \"valley/lowland\", \"n\": 4, \"reason\": \"thick soils and focused recharge endpoints; spans dominant soil textures at the low-elevation water-balance limit\"},\n    {\"group\": \"upland snow-dominated\", \"n\": 3, \"reason\": \"snow-storage endpoint controlling melt volume and timing that feeds downslope recharge\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"recharge (ELM QDRAI, sub-surface drainage)\",\n      \"observation_source\": \"none available in-domain\",\n      \"in_domain_available\": false,\n      \"comparison\": \"none \u2014 GAP: no co-located or analog recharge observations provided\",\n      \"metric\": \"n/a\",\n      \"n_validation_points\": \"0\"\n    },\n    {\n      \"target_variable\": \"snow water equivalent (SWE)\",\n      \"observation_source\": \"SNOTEL (not ingested; would be analog/co-located if added)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"analog \u2014 flagged; requires observation ingest capability before use\",\n      \"metric\": \"bias, correlation of melt timing\",\n      \"n_validation_points\": \"unknown \u2014 depends on data ingest\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 12,\n    \"exploratory\": 12,\n    \"validation\": 0,\n    \"primary_treatment\": \"baseline historical forcing (1980-2018), native gridded soil\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"future-scenario forcing ingest (RCP/SSP or delta-perturbed forcing generator)\", \"why\": \"the request is a 2050 projection under warming; only historical forcing exists\", \"blocks\": \"the entire primary projection goal\"},\n    {\"capability\": \"elevation-downscaled forcing (temperature lapse + precip-phase by elevation)\", \"why\": \"recharge here is snow-controlled; uniform forcing cannot represent the elevation/climate gradient\", \"blocks\": \"attributing recharge change to climate/snow; isolating elevation control\"},\n    {\"capability\": \"snow/SWE diagnostic output and melt-timing metrics\", \"why\": \"recharge response to warming operates through snowpack and melt timing\", \"blocks\": \"mechanistic interpretation of any recharge change\"},\n    {\"capability\": \"observation-dataset ingest (SNOTEL SWE, baseflow-derived recharge)\", \"why\": \"no in-domain observations provided\", \"blocks\": \"any validation of baseline or perturbed recharge\"},\n    {\"capability\": \"model spin-up to equilibrate soil moisture / deep drainage\", \"why\": \"recharge/QDRAI depends on equilibrated storage state\", \"blocks\": \"trustworthy baseline recharge magnitudes\"}\n  ],\n  \"assumptions\": [\n    \"Recharge is represented by ELM sub-surface drainage (QDRAI); deep percolation below the soil column is not separately resolved.\",\n    \"The Naches is snowmelt-influenced, so the recharge climate signal is dominated by snow processes.\",\n    \"Dominant soil classes will be resolved by the downstream expander from gridded soil rasters (not provided here).\",\n    \"The elevation bands index landscape/soil context only; with uniform forcing they do NOT encode a climate gradient.\"\n  ],\n  \"open_questions\": [\n    \"Which warming scenario/target (e.g. +2 C, specific SSP, delta vs dynamically downscaled) does the user intend for 2050?\",\n    \"Is a delta-perturbation of historical forcing (temperature offset + precip scaling) an acceptable surrogate, or is full scenario forcing required?\",\n    \"Are any SNOTEL / streamflow / recharge observations available to ingest for validation?\",\n    \"Is 'recharge' defined as sub-surface drainage (QDRAI) or net percolation past a specific depth?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "PRIMARY (requested): project change in recharge in the Naches by ~2050 under a warming scenario",
+        "FALLBACK (feasible): characterize baseline (1980-2018) recharge and its soil/elevation spatial variability",
+        "SENSITIVITY (conditional): quantify recharge response to imposed warming perturbations, if forcing perturbation is enabled"
+      ],
+      "key_processes": [
+        "snow accumulation / melt timing (rain-snow partition)",
+        "infiltration vs surface runoff partitioning",
+        "sub-surface drainage / deep recharge (ELM QDRAI)",
+        "soil-moisture storage and evapotranspiration demand"
+      ],
+      "drivers_to_resolve": [
+        "climate (via elevation/snow)",
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM resolves the full water balance including snow, ET, and sub-surface drainage (recharge proxy QDRAI) in a single column; spatial sampling spans watershed heterogeneity. But the requested future projection depends on forcing the stack does not have.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "baseline (1980-2018) recharge magnitude and its variability across dominant soils",
+        "relative recharge sensitivity to imposed warming ONLY IF a forcing-perturbation capability is added"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "projection of recharge to ~2050 under a warming scenario",
+          "why": "only historical forcing (1980-2018) is available; there is no future scenario forcing and no delta/bias-correction pathway to build one",
+          "needs": "future-scenario forcing ingest (RCP/SSP or delta-perturbed forcing generator)"
+        },
+        {
+          "aspect": "elevation/climate control on recharge (rain-snow transition, snowmelt timing)",
+          "why": "single-column forcing is not elevation-downscaled, so columns at different elevations differ only by soil, not by temperature/precip-phase \u2014 the snow-driven mechanism cannot be isolated",
+          "needs": "elevation-downscaled forcing"
+        },
+        {
+          "aspect": "validation of simulated recharge/snow against measurements",
+          "why": "no in-domain observations are provided",
+          "needs": "observation-dataset ingest (SNOTEL SWE, streamflow baseflow, or recharge estimates)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation band x dominant soil) \u2014 for the FEASIBLE baseline characterization only",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley/lowland (~350-800 m)",
+            "mid-elevation rain-snow transition (~800-1400 m)",
+            "upland snow-dominated (~1400-1977 m)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "dominant coarse/sandy substrate",
+            "dominant medium/loam substrate",
+            "dominant fine/clay substrate"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "3 elevation bands x up to 3 dominant soils = up to 9 strata; ~12 columns spans the populated strata with light replication in the rain-snow transition band where recharge is most sensitive. NOTE: elevation bands here index landscape position/soil context, NOT a resolved climate gradient (forcing is uniform) \u2014 see feasibility.not_answerable.",
+      "placement_logic": "concentrate columns in the mid-elevation rain-snow transition where snowmelt-driven recharge is largest and most sensitive; sample valley bottoms (thickest soils, focused recharge) and uplands for the storage endpoints. Downstream expander samples real DEM/soil rasters within the bbox.",
+      "replication": "light (1 extra column) in the rain-snow transition band to capture soil variability where the recharge signal concentrates"
+    },
+    "sampling_plan": [
+      {
+        "group": "rain-snow transition, mid-elevation",
+        "n": 5,
+        "reason": "zone of largest and most sensitive snowmelt-driven recharge; oversampled across soil classes to resolve infiltration-vs-drainage partitioning"
+      },
+      {
+        "group": "valley/lowland",
+        "n": 4,
+        "reason": "thick soils and focused recharge endpoints; spans dominant soil textures at the low-elevation water-balance limit"
+      },
+      {
+        "group": "upland snow-dominated",
+        "n": 3,
+        "reason": "snow-storage endpoint controlling melt volume and timing that feeds downslope recharge"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "recharge (ELM QDRAI, sub-surface drainage)",
+        "observation_source": "none available in-domain",
+        "in_domain_available": false,
+        "comparison": "none \u2014 GAP: no co-located or analog recharge observations provided",
+        "metric": "n/a",
+        "n_validation_points": "0"
+      },
+      {
+        "target_variable": "snow water equivalent (SWE)",
+        "observation_source": "SNOTEL (not ingested; would be analog/co-located if added)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 flagged; requires observation ingest capability before use",
+        "metric": "bias, correlation of melt timing",
+        "n_validation_points": "unknown \u2014 depends on data ingest"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 12,
+      "validation": 0,
+      "primary_treatment": "baseline historical forcing (1980-2018), native gridded soil"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "future-scenario forcing ingest (RCP/SSP or delta-perturbed forcing generator)",
+        "why": "the request is a 2050 projection under warming; only historical forcing exists",
+        "blocks": "the entire primary projection goal"
+      },
+      {
+        "capability": "elevation-downscaled forcing (temperature lapse + precip-phase by elevation)",
+        "why": "recharge here is snow-controlled; uniform forcing cannot represent the elevation/climate gradient",
+        "blocks": "attributing recharge change to climate/snow; isolating elevation control"
+      },
+      {
+        "capability": "snow/SWE diagnostic output and melt-timing metrics",
+        "why": "recharge response to warming operates through snowpack and melt timing",
+        "blocks": "mechanistic interpretation of any recharge change"
+      },
+      {
+        "capability": "observation-dataset ingest (SNOTEL SWE, baseflow-derived recharge)",
+        "why": "no in-domain observations provided",
+        "blocks": "any validation of baseline or perturbed recharge"
+      },
+      {
+        "capability": "model spin-up to equilibrate soil moisture / deep drainage",
+        "why": "recharge/QDRAI depends on equilibrated storage state",
+        "blocks": "trustworthy baseline recharge magnitudes"
+      }
+    ],
+    "assumptions": [
+      "Recharge is represented by ELM sub-surface drainage (QDRAI); deep percolation below the soil column is not separately resolved.",
+      "The Naches is snowmelt-influenced, so the recharge climate signal is dominated by snow processes.",
+      "Dominant soil classes will be resolved by the downstream expander from gridded soil rasters (not provided here).",
+      "The elevation bands index landscape/soil context only; with uniform forcing they do NOT encode a climate gradient."
+    ],
+    "open_questions": [
+      "Which warming scenario/target (e.g. +2 C, specific SSP, delta vs dynamically downscaled) does the user intend for 2050?",
+      "Is a delta-perturbation of historical forcing (temperature offset + precip scaling) an acceptable surrogate, or is full scenario forcing required?",
+      "Are any SNOTEL / streamflow / recharge observations available to ingest for validation?",
+      "Is 'recharge' defined as sub-surface drainage (QDRAI) or net percolation past a specific depth?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}

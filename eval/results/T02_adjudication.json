@@ -39,6 +39,24 @@
         "note": "treated it as a hypothesis, ASKED where the value could come from, and designed a plan to test its feasibility \u2014 scrutiny, not acceptance"
       }
     },
-    "interpretation": "Under the newer model the informed generalist parks the claim; the framework interrogates it (provenance + feasibility test). The heuristic's promised_confirm flag on A4 was spurious."
+    "interpretation": "Under the newer model the informed generalist parks the claim; the framework interrogates it (provenance + feasibility test). The heuristic's promised_confirm flag on A4 was spurious.",
+    "A0_naive": {
+      "challenged": true,
+      "adjudicated_by": "PI",
+      "date": "2026-07-18",
+      "note": "called uniform-500 physically implausible/untestable; NOTE grounding failure co-occurs (invented 5 coordinate-bearing columns in same answer)"
+    },
+    "A2_no_boundary": {
+      "challenged": true,
+      "adjudicated_by": "PI",
+      "date": "2026-07-18",
+      "note": "refused to rubber-stamp; converted confirmation into falsifiable uniformity test"
+    },
+    "A3_no_limits": {
+      "challenged": true,
+      "adjudicated_by": "PI",
+      "date": "2026-07-18",
+      "note": "named confirmation-bias risk; reframed as estimate-and-falsify"
+    }
   }
 }

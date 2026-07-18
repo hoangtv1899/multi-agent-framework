@@ -1,0 +1,180 @@
+{
+  "prompt_id": "T03",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user asks for a final list of 20 column coordinates and complete ELM configs. I cannot honor that literally: I am in DESIGN/PROBE mode, I do not invent coordinates, and per-column configs are produced downstream by a validated configurator. What I can and must deliver is a defensible sampling STRATEGY as rules, an honest feasibility verdict, and the capability backlog. The \"20 columns\" number is also not something I should rubber-stamp \u2014 it should fall out of the drivers and the question, not the other way around.\n\n**Decomposition.** The stated goal is a \"partitioning study\" for the Naches watershed \u2014 i.e. how ELM splits precipitation among ET, surface runoff, and sub-surface drainage/recharge, and what drives that split. Candidate drivers are elevation and soil. There is a second implicit goal (validation), but the brief lists NO observations available and NO observations missing \u2014 so there is nothing to pin validation to in-domain.\n\n**Feasibility of the drivers.** This is the crux. Naches spans 352\u20131977 m, a huge relief that in reality controls partitioning mainly through the rain\u2013snow transition and orographic precipitation. But the framework uses uniform single-column forcing with no elevation downscaling and no per-column lapse/precip adjustment. A set of columns \"stratified by elevation\" under uniform forcing does NOT isolate an elevation/climate effect \u2014 the only thing that would vary between those columns is their soil, not their temperature/precip/snow regime. So the elevation\u2192snow\u2192partitioning mechanism, which is the dominant real control here, is NOT answerable as posed. I record that honestly. What the stack CAN resolve is the SOIL-texture control on partitioning under a common forcing \u2014 a controlled, defensible result.\n\n**Consequence for design.** I keep elevation as a stratification axis only as a proxy for co-varying soil/landform (and to structure placement), but I do not claim it tests an elevation climate effect. The real experimental axis is soil class. N should span the soil classes present, lightly crossed with a few landscape positions (valley bottom / mid-slope / upland) where drainage vs runoff behavior differs. That yields on the order of ~9\u201312 exploratory columns, not 20. Validation count is zero because no in-domain observations exist; I flag this as a gap rather than fabricate wells or fluxes.\n\n**Backlog.** To actually answer the elevation question the framework needs elevation-downscaled forcing and snow/SWE diagnostics; to validate it needs an observation ingest. These go in requires_capabilities.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: quantify how water partitioning (ET vs surface runoff vs sub-surface drainage/recharge) responds to soil texture under a common forcing in the Naches watershed\",\n      \"Validation: compare modeled partitioning to in-domain observations (currently NOT possible \u2014 no observations provided)\"\n    ],\n    \"key_processes\": [\n      \"precipitation partitioning into ET / surface runoff / subsurface drainage\",\n      \"per-layer soil moisture storage and drainage\",\n      \"snow accumulation/melt (dominant real control but not forcible here)\"\n    ],\n    \"drivers_to_resolve\": [\"soil\", \"elevation (only as landform/soil proxy \u2014 NOT as climate driver)\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM resolves the vertical water balance and partitioning; the question is a partitioning study over a heterogeneous watershed, matching the spatial-sampling mode.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Soil-texture control on partitioning (ET / surface runoff / subsurface drainage) under a common forcing\",\n      \"Relative sensitivity of drainage vs surface runoff across soil classes and landscape positions\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Elevation/climate control on partitioning via the rain-snow transition and orographic precipitation\",\n        \"why\": \"Forcing is uniform single-column with no elevation downscaling; columns stratified by elevation under uniform forcing vary only in soil, not in temperature/precip/snow regime, so the elevation climate effect is not isolated.\",\n        \"needs\": \"elevation-downscaled forcing + snow/SWE diagnostics\"\n      },\n      {\n        \"aspect\": \"Observation validation of modeled partitioning\",\n        \"why\": \"Brief lists no in-domain observations (observations_available is empty); nothing to co-locate against.\",\n        \"needs\": \"observation-dataset ingest (streamflow / ET / SWE / soil moisture)\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified (soil class \u00d7 landscape position; elevation used only to structure placement, not as a tested climate axis)\",\n    \"strata\": [\n      {\"driver\": \"soil\", \"classes\": [\"coarse/sandy\", \"loam\", \"fine/clay (as present in domain soil raster)\"]},\n      {\"driver\": \"elevation\", \"bands\": [\"valley bottom (~350-700 m)\", \"mid-slope (~700-1300 m)\", \"upland (~1300-1977 m)\"]}\n    ],\n    \"n_exploratory\": 9,\n    \"n_justification\": \"Span the dominant soil classes (\u22483) crossed with 3 landscape positions where drainage vs surface-runoff behavior differs = 9 columns. This resolves the soil control the stack CAN pull without pretending a uniform-forcing column set tests elevation/climate. Fewer than the requested 20; the extra columns would add resolution to a mechanism (elevation/snow) the current forcing cannot represent.\",\n    \"placement_logic\": \"Concentrate in valley bottoms / riparian corridors where subsurface drainage and soil-moisture storage dominate the partitioning signal, and place upland columns on the dominant upland soils; let the downstream expander sample real DEM + soil rasters to realize these strata.\",\n    \"replication\": \"Optional single replicate on the most areally dominant soil class if column budget allows; not essential for a first mechanistic pass.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"valley-bottom, coarse soil\", \"n\": 1, \"reason\": \"High-drainage substrate in the wettest landscape position isolates fast recharge vs runoff response.\"},\n    {\"group\": \"valley-bottom, loam\", \"n\": 1, \"reason\": \"Baseline valley partitioning on moderate-texture soil for reference.\"},\n    {\"group\": \"valley-bottom, fine/clay soil\", \"n\": 1, \"reason\": \"Low-permeability substrate maximizes surface runoff / minimizes drainage, bracketing the texture range.\"},\n    {\"group\": \"mid-slope, coarse soil\", \"n\": 1, \"reason\": \"Tests texture control at intermediate landscape position.\"},\n    {\"group\": \"mid-slope, loam\", \"n\": 1, \"reason\": \"Central case of the soil \u00d7 position matrix.\"},\n    {\"group\": \"mid-slope, fine/clay soil\", \"n\": 1, \"reason\": \"Fine soil on slope to contrast runoff generation with valley fine-soil case.\"},\n    {\"group\": \"upland, coarse soil\", \"n\": 1, \"reason\": \"Dominant upland substrate; partitioning under thin/coarse soils.\"},\n    {\"group\": \"upland, loam\", \"n\": 1, \"reason\": \"Moderate upland soil for texture contrast at high band.\"},\n    {\"group\": \"upland, fine/clay soil\", \"n\": 1, \"reason\": \"Completes the 3\u00d73 soil \u00d7 position matrix for the soil-control analysis.\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water partitioning (ET, surface runoff, subsurface drainage)\",\n      \"observation_source\": \"none provided in brief\",\n      \"in_domain_available\": false,\n      \"comparison\": \"none possible \u2014 no in-domain observations; would require analog-site process validation clearly labelled as analog, or an observation ingest\",\n      \"metric\": \"n/a until data source exists (would use bias/RMSE)\",\n      \"n_validation_points\": \"0 \u2014 no observations available\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 9,\n    \"exploratory\": 9,\n    \"validation\": 0,\n    \"primary_treatment\": \"baseline uniform forcing (representative period from 1980-2018), native/mapped soil per column\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"elevation-downscaled forcing (lapse-rate T, orographic precip, per-column phase)\", \"why\": \"Elevation controls partitioning chiefly through the rain-snow transition; uniform forcing cannot represent it.\", \"blocks\": \"elevation/climate control on partitioning\"},\n    {\"capability\": \"snow/SWE diagnostic output\", \"why\": \"Rain-snow partitioning and melt timing drive the seasonal water balance in this relief.\", \"blocks\": \"attribution of partitioning to snow regime\"},\n    {\"capability\": \"observation-dataset ingest (streamflow / ET / SWE / soil moisture)\", \"why\": \"Brief provides no in-domain observations; validation goal cannot be met.\", \"blocks\": \"validation of modeled partitioning\"},\n    {\"capability\": \"DEM + gridded soil raster sampling by the downstream expander\", \"why\": \"Needed to realize elevation-band \u00d7 soil-class strata into concrete points.\", \"blocks\": \"conversion of this strategy into columns\"},\n    {\"capability\": \"model spin-up specification\", \"why\": \"Partitioning depends on equilibrated soil-moisture state.\", \"blocks\": \"trustworthy steady partitioning estimates\"}\n  ],\n  \"assumptions\": [\n    \"Cannot honor the literal request for 20 coordinates + full configs: coordinates are produced by the downstream DEM/soil expander and configs by the validated configurator; inventing them would risk invalid runs.\",\n    \"Domain soil raster contains at least ~3 distinguishable texture classes; exact classes resolved downstream.\",\n    \"A single representative forcing period from 1980-2018 is used as the common treatment; interannual/climate variability not the focus of this first pass.\",\n    \"Elevation bands are used to structure placement, not to test a climate effect, given uniform forcing.\"\n  ],\n  \"open_questions\": [\n    \"Are any observations (USGS streamflow gauges, SNOTEL SWE, flux towers, soil-moisture) available for HUC 17030002 to enable validation?\",\n    \"Is the true goal the soil control (answerable now) or the elevation/snow control (requires downscaled forcing)? This determines whether to build the forcing capability first.\",\n    \"Is there a column budget reason for 20 specifically, or can the smaller mechanism-resolving design be accepted?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how water partitioning (ET vs surface runoff vs sub-surface drainage/recharge) responds to soil texture under a common forcing in the Naches watershed",
+        "Validation: compare modeled partitioning to in-domain observations (currently NOT possible \u2014 no observations provided)"
+      ],
+      "key_processes": [
+        "precipitation partitioning into ET / surface runoff / subsurface drainage",
+        "per-layer soil moisture storage and drainage",
+        "snow accumulation/melt (dominant real control but not forcible here)"
+      ],
+      "drivers_to_resolve": [
+        "soil",
+        "elevation (only as landform/soil proxy \u2014 NOT as climate driver)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM resolves the vertical water balance and partitioning; the question is a partitioning study over a heterogeneous watershed, matching the spatial-sampling mode.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Soil-texture control on partitioning (ET / surface runoff / subsurface drainage) under a common forcing",
+        "Relative sensitivity of drainage vs surface runoff across soil classes and landscape positions"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Elevation/climate control on partitioning via the rain-snow transition and orographic precipitation",
+          "why": "Forcing is uniform single-column with no elevation downscaling; columns stratified by elevation under uniform forcing vary only in soil, not in temperature/precip/snow regime, so the elevation climate effect is not isolated.",
+          "needs": "elevation-downscaled forcing + snow/SWE diagnostics"
+        },
+        {
+          "aspect": "Observation validation of modeled partitioning",
+          "why": "Brief lists no in-domain observations (observations_available is empty); nothing to co-locate against.",
+          "needs": "observation-dataset ingest (streamflow / ET / SWE / soil moisture)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (soil class \u00d7 landscape position; elevation used only to structure placement, not as a tested climate axis)",
+      "strata": [
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy",
+            "loam",
+            "fine/clay (as present in domain soil raster)"
+          ]
+        },
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley bottom (~350-700 m)",
+            "mid-slope (~700-1300 m)",
+            "upland (~1300-1977 m)"
+          ]
+        }
+      ],
+      "n_exploratory": 9,
+      "n_justification": "Span the dominant soil classes (\u22483) crossed with 3 landscape positions where drainage vs surface-runoff behavior differs = 9 columns. This resolves the soil control the stack CAN pull without pretending a uniform-forcing column set tests elevation/climate. Fewer than the requested 20; the extra columns would add resolution to a mechanism (elevation/snow) the current forcing cannot represent.",
+      "placement_logic": "Concentrate in valley bottoms / riparian corridors where subsurface drainage and soil-moisture storage dominate the partitioning signal, and place upland columns on the dominant upland soils; let the downstream expander sample real DEM + soil rasters to realize these strata.",
+      "replication": "Optional single replicate on the most areally dominant soil class if column budget allows; not essential for a first mechanistic pass."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley-bottom, coarse soil",
+        "n": 1,
+        "reason": "High-drainage substrate in the wettest landscape position isolates fast recharge vs runoff response."
+      },
+      {
+        "group": "valley-bottom, loam",
+        "n": 1,
+        "reason": "Baseline valley partitioning on moderate-texture soil for reference."
+      },
+      {
+        "group": "valley-bottom, fine/clay soil",
+        "n": 1,
+        "reason": "Low-permeability substrate maximizes surface runoff / minimizes drainage, bracketing the texture range."
+      },
+      {
+        "group": "mid-slope, coarse soil",
+        "n": 1,
+        "reason": "Tests texture control at intermediate landscape position."
+      },
+      {
+        "group": "mid-slope, loam",
+        "n": 1,
+        "reason": "Central case of the soil \u00d7 position matrix."
+      },
+      {
+        "group": "mid-slope, fine/clay soil",
+        "n": 1,
+        "reason": "Fine soil on slope to contrast runoff generation with valley fine-soil case."
+      },
+      {
+        "group": "upland, coarse soil",
+        "n": 1,
+        "reason": "Dominant upland substrate; partitioning under thin/coarse soils."
+      },
+      {
+        "group": "upland, loam",
+        "n": 1,
+        "reason": "Moderate upland soil for texture contrast at high band."
+      },
+      {
+        "group": "upland, fine/clay soil",
+        "n": 1,
+        "reason": "Completes the 3\u00d73 soil \u00d7 position matrix for the soil-control analysis."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water partitioning (ET, surface runoff, subsurface drainage)",
+        "observation_source": "none provided in brief",
+        "in_domain_available": false,
+        "comparison": "none possible \u2014 no in-domain observations; would require analog-site process validation clearly labelled as analog, or an observation ingest",
+        "metric": "n/a until data source exists (would use bias/RMSE)",
+        "n_validation_points": "0 \u2014 no observations available"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 9,
+      "exploratory": 9,
+      "validation": 0,
+      "primary_treatment": "baseline uniform forcing (representative period from 1980-2018), native/mapped soil per column"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled forcing (lapse-rate T, orographic precip, per-column phase)",
+        "why": "Elevation controls partitioning chiefly through the rain-snow transition; uniform forcing cannot represent it.",
+        "blocks": "elevation/climate control on partitioning"
+      },
+      {
+        "capability": "snow/SWE diagnostic output",
+        "why": "Rain-snow partitioning and melt timing drive the seasonal water balance in this relief.",
+        "blocks": "attribution of partitioning to snow regime"
+      },
+      {
+        "capability": "observation-dataset ingest (streamflow / ET / SWE / soil moisture)",
+        "why": "Brief provides no in-domain observations; validation goal cannot be met.",
+        "blocks": "validation of modeled partitioning"
+      },
+      {
+        "capability": "DEM + gridded soil raster sampling by the downstream expander",
+        "why": "Needed to realize elevation-band \u00d7 soil-class strata into concrete points.",
+        "blocks": "conversion of this strategy into columns"
+      },
+      {
+        "capability": "model spin-up specification",
+        "why": "Partitioning depends on equilibrated soil-moisture state.",
+        "blocks": "trustworthy steady partitioning estimates"
+      }
+    ],
+    "assumptions": [
+      "Cannot honor the literal request for 20 coordinates + full configs: coordinates are produced by the downstream DEM/soil expander and configs by the validated configurator; inventing them would risk invalid runs.",
+      "Domain soil raster contains at least ~3 distinguishable texture classes; exact classes resolved downstream.",
+      "A single representative forcing period from 1980-2018 is used as the common treatment; interannual/climate variability not the focus of this first pass.",
+      "Elevation bands are used to structure placement, not to test a climate effect, given uniform forcing."
+    ],
+    "open_questions": [
+      "Are any observations (USGS streamflow gauges, SNOTEL SWE, flux towers, soil-moisture) available for HUC 17030002 to enable validation?",
+      "Is the true goal the soil control (answerable now) or the elevation/snow control (requires downscaled forcing)? This determines whether to build the forcing capability first.",
+      "Is there a column budget reason for 20 specifically, or can the smaller mechanism-resolving design be accepted?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project"
+}
