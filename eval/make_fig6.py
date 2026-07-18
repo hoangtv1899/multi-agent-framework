@@ -65,15 +65,25 @@ WAVES = {
 }
 
 
+RANK = {"infeasible": 0, "partial": 1, "full": 2}
+UNDER = "#D5DBE3"          # light fill for under-claims (the safe direction)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--wave", choices=tuple(WAVES), default="opus48")
+    ap.add_argument("--layout", choices=("main4", "full6"), default="main4",
+                    help="main4: grounding panels + directional over-claim "
+                         "panel (main text); full6: per-class verdict panels "
+                         "(supplement)")
     ap.add_argument("--footnotes", action="store_true",
                     help="render the trap/ablation footnote strip (for a "
                          "standalone SI figure; omit when the manuscript text "
                          "carries these clarifications)")
     args = ap.parse_args()
     W = WAVES[args.wave]
+    if args.wave == "sonnet45":
+        args.layout = "full6"   # the pre-registered per-class view, complete
 
     ARMS = [  # fixed order, top to bottom
         ("A0_naive",       "Naive LLM\n(question only)"),
@@ -121,7 +131,23 @@ def main():
             bot[title][a] = (sum(r["verdict_correct"] for r in rs) / len(rs)
                              if rs else None)
 
-    fig, axes = plt.subplots(2, 3, figsize=(11.5, 6.2), sharex=True)
+    # directional decomposition of the same pre-registered verdicts:
+    # over-claim = verdict rates the question MORE answerable than truth.
+    dirs = {}
+    for a, _ in ARMS:
+        over = under = 0
+        for r in by_arm[a]:
+            v, e = r.get("verdict"), r.get("verdict_expected")
+            if v in RANK and e in RANK:
+                d = RANK[v] - RANK[e]
+                over += d > 0
+                under += d < 0
+        dirs[a] = (over / len(by_arm[a]), under / len(by_arm[a]))
+
+    if args.layout == "main4":
+        fig, axes = plt.subplots(1, 4, figsize=(14.6, 3.4))
+    else:
+        fig, axes = plt.subplots(2, 3, figsize=(11.5, 6.2), sharex=True)
     ypos = range(len(ARMS) - 1, -1, -1)
 
     def panel(ax, title, vals, xlabel, higher_better=False):
@@ -149,17 +175,55 @@ def main():
             ax.spines[sp].set_visible(False)
         ax.tick_params(left=False)
 
-    for ax, (title, vals) in zip(axes[0], top.items()):
-        panel(ax, title, vals, f"% of {n_prompts} prompts (lower is better)")
-    for ax, (cls, title) in zip(axes[1], classes):
-        panel(ax, title, bot[title],
-              f"verdicts correct, n={ns[title]} (higher is better)")
+    if args.layout == "main4":
+        for ax, (title, vals) in zip(axes[:3], top.items()):
+            panel(ax, title, vals, f"% of {n_prompts} prompts (lower is better)")
+        # panel (d): paired directional bars — over-claims (solid, the unsafe
+        # direction) and under-claims (light, the conservative cost).
+        ax = axes[3]
+        for y, (arm, label) in zip(ypos, ARMS):
+            over, under = dirs[arm]
+            color = ACCENT if arm == "A4_framework" else NEUTRAL
+            ax.barh(y + 0.17, over, height=0.30, color=color, zorder=3)
+            ax.barh(y - 0.17, under, height=0.30, color=UNDER, zorder=3)
+            ax.text(over + 0.02, y + 0.17, f"{over * 100:.0f}%", va="center",
+                    fontsize=7.6, color=INK)
+            ax.text(under + 0.02, y - 0.17, f"{under * 100:.0f}%", va="center",
+                    fontsize=7.0, color=MUT)
+        ax.set_ylim(-0.65, len(ARMS) - 0.35)
+        ax.set_yticks(list(ypos))
+        ax.set_yticklabels([lab for _, lab in ARMS], fontsize=7.6)
+        ax.set_xlim(0, 1.14)
+        ax.set_xticks([0, .25, .5, .75, 1.0])
+        ax.set_xticklabels(["0", "25", "50", "75", "100%"], fontsize=7.5)
+        ax.set_title("(d) feasibility verdicts that over-claim",
+                     fontsize=9.5, fontweight="bold", loc="left")
+        ax.set_xlabel(f"% of {n_prompts} prompts (lower is better)",
+                      fontsize=8, color=MUT)
+        ax.grid(axis="x", alpha=.25, zorder=0)
+        for sp in ("top", "right", "left"):
+            ax.spines[sp].set_visible(False)
+        ax.tick_params(left=False)
+        ax.legend(handles=[
+            plt.Rectangle((0, 0), 1, 1, color=NEUTRAL,
+                          label="over-claims (unsafe)"),
+            plt.Rectangle((0, 0), 1, 1, color=UNDER,
+                          label="under-claims (hedges)")],
+            loc="upper right", bbox_to_anchor=(1.0, 1.02), frameon=False,
+            fontsize=6.8, handlelength=1.1, borderaxespad=0.1)
+    else:
+        for ax, (title, vals) in zip(axes[0], top.items()):
+            panel(ax, title, vals, f"% of {n_prompts} prompts (lower is better)")
+        for ax, (cls, title) in zip(axes[1], classes):
+            panel(ax, title, bot[title],
+                  f"verdicts correct, n={ns[title]} (higher is better)")
 
     # legend + honest footnotes
+    legend_y = 0.90 if args.layout == "main4" else 0.945
     fig.legend(handles=[
         plt.Rectangle((0, 0), 1, 1, color=ACCENT, label="framework (capability-aware planner + deterministic materialization)"),
         plt.Rectangle((0, 0), 1, 1, color=NEUTRAL, label="baselines / ablations — same LLM, temperature 0, constraints removed"),
-    ], loc="upper center", bbox_to_anchor=(0.5, 0.945), ncol=2,
+    ], loc="upper center", bbox_to_anchor=(0.5, legend_y), ncol=2,
         frameon=False, fontsize=8)
     fig.suptitle(f"Agent evaluation — 20 pre-registered prompts, "
                  f"identical LLM in every arm ({W['model']}); only the architecture differs",
@@ -167,10 +231,14 @@ def main():
     if args.footnotes:
         fig.text(0.015, 0.088, W["foot"], fontsize=6.6, color=MUT, va="top")
         fig.tight_layout(rect=[0, 0.115, 1, 0.90])
+    elif args.layout == "main4":
+        fig.tight_layout(rect=[0, 0.02, 1, 0.76])
     else:
         fig.tight_layout(rect=[0, 0.02, 1, 0.90])
 
-    out = ROOT / "eval" / "results" / W["out"]
+    stem = W["out"] + ("_full" if (args.layout == "full6" and
+                                   args.wave == "opus48") else "")
+    out = ROOT / "eval" / "results" / stem
     fig.savefig(f"{out}.png", dpi=300, bbox_inches="tight")
     fig.savefig(f"{out}.pdf", bbox_inches="tight")
     print(f"✓ {out}.png (300 dpi) + .pdf")

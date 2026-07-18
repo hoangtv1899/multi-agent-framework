@@ -81,22 +81,23 @@ FIGURES = [
      "Correlations are computed against log10 water-table depth."),
 
     ("fig6_agent_eval.png",
-     "Figure 6. Agent evaluation on 20 pre-registered prompts. All five arms "
-     "use Claude Opus 4.8 at temperature 0, and only the architecture "
-     "differs between arms. The boundary ablation removes the rule that the "
-     "planner may only describe strategy and never write numbers. The limits "
-     "ablation removes the inventory of what the model stack can and cannot "
-     "do. Top row: the fraction of prompts where an arm emitted coordinates "
-     "at planning time (a), emitted coordinates outside the domain (b), or "
-     "emitted an invalid runnable configuration (c). Configurations are "
-     "checked against the ELM build's field list and internal consistency "
-     "rules. Bottom row: the fraction of correct feasibility verdicts on "
-     "answerable questions (d), partly answerable questions (e), and "
-     "impossible questions (f); the correct verdict for each class is "
-     "full, partial, and infeasible respectively. The framework emits no "
-     "coordinates and no runnable configuration at planning time by design, "
-     "and its verdict errors are conservative. Adversarial trap outcomes and "
-     "the single framework infeasible miss are described in the text."),
+     "Figure 6. Planning-stage evaluation of the agent architecture on 20 "
+     "pre-registered prompts. All five arms use Claude Opus 4.8 at "
+     "temperature 0, and only the architecture differs between arms. The "
+     "boundary ablation removes the rule that the planner may only describe "
+     "strategy and never write numbers. The limits ablation removes the "
+     "inventory of what the model stack can and cannot do. Panels show the "
+     "fraction of prompts where an arm emitted coordinates at planning time "
+     "(a), emitted coordinates outside the domain (b), emitted an invalid "
+     "runnable configuration (c), or gave a feasibility verdict that claims "
+     "more than the question allows (d). Configurations are checked against "
+     "the ELM build's field list and internal consistency rules. In (d), "
+     "solid bars are over-claims and light bars are conservative hedges; "
+     "the two directions are not symmetric costs. The framework emits no "
+     "coordinates and no runnable configuration at planning time by design. "
+     "Its single over-claim rates an impossible 2050 projection as partial "
+     "while explicitly refusing the projection itself. Per-class verdict "
+     "accuracies for both model waves are in the supplement."),
 ]
 
 
