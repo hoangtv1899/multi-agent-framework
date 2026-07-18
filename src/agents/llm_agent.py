@@ -52,6 +52,10 @@ class SimpleLLMClient:
             else:
                 raise
         self.last_response_model = getattr(response, "model", None) or self.model
+        u = getattr(response, "usage", None)   # exact token accounting when the
+        self.last_usage = ({"prompt_tokens": u.prompt_tokens,      # gateway
+                            "completion_tokens": u.completion_tokens}
+                           if u else None)     # returns it; None otherwise
         return response.choices[0].message.content
 
 

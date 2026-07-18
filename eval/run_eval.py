@@ -127,7 +127,8 @@ def call_arm(arm: str, p: dict, model: str) -> dict:
         agent.llm.max_tokens = MAX_TOKENS
         plan = agent.create_plan(brief)
         return {"raw": json.dumps(plan), "parsed": plan,
-                "model_reported": agent.llm.last_response_model}
+                "model_reported": agent.llm.last_response_model,
+                "usage": getattr(agent.llm, "last_usage", None)}
 
     if arm == "A0_naive":
         system, user = NAIVE_SYSTEM, p["question"]
@@ -158,7 +159,8 @@ def call_arm(arm: str, p: dict, model: str) -> dict:
     except Exception:
         parsed = None
     return {"raw": raw, "parsed": parsed,
-            "model_reported": agent.llm.last_response_model}
+            "model_reported": agent.llm.last_response_model,
+            "usage": getattr(agent.llm, "last_usage", None)}
 
 
 def main():
