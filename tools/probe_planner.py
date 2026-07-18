@@ -34,7 +34,7 @@ sys.path.insert(0, "src")
 from agents.llm_agent import LLMAgent
 from agents.prompts import load_prompt
 
-CAPABILITY_PROMPT = "planner_capability_probe"
+CAPABILITY_PROMPT = "planner_capability_probe_v2"
 DEFAULT_BRIEF = "tools/naches_elm_brief.json"
 DEFAULT_MODEL = "claude-opus-4-8-project"
 

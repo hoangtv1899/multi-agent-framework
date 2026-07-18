@@ -37,15 +37,18 @@ class PlannerAgent(LLMAgent):
                  model:            str  = "claude-sonnet-4-5-20250929-v1-project",
                  model_type:       str  = "pflotran",
                  capability_aware: bool = True,
-                 mcp_clients:      Dict = None):
+                 mcp_clients:      Dict = None,
+                 capability_prompt: str = "planner_capability_probe_v2"):
 
         self.model_type = model_type.lower()
-        # PFLOTRAN currently only has the legacy treatment prompt; ELM defaults
-        # to the capability-aware strategy planner.
-        self.capability_aware = bool(capability_aware) and self.model_type == "elm"
+        # Capability-aware (strategy + feasibility verdict) is the production
+        # default for BOTH models since prompt v2. The frozen v1 prompt
+        # (planner_capability_probe) is pinned by the pre-registered eval via
+        # the capability_prompt argument — do not change v1.
+        self.capability_aware = bool(capability_aware)
 
         if self.capability_aware:
-            self.prompt_design     = load_prompt("planner_capability_probe")
+            self.prompt_design     = load_prompt(capability_prompt)
             self.prompt_validation = None
             self._model_label      = "multi-model (ELM/PFLOTRAN) strategy"
         elif self.model_type == "elm":

@@ -118,7 +118,11 @@ def call_arm(arm: str, p: dict, model: str) -> dict:
     """Run one (arm, prompt) -> {raw, parsed|None, model_reported}."""
     brief = make_brief(p)
     if arm == "A4_framework":
-        agent = PlannerAgent(model=model, model_type="elm", capability_aware=True)
+        # capability_prompt pins A4 to the FROZEN v0.1 prompt (freeze commit
+        # fcd9793). Production moved to planner_capability_probe_v2 after the
+        # eval; this pin keeps re-runs byte-identical to the pre-registration.
+        agent = PlannerAgent(model=model, model_type="elm", capability_aware=True,
+                             capability_prompt="planner_capability_probe")
         agent.llm.temperature, agent.llm.seed = TEMPERATURE, SEED
         agent.llm.max_tokens = MAX_TOKENS
         plan = agent.create_plan(brief)

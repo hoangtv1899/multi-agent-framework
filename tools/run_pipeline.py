@@ -43,7 +43,7 @@ def _parse_json(text):
 
 
 def run_planner(brief, request, model, max_tokens=8000):
-    system = load_prompt("planner_capability_probe")
+    system = load_prompt("planner_capability_probe_v2")
     user = (f"SCIENTIFIC QUESTION:\n{request}\n\n"
             f"DOMAIN BRIEF (from reception):\n{json.dumps(brief, indent=2)}\n\n"
             "Think step by step in prose first, then output the JSON plan as "

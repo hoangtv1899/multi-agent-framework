@@ -57,3 +57,11 @@ human adjudication records. The pre-registration freeze commit is
 ## To do before submission
 - Public code + data archive with DOI (Zenodo or equivalent).
 - Exact dataset version stamps for SSURGO and 3DEP retrievals.
+
+## Planner prompt versioning
+- `planner_capability_probe.txt` (v0.1) is FROZEN at eval freeze commit
+  `fcd9793`. The evaluation loads it by name for the ablation surgeries, and
+  the A4 framework arm pins it explicitly, so eval re-runs are byte-identical.
+- Production (both ELM and PFLOTRAN) uses `planner_capability_probe_v2.txt`,
+  which extends the capability inventory to PFLOTRAN. The PFLOTRAN extension
+  postdates the eval and is not separately evaluated.
