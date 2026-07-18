@@ -1,0 +1,122 @@
+{
+  "prompt_id": "S01",
+  "arm": "A1_informed",
+  "rep": 2,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Largely feasible: precipitation partitioning into runoff, ET, and recharge is a core ELM diagnostic and can be quantified per column and aggregated across the elevation gradient. SWE and runoff/streamflow timing and water-table depth can be validated against SNOTEL, USGS gauges, and USGS wells. ET cannot be directly validated (no flux towers) and is constrained only via water-balance closure.\",\n    \"answerable\": [\n      \"Long-term and seasonal partitioning of P into surface/subsurface runoff, ET, and recharge for each representative column\",\n      \"Elevation- and soil-texture-driven differences in the water balance across the sub-watershed\",\n      \"Validation of simulated SWE accumulation/melt against 6 SNOTEL stations\",\n      \"Validation of runoff timing/magnitude against USGS stream gauge daily records (where available)\",\n      \"Validation of simulated water-table depth (ZWT) against USGS well WTD observations\",\n      \"Recharge estimation via QCHARGE / subsurface drainage terms\"\n    ],\n    \"not_answerable\": [\n      \"Direct validation of latent-heat/ET fluxes (no flux towers in domain)\",\n      \"Fully distributed, routed streamflow at any specific gauge (single-column ELM has no lateral routing; runoff is point-scale)\",\n      \"Sub-watershed spatial recharge maps beyond the representative-column archetype\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"The dominant controls are elevation (352-1977 m, driving orographic precipitation and snow/rain partitioning), soil texture, and forcing. Six columns are chosen to co-locate with the 6 available SNOTEL stations so SWE validation is one-to-one, while spanning the elevation gradient (valley/rain-dominated to alpine/snow-dominated) and sampling contrasting soil textures. This is sufficient to characterize gradient-driven partitioning without over-fitting given sparse point observations.\",\n  \"columns\": [\n    {\"id\": \"NAC_lowvalley_loam\", \"lat\": 46.72, \"lon\": -120.70, \"soil_texture\": \"loam\"},\n    {\"id\": \"NAC_midfoothill_sandy_loam\", \"lat\": 46.90, \"lon\": -120.95, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"NAC_bumpingridge_snotel\", \"lat\": 46.87, \"lon\": -121.30, \"soil_texture\": \"gravelly loam\"},\n    {\"id\": \"NAC_morselake_snotel\", \"lat\": 46.72, \"lon\": -121.42, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"NAC_whitepass_snotel\", \"lat\": 46.64, \"lon\": -121.39, \"soil_texture\": \"silt loam\"},\n    {\"id\": \"NAC_alpine_rocky_loam\", \"lat\": 46.95, \"lon\": -121.28, \"soil_texture\": \"rocky sandy loam\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"RAIN\",\n      \"SNOW\",\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRGWL\",\n      \"QCHARGE\",\n      \"QINFL\",\n      \"QVEGT\",\n      \"QVEGE\",\n      \"QSOIL\",\n      \"EFLX_LH_TOT\",\n      \"FCEV\",\n      \"FCTR\",\n      \"FGEV\",\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"FSNO\",\n      \"QSNOMELT\",\n      \"ZWT\",\n      \"WA\",\n      \"H2OSOI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"TWS\",\n      \"TSA\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM single-column (PTS_MODE) simulation with GSWP3/CLMNCEP-style forcing 1980-2018\",\n    \"Model spin-up (accelerated/AD + final spin-up) prior to the 39-year transient to equilibrate soil moisture and groundwater store\",\n    \"Site-specific surface datasets (soil texture, PFT) per column\",\n    \"PFLOTRAN coupling (ELM-PFLOTRAN) optional for higher-fidelity variably-saturated recharge/water-table dynamics validated against USGS wells\",\n    \"Post-processing for annual/seasonal water-balance closure and comparison to SNOTEL SWE, USGS gauges, USGS well WTD\"\n  ],\n  \"assumptions\": [\n    \"Recharge is approximated by ELM QCHARGE (gravity drainage to the unconfined aquifer) plus QDRAI where applicable; \u0394SWE and \u0394soil\u0394WA storage changes are accounted for in closure.\",\n    \"Single-column runoff (QRUNOFF) is point-scale and unrouted; validation against stream gauges is on seasonal fractions/timing, not absolute routed discharge.\",\n    \"SNOTEL station coordinates are used as approximate column locations; exact elevations set from station metadata via surface-data override.\",\n    \"ET is unvalidated directly (no flux towers) and is assessed only through water-balance consistency and reasonableness vs. regional literature.\",\n    \"Forcing is downscaled/elevation-corrected where possible; orographic precipitation gradient is represented by column placement across elevation bands.\",\n    \"First ~5-10 years of the transient may be treated as additional spin-up and excluded from long-term partitioning statistics.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Largely feasible: precipitation partitioning into runoff, ET, and recharge is a core ELM diagnostic and can be quantified per column and aggregated across the elevation gradient. SWE and runoff/streamflow timing and water-table depth can be validated against SNOTEL, USGS gauges, and USGS wells. ET cannot be directly validated (no flux towers) and is constrained only via water-balance closure.",
+      "answerable": [
+        "Long-term and seasonal partitioning of P into surface/subsurface runoff, ET, and recharge for each representative column",
+        "Elevation- and soil-texture-driven differences in the water balance across the sub-watershed",
+        "Validation of simulated SWE accumulation/melt against 6 SNOTEL stations",
+        "Validation of runoff timing/magnitude against USGS stream gauge daily records (where available)",
+        "Validation of simulated water-table depth (ZWT) against USGS well WTD observations",
+        "Recharge estimation via QCHARGE / subsurface drainage terms"
+      ],
+      "not_answerable": [
+        "Direct validation of latent-heat/ET fluxes (no flux towers in domain)",
+        "Fully distributed, routed streamflow at any specific gauge (single-column ELM has no lateral routing; runoff is point-scale)",
+        "Sub-watershed spatial recharge maps beyond the representative-column archetype"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "The dominant controls are elevation (352-1977 m, driving orographic precipitation and snow/rain partitioning), soil texture, and forcing. Six columns are chosen to co-locate with the 6 available SNOTEL stations so SWE validation is one-to-one, while spanning the elevation gradient (valley/rain-dominated to alpine/snow-dominated) and sampling contrasting soil textures. This is sufficient to characterize gradient-driven partitioning without over-fitting given sparse point observations.",
+    "columns": [
+      {
+        "id": "NAC_lowvalley_loam",
+        "lat": 46.72,
+        "lon": -120.7,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "NAC_midfoothill_sandy_loam",
+        "lat": 46.9,
+        "lon": -120.95,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "NAC_bumpingridge_snotel",
+        "lat": 46.87,
+        "lon": -121.3,
+        "soil_texture": "gravelly loam"
+      },
+      {
+        "id": "NAC_morselake_snotel",
+        "lat": 46.72,
+        "lon": -121.42,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "NAC_whitepass_snotel",
+        "lat": 46.64,
+        "lon": -121.39,
+        "soil_texture": "silt loam"
+      },
+      {
+        "id": "NAC_alpine_rocky_loam",
+        "lat": 46.95,
+        "lon": -121.28,
+        "soil_texture": "rocky sandy loam"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "RAIN",
+        "SNOW",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QRGWL",
+        "QCHARGE",
+        "QINFL",
+        "QVEGT",
+        "QVEGE",
+        "QSOIL",
+        "EFLX_LH_TOT",
+        "FCEV",
+        "FCTR",
+        "FGEV",
+        "H2OSNO",
+        "SNOWDP",
+        "FSNO",
+        "QSNOMELT",
+        "ZWT",
+        "WA",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "TWS",
+        "TSA"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM single-column (PTS_MODE) simulation with GSWP3/CLMNCEP-style forcing 1980-2018",
+      "Model spin-up (accelerated/AD + final spin-up) prior to the 39-year transient to equilibrate soil moisture and groundwater store",
+      "Site-specific surface datasets (soil texture, PFT) per column",
+      "PFLOTRAN coupling (ELM-PFLOTRAN) optional for higher-fidelity variably-saturated recharge/water-table dynamics validated against USGS wells",
+      "Post-processing for annual/seasonal water-balance closure and comparison to SNOTEL SWE, USGS gauges, USGS well WTD"
+    ],
+    "assumptions": [
+      "Recharge is approximated by ELM QCHARGE (gravity drainage to the unconfined aquifer) plus QDRAI where applicable; \u0394SWE and \u0394soil\u0394WA storage changes are accounted for in closure.",
+      "Single-column runoff (QRUNOFF) is point-scale and unrouted; validation against stream gauges is on seasonal fractions/timing, not absolute routed discharge.",
+      "SNOTEL station coordinates are used as approximate column locations; exact elevations set from station metadata via surface-data override.",
+      "ET is unvalidated directly (no flux towers) and is assessed only through water-balance consistency and reasonableness vs. regional literature.",
+      "Forcing is downscaled/elevation-corrected where possible; orographic precipitation gradient is represented by column placement across elevation bands.",
+      "First ~5-10 years of the transient may be treated as additional spin-up and excluded from long-term partitioning statistics."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 774,
+    "completion_tokens": 2568
+  }
+}

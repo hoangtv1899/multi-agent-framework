@@ -1,0 +1,185 @@
+{
+  "prompt_id": "I01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: estimate field-scale nitrate LEACHING FLUX and recharge below the root zone as a function of land use and soil, per column\", \"validation: relate simulated leaching source strength to external well nitrate records (indirect / regional only \\u2014 see feasibility)\"], \"key_processes\": [\"soil nitrogen cycling and nitrate leaching (ELM CN)\", \"vertical recharge / sub-surface drainage (QDRAI)\", \"NOT representable: lateral saturated transport, reactive attenuation (denitrification), well-screen mixing\"], \"drivers_to_resolve\": [\"land use\", \"soil drainage class\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"ELM's CN biogeochemistry can produce a per-column nitrate leaching flux + recharge under land-use and soil contrasts. It CANNOT transport that nitrate laterally to a well; the well-arrival concentration is out of scope for the single-column stack.\", \"coupling_needed\": true, \"coupling_note\": \"Estimating arrival concentration would require ELM leaching-flux/recharge to drive a PFLOTRAN (or equivalent) reactive-transport aquifer model with lateral flow. The ELM->PFLOTRAN coupler is not implemented, and PFLOTRAN as available solves steady-state flow only \\u2014 no reactive solute transport / denitrification. Listed in requires_capabilities.\"}, \"feasibility\": {\"verdict\": \"infeasible\", \"answerable\": [\"field-scale nitrate leaching flux below the root zone as a function of land use and soil (given spin-up + WTD warm start + verified N-leaching output)\", \"recharge / sub-surface drainage (QDRAI) per column that would serve as a transport source term\"], \"not_answerable\": [{\"aspect\": \"arrival concentration of nitrate at drinking-water wells\", \"why\": \"single-column ELM has no lateral transport and no regional water table; there is no path from a field column to a well. Reactive solute transport and well mixing are not represented at all.\", \"needs\": \"reactive lateral groundwater transport model + ELM->transport coupler\"}, {\"aspect\": \"denitrification / attenuation of nitrate along the flow path\", \"why\": \"no saturated-zone reactive transport capability; PFLOTRAN as provided is steady-state flow only\", \"needs\": \"reactive-transport (denitrification) chemistry\"}, {\"aspect\": \"travel time / breakthrough timing from field to well\", \"why\": \"requires lateral advective transport and aquifer geometry the stack cannot represent\", \"needs\": \"coupled transient aquifer transport model with lateral flow\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (land use x soil drainage class)\", \"strata\": [{\"driver\": \"land use\", \"classes\": [\"fertilized row crop (corn/soy)\", \"pasture/grass\", \"other/natural\"]}, {\"driver\": \"soil drainage class\", \"classes\": [\"well-drained\", \"poorly-drained (tile-prone)\"]}], \"n_exploratory\": 8, \"n_justification\": \"The mechanism the stack CAN resolve (leaching source strength) is controlled by land use x soil. 3 land-use classes x 2 drainage classes = 6 cells; the two dominant fertilized-row-crop cells get light replication (+2) because they are the source of concern. This spans the leaching drivers without a blind dense grid. Elevation is NOT a stratifier (160 m relief, not the mechanism).\", \"placement_logic\": \"Concentrate columns on fertilized row-crop areas over contrasting soils (well-drained vs poorly-drained/tile-prone), since these dominate nitrate loading. Downstream expander samples SSURGO drainage class and a land-use raster to place points; no coordinates invented here.\", \"replication\": \"2 extra columns in the fertilized-row-crop strata to capture soil-driven spread in the highest-loading class.\"}, \"sampling_plan\": [{\"group\": \"row-crop / well-drained\", \"n\": 2, \"reason\": \"dominant nitrate source over freely-draining soil \\u2014 high vertical leaching flux expected\"}, {\"group\": \"row-crop / poorly-drained (tile-prone)\", \"n\": 2, \"reason\": \"dominant source over soils where tile drainage strongly routes nitrate \\u2014 key loading contrast\"}, {\"group\": \"pasture-grass / well-drained\", \"n\": 1, \"reason\": \"lower-N-input reference over well-drained soil\"}, {\"group\": \"pasture-grass / poorly-drained\", \"n\": 1, \"reason\": \"lower-N-input reference over wet soil\"}, {\"group\": \"natural-other / well-drained\", \"n\": 1, \"reason\": \"near-zero-fertilizer baseline for background leaching\"}, {\"group\": \"natural-other / poorly-drained\", \"n\": 1, \"reason\": \"background leaching over wet soil, closes the 3x2 stratification\"}], \"validation_design\": [{\"target_variable\": \"nitrate leaching flux / recharge (ELM source term)\", \"observation_source\": \"external well nitrate records\", \"in_domain_available\": true, \"comparison\": \"indirect/regional ONLY \\u2014 well records are concentrations at the well AFTER lateral transport + attenuation, which the stack does not simulate. At best a qualitative check that high-leaching land-use/soil strata coincide with elevated observed well nitrate. NOT a co-located flux validation.\", \"metric\": \"qualitative rank/consistency (no quantitative bias/RMSE is defensible without a transport model)\", \"n_validation_points\": \"unknown \\u2014 depends on well-record density; but not directly comparable to model output\"}], \"experiment_summary\": {\"total_columns\": 8, \"exploratory\": 8, \"validation\": 0, \"primary_treatment\": \"baseline NLDAS forcing, native SSURGO soil, ELM CN nitrogen cycle on, WTD warm start + spin-up\"}, \"requires_capabilities\": [{\"capability\": \"reactive lateral groundwater transport model + ELM->transport coupler\", \"why\": \"the entire deliverable (nitrate arriving at a well) requires lateral advective transport of the ELM leaching flux through the aquifer\", \"blocks\": \"arrival concentration at wells; travel-time estimates\"}, {\"capability\": \"reactive-transport chemistry (denitrification/attenuation)\", \"why\": \"nitrate is attenuated along the saturated flow path; PFLOTRAN as provided is steady-state flow only\", \"blocks\": \"realistic well concentrations, attenuation estimates\"}, {\"capability\": \"verified ELM N-leaching history output\", \"why\": \"must confirm nitrate leaching flux is emitted as a history field for the CN model\", \"blocks\": \"even the source-term (leaching flux) sub-goal\"}, {\"capability\": \"land-use / land-management raster + N-application ingest\", \"why\": \"to stratify columns by land use and set fertilizer N inputs\", \"blocks\": \"distinguishing fertilized from non-fertilized loading\"}, {\"capability\": \"SSURGO soil drainage-class sampling\", \"why\": \"drainage class is a first-order control on leaching vs tile routing\", \"blocks\": \"the soil axis of stratification\"}, {\"capability\": \"model spin-up + WTD warm start\", \"why\": \"recharge and leaching are slow states; cold-start artifacts otherwise\", \"blocks\": \"credible leaching/recharge magnitudes\"}, {\"capability\": \"well-location + well-nitrate observation ingest\", \"why\": \"to attempt any (even indirect) comparison and to site future transport receptors\", \"blocks\": \"validation linkage\"}], \"assumptions\": [\"The intended deliverable (well arrival concentration) is treated as out-of-scope for the current stack; the design is scoped down to leaching-flux/recharge source-term estimation.\", \"ELM CN nitrogen cycle is enabled and its leaching flux is a meaningful output for the region.\", \"Land-use and SSURGO drainage-class rasters exist for HUC 07060002 for the downstream expander.\", \"External well nitrate records are point concentrations at wells, not leaching-flux measurements.\", \"Elevation relief (160 m) is not a controlling driver for this question and is not stratified on.\"], \"open_questions\": [\"Are fertilizer application rates / management schedules available to parameterize N inputs per land-use class?\", \"Do the well nitrate records include location and screen depth, so future coupled transport could define receptors?\", \"Is there interest in the (feasible) leaching-flux source-term product as a standalone deliverable, pending the transport coupler?\", \"Is aquifer geometry / hydraulic property data available to eventually build the PFLOTRAN transport domain?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: estimate field-scale nitrate LEACHING FLUX and recharge below the root zone as a function of land use and soil, per column",
+        "validation: relate simulated leaching source strength to external well nitrate records (indirect / regional only \u2014 see feasibility)"
+      ],
+      "key_processes": [
+        "soil nitrogen cycling and nitrate leaching (ELM CN)",
+        "vertical recharge / sub-surface drainage (QDRAI)",
+        "NOT representable: lateral saturated transport, reactive attenuation (denitrification), well-screen mixing"
+      ],
+      "drivers_to_resolve": [
+        "land use",
+        "soil drainage class"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM's CN biogeochemistry can produce a per-column nitrate leaching flux + recharge under land-use and soil contrasts. It CANNOT transport that nitrate laterally to a well; the well-arrival concentration is out of scope for the single-column stack.",
+      "coupling_needed": true,
+      "coupling_note": "Estimating arrival concentration would require ELM leaching-flux/recharge to drive a PFLOTRAN (or equivalent) reactive-transport aquifer model with lateral flow. The ELM->PFLOTRAN coupler is not implemented, and PFLOTRAN as available solves steady-state flow only \u2014 no reactive solute transport / denitrification. Listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "field-scale nitrate leaching flux below the root zone as a function of land use and soil (given spin-up + WTD warm start + verified N-leaching output)",
+        "recharge / sub-surface drainage (QDRAI) per column that would serve as a transport source term"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "arrival concentration of nitrate at drinking-water wells",
+          "why": "single-column ELM has no lateral transport and no regional water table; there is no path from a field column to a well. Reactive solute transport and well mixing are not represented at all.",
+          "needs": "reactive lateral groundwater transport model + ELM->transport coupler"
+        },
+        {
+          "aspect": "denitrification / attenuation of nitrate along the flow path",
+          "why": "no saturated-zone reactive transport capability; PFLOTRAN as provided is steady-state flow only",
+          "needs": "reactive-transport (denitrification) chemistry"
+        },
+        {
+          "aspect": "travel time / breakthrough timing from field to well",
+          "why": "requires lateral advective transport and aquifer geometry the stack cannot represent",
+          "needs": "coupled transient aquifer transport model with lateral flow"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (land use x soil drainage class)",
+      "strata": [
+        {
+          "driver": "land use",
+          "classes": [
+            "fertilized row crop (corn/soy)",
+            "pasture/grass",
+            "other/natural"
+          ]
+        },
+        {
+          "driver": "soil drainage class",
+          "classes": [
+            "well-drained",
+            "poorly-drained (tile-prone)"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "The mechanism the stack CAN resolve (leaching source strength) is controlled by land use x soil. 3 land-use classes x 2 drainage classes = 6 cells; the two dominant fertilized-row-crop cells get light replication (+2) because they are the source of concern. This spans the leaching drivers without a blind dense grid. Elevation is NOT a stratifier (160 m relief, not the mechanism).",
+      "placement_logic": "Concentrate columns on fertilized row-crop areas over contrasting soils (well-drained vs poorly-drained/tile-prone), since these dominate nitrate loading. Downstream expander samples SSURGO drainage class and a land-use raster to place points; no coordinates invented here.",
+      "replication": "2 extra columns in the fertilized-row-crop strata to capture soil-driven spread in the highest-loading class."
+    },
+    "sampling_plan": [
+      {
+        "group": "row-crop / well-drained",
+        "n": 2,
+        "reason": "dominant nitrate source over freely-draining soil \u2014 high vertical leaching flux expected"
+      },
+      {
+        "group": "row-crop / poorly-drained (tile-prone)",
+        "n": 2,
+        "reason": "dominant source over soils where tile drainage strongly routes nitrate \u2014 key loading contrast"
+      },
+      {
+        "group": "pasture-grass / well-drained",
+        "n": 1,
+        "reason": "lower-N-input reference over well-drained soil"
+      },
+      {
+        "group": "pasture-grass / poorly-drained",
+        "n": 1,
+        "reason": "lower-N-input reference over wet soil"
+      },
+      {
+        "group": "natural-other / well-drained",
+        "n": 1,
+        "reason": "near-zero-fertilizer baseline for background leaching"
+      },
+      {
+        "group": "natural-other / poorly-drained",
+        "n": 1,
+        "reason": "background leaching over wet soil, closes the 3x2 stratification"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "nitrate leaching flux / recharge (ELM source term)",
+        "observation_source": "external well nitrate records",
+        "in_domain_available": true,
+        "comparison": "indirect/regional ONLY \u2014 well records are concentrations at the well AFTER lateral transport + attenuation, which the stack does not simulate. At best a qualitative check that high-leaching land-use/soil strata coincide with elevated observed well nitrate. NOT a co-located flux validation.",
+        "metric": "qualitative rank/consistency (no quantitative bias/RMSE is defensible without a transport model)",
+        "n_validation_points": "unknown \u2014 depends on well-record density; but not directly comparable to model output"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 8,
+      "exploratory": 8,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS forcing, native SSURGO soil, ELM CN nitrogen cycle on, WTD warm start + spin-up"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "reactive lateral groundwater transport model + ELM->transport coupler",
+        "why": "the entire deliverable (nitrate arriving at a well) requires lateral advective transport of the ELM leaching flux through the aquifer",
+        "blocks": "arrival concentration at wells; travel-time estimates"
+      },
+      {
+        "capability": "reactive-transport chemistry (denitrification/attenuation)",
+        "why": "nitrate is attenuated along the saturated flow path; PFLOTRAN as provided is steady-state flow only",
+        "blocks": "realistic well concentrations, attenuation estimates"
+      },
+      {
+        "capability": "verified ELM N-leaching history output",
+        "why": "must confirm nitrate leaching flux is emitted as a history field for the CN model",
+        "blocks": "even the source-term (leaching flux) sub-goal"
+      },
+      {
+        "capability": "land-use / land-management raster + N-application ingest",
+        "why": "to stratify columns by land use and set fertilizer N inputs",
+        "blocks": "distinguishing fertilized from non-fertilized loading"
+      },
+      {
+        "capability": "SSURGO soil drainage-class sampling",
+        "why": "drainage class is a first-order control on leaching vs tile routing",
+        "blocks": "the soil axis of stratification"
+      },
+      {
+        "capability": "model spin-up + WTD warm start",
+        "why": "recharge and leaching are slow states; cold-start artifacts otherwise",
+        "blocks": "credible leaching/recharge magnitudes"
+      },
+      {
+        "capability": "well-location + well-nitrate observation ingest",
+        "why": "to attempt any (even indirect) comparison and to site future transport receptors",
+        "blocks": "validation linkage"
+      }
+    ],
+    "assumptions": [
+      "The intended deliverable (well arrival concentration) is treated as out-of-scope for the current stack; the design is scoped down to leaching-flux/recharge source-term estimation.",
+      "ELM CN nitrogen cycle is enabled and its leaching flux is a meaningful output for the region.",
+      "Land-use and SSURGO drainage-class rasters exist for HUC 07060002 for the downstream expander.",
+      "External well nitrate records are point concentrations at wells, not leaching-flux measurements.",
+      "Elevation relief (160 m) is not a controlling driver for this question and is not stratified on."
+    ],
+    "open_questions": [
+      "Are fertilizer application rates / management schedules available to parameterize N inputs per land-use class?",
+      "Do the well nitrate records include location and screen depth, so future coupled transport could define receptors?",
+      "Is there interest in the (feasible) leaching-flux source-term product as a standalone deliverable, pending the transport coupler?",
+      "Is aquifer geometry / hydraulic property data available to eventually build the PFLOTRAN transport domain?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6367,
+    "completion_tokens": 4711
+  }
+}

@@ -1,0 +1,178 @@
+{
+  "prompt_id": "S10",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: resolve how elevation (via orographic forcing + snow) and soil texture control water partitioning across the Upper Yakima\", \"validation: compare simulated peak SWE against in-domain SNOTEL; assess streamflow only if routing is added\"], \"key_processes\": [\"snow accumulation/melt (SWE)\", \"ET vs runoff vs drainage partitioning\", \"orographic precipitation gradient\", \"soil-texture control on infiltration/drainage\"], \"drivers_to_resolve\": [\"elevation\", \"soil\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM across a real heterogeneous HUC8; NLDAS-2 supplies elevation-varying forcing over the 1900 m relief and simulates SWE for SNOTEL validation.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"elevation control on partitioning to the ~12 km NLDAS granularity (orographic precip/temperature gradient varies with column elevation)\", \"snow accumulation / peak SWE and its elevation dependence (H2OSNO/SWE in default output)\", \"soil-texture control on partitioning via per-column SSURGO\", \"SNOTEL peak-SWE validation (co-located, in-domain)\"], \"not_answerable\": [{\"aspect\": \"sub-12 km elevation contrasts (ridgetop vs valley finer than a NLDAS cell)\", \"why\": \"NLDAS has no within-cell lapse rate; sub-12 km terrain unresolved, ridgetop SWE biased low\", \"needs\": \"elevation-downscaled forcing\"}, {\"aspect\": \"streamflow comparison at USGS gauges\", \"why\": \"single-column ELM has no lateral routing; no native integrated streamflow\", \"needs\": \"runoff aggregation / routing step\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (elevation bands x dominant soil), oversampled at rain-snow transition\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"500-900 m\", \"900-1300 m\", \"1300-1700 m\", \"1700-2100 m\", \"2100-2400 m\"]}, {\"driver\": \"soil\", \"classes\": [\"dominant coarse/loamy SSURGO class\", \"dominant fine/other SSURGO class\"]}], \"n_exploratory\": 11, \"n_justification\": \"5 elevation bands span the 1900 m relief at roughly the granularity NLDAS can distinguish; crossing with 2 dominant soils (10) prevents elevation/soil confounding; +1 extra column in the rain-snow transition band for light replication where snow-season partitioning is most sensitive.\", \"placement_logic\": \"Distribute across the 5 bands following the DEM hypsometry; oversample the 1200-1800 m rain-snow transition where SWE and melt-timing dominate partitioning; place validation columns at SNOTEL sites; avoid enumerating coordinates (downstream expander samples DEM/SSURGO).\", \"replication\": \"one extra column in the rain-snow transition band to capture within-band soil/aspect spread at the most sensitive elevation\"}, \"sampling_plan\": [{\"group\": \"low elevation 500-900 m\", \"n\": 2, \"reason\": \"valley/rain-dominated baseline; crosses two dominant soils to isolate texture from elevation\"}, {\"group\": \"low-mid 900-1300 m\", \"n\": 2, \"reason\": \"lower rain-snow margin; two soils to separate texture effect on early-melt partitioning\"}, {\"group\": \"rain-snow transition 1300-1700 m\", \"n\": 3, \"reason\": \"most sensitive band for SWE/melt-timing partitioning; oversampled with extra column for soil/aspect spread\"}, {\"group\": \"upper-mid 1700-2100 m\", \"n\": 2, \"reason\": \"snow-dominated; two soils to test texture control under deeper snowpack\"}, {\"group\": \"high 2100-2400 m\", \"n\": 2, \"reason\": \"peak-SWE band; anchors the top of the orographic gradient (expect low-bias SWE due to 12 km averaging)\"}], \"validation_design\": [{\"target_variable\": \"peak SWE\", \"observation_source\": \"SNOTEL\", \"in_domain_available\": true, \"comparison\": \"co-located \\u2014 columns pinned to SNOTEL station cells; compare annual peak H2OSNO/SWE and melt-out timing\", \"metric\": \"bias, RMSE (expect ridgetop underestimation from 12 km averaging)\", \"n_validation_points\": \"unknown \\u2014 depends on number of SNOTEL stations in HUC 17030001\"}, {\"target_variable\": \"streamflow\", \"observation_source\": \"USGS gauges\", \"in_domain_available\": true, \"comparison\": \"aggregated \\u2014 NOT possible natively; requires routing/aggregation of column runoff before gauge comparison\", \"metric\": \"NSE / bias (only if routing added)\", \"n_validation_points\": \"unknown \\u2014 blocked pending routing capability\"}], \"experiment_summary\": {\"total_columns\": 11, \"exploratory\": 11, \"validation\": 0, \"primary_treatment\": \"baseline NLDAS-2 forcing, native SSURGO soil, WTD-informed warm start\"}, \"requires_capabilities\": [{\"capability\": \"elevation-downscaled forcing (sub-12 km lapse rate)\", \"why\": \"NLDAS resolves only ~12 km; ridgetop/valley contrasts and high-elevation SWE are unresolved\", \"blocks\": \"sub-grid elevation control on snow/partitioning\"}, {\"capability\": \"runoff aggregation / routing step\", \"why\": \"single-column ELM has no lateral transport, so no integrated streamflow\", \"blocks\": \"USGS gauge validation\"}, {\"capability\": \"SNOTEL ingest + station locator in-domain\", \"why\": \"needed to pin validation columns and pull observed peak SWE\", \"blocks\": \"SWE validation setup\"}, {\"capability\": \"DEM hypsometry + SSURGO sampler for the HUC\", \"why\": \"expander needs elevation bands and dominant soil classes to place columns\", \"blocks\": \"converting strata rules into concrete points\"}, {\"capability\": \"WTD-informed warm start / spin-up\", \"why\": \"columns cold-start; snow/soil states must not be init artifacts\", \"blocks\": \"reliable peak-SWE and partitioning\"}], \"assumptions\": [\"Domain is within CONUS so NLDAS-2 (elevation-varying) forcing applies rather than Qian T62 fallback.\", \"SSURGO coverage exists across the HUC; 'dominant' soil classes to be resolved by the expander.\", \"Number and elevation of SNOTEL/USGS stations in-domain unknown at design time; validation counts are data-dictated.\", \"Baseline forcing period drawn from 1980-2018; a representative multi-year snow-season window will be selected downstream.\", \"No lateral groundwater or column-to-column exchange is represented.\"], \"open_questions\": [\"How many SNOTEL stations fall inside HUC 17030001, and at what elevations?\", \"Is investment in a routing/aggregation step warranted to enable USGS gauge validation?\", \"Preferred forcing window (full 1980-2018 climatology vs specific wet/dry snow years)?\", \"Is a full multi-year spin-up acceptable, or should the WTD-informed warm start be used to control cost?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: resolve how elevation (via orographic forcing + snow) and soil texture control water partitioning across the Upper Yakima",
+        "validation: compare simulated peak SWE against in-domain SNOTEL; assess streamflow only if routing is added"
+      ],
+      "key_processes": [
+        "snow accumulation/melt (SWE)",
+        "ET vs runoff vs drainage partitioning",
+        "orographic precipitation gradient",
+        "soil-texture control on infiltration/drainage"
+      ],
+      "drivers_to_resolve": [
+        "elevation",
+        "soil"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM across a real heterogeneous HUC8; NLDAS-2 supplies elevation-varying forcing over the 1900 m relief and simulates SWE for SNOTEL validation.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "elevation control on partitioning to the ~12 km NLDAS granularity (orographic precip/temperature gradient varies with column elevation)",
+        "snow accumulation / peak SWE and its elevation dependence (H2OSNO/SWE in default output)",
+        "soil-texture control on partitioning via per-column SSURGO",
+        "SNOTEL peak-SWE validation (co-located, in-domain)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "sub-12 km elevation contrasts (ridgetop vs valley finer than a NLDAS cell)",
+          "why": "NLDAS has no within-cell lapse rate; sub-12 km terrain unresolved, ridgetop SWE biased low",
+          "needs": "elevation-downscaled forcing"
+        },
+        {
+          "aspect": "streamflow comparison at USGS gauges",
+          "why": "single-column ELM has no lateral routing; no native integrated streamflow",
+          "needs": "runoff aggregation / routing step"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation bands x dominant soil), oversampled at rain-snow transition",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "500-900 m",
+            "900-1300 m",
+            "1300-1700 m",
+            "1700-2100 m",
+            "2100-2400 m"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "dominant coarse/loamy SSURGO class",
+            "dominant fine/other SSURGO class"
+          ]
+        }
+      ],
+      "n_exploratory": 11,
+      "n_justification": "5 elevation bands span the 1900 m relief at roughly the granularity NLDAS can distinguish; crossing with 2 dominant soils (10) prevents elevation/soil confounding; +1 extra column in the rain-snow transition band for light replication where snow-season partitioning is most sensitive.",
+      "placement_logic": "Distribute across the 5 bands following the DEM hypsometry; oversample the 1200-1800 m rain-snow transition where SWE and melt-timing dominate partitioning; place validation columns at SNOTEL sites; avoid enumerating coordinates (downstream expander samples DEM/SSURGO).",
+      "replication": "one extra column in the rain-snow transition band to capture within-band soil/aspect spread at the most sensitive elevation"
+    },
+    "sampling_plan": [
+      {
+        "group": "low elevation 500-900 m",
+        "n": 2,
+        "reason": "valley/rain-dominated baseline; crosses two dominant soils to isolate texture from elevation"
+      },
+      {
+        "group": "low-mid 900-1300 m",
+        "n": 2,
+        "reason": "lower rain-snow margin; two soils to separate texture effect on early-melt partitioning"
+      },
+      {
+        "group": "rain-snow transition 1300-1700 m",
+        "n": 3,
+        "reason": "most sensitive band for SWE/melt-timing partitioning; oversampled with extra column for soil/aspect spread"
+      },
+      {
+        "group": "upper-mid 1700-2100 m",
+        "n": 2,
+        "reason": "snow-dominated; two soils to test texture control under deeper snowpack"
+      },
+      {
+        "group": "high 2100-2400 m",
+        "n": 2,
+        "reason": "peak-SWE band; anchors the top of the orographic gradient (expect low-bias SWE due to 12 km averaging)"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "peak SWE",
+        "observation_source": "SNOTEL",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 columns pinned to SNOTEL station cells; compare annual peak H2OSNO/SWE and melt-out timing",
+        "metric": "bias, RMSE (expect ridgetop underestimation from 12 km averaging)",
+        "n_validation_points": "unknown \u2014 depends on number of SNOTEL stations in HUC 17030001"
+      },
+      {
+        "target_variable": "streamflow",
+        "observation_source": "USGS gauges",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 NOT possible natively; requires routing/aggregation of column runoff before gauge comparison",
+        "metric": "NSE / bias (only if routing added)",
+        "n_validation_points": "unknown \u2014 blocked pending routing capability"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 11,
+      "exploratory": 11,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS-2 forcing, native SSURGO soil, WTD-informed warm start"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "elevation-downscaled forcing (sub-12 km lapse rate)",
+        "why": "NLDAS resolves only ~12 km; ridgetop/valley contrasts and high-elevation SWE are unresolved",
+        "blocks": "sub-grid elevation control on snow/partitioning"
+      },
+      {
+        "capability": "runoff aggregation / routing step",
+        "why": "single-column ELM has no lateral transport, so no integrated streamflow",
+        "blocks": "USGS gauge validation"
+      },
+      {
+        "capability": "SNOTEL ingest + station locator in-domain",
+        "why": "needed to pin validation columns and pull observed peak SWE",
+        "blocks": "SWE validation setup"
+      },
+      {
+        "capability": "DEM hypsometry + SSURGO sampler for the HUC",
+        "why": "expander needs elevation bands and dominant soil classes to place columns",
+        "blocks": "converting strata rules into concrete points"
+      },
+      {
+        "capability": "WTD-informed warm start / spin-up",
+        "why": "columns cold-start; snow/soil states must not be init artifacts",
+        "blocks": "reliable peak-SWE and partitioning"
+      }
+    ],
+    "assumptions": [
+      "Domain is within CONUS so NLDAS-2 (elevation-varying) forcing applies rather than Qian T62 fallback.",
+      "SSURGO coverage exists across the HUC; 'dominant' soil classes to be resolved by the expander.",
+      "Number and elevation of SNOTEL/USGS stations in-domain unknown at design time; validation counts are data-dictated.",
+      "Baseline forcing period drawn from 1980-2018; a representative multi-year snow-season window will be selected downstream.",
+      "No lateral groundwater or column-to-column exchange is represented."
+    ],
+    "open_questions": [
+      "How many SNOTEL stations fall inside HUC 17030001, and at what elevations?",
+      "Is investment in a routing/aggregation step warranted to enable USGS gauge validation?",
+      "Preferred forcing window (full 1980-2018 climatology vs specific wet/dry snow years)?",
+      "Is a full multi-year spin-up acceptable, or should the WTD-informed warm start be used to control cost?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6377,
+    "completion_tokens": 3851
+  }
+}

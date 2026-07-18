@@ -1,0 +1,198 @@
+{
+  "prompt_id": "K01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: quantify the lag between today's surface infiltration and its arrival as recharge at the real water table, as a function of vadose-zone thickness and soil\", \"validation: constrain the initial/steady water-table depth against observations (recharge timing itself is unvalidatable in-domain)\"], \"key_processes\": [\"surface infiltration / net drainage flux generation (ELM)\", \"transient variably-saturated vadose-zone flow and wetting-front travel time (PFLOTRAN)\", \"water-table depth as lower boundary controlling travel distance\"], \"drivers_to_resolve\": [\"water-table depth\", \"soil\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"coupling\", \"rationale\": \"ELM forces the surface infiltration/drainage flux but collapses deep drainage to a bottom flux with a crude aquifer and no explicit vadose transit time; the timing question requires a transient unsaturated-zone model driven by ELM.\", \"coupling_needed\": true, \"coupling_note\": \"One-way ELM -> PFLOTRAN: ELM surface infiltration / net recharge flux drives the top BC of a transient Richards (variably-saturated) vadose column terminating at the real WTD. The coupler AND transient unsaturated PFLOTRAN mode are both unbuilt; listed in requires_capabilities.\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"ELM-side surface infiltration / net drainage flux time series per column under real NLDAS forcing and SSURGO soil\", \"initial/steady water-table depth per column via Fan-2013 WTD warm start, validatable against USGS wells\", \"relative ordering of vadose-zone thickness across the domain (deep upland vs shallow riparian) as a travel-distance proxy\"], \"not_answerable\": [{\"aspect\": \"when today's infiltration actually arrives as recharge at the water table (the core travel-time question)\", \"why\": \"single-column ELM has no explicit multi-meter vadose transit physics; PFLOTRAN as available is steady-state groundwater, not transient unsaturated Richards; no ELM->PFLOTRAN coupler exists\", \"needs\": \"ELM->PFLOTRAN one-way coupler + transient variably-saturated PFLOTRAN vadose configuration\"}, {\"aspect\": \"validation of recharge magnitude or timing\", \"why\": \"brief lists recharge observations as MISSING in-domain\", \"needs\": \"in-domain recharge / vadose tracer or lysimeter observations\"}]}, \"coupling_design\": {\"from_model\": \"ELM\", \"to_model\": \"PFLOTRAN\", \"driver\": \"ELM surface infiltration / net drainage flux (QINFL / QDRAI-QRECHARGE) -> PFLOTRAN top recharge flux BC of a vertical vadose column\", \"temporal_mapping\": \"ELM daily-to-monthly flux time series (multi-year, post-spin-up) -> PFLOTRAN transient top-flux BC; optional conservative tracer pulse to read out breakthrough (first-arrival and median transit time) at the water table\", \"receiving_setup\": \"1-D transient variably-saturated Richards column per ELM location, layered with SSURGO-derived unsaturated properties, thickness = Fan-2013 WTD, lower BC = fixed head at the water table\", \"compare\": \"coupled vadose transit time / recharge breakthrough vs ELM-standalone assumption of near-instantaneous drainage to the aquifer; standalone is expected to fail most where WTD is deep (long unsaturated column) and where low-K soils buffer the front\"}, \"sampling_strategy\": {\"approach\": \"stratified (WTD-depth band x soil texture class)\", \"strata\": [{\"driver\": \"water-table depth\", \"bands\": [\"shallow (<3 m, riparian/valley)\", \"intermediate (3-10 m)\", \"deep (>10 m, upland bench)\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse/sandy (high K)\", \"medium/loam\", \"fine/clay-rich (low K)\"]}], \"n_exploratory\": 9, \"n_justification\": \"3 WTD bands x 3 texture classes spans the two travel-time controls (distance and conductivity) with one column per cell; this is the smallest set that resolves the deep-vs-shallow x fast-vs-slow contrast the question hinges on. Light replication deferred until the coupler exists.\", \"placement_logic\": \"Concentrate contrast columns in valley bottoms/riparian corridors (shallow WTD, short transit) versus upland benches (deep WTD, long transit); the largest coupled-vs-standalone divergence is expected on deep, fine-textured columns.\", \"replication\": \"None in this probe design; add replicates per WTD band once the coupler is validated on one column.\"}, \"sampling_plan\": [{\"group\": \"shallow WTD, coarse soil\", \"n\": 1, \"reason\": \"shortest, fastest transit \\u2014 near-instantaneous recharge end-member where ELM-standalone should be adequate.\"}, {\"group\": \"shallow WTD, fine soil\", \"n\": 1, \"reason\": \"short distance but low-K buffering isolates the soil control on lag at shallow water table.\"}, {\"group\": \"intermediate WTD, medium soil\", \"n\": 3, \"reason\": \"central/typical Naches condition; replicated lightly as the modal case anchoring the transit-time gradient.\"}, {\"group\": \"deep WTD, coarse soil\", \"n\": 1, \"reason\": \"long distance but high K \\u2014 tests whether conductivity offsets thickness.\"}, {\"group\": \"deep WTD, medium soil\", \"n\": 1, \"reason\": \"long transit modal-soil case; expected large coupled-vs-standalone divergence.\"}, {\"group\": \"deep WTD, fine soil\", \"n\": 2, \"reason\": \"worst-case longest lag (deep + low K) \\u2014 where ELM's instantaneous-drainage assumption fails most; replicated to check robustness.\"}], \"validation_design\": [{\"target_variable\": \"water_table_depth\", \"observation_source\": \"Fan et al. 2013 WTD prior + USGS wells\", \"in_domain_available\": true, \"comparison\": \"co-located where USGS wells fall near a column, else analog against the Fan prior used for warm start; report drift of ELM 1-D equilibrium from Fan lateral-flow equilibrium as a result\", \"metric\": \"bias, RMSE\", \"n_validation_points\": \"unknown \\u2014 depends on USGS well density within the HUC\"}, {\"target_variable\": \"recharge_timing / vadose_transit_time\", \"observation_source\": \"none in-domain (recharge observations missing)\", \"in_domain_available\": false, \"comparison\": \"GAP \\u2014 no co-located data; can only be sanity-checked against literature vadose transit-time ranges as an analog, clearly not co-located validation\", \"metric\": \"qualitative plausibility only\", \"n_validation_points\": \"0\"}], \"experiment_summary\": {\"total_columns\": 9, \"exploratory\": 9, \"validation\": 0, \"primary_treatment\": \"baseline NLDAS forcing, native SSURGO soil, Fan-2013 WTD-informed warm start, multi-year run for stable drainage flux\"}, \"requires_capabilities\": [{\"capability\": \"ELM->PFLOTRAN one-way coupler\", \"why\": \"map ELM surface/drainage flux time series onto PFLOTRAN top BC\", \"blocks\": \"the entire recharge-timing question\"}, {\"capability\": \"PFLOTRAN transient variably-saturated (Richards) vadose configuration\", \"why\": \"available PFLOTRAN is steady-state groundwater; transit time needs transient unsaturated flow\", \"blocks\": \"vadose travel-time computation\"}, {\"capability\": \"vadose-zone travel-time / tracer breakthrough diagnostic\", \"why\": \"read out first-arrival and median transit time at the water table\", \"blocks\": \"answering 'when' quantitatively\"}, {\"capability\": \"WTD-informed warm start (Fan 2013)\", \"why\": \"set each column's initial water table to real depth (aquifer clamp 0.05-28.8 m; deep uplands may pin aquifer empty)\", \"blocks\": \"meaningful vadose column thickness and initial state\"}, {\"capability\": \"multi-year spin-up / run\", \"why\": \"recharge/drainage are slow states; cold start gives initialization artifacts\", \"blocks\": \"credible ELM-side flux\"}, {\"capability\": \"in-domain recharge / vadose tracer observations\", \"why\": \"brief lists recharge observations as missing\", \"blocks\": \"validation of the timing result\"}, {\"capability\": \"DEM + gridded WTD (Fan) + SSURGO sampler and HUC boundary resolver\", \"why\": \"expand stratification rules into concrete points\", \"blocks\": \"column placement\"}], \"assumptions\": [\"Fan-2013 WTD is treated as the 'real' water-table depth and as the PFLOTRAN lower boundary; its lateral-flow equilibrium differs from ELM's 1-D equilibrium, so some drift is expected and reported.\", \"Naches is within CONUS, so NLDAS-2 12 km forcing applies; sub-12 km terrain/precip is unresolved but not the driver here.\", \"Soil texture classes are proxied from SSURGO; unsaturated hydraulic parameters derive from texture.\", \"One-way (ELM->PFLOTRAN) coupling is adequate; no water-table feedback on the ELM root zone is represented.\", \"Deep-upland columns may exceed ELM's 28.8 m aquifer range, pinning the aquifer empty \\u2014 treated as a known limitation.\"], \"open_questions\": [\"How many USGS wells actually fall inside HUC 17030002, and at what depths, for co-located WTD validation?\", \"Is any vadose tracer, lysimeter, or age-dating (e.g. tritium/CFC) data available to constrain transit time even at an analog site?\", \"What forcing window and spin-up length does the user want (single wet/dry year vs multi-decade climatology of recharge)?\", \"Should transit time be reported per storm event, seasonally, or as a long-term mean lag?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: quantify the lag between today's surface infiltration and its arrival as recharge at the real water table, as a function of vadose-zone thickness and soil",
+        "validation: constrain the initial/steady water-table depth against observations (recharge timing itself is unvalidatable in-domain)"
+      ],
+      "key_processes": [
+        "surface infiltration / net drainage flux generation (ELM)",
+        "transient variably-saturated vadose-zone flow and wetting-front travel time (PFLOTRAN)",
+        "water-table depth as lower boundary controlling travel distance"
+      ],
+      "drivers_to_resolve": [
+        "water-table depth",
+        "soil"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "coupling",
+      "rationale": "ELM forces the surface infiltration/drainage flux but collapses deep drainage to a bottom flux with a crude aquifer and no explicit vadose transit time; the timing question requires a transient unsaturated-zone model driven by ELM.",
+      "coupling_needed": true,
+      "coupling_note": "One-way ELM -> PFLOTRAN: ELM surface infiltration / net recharge flux drives the top BC of a transient Richards (variably-saturated) vadose column terminating at the real WTD. The coupler AND transient unsaturated PFLOTRAN mode are both unbuilt; listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "ELM-side surface infiltration / net drainage flux time series per column under real NLDAS forcing and SSURGO soil",
+        "initial/steady water-table depth per column via Fan-2013 WTD warm start, validatable against USGS wells",
+        "relative ordering of vadose-zone thickness across the domain (deep upland vs shallow riparian) as a travel-distance proxy"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "when today's infiltration actually arrives as recharge at the water table (the core travel-time question)",
+          "why": "single-column ELM has no explicit multi-meter vadose transit physics; PFLOTRAN as available is steady-state groundwater, not transient unsaturated Richards; no ELM->PFLOTRAN coupler exists",
+          "needs": "ELM->PFLOTRAN one-way coupler + transient variably-saturated PFLOTRAN vadose configuration"
+        },
+        {
+          "aspect": "validation of recharge magnitude or timing",
+          "why": "brief lists recharge observations as MISSING in-domain",
+          "needs": "in-domain recharge / vadose tracer or lysimeter observations"
+        }
+      ]
+    },
+    "coupling_design": {
+      "from_model": "ELM",
+      "to_model": "PFLOTRAN",
+      "driver": "ELM surface infiltration / net drainage flux (QINFL / QDRAI-QRECHARGE) -> PFLOTRAN top recharge flux BC of a vertical vadose column",
+      "temporal_mapping": "ELM daily-to-monthly flux time series (multi-year, post-spin-up) -> PFLOTRAN transient top-flux BC; optional conservative tracer pulse to read out breakthrough (first-arrival and median transit time) at the water table",
+      "receiving_setup": "1-D transient variably-saturated Richards column per ELM location, layered with SSURGO-derived unsaturated properties, thickness = Fan-2013 WTD, lower BC = fixed head at the water table",
+      "compare": "coupled vadose transit time / recharge breakthrough vs ELM-standalone assumption of near-instantaneous drainage to the aquifer; standalone is expected to fail most where WTD is deep (long unsaturated column) and where low-K soils buffer the front"
+    },
+    "sampling_strategy": {
+      "approach": "stratified (WTD-depth band x soil texture class)",
+      "strata": [
+        {
+          "driver": "water-table depth",
+          "bands": [
+            "shallow (<3 m, riparian/valley)",
+            "intermediate (3-10 m)",
+            "deep (>10 m, upland bench)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy (high K)",
+            "medium/loam",
+            "fine/clay-rich (low K)"
+          ]
+        }
+      ],
+      "n_exploratory": 9,
+      "n_justification": "3 WTD bands x 3 texture classes spans the two travel-time controls (distance and conductivity) with one column per cell; this is the smallest set that resolves the deep-vs-shallow x fast-vs-slow contrast the question hinges on. Light replication deferred until the coupler exists.",
+      "placement_logic": "Concentrate contrast columns in valley bottoms/riparian corridors (shallow WTD, short transit) versus upland benches (deep WTD, long transit); the largest coupled-vs-standalone divergence is expected on deep, fine-textured columns.",
+      "replication": "None in this probe design; add replicates per WTD band once the coupler is validated on one column."
+    },
+    "sampling_plan": [
+      {
+        "group": "shallow WTD, coarse soil",
+        "n": 1,
+        "reason": "shortest, fastest transit \u2014 near-instantaneous recharge end-member where ELM-standalone should be adequate."
+      },
+      {
+        "group": "shallow WTD, fine soil",
+        "n": 1,
+        "reason": "short distance but low-K buffering isolates the soil control on lag at shallow water table."
+      },
+      {
+        "group": "intermediate WTD, medium soil",
+        "n": 3,
+        "reason": "central/typical Naches condition; replicated lightly as the modal case anchoring the transit-time gradient."
+      },
+      {
+        "group": "deep WTD, coarse soil",
+        "n": 1,
+        "reason": "long distance but high K \u2014 tests whether conductivity offsets thickness."
+      },
+      {
+        "group": "deep WTD, medium soil",
+        "n": 1,
+        "reason": "long transit modal-soil case; expected large coupled-vs-standalone divergence."
+      },
+      {
+        "group": "deep WTD, fine soil",
+        "n": 2,
+        "reason": "worst-case longest lag (deep + low K) \u2014 where ELM's instantaneous-drainage assumption fails most; replicated to check robustness."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "Fan et al. 2013 WTD prior + USGS wells",
+        "in_domain_available": true,
+        "comparison": "co-located where USGS wells fall near a column, else analog against the Fan prior used for warm start; report drift of ELM 1-D equilibrium from Fan lateral-flow equilibrium as a result",
+        "metric": "bias, RMSE",
+        "n_validation_points": "unknown \u2014 depends on USGS well density within the HUC"
+      },
+      {
+        "target_variable": "recharge_timing / vadose_transit_time",
+        "observation_source": "none in-domain (recharge observations missing)",
+        "in_domain_available": false,
+        "comparison": "GAP \u2014 no co-located data; can only be sanity-checked against literature vadose transit-time ranges as an analog, clearly not co-located validation",
+        "metric": "qualitative plausibility only",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 9,
+      "exploratory": 9,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS forcing, native SSURGO soil, Fan-2013 WTD-informed warm start, multi-year run for stable drainage flux"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM->PFLOTRAN one-way coupler",
+        "why": "map ELM surface/drainage flux time series onto PFLOTRAN top BC",
+        "blocks": "the entire recharge-timing question"
+      },
+      {
+        "capability": "PFLOTRAN transient variably-saturated (Richards) vadose configuration",
+        "why": "available PFLOTRAN is steady-state groundwater; transit time needs transient unsaturated flow",
+        "blocks": "vadose travel-time computation"
+      },
+      {
+        "capability": "vadose-zone travel-time / tracer breakthrough diagnostic",
+        "why": "read out first-arrival and median transit time at the water table",
+        "blocks": "answering 'when' quantitatively"
+      },
+      {
+        "capability": "WTD-informed warm start (Fan 2013)",
+        "why": "set each column's initial water table to real depth (aquifer clamp 0.05-28.8 m; deep uplands may pin aquifer empty)",
+        "blocks": "meaningful vadose column thickness and initial state"
+      },
+      {
+        "capability": "multi-year spin-up / run",
+        "why": "recharge/drainage are slow states; cold start gives initialization artifacts",
+        "blocks": "credible ELM-side flux"
+      },
+      {
+        "capability": "in-domain recharge / vadose tracer observations",
+        "why": "brief lists recharge observations as missing",
+        "blocks": "validation of the timing result"
+      },
+      {
+        "capability": "DEM + gridded WTD (Fan) + SSURGO sampler and HUC boundary resolver",
+        "why": "expand stratification rules into concrete points",
+        "blocks": "column placement"
+      }
+    ],
+    "assumptions": [
+      "Fan-2013 WTD is treated as the 'real' water-table depth and as the PFLOTRAN lower boundary; its lateral-flow equilibrium differs from ELM's 1-D equilibrium, so some drift is expected and reported.",
+      "Naches is within CONUS, so NLDAS-2 12 km forcing applies; sub-12 km terrain/precip is unresolved but not the driver here.",
+      "Soil texture classes are proxied from SSURGO; unsaturated hydraulic parameters derive from texture.",
+      "One-way (ELM->PFLOTRAN) coupling is adequate; no water-table feedback on the ELM root zone is represented.",
+      "Deep-upland columns may exceed ELM's 28.8 m aquifer range, pinning the aquifer empty \u2014 treated as a known limitation."
+    ],
+    "open_questions": [
+      "How many USGS wells actually fall inside HUC 17030002, and at what depths, for co-located WTD validation?",
+      "Is any vadose tracer, lysimeter, or age-dating (e.g. tritium/CFC) data available to constrain transit time even at an analog site?",
+      "What forcing window and spin-up length does the user want (single wet/dry year vs multi-decade climatology of recharge)?",
+      "Should transit time be reported per storm event, seasonally, or as a long-term mean lag?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6394,
+    "completion_tokens": 5561
+  }
+}

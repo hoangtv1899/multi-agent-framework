@@ -1,0 +1,146 @@
+{
+  "prompt_id": "C01",
+  "arm": "A4_framework",
+  "rep": 2,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: quantify how soil clay content controls the partitioning of infiltrated water between surface runoff and sub-surface drainage/recharge, under fixed forcing and vegetation\", \"Validation (optional): check the response against physical expectation and published clay-partitioning relationships (no co-located obs required)\"], \"key_processes\": [\"surface runoff generation (infiltration-excess / saturation-excess, QOVER)\", \"sub-surface drainage / recharge (QDRAI, aquifer recharge)\", \"unsaturated-zone hydraulic conductivity and matric potential as functions of texture\", \"soil-water storage / water-table equilibration (slow state)\"], \"drivers_to_resolve\": [\"clay content\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"Single-column ELM directly simulates the vertical water balance and outputs runoff (QOVER) and drainage/recharge (QDRAI); a single-factor clay sweep under fixed forcing isolates the texture control cleanly.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"full\", \"answerable\": [\"Effect of clay content on surface runoff fraction (QOVER)\", \"Effect of clay content on sub-surface drainage / recharge (QDRAI), PROVIDED spin-up or WTD-informed warm start is included\", \"Shape/curvature of the partitioning response across 5-55% clay\"], \"not_answerable\": []}, \"sampling_strategy\": {\"approach\": \"controlled single-factor sweep (not spatial)\", \"strata\": [{\"driver\": \"clay content\", \"classes\": [\"5%\", \"15%\", \"25%\", \"35%\", \"45%\", \"55%\"]}], \"n_exploratory\": 6, \"n_justification\": \"One column per clay level. Six evenly spaced levels spanning the requested 5-55% range resolve the expected nonlinear (strongest at high clay) shift in partitioning without redundant runs; endpoints anchor the range and four interior points capture curvature.\", \"placement_logic\": \"Controlled / not spatial \\u2014 all treatments share one representative forcing location and period; only clay fraction differs.\", \"replication\": \"None \\u2014 deterministic model, controlled experiment; no stochastic replication needed. Everything except clay is held fixed.\"}, \"sampling_plan\": [{\"group\": \"clay 5% (near-sandy end-member)\", \"n\": 1, \"reason\": \"Low-clay baseline: high conductivity, recharge/drainage-dominated partitioning expected\"}, {\"group\": \"clay 15%\", \"n\": 1, \"reason\": \"Interior level to trace the recharge-dominated portion of the response curve\"}, {\"group\": \"clay 25%\", \"n\": 1, \"reason\": \"Mid-range loam-like level, transition region of the partitioning response\"}, {\"group\": \"clay 35%\", \"n\": 1, \"reason\": \"Interior level where reduced conductivity begins shifting water toward runoff\"}, {\"group\": \"clay 45%\", \"n\": 1, \"reason\": \"High-clay level capturing accelerating runoff fraction (curvature)\"}, {\"group\": \"clay 55% (clay-rich end-member)\", \"n\": 1, \"reason\": \"Upper end-member: low conductivity, runoff-dominated partitioning expected\"}], \"validation_design\": [{\"target_variable\": \"runoff/recharge partitioning (QOVER vs QDRAI)\", \"observation_source\": \"physical expectation + published texture-partitioning relationships (literature)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 qualitative/quantitative check that the modelled response is monotonic in the expected direction and of plausible magnitude; NOT co-located observation validation (none exist and none are required for a conceptual experiment)\", \"metric\": \"sign and monotonicity of dQOVER/dclay, partitioning ratio vs clay curve shape\", \"n_validation_points\": \"0 (no observational points; benchmark is theoretical)\"}], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 6, \"validation\": 0, \"primary_treatment\": \"one representative fixed forcing period + fixed vegetation/slope; synthetic soil varying ONLY clay fraction; spin-up / WTD-informed warm start applied identically to all columns\"}, \"requires_capabilities\": [{\"capability\": \"synthetic soil parameterization that sweeps clay fraction while holding all other soil inputs fixed (or deriving them deterministically from clay via one documented pedotransfer function)\", \"why\": \"The controlled experiment requires varying ONLY clay; the configurator must expose clay as an isolated lever rather than pulling a full SSURGO texture bundle\", \"blocks\": \"Clean isolation of the clay effect \\u2014 without it, other covarying soil properties confound the result\"}, {\"capability\": \"model spin-up years OR WTD-informed warm start applied identically across all clay levels\", \"why\": \"Recharge/drainage are slow states; cold-start columns read ~0 recharge while storage fills from the default ~8.8 m water table, so unspun recharge differences would be initialization artifacts, not clay responses\", \"blocks\": \"The recharge half of the partitioning question\"}, {\"capability\": \"single fixed representative forcing (one location + period, applied to all treatments)\", \"why\": \"\\\"Holding everything else fixed\\\" demands identical climate forcing across all clay levels so the response is attributable to clay alone\", \"blocks\": \"Controlled-experiment validity\"}], \"assumptions\": [\"Clay range 5-55% refers to mass clay fraction in the mineral soil; other texture components adjust deterministically or non-clay properties are held at fixed reference values.\", \"A single representative forcing location/period within CONUS 1980-2018 is acceptable as the fixed climate; choice affects magnitudes but not the qualitative clay response.\", \"Vegetation type, slope, and soil depth/layering are held at fixed reference values across all treatments.\", \"Recharge is proxied by ELM sub-surface drainage/aquifer recharge (QDRAI); runoff by QOVER.\", \"No observational validation is required for this conceptual experiment; benchmark is physical expectation.\"], \"open_questions\": [\"Should non-clay soil properties be held at fixed reference values, or derived from clay via a pedotransfer function? (Both are defensible; they answer slightly different questions.)\", \"Which single forcing location/period should be the fixed climate? (A humid vs semi-arid choice will shift the runoff/recharge baseline.)\", \"How many spin-up years (or warm-start) are acceptable given cost, to ensure recharge has equilibrated for every clay level?\", \"Is a finer clay resolution near the high-clay end desired if the response proves strongly nonlinear there?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how soil clay content controls the partitioning of infiltrated water between surface runoff and sub-surface drainage/recharge, under fixed forcing and vegetation",
+        "Validation (optional): check the response against physical expectation and published clay-partitioning relationships (no co-located obs required)"
+      ],
+      "key_processes": [
+        "surface runoff generation (infiltration-excess / saturation-excess, QOVER)",
+        "sub-surface drainage / recharge (QDRAI, aquifer recharge)",
+        "unsaturated-zone hydraulic conductivity and matric potential as functions of texture",
+        "soil-water storage / water-table equilibration (slow state)"
+      ],
+      "drivers_to_resolve": [
+        "clay content"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column ELM directly simulates the vertical water balance and outputs runoff (QOVER) and drainage/recharge (QDRAI); a single-factor clay sweep under fixed forcing isolates the texture control cleanly.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "Effect of clay content on surface runoff fraction (QOVER)",
+        "Effect of clay content on sub-surface drainage / recharge (QDRAI), PROVIDED spin-up or WTD-informed warm start is included",
+        "Shape/curvature of the partitioning response across 5-55% clay"
+      ],
+      "not_answerable": []
+    },
+    "sampling_strategy": {
+      "approach": "controlled single-factor sweep (not spatial)",
+      "strata": [
+        {
+          "driver": "clay content",
+          "classes": [
+            "5%",
+            "15%",
+            "25%",
+            "35%",
+            "45%",
+            "55%"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "One column per clay level. Six evenly spaced levels spanning the requested 5-55% range resolve the expected nonlinear (strongest at high clay) shift in partitioning without redundant runs; endpoints anchor the range and four interior points capture curvature.",
+      "placement_logic": "Controlled / not spatial \u2014 all treatments share one representative forcing location and period; only clay fraction differs.",
+      "replication": "None \u2014 deterministic model, controlled experiment; no stochastic replication needed. Everything except clay is held fixed."
+    },
+    "sampling_plan": [
+      {
+        "group": "clay 5% (near-sandy end-member)",
+        "n": 1,
+        "reason": "Low-clay baseline: high conductivity, recharge/drainage-dominated partitioning expected"
+      },
+      {
+        "group": "clay 15%",
+        "n": 1,
+        "reason": "Interior level to trace the recharge-dominated portion of the response curve"
+      },
+      {
+        "group": "clay 25%",
+        "n": 1,
+        "reason": "Mid-range loam-like level, transition region of the partitioning response"
+      },
+      {
+        "group": "clay 35%",
+        "n": 1,
+        "reason": "Interior level where reduced conductivity begins shifting water toward runoff"
+      },
+      {
+        "group": "clay 45%",
+        "n": 1,
+        "reason": "High-clay level capturing accelerating runoff fraction (curvature)"
+      },
+      {
+        "group": "clay 55% (clay-rich end-member)",
+        "n": 1,
+        "reason": "Upper end-member: low conductivity, runoff-dominated partitioning expected"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "runoff/recharge partitioning (QOVER vs QDRAI)",
+        "observation_source": "physical expectation + published texture-partitioning relationships (literature)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 qualitative/quantitative check that the modelled response is monotonic in the expected direction and of plausible magnitude; NOT co-located observation validation (none exist and none are required for a conceptual experiment)",
+        "metric": "sign and monotonicity of dQOVER/dclay, partitioning ratio vs clay curve shape",
+        "n_validation_points": "0 (no observational points; benchmark is theoretical)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "one representative fixed forcing period + fixed vegetation/slope; synthetic soil varying ONLY clay fraction; spin-up / WTD-informed warm start applied identically to all columns"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "synthetic soil parameterization that sweeps clay fraction while holding all other soil inputs fixed (or deriving them deterministically from clay via one documented pedotransfer function)",
+        "why": "The controlled experiment requires varying ONLY clay; the configurator must expose clay as an isolated lever rather than pulling a full SSURGO texture bundle",
+        "blocks": "Clean isolation of the clay effect \u2014 without it, other covarying soil properties confound the result"
+      },
+      {
+        "capability": "model spin-up years OR WTD-informed warm start applied identically across all clay levels",
+        "why": "Recharge/drainage are slow states; cold-start columns read ~0 recharge while storage fills from the default ~8.8 m water table, so unspun recharge differences would be initialization artifacts, not clay responses",
+        "blocks": "The recharge half of the partitioning question"
+      },
+      {
+        "capability": "single fixed representative forcing (one location + period, applied to all treatments)",
+        "why": "\"Holding everything else fixed\" demands identical climate forcing across all clay levels so the response is attributable to clay alone",
+        "blocks": "Controlled-experiment validity"
+      }
+    ],
+    "assumptions": [
+      "Clay range 5-55% refers to mass clay fraction in the mineral soil; other texture components adjust deterministically or non-clay properties are held at fixed reference values.",
+      "A single representative forcing location/period within CONUS 1980-2018 is acceptable as the fixed climate; choice affects magnitudes but not the qualitative clay response.",
+      "Vegetation type, slope, and soil depth/layering are held at fixed reference values across all treatments.",
+      "Recharge is proxied by ELM sub-surface drainage/aquifer recharge (QDRAI); runoff by QOVER.",
+      "No observational validation is required for this conceptual experiment; benchmark is physical expectation."
+    ],
+    "open_questions": [
+      "Should non-clay soil properties be held at fixed reference values, or derived from clay via a pedotransfer function? (Both are defensible; they answer slightly different questions.)",
+      "Which single forcing location/period should be the fixed climate? (A humid vs semi-arid choice will shift the runoff/recharge baseline.)",
+      "How many spin-up years (or warm-start) are acceptable given cost, to ensure recharge has equilibrated for every clay level?",
+      "Is a finer clay resolution near the high-clay end desired if the response proves strongly nonlinear there?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6263,
+    "completion_tokens": 3451
+  }
+}

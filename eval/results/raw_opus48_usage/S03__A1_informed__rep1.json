@@ -1,0 +1,107 @@
+{
+  "prompt_id": "S03",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Feasible as a controlled soil-texture sensitivity experiment; direct validation is limited.\",\n    \"answerable\": [\n      \"Relative sensitivity of simulated sub-surface drainage (QDRAI) to soil texture across representative agricultural columns\",\n      \"How texture modulates water-table depth, soil moisture partitioning, and drainage vs surface runoff\",\n      \"Ranking of texture endmembers by long-term mean and seasonal drainage flux\"\n    ],\n    \"not_answerable\": [\n      \"Absolute validation of tile-drain flow (no tile-drain observations available)\",\n      \"Explicit engineered tile-drainage dynamics (standard ELM has no tile-drain module without added capability)\",\n      \"Spatially continuous basin-wide drainage maps (single-column archetype, not distributed)\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"Six columns span the dominant soil-texture endmembers of the Upper Iowa agricultural landscape (sand through clay) while holding climate forcing, vegetation, and topography controls constant, isolating texture as the sole varied driver for a clean sensitivity analysis.\",\n  \"columns\": [\n    {\"id\": \"UI_sand\",      \"lat\": 43.45, \"lon\": -92.10, \"soil_texture\": \"sand\"},\n    {\"id\": \"UI_sandyloam\", \"lat\": 43.40, \"lon\": -92.30, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"UI_loam\",      \"lat\": 43.38, \"lon\": -91.90, \"soil_texture\": \"loam\"},\n    {\"id\": \"UI_siltloam\",  \"lat\": 43.35, \"lon\": -91.70, \"soil_texture\": \"silt loam\"},\n    {\"id\": \"UI_siltyclayloam\", \"lat\": 43.30, \"lon\": -91.50, \"soil_texture\": \"silty clay loam\"},\n    {\"id\": \"UI_clay\",      \"lat\": 43.28, \"lon\": -91.35, \"soil_texture\": \"clay\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QDRAI\",\n      \"QDRAI_PERCH\",\n      \"QOVER\",\n      \"QRUNOFF\",\n      \"QINFL\",\n      \"ZWT\",\n      \"ZWT_PERCH\",\n      \"H2OSOI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QFLX_EVAP_TOT\",\n      \"TSOI\",\n      \"WA\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"Single-column (PTS_MODE) ELM configuration\",\n    \"User-specified soil texture (sand/clay percentage) per column via surface dataset override\",\n    \"GSWP3 or CRUNCEP atmospheric forcing 1980-2018\",\n    \"Accelerated-decomposition + regular spinup prior to transient run\",\n    \"PFLOTRAN coupling optional for detailed variably-saturated subsurface drainage physics\"\n  ],\n  \"assumptions\": [\n    \"Agricultural land cover (managed C3/C4 crop or rainfed generic crop PFT) applied uniformly so texture is the isolated variable\",\n    \"Flat topographic slope and identical fmax/aquifer parameters across columns to remove topographic confounding\",\n    \"First years of the run treated as spin-up/discard; analysis focuses on 1990-2018 climatology\",\n    \"Sub-surface drainage represented by ELM baseflow/QDRAI term as a proxy for tile-drain flux since no tile-drain module or observations exist\",\n    \"Soil texture held vertically uniform per column unless a layered profile is later specified\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible as a controlled soil-texture sensitivity experiment; direct validation is limited.",
+      "answerable": [
+        "Relative sensitivity of simulated sub-surface drainage (QDRAI) to soil texture across representative agricultural columns",
+        "How texture modulates water-table depth, soil moisture partitioning, and drainage vs surface runoff",
+        "Ranking of texture endmembers by long-term mean and seasonal drainage flux"
+      ],
+      "not_answerable": [
+        "Absolute validation of tile-drain flow (no tile-drain observations available)",
+        "Explicit engineered tile-drainage dynamics (standard ELM has no tile-drain module without added capability)",
+        "Spatially continuous basin-wide drainage maps (single-column archetype, not distributed)"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "Six columns span the dominant soil-texture endmembers of the Upper Iowa agricultural landscape (sand through clay) while holding climate forcing, vegetation, and topography controls constant, isolating texture as the sole varied driver for a clean sensitivity analysis.",
+    "columns": [
+      {
+        "id": "UI_sand",
+        "lat": 43.45,
+        "lon": -92.1,
+        "soil_texture": "sand"
+      },
+      {
+        "id": "UI_sandyloam",
+        "lat": 43.4,
+        "lon": -92.3,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "UI_loam",
+        "lat": 43.38,
+        "lon": -91.9,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "UI_siltloam",
+        "lat": 43.35,
+        "lon": -91.7,
+        "soil_texture": "silt loam"
+      },
+      {
+        "id": "UI_siltyclayloam",
+        "lat": 43.3,
+        "lon": -91.5,
+        "soil_texture": "silty clay loam"
+      },
+      {
+        "id": "UI_clay",
+        "lat": 43.28,
+        "lon": -91.35,
+        "soil_texture": "clay"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QDRAI",
+        "QDRAI_PERCH",
+        "QOVER",
+        "QRUNOFF",
+        "QINFL",
+        "ZWT",
+        "ZWT_PERCH",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "RAIN",
+        "SNOW",
+        "QFLX_EVAP_TOT",
+        "TSOI",
+        "WA"
+      ]
+    },
+    "requires_capabilities": [
+      "Single-column (PTS_MODE) ELM configuration",
+      "User-specified soil texture (sand/clay percentage) per column via surface dataset override",
+      "GSWP3 or CRUNCEP atmospheric forcing 1980-2018",
+      "Accelerated-decomposition + regular spinup prior to transient run",
+      "PFLOTRAN coupling optional for detailed variably-saturated subsurface drainage physics"
+    ],
+    "assumptions": [
+      "Agricultural land cover (managed C3/C4 crop or rainfed generic crop PFT) applied uniformly so texture is the isolated variable",
+      "Flat topographic slope and identical fmax/aquifer parameters across columns to remove topographic confounding",
+      "First years of the run treated as spin-up/discard; analysis focuses on 1990-2018 climatology",
+      "Sub-surface drainage represented by ELM baseflow/QDRAI term as a proxy for tile-drain flux since no tile-drain module or observations exist",
+      "Soil texture held vertically uniform per column unless a layered profile is later specified"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 699,
+    "completion_tokens": 1601
+  }
+}

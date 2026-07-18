@@ -1,0 +1,194 @@
+{
+  "prompt_id": "S06",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\nThe user asks for the \"true steady-state annual recharge reaching the deep water table across the Naches.\" This is deceptively hard for a single-column land model. I decompose it into: (1) a mechanistic goal \u2014 estimate the vertical drainage/recharge flux leaving the ELM soil column (QDRAI) as a function of the drivers the stack can pull; and (2) a validation goal.\n\nTwo feasibility problems dominate. First, \"reaching the **deep** water table\" and \"**true** steady-state recharge\" imply routing of the ELM bottom-boundary flux through an unsaturated zone and a laterally-connected aquifer \u2014 that is a groundwater problem (PFLOTRAN), and ELM\u2192PFLOTRAN coupling is **not implemented**. ELM standalone gives *potential* recharge at the column base, not the flux actually reaching a regional deep water table, because it has no lateral groundwater redistribution and a free-drainage / simplified aquifer bottom boundary. Second, there are **no recharge observations** in-domain, so the recharge estimate cannot be validated directly \u2014 only indirectly and weakly through water-table depth (WTD).\n\nThe domain spans 352\u20131977 m \u2014 a huge elevation range that governs the rain/snow partition and precipitation, which is the single biggest control on recharge here. But the candidate drivers are only **soil** and **forcing**, and the framework lacks elevation-downscaled forcing. A column set stratified by elevation under uniform forcing would show soil variation, not the elevation/snow-driven recharge signal that actually matters. I must be honest: the dominant recharge control (elevation \u2192 snowpack \u2192 melt timing) is **not representable** as posed.\n\nSo the verdict is **partial**. What the runs CAN resolve: the soil-texture control on column-base drainage, and interannual/period sensitivity of that flux (1980\u20132018), reported as a long-term mean after spin-up. What they CANNOT resolve: the *true* deep-aquifer recharge (needs coupling), and the elevation/snow control (needs downscaled forcing). Stratification is therefore by dominant soil class, with elevation bands retained only as an *organizing/placement* axis (flagged as not a validly forced driver).\n\nSampling: pin validation columns to USGS wells (count set by data, not by me). Exploratory columns span dominant soil classes across the 3 elevation bands as spatial context, concentrated in valley bottoms / lower elevations where deep recharge is most plausible and where wells exist. Keep N small and defensible.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: estimate long-term mean vertical drainage/recharge flux (QDRAI) leaving the ELM soil column as a function of soil texture and forcing variability\",\n      \"Validation: constrain the recharge estimate indirectly via water-table depth (WTD), since no recharge observations exist in-domain\"\n    ],\n    \"key_processes\": [\"water partitioning (ET vs drainage vs runoff)\", \"per-layer soil moisture\", \"snowpack/melt timing\", \"bottom-boundary drainage (QDRAI)\"],\n    \"drivers_to_resolve\": [\"soil\", \"forcing\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"ELM single-column resolves the vertical water balance and produces a column-base drainage flux that is the best available proxy for potential recharge; spatial sampling spans the watershed's soil heterogeneity.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"The 'true deep water table' recharge with lateral groundwater redistribution requires ELM QDRAI -> PFLOTRAN transient recharge BC. That coupler is not implemented; standalone ELM gives potential (column-base) recharge only. Listed in requires_capabilities.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Soil-texture control on column-base drainage (potential recharge) flux\",\n      \"Interannual / multi-year variability of potential recharge over 1980-2018 as a long-term mean after spin-up\",\n      \"Spatial pattern of potential recharge across dominant soil classes\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"True steady-state recharge reaching the DEEP regional water table\",\n        \"why\": \"Standalone ELM has no lateral groundwater flow and a simplified/free-drainage bottom boundary; it cannot route the column flux to a regional deep aquifer.\",\n        \"needs\": \"ELM->PFLOTRAN one-way coupling\"\n      },\n      {\n        \"aspect\": \"Elevation/snow-driven control on recharge (the dominant control across 352-1977 m)\",\n        \"why\": \"Framework lacks elevation-downscaled forcing; columns run under uniform forcing show soil variation, not the elevation/snowpack recharge signal.\",\n        \"needs\": \"elevation-downscaled forcing\"\n      },\n      {\n        \"aspect\": \"Direct validation of the recharge magnitude\",\n        \"why\": \"No recharge measurements exist in-domain (observations_missing).\",\n        \"needs\": \"recharge observation ingest\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified\",\n    \"strata\": [\n      {\"driver\": \"soil\", \"classes\": [\"coarse/sandy\", \"loam\", \"fine/clay\", \"shallow-to-bedrock\"]},\n      {\"driver\": \"elevation\", \"bands\": [\"valley/lowland 352-800m (context+placement only)\", \"mid 800-1400m\", \"upland 1400-1977m\"]}\n    ],\n    \"n_exploratory\": 12,\n    \"n_justification\": \"4 dominant soil classes are the only VALIDLY-forced driver; crossing them with 3 elevation bands (used as spatial-context/placement, not as a forced climate axis) gives 12 exploratory columns to span the recharge-relevant heterogeneity the stack can actually represent. Elevation bands are kept for placement and later coupled work, NOT presented as isolating an elevation/snow effect.\",\n    \"placement_logic\": \"Concentrate columns in valley-bottom / lowland zones where deep recharge to the regional aquifer is most plausible and where USGS wells exist; distribute remaining columns across mid and upland bands to characterize soil-driven drainage differences.\",\n    \"replication\": \"None beyond the soil x band cross; N kept minimal because forcing is uniform and additional replication would not add an independently-forced signal.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"valley-bottom, coarse soils\", \"n\": 2, \"reason\": \"Highest potential deep-recharge zone; coarse soils maximize drainage and this is where wells allow WTD checks.\"},\n    {\"group\": \"valley-bottom, loam/fine soils\", \"n\": 2, \"reason\": \"Contrasts drainage against coarse soils in the same recharge-relevant lowland where validation data exist.\"},\n    {\"group\": \"mid-elevation, mixed soils\", \"n\": 4, \"reason\": \"Spans the soil-texture range at intermediate elevation to characterize soil control on column-base drainage.\"},\n    {\"group\": \"upland, mixed/shallow soils\", \"n\": 4, \"reason\": \"Captures thin/coarse upland soils and their drainage behavior; flagged that snow-driven recharge here is not properly forced.\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells (WTD)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located \u2014 match columns to well locations where they fall within a sampled soil/elevation group\",\n      \"metric\": \"bias + RMSE\",\n      \"n_validation_points\": \"unknown \u2014 depends on USGS well density in-domain\"\n    },\n    {\n      \"target_variable\": \"water_table_depth (prior/climatology)\",\n      \"observation_source\": \"Fan et al. 2013 WTD prior\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated \u2014 compare modeled WTD pattern against the gridded prior as a spatial sanity check, not a point measurement\",\n      \"metric\": \"correlation / pattern agreement\",\n      \"n_validation_points\": \"gridded \u2014 full domain coverage\"\n    },\n    {\n      \"target_variable\": \"annual_recharge (QDRAI)\",\n      \"observation_source\": \"none in-domain\",\n      \"in_domain_available\": false,\n      \"comparison\": \"GAP \u2014 no recharge measurements; only indirectly constrained via WTD. Could pursue analog-site process validation if an external recharge dataset is ingested.\",\n      \"metric\": \"n/a\",\n      \"n_validation_points\": \"0\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 12,\n    \"exploratory\": 12,\n    \"validation\": \"subset of the 12 that co-locate with USGS wells (data-dependent)\",\n    \"primary_treatment\": \"baseline forcing (1980-2018 multi-year mean after spin-up), native gridded soil per column\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"ELM->PFLOTRAN one-way coupling (QDRAI -> transient recharge BC)\", \"why\": \"Route column-base flux to a laterally-connected deep aquifer\", \"blocks\": \"Answering 'true deep water table recharge' as posed\"},\n    {\"capability\": \"elevation-downscaled forcing\", \"why\": \"Represent the elevation/snowpack control on recharge across 352-1977 m\", \"blocks\": \"Isolating the dominant elevation/snow driver of recharge\"},\n    {\"capability\": \"model spin-up to steady state\", \"why\": \"Report a long-term mean/steady recharge rather than transient\", \"blocks\": \"The 'steady-state' framing of the answer\"},\n    {\"capability\": \"recharge observation ingest\", \"why\": \"Direct validation of recharge magnitude\", \"blocks\": \"Any co-located validation of the recharge estimate\"},\n    {\"capability\": \"gridded soil sampling\", \"why\": \"Assign soil class per column from real rasters\", \"blocks\": \"Soil stratification expansion\"},\n    {\"capability\": \"DEM/elevation sampling\", \"why\": \"Assign elevation band and place valley-bottom columns\", \"blocks\": \"Placement logic expansion\"},\n    {\"capability\": \"USGS well ingest + co-location resolver\", \"why\": \"Pin validation columns to wells\", \"blocks\": \"WTD validation point selection\"}\n  ],\n  \"assumptions\": [\n    \"ELM QDRAI (sub-surface drainage) is the accepted proxy for potential recharge in the standalone (uncoupled) design.\",\n    \"Elevation bands are used for placement/context only; under uniform forcing they do NOT isolate an elevation-driven recharge signal.\",\n    \"A long-term mean over 1980-2018 after spin-up approximates 'steady-state' for reporting purposes.\",\n    \"Dominant soil classes will be resolved by the downstream expander from gridded soil rasters.\"\n  ],\n  \"open_questions\": [\n    \"How many USGS wells actually fall within the Naches domain, and at what depths (deep vs perched)?\",\n    \"Is any external/regional recharge estimate (e.g. USGS SIR, water-balance product) acceptable as an analog constraint given no in-domain recharge data?\",\n    \"Is building the ELM->PFLOTRAN coupler in scope, or should this be scoped as potential-recharge only for now?\",\n    \"Should we prioritize investing in elevation-downscaled forcing given it is the dominant recharge control here?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: estimate long-term mean vertical drainage/recharge flux (QDRAI) leaving the ELM soil column as a function of soil texture and forcing variability",
+        "Validation: constrain the recharge estimate indirectly via water-table depth (WTD), since no recharge observations exist in-domain"
+      ],
+      "key_processes": [
+        "water partitioning (ET vs drainage vs runoff)",
+        "per-layer soil moisture",
+        "snowpack/melt timing",
+        "bottom-boundary drainage (QDRAI)"
+      ],
+      "drivers_to_resolve": [
+        "soil",
+        "forcing"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "ELM single-column resolves the vertical water balance and produces a column-base drainage flux that is the best available proxy for potential recharge; spatial sampling spans the watershed's soil heterogeneity.",
+      "coupling_needed": true,
+      "coupling_note": "The 'true deep water table' recharge with lateral groundwater redistribution requires ELM QDRAI -> PFLOTRAN transient recharge BC. That coupler is not implemented; standalone ELM gives potential (column-base) recharge only. Listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Soil-texture control on column-base drainage (potential recharge) flux",
+        "Interannual / multi-year variability of potential recharge over 1980-2018 as a long-term mean after spin-up",
+        "Spatial pattern of potential recharge across dominant soil classes"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "True steady-state recharge reaching the DEEP regional water table",
+          "why": "Standalone ELM has no lateral groundwater flow and a simplified/free-drainage bottom boundary; it cannot route the column flux to a regional deep aquifer.",
+          "needs": "ELM->PFLOTRAN one-way coupling"
+        },
+        {
+          "aspect": "Elevation/snow-driven control on recharge (the dominant control across 352-1977 m)",
+          "why": "Framework lacks elevation-downscaled forcing; columns run under uniform forcing show soil variation, not the elevation/snowpack recharge signal.",
+          "needs": "elevation-downscaled forcing"
+        },
+        {
+          "aspect": "Direct validation of the recharge magnitude",
+          "why": "No recharge measurements exist in-domain (observations_missing).",
+          "needs": "recharge observation ingest"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified",
+      "strata": [
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy",
+            "loam",
+            "fine/clay",
+            "shallow-to-bedrock"
+          ]
+        },
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley/lowland 352-800m (context+placement only)",
+            "mid 800-1400m",
+            "upland 1400-1977m"
+          ]
+        }
+      ],
+      "n_exploratory": 12,
+      "n_justification": "4 dominant soil classes are the only VALIDLY-forced driver; crossing them with 3 elevation bands (used as spatial-context/placement, not as a forced climate axis) gives 12 exploratory columns to span the recharge-relevant heterogeneity the stack can actually represent. Elevation bands are kept for placement and later coupled work, NOT presented as isolating an elevation/snow effect.",
+      "placement_logic": "Concentrate columns in valley-bottom / lowland zones where deep recharge to the regional aquifer is most plausible and where USGS wells exist; distribute remaining columns across mid and upland bands to characterize soil-driven drainage differences.",
+      "replication": "None beyond the soil x band cross; N kept minimal because forcing is uniform and additional replication would not add an independently-forced signal."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley-bottom, coarse soils",
+        "n": 2,
+        "reason": "Highest potential deep-recharge zone; coarse soils maximize drainage and this is where wells allow WTD checks."
+      },
+      {
+        "group": "valley-bottom, loam/fine soils",
+        "n": 2,
+        "reason": "Contrasts drainage against coarse soils in the same recharge-relevant lowland where validation data exist."
+      },
+      {
+        "group": "mid-elevation, mixed soils",
+        "n": 4,
+        "reason": "Spans the soil-texture range at intermediate elevation to characterize soil control on column-base drainage."
+      },
+      {
+        "group": "upland, mixed/shallow soils",
+        "n": 4,
+        "reason": "Captures thin/coarse upland soils and their drainage behavior; flagged that snow-driven recharge here is not properly forced."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (WTD)",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 match columns to well locations where they fall within a sampled soil/elevation group",
+        "metric": "bias + RMSE",
+        "n_validation_points": "unknown \u2014 depends on USGS well density in-domain"
+      },
+      {
+        "target_variable": "water_table_depth (prior/climatology)",
+        "observation_source": "Fan et al. 2013 WTD prior",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 compare modeled WTD pattern against the gridded prior as a spatial sanity check, not a point measurement",
+        "metric": "correlation / pattern agreement",
+        "n_validation_points": "gridded \u2014 full domain coverage"
+      },
+      {
+        "target_variable": "annual_recharge (QDRAI)",
+        "observation_source": "none in-domain",
+        "in_domain_available": false,
+        "comparison": "GAP \u2014 no recharge measurements; only indirectly constrained via WTD. Could pursue analog-site process validation if an external recharge dataset is ingested.",
+        "metric": "n/a",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 12,
+      "exploratory": 12,
+      "validation": "subset of the 12 that co-locate with USGS wells (data-dependent)",
+      "primary_treatment": "baseline forcing (1980-2018 multi-year mean after spin-up), native gridded soil per column"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "ELM->PFLOTRAN one-way coupling (QDRAI -> transient recharge BC)",
+        "why": "Route column-base flux to a laterally-connected deep aquifer",
+        "blocks": "Answering 'true deep water table recharge' as posed"
+      },
+      {
+        "capability": "elevation-downscaled forcing",
+        "why": "Represent the elevation/snowpack control on recharge across 352-1977 m",
+        "blocks": "Isolating the dominant elevation/snow driver of recharge"
+      },
+      {
+        "capability": "model spin-up to steady state",
+        "why": "Report a long-term mean/steady recharge rather than transient",
+        "blocks": "The 'steady-state' framing of the answer"
+      },
+      {
+        "capability": "recharge observation ingest",
+        "why": "Direct validation of recharge magnitude",
+        "blocks": "Any co-located validation of the recharge estimate"
+      },
+      {
+        "capability": "gridded soil sampling",
+        "why": "Assign soil class per column from real rasters",
+        "blocks": "Soil stratification expansion"
+      },
+      {
+        "capability": "DEM/elevation sampling",
+        "why": "Assign elevation band and place valley-bottom columns",
+        "blocks": "Placement logic expansion"
+      },
+      {
+        "capability": "USGS well ingest + co-location resolver",
+        "why": "Pin validation columns to wells",
+        "blocks": "WTD validation point selection"
+      }
+    ],
+    "assumptions": [
+      "ELM QDRAI (sub-surface drainage) is the accepted proxy for potential recharge in the standalone (uncoupled) design.",
+      "Elevation bands are used for placement/context only; under uniform forcing they do NOT isolate an elevation-driven recharge signal.",
+      "A long-term mean over 1980-2018 after spin-up approximates 'steady-state' for reporting purposes.",
+      "Dominant soil classes will be resolved by the downstream expander from gridded soil rasters."
+    ],
+    "open_questions": [
+      "How many USGS wells actually fall within the Naches domain, and at what depths (deep vs perched)?",
+      "Is any external/regional recharge estimate (e.g. USGS SIR, water-balance product) acceptable as an analog constraint given no in-domain recharge data?",
+      "Is building the ELM->PFLOTRAN coupler in scope, or should this be scoped as potential-recharge only for now?",
+      "Should we prioritize investing in elevation-downscaled forcing given it is the dominant recharge control here?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 5139,
+    "completion_tokens": 4715
+  }
+}

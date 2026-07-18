@@ -1,0 +1,145 @@
+{
+  "prompt_id": "C01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: quantify how soil clay content controls the partitioning of infiltrated/precipitated water between surface runoff and deep drainage (recharge), holding climate/vegetation/topography fixed\"], \"key_processes\": [\"infiltration vs saturation/infiltration-excess surface runoff\", \"unsaturated-zone vertical drainage / recharge\", \"soil water retention and saturated hydraulic conductivity as functions of texture\", \"evapotranspiration partitioning (fixed vegetation, but responds to soil moisture)\"], \"drivers_to_resolve\": [\"clay content\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"conceptual\", \"rationale\": \"Single-column ELM directly simulates water partitioning (QOVER, QDRAI/recharge, ET, per-layer soil moisture) and lets soil texture be set per column; a controlled clay sweep with one fixed forcing isolates the texture mechanism.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"full\", \"answerable\": [\"clay-content control on surface-runoff vs deep-drainage partitioning under fixed forcing\", \"nonlinearity of the partitioning response across the 5-55% clay range\", \"associated shifts in root-zone soil moisture and ET\"], \"not_answerable\": []}, \"sampling_strategy\": {\"approach\": \"controlled / not spatial \\u2014 single-factor level sweep\", \"strata\": [{\"driver\": \"clay content\", \"classes\": [\"5%\", \"15%\", \"25%\", \"35%\", \"45%\", \"55%\"]}], \"n_exploratory\": 6, \"n_justification\": \"One controlled factor with a strongly nonlinear expected response (Ks and water-retention curves vary sharply with texture). 6 evenly spaced levels across 5-55% resolve both the trend and its curvature while keeping the sweep minimal; fewer risks aliasing the nonlinearity, more adds cost without new information.\", \"placement_logic\": \"controlled / not spatial \\u2014 each level is a synthetic column identical except for clay fraction; all other soil, forcing, vegetation, and topographic properties held fixed.\", \"replication\": \"none \\u2014 deterministic controlled experiment, no spatial variance to average over\"}, \"sampling_plan\": [{\"group\": \"clay 5% (near-sand)\", \"n\": 1, \"reason\": \"high-Ks endmember; expected recharge-dominated partitioning, low surface runoff\"}, {\"group\": \"clay 15%\", \"n\": 1, \"reason\": \"loamy-sand/sandy-loam range; early part of the transition curve\"}, {\"group\": \"clay 25%\", \"n\": 1, \"reason\": \"loam range; mid-transition where partitioning shifts most rapidly\"}, {\"group\": \"clay 35%\", \"n\": 1, \"reason\": \"clay-loam range; increasing runoff fraction, declining recharge\"}, {\"group\": \"clay 45%\", \"n\": 1, \"reason\": \"clay range; low-Ks behavior, runoff-dominated regime onset\"}, {\"group\": \"clay 55% (high-clay)\", \"n\": 1, \"reason\": \"low-Ks endmember; expected runoff-dominated, recharge-suppressed partitioning\"}], \"validation_design\": [{\"target_variable\": \"runoff/recharge partitioning ratio (QOVER vs QDRAI/recharge)\", \"observation_source\": \"physical expectation / pedotransfer literature (no in-domain observations in this conceptual design)\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 compare simulated monotonic decline in recharge fraction with clay against theoretical Ks-texture and water-retention expectations\", \"metric\": \"qualitative monotonicity + slope of partitioning-vs-clay response; internal consistency of water budget closure\", \"n_validation_points\": \"0 \\u2014 conceptual experiment, no co-located observations\"}], \"experiment_summary\": {\"total_columns\": 6, \"exploratory\": 6, \"validation\": 0, \"primary_treatment\": \"single fixed representative NLDAS-2 forcing window with multi-year spin-up; synthetic uniform soil column; only clay fraction varied\"}, \"requires_capabilities\": [{\"capability\": \"model spin-up (multi-year) per column\", \"why\": \"recharge and deep drainage are slow states; without ~5+ spin-up years each column cold-starts at the default ~8.8 m water table and early recharge reads ~0 while storage fills\", \"blocks\": \"meaningful, non-artifact recharge/drainage partitioning \\u2014 the primary target\"}, {\"capability\": \"synthetic/parametric soil specification (set clay fraction directly, with a rule for the complementary sand/silt split and other hydraulic properties held fixed)\", \"why\": \"the experiment requires controlled uniform soils that vary ONLY in clay content rather than SSURGO-sampled real soils\", \"blocks\": \"clean isolation of the clay effect\"}, {\"capability\": \"recharge/drainage diagnostic output (QDRAI, QRECHARGE, QOVER) written to history\", \"why\": \"partitioning ratio is the response variable and must be in the output stream\", \"blocks\": \"quantifying the partitioning response\"}], \"assumptions\": [\"The complementary (non-clay) soil fraction is assigned by a fixed rule (e.g. constant silt:sand ratio) so that only clay varies; the configurator must define this.\", \"A single representative forcing window within 1980-2018 is chosen and held identical across all 6 levels; results are conditional on that climate.\", \"Vegetation, organic matter, soil depth/layering, and slope are held fixed at a single representative configuration.\", \"Uniform-texture soil column (no vertical texture layering) unless otherwise specified.\", \"Partitioning is evaluated on post-spin-up years only, averaged to annual/seasonal means.\"], \"open_questions\": [\"Which representative forcing window/climate should anchor the experiment (humid vs semi-arid strongly changes the runoff/recharge balance)?\", \"Should the complementary fraction be held as constant silt:sand, or should sand be the sole filler (this changes Ks trajectory)?\", \"Is a fixed water-table lower boundary desired, or free drainage, for the recharge definition?\", \"Preferred spin-up length / acceptable drift tolerance before analysis years?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: quantify how soil clay content controls the partitioning of infiltrated/precipitated water between surface runoff and deep drainage (recharge), holding climate/vegetation/topography fixed"
+      ],
+      "key_processes": [
+        "infiltration vs saturation/infiltration-excess surface runoff",
+        "unsaturated-zone vertical drainage / recharge",
+        "soil water retention and saturated hydraulic conductivity as functions of texture",
+        "evapotranspiration partitioning (fixed vegetation, but responds to soil moisture)"
+      ],
+      "drivers_to_resolve": [
+        "clay content"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "conceptual",
+      "rationale": "Single-column ELM directly simulates water partitioning (QOVER, QDRAI/recharge, ET, per-layer soil moisture) and lets soil texture be set per column; a controlled clay sweep with one fixed forcing isolates the texture mechanism.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "full",
+      "answerable": [
+        "clay-content control on surface-runoff vs deep-drainage partitioning under fixed forcing",
+        "nonlinearity of the partitioning response across the 5-55% clay range",
+        "associated shifts in root-zone soil moisture and ET"
+      ],
+      "not_answerable": []
+    },
+    "sampling_strategy": {
+      "approach": "controlled / not spatial \u2014 single-factor level sweep",
+      "strata": [
+        {
+          "driver": "clay content",
+          "classes": [
+            "5%",
+            "15%",
+            "25%",
+            "35%",
+            "45%",
+            "55%"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "One controlled factor with a strongly nonlinear expected response (Ks and water-retention curves vary sharply with texture). 6 evenly spaced levels across 5-55% resolve both the trend and its curvature while keeping the sweep minimal; fewer risks aliasing the nonlinearity, more adds cost without new information.",
+      "placement_logic": "controlled / not spatial \u2014 each level is a synthetic column identical except for clay fraction; all other soil, forcing, vegetation, and topographic properties held fixed.",
+      "replication": "none \u2014 deterministic controlled experiment, no spatial variance to average over"
+    },
+    "sampling_plan": [
+      {
+        "group": "clay 5% (near-sand)",
+        "n": 1,
+        "reason": "high-Ks endmember; expected recharge-dominated partitioning, low surface runoff"
+      },
+      {
+        "group": "clay 15%",
+        "n": 1,
+        "reason": "loamy-sand/sandy-loam range; early part of the transition curve"
+      },
+      {
+        "group": "clay 25%",
+        "n": 1,
+        "reason": "loam range; mid-transition where partitioning shifts most rapidly"
+      },
+      {
+        "group": "clay 35%",
+        "n": 1,
+        "reason": "clay-loam range; increasing runoff fraction, declining recharge"
+      },
+      {
+        "group": "clay 45%",
+        "n": 1,
+        "reason": "clay range; low-Ks behavior, runoff-dominated regime onset"
+      },
+      {
+        "group": "clay 55% (high-clay)",
+        "n": 1,
+        "reason": "low-Ks endmember; expected runoff-dominated, recharge-suppressed partitioning"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "runoff/recharge partitioning ratio (QOVER vs QDRAI/recharge)",
+        "observation_source": "physical expectation / pedotransfer literature (no in-domain observations in this conceptual design)",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 compare simulated monotonic decline in recharge fraction with clay against theoretical Ks-texture and water-retention expectations",
+        "metric": "qualitative monotonicity + slope of partitioning-vs-clay response; internal consistency of water budget closure",
+        "n_validation_points": "0 \u2014 conceptual experiment, no co-located observations"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "single fixed representative NLDAS-2 forcing window with multi-year spin-up; synthetic uniform soil column; only clay fraction varied"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "model spin-up (multi-year) per column",
+        "why": "recharge and deep drainage are slow states; without ~5+ spin-up years each column cold-starts at the default ~8.8 m water table and early recharge reads ~0 while storage fills",
+        "blocks": "meaningful, non-artifact recharge/drainage partitioning \u2014 the primary target"
+      },
+      {
+        "capability": "synthetic/parametric soil specification (set clay fraction directly, with a rule for the complementary sand/silt split and other hydraulic properties held fixed)",
+        "why": "the experiment requires controlled uniform soils that vary ONLY in clay content rather than SSURGO-sampled real soils",
+        "blocks": "clean isolation of the clay effect"
+      },
+      {
+        "capability": "recharge/drainage diagnostic output (QDRAI, QRECHARGE, QOVER) written to history",
+        "why": "partitioning ratio is the response variable and must be in the output stream",
+        "blocks": "quantifying the partitioning response"
+      }
+    ],
+    "assumptions": [
+      "The complementary (non-clay) soil fraction is assigned by a fixed rule (e.g. constant silt:sand ratio) so that only clay varies; the configurator must define this.",
+      "A single representative forcing window within 1980-2018 is chosen and held identical across all 6 levels; results are conditional on that climate.",
+      "Vegetation, organic matter, soil depth/layering, and slope are held fixed at a single representative configuration.",
+      "Uniform-texture soil column (no vertical texture layering) unless otherwise specified.",
+      "Partitioning is evaluated on post-spin-up years only, averaged to annual/seasonal means."
+    ],
+    "open_questions": [
+      "Which representative forcing window/climate should anchor the experiment (humid vs semi-arid strongly changes the runoff/recharge balance)?",
+      "Should the complementary fraction be held as constant silt:sand, or should sand be the sole filler (this changes Ks trajectory)?",
+      "Is a fixed water-table lower boundary desired, or free drainage, for the recharge definition?",
+      "Preferred spin-up length / acceptable drift tolerance before analysis years?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6263,
+    "completion_tokens": 3174
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "prompt_id": "C01",
+  "arm": "A1_informed",
+  "rep": 2,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"feasibility\":{\"verdict\":\"feasible\",\"answerable\":[\"Sensitivity of surface runoff vs. deep drainage (recharge) partitioning to soil clay fraction under fixed forcing\",\"Relative change in infiltration capacity and subsurface drainage across a clay gradient\",\"Changes in soil moisture storage and evapotranspiration co-varying with clay content\"],\"not_answerable\":[\"Absolute recharge validation against site observations (no observational data provided)\",\"Spatially distributed lateral runoff routing (single-column has no lateral connectivity)\",\"Effects of clay mineralogy or macropore/preferential flow (not represented in default ELM hydrology)\"]},\"n_columns\":6,\"n_justification\":\"A controlled one-factor-at-a-time sweep of clay content across the requested 5%-55% range. Six columns at ~10% increments (5,15,25,35,45,55) sample the gradient with enough resolution to resolve the nonlinear runoff/recharge response while sharing identical location, forcing, and all other parameters so clay is the sole varied factor.\",\"columns\":[{\"id\":\"clay05\",\"lat\":39.1,\"lon\":-96.6,\"soil_texture\":\"sandy loam: 5% clay, 65% sand, 30% silt\"},{\"id\":\"clay15\",\"lat\":39.1,\"lon\":-96.6,\"soil_texture\":\"loam: 15% clay, 45% sand, 40% silt\"},{\"id\":\"clay25\",\"lat\":39.1,\"lon\":-96.6,\"soil_texture\":\"loam/clay-loam: 25% clay, 35% sand, 40% silt\"},{\"id\":\"clay35\",\"lat\":39.1,\"lon\":-96.6,\"soil_texture\":\"clay loam: 35% clay, 30% sand, 35% silt\"},{\"id\":\"clay45\",\"lat\":39.1,\"lon\":-96.6,\"soil_texture\":\"clay: 45% clay, 25% sand, 30% silt\"},{\"id\":\"clay55\",\"lat\":39.1,\"lon\":-96.6,\"soil_texture\":\"heavy clay: 55% clay, 20% sand, 25% silt\"}],\"elm_config\":{\"DATM_CLMNCEP_YR_START\":\"1980\",\"DATM_CLMNCEP_YR_END\":\"2018\",\"STOP_N\":\"39\",\"RUN_STARTDATE\":\"1980-01-01\",\"hist_variables\":[\"QRUNOFF\",\"QOVER\",\"QDRAI\",\"QRGWL\",\"QINFL\",\"QCHARGE\",\"RAIN\",\"SNOW\",\"QFLX_EVAP_TOT\",\"H2OSOI\",\"SOILLIQ\",\"SOILICE\",\"ZWT\",\"WA\",\"TWS\",\"FSAT\",\"QH2OSFC\"]},\"requires_capabilities\":[\"single_column_ELM\",\"surface_dataset_modification (fmapluh/fsurdat clay override)\",\"identical_forcing_replication_across_columns\"],\"assumptions\":[\"All columns share identical atmospheric forcing (GSWP3/CLMNCEP 1980-2018), PFT, topography (fixed slope/fmax), and organic matter to isolate clay as the sole varied driver\",\"Sand and silt fractions are adjusted to keep totals at 100% while holding sand roughly complementary; texture-derived van Genuchten/Clapp-Hornberger parameters are computed internally by ELM pedotransfer functions\",\"A multi-year spin-up (first several years treated as equilibration) precedes analysis to remove initial soil moisture memory\",\"Recharge is approximated by the sum of gravitational bottom drainage (QDRAI) and aquifer recharge (QCHARGE); runoff is QRUNOFF (QOVER + QDRAI baseflow separated in post-processing)\",\"Default ELM hydrology (no macropore/preferential flow); results reflect matrix-flow partitioning only\",\"Single-column configuration implies no lateral routing; QRGWL captures glacier/wetland/lake runoff terms assumed negligible here\"]}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Sensitivity of surface runoff vs. deep drainage (recharge) partitioning to soil clay fraction under fixed forcing",
+        "Relative change in infiltration capacity and subsurface drainage across a clay gradient",
+        "Changes in soil moisture storage and evapotranspiration co-varying with clay content"
+      ],
+      "not_answerable": [
+        "Absolute recharge validation against site observations (no observational data provided)",
+        "Spatially distributed lateral runoff routing (single-column has no lateral connectivity)",
+        "Effects of clay mineralogy or macropore/preferential flow (not represented in default ELM hydrology)"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "A controlled one-factor-at-a-time sweep of clay content across the requested 5%-55% range. Six columns at ~10% increments (5,15,25,35,45,55) sample the gradient with enough resolution to resolve the nonlinear runoff/recharge response while sharing identical location, forcing, and all other parameters so clay is the sole varied factor.",
+    "columns": [
+      {
+        "id": "clay05",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "sandy loam: 5% clay, 65% sand, 30% silt"
+      },
+      {
+        "id": "clay15",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "loam: 15% clay, 45% sand, 40% silt"
+      },
+      {
+        "id": "clay25",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "loam/clay-loam: 25% clay, 35% sand, 40% silt"
+      },
+      {
+        "id": "clay35",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay loam: 35% clay, 30% sand, 35% silt"
+      },
+      {
+        "id": "clay45",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay: 45% clay, 25% sand, 30% silt"
+      },
+      {
+        "id": "clay55",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "heavy clay: 55% clay, 20% sand, 25% silt"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QRGWL",
+        "QINFL",
+        "QCHARGE",
+        "RAIN",
+        "SNOW",
+        "QFLX_EVAP_TOT",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "ZWT",
+        "WA",
+        "TWS",
+        "FSAT",
+        "QH2OSFC"
+      ]
+    },
+    "requires_capabilities": [
+      "single_column_ELM",
+      "surface_dataset_modification (fmapluh/fsurdat clay override)",
+      "identical_forcing_replication_across_columns"
+    ],
+    "assumptions": [
+      "All columns share identical atmospheric forcing (GSWP3/CLMNCEP 1980-2018), PFT, topography (fixed slope/fmax), and organic matter to isolate clay as the sole varied driver",
+      "Sand and silt fractions are adjusted to keep totals at 100% while holding sand roughly complementary; texture-derived van Genuchten/Clapp-Hornberger parameters are computed internally by ELM pedotransfer functions",
+      "A multi-year spin-up (first several years treated as equilibration) precedes analysis to remove initial soil moisture memory",
+      "Recharge is approximated by the sum of gravitational bottom drainage (QDRAI) and aquifer recharge (QCHARGE); runoff is QRUNOFF (QOVER + QDRAI baseflow separated in post-processing)",
+      "Default ELM hydrology (no macropore/preferential flow); results reflect matrix-flow partitioning only",
+      "Single-column configuration implies no lateral routing; QRGWL captures glacier/wetland/lake runoff terms assumed negligible here"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 591,
+    "completion_tokens": 1324
+  }
+}

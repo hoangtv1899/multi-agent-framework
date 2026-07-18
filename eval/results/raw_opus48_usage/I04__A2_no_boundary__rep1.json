@@ -1,0 +1,176 @@
+{
+  "prompt_id": "I04",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**What the question actually asks.** The user wants a *decadal groundwater-recovery projection* under a management scenario: cut agricultural pumping by 30% and see how far water levels rebound across the Upper Iowa basin. The key mechanism is a **pumped regional aquifer relaxing toward a new equilibrium** \u2014 a lateral, saturated-zone groundwater problem driven by (a) the pumping stress and (b) the recharge flux from above.\n\n**Why the current stack cannot answer this as posed.** ELM is a single-column, 1-D land-surface model with **no pumping term, no lateral groundwater transport, and no regional water table**. Every column cold-starts (or warm-starts) at its own local equilibrium and cannot exchange water with neighbors. There is therefore no mechanism by which a pumping reduction propagates through an aquifer and recovers heads \u2014 the entire causal chain (pumping \u2192 drawdown cone \u2192 recovery after stress reduction) lives in a process ELM does not simulate. On top of that, the brief itself lists **pumping records as MISSING**, so even the forcing for the scenario is unavailable. This is fundamentally a saturated-zone groundwater-management problem that belongs to PFLOTRAN (with a pumping/well package and lateral flow), driven by an ELM-derived recharge boundary condition \u2014 i.e. a coupled workflow that is **not implemented**.\n\n**Verdict: infeasible** for the primary question. I will not dress up an ELM-only design as if it answered pumping recovery.\n\n**What ELM CAN legitimately contribute.** The one piece of the physics ELM can supply is the **top boundary condition** the groundwater model would need: the recharge / sub-surface drainage flux (QDRAI/QRECHARGE) as a function of soil texture and agricultural land management across the basin. That is a genuine, feasible sub-goal \u2014 quantify the recharge field that would drive any future aquifer model \u2014 and it uses the levers the stack actually pulls (SSURGO soil, NLDAS forcing period, spin-up / WTD warm start). So I scope a small, honest ELM campaign to characterize recharge, validate what little is validatable, and explicitly declare the missing groundwater/pumping machinery as the development backlog.\n\n**Drivers.** The only candidate driver given is \"management.\" ELM can crudely differentiate agricultural vs. non-agricultural surface behavior through soil and (to a limited degree) land-cover configuration, but it cannot represent irrigation pumping. Elevation relief here is tiny (~160 m) and within the 12 km NLDAS resolution offers little orographic signal \u2014 not a useful stratifier. So the defensible stratification is **soil texture \u00d7 dominant land management**, purely to characterize the recharge flux, NOT to answer the recovery question.\n\n**Validation.** USGS wells give water-table depth, but a 1-D ELM column's local equilibrium WTD is not the regional pumped water table \u2014 comparison can only be a weak, analog sanity check on initialization, not a validation of recovery. Recharge itself has no in-domain observation. I flag this honestly.\n\n## JSON\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"PRIMARY (infeasible here): project decadal water-level recovery under a 30% pumping reduction\",\n      \"FEASIBLE SUB-GOAL: characterize the recharge / sub-surface drainage flux field (by soil and land management) that a groundwater model would need as its top boundary condition\"\n    ],\n    \"key_processes\": [\n      \"regional/lateral saturated-zone groundwater flow and pumping drawdown/recovery (NOT in ELM)\",\n      \"vertical recharge / sub-surface drainage from the root zone (ELM CAN provide)\",\n      \"ET and water partitioning under agricultural management\"\n    ],\n    \"drivers_to_resolve\": [\"management (agricultural land use)\", \"soil texture\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"The question is a pumped-aquifer recovery problem. ELM (single-column, 1-D, no lateral flow, no pumping) cannot simulate it. ELM is retained only to characterize the recharge boundary flux that a groundwater model would require. The recovery answer itself needs PFLOTRAN + a well/pumping package + coupling that are not implemented.\",\n    \"coupling_needed\": true,\n    \"coupling_note\": \"Answering recovery needs ELM recharge (QDRAI/QRECHARGE) -> PFLOTRAN transient top BC, plus a PFLOTRAN pumping/well stress and lateral flow. This ELM->PFLOTRAN coupling and the well package are unbuilt; listed in requires_capabilities.\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"infeasible\",\n    \"answerable\": [\n      \"vertical recharge / sub-surface drainage flux magnitude and its dependence on soil texture and agricultural management (as a boundary-condition input to a future groundwater model)\",\n      \"ET / water partitioning differences across soil-management combinations\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"decadal water-level recovery from a 30% pumping reduction\",\n        \"why\": \"ELM is single-column 1-D with no lateral/regional groundwater transport, no water-table drawdown/recovery dynamics, and no representation of pumping stress; recovery is a saturated-zone lateral-flow process the model does not contain\",\n        \"needs\": \"PFLOTRAN groundwater model with a pumping/well stress package, lateral flow, and ELM->PFLOTRAN recharge coupling\"\n      },\n      {\n        \"aspect\": \"the pumping scenario itself (baseline and -30% stress)\",\n        \"why\": \"pumping records are listed as MISSING in the brief, so the management stress cannot be prescribed\",\n        \"needs\": \"agricultural groundwater pumping / withdrawal records for the basin\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified (soil texture x land management), small \u2014 recharge characterization only\",\n    \"strata\": [\n      {\"driver\": \"management\", \"classes\": [\"intensive row-crop agriculture\", \"non-agricultural / grassland-forest\"]},\n      {\"driver\": \"soil\", \"classes\": [\"coarse (sandy) SSURGO\", \"medium (loam) SSURGO\", \"fine (clay/silty-clay) SSURGO\"]}\n    ],\n    \"n_exploratory\": 6,\n    \"n_justification\": \"2 management classes x 3 dominant SSURGO texture classes = 6 columns spans the recharge-controlling factor space. Elevation relief (~160 m) is below NLDAS 12 km resolution and is not a useful stratifier here, so no elevation banding. This N characterizes the recharge flux field cheaply; it is deliberately NOT sized to answer the (infeasible) recovery question.\",\n    \"placement_logic\": \"Place columns on the dominant agricultural soils of the valley/upland where recharge to the pumped aquifer originates, plus non-ag analogs on matching soils to isolate the management signal in recharge. Use WTD-informed warm start and spin-up years so recharge/QDRAI are not initialization artifacts.\",\n    \"replication\": \"None \u2014 this is a factor-spanning characterization set, not a statistical estimation set; replication would be added only once a real groundwater model consumes the fluxes.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"row-crop agriculture on coarse soil\", \"n\": 1, \"reason\": \"high-recharge ag endmember; largest vertical flux to the aquifer under cropping\"},\n    {\"group\": \"row-crop agriculture on medium (loam) soil\", \"n\": 1, \"reason\": \"dominant ag condition; central estimate of managed recharge\"},\n    {\"group\": \"row-crop agriculture on fine (clay) soil\", \"n\": 1, \"reason\": \"low-permeability ag case; recharge suppressed, more runoff/ET\"},\n    {\"group\": \"non-ag on coarse soil\", \"n\": 1, \"reason\": \"management control for the coarse-soil ag column \u2014 isolates land-use effect on recharge\"},\n    {\"group\": \"non-ag on medium soil\", \"n\": 1, \"reason\": \"management control for the loam ag column\"},\n    {\"group\": \"non-ag on fine soil\", \"n\": 1, \"reason\": \"management control for the clay ag column\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth (weak, initialization sanity check only)\",\n      \"observation_source\": \"USGS wells (in-domain)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"analog \u2014 a 1-D ELM column equilibrium WTD is NOT the regional pumped water table; can only sanity-check that warm-start initialization is in a plausible range, cannot validate recovery\",\n      \"metric\": \"bias (order-of-magnitude / plausibility check, not skill)\",\n      \"n_validation_points\": \"unknown \u2014 depends on USGS well density; but note these wells reflect a PUMPED aquifer ELM does not simulate\"\n    },\n    {\n      \"target_variable\": \"recharge / sub-surface drainage (QDRAI/QRECHARGE)\",\n      \"observation_source\": \"none in-domain\",\n      \"in_domain_available\": false,\n      \"comparison\": \"no direct comparison possible \u2014 flagged as a gap; would be validated indirectly via the coupled groundwater model's head match once built\",\n      \"metric\": \"n/a\",\n      \"n_validation_points\": \"0\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 6,\n    \"exploratory\": 6,\n    \"validation\": 0,\n    \"primary_treatment\": \"baseline NLDAS forcing, native SSURGO soil, WTD-informed warm start + spin-up (recharge flux characterization)\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"PFLOTRAN groundwater model with pumping/well stress package and lateral flow\", \"why\": \"water-level recovery is a saturated-zone, lateral, pumping-driven process ELM cannot represent\", \"blocks\": \"the entire recovery question\"},\n    {\"capability\": \"ELM -> PFLOTRAN recharge coupling (QDRAI/QRECHARGE -> transient top BC)\", \"why\": \"to drive the groundwater model with physically-based recharge\", \"blocks\": \"using the ELM recharge field to project heads\"},\n    {\"capability\": \"agricultural groundwater pumping / withdrawal records\", \"why\": \"brief lists pumping records as MISSING; the baseline and -30% scenario stress cannot be prescribed without them\", \"blocks\": \"defining the management scenario\"},\n    {\"capability\": \"regional water-table / head observations decoupled from single-well pumping artifacts\", \"why\": \"to validate the coupled model's recovery\", \"blocks\": \"validating the recovery projection\"},\n    {\"capability\": \"spin-up + WTD-informed warm start execution\", \"why\": \"recharge is a slow-state target and must not be an initialization artifact\", \"blocks\": \"trustworthy recharge fluxes even for the feasible sub-goal\"}\n  ],\n  \"assumptions\": [\n    \"Dominant SSURGO texture classes and an ag/non-ag land-management mask are resolvable within the HUC8; exact soils not provided in brief.\",\n    \"The feasible ELM sub-goal (recharge characterization) is worth running as a precursor even though the headline recovery question is infeasible now.\",\n    \"Elevation is not treated as a driver given ~160 m relief vs 12 km NLDAS resolution.\"\n  ],\n  \"open_questions\": [\n    \"Can basin pumping/withdrawal records be obtained? Without them the -30% scenario is undefined.\",\n    \"Is standing up PFLOTRAN with a well package and ELM->PFLOTRAN coupling in scope? That is the actual deliverable the question needs.\",\n    \"What aquifer geometry / hydraulic properties are available for the Upper Iowa aquifer to parameterize a groundwater model?\",\n    \"Should we proceed with the ELM recharge-characterization precursor now, or wait until the groundwater/coupling stack exists?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "PRIMARY (infeasible here): project decadal water-level recovery under a 30% pumping reduction",
+        "FEASIBLE SUB-GOAL: characterize the recharge / sub-surface drainage flux field (by soil and land management) that a groundwater model would need as its top boundary condition"
+      ],
+      "key_processes": [
+        "regional/lateral saturated-zone groundwater flow and pumping drawdown/recovery (NOT in ELM)",
+        "vertical recharge / sub-surface drainage from the root zone (ELM CAN provide)",
+        "ET and water partitioning under agricultural management"
+      ],
+      "drivers_to_resolve": [
+        "management (agricultural land use)",
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "The question is a pumped-aquifer recovery problem. ELM (single-column, 1-D, no lateral flow, no pumping) cannot simulate it. ELM is retained only to characterize the recharge boundary flux that a groundwater model would require. The recovery answer itself needs PFLOTRAN + a well/pumping package + coupling that are not implemented.",
+      "coupling_needed": true,
+      "coupling_note": "Answering recovery needs ELM recharge (QDRAI/QRECHARGE) -> PFLOTRAN transient top BC, plus a PFLOTRAN pumping/well stress and lateral flow. This ELM->PFLOTRAN coupling and the well package are unbuilt; listed in requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "vertical recharge / sub-surface drainage flux magnitude and its dependence on soil texture and agricultural management (as a boundary-condition input to a future groundwater model)",
+        "ET / water partitioning differences across soil-management combinations"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "decadal water-level recovery from a 30% pumping reduction",
+          "why": "ELM is single-column 1-D with no lateral/regional groundwater transport, no water-table drawdown/recovery dynamics, and no representation of pumping stress; recovery is a saturated-zone lateral-flow process the model does not contain",
+          "needs": "PFLOTRAN groundwater model with a pumping/well stress package, lateral flow, and ELM->PFLOTRAN recharge coupling"
+        },
+        {
+          "aspect": "the pumping scenario itself (baseline and -30% stress)",
+          "why": "pumping records are listed as MISSING in the brief, so the management stress cannot be prescribed",
+          "needs": "agricultural groundwater pumping / withdrawal records for the basin"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (soil texture x land management), small \u2014 recharge characterization only",
+      "strata": [
+        {
+          "driver": "management",
+          "classes": [
+            "intensive row-crop agriculture",
+            "non-agricultural / grassland-forest"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy) SSURGO",
+            "medium (loam) SSURGO",
+            "fine (clay/silty-clay) SSURGO"
+          ]
+        }
+      ],
+      "n_exploratory": 6,
+      "n_justification": "2 management classes x 3 dominant SSURGO texture classes = 6 columns spans the recharge-controlling factor space. Elevation relief (~160 m) is below NLDAS 12 km resolution and is not a useful stratifier here, so no elevation banding. This N characterizes the recharge flux field cheaply; it is deliberately NOT sized to answer the (infeasible) recovery question.",
+      "placement_logic": "Place columns on the dominant agricultural soils of the valley/upland where recharge to the pumped aquifer originates, plus non-ag analogs on matching soils to isolate the management signal in recharge. Use WTD-informed warm start and spin-up years so recharge/QDRAI are not initialization artifacts.",
+      "replication": "None \u2014 this is a factor-spanning characterization set, not a statistical estimation set; replication would be added only once a real groundwater model consumes the fluxes."
+    },
+    "sampling_plan": [
+      {
+        "group": "row-crop agriculture on coarse soil",
+        "n": 1,
+        "reason": "high-recharge ag endmember; largest vertical flux to the aquifer under cropping"
+      },
+      {
+        "group": "row-crop agriculture on medium (loam) soil",
+        "n": 1,
+        "reason": "dominant ag condition; central estimate of managed recharge"
+      },
+      {
+        "group": "row-crop agriculture on fine (clay) soil",
+        "n": 1,
+        "reason": "low-permeability ag case; recharge suppressed, more runoff/ET"
+      },
+      {
+        "group": "non-ag on coarse soil",
+        "n": 1,
+        "reason": "management control for the coarse-soil ag column \u2014 isolates land-use effect on recharge"
+      },
+      {
+        "group": "non-ag on medium soil",
+        "n": 1,
+        "reason": "management control for the loam ag column"
+      },
+      {
+        "group": "non-ag on fine soil",
+        "n": 1,
+        "reason": "management control for the clay ag column"
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth (weak, initialization sanity check only)",
+        "observation_source": "USGS wells (in-domain)",
+        "in_domain_available": true,
+        "comparison": "analog \u2014 a 1-D ELM column equilibrium WTD is NOT the regional pumped water table; can only sanity-check that warm-start initialization is in a plausible range, cannot validate recovery",
+        "metric": "bias (order-of-magnitude / plausibility check, not skill)",
+        "n_validation_points": "unknown \u2014 depends on USGS well density; but note these wells reflect a PUMPED aquifer ELM does not simulate"
+      },
+      {
+        "target_variable": "recharge / sub-surface drainage (QDRAI/QRECHARGE)",
+        "observation_source": "none in-domain",
+        "in_domain_available": false,
+        "comparison": "no direct comparison possible \u2014 flagged as a gap; would be validated indirectly via the coupled groundwater model's head match once built",
+        "metric": "n/a",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 6,
+      "exploratory": 6,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS forcing, native SSURGO soil, WTD-informed warm start + spin-up (recharge flux characterization)"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "PFLOTRAN groundwater model with pumping/well stress package and lateral flow",
+        "why": "water-level recovery is a saturated-zone, lateral, pumping-driven process ELM cannot represent",
+        "blocks": "the entire recovery question"
+      },
+      {
+        "capability": "ELM -> PFLOTRAN recharge coupling (QDRAI/QRECHARGE -> transient top BC)",
+        "why": "to drive the groundwater model with physically-based recharge",
+        "blocks": "using the ELM recharge field to project heads"
+      },
+      {
+        "capability": "agricultural groundwater pumping / withdrawal records",
+        "why": "brief lists pumping records as MISSING; the baseline and -30% scenario stress cannot be prescribed without them",
+        "blocks": "defining the management scenario"
+      },
+      {
+        "capability": "regional water-table / head observations decoupled from single-well pumping artifacts",
+        "why": "to validate the coupled model's recovery",
+        "blocks": "validating the recovery projection"
+      },
+      {
+        "capability": "spin-up + WTD-informed warm start execution",
+        "why": "recharge is a slow-state target and must not be an initialization artifact",
+        "blocks": "trustworthy recharge fluxes even for the feasible sub-goal"
+      }
+    ],
+    "assumptions": [
+      "Dominant SSURGO texture classes and an ag/non-ag land-management mask are resolvable within the HUC8; exact soils not provided in brief.",
+      "The feasible ELM sub-goal (recharge characterization) is worth running as a precursor even though the headline recovery question is infeasible now.",
+      "Elevation is not treated as a driver given ~160 m relief vs 12 km NLDAS resolution."
+    ],
+    "open_questions": [
+      "Can basin pumping/withdrawal records be obtained? Without them the -30% scenario is undefined.",
+      "Is standing up PFLOTRAN with a well package and ELM->PFLOTRAN coupling in scope? That is the actual deliverable the question needs.",
+      "What aquifer geometry / hydraulic properties are available for the Upper Iowa aquifer to parameterize a groundwater model?",
+      "Should we proceed with the ELM recharge-characterization precursor now, or wait until the groundwater/coupling stack exists?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6369,
+    "completion_tokens": 4717
+  }
+}

@@ -1,0 +1,184 @@
+{
+  "prompt_id": "T01",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"Mechanistic: attribute runoff-generation partitioning (surface runoff vs subsurface drainage) to elevation-driven snow/melt regime and soil texture\", \"Validation: compare simulated runoff against USGS stream-gauge discharge\"], \"key_processes\": [\"snow accumulation/melt timing\", \"infiltration vs saturation/infiltration-excess surface runoff\", \"subsurface drainage/recharge\", \"soil-moisture storage\"], \"drivers_to_resolve\": [\"elevation (via snow/precip phase)\", \"soil texture\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Single-column ELM resolves per-point water partitioning, snow, and runoff components across a stratified sample of the basin's elevation/soil heterogeneity.\", \"coupling_needed\": false, \"coupling_note\": \"\"}, \"feasibility\": {\"verdict\": \"partial\", \"answerable\": [\"Per-column runoff-component partitioning (QOVER vs QDRAI) and its sensitivity to soil texture\", \"Elevation control on snow accumulation/melt and melt-driven runoff timing, to the extent resolved by 12 km NLDAS orographic precip/temperature and simulated SWE\"], \"not_answerable\": [{\"aspect\": \"Validation of runoff against USGS stream gauges\", \"why\": \"Single-column ELM has no lateral routing; columns produce point runoff, not integrated basin streamflow comparable to a gauge\", \"needs\": \"runoff routing / basin aggregation capability\"}, {\"aspect\": \"Sub-12 km terrain control on snow/runoff (individual ridges, headwater microclimate)\", \"why\": \"NLDAS-2 nearest-cell forcing at ~12 km has no within-cell lapse rate; ridgetop SWE underestimated\", \"needs\": \"elevation-downscaled sub-12 km forcing\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (elevation band x dominant soil class), rule-based; NOT the user's 3 raw points\", \"strata\": [{\"driver\": \"elevation\", \"bands\": [\"valley / rain-dominated (~350-700 m)\", \"rain-snow transition (~700-1300 m)\", \"snow-dominated (~1300-1977 m)\"]}, {\"driver\": \"soil\", \"classes\": [\"coarse (sand/loamy-sand)\", \"medium (loam/silt-loam)\", \"fine (clay-rich)\"]}], \"n_exploratory\": 10, \"n_justification\": \"3 elevation bands x ~2 dominant SSURGO soil classes per band = ~6, plus +2 replication in the rain-snow transition (highest runoff-generation sensitivity) and +2 to cover a distinct soil where present; smallest sample that spans the two named drivers.\", \"placement_logic\": \"Oversample the rain-snow transition (700-1300 m) where melt-driven infiltration-excess/saturation runoff is most sensitive; place columns on the dominant soil of each band, favoring valley/riparian positions for saturation-runoff behavior and mid-slope for infiltration-excess.\", \"replication\": \"2 extra columns in the rain-snow transition band across differing soils to separate soil vs elevation signal in the most sensitive zone.\"}, \"sampling_plan\": [{\"group\": \"valley / rain-dominated, medium soil\", \"n\": 2, \"reason\": \"Baseline low-elevation runoff where precip falls mostly as rain; anchors the no-snow end of the elevation gradient.\"}, {\"group\": \"valley / rain-dominated, coarse soil\", \"n\": 1, \"reason\": \"Isolates soil-texture effect on infiltration vs surface runoff at low elevation.\"}, {\"group\": \"rain-snow transition, medium soil\", \"n\": 2, \"reason\": \"Core zone where melt timing controls runoff generation; primary mechanistic target.\"}, {\"group\": \"rain-snow transition, coarse soil\", \"n\": 1, \"reason\": \"Separates soil control from elevation/snow control within the most sensitive band.\"}, {\"group\": \"rain-snow transition, fine soil\", \"n\": 1, \"reason\": \"Tests saturation-excess runoff where low-permeability soil limits infiltration during melt.\"}, {\"group\": \"snow-dominated, medium soil\", \"n\": 2, \"reason\": \"High-elevation snowpack-driven runoff; establishes the snowmelt-dominated end member (SWE from H2OSNO/QSNOMELT).\"}, {\"group\": \"snow-dominated, coarse soil\", \"n\": 1, \"reason\": \"Soil-texture contrast at the snow-dominated end of the gradient.\"}], \"validation_design\": [{\"target_variable\": \"total runoff (QOVER + QDRAI)\", \"observation_source\": \"USGS stream gauges (in-basin)\", \"in_domain_available\": true, \"comparison\": \"aggregated \\u2014 requires routing/area-weighted aggregation of column runoff to a gauge's contributing area; NOT achievable with current single-column output\", \"metric\": \"bias, NSE, monthly hydrograph correlation (once aggregation exists)\", \"n_validation_points\": \"unknown \\u2014 depends on number of in-basin gauges and their contributing areas\"}, {\"target_variable\": \"snow water equivalent (H2OSNO)\", \"observation_source\": \"SNOTEL (if present in/near basin) \\u2014 analog if not co-located\", \"in_domain_available\": false, \"comparison\": \"analog \\u2014 peak-SWE process check at nearest station; not requested but supports the elevation/snow mechanism\", \"metric\": \"peak-SWE bias, melt-out date\", \"n_validation_points\": \"unknown \\u2014 depends on SNOTEL coverage; not in provided observations\"}], \"experiment_summary\": {\"total_columns\": 10, \"exploratory\": 10, \"validation\": 0, \"primary_treatment\": \"baseline NLDAS-2 forcing, native SSURGO soil, WTD-informed warm start\"}, \"requires_capabilities\": [{\"capability\": \"runoff routing / basin aggregation of column runoff\", \"why\": \"USGS gauges measure integrated streamflow; single columns give point runoff\", \"blocks\": \"the only requested validation (gauge comparison)\"}, {\"capability\": \"elevation-downscaled sub-12 km forcing\", \"why\": \"NLDAS nearest-cell has no within-cell lapse; underestimates ridge SWE\", \"blocks\": \"full resolution of elevation/snow control in high-relief headwaters\"}, {\"capability\": \"WTD-informed warm start (or multi-year spin-up)\", \"why\": \"runoff/drainage partitioning depends on slow soil-moisture/water-table states\", \"blocks\": \"credible QDRAI/recharge magnitudes\"}, {\"capability\": \"SSURGO soil sampler + DEM/elevation sampler\", \"why\": \"expander must resolve dominant soil class and elevation band per point\", \"blocks\": \"rule-based stratified placement\"}, {\"capability\": \"SNOTEL ingest (optional)\", \"why\": \"process check on the snow mechanism\", \"blocks\": \"analog SWE validation\"}], \"assumptions\": [\"User-supplied point (46.62, -119.90) is OUTSIDE the domain bbox and is dropped/flagged; the other two fall within the intended elevation bands and are absorbed into the stratified plan rather than used verbatim.\", \"Dominant soil classes per elevation band exist and are separable in SSURGO within the Naches; exact classes resolved downstream.\", \"Forcing period drawn from 1980-2018 NLDAS-2 (CONUS), covering wet/dry years for the sensitivity analysis.\", \"Runoff generation is treated as per-column water partitioning, not integrated basin discharge.\"], \"open_questions\": [\"Which/how many USGS gauges lie in-basin and what are their contributing areas (needed to scope any future aggregation)?\", \"Was the out-of-domain point (46.62, -119.90) a typo for an in-basin location the user wants retained?\", \"Is a SNOTEL-based snow process check desired to substantiate the elevation/snow mechanism?\", \"Preferred forcing years / wet-vs-dry contrast for runoff sensitivity?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: attribute runoff-generation partitioning (surface runoff vs subsurface drainage) to elevation-driven snow/melt regime and soil texture",
+        "Validation: compare simulated runoff against USGS stream-gauge discharge"
+      ],
+      "key_processes": [
+        "snow accumulation/melt timing",
+        "infiltration vs saturation/infiltration-excess surface runoff",
+        "subsurface drainage/recharge",
+        "soil-moisture storage"
+      ],
+      "drivers_to_resolve": [
+        "elevation (via snow/precip phase)",
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM resolves per-point water partitioning, snow, and runoff components across a stratified sample of the basin's elevation/soil heterogeneity.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Per-column runoff-component partitioning (QOVER vs QDRAI) and its sensitivity to soil texture",
+        "Elevation control on snow accumulation/melt and melt-driven runoff timing, to the extent resolved by 12 km NLDAS orographic precip/temperature and simulated SWE"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Validation of runoff against USGS stream gauges",
+          "why": "Single-column ELM has no lateral routing; columns produce point runoff, not integrated basin streamflow comparable to a gauge",
+          "needs": "runoff routing / basin aggregation capability"
+        },
+        {
+          "aspect": "Sub-12 km terrain control on snow/runoff (individual ridges, headwater microclimate)",
+          "why": "NLDAS-2 nearest-cell forcing at ~12 km has no within-cell lapse rate; ridgetop SWE underestimated",
+          "needs": "elevation-downscaled sub-12 km forcing"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation band x dominant soil class), rule-based; NOT the user's 3 raw points",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley / rain-dominated (~350-700 m)",
+            "rain-snow transition (~700-1300 m)",
+            "snow-dominated (~1300-1977 m)"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sand/loamy-sand)",
+            "medium (loam/silt-loam)",
+            "fine (clay-rich)"
+          ]
+        }
+      ],
+      "n_exploratory": 10,
+      "n_justification": "3 elevation bands x ~2 dominant SSURGO soil classes per band = ~6, plus +2 replication in the rain-snow transition (highest runoff-generation sensitivity) and +2 to cover a distinct soil where present; smallest sample that spans the two named drivers.",
+      "placement_logic": "Oversample the rain-snow transition (700-1300 m) where melt-driven infiltration-excess/saturation runoff is most sensitive; place columns on the dominant soil of each band, favoring valley/riparian positions for saturation-runoff behavior and mid-slope for infiltration-excess.",
+      "replication": "2 extra columns in the rain-snow transition band across differing soils to separate soil vs elevation signal in the most sensitive zone."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley / rain-dominated, medium soil",
+        "n": 2,
+        "reason": "Baseline low-elevation runoff where precip falls mostly as rain; anchors the no-snow end of the elevation gradient."
+      },
+      {
+        "group": "valley / rain-dominated, coarse soil",
+        "n": 1,
+        "reason": "Isolates soil-texture effect on infiltration vs surface runoff at low elevation."
+      },
+      {
+        "group": "rain-snow transition, medium soil",
+        "n": 2,
+        "reason": "Core zone where melt timing controls runoff generation; primary mechanistic target."
+      },
+      {
+        "group": "rain-snow transition, coarse soil",
+        "n": 1,
+        "reason": "Separates soil control from elevation/snow control within the most sensitive band."
+      },
+      {
+        "group": "rain-snow transition, fine soil",
+        "n": 1,
+        "reason": "Tests saturation-excess runoff where low-permeability soil limits infiltration during melt."
+      },
+      {
+        "group": "snow-dominated, medium soil",
+        "n": 2,
+        "reason": "High-elevation snowpack-driven runoff; establishes the snowmelt-dominated end member (SWE from H2OSNO/QSNOMELT)."
+      },
+      {
+        "group": "snow-dominated, coarse soil",
+        "n": 1,
+        "reason": "Soil-texture contrast at the snow-dominated end of the gradient."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "total runoff (QOVER + QDRAI)",
+        "observation_source": "USGS stream gauges (in-basin)",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 requires routing/area-weighted aggregation of column runoff to a gauge's contributing area; NOT achievable with current single-column output",
+        "metric": "bias, NSE, monthly hydrograph correlation (once aggregation exists)",
+        "n_validation_points": "unknown \u2014 depends on number of in-basin gauges and their contributing areas"
+      },
+      {
+        "target_variable": "snow water equivalent (H2OSNO)",
+        "observation_source": "SNOTEL (if present in/near basin) \u2014 analog if not co-located",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 peak-SWE process check at nearest station; not requested but supports the elevation/snow mechanism",
+        "metric": "peak-SWE bias, melt-out date",
+        "n_validation_points": "unknown \u2014 depends on SNOTEL coverage; not in provided observations"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 10,
+      "exploratory": 10,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS-2 forcing, native SSURGO soil, WTD-informed warm start"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "runoff routing / basin aggregation of column runoff",
+        "why": "USGS gauges measure integrated streamflow; single columns give point runoff",
+        "blocks": "the only requested validation (gauge comparison)"
+      },
+      {
+        "capability": "elevation-downscaled sub-12 km forcing",
+        "why": "NLDAS nearest-cell has no within-cell lapse; underestimates ridge SWE",
+        "blocks": "full resolution of elevation/snow control in high-relief headwaters"
+      },
+      {
+        "capability": "WTD-informed warm start (or multi-year spin-up)",
+        "why": "runoff/drainage partitioning depends on slow soil-moisture/water-table states",
+        "blocks": "credible QDRAI/recharge magnitudes"
+      },
+      {
+        "capability": "SSURGO soil sampler + DEM/elevation sampler",
+        "why": "expander must resolve dominant soil class and elevation band per point",
+        "blocks": "rule-based stratified placement"
+      },
+      {
+        "capability": "SNOTEL ingest (optional)",
+        "why": "process check on the snow mechanism",
+        "blocks": "analog SWE validation"
+      }
+    ],
+    "assumptions": [
+      "User-supplied point (46.62, -119.90) is OUTSIDE the domain bbox and is dropped/flagged; the other two fall within the intended elevation bands and are absorbed into the stratified plan rather than used verbatim.",
+      "Dominant soil classes per elevation band exist and are separable in SSURGO within the Naches; exact classes resolved downstream.",
+      "Forcing period drawn from 1980-2018 NLDAS-2 (CONUS), covering wet/dry years for the sensitivity analysis.",
+      "Runoff generation is treated as per-column water partitioning, not integrated basin discharge."
+    ],
+    "open_questions": [
+      "Which/how many USGS gauges lie in-basin and what are their contributing areas (needed to scope any future aggregation)?",
+      "Was the out-of-domain point (46.62, -119.90) a typo for an in-basin location the user wants retained?",
+      "Is a SNOTEL-based snow process check desired to substantiate the elevation/snow mechanism?",
+      "Preferred forcing years / wet-vs-dry contrast for runoff sensitivity?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6376,
+    "completion_tokens": 4504
+  }
+}

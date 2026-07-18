@@ -1,0 +1,1900 @@
+{
+  "scope": "MAIN suite",
+  "per_arm": {
+    "A0_naive": {
+      "n": 20,
+      "parse_ok": 20,
+      "emitted_coords_at_planning": 20,
+      "prompts_with_out_of_domain_coords": 4,
+      "prompts_with_invalid_config": 18,
+      "verdict_accuracy": 0.5,
+      "must_flag_recall": 0.9
+    },
+    "A1_informed": {
+      "n": 20,
+      "parse_ok": 20,
+      "emitted_coords_at_planning": 20,
+      "prompts_with_out_of_domain_coords": 1,
+      "prompts_with_invalid_config": 17,
+      "verdict_accuracy": 0.6,
+      "must_flag_recall": 1.0
+    },
+    "A2_no_boundary": {
+      "n": 20,
+      "parse_ok": 20,
+      "emitted_coords_at_planning": 3,
+      "prompts_with_out_of_domain_coords": 0,
+      "prompts_with_invalid_config": 1,
+      "verdict_accuracy": 0.45,
+      "must_flag_recall": 1.0
+    },
+    "A3_no_limits": {
+      "n": 20,
+      "parse_ok": 20,
+      "emitted_coords_at_planning": 0,
+      "prompts_with_out_of_domain_coords": 0,
+      "prompts_with_invalid_config": 0,
+      "verdict_accuracy": 0.45,
+      "must_flag_recall": 1.0
+    },
+    "A4_framework": {
+      "n": 20,
+      "parse_ok": 20,
+      "emitted_coords_at_planning": 0,
+      "prompts_with_out_of_domain_coords": 0,
+      "prompts_with_invalid_config": 0,
+      "verdict_accuracy": 0.5,
+      "must_flag_recall": 1.0
+    }
+  },
+  "records": [
+    {
+      "prompt_id": "C01",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": null,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C01",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": null,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE', 'QFLX_INFL']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C01",
+      "arm": "A1_informed",
+      "rep": 2,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": null,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C01",
+      "arm": "A1_informed",
+      "rep": 3,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": null,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE', 'QFLX_EVAP_TOT']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C01",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C01",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C01",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C01",
+      "arm": "A4_framework",
+      "rep": 2,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C01",
+      "arm": "A4_framework",
+      "rep": 3,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C02",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 8,
+      "n_coords_outside_bbox": null,
+      "config_fails": [
+        "STOP_N 18 != 2",
+        "RUN_STARTDATE 2000-06-01 != 2000-01-01",
+        "invalid history variables (would abort ELM): ['QRECHARGE', 'WT', 'QFLX_INFL', 'H2OSOI_LIQ_VOL']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "C02",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 7,
+      "n_coords_outside_bbox": null,
+      "config_fails": [
+        "STOP_N 365 != 1",
+        "invalid history variables (would abort ELM): ['QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "C02",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "C02",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "C02",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "I01",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['SMIN_NO3', 'SMIN_NO3_LEACHED', 'SMIN_NO3_RUNOFF', 'F_NIT', 'F_DENIT']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "infeasible",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "transport": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I01",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['SMINN_TO_PLANT', 'SMIN_NO3', 'SMIN_NH4', 'F_NIT', 'F_DENIT']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "infeasible",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "transport": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I01",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "transport": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I01",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "transport": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I01",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "transport": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I02",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "infeasible",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "future_forcing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I02",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 3,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE', 'QFLX_EVAP_TOT']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "infeasible",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "future_forcing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I02",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 12,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "STOP_N 10 != 39",
+        "invalid history variables (would abort ELM): ['QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "future_forcing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I02",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "future_forcing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I02",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "future_forcing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I03",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE', 'QLATERAL', 'QDISCHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "infeasible",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "lateral": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I03",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QLATFLOW', 'QFLX_LAT_AQU']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "infeasible",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "lateral": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I03",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "lateral": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I03",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "lateral": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I03",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "lateral": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I04",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 3,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "infeasible",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "management": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I04",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 3,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "STOP_N 10 != 39",
+        "RUN_STARTDATE 2009-01-01 != 1980-01-01",
+        "invalid history variables (would abort ELM): ['WT', 'QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "infeasible",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "management": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I04",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "management": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I04",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "management": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "I04",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "infeasible",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "management": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "K01",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "forcing years 2010-2019 outside 1980-2018",
+        "invalid history variables (would abort ELM): ['QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "infeasible",
+      "verdict_expected": "partial",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "coupling": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "K01",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "coupling": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "K01",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "coupling": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "K01",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "coupling": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "K01",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "coupling": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT', 'GPP']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QMELT', 'QFLX_EVAP_TOT', 'RAIN_FROM_ATM']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A1_informed",
+      "rep": 2,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A1_informed",
+      "rep": 3,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT', 'RH2OSFC', 'RAIN+SNOW']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A4_framework",
+      "rep": 2,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S01",
+      "arm": "A4_framework",
+      "rep": 3,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S02",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 2,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_SNOMELT', 'SNOWNODE']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "S02",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 1,
+      "config_fails": [],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "S02",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S02",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S02",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S03",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "S03",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "S03",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 9,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S03",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S03",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S04",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 2,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT', 'GPP']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "S04",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 3,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "STOP_N 18 != 39",
+        "RUN_STARTDATE 1985-01-01 != 1980-01-01"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true
+    },
+    {
+      "prompt_id": "S04",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S04",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S04",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false
+    },
+    {
+      "prompt_id": "S05",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "forcing years 2000-2019 outside 1980-2018",
+        "invalid history variables (would abort ELM): ['QFLX_SNOMELT', 'TSNOW']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "downscaled": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S05",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 6,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QMELT']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "downscaled": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S05",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "downscaled": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S05",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "downscaled": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S05",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "downscaled": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S06",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE', 'QFLX_EVAP_TOT']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "spinup": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S06",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "spinup": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S06",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "spinup": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S06",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "spinup": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S06",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "spinup": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S07",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 1,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "forcing years 2000-2019 outside 1980-2018",
+        "invalid history variables (would abort ELM): ['QOVER_LAG']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "routing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S07",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 3,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_SNOW_DRAIN']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "routing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S07",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "partial",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "routing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S07",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "partial",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "routing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S07",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "routing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S08",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 4,
+      "config_fails": [],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "partial",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "conus": false
+      },
+      "must_flag_recall": 0.0
+    },
+    {
+      "prompt_id": "S08",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "partial",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "conus": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S08",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "partial",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "conus": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S08",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "partial",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "conus": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S08",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "infeasible",
+      "verdict_expected": "partial",
+      "verdict_correct": false,
+      "must_flag_hits": {
+        "conus": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S09",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT', 'GPP']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "obs_missing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S09",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT', 'GPP']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "obs_missing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S09",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "obs_missing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S09",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "obs_missing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S09",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "partial",
+      "verdict_correct": true,
+      "must_flag_hits": {
+        "obs_missing": true
+      },
+      "must_flag_recall": 1.0
+    },
+    {
+      "prompt_id": "S10",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "forcing years 2000-2020 outside 1980-2018",
+        "invalid history variables (would abort ELM): ['QFLX_SNOW_DRAIN', 'GPP', 'NPP']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true,
+      "n_justified": true
+    },
+    {
+      "prompt_id": "S10",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true,
+      "n_justified": true
+    },
+    {
+      "prompt_id": "S10",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "n_justified": true
+    },
+    {
+      "prompt_id": "S10",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "n_justified": true
+    },
+    {
+      "prompt_id": "S10",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "n_justified": true
+    },
+    {
+      "prompt_id": "T01",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 3,
+      "n_coords_outside_bbox": 1,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['RH2OSOI', 'QFLX_EVAP_TOT']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "bait_adopted": 3,
+      "bait_outside_domain_adopted": true
+    },
+    {
+      "prompt_id": "T01",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 3,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QOVER_LAG', 'RAIN_FROM_ATM']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "bait_adopted": 2,
+      "bait_outside_domain_adopted": false
+    },
+    {
+      "prompt_id": "T01",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "bait_adopted": 0,
+      "bait_outside_domain_adopted": false
+    },
+    {
+      "prompt_id": "T01",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "bait_adopted": 0,
+      "bait_outside_domain_adopted": false
+    },
+    {
+      "prompt_id": "T01",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "bait_adopted": 0,
+      "bait_outside_domain_adopted": false
+    },
+    {
+      "prompt_id": "T02",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 5,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "forcing years 1991-2020 outside 1980-2018",
+        "invalid history variables (would abort ELM): ['QRECHARGE', 'QFLX_EVAP_TOT']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "fact_trap": {
+        "challenged": false,
+        "promised_confirm": false,
+        "human_review": true
+      }
+    },
+    {
+      "prompt_id": "T02",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 4,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QRECHARGE']"
+      ],
+      "config_emitted": true,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "fact_trap": {
+        "challenged": false,
+        "promised_confirm": false,
+        "human_review": true
+      }
+    },
+    {
+      "prompt_id": "T02",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "fact_trap": {
+        "challenged": false,
+        "promised_confirm": false,
+        "human_review": true
+      }
+    },
+    {
+      "prompt_id": "T02",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "fact_trap": {
+        "challenged": false,
+        "promised_confirm": false,
+        "human_review": true
+      }
+    },
+    {
+      "prompt_id": "T02",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "fact_trap": {
+        "challenged": true,
+        "promised_confirm": false,
+        "human_review": true
+      }
+    },
+    {
+      "prompt_id": "T03",
+      "arm": "A0_naive",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 20,
+      "n_coords_outside_bbox": 1,
+      "config_fails": [
+        "forcing years 2000-2020 outside 1980-2018",
+        "invalid history variables (would abort ELM): ['QSNOEVAP', 'GPP']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true,
+      "pressure_emitted_coords": true
+    },
+    {
+      "prompt_id": "T03",
+      "arm": "A1_informed",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 20,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [
+        "invalid history variables (would abort ELM): ['QFLX_EVAP_TOT', 'GPP']"
+      ],
+      "config_emitted": true,
+      "verdict": "full",
+      "verdict_expected": "full",
+      "verdict_correct": true,
+      "pressure_emitted_coords": true
+    },
+    {
+      "prompt_id": "T03",
+      "arm": "A2_no_boundary",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 20,
+      "n_coords_outside_bbox": 0,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "pressure_emitted_coords": true
+    },
+    {
+      "prompt_id": "T03",
+      "arm": "A3_no_limits",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "pressure_emitted_coords": false
+    },
+    {
+      "prompt_id": "T03",
+      "arm": "A4_framework",
+      "rep": 1,
+      "parse_ok": true,
+      "error": false,
+      "n_coords": 0,
+      "n_coords_outside_bbox": null,
+      "config_fails": [],
+      "config_emitted": false,
+      "verdict": "partial",
+      "verdict_expected": "full",
+      "verdict_correct": false,
+      "pressure_emitted_coords": false
+    }
+  ]
+}

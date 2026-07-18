@@ -1,0 +1,105 @@
+{
+  "prompt_id": "S10",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Feasible: elevation-band stratification of the Upper Yakima (500-2400 m) is well supported by SNOTEL and USGS gauge data plus available 1980-2018 forcing.\",\n    \"answerable\": [\n      \"Elevation-dependent snow accumulation/ablation (SWE) across bands\",\n      \"Seasonal partitioning of rain vs snow along the elevation gradient\",\n      \"Runoff timing and ET differences between low, mid, and high bands\",\n      \"Soil moisture response modulated by texture within bands\"\n    ],\n    \"not_answerable\": [\n      \"Lateral/hillslope routing and streamflow accumulation (single-column ELM has no lateral transfer)\",\n      \"Full basin-integrated discharge at USGS gauges (requires routing model, not columns)\",\n      \"Aspect/slope radiation microclimate effects (not represented by single-column setup)\"\n    ]\n  },\n  \"n_columns\": 5,\n  \"n_justification\": \"The 500-2400 m range (1900 m relief) is divided into five ~380 m elevation bands to resolve the rain-snow transition and snowpack gradient that dominate Yakima hydrology. Five columns capture (1) low-elevation rain-dominated valley, (2) transitional rain-snow, (3) seasonal snow zone near SNOTEL sensors, (4) reliable snow zone, and (5) high alpine. This is enough to resolve the phase-transition physics without over-fitting to limited driver contrasts (elevation + soil only).\",\n  \"columns\": [\n    {\"id\": \"YAK_b1_valley\", \"lat\": 47.20, \"lon\": -120.95, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"YAK_b2_transition\", \"lat\": 47.30, \"lon\": -121.05, \"soil_texture\": \"loam\"},\n    {\"id\": \"YAK_b3_seasonalsnow\", \"lat\": 47.40, \"lon\": -121.20, \"soil_texture\": \"gravelly loam\"},\n    {\"id\": \"YAK_b4_snowzone\", \"lat\": 47.45, \"lon\": -121.35, \"soil_texture\": \"sandy loam\"},\n    {\"id\": \"YAK_b5_alpine\", \"lat\": 47.50, \"lon\": -121.45, \"soil_texture\": \"loamy sand\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"H2OSNO\",\n      \"SNOWDP\",\n      \"SNOW_DEPTH\",\n      \"FSNO\",\n      \"QSNOMELT\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"H2OSOI\",\n      \"TSOI\",\n      \"TG\",\n      \"QVEGT\",\n      \"QSOIL\",\n      \"EFLX_LH_TOT\",\n      \"FSH\",\n      \"TSA\",\n      \"RH2M\"\n    ]\n  },\n  \"requires_capabilities\": [\"ELM\"],\n  \"assumptions\": [\n    \"Single-column runs are surrogate points for elevation bands; no lateral routing between columns\",\n    \"Column lats/lons chosen along the basin's elevation gradient near SNOTEL sites for validation of SWE\",\n    \"Soil textures assigned per band from typical Cascade montane profiles; can be overridden by SSURGO/gridded surface data\",\n    \"GSWP3/CLMNCEP forcing used with elevation-based downscaling of temperature and precipitation phase\",\n    \"STOP_N in years covering full 1980-2018 forcing after a spin-up cycle to equilibrate soil/snow states\",\n    \"Monthly (default) history output; switch to daily if finer melt-timing analysis is needed\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible: elevation-band stratification of the Upper Yakima (500-2400 m) is well supported by SNOTEL and USGS gauge data plus available 1980-2018 forcing.",
+      "answerable": [
+        "Elevation-dependent snow accumulation/ablation (SWE) across bands",
+        "Seasonal partitioning of rain vs snow along the elevation gradient",
+        "Runoff timing and ET differences between low, mid, and high bands",
+        "Soil moisture response modulated by texture within bands"
+      ],
+      "not_answerable": [
+        "Lateral/hillslope routing and streamflow accumulation (single-column ELM has no lateral transfer)",
+        "Full basin-integrated discharge at USGS gauges (requires routing model, not columns)",
+        "Aspect/slope radiation microclimate effects (not represented by single-column setup)"
+      ]
+    },
+    "n_columns": 5,
+    "n_justification": "The 500-2400 m range (1900 m relief) is divided into five ~380 m elevation bands to resolve the rain-snow transition and snowpack gradient that dominate Yakima hydrology. Five columns capture (1) low-elevation rain-dominated valley, (2) transitional rain-snow, (3) seasonal snow zone near SNOTEL sensors, (4) reliable snow zone, and (5) high alpine. This is enough to resolve the phase-transition physics without over-fitting to limited driver contrasts (elevation + soil only).",
+    "columns": [
+      {
+        "id": "YAK_b1_valley",
+        "lat": 47.2,
+        "lon": -120.95,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "YAK_b2_transition",
+        "lat": 47.3,
+        "lon": -121.05,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "YAK_b3_seasonalsnow",
+        "lat": 47.4,
+        "lon": -121.2,
+        "soil_texture": "gravelly loam"
+      },
+      {
+        "id": "YAK_b4_snowzone",
+        "lat": 47.45,
+        "lon": -121.35,
+        "soil_texture": "sandy loam"
+      },
+      {
+        "id": "YAK_b5_alpine",
+        "lat": 47.5,
+        "lon": -121.45,
+        "soil_texture": "loamy sand"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "H2OSNO",
+        "SNOWDP",
+        "SNOW_DEPTH",
+        "FSNO",
+        "QSNOMELT",
+        "RAIN",
+        "SNOW",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "SOILLIQ",
+        "SOILICE",
+        "H2OSOI",
+        "TSOI",
+        "TG",
+        "QVEGT",
+        "QSOIL",
+        "EFLX_LH_TOT",
+        "FSH",
+        "TSA",
+        "RH2M"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM"
+    ],
+    "assumptions": [
+      "Single-column runs are surrogate points for elevation bands; no lateral routing between columns",
+      "Column lats/lons chosen along the basin's elevation gradient near SNOTEL sites for validation of SWE",
+      "Soil textures assigned per band from typical Cascade montane profiles; can be overridden by SSURGO/gridded surface data",
+      "GSWP3/CLMNCEP forcing used with elevation-based downscaling of temperature and precipitation phase",
+      "STOP_N in years covering full 1980-2018 forcing after a spin-up cycle to equilibrate soil/snow states",
+      "Monthly (default) history output; switch to daily if finer melt-timing analysis is needed"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 699,
+    "completion_tokens": 1365
+  }
+}

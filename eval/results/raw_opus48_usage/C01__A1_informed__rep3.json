@@ -1,0 +1,114 @@
+{
+  "prompt_id": "C01",
+  "arm": "A1_informed",
+  "rep": 3,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "```json\n{\n  \"feasibility\": {\n    \"verdict\": \"Feasible as a controlled single-column sensitivity experiment; clay content is a prescribed soil property in ELM that directly influences hydraulic conductivity, matric potential, and thus infiltration/runoff/recharge partitioning.\",\n    \"answerable\": [\n      \"Sensitivity of surface runoff to soil clay fraction\",\n      \"Sensitivity of drainage/recharge (subsurface runoff + bottom flux) to clay fraction\",\n      \"Partitioning of precipitation into runoff vs. recharge across a clay gradient\",\n      \"Changes in infiltration capacity and soil moisture storage with clay content\"\n    ],\n    \"not_answerable\": [\n      \"Validation against site-specific observed runoff/recharge (no observations provided)\",\n      \"Effects of co-varying sand/silt beyond the imposed clay sweep (only clay is varied)\",\n      \"Lateral or 3D subsurface flow (single-column, 1D assumption)\",\n      \"Impacts of soil organic matter or macropore/preferential flow not represented in default ELM\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"A one-factor controlled sweep of clay content from 5% to 55% in ~10% increments yields 6 discrete levels (5, 15, 25, 35, 45, 55%). All columns share identical location, forcing, and non-clay parameters so that clay is the sole varied factor. Six levels adequately resolve the monotonic-to-nonlinear partitioning response without excessive redundancy.\",\n  \"columns\": [\n    {\"id\": \"clay05\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=5%, sand=45%, silt=50% (sandy loam-like)\"},\n    {\"id\": \"clay15\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=15%, sand=45%, silt=40% (loam)\"},\n    {\"id\": \"clay25\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=25%, sand=40%, silt=35% (clay loam)\"},\n    {\"id\": \"clay35\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=35%, sand=35%, silt=30% (clay loam)\"},\n    {\"id\": \"clay45\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=45%, sand=30%, silt=25% (clay)\"},\n    {\"id\": \"clay55\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=55%, sand=25%, silt=20% (clay)\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QDRAI_PERCH\",\n      \"QINFL\",\n      \"QRECHARGE\",\n      \"QCHARGE\",\n      \"RAIN\",\n      \"SNOW\",\n      \"H2OSOI\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"WA\",\n      \"ZWT\",\n      \"TWS\",\n      \"QFLX_EVAP_TOT\",\n      \"QVEGT\",\n      \"QSOIL\",\n      \"SMP\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"ELM single-column (PTS_MODE / single-point) configuration\",\n    \"User-defined surface dataset (fsurdat) or namelist override to prescribe PCT_CLAY and PCT_SAND per soil layer\",\n    \"GSWP3 / CLMCRUNCEP atmospheric forcing 1980-2018\",\n    \"Model spin-up capability (accelerated or extended) to equilibrate soil moisture and water table before analysis\"\n  ],\n  \"assumptions\": [\n    \"All columns use identical location, meteorological forcing, vegetation/PFT, slope, and soil depth so clay content is the only varied factor.\",\n    \"Clay is varied uniformly across all soil layers; sand and silt are adjusted to sum to 100% following the texture triangle noted per column.\",\n    \"Default ELM pedotransfer functions (Clapp-Hornberger / Cosby) map texture to hydraulic properties; no macropore or preferential-flow parameterization added.\",\n    \"First ~10 years treated as spin-up; partitioning analysis uses the remaining quasi-equilibrium period.\",\n    \"Recharge is diagnosed from QDRAI/QRECHARGE (bottom drainage to aquifer) and runoff from QOVER/QRUNOFF; their ratio characterizes partitioning.\",\n    \"Chosen site (Konza-like central US grassland, ~39.1N, -96.6W) provides a moderate precipitation regime suitable for exposing runoff/recharge sensitivity; conceptual so exact location is illustrative.\",\n    \"No lateral inflow; single-column 1D vertical water balance assumed.\"\n  ]\n}\n```",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible as a controlled single-column sensitivity experiment; clay content is a prescribed soil property in ELM that directly influences hydraulic conductivity, matric potential, and thus infiltration/runoff/recharge partitioning.",
+      "answerable": [
+        "Sensitivity of surface runoff to soil clay fraction",
+        "Sensitivity of drainage/recharge (subsurface runoff + bottom flux) to clay fraction",
+        "Partitioning of precipitation into runoff vs. recharge across a clay gradient",
+        "Changes in infiltration capacity and soil moisture storage with clay content"
+      ],
+      "not_answerable": [
+        "Validation against site-specific observed runoff/recharge (no observations provided)",
+        "Effects of co-varying sand/silt beyond the imposed clay sweep (only clay is varied)",
+        "Lateral or 3D subsurface flow (single-column, 1D assumption)",
+        "Impacts of soil organic matter or macropore/preferential flow not represented in default ELM"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "A one-factor controlled sweep of clay content from 5% to 55% in ~10% increments yields 6 discrete levels (5, 15, 25, 35, 45, 55%). All columns share identical location, forcing, and non-clay parameters so that clay is the sole varied factor. Six levels adequately resolve the monotonic-to-nonlinear partitioning response without excessive redundancy.",
+    "columns": [
+      {
+        "id": "clay05",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=5%, sand=45%, silt=50% (sandy loam-like)"
+      },
+      {
+        "id": "clay15",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=15%, sand=45%, silt=40% (loam)"
+      },
+      {
+        "id": "clay25",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=25%, sand=40%, silt=35% (clay loam)"
+      },
+      {
+        "id": "clay35",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=35%, sand=35%, silt=30% (clay loam)"
+      },
+      {
+        "id": "clay45",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=45%, sand=30%, silt=25% (clay)"
+      },
+      {
+        "id": "clay55",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=55%, sand=25%, silt=20% (clay)"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QDRAI_PERCH",
+        "QINFL",
+        "QRECHARGE",
+        "QCHARGE",
+        "RAIN",
+        "SNOW",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "WA",
+        "ZWT",
+        "TWS",
+        "QFLX_EVAP_TOT",
+        "QVEGT",
+        "QSOIL",
+        "SMP"
+      ]
+    },
+    "requires_capabilities": [
+      "ELM single-column (PTS_MODE / single-point) configuration",
+      "User-defined surface dataset (fsurdat) or namelist override to prescribe PCT_CLAY and PCT_SAND per soil layer",
+      "GSWP3 / CLMCRUNCEP atmospheric forcing 1980-2018",
+      "Model spin-up capability (accelerated or extended) to equilibrate soil moisture and water table before analysis"
+    ],
+    "assumptions": [
+      "All columns use identical location, meteorological forcing, vegetation/PFT, slope, and soil depth so clay content is the only varied factor.",
+      "Clay is varied uniformly across all soil layers; sand and silt are adjusted to sum to 100% following the texture triangle noted per column.",
+      "Default ELM pedotransfer functions (Clapp-Hornberger / Cosby) map texture to hydraulic properties; no macropore or preferential-flow parameterization added.",
+      "First ~10 years treated as spin-up; partitioning analysis uses the remaining quasi-equilibrium period.",
+      "Recharge is diagnosed from QDRAI/QRECHARGE (bottom drainage to aquifer) and runoff from QOVER/QRUNOFF; their ratio characterizes partitioning.",
+      "Chosen site (Konza-like central US grassland, ~39.1N, -96.6W) provides a moderate precipitation regime suitable for exposing runoff/recharge sensitivity; conceptual so exact location is illustrative.",
+      "No lateral inflow; single-column 1D vertical water balance assumed."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 591,
+    "completion_tokens": 1764
+  }
+}

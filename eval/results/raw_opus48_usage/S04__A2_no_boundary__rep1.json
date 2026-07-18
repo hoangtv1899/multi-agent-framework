@@ -1,0 +1,167 @@
+{
+  "prompt_id": "S04",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "Reasoning:\n\nThe request is a clean interannual forcing contrast: how does water partitioning (ET vs. surface runoff vs. sub-surface drainage, plus snow storage) differ between a wet year (1993) and a dry year (2002) in the Salt River headwaters. The primary lever is the FORCING PERIOD \u2014 exactly what the stack supports. Arizona is inside CONUS, so NLDAS-2 (0.125\u00b0) is available and delivers year-specific and location-specific precipitation/temperature, including some orographic signal across the basin's very large relief (~2400 m).\n\nTwo goals: (1) mechanistic \u2014 quantify the wet/dry partitioning shift and how it varies along the elevation/climate gradient (snow-dominated high country vs. semi-arid valleys); (2) validation \u2014 compare to observations. The wet/dry contrast is a per-column TREATMENT (each column is run for both years with spin-up), not a separate set of columns.\n\nElevation is a candidate driver but must be feasibility-checked. NLDAS DOES vary precip/temperature with location/elevation at 12 km, so a coarse elevation-band stratification is meaningful. BUT sub-12 km terrain and true lapse-rate downscaling are unresolved, and high ridgetop snow will be underestimated \u2014 so I treat elevation as PARTIALLY resolved and stratify by it while flagging the limit.\n\nValidation is the weak point. The only in-domain observation is USGS stream gauges, but single-column ELM has NO lateral routing \u2014 there is no native integrated streamflow to compare against a gauge. That requires an aggregation/routing step that is not implemented. SNOTEL is sparse/missing, so co-located SWE validation isn't reliable. I therefore flag streamflow validation as requiring a routing capability, and offer only a basin-aggregated runoff-vs-gauge sanity check (labelled aggregated, not co-located).\n\nBecause a wet/dry contrast depends on comparable initial states (soil moisture, snow, water table), each column needs a WTD-informed warm start plus a couple of spin-up years so the contrast reflects meteorology, not cold-start artifacts.\n\nDesign: stratify by 3 elevation/climate bands \u00d7 dominant soil, ~2 columns per band (one valley/riparian oversample), \u22487 exploratory columns, each run for 1993 and 2002. Small and defensible.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: quantify how water partitioning (ET, surface runoff, sub-surface drainage, snow storage/melt) shifts between a wet year (1993) and a dry year (2002), and how that shift varies along the basin's elevation/climate gradient\",\n      \"Validation: check simulated water balance against available in-domain observations (USGS gauges), honestly scoped given no routing\"\n    ],\n    \"key_processes\": [\n      \"precipitation partitioning into ET vs runoff vs drainage\",\n      \"snow accumulation/melt at high elevation and its seasonal timing\",\n      \"soil-moisture storage change between wet and dry years\"\n    ],\n    \"drivers_to_resolve\": [\"forcing period (1993 wet vs 2002 dry)\", \"elevation/climate gradient (partial)\", \"soil texture\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM directly simulates the ET/runoff/drainage/snow partitioning targeted; the wet/dry contrast is a forcing-period treatment, the framework's native strength, and Arizona is inside CONUS so year- and location-specific NLDAS forcing is available.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Wet-year vs dry-year contrast in ET / surface runoff / sub-surface drainage / snow at each column (year-specific NLDAS forcing)\",\n      \"Coarse variation of that contrast across elevation bands (NLDAS resolves ~12 km precip/temperature gradients, including orographic signal)\",\n      \"Change in soil-moisture and snow storage between the two years\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Validation of partitioning against USGS stream gauge discharge\",\n        \"why\": \"Single-column ELM has no lateral routing; column runoff/drainage cannot be integrated into channel streamflow for gauge comparison\",\n        \"needs\": \"runoff routing / basin aggregation capability\"\n      },\n      {\n        \"aspect\": \"Fine elevation control on snow and precipitation within 12 km cells\",\n        \"why\": \"NLDAS is 0.125 deg with no sub-cell lapse-rate downscaling; ridgetop SWE will be underestimated over ~2400 m of relief\",\n        \"needs\": \"elevation-downscaled forcing\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified (elevation/climate band x dominant soil), forcing-period contrast applied within each column\",\n    \"strata\": [\n      {\"driver\": \"elevation\", \"bands\": [\"valley/semi-arid 900-1500 m\", \"mid/transition 1500-2300 m\", \"high/snow-influenced 2300-3300 m\"]},\n      {\"driver\": \"soil\", \"classes\": [\"coarse (sandy/gravelly valley fill)\", \"finer upland (loam/clay-loam)\"]}\n    ],\n    \"n_exploratory\": 7,\n    \"n_justification\": \"The question is a 2-level forcing contrast (wet/dry), which each column carries internally; N is set by the need to span the elevation/climate gradient (3 bands) crossed with the two dominant soil textures, plus one extra valley/riparian column where partitioning between runoff and drainage is most sensitive. Seven columns span the strata without a blind dense grid.\",\n    \"placement_logic\": \"One-to-two columns per elevation band spanning the ~900-3300 m relief; oversample the valley/riparian corridor (runoff vs recharge partitioning most sensitive there) and place a high-band column in the snow-influenced White Mountain headwaters to capture the largest wet/dry snow signal (noting ridgetop SWE will be low-biased).\",\n    \"replication\": \"Light: two soil variants per band where texture contrast plausibly reorders runoff vs drainage; no pure replication.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"valley / semi-arid low elevation (900-1500 m), coarse soil\", \"n\": 2, \"reason\": \"Captures the driest, most ET-and-infiltration-dominated end where the wet/dry runoff response is flashiest; coarse soil favors drainage over surface runoff.\"},\n    {\"group\": \"mid-elevation transition (1500-2300 m), coarse + finer soil\", \"n\": 2, \"reason\": \"Samples the rain/mixed zone where soil texture most strongly reorders runoff vs sub-surface drainage between wet and dry years.\"},\n    {\"group\": \"high / snow-influenced headwaters (2300-3300 m), upland soil\", \"n\": 2, \"reason\": \"Captures the snow-accumulation-and-melt regime that should show the largest wet-year vs dry-year storage and melt-timing difference (SWE low-biased by 12 km forcing).\"},\n    {\"group\": \"riparian / valley-bottom corridor\", \"n\": 1, \"reason\": \"Oversampled point where partitioning between surface runoff and recharge is most sensitive and most relevant to downstream flow.\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"basin runoff (surface runoff + drainage, aggregated)\",\n      \"observation_source\": \"USGS stream gauges (Salt River headwaters)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"aggregated \u2014 area-weighted sum of column runoff+drainage compared to gauge discharge as a coarse water-balance sanity check; NOT co-located and NOT routed, so timing/attenuation cannot be assessed\",\n      \"metric\": \"annual/seasonal volume bias between wet and dry years\",\n      \"n_validation_points\": \"unknown \u2014 depends on gauge count within HUC 15060103\"\n    },\n    {\n      \"target_variable\": \"peak SWE / snow storage\",\n      \"observation_source\": \"SNOTEL\",\n      \"in_domain_available\": false,\n      \"comparison\": \"analog \u2014 SNOTEL is sparse/missing in-domain; only a qualitative analog check against regional SNOTEL is possible, expecting low bias at ridgetops\",\n      \"metric\": \"qualitative direction/magnitude of wet-vs-dry peak SWE\",\n      \"n_validation_points\": \"0 in-domain (sparse)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 7,\n    \"exploratory\": 7,\n    \"validation\": 0,\n    \"primary_treatment\": \"wet year (1993) vs dry year (2002) NLDAS forcing per column, native SSURGO soil, WTD-informed warm start plus short spin-up\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"runoff routing / basin aggregation\", \"why\": \"convert independent column runoff+drainage into comparable streamflow\", \"blocks\": \"quantitative validation against USGS gauge discharge\"},\n    {\"capability\": \"elevation-downscaled forcing (sub-12 km lapse rate)\", \"why\": \"NLDAS 0.125 deg cannot resolve within-cell terrain over ~2400 m relief\", \"blocks\": \"accurate high-elevation snow/precip and fine elevation control\"},\n    {\"capability\": \"WTD-informed warm start + short spin-up\", \"why\": \"ensure wet/dry contrast reflects meteorology not cold-start artifacts\", \"blocks\": \"credible interannual storage and drainage comparison\"},\n    {\"capability\": \"SSURGO gridded soil sampling\", \"why\": \"assign per-column soil texture across bands\", \"blocks\": \"soil stratification\"},\n    {\"capability\": \"DEM / elevation sampling and HUC boundary resolver\", \"why\": \"place columns in correct elevation bands within HUC 15060103\", \"blocks\": \"elevation stratification and placement\"}\n  ],\n  \"assumptions\": [\n    \"1993 is representatively wet and 2002 representatively dry for this basin within the 1980-2018 NLDAS record\",\n    \"Higher elevations lie generally toward the White Mountains (northeast) of the bbox; concrete coordinates require DEM sampling\",\n    \"USGS gauge(s) exist within the HUC; count and location to be resolved from the gauge inventory\"\n  ],\n  \"open_questions\": [\n    \"Which specific USGS gauge(s) fall inside HUC 15060103, and do their drainage areas match the sampled columns?\",\n    \"Should additional years be added to establish a wet/dry percentile baseline, or is the 1993/2002 pair fixed by the user?\",\n    \"Is a basin-aggregated (unrouted) runoff comparison acceptable, or is routed streamflow required (would trigger the routing backlog item)?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify how water partitioning (ET, surface runoff, sub-surface drainage, snow storage/melt) shifts between a wet year (1993) and a dry year (2002), and how that shift varies along the basin's elevation/climate gradient",
+        "Validation: check simulated water balance against available in-domain observations (USGS gauges), honestly scoped given no routing"
+      ],
+      "key_processes": [
+        "precipitation partitioning into ET vs runoff vs drainage",
+        "snow accumulation/melt at high elevation and its seasonal timing",
+        "soil-moisture storage change between wet and dry years"
+      ],
+      "drivers_to_resolve": [
+        "forcing period (1993 wet vs 2002 dry)",
+        "elevation/climate gradient (partial)",
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM directly simulates the ET/runoff/drainage/snow partitioning targeted; the wet/dry contrast is a forcing-period treatment, the framework's native strength, and Arizona is inside CONUS so year- and location-specific NLDAS forcing is available.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Wet-year vs dry-year contrast in ET / surface runoff / sub-surface drainage / snow at each column (year-specific NLDAS forcing)",
+        "Coarse variation of that contrast across elevation bands (NLDAS resolves ~12 km precip/temperature gradients, including orographic signal)",
+        "Change in soil-moisture and snow storage between the two years"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Validation of partitioning against USGS stream gauge discharge",
+          "why": "Single-column ELM has no lateral routing; column runoff/drainage cannot be integrated into channel streamflow for gauge comparison",
+          "needs": "runoff routing / basin aggregation capability"
+        },
+        {
+          "aspect": "Fine elevation control on snow and precipitation within 12 km cells",
+          "why": "NLDAS is 0.125 deg with no sub-cell lapse-rate downscaling; ridgetop SWE will be underestimated over ~2400 m of relief",
+          "needs": "elevation-downscaled forcing"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (elevation/climate band x dominant soil), forcing-period contrast applied within each column",
+      "strata": [
+        {
+          "driver": "elevation",
+          "bands": [
+            "valley/semi-arid 900-1500 m",
+            "mid/transition 1500-2300 m",
+            "high/snow-influenced 2300-3300 m"
+          ]
+        },
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse (sandy/gravelly valley fill)",
+            "finer upland (loam/clay-loam)"
+          ]
+        }
+      ],
+      "n_exploratory": 7,
+      "n_justification": "The question is a 2-level forcing contrast (wet/dry), which each column carries internally; N is set by the need to span the elevation/climate gradient (3 bands) crossed with the two dominant soil textures, plus one extra valley/riparian column where partitioning between runoff and drainage is most sensitive. Seven columns span the strata without a blind dense grid.",
+      "placement_logic": "One-to-two columns per elevation band spanning the ~900-3300 m relief; oversample the valley/riparian corridor (runoff vs recharge partitioning most sensitive there) and place a high-band column in the snow-influenced White Mountain headwaters to capture the largest wet/dry snow signal (noting ridgetop SWE will be low-biased).",
+      "replication": "Light: two soil variants per band where texture contrast plausibly reorders runoff vs drainage; no pure replication."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley / semi-arid low elevation (900-1500 m), coarse soil",
+        "n": 2,
+        "reason": "Captures the driest, most ET-and-infiltration-dominated end where the wet/dry runoff response is flashiest; coarse soil favors drainage over surface runoff."
+      },
+      {
+        "group": "mid-elevation transition (1500-2300 m), coarse + finer soil",
+        "n": 2,
+        "reason": "Samples the rain/mixed zone where soil texture most strongly reorders runoff vs sub-surface drainage between wet and dry years."
+      },
+      {
+        "group": "high / snow-influenced headwaters (2300-3300 m), upland soil",
+        "n": 2,
+        "reason": "Captures the snow-accumulation-and-melt regime that should show the largest wet-year vs dry-year storage and melt-timing difference (SWE low-biased by 12 km forcing)."
+      },
+      {
+        "group": "riparian / valley-bottom corridor",
+        "n": 1,
+        "reason": "Oversampled point where partitioning between surface runoff and recharge is most sensitive and most relevant to downstream flow."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "basin runoff (surface runoff + drainage, aggregated)",
+        "observation_source": "USGS stream gauges (Salt River headwaters)",
+        "in_domain_available": true,
+        "comparison": "aggregated \u2014 area-weighted sum of column runoff+drainage compared to gauge discharge as a coarse water-balance sanity check; NOT co-located and NOT routed, so timing/attenuation cannot be assessed",
+        "metric": "annual/seasonal volume bias between wet and dry years",
+        "n_validation_points": "unknown \u2014 depends on gauge count within HUC 15060103"
+      },
+      {
+        "target_variable": "peak SWE / snow storage",
+        "observation_source": "SNOTEL",
+        "in_domain_available": false,
+        "comparison": "analog \u2014 SNOTEL is sparse/missing in-domain; only a qualitative analog check against regional SNOTEL is possible, expecting low bias at ridgetops",
+        "metric": "qualitative direction/magnitude of wet-vs-dry peak SWE",
+        "n_validation_points": "0 in-domain (sparse)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 7,
+      "exploratory": 7,
+      "validation": 0,
+      "primary_treatment": "wet year (1993) vs dry year (2002) NLDAS forcing per column, native SSURGO soil, WTD-informed warm start plus short spin-up"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "runoff routing / basin aggregation",
+        "why": "convert independent column runoff+drainage into comparable streamflow",
+        "blocks": "quantitative validation against USGS gauge discharge"
+      },
+      {
+        "capability": "elevation-downscaled forcing (sub-12 km lapse rate)",
+        "why": "NLDAS 0.125 deg cannot resolve within-cell terrain over ~2400 m relief",
+        "blocks": "accurate high-elevation snow/precip and fine elevation control"
+      },
+      {
+        "capability": "WTD-informed warm start + short spin-up",
+        "why": "ensure wet/dry contrast reflects meteorology not cold-start artifacts",
+        "blocks": "credible interannual storage and drainage comparison"
+      },
+      {
+        "capability": "SSURGO gridded soil sampling",
+        "why": "assign per-column soil texture across bands",
+        "blocks": "soil stratification"
+      },
+      {
+        "capability": "DEM / elevation sampling and HUC boundary resolver",
+        "why": "place columns in correct elevation bands within HUC 15060103",
+        "blocks": "elevation stratification and placement"
+      }
+    ],
+    "assumptions": [
+      "1993 is representatively wet and 2002 representatively dry for this basin within the 1980-2018 NLDAS record",
+      "Higher elevations lie generally toward the White Mountains (northeast) of the bbox; concrete coordinates require DEM sampling",
+      "USGS gauge(s) exist within the HUC; count and location to be resolved from the gauge inventory"
+    ],
+    "open_questions": [
+      "Which specific USGS gauge(s) fall inside HUC 15060103, and do their drainage areas match the sampled columns?",
+      "Should additional years be added to establish a wet/dry percentile baseline, or is the 1993/2002 pair fixed by the user?",
+      "Is a basin-aggregated (unrouted) runoff comparison acceptable, or is routed streamflow required (would trigger the routing backlog item)?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6385,
+    "completion_tokens": 4830
+  }
+}

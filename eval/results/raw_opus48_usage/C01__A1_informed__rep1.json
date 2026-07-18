@@ -1,0 +1,107 @@
+{
+  "prompt_id": "C01",
+  "arm": "A1_informed",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"Feasible as a conceptual controlled sensitivity experiment; clay content is a prescribable soil property in ELM and directly controls hydraulic parameters governing runoff/recharge partitioning.\",\n    \"answerable\": [\n      \"Direction and magnitude of runoff vs. recharge (drainage) partitioning as clay fraction increases from 5% to 55%\",\n      \"Sensitivity of surface runoff (QOVER), subsurface drainage/recharge (QDRAI/QRECHARGE), and infiltration to clay content\",\n      \"Changes in soil moisture profile and saturated hydraulic conductivity driven by clay-dependent pedotransfer functions\"\n    ],\n    \"not_answerable\": [\n      \"Site-specific validation against observed runoff/recharge (no observations provided)\",\n      \"Effects of covarying sand/organic matter or structure (held fixed by design)\",\n      \"Sub-grid spatial heterogeneity or lateral flow beyond single-column vertical partitioning\"\n    ]\n  },\n  \"n_columns\": 6,\n  \"n_justification\": \"Six columns evenly span the requested clay range (5, 15, 25, 35, 45, 55%) at 10% intervals, sufficient to resolve a monotonic sensitivity curve while keeping the controlled experiment tractable. All other properties, location, and forcing are identical across columns so the only varying factor is clay content.\",\n  \"columns\": [\n    {\"id\": \"clay05\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=5%, sand=45%, silt=50% (loam-like), identical across columns except clay\"},\n    {\"id\": \"clay15\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=15%, sand=45%, silt=40%\"},\n    {\"id\": \"clay25\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=25%, sand=45%, silt=30%\"},\n    {\"id\": \"clay35\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=35%, sand=45%, silt=20%\"},\n    {\"id\": \"clay45\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=45%, sand=45%, silt=10%\"},\n    {\"id\": \"clay55\", \"lat\": 39.1, \"lon\": -96.6, \"soil_texture\": \"clay=55%, sand=45%, silt=0%\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"1980\",\n    \"DATM_CLMNCEP_YR_END\": \"2018\",\n    \"STOP_N\": \"39\",\n    \"RUN_STARTDATE\": \"1980-01-01\",\n    \"hist_variables\": [\n      \"QRUNOFF\",\n      \"QOVER\",\n      \"QDRAI\",\n      \"QRECHARGE\",\n      \"QINFL\",\n      \"QFLX_INFL\",\n      \"RAIN\",\n      \"SNOW\",\n      \"QVEGT\",\n      \"QSOIL\",\n      \"SOILLIQ\",\n      \"SOILICE\",\n      \"H2OSOI\",\n      \"ZWT\",\n      \"WA\",\n      \"TWS\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"Ability to override PCT_CLAY/PCT_SAND in the ELM surface dataset per column\",\n    \"Single-point/single-column ELM configuration (I-compset, e.g. I1PtClm or ELM_USRDAT single-column)\",\n    \"GSWP3 or CRUNCEP atmospheric forcing for 1980-2018\",\n    \"Accelerated-decomposition or hydrologic spinup capability prior to the transient run\"\n  ],\n  \"assumptions\": [\n    \"Clay is varied while sand is held at 45% and silt absorbs the remaining fraction; this keeps a single controlled axis (clay) though silt covaries by construction.\",\n    \"All columns share identical PFT, atmospheric forcing, topographic slope, and initial conditions so runoff/recharge differences are attributable to clay-driven hydraulic parameters (via ELM pedotransfer functions).\",\n    \"A 20-40 year accelerated spinup precedes the reported transient period to remove initial-condition bias in soil moisture and water table.\",\n    \"Recharge is diagnosed from bottom-layer drainage (QDRAI/QRECHARGE); surface runoff from QOVER; partitioning reported as long-term means.\",\n    \"Location chosen (Konza-region, Kansas) provides a temperate continental hydroclimate with meaningful runoff/recharge competition; results are conceptual, not a site calibration.\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "Feasible as a conceptual controlled sensitivity experiment; clay content is a prescribable soil property in ELM and directly controls hydraulic parameters governing runoff/recharge partitioning.",
+      "answerable": [
+        "Direction and magnitude of runoff vs. recharge (drainage) partitioning as clay fraction increases from 5% to 55%",
+        "Sensitivity of surface runoff (QOVER), subsurface drainage/recharge (QDRAI/QRECHARGE), and infiltration to clay content",
+        "Changes in soil moisture profile and saturated hydraulic conductivity driven by clay-dependent pedotransfer functions"
+      ],
+      "not_answerable": [
+        "Site-specific validation against observed runoff/recharge (no observations provided)",
+        "Effects of covarying sand/organic matter or structure (held fixed by design)",
+        "Sub-grid spatial heterogeneity or lateral flow beyond single-column vertical partitioning"
+      ]
+    },
+    "n_columns": 6,
+    "n_justification": "Six columns evenly span the requested clay range (5, 15, 25, 35, 45, 55%) at 10% intervals, sufficient to resolve a monotonic sensitivity curve while keeping the controlled experiment tractable. All other properties, location, and forcing are identical across columns so the only varying factor is clay content.",
+    "columns": [
+      {
+        "id": "clay05",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=5%, sand=45%, silt=50% (loam-like), identical across columns except clay"
+      },
+      {
+        "id": "clay15",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=15%, sand=45%, silt=40%"
+      },
+      {
+        "id": "clay25",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=25%, sand=45%, silt=30%"
+      },
+      {
+        "id": "clay35",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=35%, sand=45%, silt=20%"
+      },
+      {
+        "id": "clay45",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=45%, sand=45%, silt=10%"
+      },
+      {
+        "id": "clay55",
+        "lat": 39.1,
+        "lon": -96.6,
+        "soil_texture": "clay=55%, sand=45%, silt=0%"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "1980",
+      "DATM_CLMNCEP_YR_END": "2018",
+      "STOP_N": "39",
+      "RUN_STARTDATE": "1980-01-01",
+      "hist_variables": [
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QRECHARGE",
+        "QINFL",
+        "QFLX_INFL",
+        "RAIN",
+        "SNOW",
+        "QVEGT",
+        "QSOIL",
+        "SOILLIQ",
+        "SOILICE",
+        "H2OSOI",
+        "ZWT",
+        "WA",
+        "TWS"
+      ]
+    },
+    "requires_capabilities": [
+      "Ability to override PCT_CLAY/PCT_SAND in the ELM surface dataset per column",
+      "Single-point/single-column ELM configuration (I-compset, e.g. I1PtClm or ELM_USRDAT single-column)",
+      "GSWP3 or CRUNCEP atmospheric forcing for 1980-2018",
+      "Accelerated-decomposition or hydrologic spinup capability prior to the transient run"
+    ],
+    "assumptions": [
+      "Clay is varied while sand is held at 45% and silt absorbs the remaining fraction; this keeps a single controlled axis (clay) though silt covaries by construction.",
+      "All columns share identical PFT, atmospheric forcing, topographic slope, and initial conditions so runoff/recharge differences are attributable to clay-driven hydraulic parameters (via ELM pedotransfer functions).",
+      "A 20-40 year accelerated spinup precedes the reported transient period to remove initial-condition bias in soil moisture and water table.",
+      "Recharge is diagnosed from bottom-layer drainage (QDRAI/QRECHARGE); surface runoff from QOVER; partitioning reported as long-term means.",
+      "Location chosen (Konza-region, Kansas) provides a temperate continental hydroclimate with meaningful runoff/recharge competition; results are conceptual, not a site calibration."
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 591,
+    "completion_tokens": 1821
+  }
+}

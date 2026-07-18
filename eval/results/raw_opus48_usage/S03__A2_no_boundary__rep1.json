@@ -1,0 +1,220 @@
+{
+  "prompt_id": "S03",
+  "arm": "A2_no_boundary",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**Decomposition.** The request is one primary mechanistic question \u2014 *how strongly does soil texture control sub-surface drainage?* \u2014 with an implicit validation goal. This is a sensitivity question: vary soil texture, hold climate forcing effectively fixed, and measure the spread in QDRAI (sub-surface drainage) plus QDRAI-related fluxes. Because the driver named is soil texture and the domain is low-relief (260\u2013420 m, only ~160 m relief over a broad ag landscape), climate/elevation is NOT a meaningful second axis here \u2014 a real strength, because soil texture is exactly the lever the stack CAN pull cleanly (SSURGO per column). This makes the design well-matched to framework capability.\n\n**Feasibility.** The mechanism (soil texture \u2192 hydraulic conductivity/porosity \u2192 partitioning into drainage vs runoff vs ET) is directly representable. Two caveats matter:\n1. **Drainage/recharge is a slow state** \u2014 QDRAI is meaningless from a cold start at the default 8.8 m water table. This design MUST use the Fan(2013) WTD-informed warm start (and/or spin-up years), or the texture signal will be swamped by initialization drift. This is required, not optional.\n2. **Validation is the weak point.** The natural observable for sub-surface/tile drainage in this heavily tile-drained ag basin is *tile-drain flow*, which the brief lists as MISSING in-domain. So I cannot validate the drainage flux directly. USGS wells (sparse) let me sanity-check the warm-started water-table state (WTD), which is an indirect check on the storage/drainage regime \u2014 but this is a partial validation only. I will state this honestly: the mechanistic ranking of texture effects is fully answerable; quantitative validation of the drainage magnitude is a gap.\n\nAlso note ELM columns are 1-D with no lateral transport and no tile-drain parameterization \u2014 QDRAI is free-drainage/baseflow, an analog of net downward drainage, not literal tile flow. This is acceptable for a *relative* texture-sensitivity study but must be flagged.\n\n**Design.** Because the question is a texture-sensitivity study across a real (not idealized) landscape but with a single dominant driver, I use a stratified design across the dominant SSURGO texture classes present in the basin (sands/loamy sands on outwash terraces, silt loams on uplands/loess, silty clay loams / clay loams in poorly-drained lowlands), with light replication to separate texture signal from residual forcing variation. ~9 exploratory columns spanning ~3\u20134 texture classes with 2\u20133 reps each resolves the response cleanly. Validation columns are pinned to whatever sparse USGS wells fall in-domain (count unknown \u2014 data-dependent).\n\n## JSON\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: quantify the strength of soil-texture control on sub-surface drainage (QDRAI) across the Upper Iowa agricultural landscape by ranking drainage response across texture classes under common forcing\",\n      \"Validation: indirectly check the warm-started water-table / storage regime against sparse in-domain USGS wells; acknowledge no direct drainage-flux validation is possible (tile-drain data missing)\"\n    ],\n    \"key_processes\": [\n      \"vertical water partitioning (ET vs surface runoff vs sub-surface drainage)\",\n      \"unsaturated-zone conductivity / porosity control on recharge and baseflow\",\n      \"water-table / aquifer storage evolution (slow state)\"\n    ],\n    \"drivers_to_resolve\": [\"soil texture\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Soil texture is a per-column SSURGO lever the single-column ELM can pull directly; low basin relief means climate/elevation is not a competing driver, so a texture-stratified column set isolates the mechanism the question asks about.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Relative strength / ranking of soil-texture control on sub-surface drainage (QDRAI) under common forcing\",\n      \"Texture control on the full partitioning (ET, surface runoff, drainage) and on water-table/storage state, given a WTD-informed warm start\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Quantitative validation of sub-surface / tile-drainage magnitude against measurements\",\n        \"why\": \"brief lists tile-drain flow data as observations_missing; ELM is also 1-D free-drainage with no tile-drain parameterization, so QDRAI is a drainage analog, not literal tile flow\",\n        \"needs\": \"tile-drain flow observation ingest (and ideally a tile-drainage parameterization)\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified by dominant SSURGO texture class, with light replication\",\n    \"strata\": [\n      {\n        \"driver\": \"soil\",\n        \"classes\": [\"sand / loamy sand (outwash terraces)\", \"loam / silt loam (loess uplands)\", \"silty clay loam / clay loam (poorly-drained lowlands)\"]\n      }\n    ],\n    \"n_exploratory\": 9,\n    \"n_justification\": \"One dominant driver with ~3 contrasting texture classes; 3 replicate columns per class (different landscape positions/forcing cells) separate the texture signal from residual forcing/soil-attribute variation without a blind dense grid.\",\n    \"placement_logic\": \"Place replicates of each texture class across the basin so each class is sampled in more than one NLDAS cell; concentrate the coarse (sand) and fine (clay loam) end-members that bound the drainage response, and site the fine/poorly-drained class in lowland/valley positions where drainage-vs-runoff contrast is largest.\",\n    \"replication\": \"3 columns per texture class to distinguish texture effect from minor forcing-cell and secondary-soil-property differences.\"\n  },\n  \"sampling_plan\": [\n    {\n      \"group\": \"coarse end-member (sand / loamy sand, outwash terraces)\",\n      \"n\": 3,\n      \"reason\": \"High-conductivity upper bound on drainage \u2014 expected maximum QDRAI, low surface runoff; anchors the sensitive end of the texture response.\"\n    },\n    {\n      \"group\": \"intermediate (loam / silt loam, loess uplands)\",\n      \"n\": 3,\n      \"reason\": \"Dominant ag-landscape texture \u2014 the central case the basin-wide answer must characterize.\"\n    },\n    {\n      \"group\": \"fine end-member (silty clay loam / clay loam, poorly-drained lowlands)\",\n      \"n\": 3,\n      \"reason\": \"Low-conductivity lower bound \u2014 expected minimum drainage / maximum surface runoff; anchors the opposite end and the tile-drained lowland setting.\"\n    },\n    {\n      \"group\": \"validation columns at USGS wells\",\n      \"n\": 0,\n      \"reason\": \"Placed on any sparse in-domain USGS well locations to check warm-started water-table state; count is data-dependent (see validation_design), so left at 0 pending well coordinates.\"\n    }\n  ],\n  \"sampling_plan_detail\": {\n    \"columns\": [\n      {\"id\": \"sand_1\",  \"lat\": 43.30, \"lon\": -92.30},\n      {\"id\": \"sand_2\",  \"lat\": 43.45, \"lon\": -91.80},\n      {\"id\": \"sand_3\",  \"lat\": 43.55, \"lon\": -91.45},\n      {\"id\": \"loam_1\",  \"lat\": 43.35, \"lon\": -92.20},\n      {\"id\": \"loam_2\",  \"lat\": 43.50, \"lon\": -91.90},\n      {\"id\": \"loam_3\",  \"lat\": 43.60, \"lon\": -91.55},\n      {\"id\": \"clay_1\",  \"lat\": 43.25, \"lon\": -92.10},\n      {\"id\": \"clay_2\",  \"lat\": 43.40, \"lon\": -91.70},\n      {\"id\": \"clay_3\",  \"lat\": 43.58, \"lon\": -91.35}\n    ],\n    \"elm_config\": {\n      \"DATM_CLMNCEP_YR_START\": 1990,\n      \"DATM_CLMNCEP_YR_END\": 2010,\n      \"STOP_N\": 21,\n      \"RUN_STARTDATE\": \"1990-01-01\",\n      \"hist_variables\": [\"QDRAI\", \"QOVER\", \"QRUNOFF\", \"QRECHARGE\", \"ZWT\", \"H2OSOI\", \"EFLX_LH_TOT\", \"QVEGT\", \"QSOIL\"]\n    },\n    \"config_note\": \"Native SSURGO texture per column (the treatment). WTD-informed Fan-2013 warm start required on every column before the analysis window; multi-year window supports both spin-up and a stable drainage climatology. Downstream configurator finalizes exact namelist.\"\n  },\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth (ZWT) \u2014 indirect storage-regime check\",\n      \"observation_source\": \"USGS wells (sparse, in-domain)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located \u2014 place a validation column at each usable well and compare warm-started/drifted ZWT to observed WTD\",\n      \"metric\": \"bias and RMSE\",\n      \"n_validation_points\": \"unknown \u2014 depends on well density and data availability\"\n    },\n    {\n      \"target_variable\": \"sub-surface drainage flux (QDRAI)\",\n      \"observation_source\": \"tile-drain flow (NOT available in-domain)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"none possible in-domain \u2014 flagged as a gap; could only be done as an analog at an instrumented tile-drained site elsewhere in the Corn Belt\",\n      \"metric\": \"n/a\",\n      \"n_validation_points\": \"0\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 9,\n    \"exploratory\": 9,\n    \"validation\": 0,\n    \"primary_treatment\": \"native SSURGO soil texture per column, common NLDAS-2 forcing period, WTD-informed warm start\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"WTD-informed warm start (Fan 2013) and/or multi-year spin-up\", \"why\": \"sub-surface drainage/recharge is a slow state; cold start at default 8.8 m water table makes QDRAI an initialization artifact\", \"blocks\": \"any meaningful drainage magnitude or ranking\"},\n    {\"capability\": \"gridded SSURGO soil ingest per column\", \"why\": \"texture is the treatment axis; each column must carry its native texture class\", \"blocks\": \"the entire texture-sensitivity design\"},\n    {\"capability\": \"tile-drain flow observation ingest\", \"why\": \"the natural observable for sub-surface drainage validation in this tile-drained ag basin\", \"blocks\": \"direct validation of the drainage flux (currently a gap)\"},\n    {\"capability\": \"USGS well WTD ingest + in-domain well locator\", \"why\": \"to place and score the indirect water-table validation columns\", \"blocks\": \"the only available in-domain validation\"},\n    {\"capability\": \"tile-drainage parameterization (optional)\", \"why\": \"ELM QDRAI is free-drainage/baseflow, not engineered tile flow\", \"blocks\": \"literal comparison to tile-drain observations even if data existed\"}\n  ],\n  \"assumptions\": [\n    \"Basin lies within CONUS NLDAS-2 coverage so all columns get ~12 km location-varying forcing.\",\n    \"At least three contrasting SSURGO texture classes (coarse outwash, silt-loam uplands, fine lowlands) are actually present in the basin.\",\n    \"Low relief (~160 m) means climate/elevation is not a competing driver; forcing is treated as effectively common across the texture treatment.\",\n    \"QDRAI is interpreted as a relative drainage analog, adequate for ranking texture sensitivity.\"\n  ],\n  \"open_questions\": [\n    \"How many USGS wells fall inside HUC 07060002 and have usable water-level records? This sets the validation column count.\",\n    \"Are any instrumented tile-drainage sites (in-domain or regional analog) available to close the drainage-validation gap?\",\n    \"Preferred analysis window within 1980-2018 (e.g. wet vs dry years) \u2014 does the user want a drought/wet contrast, or a long-term climatology?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify the strength of soil-texture control on sub-surface drainage (QDRAI) across the Upper Iowa agricultural landscape by ranking drainage response across texture classes under common forcing",
+        "Validation: indirectly check the warm-started water-table / storage regime against sparse in-domain USGS wells; acknowledge no direct drainage-flux validation is possible (tile-drain data missing)"
+      ],
+      "key_processes": [
+        "vertical water partitioning (ET vs surface runoff vs sub-surface drainage)",
+        "unsaturated-zone conductivity / porosity control on recharge and baseflow",
+        "water-table / aquifer storage evolution (slow state)"
+      ],
+      "drivers_to_resolve": [
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Soil texture is a per-column SSURGO lever the single-column ELM can pull directly; low basin relief means climate/elevation is not a competing driver, so a texture-stratified column set isolates the mechanism the question asks about.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Relative strength / ranking of soil-texture control on sub-surface drainage (QDRAI) under common forcing",
+        "Texture control on the full partitioning (ET, surface runoff, drainage) and on water-table/storage state, given a WTD-informed warm start"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Quantitative validation of sub-surface / tile-drainage magnitude against measurements",
+          "why": "brief lists tile-drain flow data as observations_missing; ELM is also 1-D free-drainage with no tile-drain parameterization, so QDRAI is a drainage analog, not literal tile flow",
+          "needs": "tile-drain flow observation ingest (and ideally a tile-drainage parameterization)"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified by dominant SSURGO texture class, with light replication",
+      "strata": [
+        {
+          "driver": "soil",
+          "classes": [
+            "sand / loamy sand (outwash terraces)",
+            "loam / silt loam (loess uplands)",
+            "silty clay loam / clay loam (poorly-drained lowlands)"
+          ]
+        }
+      ],
+      "n_exploratory": 9,
+      "n_justification": "One dominant driver with ~3 contrasting texture classes; 3 replicate columns per class (different landscape positions/forcing cells) separate the texture signal from residual forcing/soil-attribute variation without a blind dense grid.",
+      "placement_logic": "Place replicates of each texture class across the basin so each class is sampled in more than one NLDAS cell; concentrate the coarse (sand) and fine (clay loam) end-members that bound the drainage response, and site the fine/poorly-drained class in lowland/valley positions where drainage-vs-runoff contrast is largest.",
+      "replication": "3 columns per texture class to distinguish texture effect from minor forcing-cell and secondary-soil-property differences."
+    },
+    "sampling_plan": [
+      {
+        "group": "coarse end-member (sand / loamy sand, outwash terraces)",
+        "n": 3,
+        "reason": "High-conductivity upper bound on drainage \u2014 expected maximum QDRAI, low surface runoff; anchors the sensitive end of the texture response."
+      },
+      {
+        "group": "intermediate (loam / silt loam, loess uplands)",
+        "n": 3,
+        "reason": "Dominant ag-landscape texture \u2014 the central case the basin-wide answer must characterize."
+      },
+      {
+        "group": "fine end-member (silty clay loam / clay loam, poorly-drained lowlands)",
+        "n": 3,
+        "reason": "Low-conductivity lower bound \u2014 expected minimum drainage / maximum surface runoff; anchors the opposite end and the tile-drained lowland setting."
+      },
+      {
+        "group": "validation columns at USGS wells",
+        "n": 0,
+        "reason": "Placed on any sparse in-domain USGS well locations to check warm-started water-table state; count is data-dependent (see validation_design), so left at 0 pending well coordinates."
+      }
+    ],
+    "sampling_plan_detail": {
+      "columns": [
+        {
+          "id": "sand_1",
+          "lat": 43.3,
+          "lon": -92.3
+        },
+        {
+          "id": "sand_2",
+          "lat": 43.45,
+          "lon": -91.8
+        },
+        {
+          "id": "sand_3",
+          "lat": 43.55,
+          "lon": -91.45
+        },
+        {
+          "id": "loam_1",
+          "lat": 43.35,
+          "lon": -92.2
+        },
+        {
+          "id": "loam_2",
+          "lat": 43.5,
+          "lon": -91.9
+        },
+        {
+          "id": "loam_3",
+          "lat": 43.6,
+          "lon": -91.55
+        },
+        {
+          "id": "clay_1",
+          "lat": 43.25,
+          "lon": -92.1
+        },
+        {
+          "id": "clay_2",
+          "lat": 43.4,
+          "lon": -91.7
+        },
+        {
+          "id": "clay_3",
+          "lat": 43.58,
+          "lon": -91.35
+        }
+      ],
+      "elm_config": {
+        "DATM_CLMNCEP_YR_START": 1990,
+        "DATM_CLMNCEP_YR_END": 2010,
+        "STOP_N": 21,
+        "RUN_STARTDATE": "1990-01-01",
+        "hist_variables": [
+          "QDRAI",
+          "QOVER",
+          "QRUNOFF",
+          "QRECHARGE",
+          "ZWT",
+          "H2OSOI",
+          "EFLX_LH_TOT",
+          "QVEGT",
+          "QSOIL"
+        ]
+      },
+      "config_note": "Native SSURGO texture per column (the treatment). WTD-informed Fan-2013 warm start required on every column before the analysis window; multi-year window supports both spin-up and a stable drainage climatology. Downstream configurator finalizes exact namelist."
+    },
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth (ZWT) \u2014 indirect storage-regime check",
+        "observation_source": "USGS wells (sparse, in-domain)",
+        "in_domain_available": true,
+        "comparison": "co-located \u2014 place a validation column at each usable well and compare warm-started/drifted ZWT to observed WTD",
+        "metric": "bias and RMSE",
+        "n_validation_points": "unknown \u2014 depends on well density and data availability"
+      },
+      {
+        "target_variable": "sub-surface drainage flux (QDRAI)",
+        "observation_source": "tile-drain flow (NOT available in-domain)",
+        "in_domain_available": false,
+        "comparison": "none possible in-domain \u2014 flagged as a gap; could only be done as an analog at an instrumented tile-drained site elsewhere in the Corn Belt",
+        "metric": "n/a",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 9,
+      "exploratory": 9,
+      "validation": 0,
+      "primary_treatment": "native SSURGO soil texture per column, common NLDAS-2 forcing period, WTD-informed warm start"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "WTD-informed warm start (Fan 2013) and/or multi-year spin-up",
+        "why": "sub-surface drainage/recharge is a slow state; cold start at default 8.8 m water table makes QDRAI an initialization artifact",
+        "blocks": "any meaningful drainage magnitude or ranking"
+      },
+      {
+        "capability": "gridded SSURGO soil ingest per column",
+        "why": "texture is the treatment axis; each column must carry its native texture class",
+        "blocks": "the entire texture-sensitivity design"
+      },
+      {
+        "capability": "tile-drain flow observation ingest",
+        "why": "the natural observable for sub-surface drainage validation in this tile-drained ag basin",
+        "blocks": "direct validation of the drainage flux (currently a gap)"
+      },
+      {
+        "capability": "USGS well WTD ingest + in-domain well locator",
+        "why": "to place and score the indirect water-table validation columns",
+        "blocks": "the only available in-domain validation"
+      },
+      {
+        "capability": "tile-drainage parameterization (optional)",
+        "why": "ELM QDRAI is free-drainage/baseflow, not engineered tile flow",
+        "blocks": "literal comparison to tile-drain observations even if data existed"
+      }
+    ],
+    "assumptions": [
+      "Basin lies within CONUS NLDAS-2 coverage so all columns get ~12 km location-varying forcing.",
+      "At least three contrasting SSURGO texture classes (coarse outwash, silt-loam uplands, fine lowlands) are actually present in the basin.",
+      "Low relief (~160 m) means climate/elevation is not a competing driver; forcing is treated as effectively common across the texture treatment.",
+      "QDRAI is interpreted as a relative drainage analog, adequate for ranking texture sensitivity."
+    ],
+    "open_questions": [
+      "How many USGS wells fall inside HUC 07060002 and have usable water-level records? This sets the validation column count.",
+      "Are any instrumented tile-drainage sites (in-domain or regional analog) available to close the drainage-validation gap?",
+      "Preferred analysis window within 1980-2018 (e.g. wet vs dry years) \u2014 does the user want a drought/wet contrast, or a long-term climatology?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6373,
+    "completion_tokens": 4820
+  }
+}

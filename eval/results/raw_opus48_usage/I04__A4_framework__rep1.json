@@ -1,0 +1,189 @@
+{
+  "prompt_id": "I04",
+  "arm": "A4_framework",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\"scientific_decomposition\": {\"goals\": [\"mechanistic: quantify transient water-table recovery under a 30% agricultural pumping reduction over a decade\", \"validation: compare simulated water levels to USGS well observations in-domain\"], \"key_processes\": [\"groundwater pumping (extraction sink)\", \"lateral/regional groundwater flow\", \"transient aquifer head recovery\", \"diffuse recharge from the land surface\"], \"drivers_to_resolve\": [\"management (pumping)\", \"soil texture\", \"elevation (minor, ~160 m relief)\"]}, \"model_choice\": {\"primary_model\": \"ELM\", \"design_archetype\": \"site\", \"rationale\": \"Brief tags this 'site', but the physical question is a transient groundwater-management problem. ELM single-column can only contribute a spatial recharge estimate; it cannot represent pumping, lateral flow, or regional head recovery.\", \"coupling_needed\": true, \"coupling_note\": \"Answering the question requires ELM recharge (QDRAI) to drive a TRANSIENT groundwater model with an explicit pumping-well sink. PFLOTRAN is steady-state only and the ELM->PFLOTRAN coupler is unbuilt; both are listed under requires_capabilities.\"}, \"feasibility\": {\"verdict\": \"infeasible\", \"answerable\": [\"spatial diffuse recharge (QDRAI / sub-surface drainage) across the basin's soil and land-cover heterogeneity under current climate, warm-started from Fan (2013) WTD\", \"1-D column soil-moisture / partitioning sensitivity to soil texture\"], \"not_answerable\": [{\"aspect\": \"water-table recovery from a 30% pumping reduction\", \"why\": \"ELM is single-column with no lateral transport, no regional water table, and NO pumping sink lever; a 1-D column head cannot be drawn down or recovered by extraction.\", \"needs\": \"transient groundwater flow model with an explicit pumping-well sink\"}, {\"aspect\": \"decadal transient recovery trajectory\", \"why\": \"PFLOTRAN is steady-state only and there is no ELM->PFLOTRAN transient coupler.\", \"needs\": \"transient ELM->groundwater coupling\"}, {\"aspect\": \"baseline vs reduced-pumping scenario definition\", \"why\": \"observations_missing includes pumping records; extraction rates are the required boundary condition and are unavailable.\", \"needs\": \"agricultural pumping / withdrawal dataset\"}]}, \"sampling_strategy\": {\"approach\": \"stratified (soil-primary, light elevation split) for the answerable recharge sub-problem only\", \"strata\": [{\"driver\": \"soil\", \"classes\": [\"coarse/sandy (SSURGO)\", \"loam (SSURGO)\", \"fine/clay-rich (SSURGO)\"]}, {\"driver\": \"elevation\", \"bands\": [\"lowland/valley 260-330 m\", \"upland 330-420 m\"]}], \"n_exploratory\": 8, \"n_justification\": \"3 dominant soil classes x 2 elevation bands ~= 6, plus ~2 replicate columns in valley bottoms where recharge/water-table exchange is strongest. Relief is only ~160 m so elevation is a minor split; soil is the real ELM lever. This resolves the recharge field, NOT the pumping question.\", \"placement_logic\": \"Concentrate columns in valley-bottom agricultural corridors (where pumping and recharge exchange dominate) and across the main SSURGO soil contrasts; light upland coverage for the recharge gradient.\", \"replication\": \"2 replicate valley-bottom columns to bracket recharge variance in the zone most relevant to any future groundwater coupling.\"}, \"sampling_plan\": [{\"group\": \"valley-bottom, coarse soil\", \"n\": 2, \"reason\": \"High-recharge sandy corridors where any pumping/recovery signal would concentrate; isolates coarse-soil recharge.\"}, {\"group\": \"valley-bottom, loam\", \"n\": 2, \"reason\": \"Dominant agricultural loam in lowlands; replicate to bracket recharge variance in the key zone.\"}, {\"group\": \"valley-bottom, fine/clay\", \"n\": 1, \"reason\": \"Low-recharge fine soils; sets the lower recharge bound in the exchange zone.\"}, {\"group\": \"upland, coarse soil\", \"n\": 1, \"reason\": \"Upland coarse-soil recharge end-member for the spatial gradient.\"}, {\"group\": \"upland, loam\", \"n\": 1, \"reason\": \"Upland loam recharge for the gradient.\"}, {\"group\": \"upland, fine/clay\", \"n\": 1, \"reason\": \"Upland fine-soil low-recharge end-member.\"}], \"validation_design\": [{\"target_variable\": \"recharge (QDRAI / sub-surface drainage)\", \"observation_source\": \"no direct recharge observations in brief\", \"in_domain_available\": false, \"comparison\": \"none \\u2014 recharge is a model diagnostic here; no in-domain recharge measurements\", \"metric\": \"n/a\", \"n_validation_points\": \"0\"}, {\"target_variable\": \"water_table_depth\", \"observation_source\": \"USGS wells\", \"in_domain_available\": true, \"comparison\": \"co-located static comparison of ELM warm-start/spun-up column WTD to well levels \\u2014 CAVEAT: ELM 1-D equilibrium is not a regional head and cannot represent pumping drawdown, so this validates only the undisturbed column state, NOT the recovery scenario\", \"metric\": \"bias, RMSE\", \"n_validation_points\": \"unknown \\u2014 depends on USGS well density in HUC 07060002\"}], \"experiment_summary\": {\"total_columns\": 8, \"exploratory\": 8, \"validation\": 0, \"primary_treatment\": \"baseline NLDAS-2 forcing, native SSURGO soil, Fan (2013) WTD warm start, multi-year spin-up for recharge\"}, \"requires_capabilities\": [{\"capability\": \"transient groundwater flow model with explicit pumping-well sink\", \"why\": \"the question's core mechanism is extraction-driven drawdown and recovery, which ELM cannot represent\", \"blocks\": \"the entire pumping-recovery question\"}, {\"capability\": \"transient ELM->PFLOTRAN (or other GW model) coupling\", \"why\": \"PFLOTRAN is steady-state only; decadal recovery is inherently transient\", \"blocks\": \"decadal recovery trajectory\"}, {\"capability\": \"agricultural pumping / withdrawal dataset\", \"why\": \"observations_missing includes pumping records; baseline and -30% scenarios need extraction rates as a boundary condition\", \"blocks\": \"scenario definition\"}, {\"capability\": \"lateral/regional groundwater flow + routing\", \"why\": \"single-column ELM has no lateral transport or regional water table\", \"blocks\": \"basin-scale head recovery and connectivity\"}, {\"capability\": \"model spin-up / WTD warm start\", \"why\": \"recharge and water-table targets require spun-up slow states, not cold-start artifacts\", \"blocks\": \"meaningful recharge estimate (the answerable sub-problem)\"}, {\"capability\": \"SSURGO soil + DEM/elevation sampling and HUC8 boundary resolver\", \"why\": \"needed to expand the stratified recharge sampling rules into points\", \"blocks\": \"column placement\"}], \"assumptions\": [\"'management' driver is interpreted as agricultural groundwater pumping.\", \"USGS wells provide static/observed water levels, not pumping-scenario response.\", \"Basin relief (~160 m) makes elevation a minor driver relative to soil for the ELM-answerable recharge sub-problem.\", \"The 8-column plan addresses ONLY the recharge sub-problem; it does not answer the pumping-recovery question.\"], \"open_questions\": [\"Are agricultural pumping/withdrawal rates (baseline) available anywhere for the basin? Without them no scenario can be defined.\", \"What aquifer geometry / hydraulic properties exist for a groundwater model?\", \"Is the intent to build the recharge input for a future coupled model, or to obtain the recovery answer now (the latter is infeasible in this stack)?\", \"How dense are USGS wells within HUC 07060002 for any validation?\"]}",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: quantify transient water-table recovery under a 30% agricultural pumping reduction over a decade",
+        "validation: compare simulated water levels to USGS well observations in-domain"
+      ],
+      "key_processes": [
+        "groundwater pumping (extraction sink)",
+        "lateral/regional groundwater flow",
+        "transient aquifer head recovery",
+        "diffuse recharge from the land surface"
+      ],
+      "drivers_to_resolve": [
+        "management (pumping)",
+        "soil texture",
+        "elevation (minor, ~160 m relief)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Brief tags this 'site', but the physical question is a transient groundwater-management problem. ELM single-column can only contribute a spatial recharge estimate; it cannot represent pumping, lateral flow, or regional head recovery.",
+      "coupling_needed": true,
+      "coupling_note": "Answering the question requires ELM recharge (QDRAI) to drive a TRANSIENT groundwater model with an explicit pumping-well sink. PFLOTRAN is steady-state only and the ELM->PFLOTRAN coupler is unbuilt; both are listed under requires_capabilities."
+    },
+    "feasibility": {
+      "verdict": "infeasible",
+      "answerable": [
+        "spatial diffuse recharge (QDRAI / sub-surface drainage) across the basin's soil and land-cover heterogeneity under current climate, warm-started from Fan (2013) WTD",
+        "1-D column soil-moisture / partitioning sensitivity to soil texture"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "water-table recovery from a 30% pumping reduction",
+          "why": "ELM is single-column with no lateral transport, no regional water table, and NO pumping sink lever; a 1-D column head cannot be drawn down or recovered by extraction.",
+          "needs": "transient groundwater flow model with an explicit pumping-well sink"
+        },
+        {
+          "aspect": "decadal transient recovery trajectory",
+          "why": "PFLOTRAN is steady-state only and there is no ELM->PFLOTRAN transient coupler.",
+          "needs": "transient ELM->groundwater coupling"
+        },
+        {
+          "aspect": "baseline vs reduced-pumping scenario definition",
+          "why": "observations_missing includes pumping records; extraction rates are the required boundary condition and are unavailable.",
+          "needs": "agricultural pumping / withdrawal dataset"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified (soil-primary, light elevation split) for the answerable recharge sub-problem only",
+      "strata": [
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy (SSURGO)",
+            "loam (SSURGO)",
+            "fine/clay-rich (SSURGO)"
+          ]
+        },
+        {
+          "driver": "elevation",
+          "bands": [
+            "lowland/valley 260-330 m",
+            "upland 330-420 m"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "3 dominant soil classes x 2 elevation bands ~= 6, plus ~2 replicate columns in valley bottoms where recharge/water-table exchange is strongest. Relief is only ~160 m so elevation is a minor split; soil is the real ELM lever. This resolves the recharge field, NOT the pumping question.",
+      "placement_logic": "Concentrate columns in valley-bottom agricultural corridors (where pumping and recharge exchange dominate) and across the main SSURGO soil contrasts; light upland coverage for the recharge gradient.",
+      "replication": "2 replicate valley-bottom columns to bracket recharge variance in the zone most relevant to any future groundwater coupling."
+    },
+    "sampling_plan": [
+      {
+        "group": "valley-bottom, coarse soil",
+        "n": 2,
+        "reason": "High-recharge sandy corridors where any pumping/recovery signal would concentrate; isolates coarse-soil recharge."
+      },
+      {
+        "group": "valley-bottom, loam",
+        "n": 2,
+        "reason": "Dominant agricultural loam in lowlands; replicate to bracket recharge variance in the key zone."
+      },
+      {
+        "group": "valley-bottom, fine/clay",
+        "n": 1,
+        "reason": "Low-recharge fine soils; sets the lower recharge bound in the exchange zone."
+      },
+      {
+        "group": "upland, coarse soil",
+        "n": 1,
+        "reason": "Upland coarse-soil recharge end-member for the spatial gradient."
+      },
+      {
+        "group": "upland, loam",
+        "n": 1,
+        "reason": "Upland loam recharge for the gradient."
+      },
+      {
+        "group": "upland, fine/clay",
+        "n": 1,
+        "reason": "Upland fine-soil low-recharge end-member."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "recharge (QDRAI / sub-surface drainage)",
+        "observation_source": "no direct recharge observations in brief",
+        "in_domain_available": false,
+        "comparison": "none \u2014 recharge is a model diagnostic here; no in-domain recharge measurements",
+        "metric": "n/a",
+        "n_validation_points": "0"
+      },
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells",
+        "in_domain_available": true,
+        "comparison": "co-located static comparison of ELM warm-start/spun-up column WTD to well levels \u2014 CAVEAT: ELM 1-D equilibrium is not a regional head and cannot represent pumping drawdown, so this validates only the undisturbed column state, NOT the recovery scenario",
+        "metric": "bias, RMSE",
+        "n_validation_points": "unknown \u2014 depends on USGS well density in HUC 07060002"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 8,
+      "exploratory": 8,
+      "validation": 0,
+      "primary_treatment": "baseline NLDAS-2 forcing, native SSURGO soil, Fan (2013) WTD warm start, multi-year spin-up for recharge"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "transient groundwater flow model with explicit pumping-well sink",
+        "why": "the question's core mechanism is extraction-driven drawdown and recovery, which ELM cannot represent",
+        "blocks": "the entire pumping-recovery question"
+      },
+      {
+        "capability": "transient ELM->PFLOTRAN (or other GW model) coupling",
+        "why": "PFLOTRAN is steady-state only; decadal recovery is inherently transient",
+        "blocks": "decadal recovery trajectory"
+      },
+      {
+        "capability": "agricultural pumping / withdrawal dataset",
+        "why": "observations_missing includes pumping records; baseline and -30% scenarios need extraction rates as a boundary condition",
+        "blocks": "scenario definition"
+      },
+      {
+        "capability": "lateral/regional groundwater flow + routing",
+        "why": "single-column ELM has no lateral transport or regional water table",
+        "blocks": "basin-scale head recovery and connectivity"
+      },
+      {
+        "capability": "model spin-up / WTD warm start",
+        "why": "recharge and water-table targets require spun-up slow states, not cold-start artifacts",
+        "blocks": "meaningful recharge estimate (the answerable sub-problem)"
+      },
+      {
+        "capability": "SSURGO soil + DEM/elevation sampling and HUC8 boundary resolver",
+        "why": "needed to expand the stratified recharge sampling rules into points",
+        "blocks": "column placement"
+      }
+    ],
+    "assumptions": [
+      "'management' driver is interpreted as agricultural groundwater pumping.",
+      "USGS wells provide static/observed water levels, not pumping-scenario response.",
+      "Basin relief (~160 m) makes elevation a minor driver relative to soil for the ELM-answerable recharge sub-problem.",
+      "The 8-column plan addresses ONLY the recharge sub-problem; it does not answer the pumping-recovery question."
+    ],
+    "open_questions": [
+      "Are agricultural pumping/withdrawal rates (baseline) available anywhere for the basin? Without them no scenario can be defined.",
+      "What aquifer geometry / hydraulic properties exist for a groundwater model?",
+      "Is the intent to build the recharge input for a future coupled model, or to obtain the recovery answer now (the latter is infeasible in this stack)?",
+      "How dense are USGS wells within HUC 07060002 for any validation?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 6375,
+    "completion_tokens": 4425
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "prompt_id": "S03",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## REASONING\n\n**Decomposition.** The request has one dominant mechanistic goal \u2014 quantify how strongly *soil texture* controls ELM sub-surface drainage (QDRAI) across an agricultural landscape \u2014 plus an implicit validation goal. Soil texture directly governs hydraulic conductivity, field capacity, and the drainage/recharge partitioning, so this is squarely a lever ELM can pull via gridded soil configuration.\n\n**Feasibility.** Soil-texture control on sub-surface drainage is answerable: it is a native ELM sensitivity, resolvable by stratifying single-column runs across the dominant soil textures under one representative forcing. The elevation range (260\u2013420 m, only 160 m) is small and, with uniform forcing, cannot be tested as an independent climate/snow driver \u2014 so I do not present elevation as a factor. The critical validation weakness: the target variable itself (sub-surface / tile-drain flow) has **no in-domain observations** \u2014 tile-drain flow data are explicitly missing. USGS wells are sparse and measure water-table depth, not drainage flux, so they support only an indirect, analog-style process check. Verdict: **partial** \u2014 the mechanistic sensitivity is fully answerable; direct validation of the target flux is not.\n\n**Sampling as rules.** Stratify by soil texture class (the sole candidate driver). Real texture classes come from the downstream expander sampling a soil raster; I specify the strata as texture bands (coarse/sandy \u2192 medium/loam \u2192 fine/clay, plus the organic/poorly-drained lowland soils that dominate tile-drained ag land). N is small and driver-spanning: ~3\u20135 dominant texture classes \u00d7 light replication to capture within-class variability, plus validation columns pinned to the sparse wells. Placement should oversample poorly-drained lowland/valley soils where tile drainage and drainage flux are largest and most texture-sensitive.\n\n**Validation.** Water-table depth vs USGS wells: co-located where wells fall in-domain but sparse; treat as indirect corroboration of the drainage regime, not direct flux validation. Tile-drain flux: gap \u2014 flag it.\n\n## JSON\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"Mechanistic: quantify the strength of soil-texture control on ELM sub-surface drainage (QDRAI) across the agricultural landscape\",\n      \"Validation: check simulated hydrologic state against available in-domain observations\"\n    ],\n    \"key_processes\": [\"sub-surface drainage/recharge partitioning\", \"soil hydraulic conductivity\", \"field capacity / drainable porosity\", \"vertical soil-moisture redistribution\"],\n    \"drivers_to_resolve\": [\"soil texture\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Soil-texture control on sub-surface drainage is a native ELM single-column sensitivity, resolvable by stratifying columns across dominant textures under a common forcing.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"Strength of soil-texture control on sub-surface drainage flux (QDRAI) via stratified single-column runs under uniform forcing\",\n      \"Ranking of texture classes by drainage magnitude and seasonality\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"Direct validation of simulated sub-surface / tile-drain flux\",\n        \"why\": \"tile-drain flow observations are missing in-domain; there is no measured drainage flux to compare against\",\n        \"needs\": \"tile-drain flow observation ingest\"\n      },\n      {\n        \"aspect\": \"Elevation / topographic control on drainage\",\n        \"why\": \"only 160 m relief and uniform forcing; a column set is not elevation-downscaled, so any variation reflects soil not elevation\",\n        \"needs\": \"elevation-downscaled forcing\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified\",\n    \"strata\": [\n      {\"driver\": \"soil\", \"classes\": [\"coarse/sandy\", \"medium/loam (silt loam)\", \"fine/clay\", \"organic / poorly-drained lowland\"]}\n    ],\n    \"n_exploratory\": 8,\n    \"n_justification\": \"One driver (soil texture) with ~4 dominant texture classes spanning the drainage-relevant range; 2 columns per class gives light within-class replication to separate texture signal from raster sampling noise. This is the smallest set that resolves the texture gradient without a blind grid.\",\n    \"placement_logic\": \"Oversample poorly-drained lowland/valley soils on the agricultural landscape where tile drainage and sub-surface drainage flux are largest and most texture-sensitive; span upland well-drained soils for contrast.\",\n    \"replication\": \"2 columns per texture class to capture within-class heterogeneity from raster sampling.\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"coarse/sandy soils\", \"n\": 2, \"reason\": \"high-conductivity endmember; expected maximum recharge/drainage, sets the upper bound of the texture response.\"},\n    {\"group\": \"medium/loam (silt loam) soils\", \"n\": 2, \"reason\": \"dominant agricultural texture; the central reference case for drainage partitioning.\"},\n    {\"group\": \"fine/clay soils\", \"n\": 2, \"reason\": \"low-conductivity endmember; expected minimum drainage, tests the lower bound of texture control.\"},\n    {\"group\": \"organic / poorly-drained lowland soils\", \"n\": 2, \"reason\": \"tile-drained lowlands where drainage flux is largest and most texture-sensitive; oversampled per placement logic.\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells (sparse)\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located where wells fall within domain \u2014 indirect corroboration of the drainage/water-table regime, not direct flux validation\",\n      \"metric\": \"bias, correlation\",\n      \"n_validation_points\": \"unknown \u2014 depends on well density (sparse)\"\n    },\n    {\n      \"target_variable\": \"sub_surface_drainage_flux (QDRAI)\",\n      \"observation_source\": \"tile-drain flow (MISSING in-domain)\",\n      \"in_domain_available\": false,\n      \"comparison\": \"none available \u2014 flagged as validation gap; could be addressed via analog tile-drainage monitoring sites elsewhere in the Corn Belt (clearly analog, not co-located)\",\n      \"metric\": \"n/a\",\n      \"n_validation_points\": \"0\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 8,\n    \"exploratory\": 8,\n    \"validation\": 0,\n    \"primary_treatment\": \"baseline 1980-2018 forcing, native gridded soil per column, texture varied by stratum\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"gridded soil-texture sampling\", \"why\": \"expander must assign real texture classes per column from a soil raster\", \"blocks\": \"stratification by soil texture\"},\n    {\"capability\": \"tile-drain flow observation ingest\", \"why\": \"no in-domain drainage-flux observations exist to validate the target variable\", \"blocks\": \"direct validation of QDRAI\"},\n    {\"capability\": \"USGS well observation ingest\", \"why\": \"to co-locate and compare simulated water-table depth\", \"blocks\": \"indirect state validation\"},\n    {\"capability\": \"model spin-up\", \"why\": \"soil-moisture and drainage states must equilibrate before the analysis period\", \"blocks\": \"trustworthy steady drainage fluxes\"},\n    {\"capability\": \"elevation-downscaled forcing\", \"why\": \"needed to attribute any drainage variation to elevation/climate rather than soil\", \"blocks\": \"elevation-control analysis (out of current scope)\"}\n  ],\n  \"assumptions\": [\n    \"One representative forcing (drawn from 1980-2018) is applied uniformly across columns, isolating soil texture as the varied factor.\",\n    \"The agricultural landscape is dominated by a small number (~4) of texture classes that the soil raster resolves.\",\n    \"USGS wells, though sparse, fall within or near the domain and index the water-table regime relevant to drainage.\",\n    \"Native ELM does not represent engineered tile drainage explicitly; QDRAI is interpreted as the sub-surface drainage proxy.\"\n  ],\n  \"open_questions\": [\n    \"Is engineered tile drainage to be represented, or is natural sub-surface drainage (QDRAI) the intended target?\",\n    \"How many USGS wells actually fall inside the HUC 07060002 boundary?\",\n    \"Is a single climatological forcing acceptable, or should wet/dry years be contrasted to test texture control under different moisture regimes?\",\n    \"Are analog tile-drainage monitoring sites (e.g., Iowa/Illinois research farms) acceptable for process validation of drainage flux?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "Mechanistic: quantify the strength of soil-texture control on ELM sub-surface drainage (QDRAI) across the agricultural landscape",
+        "Validation: check simulated hydrologic state against available in-domain observations"
+      ],
+      "key_processes": [
+        "sub-surface drainage/recharge partitioning",
+        "soil hydraulic conductivity",
+        "field capacity / drainable porosity",
+        "vertical soil-moisture redistribution"
+      ],
+      "drivers_to_resolve": [
+        "soil texture"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Soil-texture control on sub-surface drainage is a native ELM single-column sensitivity, resolvable by stratifying columns across dominant textures under a common forcing.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "Strength of soil-texture control on sub-surface drainage flux (QDRAI) via stratified single-column runs under uniform forcing",
+        "Ranking of texture classes by drainage magnitude and seasonality"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "Direct validation of simulated sub-surface / tile-drain flux",
+          "why": "tile-drain flow observations are missing in-domain; there is no measured drainage flux to compare against",
+          "needs": "tile-drain flow observation ingest"
+        },
+        {
+          "aspect": "Elevation / topographic control on drainage",
+          "why": "only 160 m relief and uniform forcing; a column set is not elevation-downscaled, so any variation reflects soil not elevation",
+          "needs": "elevation-downscaled forcing"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified",
+      "strata": [
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy",
+            "medium/loam (silt loam)",
+            "fine/clay",
+            "organic / poorly-drained lowland"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "One driver (soil texture) with ~4 dominant texture classes spanning the drainage-relevant range; 2 columns per class gives light within-class replication to separate texture signal from raster sampling noise. This is the smallest set that resolves the texture gradient without a blind grid.",
+      "placement_logic": "Oversample poorly-drained lowland/valley soils on the agricultural landscape where tile drainage and sub-surface drainage flux are largest and most texture-sensitive; span upland well-drained soils for contrast.",
+      "replication": "2 columns per texture class to capture within-class heterogeneity from raster sampling."
+    },
+    "sampling_plan": [
+      {
+        "group": "coarse/sandy soils",
+        "n": 2,
+        "reason": "high-conductivity endmember; expected maximum recharge/drainage, sets the upper bound of the texture response."
+      },
+      {
+        "group": "medium/loam (silt loam) soils",
+        "n": 2,
+        "reason": "dominant agricultural texture; the central reference case for drainage partitioning."
+      },
+      {
+        "group": "fine/clay soils",
+        "n": 2,
+        "reason": "low-conductivity endmember; expected minimum drainage, tests the lower bound of texture control."
+      },
+      {
+        "group": "organic / poorly-drained lowland soils",
+        "n": 2,
+        "reason": "tile-drained lowlands where drainage flux is largest and most texture-sensitive; oversampled per placement logic."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells (sparse)",
+        "in_domain_available": true,
+        "comparison": "co-located where wells fall within domain \u2014 indirect corroboration of the drainage/water-table regime, not direct flux validation",
+        "metric": "bias, correlation",
+        "n_validation_points": "unknown \u2014 depends on well density (sparse)"
+      },
+      {
+        "target_variable": "sub_surface_drainage_flux (QDRAI)",
+        "observation_source": "tile-drain flow (MISSING in-domain)",
+        "in_domain_available": false,
+        "comparison": "none available \u2014 flagged as validation gap; could be addressed via analog tile-drainage monitoring sites elsewhere in the Corn Belt (clearly analog, not co-located)",
+        "metric": "n/a",
+        "n_validation_points": "0"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 8,
+      "exploratory": 8,
+      "validation": 0,
+      "primary_treatment": "baseline 1980-2018 forcing, native gridded soil per column, texture varied by stratum"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "gridded soil-texture sampling",
+        "why": "expander must assign real texture classes per column from a soil raster",
+        "blocks": "stratification by soil texture"
+      },
+      {
+        "capability": "tile-drain flow observation ingest",
+        "why": "no in-domain drainage-flux observations exist to validate the target variable",
+        "blocks": "direct validation of QDRAI"
+      },
+      {
+        "capability": "USGS well observation ingest",
+        "why": "to co-locate and compare simulated water-table depth",
+        "blocks": "indirect state validation"
+      },
+      {
+        "capability": "model spin-up",
+        "why": "soil-moisture and drainage states must equilibrate before the analysis period",
+        "blocks": "trustworthy steady drainage fluxes"
+      },
+      {
+        "capability": "elevation-downscaled forcing",
+        "why": "needed to attribute any drainage variation to elevation/climate rather than soil",
+        "blocks": "elevation-control analysis (out of current scope)"
+      }
+    ],
+    "assumptions": [
+      "One representative forcing (drawn from 1980-2018) is applied uniformly across columns, isolating soil texture as the varied factor.",
+      "The agricultural landscape is dominated by a small number (~4) of texture classes that the soil raster resolves.",
+      "USGS wells, though sparse, fall within or near the domain and index the water-table regime relevant to drainage.",
+      "Native ELM does not represent engineered tile drainage explicitly; QDRAI is interpreted as the sub-surface drainage proxy."
+    ],
+    "open_questions": [
+      "Is engineered tile drainage to be represented, or is natural sub-surface drainage (QDRAI) the intended target?",
+      "How many USGS wells actually fall inside the HUC 07060002 boundary?",
+      "Is a single climatological forcing acceptable, or should wet/dry years be contrasted to test texture control under different moisture regimes?",
+      "Are analog tile-drainage monitoring sites (e.g., Iowa/Illinois research farms) acceptable for process validation of drainage flux?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 5137,
+    "completion_tokens": 3251
+  }
+}

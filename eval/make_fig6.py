@@ -85,12 +85,15 @@ def main():
     if args.wave == "sonnet45":
         args.layout = "full6"   # the pre-registered per-class view, complete
 
+    # Parenthesis-free parallel names; explanations live in the caption.
+    # Identity is carried by the row label alone (uniform bar color).
+    dag = "†" if args.wave == "sonnet45" else ""
     ARMS = [  # fixed order, top to bottom
-        ("A0_naive",       "Naive LLM\n(question only)"),
-        ("A1_informed",    "Informed LLM\n(+ same data brief)"),
-        ("A2_no_boundary", W["a2_label"]),
-        ("A3_no_limits",   "− limits inventory\n(ablation)"),
-        ("A4_framework",   "Framework\n(this work)"),
+        ("A0_naive",       "Naive LLM"),
+        ("A1_informed",    "Informed LLM"),
+        ("A2_no_boundary", f"Boundary ablation{dag}"),
+        ("A3_no_limits",   "Limits ablation"),
+        ("A4_framework",   "SAGE-Hydro"),
     ]
 
     sc = json.loads((ROOT / "eval" / "results" / W["scores"]).read_text())
@@ -150,24 +153,10 @@ def main():
         fig, axes = plt.subplots(2, 3, figsize=(11.5, 6.2), sharex=True)
     ypos = range(len(ARMS) - 1, -1, -1)
 
-    def panel(ax, title, vals, xlabel, higher_better=False):
-        for y, (arm, label) in zip(ypos, ARMS):
-            v = vals[arm]
-            color = ACCENT if arm == "A4_framework" else NEUTRAL
-            if v is None:
-                ax.text(0.02, y, "n/a — no config emitted at planning",
-                        va="center", fontsize=7.0, color=MUT, style="italic")
-            else:
-                ax.barh(y, v, height=0.62, color=color, edgecolor="none",
-                        zorder=3)
-                ax.text(v + 0.02, y, f"{v * 100:.0f}%", va="center",
-                        fontsize=8, color=INK)
+    def style(ax, title, xlabel):
         ax.set_ylim(-0.65, len(ARMS) - 0.35)
         ax.set_yticks(list(ypos))
-        ax.set_yticklabels([lab for _, lab in ARMS], fontsize=7.6)
-        ax.set_xlim(0, 1.14)
-        ax.set_xticks([0, .25, .5, .75, 1.0])
-        ax.set_xticklabels(["0", "25", "50", "75", "100%"], fontsize=7.5)
+        ax.set_yticklabels([lab for _, lab in ARMS], fontsize=8.2)
         ax.set_title(title, fontsize=9.5, fontweight="bold", loc="left")
         ax.set_xlabel(xlabel, fontsize=8, color=MUT)
         ax.grid(axis="x", alpha=.25, zorder=0)
@@ -175,15 +164,62 @@ def main():
             ax.spines[sp].set_visible(False)
         ax.tick_params(left=False)
 
+    def panel(ax, title, vals, xlabel, higher_better=False):
+        for y, (arm, label) in zip(ypos, ARMS):
+            v = vals[arm]
+            if v is None:
+                ax.text(0.02, y, "n/a — no config emitted at planning",
+                        va="center", fontsize=7.0, color=MUT, style="italic")
+            else:
+                ax.barh(y, v, height=0.62, color=NEUTRAL, edgecolor="none",
+                        zorder=3)
+                ax.text(v + 0.02, y, f"{v * 100:.0f}%", va="center",
+                        fontsize=8, color=INK)
+        ax.set_xlim(0, 1.14)
+        ax.set_xticks([0, .25, .5, .75, 1.0])
+        ax.set_xticklabels(["0", "25", "50", "75", "100%"], fontsize=7.5)
+        style(ax, title, xlabel)
+
+    def token_panel(ax, title, vals, xlabel):
+        vmax = max(vals.values())
+        for y, (arm, label) in zip(ypos, ARMS):
+            v = vals[arm]
+            ax.barh(y, v, height=0.62, color=NEUTRAL, edgecolor="none", zorder=3)
+            ax.text(v + vmax * 0.02, y, f"{v / 1000:.1f}k", va="center",
+                    fontsize=8, color=INK)
+        ax.set_xlim(0, vmax * 1.18)
+        ax.xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda x, _: f"{x/1000:.0f}k" if x else "0"))
+        ax.tick_params(axis="x", labelsize=7.5)
+        style(ax, title, xlabel)
+
     if args.layout == "main4":
-        for ax, (title, vals) in zip(axes[:3], top.items()):
-            panel(ax, title, vals, f"% of {n_prompts} prompts (lower is better)")
-        # panel (d): over-claim rate only, same visual grammar as (a)-(c).
-        # Under-claims (conservative hedges) go to the caption, keeping one
-        # color system: blue/gray = arm identity, never metric type.
-        panel(axes[3], "(d) feasibility verdicts that over-claim",
+        # (a) coords, (b) invalid configs, (c) over-claims, (d) TOTAL tokens.
+        # Out-of-basin coordinates (near-empty on this wave) live in the
+        # caption. Tokens come from the declared instrumentation wave
+        # (raw_opus48_usage; addendum 4) — measured, not estimated.
+        titles = list(top.items())
+        panel(axes[0], titles[0][0], titles[0][1],
+              f"% of {n_prompts} prompts (lower is better)")
+        panel(axes[1], "(b) invalid runnable configs", titles[2][1],
+              f"% of {n_prompts} prompts (lower is better)")
+        panel(axes[2], "(c) feasibility verdicts that over-claim",
               {a: dirs[a][0] for a, _ in ARMS},
               f"% of {n_prompts} prompts (lower is better)")
+        usage = defaultdict(list)
+        for fp in (ROOT / "eval" / "results" / "raw_opus48_usage").glob(
+                "*__rep1.json"):
+            rec = json.loads(fp.read_text())
+            u = rec.get("usage")
+            if u and not rec["prompt_id"].startswith("P0"):
+                usage[rec["arm"]].append(u["prompt_tokens"]
+                                         + u["completion_tokens"])
+        if not usage:
+            raise SystemExit("no usage records — run the instrumentation wave "
+                             "(addendum 4) before the main4 layout")
+        tok = {a: sum(v) / len(v) for a, v in usage.items()}
+        token_panel(axes[3], "(d) total tokens per planning call", tok,
+                    f"mean tokens, prompt + completion (n={n_prompts})")
     else:
         for ax, (title, vals) in zip(axes[0], top.items()):
             panel(ax, title, vals, f"% of {n_prompts} prompts (lower is better)")
@@ -192,22 +228,16 @@ def main():
                   f"verdicts correct, n={ns[title]} (higher is better)")
 
     # legend + honest footnotes
-    legend_y = 0.90 if args.layout == "main4" else 0.945
-    fig.legend(handles=[
-        plt.Rectangle((0, 0), 1, 1, color=ACCENT, label="framework (capability-aware planner + deterministic materialization)"),
-        plt.Rectangle((0, 0), 1, 1, color=NEUTRAL, label="baselines / ablations — same LLM, temperature 0, constraints removed"),
-    ], loc="upper center", bbox_to_anchor=(0.5, legend_y), ncol=2,
-        frameon=False, fontsize=8)
     fig.suptitle(f"Agent evaluation — 20 pre-registered prompts, "
                  f"identical LLM in every arm ({W['model']}); only the architecture differs",
                  fontsize=12, fontweight="bold")
     if args.footnotes:
         fig.text(0.015, 0.088, W["foot"], fontsize=6.6, color=MUT, va="top")
-        fig.tight_layout(rect=[0, 0.115, 1, 0.90])
+        fig.tight_layout(rect=[0, 0.115, 1, 0.93])
     elif args.layout == "main4":
-        fig.tight_layout(rect=[0, 0.02, 1, 0.76])
+        fig.tight_layout(rect=[0, 0.02, 1, 0.84])
     else:
-        fig.tight_layout(rect=[0, 0.02, 1, 0.90])
+        fig.tight_layout(rect=[0, 0.02, 1, 0.93])
 
     stem = W["out"] + ("_full" if (args.layout == "full6" and
                                    args.wave == "opus48") else "")

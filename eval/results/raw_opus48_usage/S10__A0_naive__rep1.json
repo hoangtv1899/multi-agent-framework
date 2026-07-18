@@ -1,0 +1,122 @@
+{
+  "prompt_id": "S10",
+  "arm": "A0_naive",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "{\n  \"feasibility\": {\n    \"verdict\": \"feasible\",\n    \"answerable\": [\n      \"Elevation-band variation in snow accumulation/melt (SWE) timing across the upper Yakima\",\n      \"Band-wise partitioning of precipitation into evapotranspiration, runoff, and soil storage\",\n      \"Soil moisture and soil temperature stratification by elevation\",\n      \"Vegetation/GPP productivity gradients with elevation\",\n      \"Timing and magnitude of snowmelt-driven runoff generation per band\"\n    ],\n    \"not_answerable\": [\n      \"Lateral routing/streamflow accumulation down the basin (single-column ELM has no horizontal hydrologic connectivity)\",\n      \"Explicit 3D groundwater flow and lateral subsurface transport (would require PFLOTRAN coupling)\",\n      \"Reservoir operations / managed flow at Cle Elum, Kachess, Keechelus dams\",\n      \"Sub-column spatial heterogeneity finer than the chosen band representative points\"\n    ]\n  },\n  \"n_columns\": 5,\n  \"n_justification\": \"The upper Yakima basin spans roughly 500 m valley floors near Cle Elum to >2000 m Cascade crest, a ~1500 m relief that controls a strong snow-rain transition. Five columns place representative points in ~300 m elevation bands (valley, lower montane rain-snow transition, mid montane seasonal snow, upper montane persistent snow, subalpine/crest). This resolves the critical rain-to-snow transition zone (~1000-1500 m) with adequate density while keeping the campaign computationally tractable for single-column runs; fewer would miss the transition band, more would add little given ELM columns are independent and forcing is downscaled to the same reanalysis product.\",\n  \"columns\": [\n    {\"id\": \"yak_band1_valley\", \"lat\": 47.195, \"lon\": -120.940, \"soil_texture\": \"sandy_loam\"},\n    {\"id\": \"yak_band2_lower_montane\", \"lat\": 47.280, \"lon\": -121.060, \"soil_texture\": \"gravelly_loam\"},\n    {\"id\": \"yak_band3_mid_montane\", \"lat\": 47.340, \"lon\": -121.180, \"soil_texture\": \"loam\"},\n    {\"id\": \"yak_band4_upper_montane\", \"lat\": 47.390, \"lon\": -121.320, \"soil_texture\": \"gravelly_sandy_loam\"},\n    {\"id\": \"yak_band5_subalpine_crest\", \"lat\": 47.425, \"lon\": -121.410, \"soil_texture\": \"sandy_loam_rocky\"}\n  ],\n  \"elm_config\": {\n    \"DATM_CLMNCEP_YR_START\": \"2000\",\n    \"DATM_CLMNCEP_YR_END\": \"2020\",\n    \"STOP_N\": \"21\",\n    \"RUN_STARTDATE\": \"2000-01-01\",\n    \"hist_variables\": [\n      \"H2OSNO\", \"SNOWDP\", \"SNOW_DEPTH\", \"FSNO\", \"QFLX_SNOW_DRAIN\",\n      \"QSNOMELT\", \"SNOWLIQ\", \"SNOWICE\",\n      \"RAIN\", \"SNOW\", \"TBOT\", \"TSOI\", \"TSA\",\n      \"H2OSOI\", \"SOILLIQ\", \"SOILICE\", \"WA\", \"ZWT\",\n      \"QRUNOFF\", \"QOVER\", \"QDRAI\", \"QINFL\",\n      \"EFLX_LH_TOT\", \"FSH\", \"QVEGE\", \"QVEGT\", \"QSOIL\",\n      \"GPP\", \"NPP\", \"TLAI\", \"FSDS\", \"FLDS\", \"RH2M\"\n    ]\n  },\n  \"requires_capabilities\": [\n    \"single_point_ELM_configuration\",\n    \"elevation_downscaled_atmospheric_forcing (GSWP3/CRUNCEP or Livneh/PRISM lapse-rate correction)\",\n    \"surface_dataset_generation_per_point (PFT, soil texture, elevation)\",\n    \"snow_physics_active (multi-layer snowpack)\"\n  ],\n  \"assumptions\": [\n    \"Each column is run independently with no lateral routing; basin integration is diagnostic (post-processing) not dynamic\",\n    \"Atmospheric forcing is elevation-corrected to each column via lapse rate; precipitation phase is set by ELM's air-temperature threshold\",\n    \"A multi-year spin-up (recycling 2000-2020 forcing, ~50-100 yr) precedes the transient run to equilibrate soil moisture, snow, and carbon pools\",\n    \"Vegetation types from satellite/CLM surface data: mixed conifer forest at mid bands, subalpine parkland at crest, shrub-grass at valley\",\n    \"Soil textures assigned from SSURGO/gridded soil data are held vertically representative per column\",\n    \"The 21-year window (2000-2020) captures interannual snow variability including warm/low-snow years\"\n  ]\n}",
+  "parsed": {
+    "feasibility": {
+      "verdict": "feasible",
+      "answerable": [
+        "Elevation-band variation in snow accumulation/melt (SWE) timing across the upper Yakima",
+        "Band-wise partitioning of precipitation into evapotranspiration, runoff, and soil storage",
+        "Soil moisture and soil temperature stratification by elevation",
+        "Vegetation/GPP productivity gradients with elevation",
+        "Timing and magnitude of snowmelt-driven runoff generation per band"
+      ],
+      "not_answerable": [
+        "Lateral routing/streamflow accumulation down the basin (single-column ELM has no horizontal hydrologic connectivity)",
+        "Explicit 3D groundwater flow and lateral subsurface transport (would require PFLOTRAN coupling)",
+        "Reservoir operations / managed flow at Cle Elum, Kachess, Keechelus dams",
+        "Sub-column spatial heterogeneity finer than the chosen band representative points"
+      ]
+    },
+    "n_columns": 5,
+    "n_justification": "The upper Yakima basin spans roughly 500 m valley floors near Cle Elum to >2000 m Cascade crest, a ~1500 m relief that controls a strong snow-rain transition. Five columns place representative points in ~300 m elevation bands (valley, lower montane rain-snow transition, mid montane seasonal snow, upper montane persistent snow, subalpine/crest). This resolves the critical rain-to-snow transition zone (~1000-1500 m) with adequate density while keeping the campaign computationally tractable for single-column runs; fewer would miss the transition band, more would add little given ELM columns are independent and forcing is downscaled to the same reanalysis product.",
+    "columns": [
+      {
+        "id": "yak_band1_valley",
+        "lat": 47.195,
+        "lon": -120.94,
+        "soil_texture": "sandy_loam"
+      },
+      {
+        "id": "yak_band2_lower_montane",
+        "lat": 47.28,
+        "lon": -121.06,
+        "soil_texture": "gravelly_loam"
+      },
+      {
+        "id": "yak_band3_mid_montane",
+        "lat": 47.34,
+        "lon": -121.18,
+        "soil_texture": "loam"
+      },
+      {
+        "id": "yak_band4_upper_montane",
+        "lat": 47.39,
+        "lon": -121.32,
+        "soil_texture": "gravelly_sandy_loam"
+      },
+      {
+        "id": "yak_band5_subalpine_crest",
+        "lat": 47.425,
+        "lon": -121.41,
+        "soil_texture": "sandy_loam_rocky"
+      }
+    ],
+    "elm_config": {
+      "DATM_CLMNCEP_YR_START": "2000",
+      "DATM_CLMNCEP_YR_END": "2020",
+      "STOP_N": "21",
+      "RUN_STARTDATE": "2000-01-01",
+      "hist_variables": [
+        "H2OSNO",
+        "SNOWDP",
+        "SNOW_DEPTH",
+        "FSNO",
+        "QFLX_SNOW_DRAIN",
+        "QSNOMELT",
+        "SNOWLIQ",
+        "SNOWICE",
+        "RAIN",
+        "SNOW",
+        "TBOT",
+        "TSOI",
+        "TSA",
+        "H2OSOI",
+        "SOILLIQ",
+        "SOILICE",
+        "WA",
+        "ZWT",
+        "QRUNOFF",
+        "QOVER",
+        "QDRAI",
+        "QINFL",
+        "EFLX_LH_TOT",
+        "FSH",
+        "QVEGE",
+        "QVEGT",
+        "QSOIL",
+        "GPP",
+        "NPP",
+        "TLAI",
+        "FSDS",
+        "FLDS",
+        "RH2M"
+      ]
+    },
+    "requires_capabilities": [
+      "single_point_ELM_configuration",
+      "elevation_downscaled_atmospheric_forcing (GSWP3/CRUNCEP or Livneh/PRISM lapse-rate correction)",
+      "surface_dataset_generation_per_point (PFT, soil texture, elevation)",
+      "snow_physics_active (multi-layer snowpack)"
+    ],
+    "assumptions": [
+      "Each column is run independently with no lateral routing; basin integration is diagnostic (post-processing) not dynamic",
+      "Atmospheric forcing is elevation-corrected to each column via lapse rate; precipitation phase is set by ELM's air-temperature threshold",
+      "A multi-year spin-up (recycling 2000-2020 forcing, ~50-100 yr) precedes the transient run to equilibrate soil moisture, snow, and carbon pools",
+      "Vegetation types from satellite/CLM surface data: mixed conifer forest at mid bands, subalpine parkland at crest, shrub-grass at valley",
+      "Soil textures assigned from SSURGO/gridded soil data are held vertically representative per column",
+      "The 21-year window (2000-2020) captures interannual snow variability including warm/low-snow years"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 427,
+    "completion_tokens": 1870
+  }
+}

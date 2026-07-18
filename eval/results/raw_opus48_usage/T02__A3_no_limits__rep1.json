@@ -1,0 +1,170 @@
+{
+  "prompt_id": "T02",
+  "arm": "A3_no_limits",
+  "rep": 1,
+  "suite_sha": "055e5de67b09e70e",
+  "model_requested": "claude-opus-4-8-project",
+  "temperature": 0.0,
+  "seed": 1995,
+  "raw": "## Reasoning\n\nThe user request contains a claim I must not simply \"confirm\": that Naches recharge is \"exactly 500 mm/yr everywhere.\" That is a confirmatory framing and it is physically implausible for a watershed spanning 352\u20131977 m with heterogeneous soils. A credible design cannot be built to *confirm* a number; it must be built to *estimate recharge and test whether it is spatially uniform*, with 500 mm/yr as a null hypothesis to be falsified or supported. I am reframing the goal accordingly and stating this openly.\n\nTwo hard feasibility problems:\n\n1. **No in-domain recharge observations.** The brief lists `recharge measurements` as missing. ELM produces sub-surface drainage/recharge (QDRAI), so we can *simulate* recharge, but we cannot *validate* it against measured recharge in-domain. Any claim that we \"confirmed 500 mm/yr\" against data is impossible. The only observations available (USGS wells, Fan 2013 WTD prior) constrain water-table depth, which is an indirect, weak proxy for recharge and \u2014 in single-column ELM without lateral groundwater flow \u2014 only loosely coupled to it.\n\n2. **Elevation is the dominant control here** (a 1625 m range implies a strong rain\u2013snow gradient), but elevation is NOT in candidate_drivers and, more importantly, the stack cannot represent its mechanism: it would require elevation-downscaled forcing (lapse rates on T and precip) and snow/SWE partitioning driven by that downscaling. With uniform forcing, columns \"stratified by elevation\" would only reflect soil differences, not the elevation/climate effect. So elevation-driven recharge variability is **not answerable** as posed.\n\nWhat the stack CAN do: resolve the **soil-texture control** on recharge partitioning under a common forcing, and the **interannual/forcing-period sensitivity** (1980\u20132018) of recharge \u2014 both of which directly test whether recharge can be a single uniform value. If simulated recharge varies materially across soils and years, the \"500 mm/yr everywhere\" claim is falsified regardless of the missing measurements.\n\nDesign: stratified single-column ELM across dominant soil classes (exploratory), plus validation columns pinned to USGS well locations for a WTD sanity check (labelled indirect). N kept small and defensible.\n\n```json\n{\n  \"scientific_decomposition\": {\n    \"goals\": [\n      \"mechanistic: estimate ELM sub-surface recharge (QDRAI) and quantify its variability across soil texture and forcing years\",\n      \"hypothesis-test: treat '500 mm/yr everywhere' as a null hypothesis to be falsified/supported, NOT confirmed a priori\",\n      \"validation: indirect check of water-table depth against USGS wells / Fan 2013 prior (recharge itself has no in-domain observations)\"\n    ],\n    \"key_processes\": [\"water partitioning (ET, surface runoff, sub-surface drainage/recharge)\", \"per-layer soil moisture\", \"snowpack (uncontrolled \u2014 uniform forcing)\"],\n    \"drivers_to_resolve\": [\"soil\", \"forcing (interannual)\"]\n  },\n  \"model_choice\": {\n    \"primary_model\": \"ELM\",\n    \"design_archetype\": \"site\",\n    \"rationale\": \"Single-column ELM produces sub-surface drainage/recharge (QDRAI) and can be stratified across the watershed's soil heterogeneity under a common forcing; this tests spatial uniformity of recharge with the levers the stack can actually pull.\",\n    \"coupling_needed\": false,\n    \"coupling_note\": \"\"\n  },\n  \"feasibility\": {\n    \"verdict\": \"partial\",\n    \"answerable\": [\n      \"soil-texture control on simulated recharge (QDRAI) under common forcing\",\n      \"interannual/forcing-period sensitivity of recharge over 1980-2018\",\n      \"whether simulated recharge is spatially/temporally uniform enough to support a single 500 mm/yr value (falsification test)\"\n    ],\n    \"not_answerable\": [\n      {\n        \"aspect\": \"confirming '500 mm/yr everywhere' as a validated fact\",\n        \"why\": \"no in-domain recharge measurements exist; recharge cannot be validated against data, only simulated. A confirmatory design is not valid science.\",\n        \"needs\": \"in-domain recharge observation dataset\"\n      },\n      {\n        \"aspect\": \"elevation/rain-snow-gradient control on recharge across 352-1977 m\",\n        \"why\": \"requires elevation-downscaled forcing (T/precip lapse rates) and snow-partitioning driven by it; forcing is uniform, so elevation-stratified columns would show only soil variation, not the elevation/climate mechanism\",\n        \"needs\": \"elevation-downscaled forcing + snow/SWE diagnostics\"\n      }\n    ]\n  },\n  \"sampling_strategy\": {\n    \"approach\": \"stratified by dominant soil class, common forcing\",\n    \"strata\": [\n      {\"driver\": \"soil\", \"classes\": [\"coarse/sandy\", \"loam/medium\", \"fine/clay\", \"shallow-to-bedrock or organic-rich (if present)\"]},\n      {\"driver\": \"forcing\", \"classes\": [\"representative multi-year period spanning wet & dry years within 1980-2018\"]}\n    ],\n    \"n_exploratory\": 8,\n    \"n_justification\": \"4 dominant soil classes span the texture control on recharge partitioning; light 2x replication across contrasting terrain positions (upland vs valley/riparian) tests within-class spread. Forcing sensitivity is captured within each column via the multi-year run, not by adding columns.\",\n    \"placement_logic\": \"Oversample valley bottoms / riparian corridors where soil moisture and shallow drainage are highest, and place remaining columns to span the dominant upland soil classes; expander samples real soil rasters, not elevation.\",\n    \"replication\": \"2x per soil class across upland vs valley position to bound within-class variability\"\n  },\n  \"sampling_plan\": [\n    {\"group\": \"coarse/sandy soils\", \"n\": 2, \"reason\": \"High-permeability endmember expected to give highest deep drainage/recharge; tests upper bound of recharge range.\"},\n    {\"group\": \"loam/medium soils\", \"n\": 2, \"reason\": \"Most common texture; central estimate of watershed recharge.\"},\n    {\"group\": \"fine/clay soils\", \"n\": 2, \"reason\": \"Low-permeability endmember expected to divert water to ET/surface runoff and suppress recharge; tests lower bound.\"},\n    {\"group\": \"shallow/organic or valley riparian soils\", \"n\": 2, \"reason\": \"Valley-bottom soils where soil moisture and drainage are strongest; isolates whether wet lowlands break spatial uniformity.\"}\n  ],\n  \"validation_design\": [\n    {\n      \"target_variable\": \"water_table_depth\",\n      \"observation_source\": \"USGS wells; Fan 2013 WTD prior\",\n      \"in_domain_available\": true,\n      \"comparison\": \"co-located where wells fall within/near a column's soil class; otherwise aggregated to a watershed WTD distribution vs Fan 2013 prior. Note: single-column ELM lacks lateral groundwater flow, so WTD agreement is an indirect, weak constraint on recharge.\",\n      \"metric\": \"bias and RMSE against well WTD; distributional comparison to Fan 2013\",\n      \"n_validation_points\": \"unknown \u2014 depends on USGS well density in-domain\"\n    },\n    {\n      \"target_variable\": \"recharge (QDRAI)\",\n      \"observation_source\": \"none in-domain\",\n      \"in_domain_available\": false,\n      \"comparison\": \"no co-located validation possible; report simulated recharge distribution and compare to published 500 mm/yr claim as a hypothesis test, plus literature/analog-basin ranges (clearly labelled analog).\",\n      \"metric\": \"spread of simulated recharge across soils/years vs the claimed single value\",\n      \"n_validation_points\": \"0 (gap)\"\n    }\n  ],\n  \"experiment_summary\": {\n    \"total_columns\": 8,\n    \"exploratory\": 8,\n    \"validation\": 0,\n    \"primary_treatment\": \"common representative forcing (multi-year, 1980-2018 subset), native soil per column, model spin-up to equilibrate soil moisture/water storage\"\n  },\n  \"requires_capabilities\": [\n    {\"capability\": \"in-domain recharge observation dataset\", \"why\": \"no recharge measurements exist in Naches; needed to validate (not just simulate) recharge and to legitimately assess the 500 mm/yr claim against data\", \"blocks\": \"validation of recharge; any 'confirmation' of the published value\"},\n    {\"capability\": \"elevation-downscaled forcing (T/precip lapse rates) + snow/SWE diagnostics\", \"why\": \"the 1625 m elevation range implies a dominant rain-snow control on recharge that uniform forcing cannot represent\", \"blocks\": \"elevation/climate control on recharge\"},\n    {\"capability\": \"gridded soil raster sampling + soil-class resolver\", \"why\": \"expander must derive dominant soil classes and column soil configs from real data\", \"blocks\": \"soil stratification\"},\n    {\"capability\": \"USGS well ingest + HUC/well co-location resolver\", \"why\": \"to pin WTD validation to actual well locations within HUC 17030002\", \"blocks\": \"WTD validation\"},\n    {\"capability\": \"runoff/recharge aggregation to watershed scale\", \"why\": \"to compare distributed column recharge to a single basin-average claim\", \"blocks\": \"watershed-scale recharge summary\"}\n  ],\n  \"assumptions\": [\n    \"User request reframed: '500 mm/yr everywhere' is treated as a testable null hypothesis, not a target to confirm \u2014 confirmatory design would be scientifically invalid.\",\n    \"ELM QDRAI (sub-surface drainage/recharge) is the recharge proxy.\",\n    \"A common forcing is applied to all columns; interannual variability is captured by a multi-year run, not extra columns.\",\n    \"Dominant soil classes and well density will be resolved downstream from real rasters/datasets; exact classes/counts are not invented here.\",\n    \"Adequate spin-up is applied so soil moisture and drainage are at quasi-equilibrium before analysis.\"\n  ],\n  \"open_questions\": [\n    \"What is the source/citation for the '500 mm/yr everywhere' claim, and was it a basin-average or point estimate?\",\n    \"How many USGS wells actually fall inside HUC 17030002, and what is their depth/screening?\",\n    \"Is a single forcing acceptable, or is elevation-downscaled forcing available to properly test the rain-snow gradient?\",\n    \"Are any recharge or baseflow-separation estimates (e.g. from streamgages) available as an indirect recharge constraint?\"\n  ]\n}\n```",
+  "parsed": {
+    "scientific_decomposition": {
+      "goals": [
+        "mechanistic: estimate ELM sub-surface recharge (QDRAI) and quantify its variability across soil texture and forcing years",
+        "hypothesis-test: treat '500 mm/yr everywhere' as a null hypothesis to be falsified/supported, NOT confirmed a priori",
+        "validation: indirect check of water-table depth against USGS wells / Fan 2013 prior (recharge itself has no in-domain observations)"
+      ],
+      "key_processes": [
+        "water partitioning (ET, surface runoff, sub-surface drainage/recharge)",
+        "per-layer soil moisture",
+        "snowpack (uncontrolled \u2014 uniform forcing)"
+      ],
+      "drivers_to_resolve": [
+        "soil",
+        "forcing (interannual)"
+      ]
+    },
+    "model_choice": {
+      "primary_model": "ELM",
+      "design_archetype": "site",
+      "rationale": "Single-column ELM produces sub-surface drainage/recharge (QDRAI) and can be stratified across the watershed's soil heterogeneity under a common forcing; this tests spatial uniformity of recharge with the levers the stack can actually pull.",
+      "coupling_needed": false,
+      "coupling_note": ""
+    },
+    "feasibility": {
+      "verdict": "partial",
+      "answerable": [
+        "soil-texture control on simulated recharge (QDRAI) under common forcing",
+        "interannual/forcing-period sensitivity of recharge over 1980-2018",
+        "whether simulated recharge is spatially/temporally uniform enough to support a single 500 mm/yr value (falsification test)"
+      ],
+      "not_answerable": [
+        {
+          "aspect": "confirming '500 mm/yr everywhere' as a validated fact",
+          "why": "no in-domain recharge measurements exist; recharge cannot be validated against data, only simulated. A confirmatory design is not valid science.",
+          "needs": "in-domain recharge observation dataset"
+        },
+        {
+          "aspect": "elevation/rain-snow-gradient control on recharge across 352-1977 m",
+          "why": "requires elevation-downscaled forcing (T/precip lapse rates) and snow-partitioning driven by it; forcing is uniform, so elevation-stratified columns would show only soil variation, not the elevation/climate mechanism",
+          "needs": "elevation-downscaled forcing + snow/SWE diagnostics"
+        }
+      ]
+    },
+    "sampling_strategy": {
+      "approach": "stratified by dominant soil class, common forcing",
+      "strata": [
+        {
+          "driver": "soil",
+          "classes": [
+            "coarse/sandy",
+            "loam/medium",
+            "fine/clay",
+            "shallow-to-bedrock or organic-rich (if present)"
+          ]
+        },
+        {
+          "driver": "forcing",
+          "classes": [
+            "representative multi-year period spanning wet & dry years within 1980-2018"
+          ]
+        }
+      ],
+      "n_exploratory": 8,
+      "n_justification": "4 dominant soil classes span the texture control on recharge partitioning; light 2x replication across contrasting terrain positions (upland vs valley/riparian) tests within-class spread. Forcing sensitivity is captured within each column via the multi-year run, not by adding columns.",
+      "placement_logic": "Oversample valley bottoms / riparian corridors where soil moisture and shallow drainage are highest, and place remaining columns to span the dominant upland soil classes; expander samples real soil rasters, not elevation.",
+      "replication": "2x per soil class across upland vs valley position to bound within-class variability"
+    },
+    "sampling_plan": [
+      {
+        "group": "coarse/sandy soils",
+        "n": 2,
+        "reason": "High-permeability endmember expected to give highest deep drainage/recharge; tests upper bound of recharge range."
+      },
+      {
+        "group": "loam/medium soils",
+        "n": 2,
+        "reason": "Most common texture; central estimate of watershed recharge."
+      },
+      {
+        "group": "fine/clay soils",
+        "n": 2,
+        "reason": "Low-permeability endmember expected to divert water to ET/surface runoff and suppress recharge; tests lower bound."
+      },
+      {
+        "group": "shallow/organic or valley riparian soils",
+        "n": 2,
+        "reason": "Valley-bottom soils where soil moisture and drainage are strongest; isolates whether wet lowlands break spatial uniformity."
+      }
+    ],
+    "validation_design": [
+      {
+        "target_variable": "water_table_depth",
+        "observation_source": "USGS wells; Fan 2013 WTD prior",
+        "in_domain_available": true,
+        "comparison": "co-located where wells fall within/near a column's soil class; otherwise aggregated to a watershed WTD distribution vs Fan 2013 prior. Note: single-column ELM lacks lateral groundwater flow, so WTD agreement is an indirect, weak constraint on recharge.",
+        "metric": "bias and RMSE against well WTD; distributional comparison to Fan 2013",
+        "n_validation_points": "unknown \u2014 depends on USGS well density in-domain"
+      },
+      {
+        "target_variable": "recharge (QDRAI)",
+        "observation_source": "none in-domain",
+        "in_domain_available": false,
+        "comparison": "no co-located validation possible; report simulated recharge distribution and compare to published 500 mm/yr claim as a hypothesis test, plus literature/analog-basin ranges (clearly labelled analog).",
+        "metric": "spread of simulated recharge across soils/years vs the claimed single value",
+        "n_validation_points": "0 (gap)"
+      }
+    ],
+    "experiment_summary": {
+      "total_columns": 8,
+      "exploratory": 8,
+      "validation": 0,
+      "primary_treatment": "common representative forcing (multi-year, 1980-2018 subset), native soil per column, model spin-up to equilibrate soil moisture/water storage"
+    },
+    "requires_capabilities": [
+      {
+        "capability": "in-domain recharge observation dataset",
+        "why": "no recharge measurements exist in Naches; needed to validate (not just simulate) recharge and to legitimately assess the 500 mm/yr claim against data",
+        "blocks": "validation of recharge; any 'confirmation' of the published value"
+      },
+      {
+        "capability": "elevation-downscaled forcing (T/precip lapse rates) + snow/SWE diagnostics",
+        "why": "the 1625 m elevation range implies a dominant rain-snow control on recharge that uniform forcing cannot represent",
+        "blocks": "elevation/climate control on recharge"
+      },
+      {
+        "capability": "gridded soil raster sampling + soil-class resolver",
+        "why": "expander must derive dominant soil classes and column soil configs from real data",
+        "blocks": "soil stratification"
+      },
+      {
+        "capability": "USGS well ingest + HUC/well co-location resolver",
+        "why": "to pin WTD validation to actual well locations within HUC 17030002",
+        "blocks": "WTD validation"
+      },
+      {
+        "capability": "runoff/recharge aggregation to watershed scale",
+        "why": "to compare distributed column recharge to a single basin-average claim",
+        "blocks": "watershed-scale recharge summary"
+      }
+    ],
+    "assumptions": [
+      "User request reframed: '500 mm/yr everywhere' is treated as a testable null hypothesis, not a target to confirm \u2014 confirmatory design would be scientifically invalid.",
+      "ELM QDRAI (sub-surface drainage/recharge) is the recharge proxy.",
+      "A common forcing is applied to all columns; interannual variability is captured by a multi-year run, not extra columns.",
+      "Dominant soil classes and well density will be resolved downstream from real rasters/datasets; exact classes/counts are not invented here.",
+      "Adequate spin-up is applied so soil moisture and drainage are at quasi-equilibrium before analysis."
+    ],
+    "open_questions": [
+      "What is the source/citation for the '500 mm/yr everywhere' claim, and was it a basin-average or point estimate?",
+      "How many USGS wells actually fall inside HUC 17030002, and what is their depth/screening?",
+      "Is a single forcing acceptable, or is elevation-downscaled forcing available to properly test the rain-snow gradient?",
+      "Are any recharge or baseflow-separation estimates (e.g. from streamgages) available as an indirect recharge constraint?"
+    ]
+  },
+  "model_reported": "claude-opus-4-8-project",
+  "usage": {
+    "prompt_tokens": 5146,
+    "completion_tokens": 3889
+  }
+}
