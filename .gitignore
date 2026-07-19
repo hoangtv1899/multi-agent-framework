@@ -42,3 +42,7 @@ docs/paper/draft_sections.md
 docs/paper/GMD_plan.md
 docs/paper/SAGE-Hydro_technical_details.md
 docs/paper/draft_sections_2_3.md
+tools/make_manuscript_docx.py
+docs/paper/SAGE-Hydro_manuscript_draft.docx
+docs/paper/fig_gunnison_sampling.png
+docs/paper/fig_gunnison_coupled.png
