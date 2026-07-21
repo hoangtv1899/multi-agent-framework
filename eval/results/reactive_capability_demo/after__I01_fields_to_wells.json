@@ -1,0 +1,181 @@
+{
+  "scientific_decomposition": {
+    "goals": [
+      "PRIMARY (as posed): estimate nitrate arrival concentrations at drinking-water wells from fertilized-field sources \u2014 a lateral source-to-receptor transport goal",
+      "FALLBACK (in-scope): quantify vertical nitrate leaching and biogeochemical attenuation (nitrification/denitrification) through the vadose zone beneath representative land-use/soil column types"
+    ],
+    "key_processes": [
+      "lateral advective-dispersive solute transport from field to well (NOT representable)",
+      "vertical infiltration/recharge and wetting-front transmission (representable)",
+      "N reaction network: nitrification, denitrification, OM respiration/O2 consumption (representable, vertical-only)"
+    ],
+    "drivers_to_resolve": [
+      "land use (fertilizer source strength)",
+      "soil texture (vertical travel time / attenuation)"
+    ]
+  },
+  "model_choice": {
+    "primary_model": "PFLOTRAN",
+    "design_archetype": "site",
+    "rationale": "The physics is subsurface solute + biogeochemistry, which is a PFLOTRAN reactive-transport question. But the QUESTION'S geometry (field -> well arrival) is lateral, and PFLOTRAN here is 1-D vertical-only with no receptor path, so the model can only address the vertical leaching sub-problem, not the arrival concentration.",
+    "coupling_needed": false,
+    "coupling_note": "Even if ELM supplied recharge, there is no ELM->PFLOTRAN SOLUTE coupler, so an ELM-derived fertilizer/N source term cannot drive the chemistry. Inlet N chemistry can only be prescribed."
+  },
+  "feasibility": {
+    "verdict": "infeasible",
+    "answerable": [
+      "vertical nitrate leaching flux and concentration profile vs depth beneath a fertilized column (prescribed inlet chemistry, prescribed/recharge-driven top BC)",
+      "relative vadose-zone attenuation (denitrification) between land-use x soil column types",
+      "wetting-front / solute travel time to a given depth per soil class"
+    ],
+    "not_answerable": [
+      {
+        "aspect": "nitrate ARRIVAL CONCENTRATION at drinking-water wells",
+        "why": "columns are independent 1-D verticals with no lateral advection, no receptor/well transport path, no capture zone \u2014 reactive transport is vertical-only",
+        "needs": "lateral (2-D/3-D) reactive transport with a well/receptor path"
+      },
+      {
+        "aspect": "field-to-well SOURCE-TO-RECEPTOR linkage",
+        "why": "no column-to-column exchange and no regional groundwater flow; source and receptor cannot be connected",
+        "needs": "regional groundwater flow model / lateral routing between columns"
+      },
+      {
+        "aspect": "ELM-derived fertilizer/N leaching driving PFLOTRAN chemistry",
+        "why": "the one-way coupler transfers WATER flux only; no mass/solute hand-off",
+        "needs": "ELM->PFLOTRAN solute coupler"
+      },
+      {
+        "aspect": "validation of nitrate against the external well records",
+        "why": "no solute observations are wired into the validation path, and the wells are receptors of lateral transport the model cannot produce",
+        "needs": "solute-observation ingest + lateral transport to a well receptor"
+      }
+    ]
+  },
+  "sampling_strategy": {
+    "approach": "stratified (land use x soil) \u2014 applies ONLY to the vertical-leaching fallback goal, NOT to the well-arrival question",
+    "strata": [
+      {
+        "driver": "land use",
+        "classes": [
+          "row-crop / fertilized",
+          "pasture-grassland / low-N",
+          "non-agricultural / natural"
+        ]
+      },
+      {
+        "driver": "soil",
+        "classes": [
+          "well-drained coarse (SSURGO)",
+          "medium loam (SSURGO)",
+          "poorly-drained fine / high-OM (SSURGO)"
+        ]
+      }
+    ],
+    "n_exploratory": 9,
+    "n_justification": "3 land-use classes x 3 dominant SSURGO soil classes = 9 column types spans the source-strength and vertical-attenuation axes with one representative column per combination. This is the smallest set that resolves how leaching differs by land use and soil; no replication because the design is diagnostic (relative comparison), and the result cannot answer the actual arrival question regardless of N.",
+    "placement_logic": "Concentrate the fertilized columns on row-crop uplands (dominant land use); oversample poorly-drained fine/high-OM soils where denitrification attenuation is strongest, to bound the vertical-attenuation range. Placement is for CONTRAST, not to connect to any well.",
+    "replication": "none \u2014 diagnostic contrast across 9 types; expect solver attrition on extreme soil-contrast columns and report it"
+  },
+  "sampling_plan": [
+    {
+      "group": "row-crop x coarse well-drained soil",
+      "n": 1,
+      "reason": "worst-case fast vertical leaching: high N source, low attenuation \u2014 bounds maximum deep-transmitted nitrate flux"
+    },
+    {
+      "group": "row-crop x medium loam",
+      "n": 1,
+      "reason": "typical fertilized upland: intermediate vertical travel and attenuation"
+    },
+    {
+      "group": "row-crop x poorly-drained fine/high-OM",
+      "n": 1,
+      "reason": "high N source but strong denitrification \u2014 bounds maximum vertical attenuation under fertilization"
+    },
+    {
+      "group": "pasture/low-N x coarse",
+      "n": 1,
+      "reason": "low source, fast transport \u2014 isolates soil effect at reduced N input"
+    },
+    {
+      "group": "pasture/low-N x loam",
+      "n": 1,
+      "reason": "mid-range low-input reference"
+    },
+    {
+      "group": "pasture/low-N x fine/high-OM",
+      "n": 1,
+      "reason": "low source + high attenuation reference"
+    },
+    {
+      "group": "natural x coarse",
+      "n": 1,
+      "reason": "background/no-fertilizer control on fast soil"
+    },
+    {
+      "group": "natural x loam",
+      "n": 1,
+      "reason": "background control on typical soil"
+    },
+    {
+      "group": "natural x fine/high-OM",
+      "n": 1,
+      "reason": "background control on strongly attenuating soil"
+    }
+  ],
+  "validation_design": [
+    {
+      "target_variable": "groundwater nitrate concentration at wells",
+      "observation_source": "external well nitrate records (from brief)",
+      "in_domain_available": true,
+      "comparison": "NOT POSSIBLE as co-located \u2014 wells are lateral-transport receptors the model cannot produce, and no solute-observation ingest exists in the validation path. At best an ANALOG, qualitative sanity check of simulated vertical leachate magnitude vs shallow-well nitrate, clearly labelled as non-co-located and non-diagnostic",
+      "metric": "qualitative order-of-magnitude only (no defensible bias/RMSE without lateral transport + solute ingest)",
+      "n_validation_points": "unknown \u2014 depends on external well data density; cannot be used as co-located validation regardless"
+    }
+  ],
+  "experiment_summary": {
+    "total_columns": 9,
+    "exploratory": 9,
+    "validation": 0,
+    "primary_treatment": "prescribed top recharge flux + prescribed inlet N chemistry; CLM-CN / N reaction sandbox (GIRT); native SSURGO soil per column"
+  },
+  "requires_capabilities": [
+    {
+      "capability": "lateral (2-D/3-D) reactive solute transport with well/receptor path",
+      "why": "the question asks for nitrate arrival AT wells from distant fields \u2014 inherently lateral",
+      "blocks": "arrival concentration; source-to-receptor linkage \u2014 the entire primary question"
+    },
+    {
+      "capability": "regional groundwater flow / column-to-column exchange",
+      "why": "no lateral flow between independent 1-D columns",
+      "blocks": "connecting fertilized-field sources to downgradient wells"
+    },
+    {
+      "capability": "ELM->PFLOTRAN solute coupler",
+      "why": "existing coupler passes water flux only; no mass hand-off",
+      "blocks": "using an ELM-derived land-surface N leaching source term to drive chemistry"
+    },
+    {
+      "capability": "solute-observation ingest into the validation path",
+      "why": "well nitrate records cannot currently be confronted with model output",
+      "blocks": "any quantitative nitrate validation"
+    },
+    {
+      "capability": "spatial land-use / fertilizer-application raster resolver",
+      "why": "needed to place fertilized-vs-not column types and set source strength",
+      "blocks": "deterministic expansion of the land-use strata"
+    }
+  ],
+  "assumptions": [
+    "Real water table beneath fertilized uplands is within the 50 m PFLOTRAN domain cap; columns deeper than 50 m would pin at the bottom BC and lose depth-to-water meaning.",
+    "Inlet N loading must be PRESCRIBED (from agronomic/fertilizer assumptions) since no ELM solute coupler exists; the framework does not derive it.",
+    "Elevation relief (160 m) is treated as negligible for forcing; land use, not elevation/climate, is the source-strength driver.",
+    "The 9-column ensemble answers only the VERTICAL leaching sub-problem; it does NOT and cannot estimate well arrival concentrations."
+  ],
+  "open_questions": [
+    "Given the stack cannot do field-to-well lateral transport, is a reframed VERTICAL question acceptable \u2014 e.g. 'how much fertilizer nitrate is transmitted vs denitrified through the vadose zone by land-use/soil type'?",
+    "What fertilizer application rate / timing and inlet nitrate concentration should be prescribed at the column top?",
+    "Are the external well nitrate records paired with well depths/screens (needed even for an analog comparison)?",
+    "Is procuring a lateral groundwater-transport model (e.g. full 3-D PFLOTRAN or a coupled flow model) in scope, since it is required to answer the question as posed?"
+  ]
+}

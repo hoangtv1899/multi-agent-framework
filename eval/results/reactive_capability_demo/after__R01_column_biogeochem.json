@@ -1,0 +1,132 @@
+{
+  "scientific_decomposition": {
+    "goals": [
+      "Mechanistic: quantify how OM respiration draws down dissolved O2 and reshapes inorganic N (NH4+, NO3-) profiles within a 1-D soil column, and how that response varies with recharge rate",
+      "Sensitivity: map the recharge threshold at which the column transitions from aerobic (nitrification-favoring) to O2-depleted/anaerobic (denitrification-favoring) behavior"
+    ],
+    "key_processes": [
+      "aerobic OM respiration and O2 consumption",
+      "advective O2 / NO3 supply set by recharge flux",
+      "moisture/saturation control on gas-phase O2 resupply",
+      "residence-time control on redox evolution",
+      "nitrification vs. denitrification gating by local O2/redox"
+    ],
+    "drivers_to_resolve": [
+      "recharge rate (primary treatment axis)"
+    ]
+  },
+  "model_choice": {
+    "primary_model": "PFLOTRAN",
+    "design_archetype": "conceptual",
+    "rationale": "Vertical solute + biogeochemical evolution within a single 1-D column (OM respiration, O2 consumption, N speciation) under prescribed recharge scenarios is exactly the PFLOTRAN reactive-transport (LAMBDA/CLM-CN/N sandbox, GIRT) capability; the user explicitly needs no lateral transport, so the 1-D restriction does not limit the question.",
+    "coupling_needed": false,
+    "coupling_note": ""
+  },
+  "feasibility": {
+    "verdict": "partial",
+    "answerable": [
+      "vertical O2 drawdown driven by OM respiration within the column",
+      "inorganic N (NH4+/NO3-) profile evolution through time",
+      "sensitivity of O2 and N profiles to recharge rate (the requested treatment)",
+      "identification of the aerobic->anaerobic transition as a function of recharge"
+    ],
+    "not_answerable": [
+      {
+        "aspect": "confronting simulated pore-water chemistry with measurements",
+        "why": "brief supplies no in-domain solute observations and no solute observations are wired into the validation path",
+        "needs": "in-domain pore-water chemistry observation ingest"
+      },
+      {
+        "aspect": "recharge chemistry derived from an overlying land-surface / N-leaching source",
+        "why": "no ELM->PFLOTRAN solute coupler; only WATER flux is handed over, so inlet chemistry must be prescribed",
+        "needs": "ELM->PFLOTRAN solute/mass coupler"
+      }
+    ]
+  },
+  "sampling_strategy": {
+    "approach": "controlled / not spatial (recharge-rate factor ladder)",
+    "strata": [
+      {
+        "driver": "recharge rate",
+        "bands": [
+          "low (near-static, diffusion/respiration-dominated)",
+          "moderate",
+          "high",
+          "very-high (flushing)"
+        ]
+      }
+    ],
+    "n_exploratory": 4,
+    "n_justification": "Conceptual archetype: 4 recharge levels bracket the expected redox threshold (aerobic nitrification-favoring at high flux, O2-depleted denitrification-favoring at low flux) while remaining the smallest set that resolves the nonlinear transition; all other factors held fixed to isolate recharge.",
+    "placement_logic": "Controlled / not spatial. Single idealized column; only the top recharge-flux BC varies across the four treatments.",
+    "replication": "None \u2014 deterministic reactive-transport runs; variation of interest is between recharge levels, not stochastic. Optional 5th intermediate level if the transition falls between two of the four."
+  },
+  "sampling_plan": [
+    {
+      "group": "low recharge",
+      "n": 1,
+      "reason": "Near-static column where respiration outpaces O2 resupply \u2014 tests the O2-depleted, denitrification-favoring end member."
+    },
+    {
+      "group": "moderate recharge",
+      "n": 1,
+      "reason": "Intermediate flux to locate the aerobic-to-anaerobic transition in O2 and NO3 profiles."
+    },
+    {
+      "group": "high recharge",
+      "n": 1,
+      "reason": "Strong advective O2/NO3 supply sustaining aerobic respiration and nitrification down the profile."
+    },
+    {
+      "group": "very-high recharge (flushing)",
+      "n": 1,
+      "reason": "Short residence time end member \u2014 tests whether flushing suppresses redox evolution and exports NO3."
+    }
+  ],
+  "validation_design": [
+    {
+      "target_variable": "pore-water O2 and inorganic N (NH4+, NO3-) profiles",
+      "observation_source": "none in-domain (brief lists pore-water chemistry as missing)",
+      "in_domain_available": false,
+      "comparison": "none \u2014 no co-located data; results interpretable only against process expectation / literature redox theory",
+      "metric": "qualitative consistency with expected redox zonation; no quantitative skill metric possible without data",
+      "n_validation_points": "0 \u2014 validation leg is a declared gap"
+    }
+  ],
+  "experiment_summary": {
+    "total_columns": 4,
+    "exploratory": 4,
+    "validation": 0,
+    "primary_treatment": "prescribed top recharge flux at 4 levels; fixed idealized soil, fixed OM pool, prescribed inlet chemistry (O2/NO3/NH4/DOC), isothermal"
+  },
+  "requires_capabilities": [
+    {
+      "capability": "in-domain pore-water chemistry observation ingest",
+      "why": "no solute observations are wired into the validation path",
+      "blocks": "quantitative validation of simulated O2 and N profiles"
+    },
+    {
+      "capability": "ELM->PFLOTRAN solute/mass coupler",
+      "why": "existing coupling hands over water flux only; cannot derive inlet chemistry from a land-surface N source",
+      "blocks": "physically-sourced (vs. prescribed) recharge chemistry"
+    },
+    {
+      "capability": "reaction-network configurator for LAMBDA/CLM-CN/N sandbox with prescribed OM pool and inlet chemistry",
+      "why": "treatments require a defined OM respiration + N speciation network and top-boundary chemistry",
+      "blocks": "instantiating the biogeochemical treatment decks"
+    }
+  ],
+  "assumptions": [
+    "Single representative uniform soil texture and a prescribed OM/carbon pool are used (idealized conceptual column, no SSURGO heterogeneity intended).",
+    "Top-boundary inlet chemistry (dissolved O2, NO3-, NH4+, DOC) is prescribed and held constant across recharge treatments so recharge magnitude is the only varied factor.",
+    "Column is isothermal (fixed temperature) since PFLOTRAN has no energy balance; respiration rate constants are set at a single reference temperature.",
+    "Domain depth is within the 50 m cap; bottom BC does not control the near-surface redox zone of interest.",
+    "Some solver stiffness/attrition is expected at the extreme recharge ends and will be reported, not hidden."
+  ],
+  "open_questions": [
+    "What absolute recharge magnitudes (mm/yr or flux) should anchor the four levels \u2014 climate-derived or purely idealized?",
+    "What OM pool size / respiration rate and inlet O2/N/DOC concentrations should be used, or should these themselves be swept as a secondary axis?",
+    "Steady-state redox profiles or transient response to a recharge change \u2014 which is the target of interest?",
+    "Is there any external (analog-site or literature) dataset the user would accept for a labelled analog process check, since no in-domain observations exist?"
+  ]
+}

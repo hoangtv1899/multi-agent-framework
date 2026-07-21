@@ -1,0 +1,139 @@
+{
+  "scientific_decomposition": {
+    "goals": [
+      "mechanistic: quantify how OM respiration depletes dissolved O2 and reshapes inorganic N (NO3/NH4) speciation down a soil column",
+      "mechanistic (control variable): resolve how recharge rate governs solute residence time / advection and therefore the redox depth structure",
+      "validation: compare simulated pore-water O2 and N profiles to measured chemistry (no in-domain data exists)"
+    ],
+    "key_processes": [
+      "variably-saturated Richards flow (recharge-driven pore velocity, residence time) \u2014 REPRESENTABLE",
+      "advective-dispersive solute transport of O2 and N species \u2014 NOT configured",
+      "aerobic OM respiration / O2 consumption kinetics \u2014 NOT configured",
+      "nitrification / denitrification redox cascade controlling inorganic N \u2014 NOT configured"
+    ],
+    "drivers_to_resolve": [
+      "recharge_rate",
+      "organic-matter content / respiration rate",
+      "soil texture (controls saturation & O2 diffusion)"
+    ]
+  },
+  "model_choice": {
+    "primary_model": "PFLOTRAN",
+    "design_archetype": "conceptual",
+    "rationale": "A single vertical vadose-zone column under prescribed recharge is a PFLOTRAN treatment suite. PFLOTRAN the code supports reactive transport, but the flow-only water bug of the mechanism (O2/N biogeochemistry) is where the mechanism lives.",
+    "coupling_needed": false,
+    "coupling_note": "No ELM coupling required; recharge is a prescribed scenario, and the land surface is not the subject."
+  },
+  "feasibility": {
+    "verdict": "infeasible",
+    "answerable": [
+      "recharge-rate control on soil-column moisture content, saturation, pore-water velocity and solute residence time (the FLOW substrate only)"
+    ],
+    "not_answerable": [
+      {
+        "aspect": "dissolved O2 depletion by organic-matter respiration",
+        "why": "PFLOTRAN stack is configured FLOW ONLY \u2014 no reactive transport and no microbial/respiration reaction network",
+        "needs": "reactive-transport + biogeochemical reaction network (O2 consumption kinetics)"
+      },
+      {
+        "aspect": "inorganic nitrogen speciation (NO3/NH4) response to recharge and respiration",
+        "why": "no solute/nitrate chemistry is configured; nitrification/denitrification redox network is absent",
+        "needs": "multicomponent reactive transport with an N redox reaction network"
+      },
+      {
+        "aspect": "validation of any pore-water chemistry",
+        "why": "no in-domain solute observations exist AND no chemistry is simulated to compare",
+        "needs": "pore-water chemistry ingest + reactive-transport capability"
+      }
+    ]
+  },
+  "sampling_strategy": {
+    "approach": "controlled / not spatial \u2014 conceptual recharge sweep on a representative synthetic column (defines only the runnable FLOW substrate)",
+    "strata": [
+      {
+        "driver": "recharge_rate",
+        "bands": [
+          "low (dry/steady)",
+          "medium (baseline)",
+          "high (wet/steady)"
+        ]
+      },
+      {
+        "driver": "soil texture",
+        "classes": [
+          "single representative loam (held fixed for isolation)"
+        ]
+      }
+    ],
+    "n_exploratory": 3,
+    "n_justification": "Three recharge levels span the low/medium/high factor at a single fixed soil so the recharge effect on velocity and residence time is isolated; N is small because this is a conceptual mechanism-isolation sweep, and because chemistry \u2014 the actual question \u2014 cannot be run, adding more flow levels would not add scientific answer.",
+    "placement_logic": "controlled / not spatial \u2014 one idealized 1-D column, vertical domain within the 50 m cap; no DEM/soil raster sampling",
+    "replication": "none \u2014 deterministic steady flow, single soil"
+  },
+  "sampling_plan": [
+    {
+      "group": "low-recharge column",
+      "n": 1,
+      "reason": "long residence time / low pore velocity \u2014 the flow endmember where a (missing) reaction network would drive deepest O2 depletion"
+    },
+    {
+      "group": "medium-recharge column",
+      "n": 1,
+      "reason": "baseline recharge to anchor the moisture/velocity profile against the two endmembers"
+    },
+    {
+      "group": "high-recharge column",
+      "n": 1,
+      "reason": "short residence time / high flushing \u2014 flow endmember where reactions would have least time to proceed"
+    }
+  ],
+  "validation_design": [
+    {
+      "target_variable": "pore-water O2 and inorganic N profiles",
+      "observation_source": "none in-domain (brief lists pore-water chemistry as missing)",
+      "in_domain_available": false,
+      "comparison": "analog \u2014 at best a literature/analog check of the FLOW profiles (moisture, velocity); chemistry cannot be validated because it cannot be simulated",
+      "metric": "qualitative consistency with physical expectation (flow only)",
+      "n_validation_points": "0 \u2014 no co-located solute observations"
+    }
+  ],
+  "experiment_summary": {
+    "total_columns": 3,
+    "exploratory": 3,
+    "validation": 0,
+    "primary_treatment": "steady prescribed recharge (low/medium/high) on a single representative loam column \u2014 FLOW ONLY, chemistry not represented"
+  },
+  "requires_capabilities": [
+    {
+      "capability": "multicomponent reactive transport in the PFLOTRAN column",
+      "why": "the question is about dissolved O2 and inorganic N transport, which the flow-only stack cannot carry",
+      "blocks": "the entire O2/N transport core of the question"
+    },
+    {
+      "capability": "biogeochemical reaction network (aerobic OM respiration / O2 consumption + nitrification-denitrification)",
+      "why": "respiration-driven O2 depletion and N speciation are chemical reactions absent from the stack",
+      "blocks": "the causal mechanism the user asks about"
+    },
+    {
+      "capability": "organic-matter / substrate specification and microbial kinetic parameters",
+      "why": "respiration rate is the driver of O2 and N dynamics",
+      "blocks": "setting the reaction rates that control the outcome"
+    },
+    {
+      "capability": "pore-water chemistry observation ingest",
+      "why": "needed to validate O2/N profiles",
+      "blocks": "any validation of the chemical predictions"
+    }
+  ],
+  "assumptions": [
+    "A single representative loam soil is adequate to isolate the recharge effect for the runnable flow substrate; a real design would revisit texture once chemistry is available (texture controls saturation and gas-phase O2 supply).",
+    "Recharge treatments are steady prescribed top-flux scenarios within the 50 m domain cap.",
+    "The real water table is shallower than 50 m so the column is not pinned at the bottom boundary (unverified \u2014 no domain given)."
+  ],
+  "open_questions": [
+    "Is adding PFLOTRAN reactive-transport + a biogeochemical reaction network in scope? Without it this question is not answerable by the current stack.",
+    "What organic-matter content / respiration rate and initial O2/N boundary concentrations should be assumed?",
+    "Are there ANY analog-site pore-water chemistry datasets (outside domain) usable for a future reactive-transport validation?",
+    "Is a specific soil/climate context intended, or is a fully synthetic conceptual column acceptable?"
+  ]
+}

@@ -1,0 +1,27 @@
+[
+  {
+    "prompt": "I01_fields_to_wells",
+    "verdict": "infeasible",
+    "n_answerable": 2,
+    "n_not_answerable": 4,
+    "requires": [
+      "reactive/solute (nitrate) transport configuration for PFLOTRAN",
+      "lateral / regional groundwater flow with well receptors and stream-aquifer exchange",
+      "fertilizer / land-use nitrogen source-term ingest",
+      "well-network / receptor location resolver",
+      "ELM->PFLOTRAN coupling (for the fallback only)"
+    ]
+  },
+  {
+    "prompt": "R01_column_biogeochem",
+    "verdict": "infeasible",
+    "n_answerable": 1,
+    "n_not_answerable": 3,
+    "requires": [
+      "multicomponent reactive transport in the PFLOTRAN column",
+      "biogeochemical reaction network (aerobic OM respiration / O2 consumption + nitrification-denitrification)",
+      "organic-matter / substrate specification and microbial kinetic parameters",
+      "pore-water chemistry observation ingest"
+    ]
+  }
+]

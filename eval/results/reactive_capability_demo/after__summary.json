@@ -1,0 +1,26 @@
+[
+  {
+    "prompt": "I01_fields_to_wells",
+    "verdict": "infeasible",
+    "n_answerable": 3,
+    "n_not_answerable": 4,
+    "requires": [
+      "lateral (2-D/3-D) reactive solute transport with well/receptor path",
+      "regional groundwater flow / column-to-column exchange",
+      "ELM->PFLOTRAN solute coupler",
+      "solute-observation ingest into the validation path",
+      "spatial land-use / fertilizer-application raster resolver"
+    ]
+  },
+  {
+    "prompt": "R01_column_biogeochem",
+    "verdict": "partial",
+    "n_answerable": 4,
+    "n_not_answerable": 2,
+    "requires": [
+      "in-domain pore-water chemistry observation ingest",
+      "ELM->PFLOTRAN solute/mass coupler",
+      "reaction-network configurator for LAMBDA/CLM-CN/N sandbox with prescribed OM pool and inlet chemistry"
+    ]
+  }
+]

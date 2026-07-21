@@ -1,0 +1,143 @@
+{
+  "scientific_decomposition": {
+    "goals": [
+      "PRIMARY (as posed): estimate nitrate arrival concentration at drinking-water wells from fertilized fields",
+      "VALIDATION (as posed): compare simulated well nitrate to external well nitrate records",
+      "FALLBACK (feasible proxy): characterize vadose-zone recharge flux and wetting-front travel time as a transport-timing precursor"
+    ],
+    "key_processes": [
+      "surface nitrogen source from fertilizer application",
+      "reactive/solute transport of nitrate through vadose zone and aquifer",
+      "lateral groundwater flow from field source to well receptor",
+      "vadose-zone unsaturated flow / recharge transmission (the only representable piece)"
+    ],
+    "drivers_to_resolve": [
+      "land use (fertilizer source \u2014 not representable)",
+      "soil texture (feasible)"
+    ]
+  },
+  "model_choice": {
+    "primary_model": "PFLOTRAN",
+    "design_archetype": "site",
+    "rationale": "Subsurface transport to wells is nominally a PFLOTRAN problem, but this stack's PFLOTRAN is FLOW-ONLY and 1-D with no lateral flow, so it cannot represent the source-to-well transport or the concentration the question demands.",
+    "coupling_needed": true,
+    "coupling_note": "ELM->PFLOTRAN one-way coupling could supply a realistic recharge BC for the FALLBACK travel-time proxy, but does not enable nitrate transport; the reactive-transport engine and a lateral-flow model are the true missing pieces."
+  },
+  "feasibility": {
+    "verdict": "infeasible",
+    "answerable": [
+      "vadose-zone recharge flux magnitude per SSURGO soil (ELM or prescribed)",
+      "1-D wetting-front / recharge travel time through the unsaturated zone (hydraulic timing proxy only, NOT solute)"
+    ],
+    "not_answerable": [
+      {
+        "aspect": "nitrate arrival CONCENTRATION at wells",
+        "why": "PFLOTRAN deck is FLOW-ONLY; no solute/reactive transport chemistry is configured \u2014 concentration cannot be produced",
+        "needs": "reactive/solute transport configuration for PFLOTRAN"
+      },
+      {
+        "aspect": "field-to-well lateral pathway (fields -> wells)",
+        "why": "columns are independent 1-D points; no lateral flow, no stream-aquifer exchange, no well/pumping sink",
+        "needs": "lateral / regional groundwater flow with well receptors"
+      },
+      {
+        "aspect": "fertilizer nitrogen source term",
+        "why": "neither ELM (soil/forcing/location levers) nor the PFLOTRAN deck ingests a fertilizer application/nitrogen loading input",
+        "needs": "land-use / fertilizer nitrogen source-term ingest"
+      },
+      {
+        "aspect": "validation against well nitrate records",
+        "why": "no simulated nitrate concentration exists to compare against the observations",
+        "needs": "reactive transport (above) before any validation is possible"
+      }
+    ]
+  },
+  "sampling_strategy": {
+    "approach": "stratified (fallback proxy only \u2014 NOT a nitrate design)",
+    "strata": [
+      {
+        "driver": "soil",
+        "classes": [
+          "coarse/well-drained SSURGO profiles",
+          "medium-textured profiles",
+          "fine/poorly-drained (tile-drainage-prone) profiles"
+        ]
+      }
+    ],
+    "n_exploratory": 9,
+    "n_justification": "If the feasible fallback (recharge travel-time characterization) is pursued, ~3 dominant SSURGO texture classes x ~3 replicate columns spans the vadose-zone heterogeneity controlling transmission timing. This does NOT answer the nitrate question and is offered only as a precursor. Elevation is not a stratum: 160 m relief with no fertilizer/transport mechanism gives it no explanatory role here.",
+    "placement_logic": "Concentrate in agricultural lowlands with shallow water tables and tile-drainage-prone fine soils, where recharge transmission is fastest and most relevant to any future transport study; flag any column whose real WTD exceeds the 50 m domain cap.",
+    "replication": "~3 per texture class to expose SSURGO within-class variability; expect solver attrition on extreme soil-contrast columns."
+  },
+  "sampling_plan": [
+    {
+      "group": "coarse well-drained soils, ag lowland",
+      "n": 3,
+      "reason": "Fast recharge transmission end-member \u2014 shortest wetting-front travel time (hydraulic proxy only, not nitrate)."
+    },
+    {
+      "group": "medium-textured soils, ag lowland",
+      "n": 3,
+      "reason": "Intermediate transmission timing spanning the bulk of the basin's cropped soils (proxy only)."
+    },
+    {
+      "group": "fine poorly-drained / tile-prone soils",
+      "n": 3,
+      "reason": "Slow-matrix end-member; most relevant to future transport work but attenuates recharge signal strongly (proxy only)."
+    }
+  ],
+  "validation_design": [
+    {
+      "target_variable": "nitrate concentration at wells",
+      "observation_source": "external well nitrate records",
+      "in_domain_available": true,
+      "comparison": "NONE POSSIBLE \u2014 no simulated nitrate concentration can be produced by the flow-only stack; validation is blocked until reactive transport exists",
+      "metric": "n/a",
+      "n_validation_points": "unknown \u2014 moot until concentration can be simulated"
+    }
+  ],
+  "experiment_summary": {
+    "total_columns": 9,
+    "exploratory": 9,
+    "validation": 0,
+    "primary_treatment": "prescribed/ELM-derived recharge BC, native SSURGO soil \u2014 FALLBACK travel-time proxy only, NOT a nitrate simulation"
+  },
+  "requires_capabilities": [
+    {
+      "capability": "reactive/solute (nitrate) transport configuration for PFLOTRAN",
+      "why": "the question asks for arrival CONCENTRATION; current deck is flow-only",
+      "blocks": "all concentration output and all nitrate validation"
+    },
+    {
+      "capability": "lateral / regional groundwater flow with well receptors and stream-aquifer exchange",
+      "why": "'from fields to wells' is inherently a lateral source-to-receptor problem; columns are independent 1-D points",
+      "blocks": "any field-to-well pathway and arrival at a well location"
+    },
+    {
+      "capability": "fertilizer / land-use nitrogen source-term ingest",
+      "why": "fertilizer loading is the source; no lever in ELM or PFLOTRAN accepts it",
+      "blocks": "representing the nitrate source at all"
+    },
+    {
+      "capability": "well-network / receptor location resolver",
+      "why": "arrival is evaluated at specific well points",
+      "blocks": "placing receptors and matching observation records"
+    },
+    {
+      "capability": "ELM->PFLOTRAN coupling (for the fallback only)",
+      "why": "supplies a realistic recharge BC for the travel-time proxy",
+      "blocks": "realistic recharge forcing of the proxy study (not the nitrate question)"
+    }
+  ],
+  "assumptions": [
+    "External well nitrate records are point observations of concentration, which the stack cannot currently reproduce.",
+    "The fallback recharge/travel-time proxy is offered as a precursor deliverable only; it does NOT answer the user's nitrate question.",
+    "Some agricultural lowland columns may have real water tables within the 50 m cap; deep-WTD columns would pin at the bottom boundary and be flagged.",
+    "Any recharge/water-table target in the fallback requires spin-up years or a Fan(2013) WTD warm start."
+  ],
+  "open_questions": [
+    "Is the goal true nitrate concentration, or would a hydraulic vulnerability/travel-time ranking (feasible fallback) satisfy the decision need?",
+    "Can a reactive-transport-enabled PFLOTRAN deck and a fertilizer loading dataset be provisioned? Without both, the question cannot be answered.",
+    "Are well locations, screen depths, and a lateral-flow model available, since arrival at a well is a lateral, not 1-D, quantity?"
+  ]
+}
