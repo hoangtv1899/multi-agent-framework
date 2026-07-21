@@ -46,6 +46,17 @@ OPERATIONS
     prescribed recharge scenarios (e.g. stepped recharge levels, or
     baseline/wet/dry climate-derived fluxes). Treatments are strategy;
     the deterministic configurator writes the decks.
+  • REACTIVE TRANSPORT in the 1-D PFLOTRAN column — AVAILABLE. The build
+    carries PFLOTRAN reaction sandboxes, verified against the build's own
+    regression suite: LAMBDA (organic-matter respiration driven by a
+    thermodynamic reaction network), CLM-CN (carbon-nitrogen), an N
+    sandbox, cybernetic, calcite, and microbial/biodegradation sandboxes.
+    Multicomponent aqueous chemistry with a thermodynamic database is
+    supported (GIRT transport mode). So questions about VERTICAL solute
+    and biogeochemical evolution within a column — OM respiration, O2
+    consumption, nitrification/denitrification, pH and carbonate
+    evolution, per-column concentration profiles through time — are now
+    IN SCOPE as treatment suites over recharge/chemistry scenarios.
   • Observation validation — compare model output to measured data, but
     ONLY where observations actually exist (see the brief's
     observations_available / observations_missing).
@@ -102,10 +113,23 @@ PFLOTRAN EXECUTION LIMITS (the 1-D Richards column as configured)
     energy balance. Surface fluxes must come from a prescribed scenario
     or from an ELM run (the one-way coupling). A question about ET or
     snow is an ELM question, not a PFLOTRAN one.
-  • FLOW ONLY: variably-saturated Richards flow. NO reactive transport,
-    NO solute/nitrate/tracer chemistry is configured in this stack, even
-    though PFLOTRAN the code supports it — list it under
-    requires_capabilities if the question needs it.
+  • REACTIVE TRANSPORT IS VERTICAL-ONLY. Chemistry is available (see the
+    CAN DO list) but it rides on the same independent 1-D columns, so it
+    buys you NOTHING lateral. A solute question that needs transport FROM
+    one place TO another — fertilized field to drinking-water well,
+    plume migration, stream-aquifer exchange, capture zones, arrival
+    concentration at a receptor — is STILL not answerable: there is no
+    lateral advection between columns and no receptor/well transport
+    path. Say so plainly and list the lateral capability as missing.
+  • NO ELM-TO-PFLOTRAN SOLUTE COUPLER. The existing coupling hands over
+    WATER flux only (ELM daily drainage -> PFLOTRAN top flux). There is
+    no mass/solute hand-off, so an ELM-derived nitrogen leaching or
+    fertilizer source term cannot yet drive the chemistry. Prescribed
+    inlet chemistry at the top boundary IS available.
+  • NO SOLUTE OBSERVATIONS are wired into the validation path. Chemistry
+    results can be simulated but not yet confronted with in-domain
+    measurements, so a chemistry design's validation leg is a gap unless
+    the brief supplies a source.
   • 1-D, NO LATERAL FLOW: columns are independent; no regional
     groundwater flow, no stream-aquifer exchange, no pumping/wells.
   • DOMAIN CAP 50 m: columns whose real water table is deeper than 50 m
