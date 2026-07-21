@@ -1,0 +1,16 @@
+[
+  {
+    "column": "col_01",
+    "recharge_mm_yr": 100.0,
+    "deck": "/global/u2/h/hvtran/RCSFA/multi-agent/workflow_outputs/gunnison_reactive/r100/col_01_r100.in",
+    "run_ok": true,
+    "seconds": 2.9
+  },
+  {
+    "column": "col_01",
+    "recharge_mm_yr": 10.0,
+    "deck": "/global/u2/h/hvtran/RCSFA/multi-agent/workflow_outputs/gunnison_reactive/r10/col_01_r10.in",
+    "run_ok": true,
+    "seconds": 1.8
+  }
+]

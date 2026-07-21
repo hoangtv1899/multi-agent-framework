@@ -57,3 +57,40 @@ HPO4-- all active).
 Add reactive transport to the planner v2 capability inventory, re-run the
 frozen nitrate prompt, and show the verdict move off `infeasible`. Keep the
 eval's frozen v0.1 prompt pinned so Section 4 results stay reproducible.
+
+## Reactive-transport demonstration (step 2b, 2026-07-21)
+
+Deck builder: tools/build_reactive_demo.py. Takes the flow-only Gunnison
+column deck produced by build_pflotran_cases.py (real coordinates, SSURGO
+layering, Fan water table) and grafts on the LAMBDA organic-matter sandbox,
+encoding the three deck traps from the port: PASSIVE_GAS_SPECIES, the
+sandbox nested inside CHEMISTRY, and absolute database/network paths.
+
+Setup: col_01 (Fan WTD 26.1 m, 31.1 m domain, 20 cells), coupled RICHARDS
+flow + GIRT transport, 20 years, two recharge scenarios (100 and 10 mm/yr,
+the same contrast as the flow-only sweep). Both ran on the login node,
+2.9 s and 1.8 s, first attempt, no solver failures.
+
+Result: a recharge-controlled organic-matter degradation front.
+| recharge | column carbon consumed | front depth |
+|---|---|---|
+| 100 mm/yr | 36.8% | reaches about 10-13 m |
+| 10 mm/yr  | 16.9% | confined to the top about 2-3 m |
+Depth profiles (t=20 y, CH2O(s), initial 110 M): at 100 mm/yr the surface
+cell is nearly stripped (0.25) and depletion is still visible at 4.8 m
+(73.7); at 10 mm/yr the surface retains 4.05 and 4.8 m is essentially
+pristine (109.95). pH carries the signature, dropping from about 8.04 at the
+surface to 7.71 at the front.
+
+Interpretation: recharge sets how deep surface-driven biogeochemistry
+reaches, the chemical counterpart of the vadose-zone low-pass filtering
+result in the flow-only coupling. Figure: docs/paper/fig_reactive_demo.png.
+
+Honest scope. This is a capability demonstration, not a science result:
+the reaction network and kinetics are the build's own verified regression
+configuration, not calibrated to the Gunnison; there are no in-domain
+pore-water chemistry observations, so nothing here is validated; oxygen is
+held by the sandbox EQUILIBRATE block (an open re-aerating system by
+design), so O2 is not a free diagnostic here; and the nitrogen source is
+prescribed inlet chemistry, not ELM-derived, because no solute coupler
+exists yet.
