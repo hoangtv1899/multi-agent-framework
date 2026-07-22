@@ -237,7 +237,7 @@ def plot_columns(res, out_path, forcing_year=None):
         return bcols[min(max(int(b) - 1, 0), nb - 1)]
 
     fig, ax = plt.subplots(2, 3, figsize=(17.5, 9))
-    fig.suptitle(f"Sampling design — {res.get('n_columns')} columns",
+    fig.suptitle(f"Sampling design: {res.get('n_columns')} columns",
                  fontsize=15, fontweight="bold")
 
     # P1 — domain map: terrain background + watershed outline + sample points
@@ -383,7 +383,7 @@ def plot_columns(res, out_path, forcing_year=None):
             for c in cols:
                 a.scatter(c["elevation_m"], pr[c["id"]], color=bcolor(c["band"]),
                           s=85, edgecolor="k", linewidth=0.4)
-            a.set_title(f"Forcing sampled — NLDAS precip {forcing_year} (12 km)")
+            a.set_title(f"Forcing sampled: NLDAS precip {forcing_year} (12 km)")
             a.set_xlabel("elevation (m)"); a.set_ylabel("annual precip (mm/yr)")
         except Exception as e:
             a.text(0.5, 0.5, f"NLDAS preview unavailable\n{str(e)[:60]}",

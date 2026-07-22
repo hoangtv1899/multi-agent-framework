@@ -122,11 +122,11 @@ def main():
         cid, wtd, day, qi, qc, pf = ts_example
         ax[0].plot(day, qi, color="#94a3b8", lw=.9, label="infiltration (shared forcing)")
         ax[0].plot(day, qc, color="#2c7fb8", lw=1.6,
-                   label="ELM recharge (QCHARGE @3.8 m — bucket)")
+                   label="ELM recharge (QCHARGE at 3.8 m, bucket)")
         ax[0].plot(np.arange(len(pf)) + 1, pf, color="#d95f0e", lw=1.8,
                    label=f"coupled: delivered at the water table ({wtd:.0f} m)")
         ax[0].set_xlabel("day of year"); ax[0].set_ylabel("flux (mm/day)")
-        ax[0].set_title(f"{cid} — same forcing, two recharge stories",
+        ax[0].set_title(f"{cid}: same forcing, two recharge stories",
                         fontweight="bold", fontsize=10.5)
         ax[0].legend(frameon=False, fontsize=7.5)
 
@@ -143,9 +143,9 @@ def main():
     ax[1].legend(frameon=False, fontsize=8)
     n_none = sum(1 for r in rows if r["elm_lag_d"] is None)
     ax[1].text(.03, .60, f"ELM alone: no coherent lag detectable\n"
-                         f"in {n_none}/{len(rows)} columns (r≤0.2) — the bucket's\n"
+                         f"in {n_none}/{len(rows)} columns (r<=0.2). The bucket's\n"
                          "recharge is not a delayed copy of the\n"
-                         "forcing; travel time is UNDEFINED",
+                         "forcing; travel time is undefined.",
                transform=ax[1].transAxes, fontsize=8, color="#2c7fb8")
 
     ax[2].scatter([r["fan_wtd_m"] for r in rows], [r["elm_att"] for r in rows],
@@ -157,15 +157,16 @@ def main():
     ax[2].set_ylabel("attenuation (std ratio)")
     ax[2].set_title("Signal surviving to the 'recharge' point",
                     fontweight="bold", fontsize=10.5)
-    ax[2].legend(frameon=False, fontsize=8, loc="lower left")
-    ax[2].text(.03, .05, f"coupled: decay with depth (r={r_cpl_att:+.2f}); soil texture adds scatter\n"
-                         f"ELM: no relation to WTD (r={r_elm_att:+.2f}) — recharge fixed at 3.8 m",
-               transform=ax[2].transAxes, fontsize=8, color="#374151")
+    ax[2].legend(frameon=False, fontsize=8, loc="upper right")
+    ax[2].text(.03, .06, f"coupled: decay with depth (r={r_cpl_att:+.2f}); soil texture adds scatter\n"
+                         f"ELM: no relation to WTD (r={r_elm_att:+.2f}); recharge fixed at 3.8 m",
+               transform=ax[2].transAxes, fontsize=7.5, color="#374151")
     for a in ax:
         a.grid(alpha=.25); a.spines[["top", "right"]].set_visible(False)
-    fig.suptitle("Why couple? ELM's recharge point is 3.8 m (no vadose zone to cross) — "
-                 "the coupled system carries the same water to the REAL water table",
-                 fontweight="bold")
+    fig.suptitle("Why couple? ELM delivers recharge at a fixed 3.8 m datum with no "
+                 "vadose zone to cross; the coupled system carries the same water "
+                 "to the real water table",
+                 fontweight="bold", fontsize=12)
     fig.tight_layout()
     out = cr / "coupling_evidence.png"
     fig.savefig(out, dpi=300, bbox_inches="tight")
