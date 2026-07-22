@@ -440,6 +440,8 @@ def main():
     ap.add_argument("--cases-file", default="cases.json",
                     help="case-dir list, for the daily hydrograph (default cases.json)")
     ap.add_argument("--no-plot", action="store_true")
+    ap.add_argument("--replot", action="store_true",
+                    help="re-render the figure from a stored validation.json (no MCP)")
     args = ap.parse_args()
     if args.replot:
         rd = Path(args.run_dir)
