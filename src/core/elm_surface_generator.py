@@ -141,6 +141,33 @@ VEG_VARS = [
     'PCT_URBAN', 'PCT_LAKE', 'PCT_WETLAND', 'PCT_GLACIER',
 ]
 
+def fold_crop_into_natveg(ds) -> float:
+    """Move PCT_CROP into PCT_NATVEG in place; return the percent moved.
+
+    elm_wrapper sets create_crop_landunit = .false., which makes the sub-grid
+    [1 natveg + 15 urban] = 16 columns — EXACTLY the layout of the CONUS 1-km
+    restarts, which contain zero type-2 (crop) columns across all 19.9M of them.
+    That match is what lets a CONUS gridcell be subset straight into a finidat
+    with no carrier file and no prior run.
+
+    The surfdata is made to agree with the namelist rather than relying on ELM
+    to reconcile them: PCT_CROP > 0 with the crop landunit disabled is the
+    combination that trips initialization.
+
+    The area is not discarded. It becomes natural vegetation at the column's
+    existing PCT_NAT_PFT distribution, so the landunit partition still sums to
+    100% — which the caller re-checks straight after.
+    """
+    if 'PCT_CROP' not in ds or 'PCT_NATVEG' not in ds:
+        return 0.0
+    moved = float(ds['PCT_CROP'].values.sum())
+    if moved <= 0:
+        return 0.0
+    ds['PCT_NATVEG'].values[:] = ds['PCT_NATVEG'].values + ds['PCT_CROP'].values
+    ds['PCT_CROP'].values[:] = 0.0
+    return moved
+
+
 # The subset of VEG_VARS that partitions the gridcell into landunits; these
 # must total 100% (ELM tolerance is 1e-14 on the normalized sum).
 LANDUNIT_PCT_VARS = [
@@ -579,6 +606,12 @@ class ELMSurfaceGenerator:
                         f"PCT_* sum != 100% and ELM aborts in "
                         f"surfrd_get_data/check_sums_equal_1."
                     )
+
+                moved = fold_crop_into_natveg(ds_new)
+                if moved:
+                    logger.info(
+                        f"   Crop: folded {moved:.2f}% PCT_CROP into "
+                        f"PCT_NATVEG (create_crop_landunit=.false.)")
                 total = float(sum(
                     ds_new[v].values.sum() for v in lu_present))
                 if abs(total - 100.0) > 1e-6:

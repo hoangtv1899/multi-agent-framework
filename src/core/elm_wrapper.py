@@ -447,7 +447,13 @@ class GeneratedELMAgent:
             "hist_empty_htapes = .true.\n"
             "mksrf_lsmlon = 1\n"
             "mksrf_lsmlat = 1\n"
-            "create_crop_landunit = .true.\n"
+            # .false. so the sub-grid is [1 natveg + 15 urban] = 16 columns,
+            # which is EXACTLY the layout of the CONUS 1-km restarts (verified:
+            # zero type-2 columns across all 19.9M of them). That match is what
+            # lets a CONUS gridcell be subset straight into a finidat, with no
+            # carrier file and no prior run. elm_surface_generator folds
+            # PCT_CROP into PCT_NATVEG so the surfdata agrees with this.
+            "create_crop_landunit = .false.\n"
             "hist_fincl1 = "
             "'RAIN','SNOW','QOVER','QDRAI','QCHARGE',"
             "'TWS','H2OSOI','SOILLIQ','ZWT','WA',"
