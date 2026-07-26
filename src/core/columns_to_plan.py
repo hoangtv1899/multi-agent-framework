@@ -13,13 +13,65 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+def build_ledger(columns, yr_start, yr_end, soil_config, substrate,
+                 forcing_period, finidat_map=None, period_source=None,
+                 n_source="planner/expander") -> List[Dict[str, Any]]:
+    """The assumptions ledger — every load-bearing choice, tagged user vs
+    DEFAULT, so silent defaults cannot hide.
+
+    Lives here rather than in main() because BOTH callers need it: the CLI and
+    ELMExpManager. It used to be built only in main(), so integrated runs shipped
+    an empty ledger and the interpreter — which is told to flag DEFAULT-sourced
+    assumptions — had nothing to flag.
+    """
+    n_years = yr_end - yr_start + 1
+    n_warm  = sum(1 for c in columns
+                  if (finidat_map or {}).get(c.get("id"))) if finidat_map else 0
+    if n_warm:
+        src = next(iter(finidat_map.values()))
+        src = src.get("source", "warm") if isinstance(src, dict) else "warm"
+        init_value = (f"{src} warm start (finidat), {n_warm}/{len(columns)} columns"
+                      + ("" if n_warm == len(columns) else " — the rest COLD"))
+        init_source = "user"
+    else:
+        init_value, init_source = "cold start (uniform ELM default)", "DEFAULT"
+    return [
+        {"parameter": "simulation period", "value": f"{yr_start}-{yr_end}",
+         "source": period_source or "DEFAULT",
+         "note": "science year = last simulated year; the year's climatic "
+                 "percentile is not characterized"},
+        {"parameter": "spin-up", "value": (f"{n_years - 1} yr (in-run)" if n_years > 1
+                                           else "none"),
+         "source": "derived", "note": "recharge/storage terms are transient "
+                                      "without >=3 spin-up years"},
+        {"parameter": "initialization", "value": init_value, "source": init_source,
+         "note": "initial water table controls recharge sign in 1-yr runs"},
+        {"parameter": "soil configuration", "value": soil_config,
+         "source": "DEFAULT" if soil_config == "native" else "user",
+         "note": f"substrate={substrate}"},
+        {"parameter": "forcing period class", "value": forcing_period,
+         "source": "DEFAULT" if forcing_period == "baseline" else "user",
+         "note": ""},
+        {"parameter": "N (columns)", "value": len(columns), "source": n_source,
+         "note": "materialized by the deterministic expander from the "
+                 "planner's sampling strategy"},
+    ]
+
+
 def columns_to_elm_plan(columns: List[Dict[str, Any]],
                         forcing_period: str = "baseline",
                         yr_start: int = 1995,
                         yr_end: int = 1999,
                         soil_config: str = "native",
-                        substrate: str = "extrapolate") -> Dict[str, Any]:
-    """columns -> {CONDITIONS_COUPLERS, ELM_CONFIG} (one coupler per column)."""
+                        substrate: str = "extrapolate",
+                        finidat_map: Dict[str, Any] = None,
+                        period_source: str = None) -> Dict[str, Any]:
+    """columns -> {CONDITIONS_COUPLERS, ELM_CONFIG, assumptions_ledger}.
+
+    finidat_map: {col_id: warmstart.json entry} — attaches FINIDAT per column
+    (warm start). Columns absent from the map stay cold, and the ledger records
+    the split rather than implying the whole ensemble was warm-started.
+    """
     stop_n = yr_end - yr_start + 1
     couplers: List[Dict[str, Any]] = []
     for c in columns:
@@ -39,11 +91,17 @@ def columns_to_elm_plan(columns: List[Dict[str, Any]],
             coupler["SUBSTRATE"] = substrate
             if c.get("soil_profile"):
                 coupler["soil_profile"] = c["soil_profile"]
+        m = (finidat_map or {}).get(coupler["EXPERIMENT"])
+        if m:
+            coupler["FINIDAT"] = m["finidat"] if isinstance(m, dict) else m
         couplers.append(coupler)
     return {
         "CONDITIONS_COUPLERS": couplers,
         "ELM_CONFIG": {"base_stop_option": "nyears", "base_rest_n": "1",
                        "base_rest_option": "nyears"},
+        "assumptions_ledger": build_ledger(
+            columns, yr_start, yr_end, soil_config, substrate, forcing_period,
+            finidat_map=finidat_map, period_source=period_source),
     }
 
 
@@ -70,45 +128,21 @@ def main():
     cols = data.get("columns", data if isinstance(data, list) else [])
     if args.limit:
         cols = cols[:args.limit]
-    plan = columns_to_elm_plan(cols, args.forcing_period, args.yr_start,
-                               args.yr_end, args.soil_config, args.substrate)
-    if args.finidat_map:
-        fmap = json.loads(Path(args.finidat_map).read_text())
-        for cc in plan["CONDITIONS_COUPLERS"]:
-            m = fmap.get(cc["EXPERIMENT"])
-            if m:
-                cc["FINIDAT"] = m["finidat"] if isinstance(m, dict) else m
-
-    # assumptions ledger — every load-bearing choice, tagged user vs default,
-    # so silent defaults cannot hide (surfaced by the deck + interpreter)
     dflt = {a.dest: a.default for a in ap._actions}
-    src = lambda d: "user" if getattr(args, d) != dflt.get(d) else "DEFAULT"
-    n_years = args.yr_end - args.yr_start + 1
-    plan["assumptions_ledger"] = [
-        {"parameter": "simulation period", "value": f"{args.yr_start}-{args.yr_end}",
-         "source": (args.period_source if args.period_source
-                    else ("user" if (src("yr_start") == "user" or src("yr_end") == "user")
-                          else "DEFAULT")),
-         "note": "science year = last simulated year; the year's climatic "
-                 "percentile is not characterized"},
-        {"parameter": "spin-up", "value": (f"{n_years - 1} yr (in-run)" if n_years > 1
-                                           else "none"),
-         "source": "derived", "note": "recharge/storage terms are transient "
-                                      "without >=3 spin-up years"},
-        {"parameter": "initialization",
-         "value": ("Fan-2013 warm start (finidat)" if args.finidat_map
-                   else "cold start (uniform ELM default)"),
-         "source": "user" if args.finidat_map else "DEFAULT",
-         "note": "initial water table controls recharge sign in 1-yr runs"},
-        {"parameter": "soil configuration", "value": args.soil_config,
-         "source": src("soil_config"), "note": f"substrate={args.substrate}"},
-        {"parameter": "forcing period class", "value": args.forcing_period,
-         "source": src("forcing_period"), "note": ""},
-        {"parameter": "N (columns)", "value": len(cols),
-         "source": ("user" if args.limit else "planner/expander"),
-         "note": "materialized by the deterministic expander from the "
-                 "planner's stratification"},
-    ]
+    period_source = (args.period_source if args.period_source
+                     else ("user" if (args.yr_start != dflt.get("yr_start")
+                                      or args.yr_end != dflt.get("yr_end"))
+                           else "DEFAULT"))
+    fmap = (json.loads(Path(args.finidat_map).read_text())
+            if args.finidat_map else None)
+
+    plan = columns_to_elm_plan(cols, args.forcing_period, args.yr_start,
+                               args.yr_end, args.soil_config, args.substrate,
+                               finidat_map=fmap, period_source=period_source)
+    if args.limit:
+        for a in plan["assumptions_ledger"]:
+            if a["parameter"] == "N (columns)":
+                a["source"] = "user"
     out = Path(args.out) if args.out else Path(args.columns).with_name("elm_plan.json")
     out.write_text(json.dumps(plan, indent=2))
     print(f"{len(plan['CONDITIONS_COUPLERS'])} columns -> {out}")

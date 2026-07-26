@@ -303,15 +303,26 @@ class ELMExpManager:
 			print(f"✓ sampling design → {Path(png).name}")
 		except Exception as e:
 			print(f"   ⚠️  sampling_design.png failed ({e}) — non-fatal")
+		# Step 0b — warm start. Must happen BEFORE columns_to_elm_plan, because
+		# FINIDAT is a per-coupler key the builder reads at build time.
+		finidat_map = self._warmstart(columns, config)
+
 		executable = columns_to_elm_plan(
 			columns,
-			yr_start    = yr_start,
-			yr_end      = yr_end,
-			soil_config = config.get("soil_config", "native"),
-			substrate   = config.get("substrate",   "extrapolate"),
+			yr_start      = yr_start,
+			yr_end        = yr_end,
+			soil_config   = config.get("soil_config", "native"),
+			substrate     = config.get("substrate",   "extrapolate"),
+			finidat_map   = finidat_map,
+			period_source = (config.get("period_source")
+							 or ("reception" if config.get("yr_start") else "DEFAULT")),
 		)
 
 		merged = {**plan, **executable}
+		# The honesty payload reads this back in _analyze; without it an
+		# integrated run shipped an empty ledger.
+		(self.run_dir / "assumptions.json").write_text(
+			json.dumps(executable.get("assumptions_ledger", []), indent=2))
 		(self.run_dir / "run_plan.json").write_text(json.dumps(merged, indent=2))
 		# Make the run dir self-describing, with the SAME filenames the
 		# standalone tools expect. validate_run.build_validation() needs
@@ -323,6 +334,96 @@ class ELMExpManager:
 		print(f"✓ {len(columns)} column(s) materialized "
 			  f"({yr_start}-{yr_end}) → CONDITIONS_COUPLERS")
 		return merged
+
+	# ─────────────────────────────────────────────────────────
+	# STEP 0b — WARM START (carrier restarts + a CONUS/Fan prior → finidat)
+	# ─────────────────────────────────────────────────────────
+	def _warmstart(self, columns, config: Dict[str, Any]):
+		"""Build finidat files for these columns; return {col_id: entry} or None.
+
+		Warm start is a TWO-RUN pattern and cannot be conjured on a fresh
+		domain: make_warmstart edits a *carrier* restart — a real single-column
+		ELM restart that already has this column's sub-grid structure — and
+		overwrites its slow state (soil temperature, moisture, aquifer) from a
+		CONUS prior. So a completed run of the same columns must exist.
+
+		config['warm_start'] = {
+		    'source':          'conus' | 'fan',
+		    'conus_restart':   manifest / file / dir   (conus; defaults to the
+		                       Compy MANIFEST, which auto-picks the latitude
+		                       band per column — a basin straddling a band edge
+		                       no longer needs two manual passes),
+		    'carrier_run_dir': completed run dir       (defaults to the
+		                       coordinator's last run in this session),
+		}
+
+		Non-fatal by design: any failure returns None and the ensemble cold
+		starts, which is the previous behaviour and is honestly recorded in the
+		assumptions ledger rather than silently assumed.
+		"""
+		ws = config.get("warm_start")
+		if not ws:
+			return None
+		if isinstance(ws, str):                      # 'conus' / 'fan' shorthand
+			ws = {"source": ws}
+
+		source  = (ws.get("source") or "conus").lower()
+		carrier = ws.get("carrier_run_dir") or config.get("last_run_dir")
+		if not carrier:
+			print("   ⚠️  warm start requested but no carrier run available.\n"
+				  "       Warm start edits a completed run's restart files, so run\n"
+				  "       this ensemble once (cold) first — the next run in this\n"
+				  "       session will warm-start from it automatically.\n"
+				  "       → cold starting.")
+			return None
+
+		carrier = Path(carrier)
+		cases_f = next((carrier / n for n in ("cases.json", "cases_all.json")
+						if (carrier / n).exists()), None)
+		if cases_f is None:
+			print(f"   ⚠️  carrier {carrier.name} has no cases.json — cold starting.")
+			return None
+
+		try:
+			mw    = _load_tool("make_warmstart")
+			cases = json.loads(cases_f.read_text())
+
+			# Only carry over columns this run actually has. Ids come from the
+			# expander, so a re-sample of the same basin with a different N
+			# leaves the extra columns cold rather than mis-assigning state.
+			want    = {c.get("id") for c in columns}
+			cases   = [c for c in cases if str(c).split(".")[-1] in want]
+			missing = want - {str(c).split(".")[-1] for c in cases}
+			if not cases:
+				print(f"   ⚠️  carrier {carrier.name} shares no columns with this "
+					  f"run — cold starting.")
+				return None
+			if missing:
+				print(f"   ⚠️  no carrier for {len(missing)} column(s) "
+					  f"({', '.join(sorted(missing)[:4])}…) — those COLD start")
+
+			latlon = {c["id"]: (c["lat"], c["lon"]) for c in columns}
+			fan    = {c["id"]: c.get("fan_wtd_m") for c in columns}
+			conus  = ws.get("conus_restart") or mw.DEFAULT_CONUS_MANIFEST
+
+			print(f"🌡️  STEP 0b: Warm Start ({source}, carrier {carrier.name})")
+			print("-" * 40)
+			manifest = mw.build_warmstart(
+				cases, latlon, self.run_dir / "warmstart", source=source,
+				conus_restart=(conus if source == "conus" else None),
+				fan_wtd=(fan if source != "conus" else None))
+			if not manifest:
+				print("   ⚠️  no warm-start files produced — cold starting.")
+				return None
+
+			(self.run_dir / "warmstart" / "warmstart.json").write_text(
+				json.dumps(manifest, indent=2))
+			print(f"✓ {len(manifest)}/{len(columns)} column(s) warm-started "
+				  f"→ warmstart/warmstart.json")
+			return manifest
+		except Exception as e:
+			print(f"   ⚠️  warm start failed ({e}) — cold starting.")
+			return None
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 1 — BUILD (writes to 01_inputs/)

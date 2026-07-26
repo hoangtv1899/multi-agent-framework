@@ -219,6 +219,7 @@ class WorkflowCoordinator:
 				output_dir   = output_dir,
 				brief        = result.to_planner_brief(),
 				period       = (result.parameters or {}).get('resolved_period'),
+				initialization = (result.parameters or {}).get('initialization'),
 			)
 			print(f"✓ Execution: "
 				  f"{run_summary['experiments_success']}/"
@@ -257,10 +258,11 @@ class WorkflowCoordinator:
 					f"{traceback.format_exc()}")
 	
 	def _execute(self,
-				 plan:       dict,
-				 output_dir: str,
-				 brief:      dict = None,
-				 period:     dict = None) -> dict:
+				 plan:           dict,
+				 output_dir:     str,
+				 brief:          dict = None,
+				 period:         dict = None,
+				 initialization: dict = None) -> dict:
 		"""Hand the plan to the Experiment Manager."""
 		from core.elm_exp_manager import ELMExpManager
 		executor = ELMExpManager(base_output_dir=output_dir)
@@ -269,7 +271,15 @@ class WorkflowCoordinator:
 		cfg = {
 			'brief':       brief or {},
 			'mcp_clients': self.mcp_clients,
+			# Warm start edits a completed run's restart files, so the carrier
+			# is whatever this session ran last. That makes "now warm-start it"
+			# work as a plain follow-up, with no paths for the user to supply.
+			'last_run_dir': self.conversation_context.get('last_run_dir'),
 		}
+		if (initialization or {}).get('mode') == 'warm':
+			cfg['warm_start'] = {
+				'source': (initialization.get('source') or 'conus'),
+			}
 		# Honour the period reception resolved, instead of silently
 		# defaulting to 1995 inside the manager.
 		if period:

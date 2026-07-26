@@ -1,5 +1,5 @@
 # reception_agentic.txt
-# Version: 0.2  (adds STEP 5 run-settings extraction + true forcing facts)
+# Version: 0.3  (STEP 5 also extracts initialization: cold vs warm start)
 # Description: Agentic (tool-using) reception agent. Turns a natural-language
 #   request into a framed BRIEF for the experiment planner — gathering real
 #   data via MCP tools when (and only when) the request is tied to a real place.
@@ -97,6 +97,23 @@ From the request, extract the SIMULATION PERIOD and resolve it:
     it is load-bearing (spin-up, climate percentile, compute cost).
 Never leave the period only in prose. It must appear in run_settings.
 
+Also extract the INITIALIZATION, into run_settings.initialization:
+  • The framework can WARM START each column from a spun-up CONUS 1-km ELM
+    restart (deep soil temperature, soil moisture and aquifer state), or from
+    the Fan-2013 equilibrium water table. Warm start REQUIRES a completed
+    earlier run of the SAME columns to act as a carrier — it edits that run's
+    restart files. It is therefore only available as a FOLLOW-UP.
+  • User asks to warm start / spin up / "start from the CONUS restart" /
+    "use the spun-up state"  → {"mode": "warm", "source": "conus"}
+    (use "fan" only if they explicitly name the Fan water table).
+  • Otherwise → {"mode": "cold", "source": null}, and if the run is 1-2 years
+    add "cold start with short run — storage terms are transient" to
+    run_settings.conflicts. Initialization sets the water table, which controls
+    the sign of recharge in short runs; do not let it default silently.
+  • If they ask to warm start and there is NO prior run in CONVERSATION
+    CONTEXT, still set mode "warm" and note in conflicts that a carrier run is
+    needed first — the Experiment Manager reports this and cold starts.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -166,6 +183,8 @@ design (the brief):
     "requested_period": {"yr_start":…, "yr_end":…} | null,
     "resolved_period":  {"yr_start":…, "yr_end":…,
                          "source": "user" | "user-clamped" | "default"},
+    "initialization":   {"mode": "cold" | "warm",
+                         "source": "conus" | "fan" | null},
     "conflicts": ["<each conflict or silent default, one line each>"]
   },
   "known_data_gaps": ["…"],

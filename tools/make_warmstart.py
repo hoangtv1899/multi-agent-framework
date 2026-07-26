@@ -35,15 +35,25 @@ WTD sources (--source):
                                     --conus-restart /path/conus_lat7.....elm.r.*.nc
 
 Writes Warmstart_<col>.nc per column + warmstart.json (col -> finidat path,
-target vs applied WTD). Wire into a new run via columns_to_plan --finidat-map.
+target vs applied WTD). Wire into a new run via columns_to_plan --finidat-map,
+or let ELMExpManager do it (config['warm_start'], step 0b).
+
+For --source conus, --conus-restart takes EITHER one band file or a MANIFEST
+listing all bands; with a manifest each column is matched to the band whose
+latitude range contains it. A watershed straddling a band edge (Naches spans
+45-47N and 47-49N) then needs one invocation, not one per band.
 """
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
 
 sys.path.insert(0, "src")
+
+DEFAULT_CONUS_MANIFEST = (
+    "/qfs/people/tran289/conus_restart_transfer/MANIFEST_conus_restarts.txt")
 
 SY = 0.2                    # ELM unconfined-aquifer specific yield
 ZI_BOT = 3.8019             # bottom interface of the 10-layer soil column (m)
@@ -174,45 +184,156 @@ def conus_transplant(src, dst, conus, lat, lon):
             "n_soil_columns": len(soil_cols)}
 
 
-def conus_main(run_dir, out_dir, cases, args):
-    """Build finidat files by transplanting slow state from a CONUS restart."""
-    if not args.conus_restart:
-        sys.exit("--source conus requires --conus-restart <file>")
-    plan = json.loads((run_dir / args.plan_file).read_text())
-    latlon = {cc["EXPERIMENT"]: (cc["lat"], cc["lon"])
-              for cc in plan["CONDITIONS_COUPLERS"]}
-    print(f"CONUS transplant from {Path(args.conus_restart).name}")
-    conus = ConusSource(args.conus_restart)
-    print(f"  source lat range {conus.lat_range[0]:.2f}..{conus.lat_range[1]:.2f} degN; "
-          f"transplanting: {', '.join(CONUS_SLOW_STATE)}")
+# ─────────────────────────────────────────────────────────────────────
+# CONUS BAND RESOLUTION — pick the right restart per column latitude
+# ─────────────────────────────────────────────────────────────────────
+_MANIFEST_ROW = re.compile(r"^(lat\d+)\s+(\d+)-(\d+)N\s+\S+\s+\S+\s+(/\S+)")
 
-    manifest = {}
+
+def read_conus_manifest(path):
+    """MANIFEST_conus_restarts.txt -> [(band, lat_lo, lat_hi, restart_path)].
+
+    The manifest is the authority on which band covers which latitudes; without
+    it you must know that e.g. Naches (45.9-47.1N) needs BOTH lat11 and lat12.
+    """
+    rows = []
+    for line in Path(path).read_text().splitlines():
+        m = _MANIFEST_ROW.match(line.strip())
+        if m:
+            rows.append((m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)))
+    return rows
+
+
+def resolve_conus_sources(spec):
+    """--conus-restart spec -> [(band, lat_lo, lat_hi, path)].
+
+    Accepts a manifest file, a single restart file, or a directory of them.
+    For a bare restart we cannot know its band from the name alone, so lat
+    range is left None and ConusSource reports its own (read from the file).
+    """
+    p = Path(spec)
+    if not p.exists():
+        raise FileNotFoundError(f"--conus-restart not found: {spec}")
+    if p.is_dir():
+        return [(f.stem[:8], None, None, str(f)) for f in sorted(p.glob("*.nc"))]
+    if p.suffix != ".nc":                      # a manifest
+        rows = read_conus_manifest(p)
+        if not rows:
+            raise ValueError(f"no band rows parsed from manifest {spec}")
+        return rows
+    return [(p.stem[:8], None, None, str(p))]
+
+
+class ConusBandSet:
+    """Lazily-opened set of CONUS band restarts, indexed by latitude.
+
+    Only the bands actually needed get opened — each ConusSource holds a few
+    hundred MB of index vectors, and the underlying files are 3-79 GB.
+    """
+    def __init__(self, sources):
+        self.sources = sources              # [(band, lo, hi, path)]
+        self._open = {}                     # band -> ConusSource
+
+    def for_lat(self, lat):
+        """(band, ConusSource) covering `lat`, or (None, None).
+
+        Declared ranges (from a manifest) are authoritative: if none contains
+        `lat`, answer (None, None) WITHOUT opening anything. Probing each file
+        instead would open every band — 636 GB across 12 files — to learn what
+        the manifest already said.
+        """
+        declared = [s for s in self.sources if s[1] is not None]
+        if declared:
+            for band, lo, hi, path in declared:
+                if lo <= lat < hi:
+                    return band, self._get(band, path)
+            return None, None
+        # No declared ranges (bare file / directory): the only way to know is
+        # to open each source and ask what latitudes it actually holds.
+        for band, _, _, path in self.sources:
+            src = self._get(band, path)
+            if src.lat_range[0] <= lat <= src.lat_range[1]:
+                return band, src
+        return None, None
+
+    def _get(self, band, path):
+        if band not in self._open:
+            print(f"    opening CONUS band {band}: {Path(path).name}")
+            self._open[band] = ConusSource(path)
+        return self._open[band]
+
+
+def build_warmstart(cases, latlon, out_dir, source="fan",
+                    conus_restart=None, fan_wtd=None, quiet=False):
+    """Build finidat files for `cases`; return the manifest dict.
+
+    Importable core shared by this CLI and ELMExpManager step 0b, so the
+    integrated pipeline and the command line produce identical warm starts.
+
+        cases    list of carrier case dirs (a COMPLETED run's cases.json)
+        latlon   {col_id: (lat, lon)} — from the plan's CONDITIONS_COUPLERS
+        fan_wtd  {col_id: wtd_m} — required for source='fan'
+        conus_restart  manifest / restart file / directory (source='conus')
+
+    Columns with no carrier restart, no target, or no covering CONUS band are
+    SKIPPED with a reason — never silently cold-started.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    say = (lambda *a: None) if quiet else print
+
+    bands = None
+    if source == "conus":
+        if not conus_restart:
+            raise ValueError("source='conus' needs conus_restart "
+                             "(manifest, file, or directory)")
+        bands = ConusBandSet(resolve_conus_sources(conus_restart))
+        say(f"  CONUS warm start from {len(bands.sources)} band(s); "
+            f"transplanting {', '.join(CONUS_SLOW_STATE)}")
+
+    manifest, skipped = {}, []
     for c in cases:
-        name = c.split(".")[-1]
-        ll = latlon.get(name)
-        if ll is None:
-            print(f"  ! {name}: no lat/lon in {args.plan_file} — skipped"); continue
-        lat, lon = ll
-        if not (conus.lat_range[0] <= lat <= conus.lat_range[1]):
-            print(f"  ! {name}: lat {lat:.3f} outside this band file "
-                  f"{conus.lat_range} — wrong band, skipped"); continue
+        name = str(c).split(".")[-1]
         restarts = sorted(Path(c, "run").glob("*.elm.r.*.nc"))
         if not restarts:
-            print(f"  ! {name}: no carrier restart in {c}/run — skipped"); continue
+            skipped.append((name, "no carrier restart in <case>/run"))
+            continue
         dst = out_dir / f"Warmstart_{name}.nc"
-        info = conus_transplant(restarts[-1], dst, conus, lat, lon)
-        if not info["ok"]:
-            print(f"  ! {name}: {info['reason']} — skipped"); continue
-        print(f"  ✓ {name}: ZWT {info['applied_zwt_m']} m, deep Tsoil "
-              f"{info['deep_soiltemp_C']} C  (CONUS cell {info['dist_km']} km, "
-              f"{info['n_soil_columns']} soil cols)")
-        manifest[name] = {"finidat": str(dst.resolve()), "source": "conus",
-                          "conus_restart": str(Path(args.conus_restart).name), **info}
-    if not manifest:
-        sys.exit("no CONUS warm-start files produced — NOT overwriting warmstart.json")
-    (out_dir / "warmstart.json").write_text(json.dumps(manifest, indent=2))
-    print(f"\n{len(manifest)}/{len(cases)} CONUS warm-start files -> {out_dir}/")
-    print(f"use: columns_to_plan.py ... --finidat-map {out_dir}/warmstart.json")
+
+        if source == "conus":
+            ll = latlon.get(name)
+            if ll is None:
+                skipped.append((name, "no lat/lon in plan"))
+                continue
+            band, src = bands.for_lat(ll[0])
+            if src is None:
+                skipped.append((name, f"lat {ll[0]:.3f} in no available CONUS band"))
+                continue
+            info = conus_transplant(restarts[-1], dst, src, ll[0], ll[1])
+            if not info.get("ok"):
+                skipped.append((name, info.get("reason", "transplant failed")))
+                continue
+            say(f"  ✓ {name}: ZWT {info['applied_zwt_m']} m, deep Tsoil "
+                f"{info['deep_soiltemp_C']} C  (band {band}, "
+                f"{info['dist_km']} km, {info['n_soil_columns']} soil cols)")
+            manifest[name] = {"finidat": str(dst.resolve()), "source": "conus",
+                              "conus_band": band, **info}
+        else:
+            t = (fan_wtd or {}).get(name)
+            if t is None:
+                skipped.append((name, "no Fan WTD for this column"))
+                continue
+            applied = edit_restart(restarts[-1], dst, t)
+            clamp = "" if abs(applied - t) < 1e-6 else f"  (clamped from {t:.1f})"
+            say(f"  ✓ {name}: ZWT {applied:.2f} m, "
+                f"WA {wa_for_zwt(applied):.0f} mm{clamp}")
+            manifest[name] = {"finidat": str(dst.resolve()),
+                              "target_wtd_m": round(t, 3),
+                              "applied_zwt_m": round(applied, 3), "source": source}
+
+    for name, why in skipped:
+        say(f"  ! {name}: {why} — skipped (will COLD start)")
+    return manifest
 
 
 def main():
@@ -222,43 +343,33 @@ def main():
     ap.add_argument("--cases-file", default="cases.json")
     ap.add_argument("--plan-file", default="run_plan.json")
     ap.add_argument("--source", choices=("fan", "parflow", "conus"), default="fan")
-    ap.add_argument("--conus-restart", default=None,
-                    help="path to a CONUS 1-km ELM restart (required for --source conus)")
+    ap.add_argument("--conus-restart", default=DEFAULT_CONUS_MANIFEST,
+                    help="CONUS restart: a MANIFEST (default, auto-picks the band "
+                         "per column latitude), a single .nc, or a directory")
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
     out_dir = Path(args.out_dir) if args.out_dir else run_dir / "warmstart"
-    out_dir.mkdir(parents=True, exist_ok=True)
     cases = json.loads((run_dir / args.cases_file).read_text())
 
+    plan = json.loads((run_dir / args.plan_file).read_text())
+    latlon = {cc["EXPERIMENT"]: (cc["lat"], cc["lon"])
+              for cc in plan.get("CONDITIONS_COUPLERS", []) if "lat" in cc}
+
     if args.source == "conus":
-        conus_main(run_dir, out_dir, cases, args)
-        return
+        fan = None
+    elif args.source == "fan":
+        fan = fan_targets(run_dir)
+        print(f"warm-start from Fan WTD  (clamp {ZWT_MIN}-{ZWT_MAX:.1f} m; "
+              f"deeper targets pin the aquifer empty)")
+    else:
+        fan = parflow_targets(run_dir, args.plan_file)
 
-    targets = (fan_targets(run_dir) if args.source == "fan"
-               else parflow_targets(run_dir, args.plan_file))
-
-    manifest = {}
-    print(f"warm-start from {args.source} WTD  (clamp {ZWT_MIN}-{ZWT_MAX:.1f} m; "
-          f"deeper targets pin the aquifer empty)")
-    for c in cases:
-        name = c.split(".")[-1]
-        t = targets.get(name)
-        if t is None:
-            print(f"  ! {name}: no {args.source} WTD — skipped")
-            continue
-        restarts = sorted(Path(c, "run").glob("*.elm.r.*.nc"))
-        if not restarts:
-            print(f"  ! {name}: no restart file in {c}/run — skipped")
-            continue
-        dst = out_dir / f"Warmstart_{name}.nc"
-        applied = edit_restart(restarts[-1], dst, t)
-        clamp = "" if abs(applied - t) < 1e-6 else f"  (clamped from {t:.1f})"
-        print(f"  ✓ {name}: ZWT {applied:.2f} m, WA {wa_for_zwt(applied):.0f} mm{clamp}")
-        # absolute path — ELM resolves finidat from the case run dir
-        manifest[name] = {"finidat": str(dst.resolve()), "target_wtd_m": round(t, 3),
-                          "applied_zwt_m": round(applied, 3), "source": args.source}
+    manifest = build_warmstart(
+        cases, latlon, out_dir, source=args.source,
+        conus_restart=(args.conus_restart if args.source == "conus" else None),
+        fan_wtd=fan)
 
     if not manifest:
         sys.exit(f"no warm-start files produced (source={args.source}) — "

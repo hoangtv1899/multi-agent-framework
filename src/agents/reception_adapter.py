@@ -104,6 +104,7 @@ class AgenticReceptionAdapter:
             "experiment_focus":  (goals[0] if goals else brief.get("notes")),
             "existing_run_dir":  brief.get("run_dir"),
             "resolved_period":   (self.last_run_settings.get("resolved_period")),
+            "initialization":    (self.last_run_settings.get("initialization")),
             "design_archetype":  brief.get("design_archetype"),
         }
 
