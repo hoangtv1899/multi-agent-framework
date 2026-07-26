@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 """
-Agentic reception -> workflow.py adapter
+Reception -> coordinator adapter
 src/agents/reception_adapter.py
 
-workflow.py was written against the legacy two-pass ReceptionAgent, which is
-structurally SINGLE-POINT: its brief carries `region: {location, lat, lon}` and
-has no notion of a watershed (grep bbox|huc|domain in reception_agent.py finds
-nothing). The modern spatial pipeline needs `domain: {name, huc, bbox}`, which
-only LLMReceptionAgent (the agentic tool-loop agent) produces.
-
-The two are not drop-in compatible in two ways, both handled here:
+LLMReceptionAgent speaks the agentic vocabulary; workflow.py dispatches on the
+coordinator's. This shim owns the translation, and the ReceptionResult contract
+the coordinator routes on. Two mismatches, both handled here:
 
   1. Return type   LLMReceptionAgent.process() -> plain dict
                    {brief, trace, rounds, raw}
@@ -23,10 +19,25 @@ The two are not drop-in compatible in two ways, both handled here:
 
 Everything else in workflow.py is left alone.
 """
-from typing import Any, Dict
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
-from agents.reception_agent import ReceptionResult
-from agents.reception_llm   import LLMReceptionAgent, DEFAULT_ALLOWLIST
+from agents.reception_llm import LLMReceptionAgent, DEFAULT_ALLOWLIST
+
+
+@dataclass
+class ReceptionResult:
+    """Structured output of the reception phase — what the coordinator routes on."""
+    user_request:            str
+    intent:                  str
+    confidence:              str
+    parameters:              Dict[str, Any]
+    brief:                   Dict[str, Any]
+    clarification_questions: List[str] = field(default_factory=list)
+
+    def to_planner_brief(self) -> Dict[str, Any]:
+        """Clean JSON dict for the Planner Agent."""
+        return self.brief
 
 
 # agentic vocabulary -> workflow.py vocabulary

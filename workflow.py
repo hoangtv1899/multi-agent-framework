@@ -17,7 +17,6 @@ import traceback
 from pathlib import Path
 from typing  import Optional
 sys.path.insert(0, "src")
-from agents.reception_agent       import ReceptionAgent
 from agents.planner_agent         import PlannerAgent
 from agents.analysis_report_agent import AnalysisReportAgent
 from core.mcp_manager             import MCPManager
@@ -31,7 +30,6 @@ class WorkflowCoordinator:
 				 analyzer_model:       str = "claude-opus-4-8-project",
 				 default_output_dir:   str = "./workflow_outputs",
 				 mcp_config_file:      str = "mcp_config.json",
-				 agentic_reception:    bool = True,
 				 interactive_reception: bool = False):
 	
 		# ── MCP Manager ───────────────────────────────────────
@@ -57,24 +55,15 @@ class WorkflowCoordinator:
 		self.mcp_clients = mcp_clients
 
 		# ── Agents ────────────────────────────────────────────
-		# Agentic reception (default): LLM-driven tool loop over all MCP
-		# servers, and — critically — it emits `domain: {name, huc, bbox}`,
-		# which the Experiment Manager's materialize stage needs. The legacy
-		# two-pass agent is single-point (`region: {location, lat, lon}`) and
-		# cannot express a watershed, so it can only drive single-site plans.
-		if agentic_reception:
-			from agents.reception_adapter import AgenticReceptionAdapter
-			self.reception = AgenticReceptionAdapter(
-				model       = reception_model,
-				mcp_clients = mcp_clients,
-				interactive = interactive_reception,
-			)
-		else:
-			self.reception = ReceptionAgent(
-				model       = reception_model,
-				mcp_clients = mcp_clients,
-				model_type  = "elm",
-			)
+		# Reception is an LLM-driven tool loop over all MCP servers. It emits
+		# `domain: {name, huc, bbox}`, which the Experiment Manager's
+		# materialize stage needs to turn a strategy into columns.
+		from agents.reception_adapter import AgenticReceptionAdapter
+		self.reception = AgenticReceptionAdapter(
+			model       = reception_model,
+			mcp_clients = mcp_clients,
+			interactive = interactive_reception,
+		)
 		self.planner  = PlannerAgent(model=planner_model,  model_type="elm")
 		self.analyzer = AnalysisReportAgent(model=analyzer_model, model_type="elm")
 
@@ -393,12 +382,6 @@ def main():
         help    = 'MCP configuration file'
     )
     parser.add_argument(
-        '--legacy-reception',
-        action = 'store_true',
-        help   = 'use the old two-pass ReceptionAgent (single-point only; '
-                 'cannot express a watershed)'
-    )
-    parser.add_argument(
         '--ask', '-a',
         action = 'store_true',
         help   = 'let reception ask clarifying questions instead of '
@@ -409,7 +392,6 @@ def main():
     coordinator = WorkflowCoordinator(
         default_output_dir    = args.output_dir,
         mcp_config_file       = args.mcp_config,
-        agentic_reception     = not args.legacy_reception,
         interactive_reception = args.ask,
     )
 

@@ -8,8 +8,8 @@ clarification / analysis route. All "what to fetch / when to stop / what it
 means" decisions live in the LLM; this class only runs the loop and parses the
 final JSON.
 
-This is additive: the legacy two-pass ReceptionAgent (reception_agent.py) and
-the production workflow are untouched.
+This is the Reception box of the framework. workflow.py reaches it through
+reception_adapter.AgenticReceptionAdapter; tools/run_pipeline.py uses it raw.
 """
 import json
 import re

@@ -2,9 +2,8 @@
 
   * LLMReceptionAgent.process  — user-message assembly (request + optional
     conversation context) and brief parsing, driven by a fake tool-loop.
-  * run_pipeline / run_session pure helpers — _parse_json, print_plan/show
-    robustness on partial plans, context_from carry-forward, and run_planner
-    prompt wiring (mocked LLM).
+  * run_pipeline pure helpers — _parse_json, print_plan robustness on partial
+    plans, and run_planner prompt wiring (mocked LLM).
 
 Run under: module load pytorch/2.8.0
 """
@@ -33,7 +32,6 @@ def _load(name, relpath):
 
 
 rp = _load("rp_mod", "tools/run_pipeline.py")
-rs = _load("rs_mod", "tools/run_session.py")
 
 
 # ── reception.process with a fake tool-loop ──────────────────────────────────
@@ -102,9 +100,6 @@ class TestParseJson:
     def test_bad_returns_none(self):
         assert rp._parse_json("no json here") is None
 
-    def test_session_parser_matches(self):
-        assert rs._parse_json('```json\n{"a":1}\n```') == {"a": 1}
-
 
 # ── plan printers must never crash on partial plans ─────────────────────────
 def test_print_plan_handles_empty_and_full(capsys):
@@ -117,36 +112,6 @@ def test_print_plan_handles_empty_and_full(capsys):
                                           "in_domain_available": True}],
                    "experiment_summary": {"total_columns": 5}})
     assert "PLAN SUMMARY" in capsys.readouterr().out
-
-
-def test_show_handles_empty_and_coupling(capsys):
-    rs.show(None)
-    rs.show({"model_choice": {"design_archetype": "coupling"},
-             "coupling_design": {"from_model": "ELM", "to_model": "PFLOTRAN",
-                                 "driver": "QDRAI recharge flux"},
-             "sampling_strategy": {"n_exploratory": 6, "approach": "transect"},
-             "requires_capabilities": [{"capability": "pflotran_run"}]})
-    out = capsys.readouterr().out
-    assert "COUPLING DESIGN" in out and "ELM" in out and "PFLOTRAN" in out
-
-
-# ── context_from carry-forward for multi-turn sessions ──────────────────────
-def test_context_from_carries_domain_and_model():
-    brief = {"domain": {"name": "Naches", "huc": "17030002", "area_km2": 3400}}
-    plan = {"model_choice": {"primary_model": "ELM"},
-            "sampling_strategy": {"approach": "elevation-stratified"}}
-    ctx = rs.context_from("study Naches", brief, plan)
-    assert ctx["prior_request"] == "study Naches"
-    assert ctx["prior_model"] == "ELM"
-    assert ctx["prior_domain"]["huc"] == "17030002"
-    assert ctx["prior_design"] == "elevation-stratified"
-    assert any("QDRAI" in o for o in ctx["prior_outputs"])
-
-
-def test_context_from_tolerates_empty_plan():
-    ctx = rs.context_from("req", {}, None)
-    assert ctx["prior_model"] == "ELM"                   # default when no model_choice
-    assert ctx["prior_domain"]["name"] is None
 
 
 # ── run_planner prompt wiring (mocked LLM) ──────────────────────────────────

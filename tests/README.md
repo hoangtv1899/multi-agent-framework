@@ -29,7 +29,7 @@ Flags compose: `pytest --runlive --runllm` runs offline + live + LLM. The
 |------|--------|
 | `test_tool_loop.py` | `ToolLoopAgent.run()` agentic loop: dispatch, `tools=` every round, ask_user, unknown-tool, max-rounds (mocked LLM) |
 | `test_expander.py` | `expand()` materialize: grid → bands → allocation → spread → Fan/soil enrich → columns, polygon clip, empty-grid guard (mocked MCP) |
-| `test_orchestration.py` | `reception.process` message/brief assembly; `run_pipeline`/`run_session` `_parse_json`, plan printers, `context_from`, `run_planner` wiring |
+| `test_orchestration.py` | `reception.process` message/brief assembly; `run_pipeline` `_parse_json`, plan printers, `run_planner` wiring |
 | `test_agentic.py` | `_build_tools` schemas + allowlist; reception `_parse`; ask_user schema |
 | `test_mcp_tools.py` | each MCP server's pure parse logic + expander band/allocate helpers |
 | `test_validate.py` | brief/plan deterministic validator |
