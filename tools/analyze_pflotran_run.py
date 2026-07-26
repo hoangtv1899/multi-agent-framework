@@ -43,13 +43,14 @@ def wtd_from_profile(z, p, height):
     return None if zw is None else round(height - zw, 2)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True)
-    ap.add_argument("--plot", action="store_true", default=True)
-    args = ap.parse_args()
+def analyze(run_dir, plot=True, quiet=False):
+    """Summarise a standalone PFLOTRAN ensemble; returns the summary dict.
 
-    rd = Path(args.run_dir)
+    Importable so ELMExpManager and this CLI share one implementation.
+    Writes pflotran_summary.json (+ pflotran_profiles.png when plot).
+    """
+    _print = (lambda *a, **k: None) if quiet else print
+    rd = Path(run_dir)
     meta = json.loads((rd / "pflotran_cases.json").read_text())
     rows, profiles = [], {}
     for m in meta["cases"]:
@@ -71,14 +72,14 @@ def main():
     out = {"scenario": meta["scenario"], "columns": rows}
     (rd / "pflotran_summary.json").write_text(json.dumps(out, indent=2))
 
-    print(f"{'column':<8}{'elev_m':>8}{'Fan_WTD':>9}{'domain':>8}{'WTD_t0':>8}{'WTD_end':>9}")
-    print("-" * 52)
+    _print(f"{'column':<8}{'elev_m':>8}{'Fan_WTD':>9}{'domain':>8}{'WTD_t0':>8}{'WTD_end':>9}")
+    _print("-" * 52)
     for r in rows:
         f = lambda x: f"{x:.2f}" if isinstance(x, (int, float)) else ">bottom"
-        print(f"{r['id']:<8}{r['elevation_m']:>8.0f}{r['fan_wtd_m']:>9.1f}"
-              f"{r['depth_m']:>8.1f}{f(r['wtd_initial_m']):>8}{f(r['wtd_final_m']):>9}")
+        _print(f"{r['id']:<8}{r['elevation_m']:>8.0f}{r['fan_wtd_m']:>9.1f}"
+               f"{r['depth_m']:>8.1f}{f(r['wtd_initial_m']):>8}{f(r['wtd_final_m']):>9}")
 
-    if args.plot and profiles:
+    if plot and profiles:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
@@ -114,11 +115,25 @@ def main():
         for a in ax:
             a.grid(alpha=.25); a.spines[["top", "right"]].set_visible(False)
         sc = meta["scenario"]
-        fig.suptitle(f"Standalone PFLOTRAN ensemble — recharge {sc['recharge_mm_yr']:.0f} mm/yr, "
+        # recharge_mm_yr is None when the top BC came from an ELM run
+        forcing = (f"recharge {sc['recharge_mm_yr']:.0f} mm/yr"
+                   if sc.get("recharge_mm_yr") is not None
+                   else f"ELM-driven flux ({Path(sc['flux_from']).name})")
+        fig.suptitle(f"PFLOTRAN ensemble — {forcing}, "
                      f"bottom BC: {sc['bottom_bc']}", fontweight="bold")
         fig.tight_layout()
         fig.savefig(rd / "pflotran_profiles.png", dpi=300, bbox_inches="tight")
-        print(f"\n   ✓ figure: {rd / 'pflotran_profiles.png'}")
+        _print(f"\n   ✓ figure: {rd / 'pflotran_profiles.png'}")
+
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--run-dir", required=True)
+    ap.add_argument("--plot", action="store_true", default=True)
+    args = ap.parse_args()
+    analyze(args.run_dir, plot=args.plot)
 
 
 if __name__ == "__main__":

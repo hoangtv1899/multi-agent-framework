@@ -9,8 +9,8 @@ listed under it are the only files that implement it.
        ▼
  ┌──────────────┐   brief    ┌──────────────┐   plan    ┌────────────────────┐   results   ┌──────────────┐
  │  RECEPTION   │ ─────────► │   PLANNER    │ ────────► │ EXPERIMENT MANAGER │ ──────────► │   ANALYZER   │
- │ what / where │            │  strategy +  │           │  materialize→build │             │ metrics →    │
- │  / when      │            │ feasibility  │           │  →prepare→run      │             │ validate →   │
+ │ what / where │            │  strategy +  │           │ materialize→warm   │             │ metrics →    │
+ │  / when      │            │ feasibility  │           │ →build→run→couple  │             │ validate →   │
  └──────────────┘            └──────────────┘           └────────────────────┘             │ interpret    │
         MCP tool loop           one LLM call               SLURM, no LLM                    └──────────────┘
 ```
@@ -61,14 +61,31 @@ coordinates is the next stage's job, and that stage uses data.
 
 | step | what happens | writes |
 |---|---|---|
-| 0 materialize | strategy → real columns via MCP terrain/soil/WTD | `columns.json`, `run_plan.json`, `sampling_design.png` |
+| 0 materialize | strategy → real columns via MCP terrain/soil/WTD | `columns.json`, `run_plan.json`, `sampling_design.png`, `assumptions.json` |
+| 0b warm start | carrier restarts + a CONUS/Fan prior → per-column `finidat` | `warmstart/` *(only if requested)* |
 | 1 build | per-column domain + surface NetCDFs | `01_inputs/` |
 | 2 prepare | one CIME build, then `--keepexe` clones | `02_setup_plots/column_surfaces.png` |
 | 3 run | all columns as one SLURM job | `03_results/` |
 | 4 analyze | history files → metrics + 5 figures | `04_analysis/` |
 | 4b validate | compare against USGS / SNOTEL observations | `04_analysis/validation.json` |
 | 4c interpret | LLM reads the numbers + verdicts | `04_analysis/interpretation.md` |
+| 4d couple | each column's daily QINFL drives its own 1-D PFLOTRAN column | `05_pflotran/` *(only if the plan couples)* |
 | 5 package | everything the Analyzer agent needs | `LLM_ANALYSIS_INPUT.json` |
+
+**Step 0b — warm start** is a two-run pattern: `make_warmstart` edits a
+*completed* run's restart files, because the carrier supplies each column's real
+sub-grid structure. So the coordinator passes the session's previous run as the
+carrier and "now warm-start it" works as a follow-up. `--conus-restart` defaults
+to the band MANIFEST and picks the covering latitude band per column, so a basin
+straddling a band edge needs one pass, not one per band. With no carrier it says
+so and cold starts; the assumptions ledger records the warm/cold split exactly.
+
+**Step 4d — coupling** fires when the planner emits a `coupling_design` (or the
+archetype is `coupling`), which both the Reception and Planner prompts already
+speak. The PFLOTRAN columns are the SAME ones ELM just ran — same lat/lon, same
+SSURGO profile, same Fan water table — so ELM partitions the surface water and
+PFLOTRAN carries it down. 1-D Richards columns take ~1.5 s each, so this runs
+serially in-process with no batch queue.
 
 Supporting modules:
 
@@ -82,10 +99,12 @@ Supporting modules:
 | `src/core/elm_input_agent.py` | adapter onto the `ModelAgentBase` contract |
 | `src/core/model_agent_base.py` | the contract |
 
-Step 0 and steps 4/4b/4c are *shared implementations*, not copies: the manager
-imports `tools/expand_sampling.py`, `tools/analyze_run.py`, `tools/validate_run.py`
-and `tools/interpret_run.py` through `_load_tool()`. Run a stage from the
-manager or from its CLI and you get the same code.
+Every one of these steps is a *shared implementation*, not a copy: through
+`_load_tool()` the manager imports `tools/expand_sampling.py` (0),
+`make_warmstart.py` (0b), `plot_columns.py` (2), `analyze_run.py` (4),
+`validate_run.py` (4b), `interpret_run.py` (4c), and `build_pflotran_cases.py`
++ `analyze_pflotran_coupled.py` (4d). Run a stage from the manager or from its
+CLI and you get the same code.
 
 ## 4. Analyzer — runs → answer
 
@@ -115,20 +134,17 @@ The five figures: `elevation_gradient`, `soil_control`, `water_budget`,
 
 ## Not driven by `workflow.py`
 
-**PFLOTRAN.** Reactive transport and the ELM→PFLOTRAN coupling run through
-`tools/build_pflotran_cases.py` → `tools/analyze_pflotran_run.py` /
-`analyze_pflotran_coupled.py`, with `src/core/pflotran_input_agent.py` as the deck
-writer. See `docs/PFLOTRAN_PLAN.md`. Re-integrating this behind the coordinator is
-open work.
+**Standalone PFLOTRAN.** The *coupled* path is step 4d above. What is still
+CLI-only: recharge-scenario ensembles with no ELM behind them
+(`tools/build_pflotran_cases.py --recharge-mm-yr` → `analyze_pflotran_run.py`)
+and the reactive-transport demo (`tools/build_reactive_demo.py`).
+`src/core/pflotran_input_agent.py` is the deck writer for all of them.
+See `docs/PFLOTRAN_PLAN.md`.
 
 **The shell path.** `tools/run_watershed.sh` runs the same stages step-by-step from
 the login node (`build_cases.py`, `run_cases.sh`, `submit_cases.sh`,
 `plot_columns.py`, `analyze_run.py`). Useful when you want to stop between steps.
 See `docs/RUNBOOK.md`.
-
-**Warm start.** `tools/make_warmstart.py` builds the `warmstart.json` that
-`columns_to_plan.py --finidat-map` consumes. Reachable from the shell path only —
-the coordinator does not call it yet, so integrated runs are cold-start.
 
 **Standalone diagnostics.** `tools/scout_watersheds.py` (pre-flight observation
 coverage), `tools/mcp_conus_sweep.py` (MCP coverage), `tools/probe_planner.py`

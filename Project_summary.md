@@ -1,7 +1,7 @@
 # Project Summary — status and environment
 
-**Last updated:** July 26, 2026 (Compy port; the two pipelines were joined and
-the dead halves removed).
+**Last updated:** July 26, 2026 (Compy port; pipelines joined, dead halves
+removed, warm start and ELM→PFLOTRAN coupling wired into workflow.py).
 
 **Purpose:** hand-off document — current state, environment, and open work.
 For *what the code is and where each stage lives*, see **[ARCHITECTURE.md](ARCHITECTURE.md)**;
@@ -110,7 +110,7 @@ No hallucinated coordinates is a structural guarantee, not a prompt instruction.
 source /qfs/people/tran289/IDEAS/env_compy.sh
 cd /qfs/people/tran289/IDEAS/multi-agent-framework
 
-python -m pytest -q                       # expect: 3 failed, 155 passed, 62 skipped
+python -m pytest -q                       # expect: 3 failed, 190 passed, 62 skipped
 python3 tools/mcp_conus_sweep.py --max-sites 4 --assert
 python3 workflow.py --interactive
 ```
@@ -122,9 +122,20 @@ The **3 failures are known test drift**, not regressions — see §7.
 ## 6. Most-recent run
 
 `workflow_outputs/elm_run_20260725_225034/` — Naches sub-watershed, WA
-(HUC 17030002). 14 columns, 750–1868 m, NLDAS-2 1995, CONUS warm start.
-14/14 succeeded. Sampling design, per-column surfaces (14 distinct SSURGO
-profiles), and the five analysis figures all present.
+(HUC 17030002). 14 columns, 750–1868 m, NLDAS-2 1995. 14/14 succeeded.
+Sampling design, per-column surfaces (14 distinct SSURGO profiles), and the
+five analysis figures all present.
+
+It is **cold-started** — its `user_nl_elm` has no `finidat` line — because
+warm start was unreachable from `workflow.py` when it ran. It is now reachable
+(step 0b), and this run is a valid *carrier*: re-running the same columns with
+initialization "warm" transplants CONUS state onto its restarts. Verified:
+14/14 columns, bands lat11 (12) and lat12 (2).
+
+The ELM→PFLOTRAN coupling has been run against it: 14/14 1-D Richards columns
+in 83 s, forced by each column's own daily QINFL. Shallow water tables
+(0.18 m) pass the signal through (lag 0 d, attenuation ~1.0); deep ones
+(145 m) damp it completely — the vadose zone as a low-pass filter.
 
 ---
 
@@ -139,14 +150,14 @@ profiles), and the five analysis figures all present.
   construction; there is no TTY under pytest.
 
 **Wiring gaps:**
-- **Warm start is not reachable from `workflow.py`.** `tools/make_warmstart.py`
-  produces the `warmstart.json` that `columns_to_plan --finidat-map` consumes,
-  but the manager's materialize step never calls it — integrated runs are
-  cold-start. The shell path can warm-start today.
-- **PFLOTRAN is not driven by the coordinator.** `tools/build_pflotran_cases.py`
-  works standalone; re-integrating it behind the four-agent flow is open.
 - **The refinement loop is not closed.** `conversation_context['last_analysis']`
   is stored but no agent reads it, so "now try X instead" starts from scratch.
+- **No auto-carrier for warm start.** Warm start needs a completed run of the
+  same columns; the coordinator supplies the session's previous run. On a
+  brand-new domain with no prior run it says so and cold-starts, rather than
+  running a carrier phase itself.
+- **Standalone PFLOTRAN and the reactive-transport demo are still CLI-only.**
+  The *coupled* path is wired (step 4d); recharge-scenario ensembles are not.
 
 **Validation quality (needs a look):**
 - 93 gauges found in-domain but 0 with 1995 records — the validation reports a

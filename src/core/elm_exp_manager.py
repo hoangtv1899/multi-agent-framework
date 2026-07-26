@@ -10,7 +10,11 @@ Output directory structure:
 
     elm_run_YYYYMMDD_HHMMSS/
         ├── columns.json  run_plan.json  plan.json  reception_brief.json
+        ├── assumptions.json                        (the honesty ledger)
         ├── sampling_design.png                     (step 0, materialize)
+        ├── warmstart/                              (step 0b, only if warm)
+        │   ├── Warmstart_<col>.nc
+        │   └── warmstart.json
         ├── 01_inputs/
         │   └── experiment_summary.json
         ├── 02_setup_plots/
@@ -22,6 +26,10 @@ Output directory structure:
         │   ├── hydro_summary.json  validation.json  interpretation.md
         │   ├── elevation_gradient.png  soil_control.png
         │   └── water_budget.png  driver_response.png  wtd_columns.png
+        ├── 05_pflotran/                            (step 4d, only if coupled)
+        │   ├── <col>/<col>.in + outputs
+        │   ├── pflotran_summary_coupled.json  pflotran_study.json
+        │   └── pflotran_coupled.png
         ├── ANALYSIS_REPORT.json
         ├── LLM_ANALYSIS_INPUT.json
         └── RUN_SUMMARY.json
@@ -51,7 +59,9 @@ def _load_tool(name: str):
 
 	The manager and the standalone CLIs then share ONE implementation of each
 	stage instead of drifting apart: expand_sampling (materialize),
-	plot_columns (setup figures), validate_run (4b), interpret_run (4c).
+	make_warmstart (0b), plot_columns (setup figures), analyze_run (4),
+	validate_run (4b), interpret_run (4c), build_pflotran_cases +
+	analyze_pflotran_coupled (4d).
 	"""
 	import importlib.util
 	if name in sys.modules:
@@ -71,9 +81,10 @@ class ELMExpManager:
 	"""
 	Executes ELM experiment plans.
 
-	Stages: materialize -> build -> prepare -> run -> analyze -> validate
-	-> interpret -> package. Steps 0 and 4/4b/4c delegate to the tools/
-	CLIs via _load_tool(), so both entry points share one implementation.
+	Stages: materialize -> warm start -> build -> prepare -> run -> analyze
+	-> validate -> interpret -> couple -> package. Steps 0, 0b, 4/4b/4c and 4d
+	delegate to the tools/ CLIs via _load_tool(), so both entry points share
+	one implementation.
 	"""
 
 	def __init__(self,
@@ -153,6 +164,10 @@ class ELMExpManager:
 			print("\n🧭 STEP 4c: Interpreting")
 			print("-" * 40)
 			self._interpret(config)
+
+			# Step 4d — one-way ELM → PFLOTRAN coupling, when the plan asks
+			# for it. Non-fatal: the ELM study stands on its own.
+			self._couple_pflotran(experiment_plan, config)
 
 			# Step 5 — Package for LLM (top level)
 			print("\n📦 STEP 5: Packaging LLM Input")
@@ -810,6 +825,81 @@ class ELMExpManager:
 			return True
 		except Exception as e:
 			print(f"   ⚠️  interpretation failed ({e}) — continuing")
+			return False
+
+	# ─────────────────────────────────────────────────────────
+	# STEP 4d — ONE-WAY ELM → PFLOTRAN COUPLING
+	# ─────────────────────────────────────────────────────────
+	def _couple_pflotran(self,
+						 plan:   Dict[str, Any],
+						 config: Dict[str, Any]) -> bool:
+		"""Drive a 1-D PFLOTRAN column per ELM column with that column's own
+		daily QINFL -> 05_pflotran/. Non-fatal.
+
+		Runs when the planner emitted a coupling_design (the archetype the
+		Reception and Planner prompts already speak), or when config forces it
+		with pflotran={'run': True}. Both prompts have described this coupling
+		for months; nothing executed it, so "one-way coupling" was a design the
+		framework could plan but never perform.
+
+		The columns are the SAME ones ELM just ran — same lat/lon, same SSURGO
+		profile, same Fan water table — so the two models answer one question
+		jointly: ELM partitions the surface water, PFLOTRAN carries it down.
+		1-D Richards columns take seconds, so this runs serially in-process
+		with no batch queue.
+		"""
+		cfg = (config or {}).get("pflotran") or {}
+		coupling = plan.get("coupling_design") or {}
+		archetype = ((plan.get("model_choice") or {}).get("design_archetype") or "")
+		wanted = bool(cfg.get("run")) or bool(coupling) or archetype == "coupling"
+		if not wanted:
+			return False
+
+		print("\n🪨 STEP 4d: Coupling ELM → PFLOTRAN")
+		print("-" * 40)
+		if coupling.get("driver"):
+			print(f"   driver: {coupling['driver']}")
+
+		# Checked before the try so a missing file reports what is missing,
+		# not a bare errno from json.loads.
+		cols_f = self.run_dir / "columns.json"
+		cols = []
+		if cols_f.exists():
+			cols = json.loads(cols_f.read_text())
+			cols = cols.get("columns", cols) if isinstance(cols, dict) else cols
+		if not cols:
+			print("   ⚠️  no columns.json in this run — skipping coupling")
+			return False
+
+		try:
+			bp  = _load_tool("build_pflotran_cases")
+			out = self.run_dir / "05_pflotran"
+
+			res = bp.build_ensemble(
+				cols, out,
+				flux_from  = str(self.run_dir),      # this run's QINFL
+				run        = cfg.get("run", True),
+				timeout    = int(cfg.get("timeout", 1800)),
+				spin_years = float(cfg.get("spin_years", 10.0)),
+				depth_cap  = float(cfg.get("depth_cap", 50.0)),
+				bottom     = cfg.get("bottom", "fan"),
+			)
+			cases = res.get("cases") or []
+			if not cases:
+				print("   ⚠️  no PFLOTRAN decks built (no ELM flux?) — skipping")
+				return False
+
+			n_ok = sum(1 for m in cases if m.get("run_ok"))
+			print(f"✓ {n_ok}/{len(cases)} PFLOTRAN column(s) ran → 05_pflotran/")
+			if not n_ok:
+				return False
+
+			ap = _load_tool("analyze_pflotran_coupled")
+			ap.analyze_coupled(out, quiet=True)
+			print("✓ lag + attenuation → 05_pflotran/pflotran_summary_coupled.json")
+			return True
+		except Exception as e:
+			print(f"   ⚠️  coupling failed ({e}) — the ELM study stands")
 			return False
 
 	# ─────────────────────────────────────────────────────────

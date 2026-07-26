@@ -196,6 +196,74 @@ def run_case(case_dir, name, timeout=1800):
     return ok, time.time() - t0, log
 
 
+class Opts:
+    """build_column's knobs, so it can be driven without argparse."""
+    def __init__(self, **kw):
+        self.recharge_mm_yr = kw.get("recharge_mm_yr", 100.0)
+        self.depth_cap      = kw.get("depth_cap", 50.0)
+        self.years          = kw.get("years", 20.0)
+        self.bottom         = kw.get("bottom", "fan")
+        self.spin_years     = kw.get("spin_years", 10.0)
+
+
+def build_ensemble(columns, out_dir, flux_from=None, run=False, timeout=1800,
+                   limit=0, quiet=False, **opts):
+    """Build (and optionally run) a 1-D PFLOTRAN column per entry in `columns`.
+
+    Importable core shared by this CLI and ELMExpManager step 4d, so a coupled
+    run launched from workflow.py and one launched from the command line
+    produce the same decks.
+
+        columns    the expander's column dicts (needs soil_profile + fan_wtd_m)
+        flux_from  an ELM run dir — each column's daily QINFL becomes its
+                   transient top recharge BC (the one-way ELM->PFLOTRAN coupling)
+        run        execute serially here; 1-D Richards columns take seconds
+
+    Returns {"scenario": ..., "cases": [...]} and also writes it to
+    <out_dir>/pflotran_cases.json.
+    """
+    say = (lambda *a: None) if quiet else print
+    args = Opts(**opts)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    cols = list(columns)[:limit] if limit else list(columns)
+
+    flux_map = elm_daily_flux(flux_from) if flux_from else {}
+    if flux_from:
+        say(f"  transient QINFL from {Path(flux_from).name}: "
+            f"{len(flux_map)} column(s)")
+
+    manifest = []
+    for col in cols:
+        if flux_from and col["id"] not in flux_map:
+            say(f"  ! {col['id']}: no ELM flux — skipped")
+            continue
+        case_dir, meta = build_column(col, out, args, flux=flux_map.get(col["id"]))
+        meta["case_dir"] = case_dir
+        note = "" if meta["wt_in_domain"] else "  (WT below domain — capped, unsaturated)"
+        say(f"  ✓ {meta['id']}: {meta['n_cells']} cells, {meta['depth_m']} m, "
+            f"Fan WTD {meta['fan_wtd_m']} m{note}")
+        manifest.append(meta)
+
+    if run and manifest:
+        say(f"  running {len(manifest)} serial PFLOTRAN column(s) ...")
+        for m in manifest:
+            ok, dt, log = run_case(m["case_dir"], m["id"], timeout=timeout)
+            m["run_ok"], m["run_seconds"] = ok, round(dt, 1)
+            say(f"  {'✓' if ok else '✗'} {m['id']}: {dt:.1f}s")
+            if not ok:
+                say("    " + "\n    ".join(log.strip().splitlines()[-6:]))
+
+    result = {"scenario": {"recharge_mm_yr": None if flux_from else args.recharge_mm_yr,
+                           "flux_from": str(flux_from) if flux_from else None,
+                           "spin_years": args.spin_years if flux_from else None,
+                           "years": args.years, "bottom_bc": args.bottom,
+                           "depth_cap_m": args.depth_cap},
+              "cases": manifest}
+    (out / "pflotran_cases.json").write_text(json.dumps(result, indent=2))
+    return result
+
+
 def main():
     ap = argparse.ArgumentParser(description="Standalone 1-D PFLOTRAN ensemble from columns.json")
     ap.add_argument("--columns", required=True)
@@ -215,42 +283,16 @@ def main():
 
     data = json.loads(Path(args.columns).read_text())
     cols = data.get("columns", data) if isinstance(data, dict) else data
-    if args.limit:
-        cols = cols[:args.limit]
-    out = Path(args.out_dir)
-    out.mkdir(parents=True, exist_ok=True)
 
-    flux_map = elm_daily_flux(args.flux_from) if args.flux_from else {}
-    if args.flux_from:
-        print(f"transient QINFL from {args.flux_from}: {len(flux_map)} columns")
-    manifest = []
-    for col in cols:
-        if args.flux_from and col["id"] not in flux_map:
-            print(f"  ! {col['id']}: no ELM flux — skipped"); continue
-        case_dir, meta = build_column(col, out, args, flux=flux_map.get(col["id"]))
-        meta["case_dir"] = case_dir
-        note = "" if meta["wt_in_domain"] else "  (WT below domain — capped, unsaturated column)"
-        print(f"  ✓ {meta['id']}: {meta['n_cells']} cells, {meta['depth_m']} m, "
-              f"Fan WTD {meta['fan_wtd_m']} m{note}")
-        manifest.append(meta)
+    result = build_ensemble(
+        cols, args.out_dir, flux_from=args.flux_from, run=args.run,
+        timeout=args.timeout, limit=args.limit,
+        recharge_mm_yr=args.recharge_mm_yr, depth_cap=args.depth_cap,
+        years=args.years, bottom=args.bottom, spin_years=args.spin_years)
 
-    if args.run:
-        print(f"\nrunning {len(manifest)} serial PFLOTRAN columns ...")
-        for m in manifest:
-            ok, dt, log = run_case(m["case_dir"], m["id"], timeout=args.timeout)
-            m["run_ok"], m["run_seconds"] = ok, round(dt, 1)
-            print(f"  {'✓' if ok else '✗'} {m['id']}: {dt:.1f}s")
-            if not ok:
-                tail = "\n".join(log.strip().splitlines()[-6:])
-                print("    " + tail.replace("\n", "\n    "))
-
-    (out / "pflotran_cases.json").write_text(json.dumps(
-        {"scenario": {"recharge_mm_yr": None if args.flux_from else args.recharge_mm_yr,
-                      "flux_from": args.flux_from, "spin_years": args.spin_years if args.flux_from else None,
-                      "years": args.years, "bottom_bc": args.bottom, "depth_cap_m": args.depth_cap},
-         "cases": manifest}, indent=2))
+    manifest = result["cases"]
     n_ok = sum(1 for m in manifest if m.get("run_ok"))
-    print(f"\n{len(manifest)} decks -> {out}/pflotran_cases.json"
+    print(f"\n{len(manifest)} decks -> {args.out_dir}/pflotran_cases.json"
           + (f"  ({n_ok}/{len(manifest)} ran OK)" if args.run else ""))
 
 

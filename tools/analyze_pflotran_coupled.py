@@ -63,11 +63,43 @@ def lag_and_attenuation(t, top, bot, t0, t1):
     return (best_lag if best_r > 0.2 else None), round(sB / sF, 4)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True)
-    args = ap.parse_args()
-    rd = Path(args.run_dir)
+def _elm_context(scenario):
+    """(basin, init) describing the ELM run that forced this ensemble.
+
+    Read from the driving run rather than asserted: the prose used to state
+    "Naches" and "warm-started" unconditionally, which is wrong for any other
+    basin and wrong for a cold run — the same class of error as a hardcoded
+    forcing label.
+    """
+    basin, init = None, "initialization not recorded"
+    src = scenario.get("flux_from")
+    if not src:
+        return basin, init
+    rd = Path(src)
+    try:
+        brief = json.loads((rd / "reception_brief.json").read_text())
+        basin = (brief.get("domain") or {}).get("name")
+    except Exception:
+        pass
+    try:
+        plan = json.loads((rd / "run_plan.json").read_text())
+        ccs = plan.get("CONDITIONS_COUPLERS") or []
+        n_warm = sum(1 for c in ccs if c.get("FINIDAT"))
+        init = ("cold-started" if not n_warm else
+                f"warm-started ({n_warm}/{len(ccs)} columns)")
+    except Exception:
+        pass
+    return basin, init
+
+
+def analyze_coupled(run_dir, quiet=False):
+    """Lag + attenuation for an ELM-forced PFLOTRAN ensemble; returns the summary.
+
+    Importable so ELMExpManager step 4d and this CLI share one implementation.
+    Writes pflotran_summary_coupled.json, pflotran_coupled.png, pflotran_study.json.
+    """
+    _print = (lambda *a, **k: None) if quiet else print
+    rd = Path(run_dir)
     meta = json.loads((rd / "pflotran_cases.json").read_text())
     spin = meta["scenario"].get("spin_years") or 10.0
     t0, t1 = spin, spin + 1.0
@@ -75,7 +107,7 @@ def main():
     rows, series = [], {}
     failed = [m["id"] for m in meta["cases"] if m.get("run_ok") is False]
     if failed:
-        print(f"excluding {len(failed)} failed runs: {', '.join(failed)}")
+        _print(f"excluding {len(failed)} failed runs: {', '.join(failed)}")
     for m in meta["cases"]:
         if m.get("run_ok") is False:
             continue
@@ -92,14 +124,14 @@ def main():
 
     (rd / "pflotran_summary_coupled.json").write_text(json.dumps(
         {"scenario": meta["scenario"], "columns": rows}, indent=2))
-    print(f"{'column':<8}{'Fan_WTD':>9}{'ELM flux':>10}{'lag_d':>7}{'atten':>8}")
-    print("-" * 44)
+    _print(f"{'column':<8}{'Fan_WTD':>9}{'ELM flux':>10}{'lag_d':>7}{'atten':>8}")
+    _print("-" * 44)
     for r in sorted(rows, key=lambda r: r["fan_wtd_m"]):
         lg = f"{r['lag_days']}" if r["lag_days"] is not None else "—"
         at = (f"{r['attenuation']:.3f}" if r["attenuation"] is not None
               else "—  (no arrival)")
-        print(f"{r['id']:<8}{r['fan_wtd_m']:>9.1f}{r['flux_annual_mm_yr']:>10.0f}"
-              f"{lg:>7}{at:>16}")
+        _print(f"{r['id']:<8}{r['fan_wtd_m']:>9.1f}{r['flux_annual_mm_yr']:>10.0f}"
+               f"{lg:>7}{at:>16}")
 
     # figure: example columns + lag/attenuation vs WTD
     import matplotlib
@@ -126,23 +158,42 @@ def main():
     ax[1].set_ylabel("lag (days)")
     ax[1].set_title("Infiltration → water-table lag", fontweight="bold", fontsize=10.5)
 
-    ax[2].scatter([r["fan_wtd_m"] for r in rows], [r["attenuation"] for r in rows],
-                  s=46, color="#31a354", edgecolor="#222")
+    # A fully damped column has attenuation == 0, which a log axis cannot show:
+    # it would silently drop the very columns that make the point. Draw them on
+    # a floor line with a distinct marker instead.
+    att = [(r["fan_wtd_m"], r["attenuation"]) for r in rows
+           if r["attenuation"] is not None]
+    pos = [(w, a) for w, a in att if a > 0]
+    zero = [w for w, a in att if a <= 0]
+    floor = min([a for _, a in pos], default=1e-3) / 6.0
+    if pos:
+        ax[2].scatter([w for w, _ in pos], [a for _, a in pos],
+                      s=46, color="#31a354", edgecolor="#222")
+    if zero:
+        ax[2].scatter(zero, [floor] * len(zero), s=52, marker="v",
+                      color="#d95f0e", edgecolor="#222", zorder=3)
+        ax[2].axhline(floor, ls=":", lw=.9, color="#d95f0e", alpha=.6)
+        # Annotate the floor line directly. A legend entry would put a marker
+        # in the corner that reads as one more fully-damped column.
+        ax[2].text(0.02, floor, "fully damped (0)", transform=ax[2].get_yaxis_transform(),
+                   va="bottom", ha="left", fontsize=8.5, color="#d95f0e")
     ax[2].set_xscale("log"); ax[2].set_yscale("log")
     ax[2].set_xlabel("Fan WTD (m)"); ax[2].set_ylabel("attenuation (std ratio)")
     ax[2].set_title("Signal surviving the vadose zone", fontweight="bold", fontsize=10.5)
     for a in ax:
         a.grid(alpha=.25); a.spines[["top", "right"]].set_visible(False)
-    fig.suptitle("ELM → PFLOTRAN one-way coupling — each column forced by its own "
-                 "ELM daily infiltration (warm-started NLDAS year)", fontweight="bold")
+    basin, init = _elm_context(meta["scenario"])
+    fig.suptitle(f"{basin + ' — ' if basin else ''}ELM → PFLOTRAN one-way coupling: "
+                 f"each column forced by its own ELM daily infiltration ({init})",
+                 fontweight="bold")
     fig.tight_layout()
     fig.savefig(rd / "pflotran_coupled.png", dpi=300, bbox_inches="tight")
-    print(f"\n   ✓ figure: {rd / 'pflotran_coupled.png'}")
+    _print(f"\n   ✓ figure: {rd / 'pflotran_coupled.png'}")
 
     lags = [r["lag_days"] for r in ok]
     interp = [
         "One-way coupling: each column's PFLOTRAN top flux is ITS OWN ELM daily "
-        "infiltration (warm-started NLDAS run) — the forcing gradient is back "
+        f"infiltration ({init} ELM run) — the forcing gradient is back "
         f"(annual flux {min(r['flux_annual_mm_yr'] for r in rows):.0f}–"
         f"{max(r['flux_annual_mm_yr'] for r in rows):.0f} mm/yr across columns).",
         (f"Infiltration reaches the water table with lags of {min(lags)}–{max(lags)} days "
@@ -155,19 +206,29 @@ def main():
         "time. The two models now answer the question jointly — ELM partitions the "
         "surface water, PFLOTRAN carries it to the water table.",
     ]
-    (rd / "pflotran_study.json").write_text(json.dumps({
-        "name": "Naches groundwater — ELM-coupled",
+    spin_txt = f"{spin:.0f} y spin + 1 transient ELM year"
+    study = {
+        "name": f"{basin or 'Ensemble'} groundwater — ELM-coupled",
         "question": "When does today's infiltration become recharge at the water table?",
-        "model": "ELM (warm-started, NLDAS) → PFLOTRAN 1-D RICHARDS, one-way daily flux",
+        "model": f"ELM ({init}) → PFLOTRAN 1-D RICHARDS, one-way daily flux",
         "scenarios_mm_yr": [],
-        "interpretation": [t for t in interp if t],
+        "interpretation": [s for s in interp if s],
         "columns": rows,
-        "execution": f"{len(rows)}/20 columns × (10 y spin + 1 transient ELM year), "
+        "execution": f"{len(rows)}/{len(meta['cases'])} columns × ({spin_txt}), "
                      "serial, seconds each on the login node"
                      + (f" — {len(failed)} stiff columns excluded (solver divergence, "
                         "a known Richards challenge)" if failed else ""),
-    }, indent=2))
-    print(f"   ✓ study json: {rd / 'pflotran_study.json'}")
+    }
+    (rd / "pflotran_study.json").write_text(json.dumps(study, indent=2))
+    _print(f"   ✓ study json: {rd / 'pflotran_study.json'}")
+    return {"scenario": meta["scenario"], "columns": rows, "study": study}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--run-dir", required=True)
+    args = ap.parse_args()
+    analyze_coupled(args.run_dir)
 
 
 if __name__ == "__main__":
