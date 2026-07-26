@@ -10,7 +10,6 @@ their flag is given, so plain `pytest` stays fast, offline and deterministic:
     pytest --runlive       # + live MCP data-source tests        (network)
     pytest --runllm        # + real reception/planner round-trip (needs PNNL_API_KEY)
     pytest --runcompute    # + ELM build/run tests               (needs an salloc node)
-    pytest --runlegacy     # + retired PFLOTRAN-era tests         (kept for reference)
 """
 import sys
 from pathlib import Path
@@ -26,7 +25,6 @@ _TIERS = {
     "live":    ("--runlive",    "live network APIs (MCP data sources)"),
     "llm":     ("--runllm",     "the live LLM endpoint (needs PNNL_API_KEY)"),
     "compute": ("--runcompute", "ELM build/run on SLURM (needs an salloc node)"),
-    "legacy":  ("--runlegacy",  "retired PFLOTRAN-era code (kept for reference)"),
 }
 
 
@@ -37,10 +35,6 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    # auto-tag anything under tests/legacy/ as legacy (no per-file edits needed)
-    for item in items:
-        if "legacy" in Path(str(item.fspath)).parts:
-            item.add_marker(pytest.mark.legacy)
     # skip each opt-in tier unless its flag was passed
     for marker, (flag, _reason) in _TIERS.items():
         if config.getoption(flag):
