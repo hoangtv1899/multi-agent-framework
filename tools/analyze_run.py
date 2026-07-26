@@ -5,8 +5,8 @@ hydrology, and summarize how recharge / runoff / soil moisture / water-table
 depth vary across the ensemble (spatially, by elevation).
 
 Wraps core.ELMResultsAnalyzer over a pipeline run dir that holds:
-    phase3_cases.json   the case directories that were run
-    phase3_plan.json    per-column metadata (forcing, lat/lon, years)
+    cases.json      the case directories that were run
+    run_plan.json   per-column metadata (forcing, lat/lon, years)
     columns.json        per-column elevation (optional, for the gradient)
 
 Writes hydro_summary.json (+ an elevation-gradient figure with --plot) into
@@ -52,9 +52,19 @@ def soil_features(sp):
     }
 
 
-def build_experiments(run_dir: Path, cases_file="phase3_cases.json",
-                      plan_file="phase3_plan.json"):
-    cases = json.load(open(run_dir / cases_file))
+def _resolve(run_dir, name, legacy):
+    """Accept the manager's filenames, falling back to the older phase3_* ones.
+
+    ELMExpManager writes cases.json / run_plan.json; this CLI defaulted to
+    phase3_* and so failed with a bare FileNotFoundError on every pipeline run.
+    """
+    p = run_dir / name
+    return p if p.exists() else run_dir / legacy
+
+
+def build_experiments(run_dir: Path, cases_file="cases.json",
+                      plan_file="run_plan.json"):
+    cases = json.load(open(_resolve(run_dir, cases_file, "phase3_cases.json")))
     plan = {c["EXPERIMENT"]: c for c in
             json.load(open(run_dir / plan_file))["CONDITIONS_COUPLERS"]}
     elev = {}
@@ -416,9 +426,9 @@ def print_matrix(dm):
 def main():
     ap = argparse.ArgumentParser(description="Analyze a completed ELM run (read-only)")
     ap.add_argument("--run-dir", required=True)
-    ap.add_argument("--cases-file", default="phase3_cases.json",
+    ap.add_argument("--cases-file", default="cases.json",
                     help="JSON list of case dirs, relative to run-dir")
-    ap.add_argument("--plan-file", default="phase3_plan.json",
+    ap.add_argument("--plan-file", default="run_plan.json",
                     help="executable plan.json, relative to run-dir")
     ap.add_argument("--plot", action="store_true", help="also save the elevation-gradient figure")
     ap.add_argument("--last-year", action="store_true",
