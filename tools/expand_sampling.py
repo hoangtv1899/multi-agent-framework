@@ -179,6 +179,28 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, do_soil=True, boundary=N
 # only raw hourly NLDAS_FORA files, a different format).
 NLDAS_PRECIP = ("/compyfs/inputdata/atm/datm7/"
                 "atm_forcing.datm7.NLDAS2.0.125d.v1/Precip")
+# Second NLDAS-2 layout on Compy: the single-stream CLM files that
+# DATM_MODE=CLMMOSARTTEST actually reads (complete 1979-2023, whereas the
+# ...NLDAS2.0.125d.v1/Precip directory above is EMPTY here). Same 12 km grid
+# and the same LATIXY/LONGXY + PRECTmms structure, so the reader below works
+# on either -- only the filename differs. Preferring this one means the
+# preview panel shows the forcing the run is actually driven by.
+NLDAS_CLM_DIR = "/compyfs/inputdata/atm/datm7/NLDAS"
+
+
+def _nldas_month_file(year, mm):
+    """Monthly NLDAS precip file, whichever of the two layouts is staged."""
+    import os
+    cands = [
+        f"{NLDAS_PRECIP}/ctsmforc.NLDAS2.0.125d.v1.Prec.{year}-{mm:02d}.nc",
+        f"{NLDAS_CLM_DIR}/clmforc.nldas.{year}-{mm:02d}.nc",
+    ]
+    for p in cands:
+        if os.path.exists(p):
+            return p
+    raise FileNotFoundError(
+        f"no NLDAS precip file for {year}-{mm:02d}; looked in "
+        f"{NLDAS_PRECIP} and {NLDAS_CLM_DIR}")
 
 
 def _soil_cov(c):
@@ -199,7 +221,7 @@ def nldas_annual_precip(cols, year):
     lazy point reads over the 12 monthly files."""
     import numpy as np
     import xarray as xr
-    d0 = xr.open_dataset(f"{NLDAS_PRECIP}/ctsmforc.NLDAS2.0.125d.v1.Prec.{year}-01.nc")
+    d0 = xr.open_dataset(_nldas_month_file(year, 1))
     lats = d0["LATIXY"].values[:, 0]
     lons = d0["LONGXY"].values[0, :]
     d0.close()
@@ -207,8 +229,7 @@ def nldas_annual_precip(cols, year):
                      int(np.abs(lons - (c["lon"] % 360.0)).argmin())) for c in cols}
     tot = {cid: 0.0 for cid in idx}
     for mm in range(1, 13):
-        ds = xr.open_dataset(
-            f"{NLDAS_PRECIP}/ctsmforc.NLDAS2.0.125d.v1.Prec.{year}-{mm:02d}.nc")
+        ds = xr.open_dataset(_nldas_month_file(year, mm))
         var = next(v for v in ds.data_vars if "PREC" in v.upper())
         nt = ds.sizes["time"]
         for cid, (i, j) in idx.items():

@@ -280,6 +280,20 @@ class ELMExpManager:
 
 		yr_start = int(config.get("yr_start", 1995))
 		yr_end   = int(config.get("yr_end",   yr_start))
+
+		# The real sampling-design figure (domain map + watershed outline,
+		# hypsometry with band edges, SSURGO soil configs, Fan WTD vs
+		# elevation, per-band allocation, NLDAS precip gradient). Same
+		# function tools/expand_sampling.py --plot uses; passing
+		# forcing_year populates the precip-vs-elevation panel that is
+		# otherwise blank.
+		try:
+			png = exp.plot_columns(
+				res, str(self.run_dir / "sampling_design.png"),
+				forcing_year = yr_start)
+			print(f"✓ sampling design → {Path(png).name}")
+		except Exception as e:
+			print(f"   ⚠️  sampling_design.png failed ({e}) — non-fatal")
 		executable = columns_to_elm_plan(
 			columns,
 			yr_start    = yr_start,
