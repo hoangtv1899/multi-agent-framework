@@ -138,7 +138,18 @@ class ELMExpManager:
 			# Step 4 — Analyze → 04_analysis/
 			print("\n📊 STEP 4: Analyzing Results")
 			print("-" * 40)
-			analyzer = self._analyze(experiments)
+			analyzer = self._analyze(
+				experiments, plan=experiment_plan, config=config)
+
+			# Step 4b/4c — validate against observations, then interpret.
+			# Both are non-fatal; the run stands without them.
+			print("\n🔭 STEP 4b: Validating Against Observations")
+			print("-" * 40)
+			self._validate(config)
+
+			print("\n🧭 STEP 4c: Interpreting")
+			print("-" * 40)
+			self._interpret(config)
 
 			# Step 5 — Package for LLM (top level)
 			print("\n📦 STEP 5: Packaging LLM Input")
@@ -279,6 +290,13 @@ class ELMExpManager:
 
 		merged = {**plan, **executable}
 		(self.run_dir / "run_plan.json").write_text(json.dumps(merged, indent=2))
+		# Make the run dir self-describing, with the SAME filenames the
+		# standalone tools expect. validate_run.build_validation() needs
+		# reception_brief.json (domain bbox) and interpret_run.interpret()
+		# needs plan.json (goals + feasibility verdict). Writing them here
+		# means an integrated run is consumable by every existing tool.
+		(self.run_dir / "reception_brief.json").write_text(json.dumps(brief, indent=2))
+		(self.run_dir / "plan.json").write_text(json.dumps(plan, indent=2))
 		print(f"✓ {len(columns)} column(s) materialized "
 			  f"({yr_start}-{yr_end}) → CONDITIONS_COUPLERS")
 		return merged
@@ -583,18 +601,111 @@ class ELMExpManager:
 	# ─────────────────────────────────────────────────────────
 	def _analyze(self,
 				 experiments,
-				 skip_plotting: bool = False) -> ELMResultsAnalyzer:
-		"""Extract variables from ELM history files into 04_analysis/."""
+				 skip_plotting: bool = False,
+				 plan:          Dict[str, Any] = None,
+				 config:        Dict[str, Any] = None) -> ELMResultsAnalyzer:
+		"""Extract variables from ELM history files into 04_analysis/.
+
+		Also attaches the honesty payload (structural + configuration
+		limitations, assumptions ledger). ELMResultsAnalyzer already computes
+		the confounding notes, fit r2 and soil attribution; only
+		tools/analyze_run.py used to add `extra_summary`, so runs driven
+		through this manager silently lost the caveats.
+		"""
 		analyzer = ELMResultsAnalyzer(
 			experiments  = experiments,
 			analysis_dir = str(self.analysis_dir),
 		)
+
+		cfg  = config or {}
+		plan = plan or {}
+		try:
+			from core.limitations import select_limitations
+			couplers = plan.get("CONDITIONS_COUPLERS") or [{}]
+			y0 = int(couplers[0].get("DATM_CLMNCEP_YR_START", cfg.get("yr_start", 1995)))
+			y1 = int(couplers[0].get("DATM_CLMNCEP_YR_END",   cfg.get("yr_end", y0)))
+			analyzer.extra_summary = {
+				"limitations": select_limitations(
+					n_years       = max(1, y1 - y0 + 1),
+					warm_start    = bool(couplers[0].get("FINIDAT")),
+					forcing       = cfg.get("forcing", "nldas"),
+					spinup_years  = int(cfg.get("spinup_years", 0)),
+				),
+				"assumptions_ledger": (
+					json.loads((self.run_dir / "assumptions.json").read_text())
+					if (self.run_dir / "assumptions.json").exists() else []),
+			}
+		except Exception as e:
+			print(f"   ⚠️  limitations payload unavailable ({e})")
+
 		analyzer.extract_all()
 
 		if not skip_plotting and hasattr(analyzer, 'plot_all'):
 			analyzer.plot_all()
 
 		return analyzer
+
+	# ─────────────────────────────────────────────────────────
+	# STEP 4b — VALIDATE AGAINST OBSERVATIONS
+	# ─────────────────────────────────────────────────────────
+	def _validate(self, config: Dict[str, Any]) -> bool:
+		"""Compare the run against in-domain observations (USGS wells and
+		gauges, SNOTEL SWE) -> 04_analysis/validation.json + validation.png.
+
+		Reuses tools/validate_run.build_validation() rather than
+		reimplementing it. Non-fatal: needs live MCP + network, and a run is
+		still useful without it.
+		"""
+		clients = (config or {}).get("mcp_clients") or {}
+		if not clients:
+			print("   ⚠️  no MCP clients — skipping observation validation")
+			return False
+		try:
+			import importlib.util
+			spec = importlib.util.spec_from_file_location(
+				"validate_run", _ROOT / "tools" / "validate_run.py")
+			vr = importlib.util.module_from_spec(spec)
+			sys.modules["validate_run"] = vr
+			spec.loader.exec_module(vr)
+
+			val = vr.build_validation(self.run_dir, clients)
+			(self.analysis_dir / "validation.json").write_text(
+				json.dumps(val, indent=2, default=str))
+			try:
+				vr.plot_validation(val, self.analysis_dir / "validation.png")
+			except Exception as e:
+				print(f"   ⚠️  validation plot failed: {e}")
+			n = sum(1 for t in (val.get("targets") or [])
+					if t.get("status") == "compared")
+			print(f"✓ validation: {n} target(s) compared → 04_analysis/validation.json")
+			return True
+		except Exception as e:
+			print(f"   ⚠️  observation validation failed ({e}) — continuing")
+			return False
+
+	# ─────────────────────────────────────────────────────────
+	# STEP 4c — INTERPRET (numbers + feasibility + validation)
+	# ─────────────────────────────────────────────────────────
+	def _interpret(self, config: Dict[str, Any]) -> bool:
+		"""LLM interpretation grounded in the computed numbers, the plan's
+		feasibility verdict and the observation validation
+		-> 04_analysis/interpretation.md. Non-fatal."""
+		try:
+			import importlib.util
+			spec = importlib.util.spec_from_file_location(
+				"interpret_run", _ROOT / "tools" / "interpret_run.py")
+			ir = importlib.util.module_from_spec(spec)
+			sys.modules["interpret_run"] = ir
+			spec.loader.exec_module(ir)
+			ir.interpret(self.run_dir,
+						 model = (config or {}).get(
+							 "interpreter_model", "claude-opus-4-8-project"),
+						 quiet = True)
+			print("✓ interpretation → 04_analysis/interpretation.md")
+			return True
+		except Exception as e:
+			print(f"   ⚠️  interpretation failed ({e}) — continuing")
+			return False
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 5 — PACKAGE LLM INPUT (top level)
@@ -606,6 +717,31 @@ class ELMExpManager:
 		llm_input = analyzer.get_llm_analysis_input()
 		llm_input['experiment_plan'] = plan
 		llm_input['run_directory']   = str(self.run_dir)
+
+		# get_llm_analysis_input() omits extra_summary, so the honesty payload
+		# and the observation verdicts never reached the report agent. Attach
+		# them here so the written report can be held to the same standard as
+		# 04_analysis/interpretation.md.
+		if getattr(analyzer, 'extra_summary', None):
+			llm_input['limitations'] = analyzer.extra_summary.get('limitations')
+			llm_input['assumptions_ledger'] = \
+				analyzer.extra_summary.get('assumptions_ledger')
+		vp = self.analysis_dir / "validation.json"
+		if vp.exists():
+			try:
+				val = json.loads(vp.read_text())
+				llm_input['validation'] = {
+					"targets": val.get("targets"),
+					"observation_inventory": val.get("observation_inventory"),
+					"hydrograph_metrics": {
+						k: v for k, v in (val.get("hydrograph") or {}).items()
+						if k not in ("days", "obs", "mod")},
+				}
+			except Exception as e:
+				print(f"   ⚠️  could not attach validation to LLM input: {e}")
+		ip = self.analysis_dir / "interpretation.md"
+		if ip.exists():
+			llm_input['interpretation_md'] = ip.read_text()
 
 		llm_file = self.run_dir / "LLM_ANALYSIS_INPUT.json"
 		with open(llm_file, 'w') as f:

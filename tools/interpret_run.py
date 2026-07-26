@@ -68,15 +68,23 @@ def compact_results(hs):
             "driver_matrix": hs.get("driver_matrix")}
 
 
-def main():
-    ap = argparse.ArgumentParser(description="LLM interpretation of a completed study")
-    ap.add_argument("--run-dir", required=True)
-    ap.add_argument("--model", default="claude-opus-4-8-project")
-    args = ap.parse_args()
-    rd = Path(args.run_dir)
+def interpret(run_dir, model: str = "claude-opus-4-8-project",
+              quiet: bool = False) -> str:
+    """Interpret a completed study; returns the markdown and writes it to
+    <run_dir>/04_analysis/interpretation.md.
+
+    Importable so the integrated pipeline (ELMExpManager) and the CLI share
+    ONE implementation — this is the only place that sees the computed
+    numbers, the plan's feasibility verdict and the observation validation
+    together, which is what makes the interpretation honest.
+
+    Raises FileNotFoundError if the deterministic analysis has not run.
+    """
+    rd = Path(run_dir)
     hs = load(rd / "04_analysis" / "hydro_summary.json")
     if not hs:
-        sys.exit("run analyze_run.py first (no hydro_summary.json)")
+        raise FileNotFoundError(
+            f"no {rd}/04_analysis/hydro_summary.json — run the analysis first")
 
     brief = load(rd / "reception_brief.json")
     plan = load(rd / "plan.json")
@@ -96,8 +104,9 @@ def main():
     }
 
     from agents.llm_agent import SimpleLLMClient
-    llm = SimpleLLMClient(model=args.model)
-    print(f"interpreting {rd.name} with {args.model} …")
+    llm = SimpleLLMClient(model=model)
+    if not quiet:
+        print(f"interpreting {rd.name} with {model} …")
     resp = llm.client.chat.completions.create(
         model=llm.model, max_tokens=1500,
         messages=[{"role": "system", "content": SYSTEM},
@@ -106,8 +115,21 @@ def main():
 
     out = rd / "04_analysis" / "interpretation.md"
     out.write_text(md)
-    print("\n" + md)
-    print(f"\nwritten to {out}")
+    if not quiet:
+        print("\n" + md)
+        print(f"\nwritten to {out}")
+    return md
+
+
+def main():
+    ap = argparse.ArgumentParser(description="LLM interpretation of a completed study")
+    ap.add_argument("--run-dir", required=True)
+    ap.add_argument("--model", default="claude-opus-4-8-project")
+    args = ap.parse_args()
+    try:
+        interpret(args.run_dir, model=args.model)
+    except FileNotFoundError as e:
+        sys.exit(str(e))
 
 
 if __name__ == "__main__":
