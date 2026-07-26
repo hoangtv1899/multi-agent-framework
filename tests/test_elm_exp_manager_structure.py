@@ -14,8 +14,8 @@ Verifies:
          _analyze()  → 04_analysis/ (via ELMResultsAnalyzer)
     3. Top-level files (LLM_ANALYSIS_INPUT.json, RUN_SUMMARY.json)
        stay at run_dir top-level, not under any subdir.
-    4. ELMResultsAnalyzer.plot_all() no longer creates a "plots/"
-       subdir (it saves directly to analysis_dir).
+    4. Analysis figures never create a "plots/" subdir — they save
+       directly into 04_analysis/.
 
 These tests don't run real ELM — they mock the builder, adapter,
 and analyzer so verification takes seconds and works on a login node.
@@ -115,7 +115,7 @@ class TestSubdirStructure:
         assert mgr.analysis_dir    == mgr.run_dir / "04_analysis"
 
     def test_subdir_names_match_pflotran_exactly(self, tmp_path):
-        """Names must match PFLOTRAN's exp_manager for create_slides.py."""
+        """Stable 0N_ names: run dirs are consumed by tools/ CLIs and by eye."""
         mgr = ELMExpManager(base_output_dir=str(tmp_path))
         assert mgr.input_dir.name       == "01_inputs"
         assert mgr.setup_plots_dir.name == "02_setup_plots"

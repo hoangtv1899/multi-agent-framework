@@ -197,7 +197,7 @@ class LLMAgent:
         guess at structural slips (a missing comma between elements), because
         inserting punctuation heuristically can silently change the data.
         For those, ask the model to fix its own output — the same approach
-        tools/create_slides.py already uses.
+        the tools/ CLIs already use.
 
         Only the JSON is regenerated, not the reasoning, so this is cheap and
         cannot change the scientific content of a valid response.

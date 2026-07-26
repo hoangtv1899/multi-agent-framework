@@ -1,206 +1,177 @@
-# Multi-Agent Framework for Subsurface Simulations — Project Summary
+# Project Summary — status and environment
 
-**Last updated:** June 18, 2026 (added the MCP data layer + agentic reception/planner/expander pipeline, June 10–11)
+**Last updated:** July 26, 2026 (Compy port; the two pipelines were joined and
+the dead halves removed).
 
-**Purpose:** Hand-off document so a future Claude chat can pick up the project context without rebuilding it from scratch.
-
----
-
-## 0. ⚠️ The single most important thing: there are now TWO pipelines
-
-The framework has a **mature back-end that executes simulations** and, built on top of it (June 10–11), a **new agentic front-end that is much smarter at understanding questions and designing campaigns but is DRY (stops before execution).** They are **not yet joined.**
-
-| | **Legacy pipeline (EXECUTES)** | **New agentic pipeline (DRY)** |
-|---|---|---|
-| Entry point | `workflow.py` (`PFLOTRANCoordinator`) | `tools/run_pipeline.py` |
-| Reception | `reception_agent.py` — 2-pass, **scripted** MCP fetch (weather+geology only) | `reception_llm.py` + `tool_loop.py` — **agentic**, LLM drives 12 MCP tools |
-| Planner | `planner_agent.py` — **closed-vocab** DSL (`CONDITIONS_COUPLERS`), executable | prompt `planner_capability_probe.txt` — **open strategy** (sampling_plan, validation_design, requires_capabilities) |
-| After plan | ExpManager / ELMExpManager → **real SLURM runs** → Analyzer | Tier-2 expander → concrete columns → **STOP** |
-| Scale | one site, parameter sweep (forcing×soil×substrate) | watershed-scale spatial sampling + validation |
-| Status | runs simulations (last real run: May 18 Fresno ELM, 3/3, 36.8 min) | dry, verified on Naches |
-
-**The central open task is building the bridge** between them (see §6).
+**Purpose:** hand-off document — current state, environment, and open work.
+For *what the code is and where each stage lives*, see **[ARCHITECTURE.md](ARCHITECTURE.md)**;
+that is the single source of truth for structure and this file does not repeat it.
 
 ---
 
 ## 1. What this project is
 
-A multi-agent LLM-orchestrated framework for scientific simulations on Perlmutter (NERSC). Natural language requests drive the pipeline: data gathering → experiment planning → case configuration → execution → analysis. **Architecture:** Reception → Planner → Execute → Analyze. Model-agnostic — supports PFLOTRAN (steady-state subsurface) and ELM (transient land-surface, single-column).
+An LLM-orchestrated framework for scientific simulations. A natural-language
+request drives: data gathering → experiment design → case configuration →
+execution → analysis. Four agents: **Reception → Planner → Experiment Manager
+→ Analyzer**.
+
+The science target is watershed-scale single-column ELM ensembles on real data
+(terrain, SSURGO soil, Fan water table, USGS/SNOTEL observations), with one-way
+ELM→PFLOTRAN coupling for reactive transport.
+
+**Status:** one pipeline, and it executes. `workflow.py` runs all four stages
+end to end. (Until July 2026 there were two disjoint halves — `workflow.py`
+executed but used a weaker reception/planner, while `tools/run_pipeline.py` was
+smarter but stopped before execution. They are now the same path: the manager
+imports the `tools/` implementations rather than duplicating them.)
 
 ---
 
-## 2. Environment specifics
+## 2. Environment — Compy (PNNL)
 
 | Item | Value |
 |---|---|
-| User | `hvtran` (PNNL) · Project `m3780` · root `~/RCSFA/multi-agent/` |
-| E3SM source | `/global/u2/h/hvtran/E3SM` |
-| ELM case scratch | `$PSCRATCH/E3SMv3/` |
-| Reference surface | `/global/homes/h/hvtran/RCSFA/1d_elm/input_files/Surfacedata_Station_2006_.nc` |
-| **Runtime env for LLM/MCP** | **`module load pytorch/2.8.0`** — `openai`, `mcp`, `xarray`, `netCDF4` live here (a `--user` install under `pytorch2.8.0/`). NOT in `nersc-python` / `RCSFA` conda env / default `pytorch/2.11.0`. Prefix LLM-calling commands with `module load pytorch/2.8.0 &&` (shell state doesn't persist). `PNNL_API_KEY` is set in env. |
-| Conda env (non-LLM) | `nersc-python` works for pure structure/unit tests |
-| LLM gateway | `https://ai-incubator-api.pnnl.gov` (OpenAI-compatible). **Supports function/tool-calling** on gpt-5.5, gemini-2.5-flash, claude-opus-4-8, claude-sonnet-4-5 — but `tools=` must be passed on EVERY request or Bedrock-routed Claude 400s. |
-| Style convention | Tabs in `src/`, spaces in `tests/` and `tools/` |
-| **No packaging** | No setup.py. Uses `sys.path.insert(0, "src")` — **run everything from the project root**. |
-| Git | On `main`. Remotes: `github` (hoangtv1899/multi-agent-framework), `origin` (PNNL tanuki). `mcp/usgs-water-mcp` is a **vendored nested repo** (pgiffy's), not a `.gitmodules` submodule — its changes commit in its own history. |
+| User / host | `tran289` · `compy01.pnl.gov` · CentOS 7, glibc 2.17, Slurm 18.08.6 |
+| Repo root | `/qfs/people/tran289/IDEAS/multi-agent-framework` |
+| **Environment** | **`source /qfs/people/tran289/IDEAS/env_compy.sh`** — modules + conda env `ideas` + all paths + `PNNL_API_KEY`. Do this first, every shell. |
+| E3SM source | `/qfs/people/tran289/E3SM` |
+| ELM case scratch | `/compyfs/tran289/E3SMv3/` |
+| SLURM | account `e3sm`, partition `short` |
+| LLM gateway | `https://ai-incubator-api.pnnl.gov` (OpenAI-compatible). Default model `claude-opus-4-8-project`. `tools=` must be passed on EVERY request or Bedrock-routed Claude 400s. |
+| Style convention | Tabs in `src/core/`, spaces in `src/agents/`, `tests/`, `tools/` |
+| **No packaging** | No setup.py; `sys.path.insert(0, "src")` — **run everything from the repo root**. |
+| Git | branch `compy-port-agentic-pipeline`. `mcp/usgs-water-mcp` is vendored (rebuilt on Compy), not a submodule. |
+
+**Compy-specific gotchas, all load-bearing:**
+
+- **NLDAS-2 forcing comes from `DATM_MODE=CLMMOSARTTEST`** (`elm_wrapper.py`
+  `FIXED_XML`), which reads `$DIN_LOC_ROOT/atm/datm7/NLDAS/clmforc.nldas.%ym.nc`
+  (1979–2023, complete). The `atm_forcing.datm7.NLDAS2.0.125d.v1` tree that the
+  NERSC path used has **empty** `Precip/` and `TPQWL/` here. The name mentions
+  MOSART but it is purely a DATM stream preset — fine with the SROF stub.
+- **ELM only, no MOSART**: compset uses `SROF`. Do not add a `mosart` namelist.
+- Intel compilers crash on a non-UTF8 locale → every CIME subprocess is run with
+  `LC_ALL=LANG=en_US.utf8` (`elm_wrapper._cime_env`).
+- Slurm 18.08 has no `srun --exact` → use `--exclusive`; MPI needs `--mpi=pmi2`
+  or Intel MPI hydra bootstrap hangs.
+- `pip` cannot build from source on this glibc → `export PIP_ONLY_BINARY=":all:"`.
 
 ---
 
-## 3. Directory layout
+## 3. The MCP data layer
 
-```
-~/RCSFA/multi-agent/
-├── workflow.py                     # LEGACY entry point (executes; PFLOTRAN/ELM)
-├── mcp_config.json                 # 5 MCP servers (gitignored — abs paths; see .template)
-├── data/fan_wtd/                   # GITIGNORED — 832 MB Fan 2013 NetCDF tiles
-│
-├── src/agents/
-│   ├── reception_agent.py          # LEGACY 2-pass reception (scripted MCP)
-│   ├── planner_agent.py            # LEGACY closed-vocab planner (executable)
-│   ├── analysis_report_agent.py    # analyzer (2-call; NO MCP tools yet)
-│   ├── llm_agent.py                # SimpleLLMClient (openai chat completions)
-│   ├── tool_loop.py        ★NEW    # generic LLM↔MCP tool-calling runtime
-│   ├── reception_llm.py    ★NEW    # AGENTIC reception (LLMReceptionAgent)
-│   └── prompts/
-│       ├── reception_agentic.txt        ★NEW
-│       ├── planner_capability_probe.txt ★NEW  (open strategy + conceptual/site archetype)
-│       └── (legacy) reception_pass*, planner_system*, analyzer_system* …
-│
-├── src/core/                       # execution engine (PFLOTRAN no-prefix, ELM elm_*)
-│   ├── exp_manager.py / experiment_manager.py   # PFLOTRAN two-layer (both live)
-│   ├── elm_exp_manager.py + elm_*.py            # ELM single layer
-│   └── mcp_client.py ★MOD (added list_tools_detailed) / mcp_manager.py / mcp_context.py / mcp_gatherer.py
-│
-├── mcp/                            # the actual MCP servers (stdio)
-│   ├── weather-mcp/  geology-mcp/  usgs-water-mcp/ (vendored, +groundwater_api.py ★NEW)
-│   ├── terrain-mcp/  ★NEW   (3DEP elevation + WBD watershed boundary)
-│   └── fan-wtd-mcp/  ★NEW   (Fan 2013 equilibrium WTD, static NetCDF)
-│
-├── tools/
-│   ├── run_pipeline.py         ★NEW  agentic dry pipeline: request→reception→planner→plan
-│   ├── expand_sampling.py      ★NEW  Tier-2: strategy → concrete (lat,lon) columns
-│   ├── probe_planner.py        ★NEW  planner-only capability probe (hand brief)
-│   ├── mcp_conus_sweep.py      ★NEW  CONUS coverage diagnostic (--assert)
-│   ├── make_architecture_slides.py ★NEW  regenerates the review deck
-│   ├── naches_elm_brief.json   ★NEW  hand-written domain brief (probe input)
-│   └── (existing) replot.py, create_slides.py, regenerate_surface.py, …
-│
-├── tests/   (62 passing under pytorch/2.8.0)
-│   ├── test_elm_exp_manager_structure.py (20)
-│   │   / smoke_test_elm_wrapper.py (2)        = 36 legacy ELM guardrail
-│   ├── test_mcp_tools.py ★NEW (20)            = terrain/fan/groundwater/expander logic
-│   └── test_agentic.py   ★NEW (6)             = tool-schema gen + brief parse
-│
-└── workflow_outputs/  (gitignored)
-    ├── <legacy run_id>/ 01_inputs 02_setup_plots 03_results 04_analysis …
-    └── pipeline_<ts>/  reception_brief.json  reception_trace.json  plan.json  columns.json
-```
-
-**Key import facts:**
-- `workflow.py` → `ExpManager` wraps `ExperimentManager` (PFLOTRAN). **Both live — do not delete either.** ELM uses single `ELMExpManager`. PFLOTRAN/ELM asymmetry = Stage-2 refactor target.
-- The agentic path (`run_pipeline.py`) is **additive and parallel** — it does NOT touch the legacy reception/planner/`workflow.py`.
-
----
-
-## 4. The MCP data layer (5 servers)
-
-Config-driven (`mcp_config.json`): each source is a stdio server; `MCPManager` → `MCPClient` per server (fresh session per call, HPC-safe). All tools are **read-only** data fetches.
+Config-driven (`mcp_config.json`, gitignored — absolute paths; see `.template`).
+Each source is a stdio server; `MCPManager` → `MCPClient` per server, fresh
+session per call (HPC-safe). All tools are **read-only** fetches.
 
 | Server | Source | Key tools | Shape |
 |---|---|---|---|
 | weather | NWS / Open-Meteo | `get_climate_summary` | point |
 | geology | USDA SSURGO | `get_soil_profile`, `get_pflotran_materials` | point |
-| usgs_water ★ | USGS OGC API | `get_groundwater_sites`, `get_water_table_depth` (param 72019), `get_monitoring_locations` (streamflow) | bbox |
-| terrain ★ | USGS 3DEP + WBD | `resolve_watershed` (HUC/name→bbox+area), `get_elevation`, `sample_elevation_grid`, `elevation_summary` | point+bbox |
-| fan_wtd ★ | Fan et al. 2013 (local NetCDF) | `get_fan_wtd`, `sample_fan_wtd`, `data_status` | point+bbox |
+| usgs_water | USGS OGC API | `get_groundwater_sites`, `get_water_table_depth` (param 72019), `get_monitoring_locations` | bbox |
+| terrain | USGS 3DEP + WBD | `resolve_watershed` (HUC/name→bbox+area), `get_elevation`, `sample_elevation_grid` | point+bbox |
+| fan_wtd | Fan et al. 2013 (local NetCDF) | `get_fan_wtd`, `sample_fan_wtd`, `data_status` | point+bbox |
+| reaction_sandbox | PFLOTRAN reaction sandbox | reactive-transport deck helpers | — |
 
-**MCP gotchas:**
-- **Observed WTD uses the OGC API** (`api.waterdata.usgs.gov`), NOT legacy `waterservices.usgs.gov` (unreachable from NERSC — SSL handshake timeout). Depth-to-water = parameter **72019** in the `field-measurements` collection.
-- **Fan tiles** store WTD **negative-below-surface**; the server auto-detects sign and returns a positive `depth_to_water_m`, reduces the `time` dim, applies the land `mask`. Naches HUC8 = `17030002`, 2,860.6 km², lon −180..180.
-- `terrain` uses EPQS (3DEP point/grid) + WBD ArcGIS REST. SSURGO/weather are point-only → watershed work uses `sample_elevation_grid` / `sample_fan_wtd`.
-- `tools/mcp_conus_sweep.py` is a coverage diagnostic over 12 CONUS sites (surfaces sparse wells / no-data before you design a study).
-
----
-
-## 5. The agentic pipeline (June 10–11) — how it works
-
-1. **Reception** (`reception_llm.py` + `tool_loop.py`, prompt `reception_agentic.txt`): a pure-LLM agent that DRIVES the MCP tools. It classifies intent, picks **archetype** — `conceptual` (mechanism, no real site → few/no tools) vs `site` (real place → resolve domain + inventory heterogeneity & observations) — gathers *proportionally*, reasons over results, and emits a framed **brief**. Curated 12-tool allowlist. Rule: only state tool-returned values.
-2. **Planner** (`planner_capability_probe.txt`): open reasoning at **strategy altitude** — designs sampling strategy + validation pinned to observations + a `requires_capabilities` backlog. N is justified from the question, not a blind grid. Branches on `design_archetype`.
-3. **Tier-2 expander** (`expand_sampling.py`): **deterministic Python, no LLM** — samples the real DEM, makes elevation bands, allocates N ∝ area (≥1/band), farthest-point selection, enriches each column with Fan WTD + SSURGO texture → concrete `(lat,lon)` columns. No hallucinated coordinates.
-
-**Three-tier principle:** LLM designs the STRATEGY (Tier 1) → Python materializes it against real data (Tier 2) → the strict per-column ELM config (Tier 3, existing builder) stays untouched.
-
-**Verified end-to-end (Naches):** `workflow_outputs/pipeline_20260611_011237/` — reception 10 tool calls → planner 12 columns / 4 bands + validation → expander **12 real columns** (e.g. `col_01` 447 m, Fan WTD 0.70 m valley vs ridge 200 m deep). `columns.json` saved.
-
-Run it:
-```bash
-module load pytorch/2.8.0
-python3 tools/run_pipeline.py "your question"
-python3 tools/expand_sampling.py --run-dir workflow_outputs/pipeline_<ts>
-```
+**Gotchas:**
+- Observed WTD uses the **OGC API** (`api.waterdata.usgs.gov`), not legacy
+  `waterservices.usgs.gov`. Depth-to-water = parameter **72019**, collection
+  `field-measurements`.
+- Fan tiles store WTD **negative-below-surface**; the server auto-detects sign,
+  returns positive `depth_to_water_m`, reduces `time`, applies the land mask.
+- SSURGO and weather are point-only → watershed work uses `sample_elevation_grid`
+  and `sample_fan_wtd`.
+- `tools/mcp_conus_sweep.py` surfaces sparse-well / no-data regions *before* you
+  design a study.
 
 ---
 
-## 6. Parking lot / next steps
+## 4. The three-tier principle
 
-### Priority 1 — Join the two pipelines (the main thing)
-- **Make the analyzer agentic** — `analysis_report_agent.py` is the legacy 2-call interpreter with NO MCP tools. Give it observation-retrieval tools (wells/streamflow/Fan via `tool_loop`) so it FETCHES observations and compares them to ELM output. This is where "validate against observations" becomes a result, not a plan.
-- **Wire Tier-2 → Tier-3** — feed `columns.json` into the per-column ELM config + run path. (Schema seam: the capability planner emits a *strategy*, not the executable `CONDITIONS_COUPLERS`.)
+The reason the Planner is not allowed to emit coordinates:
 
-### Priority 2 — Data / science
-- **GSDE gridded soil** (BNU, Shangguan/Dai 2014; 30″, 8 layers to 2.3 m, NetCDF) as a fan_wtd-style MCP → makes soil a real stratification axis. Deferred.
-- **FLUXNET soil-moisture** ingest (no in-domain Naches tower; Metolius US-Me is the east-Cascades analog).
-- Topographic-position sampling (valley vs hillslope via TWI / height-above-drainage) — beyond elevation bands.
-- ELM→PFLOTRAN weak coupling.
+1. **Tier 1 — LLM designs the STRATEGY.** Stratification rules, justified N,
+   feasibility verdict. No numbers that have to be real.
+2. **Tier 2 — Python materializes it against real data** (`expand_sampling.py`,
+   deterministic, no LLM): samples the real DEM, builds elevation bands,
+   allocates N ∝ area (≥1/band), farthest-point selection, enriches each column
+   with Fan WTD + SSURGO texture → concrete `(lat, lon)` columns.
+3. **Tier 3 — the strict per-column ELM config** (`elm_experiment_builder.py`)
+   is untouched by any LLM.
 
-### Priority 3 — Legacy bugs / debt (pre-existing)
-- `case_dir = "not_prepared"` not written back in `elm_experiment_builder.prepare_cases()` (replot.py works around via PSCRATCH discovery).
-- Verify `--keepexe` actually parallel-clones in workflow.
-- "Hanford" hallucination in `analyzer_system_elm.txt`.
-- Spinup support (5–10 yr) · monthly-period planner · per-experiment timeout.
-- Stage-2 refactor: unify PFLOTRAN two-layer manager; `models/<name>/` layout.
+No hallucinated coordinates is a structural guarantee, not a prompt instruction.
 
 ---
 
-## 7. How to verify state in a new chat
+## 5. Verify state in a new session
 
 ```bash
-cd ~/RCSFA/multi-agent && module load pytorch/2.8.0
+source /qfs/people/tran289/IDEAS/env_compy.sh
+cd /qfs/people/tran289/IDEAS/multi-agent-framework
 
-# Full suite: 62 passing (36 legacy ELM + 20 MCP/expander + 6 agentic)
-python3 -m pytest tests/test_elm_exp_manager_structure.py \
-                  tests/smoke_test_elm_wrapper.py tests/test_mcp_tools.py tests/test_agentic.py -q
-
-# The 5 MCP servers load + a coverage sweep
+python -m pytest -q                       # expect: 3 failed, 155 passed, 62 skipped
 python3 tools/mcp_conus_sweep.py --max-sites 4 --assert
-
-# The agentic pipeline end-to-end (dry)
-python3 tools/run_pipeline.py "explore GW/soil-moisture partitioning in the Naches sub-watershed, validate with obs"
+python3 workflow.py --interactive
 ```
 
----
-
-## 8. Most-recent runs
-
-| | Legacy (executed) | Agentic (dry) |
-|---|---|---|
-| Run dir | `workflow_outputs/elm_run_20260518_174555/` | `workflow_outputs/pipeline_20260611_011237/` |
-| Site | Fresno, CA | Naches sub-watershed, WA (HUC 17030002) |
-| Result | 3/3 ELM cases, 36.8 min | 12 concrete columns across 4 elevation bands |
-| Note | 1985 baseline · 1990 dry · 1983 wet | valley Fan WTD 0.70 m vs ridge ~200 m |
+The **3 failures are known test drift**, not regressions — see §7.
 
 ---
 
-## 9. Working-style notes (next session)
+## 6. Most-recent run
 
-User is **hvtran** at PNNL. Decisive; trusts technical recommendations but wants the reasoning visible; prefers concrete deliverables ("draft it and I'll revise"); iterates fast on visuals; non-native English (short clear sentences, no filler); cautious about destructive ops — **always investigate before deleting/moving** (this codebase has non-obvious deps: the two-layer PFLOTRAN manager, the vendored usgs-water-mcp nested repo). Read this summary, confirm direction, deliver focused work, don't re-explain known things.
+`workflow_outputs/elm_run_20260725_225034/` — Naches sub-watershed, WA
+(HUC 17030002). 14 columns, 750–1868 m, NLDAS-2 1995, CONUS warm start.
+14/14 succeeded. Sampling design, per-column surfaces (14 distinct SSURGO
+profiles), and the five analysis figures all present.
 
 ---
 
-## 10. What changed June 10–11 (this work)
+## 7. Open work
 
-- Built 3 MCP servers (terrain, fan_wtd) + extended usgs_water with observed-WTD groundwater tools; provisioned the 832 MB Fan NAMERICA tiles.
-- Built the **agentic layer**: generic `tool_loop.py` runtime, `LLMReceptionAgent`, planner conceptual/site archetypes, deterministic Tier-2 `expand_sampling.py`.
-- Verified PNNL endpoint supports tool-calling (the `tools=`-every-round rule).
-- Added 26 tests (→ 62 total); a CONUS coverage sweep; a review deck (`RCSFA_agentic_pipeline_review.pptx`).
-- All additive — legacy reception/planner/`workflow.py` untouched.
+**Known test drift (3 failures, pre-existing):**
+- `test_validate.py::test_clean_site_brief` — `agents/validate.py` gained a
+  `run_settings.resolved_period` check the fixture predates.
+- `test_agentic.py::test_batch_returns_sentinel` and
+  `test_tool_loop.py::test_ask_user_interactive_uses_human_answer` —
+  `tool_loop._human_answer` gained a `tty` parameter and now opens `/dev/tty` at
+  construction; there is no TTY under pytest.
+
+**Wiring gaps:**
+- **Warm start is not reachable from `workflow.py`.** `tools/make_warmstart.py`
+  produces the `warmstart.json` that `columns_to_plan --finidat-map` consumes,
+  but the manager's materialize step never calls it — integrated runs are
+  cold-start. The shell path can warm-start today.
+- **PFLOTRAN is not driven by the coordinator.** `tools/build_pflotran_cases.py`
+  works standalone; re-integrating it behind the four-agent flow is open.
+- **The refinement loop is not closed.** `conversation_context['last_analysis']`
+  is stored but no agent reads it, so "now try X instead" starts from scratch.
+
+**Validation quality (needs a look):**
+- 93 gauges found in-domain but 0 with 1995 records — the validation reports a
+  comparison it cannot actually make.
+- SWE is off by 3–20× against SNOTEL.
+- The WTD target reports `compared` on weak evidence.
+
+**Science:**
+- Only 2 of 14 Naches columns produce meaningful recharge (r²=0.018 vs
+  elevation). Consistent with the shallow-soil/one-way-coupling framing, but
+  worth confirming it is physics and not configuration.
+- GSDE gridded soil (BNU, 30″, 8 layers to 2.3 m) as a fan_wtd-style MCP would
+  make soil a real stratification axis. Deferred.
+- Topographic-position sampling (TWI / height-above-drainage) beyond elevation bands.
+
+**Debt:**
+- "Hanford" hallucination in `analyzer_system_elm.txt`.
+- Spin-up support (5–10 yr); monthly-period planning; per-experiment timeout.
+
+---
+
+## 8. Working-style notes
+
+Decisive; trusts technical recommendations but wants the reasoning visible;
+prefers concrete deliverables ("draft it and I'll revise"); iterates fast on
+visuals; non-native English (short clear sentences, no filler). **Cautious about
+destructive operations — investigate before deleting or moving.** Read this
+summary, confirm direction, deliver focused work, don't re-explain known things.

@@ -3,30 +3,25 @@
 ELM Experiment Manager
 src/core/elm_exp_manager.py
 
-Single responsibility: orchestrate the ELM execution pipeline.
-Mirrors PFLOTRAN's ExpManager interface AND directory layout so
-workflow.py and downstream tools (e.g. create_slides.py) work
-with both PFLOTRAN and ELM unchanged.
+Single responsibility: orchestrate the ELM execution pipeline — the
+Experiment Manager box of the framework (see ARCHITECTURE.md).
 
-Output directory structure (mirrors PFLOTRAN exactly):
+Output directory structure:
 
     elm_run_YYYYMMDD_HHMMSS/
+        ├── columns.json  run_plan.json  plan.json  reception_brief.json
+        ├── sampling_design.png                     (step 0, materialize)
         ├── 01_inputs/
         │   └── experiment_summary.json
         ├── 02_setup_plots/
-        │   ├── exp_001_<case_name>/
-        │   │   └── domain_configuration.png
-        │   ├── exp_NNN_<case_name>/
-        │   │   └── domain_configuration.png
-        │   ├── comparison_experiments.png
-        │   └── comparison_forcing_conditions.png
+        │   └── column_surfaces.png                 (real FSURDAT per column)
         ├── 03_results/
         │   ├── execution_report.txt
         │   └── results_summary.csv
         ├── 04_analysis/
-        │   ├── hydro_summary.json
-        │   ├── comparison_all_times.png
-        │   └── <case_name>_*.png
+        │   ├── hydro_summary.json  validation.json  interpretation.md
+        │   ├── elevation_gradient.png  soil_control.png
+        │   └── water_budget.png  driver_response.png  wtd_columns.png
         ├── ANALYSIS_REPORT.json
         ├── LLM_ANALYSIS_INPUT.json
         └── RUN_SUMMARY.json
@@ -76,9 +71,9 @@ class ELMExpManager:
 	"""
 	Executes ELM experiment plans.
 
-	Mirrors PFLOTRAN ExpManager.execute_plan() interface AND output
-	directory structure, so workflow.py and create_slides.py work
-	identically for both model types.
+	Stages: materialize -> build -> prepare -> run -> analyze -> validate
+	-> interpret -> package. Steps 0 and 4/4b/4c delegate to the tools/
+	CLIs via _load_tool(), so both entry points share one implementation.
 	"""
 
 	def __init__(self,
