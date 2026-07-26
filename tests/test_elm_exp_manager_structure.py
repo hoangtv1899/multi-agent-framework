@@ -401,26 +401,25 @@ class TestRunSummaryOutputFiles:
 
 
 # ═════════════════════════════════════════════════════════════════════
-# CATEGORY 7 — ELMResultsAnalyzer DOES NOT CREATE plots/ SUBDIR
+# CATEGORY 7 — ANALYSIS FIGURES LAND IN 04_analysis/, NOT A plots/ SUBDIR
 # ═════════════════════════════════════════════════════════════════════
 
 class TestAnalyzerNoPlotsSubdir:
-    """ELMResultsAnalyzer.plot_all() saves directly to analysis_dir."""
+    """Analysis figures go directly into analysis_dir."""
 
-    def test_plot_all_does_not_create_plots_subdir(self, tmp_path):
+    def test_plotting_does_not_create_plots_subdir(self, tmp_path):
         """
-        Empty analyzer + plot_all() should not produce a plots/ subdir
-        under analysis_dir. (This was the old behavior we removed in
-        Phase A.)
+        _plot_analysis on an empty analyzer must not produce a plots/ subdir
+        under 04_analysis/, and must not raise. (Guards the invariant that
+        used to be tested against the removed ELMResultsAnalyzer.plot_all.)
         """
-        analysis_dir = tmp_path / "04_analysis"
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
         analyzer = ELMResultsAnalyzer(
             experiments  = [],
-            analysis_dir = str(analysis_dir),
+            analysis_dir = str(mgr.analysis_dir),
         )
-        analyzer.plot_all()
-        # The "plots" subdir must NOT exist
-        assert not (analysis_dir / "plots").exists()
+        mgr._plot_analysis(analyzer)          # non-fatal by contract
+        assert not (mgr.analysis_dir / "plots").exists()
 
 
 # ═════════════════════════════════════════════════════════════════════

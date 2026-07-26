@@ -621,10 +621,49 @@ class ELMExpManager:
 
 		analyzer.extract_all()
 
-		if not skip_plotting and hasattr(analyzer, 'plot_all'):
-			analyzer.plot_all()
+		if not skip_plotting:
+			self._plot_analysis(analyzer)
 
 		return analyzer
+
+	def _plot_analysis(self, analyzer: ELMResultsAnalyzer) -> None:
+		"""04_analysis/ figures — the same five tools/analyze_run.py --plot draws.
+
+		These are the science figures: elevation_gradient, soil_control,
+		water_budget, driver_response, wtd_columns. They read the ensemble, so
+		they answer questions about the ensemble.
+
+		They replaced ELMResultsAnalyzer.plot_all(), which drew a 2-panel
+		<case>_overview.png per column plus one comparison figure. That set had
+		no elevation gradient, no soil attribution, no water-budget closure and
+		no WTD panel — everything the study is actually about — and it meant an
+		integrated run produced a strictly weaker figure set than the same run
+		analysed from the command line. Non-fatal.
+		"""
+		try:
+			ar      = _load_tool("analyze_run")
+			spatial = analyzer._compute_spatial_summary()
+			soil    = analyzer._compute_soil_attribution()
+
+			basin = "Spatial ensemble"
+			bf    = self.run_dir / "reception_brief.json"
+			if bf.exists():
+				basin = ((json.loads(bf.read_text()).get("domain") or {})
+						 .get("name") or basin)
+
+			n = 0
+			if spatial:
+				ar.plot_gradient(spatial, self.analysis_dir / "elevation_gradient.png",
+								 basin=basin); n += 1
+			if soil:
+				ar.plot_soil(soil, self.analysis_dir / "soil_control.png"); n += 1
+			ar.plot_budget(analyzer.results, self.analysis_dir / "water_budget.png")
+			ar.plot_relations(analyzer.results, self.analysis_dir / "driver_response.png")
+			ar.plot_wtd(analyzer.results, self.run_dir,
+						self.analysis_dir / "wtd_columns.png")
+			print(f"✓ {n + 3} analysis figure(s) → 04_analysis/")
+		except Exception as e:
+			print(f"   ⚠️  analysis plots failed: {e}")
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 4b — VALIDATE AGAINST OBSERVATIONS

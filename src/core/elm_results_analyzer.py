@@ -6,11 +6,9 @@ src/core/elm_results_analyzer.py
 Single responsibility: read ELM NetCDF history files
 and extract hydrological variables into a standard dict.
 
-Phase A note:
-- plot_all() saves figures directly into analysis_dir (not a "plots/"
-  subdir) so they land in 04_analysis/ next to hydro_summary.json
-- the cross-experiment plot is named comparison_all_times.png
-  to mirror PFLOTRAN's convention (consumed by create_slides.py)
+Plotting is NOT this class's job: figures come from tools/analyze_run.py,
+which reads the summaries computed here. They are written straight into
+04_analysis/ next to hydro_summary.json.
 """
 import json
 import logging
@@ -150,58 +148,6 @@ class ELMResultsAnalyzer:
                 ),
             }
         }
-
-    def plot_all(self,
-                 skip_plotting: bool = False) -> list:
-        """
-        Generate plots for all experiments.
-
-        Phase A change: plots go directly into self.analysis_dir
-        (no "plots/" subdir), and the cross-experiment plot is
-        renamed to comparison_all_times.png so it matches PFLOTRAN's
-        convention (consumed by create_slides.py).
-        """
-        if skip_plotting:
-            return []
-        try:
-            from core.elm_plotting import (
-                plot_all_experiment_figures,
-                compare_forcing_periods,
-            )
-        except ImportError:
-            print("⚠️  elm_plotting not available — skipping")
-            return []
-
-        plot_objects = []
-
-        for case_name, result in self.results.items():
-            if result.get('status') != 'ok':
-                continue
-            try:
-                _, plot_obj = plot_all_experiment_figures(
-                    result     = result,
-                    output_dir = str(self.analysis_dir),
-                    prefix     = f"{case_name}_",
-                )
-                plot_objects.append(plot_obj)
-                print(f"   ✓ Plot: {case_name}")
-            except Exception as e:
-                print(f"   ⚠️  Plot failed {case_name}: {e}")
-
-        if len(plot_objects) > 1:
-            try:
-                compare_forcing_periods(
-                    plot_objects,
-                    save_path = str(
-                        self.analysis_dir / "comparison_all_times.png"
-                    ),
-                )
-                print(f"   ✓ Comparison plot saved")
-            except Exception as e:
-                print(f"   ⚠️  Comparison failed: {e}")
-
-        print(f"✓ {len(plot_objects)} ELM plot(s) generated")
-        return plot_objects
 
     # ─────────────────────────────────────────────────────────
     # PRIVATE — EXTRACTION
