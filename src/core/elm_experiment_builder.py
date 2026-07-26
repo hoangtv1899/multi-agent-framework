@@ -278,6 +278,10 @@ class ELMExperimentBuilder:
                     soil_config = soil_config,
                     substrate   = substrate,
                     mcp_data    = soil_profile,
+                    # Warm start subsets the CONUS gridcell's own surfdata and
+                    # hands it over as the template, so fsurdat and finidat
+                    # describe the same gridcell (ELM's check_weights gate).
+                    surface_template = coupler.get('SURFACE_TEMPLATE'),
                 )
             )
 
@@ -307,7 +311,8 @@ class ELMExperimentBuilder:
                                  lon:         float,
                                  soil_config: str,
                                  substrate:   str,
-                                 mcp_data:    Dict) -> Dict[str, str]:
+                                 mcp_data:    Dict,
+                                 surface_template: str = None) -> Dict[str, str]:
         """
         Generate domain + surface files for a given location.
 
@@ -335,7 +340,13 @@ class ELMExperimentBuilder:
 
         # Surface file
         try:
-            surface_gen = ELMSurfaceGenerator()
+            # With a CONUS-subset template the vegetation is already this
+            # gridcell's own, at 1 km. Re-extracting it from the 0.5 degree
+            # global file would overwrite it with a coarser mixture and break
+            # the finidat/fsurdat weight agreement ELM checks.
+            veg_source = 'template' if surface_template else 'conus'
+            surface_gen = (ELMSurfaceGenerator(template_path=surface_template)
+                           if surface_template else ELMSurfaceGenerator())
 
             # native ALWAYS goes through the generator, even with no MCP soil
             # (it then writes template soils but CORRECTED lat/lon). Falling
@@ -353,7 +364,7 @@ class ELMExperimentBuilder:
                     lon        = lon,
                     mcp_data   = mcp_data or {},
                     substrate  = substrate,
-                    veg_source = 'conus',
+                    veg_source = veg_source,
                 )
             elif soil_config in ('sandy', 'loamy', 'clayey'):
                 surface_path = surface_gen.generate_synthetic(

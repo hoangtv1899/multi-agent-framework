@@ -313,6 +313,48 @@ def write_surfdata_subset(conus_surfdata, ixy, jxy, out_path, quiet=False):
             "ixy": ixy, "jxy": jxy}
 
 
+def conus_surfdata_for(conus_restart):
+    """The CONUS surfdata that pairs with this restart band.
+
+    The restart names its own surfdata in the `surface_dataset` global
+    attribute — authoritative, so the band is never guessed from a filename.
+
+    That file is NOT always the one to use, though. The CONUS runs used the
+    `..._monthly_2001_2019_LAI_SAI_v2.nc` products, whose MONTHLY_LAI is
+    5-D (month, YEAR, pft, lat, lon) — time-varying LAI. Our ELM build expects
+    the 4-D (month, pft, lat, lon) form, the same shape as our own SP template.
+    So we take the standard-format sibling in the same directory, and verify
+    the shape rather than trusting the name.
+    """
+    import glob
+    import re
+
+    import netCDF4
+    with netCDF4.Dataset(conus_restart) as d:
+        named = d.getncattr("surface_dataset") if "surface_dataset" in d.ncattrs() else None
+    if not named:
+        raise SubsetError(f"{Path(conus_restart).name} has no surface_dataset attribute")
+
+    named = Path(named)
+    m = re.search(r"(lat\d+)", named.name)
+    if not m:
+        raise SubsetError(f"cannot read band from surfdata name {named.name}")
+    band = m.group(1)
+
+    cands = sorted(glob.glob(str(named.parent /
+                   f"surfdata_conus_1k_small_{band}_with_fdrain_and_fc_c*.nc")))
+    for p in reversed(cands):                       # newest datestamp first
+        try:
+            with netCDF4.Dataset(p) as s:
+                if "MONTHLY_LAI" in s.variables and s["MONTHLY_LAI"].ndim == 4:
+                    return p
+        except OSError:
+            continue
+    raise SubsetError(
+        f"no standard-format CONUS surfdata for band {band} in {named.parent} "
+        f"(need 4-D MONTHLY_LAI; {len(cands)} candidate(s) checked)")
+
+
 def check_weights_agree(finidat, fsurdat, tol=5e-3):
     """Reproduce ELM's check_weights gate before submitting a job.
 
@@ -409,12 +451,22 @@ def main():
 def build_finidats(columns, out_dir, bands, quiet=False):
     """{col_id: entry} for every column a CONUS band can serve.
 
-    Same manifest shape make_warmstart emits, so columns_to_plan ->
-    CONDITIONS_COUPLERS["FINIDAT"] -> user_nl_elm needs no changes.
+    Per column, subsets BOTH the restart (-> finidat) and the matching CONUS
+    surfdata (-> surface template) at the same gridcell, then re-checks ELM's
+    two gates locally before returning.
+
+    Each entry also carries `donor_lat`/`donor_lon`. The caller SNAPS the column
+    to those: the donor cell is up to ~700 m from the expander's nominal point,
+    and domain / surfdata / finidat must agree on coordinates or ELM aborts at
+    init on a surfdata/fatmgrid mismatch.
+
+    Manifest shape matches make_warmstart's, so the existing
+    columns_to_plan -> CONDITIONS_COUPLERS -> user_nl_elm path is unchanged.
     """
     say = (lambda *a: None) if quiet else print
     out_dir = Path(out_dir)
     manifest, skipped = {}, []
+    surf_cache = {}
     for c in columns:
         cid, lat, lon = c.get("id"), c.get("lat"), c.get("lon")
         if lat is None or lon is None:
@@ -422,18 +474,34 @@ def build_finidats(columns, out_dir, bands, quiet=False):
         band, src = bands.for_lat(lat)
         if src is None:
             skipped.append((cid, f"lat {lat:.3f} in no CONUS band")); continue
+        restart = src.d.filepath()
         try:
-            info = write_subset(src.d.filepath(), lat, lon,
+            info = write_subset(restart, lat, lon,
                                 out_dir / f"finidat_{cid}.nc", quiet=quiet)
+            problems = validate(info["finidat"])
+            if problems:
+                raise SubsetError("finidat validation: " + "; ".join(problems))
+
+            if band not in surf_cache:
+                surf_cache[band] = conus_surfdata_for(restart)
+            sd = write_surfdata_subset(surf_cache[band], info["donor_ixy"],
+                                       info["donor_jxy"],
+                                       out_dir / f"surfdata_{cid}.nc", quiet=quiet)
+
+            gate = check_weights_agree(info["finidat"], sd["fsurdat"])
+            if gate:
+                raise SubsetError("; ".join(gate))
         except SubsetError as e:
             skipped.append((cid, str(e))); continue
-        problems = validate(info["finidat"])
-        if problems:
-            skipped.append((cid, "validation: " + "; ".join(problems))); continue
+
         info["conus_band"] = band
+        info["surface_template"] = sd["fsurdat"]
+        info["conus_surfdata"] = surf_cache[band]
+        info["requested_lat"], info["requested_lon"] = lat, lon
         manifest[cid] = info
-        say(f"  ✓ {cid}: {info['n_column']} col / {info['n_pft']} pft "
-            f"(band {band}, {info['dist_km']} km)")
+        say(f"  ✓ {cid}: {info['n_column']} col / {info['n_pft']} pft, "
+            f"band {band}, snapped {info['dist_km']} km to "
+            f"({info['donor_lat']}, {info['donor_lon']})")
     for cid, why in skipped:
         say(f"  ! {cid}: {why} — skipped (will COLD start)")
     return manifest

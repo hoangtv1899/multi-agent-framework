@@ -354,87 +354,61 @@ class ELMExpManager:
 	# STEP 0b — WARM START (carrier restarts + a CONUS/Fan prior → finidat)
 	# ─────────────────────────────────────────────────────────
 	def _warmstart(self, columns, config: Dict[str, Any]):
-		"""Build finidat files for these columns; return {col_id: entry} or None.
+		"""Build a finidat per column straight from the CONUS 1-km restarts.
 
-		Warm start is a TWO-RUN pattern and cannot be conjured on a fresh
-		domain: make_warmstart edits a *carrier* restart — a real single-column
-		ELM restart that already has this column's sub-grid structure — and
-		overwrites its slow state (soil temperature, moisture, aquifer) from a
-		CONUS prior. So a completed run of the same columns must exist.
+		No carrier, no prior run, no template library: the CONUS restart already
+		holds every variable, so one gridcell is subset out into a standalone
+		single-column file. Works on a domain that has never been run.
 
-		config['warm_start'] = {
-		    'source':          'conus' | 'fan',
-		    'conus_restart':   manifest / file / dir   (conus; defaults to the
-		                       Compy MANIFEST, which auto-picks the latitude
-		                       band per column — a basin straddling a band edge
-		                       no longer needs two manual passes),
-		    'carrier_run_dir': completed run dir       (defaults to the
-		                       coordinator's last run in this session),
-		}
+		config['warm_start'] = True | {'conus_restart': manifest|file|dir}
 
-		Non-fatal by design: any failure returns None and the ensemble cold
-		starts, which is the previous behaviour and is honestly recorded in the
-		assumptions ledger rather than silently assumed.
+		Two things this does that are easy to get wrong:
+
+		  * It SNAPS each column to its donor gridcell (~250-400 m). The domain,
+		    surfdata and finidat must agree on coordinates or ELM aborts at init
+		    on a surfdata/fatmgrid mismatch, so the donor's lat/lon wins and the
+		    shift is recorded in the assumptions ledger rather than left silent.
+		  * It also subsets the CONUS gridcell's own surfdata and passes it on as
+		    the surface TEMPLATE, so fsurdat and finidat describe the same
+		    gridcell (ELM's check_weights gate). SSURGO soil is still overwritten
+		    on top of it by the surface generator — the per-column soil science is
+		    unchanged; only the vegetation source improves, 0.5 degree -> 1 km.
+
+		Non-fatal: any failure returns None and the ensemble cold starts, which
+		the ledger then records honestly.
 		"""
 		ws = config.get("warm_start")
 		if not ws:
 			return None
-		if isinstance(ws, str):                      # 'conus' / 'fan' shorthand
+		if isinstance(ws, str):
 			ws = {"source": ws}
-
-		source  = (ws.get("source") or "conus").lower()
-		carrier = ws.get("carrier_run_dir") or config.get("last_run_dir")
-		if not carrier:
-			print("   ⚠️  warm start requested but no carrier run available.\n"
-				  "       Warm start edits a completed run's restart files, so run\n"
-				  "       this ensemble once (cold) first — the next run in this\n"
-				  "       session will warm-start from it automatically.\n"
-				  "       → cold starting.")
-			return None
-
-		carrier = Path(carrier)
-		cases_f = next((carrier / n for n in ("cases.json", "cases_all.json")
-						if (carrier / n).exists()), None)
-		if cases_f is None:
-			print(f"   ⚠️  carrier {carrier.name} has no cases.json — cold starting.")
-			return None
+		elif ws is True:
+			ws = {}
 
 		try:
-			mw    = _load_tool("make_warmstart")
-			cases = json.loads(cases_f.read_text())
+			fs = _load_tool("make_finidat_subset")
+			mw = _load_tool("make_warmstart")
+			spec = ws.get("conus_restart") or mw.DEFAULT_CONUS_MANIFEST
+			bands = mw.ConusBandSet(mw.resolve_conus_sources(spec))
 
-			# Only carry over columns this run actually has. Ids come from the
-			# expander, so a re-sample of the same basin with a different N
-			# leaves the extra columns cold rather than mis-assigning state.
-			want    = {c.get("id") for c in columns}
-			cases   = [c for c in cases if str(c).split(".")[-1] in want]
-			missing = want - {str(c).split(".")[-1] for c in cases}
-			if not cases:
-				print(f"   ⚠️  carrier {carrier.name} shares no columns with this "
-					  f"run — cold starting.")
-				return None
-			if missing:
-				print(f"   ⚠️  no carrier for {len(missing)} column(s) "
-					  f"({', '.join(sorted(missing)[:4])}…) — those COLD start")
-
-			latlon = {c["id"]: (c["lat"], c["lon"]) for c in columns}
-			fan    = {c["id"]: c.get("fan_wtd_m") for c in columns}
-			conus  = ws.get("conus_restart") or mw.DEFAULT_CONUS_MANIFEST
-
-			print(f"🌡️  STEP 0b: Warm Start ({source}, carrier {carrier.name})")
+			print("\n🌡️  STEP 0b: Warm Start (CONUS subset)")
 			print("-" * 40)
-			manifest = mw.build_warmstart(
-				cases, latlon, self.run_dir / "warmstart", source=source,
-				conus_restart=(conus if source == "conus" else None),
-				fan_wtd=(fan if source != "conus" else None))
+			manifest = fs.build_finidats(columns, self.run_dir / "warmstart", bands)
 			if not manifest:
-				print("   ⚠️  no warm-start files produced — cold starting.")
+				print("   ⚠️  no finidat produced — cold starting.")
 				return None
+
+			# Snap to the donor cell so domain/surfdata/finidat agree exactly.
+			for c in columns:
+				m = manifest.get(c.get("id"))
+				if m:
+					c["lat"], c["lon"] = m["donor_lat"], m["donor_lon"]
 
 			(self.run_dir / "warmstart" / "warmstart.json").write_text(
 				json.dumps(manifest, indent=2))
-			print(f"✓ {len(manifest)}/{len(columns)} column(s) warm-started "
-				  f"→ warmstart/warmstart.json")
+			snap = max(m["dist_km"] for m in manifest.values())
+			print(f"✓ {len(manifest)}/{len(columns)} column(s) warm-started from "
+				  f"CONUS (snapped <= {snap} km) → warmstart/warmstart.json")
 			return manifest
 		except Exception as e:
 			print(f"   ⚠️  warm start failed ({e}) — cold starting.")

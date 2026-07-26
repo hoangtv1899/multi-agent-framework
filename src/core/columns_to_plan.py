@@ -94,6 +94,11 @@ def columns_to_elm_plan(columns: List[Dict[str, Any]],
         m = (finidat_map or {}).get(coupler["EXPERIMENT"])
         if m:
             coupler["FINIDAT"] = m["finidat"] if isinstance(m, dict) else m
+            # A CONUS-subset warm start also supplies the gridcell's own
+            # surfdata as the surface template, so fsurdat and finidat describe
+            # the same cell (ELM's check_weights gate).
+            if isinstance(m, dict) and m.get("surface_template"):
+                coupler["SURFACE_TEMPLATE"] = m["surface_template"]
         couplers.append(coupler)
     return {
         "CONDITIONS_COUPLERS": couplers,

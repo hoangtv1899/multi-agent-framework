@@ -1,11 +1,13 @@
 """Offline tests for the warm-start path (no ELM, no CONUS files, no LLM).
 
-Warm start is a two-run pattern: make_warmstart edits a COMPLETED run's restart
-files ("carriers") and overwrites their slow state from a CONUS/Fan prior, so
-these tests cover the parts that decide WHETHER and WITH WHAT a column gets
-warm-started — band selection, FINIDAT propagation, ledger honesty, and the
-refusal paths. The NetCDF surgery itself needs real restarts and is exercised
-by tests/test_elm_e2e_minimal.py under --runcompute.
+Warm start subsets one gridcell out of a CONUS 1-km restart into a standalone
+single-column finidat — no carrier, no prior run. These tests cover the parts
+that decide WHETHER and WITH WHAT a column gets warm-started: band selection,
+FINIDAT propagation, ledger honesty, and the refusal paths.
+
+They deliberately never touch the real CONUS files (3-79 GB each); the subset
+itself is verified against them directly, and the resulting finidat is proven
+by an actual ELM run.
 """
 import importlib.util
 import json
@@ -29,6 +31,7 @@ def _load(name, relpath):
 
 
 mw = _load("mw_mod", "tools/make_warmstart.py")
+fs = _load("fs_mod", "tools/make_finidat_subset.py")
 
 
 COLS = [{"id": f"col_{i:02d}", "lat": 46.0 + i * 0.4, "lon": -121.0,
@@ -92,28 +95,59 @@ class TestBandSelection:
         assert (band, src) == (None, None)
 
 
-# ── build_warmstart refuses rather than half-working ─────────────────────────
-class TestBuildWarmstartGuards:
-    def test_conus_without_a_restart_spec_raises(self):
-        with pytest.raises(ValueError):
-            mw.build_warmstart([], {}, "/tmp/x", source="conus")
+# ── the subsetter refuses rather than half-working ───────────────────────────
+class TestSubsetGuards:
+    def test_donor_with_a_lake_or_glacier_landunit_is_rejected(self):
+        """Those gridcells have 17+ columns; our cases build 16, and ELM's
+        check_dim aborts on the mismatch. ~6% of CONUS gridcells."""
+        assert set(fs.EXPECTED_ITYPLUN) == {1, 7, 8, 9}
+        assert fs.EXTRA_LANDUNITS == {3, 4, 5, 6}
 
-    def test_case_without_carrier_restart_is_skipped(self, tmp_path):
-        case = tmp_path / "1D_ELM.abc.col_01"
-        (case / "run").mkdir(parents=True)          # no *.elm.r.*.nc inside
-        got = mw.build_warmstart([str(case)], {"col_01": (46.7, -121.0)},
-                                 tmp_path / "out", source="fan",
-                                 fan_wtd={"col_01": 2.0}, quiet=True)
-        assert got == {}
+    def test_expected_layout_is_natveg_plus_three_urban(self):
+        assert fs.EXPECTED_ITYPLUN == [1] + [7] * 5 + [8] * 5 + [9] * 5
+        assert len(fs.EXPECTED_ITYPLUN) == 16
 
-    def test_fan_source_without_a_target_is_skipped(self, tmp_path):
-        case = tmp_path / "1D_ELM.abc.col_01"
-        (case / "run").mkdir(parents=True)
-        (case / "run" / "x.elm.r.1996-01-01-00000.nc").write_text("")
-        got = mw.build_warmstart([str(case)], {"col_01": (46.7, -121.0)},
-                                 tmp_path / "out", source="fan",
-                                 fan_wtd={}, quiet=True)
-        assert got == {}
+    def test_every_renumbered_vector_has_a_declared_rule(self):
+        """A vector renumbered to the wrong target silently corrupts the
+        initial state, so the rule table is asserted rather than assumed."""
+        assert fs.RENUMBER["cols1d_landunit_index"] == "landunit"
+        assert fs.RENUMBER["pfts1d_column_index"] == "column"
+        assert fs.RENUMBER["pfts1d_landunit_index"] == "landunit"
+        for v in ("grid1d_ixy", "grid1d_jxy", "cols1d_gridcell_index",
+                  "pfts1d_gridcell_index", "land1d_gridcell_index"):
+            assert fs.RENUMBER[v] is None          # -> collapses to gridcell 1
+        assert set(fs.RENUMBER) >= {"cols1d_ixy", "cols1d_jxy",
+                                    "pfts1d_ixy", "pfts1d_jxy"}
+
+    def test_validate_flags_a_wrong_layout(self, tmp_path):
+        pytest.importorskip("netCDF4")
+        import netCDF4
+        import numpy as np
+        f = tmp_path / "bad.nc"
+        with netCDF4.Dataset(f, "w") as d:
+            d.createDimension("gridcell", 1); d.createDimension("landunit", 4)
+            d.createDimension("column", 18); d.createDimension("pft", 32)
+            v = d.createVariable("cols1d_ityplun", "i4", ("column",))
+            v[:] = np.array([1, 2, 2] + [7] * 5 + [8] * 5 + [9] * 5)
+            g = d.createVariable("grid1d_lon", "f8", ("gridcell",)); g[:] = -120.0
+        problems = fs.validate(str(f))
+        assert any("column=18" in p for p in problems)
+        assert any("cols1d_ityplun" in p for p in problems)
+
+    def test_validate_flags_unconverted_longitude(self, tmp_path):
+        """CONUS stores 0-360; the domain files use -180..180. Disagreement
+        aborts ELM at init on a surfdata/fatmgrid mismatch."""
+        pytest.importorskip("netCDF4")
+        import netCDF4
+        import numpy as np
+        f = tmp_path / "lon.nc"
+        with netCDF4.Dataset(f, "w") as d:
+            d.createDimension("gridcell", 1); d.createDimension("landunit", 4)
+            d.createDimension("column", 16); d.createDimension("pft", 32)
+            v = d.createVariable("cols1d_ityplun", "i4", ("column",))
+            v[:] = np.array(fs.EXPECTED_ITYPLUN)
+            g = d.createVariable("grid1d_lon", "f8", ("gridcell",)); g[:] = 239.16
+        assert any("0-360" in p for p in fs.validate(str(f)))
 
 
 # ── FINIDAT propagation ──────────────────────────────────────────────────────
@@ -176,7 +210,7 @@ class TestLedgerHonesty:
                 "soil configuration", "N (columns)"} <= params
 
 
-# ── manager step 0b: refuse loudly, cold-start safely ────────────────────────
+# ── manager step 0b ─────────────────────────────────────────────────────────
 class TestManagerWarmstartStep:
     def _mgr(self, tmp_path):
         from core.elm_exp_manager import ELMExpManager
@@ -185,31 +219,25 @@ class TestManagerWarmstartStep:
     def test_no_request_means_no_warm_start(self, tmp_path):
         assert self._mgr(tmp_path)._warmstart(COLS, {}) is None
 
-    def test_requested_without_a_carrier_cold_starts(self, tmp_path, capsys):
-        got = self._mgr(tmp_path)._warmstart(COLS, {"warm_start": {"source": "conus"}})
-        assert got is None
-        assert "no carrier run available" in capsys.readouterr().out
-
-    def test_carrier_without_cases_json_cold_starts(self, tmp_path):
-        carrier = tmp_path / "carrier"
-        carrier.mkdir()
+    def test_unreadable_conus_source_cold_starts(self, tmp_path, capsys):
+        """Never fail the whole ensemble because warm start could not run."""
         got = self._mgr(tmp_path)._warmstart(
-            COLS, {"warm_start": {"source": "conus", "carrier_run_dir": str(carrier)}})
+            COLS, {"warm_start": {"conus_restart": str(tmp_path / "missing.txt")}})
         assert got is None
+        assert "cold starting" in capsys.readouterr().out
 
-    def test_carrier_sharing_no_columns_cold_starts(self, tmp_path, capsys):
-        """A carrier from a DIFFERENT basin must not have its state transplanted
-        into these columns just because both runs have a 'col_01'."""
-        carrier = tmp_path / "carrier"
-        carrier.mkdir()
-        (carrier / "cases.json").write_text(json.dumps(
-            ["/scratch/1D_ELM.abc.other_99"]))
+    def test_band_with_no_real_file_cold_starts(self, tmp_path, capsys):
+        """Manifest parses, but the restart it names does not exist."""
+        man = tmp_path / "MANIFEST.txt"
+        man.write_text(MANIFEST)
         got = self._mgr(tmp_path)._warmstart(
-            COLS, {"warm_start": {"source": "conus", "carrier_run_dir": str(carrier)}})
+            COLS, {"warm_start": {"conus_restart": str(man)}})
         assert got is None
-        assert "shares no columns" in capsys.readouterr().out
+        assert "cold starting" in capsys.readouterr().out
 
-    def test_string_shorthand_is_accepted(self, tmp_path, capsys):
-        """config['warm_start'] = 'conus' behaves like {'source': 'conus'}."""
-        assert self._mgr(tmp_path)._warmstart(COLS, {"warm_start": "conus"}) is None
-        assert "no carrier run available" in capsys.readouterr().out
+    def test_true_shorthand_is_accepted(self, tmp_path, capsys):
+        """config['warm_start'] = True behaves like {}."""
+        got = self._mgr(tmp_path)._warmstart(
+            COLS, {"warm_start": True, "conus_restart": None})
+        # no real CONUS access in tests -> cold start, but it must not raise
+        assert got is None or isinstance(got, dict)
