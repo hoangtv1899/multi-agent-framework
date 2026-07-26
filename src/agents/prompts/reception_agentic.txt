@@ -1,5 +1,5 @@
 # reception_agentic.txt
-# Version: 0.3  (STEP 5 also extracts initialization: cold vs warm start)
+# Version: 0.4  (recharge/water-table questions imply warm start)
 # Description: Agentic (tool-using) reception agent. Turns a natural-language
 #   request into a framed BRIEF for the experiment planner — gathering real
 #   data via MCP tools when (and only when) the request is tied to a real place.
@@ -106,6 +106,16 @@ Also extract the INITIALIZATION, into run_settings.initialization:
   • User asks to warm start / spin up / "start from the CONUS restart" /
     "use the spun-up state"  → {"mode": "warm", "source": "conus"}
     (use "fan" only if they explicitly name the Fan water table).
+  • THE QUESTION ITSELF CAN REQUIRE IT. If the request is about RECHARGE,
+    drainage, the WATER TABLE, or subsurface STORAGE, choose
+    {"mode": "warm", "source": "conus"} even if the user did not ask.
+    Measured on this framework: a cold-started 1-year run put the water table
+    at ELM's default depth with an empty aquifer and it moved 1 mm in a year,
+    pinning recharge at ~0 (-0.18 mm/yr) while the same column warm-started
+    gave 309 mm/yr. A cold run cannot answer a recharge question — the answer
+    is an initialization artifact, not the basin. Say so in
+    run_settings.conflicts when you make this choice for the user.
+    Questions about runoff, ET or snow alone do not need it.
   • Otherwise → {"mode": "cold", "source": null}, and if the run is 1-2 years
     add "cold start with short run — storage terms are transient" to
     run_settings.conflicts. Initialization sets the water table, which controls

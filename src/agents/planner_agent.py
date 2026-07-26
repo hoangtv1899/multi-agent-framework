@@ -79,6 +79,13 @@ class PlannerAgent(LLMAgent):
         # deterministic, reproducible schema check (replaces the LLM fix call)
         missing = [k for k in STRATEGY_REQUIRED if not plan.get(k)]
         if missing:
+            # A malformed-JSON repair can recover the document but drop a field
+            # (observed: requires_capabilities lost at char ~6000). Ask for just
+            # the missing keys rather than accepting the gap or re-running the
+            # whole design — a second full call would also re-roll the strategy.
+            plan = self._fill_missing(plan, missing, brief)
+            missing = [k for k in STRATEGY_REQUIRED if not plan.get(k)]
+        if missing:
             plan.setdefault("_schema_warnings", []).extend(
                 f"missing required strategy field: {k}" for k in missing)
         # anti-hallucination invariant: the planner must NOT have emitted
@@ -88,6 +95,35 @@ class PlannerAgent(LLMAgent):
             plan.setdefault("_schema_warnings", []).append(
                 f"anti-hallucination: planner emitted coordinate-like fields {leaked} "
                 "— these are ignored downstream (materialized by the Tier-2 expander)")
+        return plan
+
+    def _fill_missing(self, plan: Dict, missing: list, brief: Dict) -> Dict:
+        """Ask for ONLY the missing strategy keys and merge them in.
+
+        Keeps the rest of the accepted plan byte-identical, so a dropped field
+        cannot silently re-roll the sampling design. Failure is non-fatal — the
+        caller records a schema warning instead.
+        """
+        try:
+            ask = (
+                f"Your previous strategy response was missing these REQUIRED "
+                f"top-level field(s): {', '.join(missing)}.\n\n"
+                f"Emit JSON containing ONLY those field(s), consistent with the "
+                f"strategy you already gave. Do not restate anything else.\n\n"
+                f"Strategy so far:\n"
+                f"{json.dumps({k: v for k, v in plan.items() if not k.startswith('_')}, indent=1)[:4000]}\n\n"
+                f"Brief:\n{json.dumps(brief, indent=1)[:2000]}"
+            )
+            patch = self.parse_json(
+                self.ask_with_system(user_message=ask,
+                                     system_message=self.prompt_design))
+            filled = [k for k in missing if patch.get(k)]
+            for k in filled:
+                plan[k] = patch[k]
+            if filled:
+                print(f"   ✓ recovered missing field(s): {', '.join(filled)}")
+        except Exception as e:
+            print(f"   ⚠️  could not recover {missing} ({e})")
         return plan
 
     @staticmethod
