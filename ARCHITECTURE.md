@@ -62,7 +62,7 @@ coordinates is the next stage's job, and that stage uses data.
 | step | what happens | writes |
 |---|---|---|
 | 0 materialize | strategy → real columns via MCP terrain/soil/WTD | `columns.json`, `run_plan.json`, `sampling_design.png`, `assumptions.json` |
-| 0b warm start | carrier restarts + a CONUS/Fan prior → per-column `finidat` | `warmstart/` *(only if requested)* |
+| 0b warm start | subset each column's donor gridcell out of the CONUS 1-km restart → per-column `finidat` + surfdata | `warmstart/` *(only if requested)* |
 | 1 build | per-column domain + surface NetCDFs | `01_inputs/` |
 | 2 prepare | one CIME build, then `--keepexe` clones | `02_setup_plots/column_surfaces.png` |
 | 3 run | all columns as one SLURM job | `03_results/` |
@@ -72,13 +72,27 @@ coordinates is the next stage's job, and that stage uses data.
 | 4d couple | each column's daily QINFL drives its own 1-D PFLOTRAN column | `05_pflotran/` *(only if the plan couples)* |
 | 5 package | everything the Analyzer agent needs | `LLM_ANALYSIS_INPUT.json` |
 
-**Step 0b — warm start** is a two-run pattern: `make_warmstart` edits a
-*completed* run's restart files, because the carrier supplies each column's real
-sub-grid structure. So the coordinator passes the session's previous run as the
-carrier and "now warm-start it" works as a follow-up. `--conus-restart` defaults
-to the band MANIFEST and picks the covering latitude band per column, so a basin
-straddling a band edge needs one pass, not one per band. With no carrier it says
-so and cold starts; the assumptions ledger records the warm/cold split exactly.
+**Step 0b — warm start** needs no prior run. `tools/make_finidat_subset.py`
+subsets one gridcell — its landunits, columns and PFTs — out of the CONUS 1-km
+restart into a standalone single-column `finidat`. The band is picked per column
+from the MANIFEST, so a basin straddling a band edge is one pass, not one per
+band.
+
+It works because `create_crop_landunit=.false.` makes our sub-grid
+`[1 natveg + 15 urban]` = 16 columns — exactly the CONUS layout (those restarts
+contain zero crop columns across all 19.9M). Two consequences the code handles
+explicitly, because both abort ELM at init if wrong:
+
+- Columns are **snapped to their donor gridcell** (~250–400 m). Domain, surfdata
+  and finidat must agree on coordinates; the shift goes in the ledger.
+- The donor's own surfdata is subset alongside and used as the surface
+  **template**, so `fsurdat` and `finidat` describe the same gridcell — ELM's
+  `check_weights` gate. SSURGO soil is still overwritten on top, so the
+  per-column soil science is unchanged.
+
+`check_weights_agree()` reproduces that gate locally, so a mismatch costs a
+second rather than a queue slot. Failure is non-fatal: the ensemble cold starts
+and the ledger records the warm/cold split exactly.
 
 **Step 4d — coupling** fires when the planner emits a `coupling_design` (or the
 archetype is `coupling`), which both the Reception and Planner prompts already

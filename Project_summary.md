@@ -128,9 +128,9 @@ five analysis figures all present.
 
 It is **cold-started** — its `user_nl_elm` has no `finidat` line — because
 warm start was unreachable from `workflow.py` when it ran. It is now reachable
-(step 0b), and this run is a valid *carrier*: re-running the same columns with
-initialization "warm" transplants CONUS state onto its restarts. Verified:
-14/14 columns, bands lat11 (12) and lat12 (2).
+(step 0b) and needs no prior run at all: the finidat is subset straight out of
+the CONUS 1-km restart. Verified across all 14 columns, bands lat11 (12) and
+lat12 (2), uniform 16 column / 32 pft, snapped 227–367 m.
 
 The ELM→PFLOTRAN coupling has been run against it: 14/14 1-D Richards columns
 in 83 s, forced by each column's own daily QINFL. Shallow water tables
@@ -152,10 +152,6 @@ in 83 s, forced by each column's own daily QINFL. Shallow water tables
 **Wiring gaps:**
 - **The refinement loop is not closed.** `conversation_context['last_analysis']`
   is stored but no agent reads it, so "now try X instead" starts from scratch.
-- **No auto-carrier for warm start.** Warm start needs a completed run of the
-  same columns; the coordinator supplies the session's previous run. On a
-  brand-new domain with no prior run it says so and cold-starts, rather than
-  running a carrier phase itself.
 - **Standalone PFLOTRAN and the reactive-transport demo are still CLI-only.**
   The *coupled* path is wired (step 4d); recharge-scenario ensembles are not.
 
