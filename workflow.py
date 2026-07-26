@@ -203,8 +203,17 @@ class WorkflowCoordinator:
 			plan  = self.planner.create_plan(
 				brief = result.to_planner_brief()
 			)
-			n_exp = len(plan.get('CONDITIONS_COUPLERS', []))
-			print(f"✓ Plan created: {n_exp} experiments\n")
+			# The capability-aware planner emits a STRATEGY, never
+			# CONDITIONS_COUPLERS — those are materialized against real data in
+			# the Experiment Manager's step 0. Counting them here printed
+			# "0 experiments" on every successful plan, which reads as a failure.
+			strat = plan.get('sampling_strategy') or {}
+			n_req = strat.get('n_exploratory')
+			verdict = (plan.get('feasibility') or {}).get('verdict', '?')
+			print(f"✓ Strategy: {strat.get('approach', 'n/a')}, "
+				  f"N={n_req if n_req is not None else 'expander decides'}, "
+				  f"feasibility={verdict}")
+			print("  (columns are materialized from real data in step 0)\n")
 	
 			self.conversation_context['last_plan']  = plan
 			self.conversation_context['last_focus'] = (
