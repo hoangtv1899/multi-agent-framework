@@ -31,16 +31,12 @@ class AnalysisReportAgent(LLMAgent):
 	
 	def __init__(self,
 				 model:       str  = "claude-opus-4-8-project",
-				 model_type:  str  = "pflotran",
+				 model_type:  str  = "elm",
 				 mcp_clients: Dict = None):
-	
-		if model_type == "elm":
-			self.prompt_analysis   = load_prompt("analyzer_system_elm")
-			self.prompt_validation = load_prompt("analyzer_validation")
-		else:
-			self.prompt_analysis   = load_prompt("analyzer_system")
-			self.prompt_validation = load_prompt("analyzer_validation")
-	
+
+		self.prompt_analysis   = load_prompt("analyzer_system_elm")
+		self.prompt_validation = load_prompt("analyzer_validation")
+
 		super().__init__("analyzer", self.prompt_analysis, model)
 	
 	# ─────────────────────────────────────────────────────────────────

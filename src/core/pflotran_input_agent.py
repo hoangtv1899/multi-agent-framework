@@ -5,15 +5,46 @@ PFLOTRAN Input Generator and Simulation Runner
 import os
 import subprocess
 import numpy as np
-from core.elm_soildata import ELMSoilData, fortran_format
 
-# Import plotting utilities
-try:
-    from core.pflotran_plotting import PFLOTRANPlotter, plot_all_experiment_figures
-    PLOTTING_AVAILABLE = True
-except ImportError:
-    PLOTTING_AVAILABLE = False
-    print("Warning: pflotran_plotting module not found. Plotting functions will not be available.")
+
+def fortran_format(value, decimal_places=6):
+    """
+    Convert scientific notation to PFLOTRAN Fortran format.
+    
+    Arguments:
+        value (float): The numerical value
+        decimal_places (int): Number of decimal places
+    
+    Returns:
+        str: Properly formatted Fortran string (e.g., 1.234567d-13)
+    """
+    # Check for zero
+    if value == 0.0 or abs(value) < 1e-99:
+        return "0.d0"
+    
+    # For integers
+    if abs(value - round(value)) < 1e-12 and abs(value) >= 1.0:
+        return f"{int(round(value))}.d0"
+    
+    # For "normal" range numbers (0.001 to 999)
+    if 0.001 <= abs(value) < 1000:
+        # Check if it's a simple decimal
+        if abs(value - round(value, 3)) < 1e-10:
+            return f"{value:.3f}d0"
+        elif abs(value - round(value, 6)) < 1e-10:
+            return f"{value:.6f}d0"
+        else:
+            return f"{value:.6f}d0"
+    
+    # For very small or very large numbers, use scientific notation
+    exp = int(np.floor(np.log10(abs(value))))
+    mantissa = value / (10 ** exp)
+    
+    return f"{mantissa:.{decimal_places}f}d{exp:+d}"
+
+# (fortran_format used to live in core/elm_soildata.py alongside an
+# ELMSoilData class that nothing ever instantiated; the class went with
+# the legacy PFLOTRAN chain and this — its only live export — moved here.)
 
 
 class PFLOTRANInputAgent:
@@ -157,18 +188,17 @@ class PFLOTRANInputAgent:
 		"""
 		self.characteristic_curves.append(curve)
 	
-	def prepare_case(self, output_dir="./", elm_data=None):
+	def prepare_case(self, output_dir="./"):
 		"""Prepare simulation case directory and generate input file."""
 		self.case_dir = os.path.join(output_dir, self.case_name)
 		os.makedirs(self.case_dir, exist_ok=True)
-		self.elm_data = elm_data
 		self._regenerate_input()
 		return self.case_dir
-	
+
 	def _regenerate_input(self):
 		"""Internal method to regenerate input file."""
 		input_file = os.path.join(self.case_dir, f"{self.case_name}.in")
-		self._write_input_file(input_file, self.elm_data)
+		self._write_input_file(input_file)
 	
 	def update_input_file(self):
 		"""
@@ -221,99 +251,20 @@ class PFLOTRANInputAgent:
 			print(f"✗ PFLOTRAN executable not found: {pflotran_exe}")
 			raise
 	
-	# ============================================================================
-	# Plotting Methods (delegated to PFLOTRANPlotter)
-	# ============================================================================
-	
-	def plot_experiment_overview(self, save_path=None, show=False):
-		"""
-		Plot overview of experiment configuration.
-		
-		Args:
-			save_path: Path to save figure (optional)
-			show: Whether to display the plot (default: False)
-		
-		Returns:
-			ExperimentPlot object containing plot data for comparison
-		"""
-		if not PLOTTING_AVAILABLE:
-			print("Error: Plotting module not available")
-			return None
-		
-		return PFLOTRANPlotter.plot_experiment_overview(self, save_path, show)
-	
-	def plot_flux_recharge(self, save_path=None, show=False):
-		"""
-		Plot flux/recharge time series.
-		
-		Args:
-			save_path: Path to save figure (optional)
-			show: Whether to display the plot (default: False)
-		
-		Returns:
-			fig, axes: matplotlib figure and axes objects
-		"""
-		if not PLOTTING_AVAILABLE:
-			print("Error: Plotting module not available")
-			return None, None
-		
-		return PFLOTRANPlotter.plot_flux_recharge(self, save_path, show)
-	
-	def plot_water_table(self, save_path=None, show=False):
-		"""
-		Plot water table depth and position.
-		
-		Args:
-			save_path: Path to save figure (optional)
-			show: Whether to display the plot (default: False)
-		
-		Returns:
-			fig, axes: matplotlib figure and axes objects
-		"""
-		if not PLOTTING_AVAILABLE:
-			print("Error: Plotting module not available")
-			return None, None
-		
-		return PFLOTRANPlotter.plot_water_table(self, save_path, show)
-	
-	def plot_all_figures(self, output_dir="./", prefix=""):
-		"""
-		Generate all available plots for this experiment.
-		
-		Args:
-			output_dir: Directory to save figures
-			prefix: Optional prefix for filenames
-		
-		Returns:
-			Dictionary with paths to all generated figures and ExperimentPlot object
-		"""
-		if not PLOTTING_AVAILABLE:
-			print("Error: Plotting module not available")
-			return {}, None
-		
-		return plot_all_experiment_figures(self, output_dir, prefix)
-	
-	# ============================================================================
-	# Internal Methods for Writing Input File
-	# ============================================================================
-	
-	def _write_input_file(self, filepath, elm_data=None):
+	def _write_input_file(self, filepath):
 		"""Write complete PFLOTRAN input file (internal method)."""
 		with open(filepath, 'w') as f:
 			self._write_simulation(f)
 			self._write_numerical_methods(f)
 			self._write_regression(f)
 			self._write_discretization(f)
-			
-			if elm_data:
-				elm_data.write_material_properties(file_handle=f)
-				elm_data.write_characteristic_curves(file_handle=f)
-			else:
-				if self.material_properties:
-					self._write_material_properties(f)
-				if self.characteristic_curves:
-					self._write_characteristic_curves(f)
-			
+
+			if self.material_properties:
+				self._write_material_properties(f)
+			if self.characteristic_curves:
+				self._write_characteristic_curves(f)
+
+
 			self._write_output(f)
 			self._write_time(f)
 			self._write_regions(f)
@@ -534,5 +485,4 @@ if __name__ == "__main__":
     print("                             layer_thicknesses=[1.0, 2.0, 3.0],")
     print("                             case_name='my_case')")
     print("\n  agent.prepare_case(output_dir='./cases')")
-    print("  agent.plot_experiment_overview(save_path='overview.png')")
     print("  agent.run_simulation()")

@@ -1,10 +1,16 @@
-# workflow.py — full updated file
-# Changes marked with ← NEW
-
 #!/usr/bin/env python3
 """
-PFLOTRAN/ELM Coordinator
-Orchestrates: Reception → Planner → Execute → Analyze
+IDEAS workflow coordinator — the four agents of the framework, in order.
+
+    User request
+      → Reception          brief   (MCP tool loop: what/where/when)
+      → Planner            plan    (sampling strategy + feasibility verdict)
+      → Experiment Manager run     (materialize → build → prepare → run)
+      → Analyzer           report  (metrics → validation → interpretation)
+
+PFLOTRAN is not driven from here. The legacy in-process PFLOTRAN manager was
+removed; reactive-transport runs go through tools/build_pflotran_cases.py and
+are documented in docs/PFLOTRAN_PLAN.md.
 """
 import sys
 import traceback
@@ -14,29 +20,17 @@ sys.path.insert(0, "src")
 from agents.reception_agent       import ReceptionAgent
 from agents.planner_agent         import PlannerAgent
 from agents.analysis_report_agent import AnalysisReportAgent
-from core.exp_manager             import ExpManager
 from core.mcp_manager             import MCPManager
 
-class PFLOTRANCoordinator:
-	"""
-	Coordinates PFLOTRAN and ELM workflows.
-	Pipeline:
-	User Request
-	→ ReceptionAgent.process()   (MCP + intent + brief)
-	→ PlannerAgent.create_plan() (design + validate)
-	→ ExpManager.execute_plan()  (build + run)        ← PFLOTRAN
-	  OR ELMExpManager.execute_plan()                  ← ELM
-	→ AnalysisReportAgent        (interpret results)
-	"""
-	
+class WorkflowCoordinator:
+	"""Wires Reception → Planner → Experiment Manager → Analyzer."""
+
 	def __init__(self,
 				 reception_model:      str = "claude-opus-4-8-project",
 				 planner_model:        str = "claude-opus-4-8-project",
 				 analyzer_model:       str = "claude-opus-4-8-project",
-				 default_pflotran_exe: str = "pflotran",
 				 default_output_dir:   str = "./workflow_outputs",
 				 mcp_config_file:      str = "mcp_config.json",
-				 model_type:           str = "pflotran",   # ← NEW
 				 agentic_reception:    bool = True,
 				 interactive_reception: bool = False):
 	
@@ -62,10 +56,6 @@ class PFLOTRANCoordinator:
 		# terrain/fan_wtd/geology to turn a sampling strategy into columns.
 		self.mcp_clients = mcp_clients
 
-		# ── Model type ────────────────────────────────────────
-		self.model_type = model_type.lower()  # ← NEW
-		print(f"🔧 Model type: {self.model_type.upper()}\n")
-	
 		# ── Agents ────────────────────────────────────────────
 		# Agentic reception (default): LLM-driven tool loop over all MCP
 		# servers, and — critically — it emits `domain: {name, huc, bbox}`,
@@ -77,26 +67,18 @@ class PFLOTRANCoordinator:
 			self.reception = AgenticReceptionAdapter(
 				model       = reception_model,
 				mcp_clients = mcp_clients,
-				model_type  = self.model_type,
 				interactive = interactive_reception,
 			)
 		else:
 			self.reception = ReceptionAgent(
 				model       = reception_model,
 				mcp_clients = mcp_clients,
-				model_type  = self.model_type,
+				model_type  = "elm",
 			)
-		self.planner = PlannerAgent(
-			model      = planner_model,
-			model_type = self.model_type,   # ← NEW
-		)
-		self.analyzer = AnalysisReportAgent(
-			model      = analyzer_model,
-			model_type = self.model_type,   # ← NEW
-		)
-	
+		self.planner  = PlannerAgent(model=planner_model,  model_type="elm")
+		self.analyzer = AnalysisReportAgent(model=analyzer_model, model_type="elm")
+
 		# ── Defaults ──────────────────────────────────────────
-		self.default_pflotran_exe = default_pflotran_exe
 		self.default_output_dir   = default_output_dir
 	
 		# ── Conversation state ────────────────────────────────
@@ -112,13 +94,11 @@ class PFLOTRANCoordinator:
 	# ═════════════════════════════════════════════════════════
 	def process_request(self,
 						user_request: str,
-						pflotran_exe: Optional[str] = None,
 						output_dir:   Optional[str] = None
 						) -> str:
 		print("\n" + "=" * 70)
 		print("COORDINATOR")
 		print("=" * 70)
-		print(f"Model  : {self.model_type.upper()}")
 		print(f"Request: {user_request[:80]}...")
 		print("=" * 70 + "\n")
 	
@@ -136,9 +116,8 @@ class PFLOTRANCoordinator:
 			return self._workflow_analyze_existing(result)
 		elif result.intent == 'design_and_run':
 			return self._workflow_design_and_run(
-				result       = result,
-				pflotran_exe = pflotran_exe or self.default_pflotran_exe,
-				output_dir   = output_dir   or self.default_output_dir,
+				result     = result,
+				output_dir = output_dir or self.default_output_dir,
 			)
 		else:
 			return f"❌ Unknown intent: {result.intent}"
@@ -148,8 +127,7 @@ class PFLOTRANCoordinator:
 	# ═════════════════════════════════════════════════════════
 	def run_interactive(self):
 		print("\n" + "=" * 70)
-		print(f"COORDINATOR - INTERACTIVE MODE "
-			  f"[{self.model_type.upper()}]")
+		print("COORDINATOR - INTERACTIVE MODE")
 		print("=" * 70)
 		print("\nCommands:")
 		print("  - Type your request naturally")
@@ -227,10 +205,7 @@ class PFLOTRANCoordinator:
 	# ═════════════════════════════════════════════════════════
 	# WORKFLOW 3 — DESIGN & RUN
 	# ═════════════════════════════════════════════════════════
-	def _workflow_design_and_run(self,
-								  result,
-								  pflotran_exe: str,
-								  output_dir:   str) -> str:
+	def _workflow_design_and_run(self, result, output_dir: str) -> str:
 		print("🚀 WORKFLOW: Design & Run\n")
 		try:
 			# Step 1 — Plan
@@ -247,12 +222,11 @@ class PFLOTRANCoordinator:
 				result.parameters.get('experiment_focus')
 			)
 	
-			# Step 2 — Execute (route by model_type)
+			# Step 2 — Execute
 			print("⚙️  STEP 2: Executing Experiments")
 			print("-" * 50)
 			run_summary = self._execute(
 				plan         = plan,
-				pflotran_exe = pflotran_exe,
 				output_dir   = output_dir,
 				brief        = result.to_planner_brief(),
 				period       = (result.parameters or {}).get('resolved_period'),
@@ -294,44 +268,27 @@ class PFLOTRANCoordinator:
 					f"{traceback.format_exc()}")
 	
 	def _execute(self,
-				 plan:         dict,
-				 pflotran_exe: str,
-				 output_dir:   str,
-				 brief:        dict = None,
-				 period:       dict = None) -> dict:
-		"""
-		Route execution to correct model manager.
-		PFLOTRAN → ExpManager
-		ELM      → ELMExpManager
-		"""
-		if self.model_type == 'elm':                    # ← NEW
-			from core.elm_exp_manager import ELMExpManager
-			executor = ELMExpManager(
-				base_output_dir = output_dir
-			)
-			# brief + mcp_clients feed the manager's materialize stage, which
-			# turns the planner's sampling_strategy into CONDITIONS_COUPLERS.
-			cfg = {
-				'brief':       brief or {},
-				'mcp_clients': self.mcp_clients,
-			}
-			# Honour the period reception resolved, instead of silently
-			# defaulting to 1995 inside the manager.
-			if period:
-				if period.get('yr_start'):
-					cfg['yr_start'] = int(period['yr_start'])
-				cfg['yr_end'] = int(period.get('yr_end')
-									or period.get('yr_start') or 1995)
-			return executor.execute_plan(plan, cfg)
-		else:
-			executor = ExpManager(
-				base_output_dir = output_dir
-			)
-			return executor.execute_plan(plan, {
-				'pflotran_exe':  pflotran_exe,
-				'time_indices':  [0, 1, 2, 3, 4, 5],
-				'skip_plotting': False,
-			})
+				 plan:       dict,
+				 output_dir: str,
+				 brief:      dict = None,
+				 period:     dict = None) -> dict:
+		"""Hand the plan to the Experiment Manager."""
+		from core.elm_exp_manager import ELMExpManager
+		executor = ELMExpManager(base_output_dir=output_dir)
+		# brief + mcp_clients feed the manager's materialize stage, which
+		# turns the planner's sampling_strategy into CONDITIONS_COUPLERS.
+		cfg = {
+			'brief':       brief or {},
+			'mcp_clients': self.mcp_clients,
+		}
+		# Honour the period reception resolved, instead of silently
+		# defaulting to 1995 inside the manager.
+		if period:
+			if period.get('yr_start'):
+				cfg['yr_start'] = int(period['yr_start'])
+			cfg['yr_end'] = int(period.get('yr_end')
+								or period.get('yr_start') or 1995)
+		return executor.execute_plan(plan, cfg)
 	
 	# ═════════════════════════════════════════════════════════
 	# UTILITIES
@@ -340,7 +297,6 @@ class PFLOTRANCoordinator:
 		print("\n" + "-" * 70)
 		print("CONVERSATION STATUS")
 		print("-" * 70)
-		print(f"Model:        {self.model_type.upper()}")
 		print(f"Last Run:     "
 			  f"{self.conversation_context.get('last_run_dir', 'None')}")
 		print(f"Last Focus:   "
@@ -387,7 +343,6 @@ class PFLOTRANCoordinator:
 				  analysis.get('answer_to_user_question', 'N/A'),
 				  ""]
 		lines += ["⚙️  EXECUTION:", "-" * 70,
-				  f"• Model:       {self.model_type.upper()}",
 				  f"• Experiments: "
 				  f"{run_summary['experiments_success']}/"
 				  f"{run_summary['experiments_total']} succeeded",
@@ -419,23 +374,13 @@ class PFLOTRANCoordinator:
 def main():
     import argparse
     parser = argparse.ArgumentParser(
-        description="PFLOTRAN/ELM Coordinator"
+        description="IDEAS workflow: Reception → Planner → "
+                    "Experiment Manager → Analyzer"
     )
     parser.add_argument(
         '--interactive', '-i',
         action = 'store_true',
         help   = 'Run in interactive mode'
-    )
-    parser.add_argument(
-        '--model', '-M',
-        default = 'pflotran',
-        choices = ['pflotran', 'elm'],   # ← NEW
-        help    = 'Model to use (pflotran or elm)'
-    )
-    parser.add_argument(
-        '--pflotran-exe', '-p',
-        default = 'pflotran',
-        help    = 'Path to PFLOTRAN executable'
     )
     parser.add_argument(
         '--output-dir', '-o',
@@ -461,11 +406,9 @@ def main():
     )
     args = parser.parse_args()
 
-    coordinator = PFLOTRANCoordinator(
-        default_pflotran_exe  = args.pflotran_exe,
+    coordinator = WorkflowCoordinator(
         default_output_dir    = args.output_dir,
         mcp_config_file       = args.mcp_config,
-        model_type            = args.model,       # ← NEW
         agentic_reception     = not args.legacy_reception,
         interactive_reception = args.ask,
     )
@@ -477,7 +420,7 @@ def main():
         print("Run with --interactive for interactive mode")
         print("\nExamples:")
         print("  python workflow.py --interactive")
-        print("  python workflow.py --interactive --model elm")
+        print("  python workflow.py --interactive --ask")
         print("=" * 70 + "\n")
 
 
