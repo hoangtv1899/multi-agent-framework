@@ -254,7 +254,7 @@ class ELMPlotter:
 
         # Color by moisture content
         norm   = plt.Normalize(vmin=min(layers), vmax=max(layers))
-        cmap   = plt.cm.get_cmap('Blues')
+        cmap   = plt.get_cmap('Blues')
         colors = [cmap(norm(v)) for v in layers]
 
         bars = ax.barh(

@@ -87,7 +87,7 @@ class PFLOTRANPlotter:
 			water_table_depth = initial_fc['datum'][2]
 		
 		# Generate colors
-		cmap = plt.cm.get_cmap('RdYlBu_r')
+		cmap = plt.get_cmap('RdYlBu_r')
 		colors = [cmap(i/len(agent.layer_thicknesses)) 
 				 for i in range(len(agent.layer_thicknesses))]
 		
@@ -312,7 +312,7 @@ def compare_experiments(plot_objects: List[ExperimentPlot],
             ax = axes[idx]
         
         # Draw layer column
-        cmap = plt.cm.get_cmap('RdYlBu_r')
+        cmap = plt.get_cmap('RdYlBu_r')
         colors = [cmap(i/len(plot_obj.layer_thicknesses)) 
                  for i in range(len(plot_obj.layer_thicknesses))]
         

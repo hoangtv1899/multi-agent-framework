@@ -51,7 +51,7 @@ class ReceptionAgent(LLMAgent):
 	
 	# CHANGE 1: Add model_type parameter
 	def __init__(self,
-				 model:       str  = "gemini-2.5-flash-project",
+				 model:       str  = "claude-opus-4-8-project",
 				 mcp_clients: Dict = None,
 				 model_type:  str  = "pflotran"):   # ← ADD THIS
 	
@@ -173,7 +173,7 @@ class ReceptionAgent(LLMAgent):
 	
 		try:
 			response = self.respond(prompt)
-			return self.parse_json(response)
+			return self.parse_json_resilient(response)
 		except Exception as e:
 			print(f"⚠️  Pass 1 failed: {e}")
 			return self._default_clarification()
@@ -300,7 +300,7 @@ class ReceptionAgent(LLMAgent):
 				user_message   = prompt,
 				system_message = self.prompt_pass2
 			)
-			return self.parse_json(response)
+			return self.parse_json_resilient(response)
 		except Exception as e:
 			print(f"⚠️  Pass 2 failed: {e} — returning raw data")
 			return {"user_request": user_request, **pass1, **mcp_data}

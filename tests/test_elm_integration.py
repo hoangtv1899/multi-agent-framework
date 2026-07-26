@@ -26,6 +26,7 @@ Estimated time:
 import sys
 import os
 import json
+import subprocess
 import pytest
 from pathlib import Path
 from datetime import datetime
@@ -220,23 +221,31 @@ class TestELMCaseBuild:
             )
             print(f"   {var}: ✓")
 
-    def test_namelist_mosart_exists(self, built_adapter):
-        """user_nl_mosart namelist file was written."""
+    def test_no_mosart_namelist(self, built_adapter):
+        """ELM-only (SROF stub river): no user_nl_mosart should be written.
+
+        Inverted 2026-07-23 — these two tests previously asserted that a
+        user_nl_mosart existed with do_rtm=.false. The compset now uses a
+        stub river, so CIME generates only user_nl_{cpl,datm,elm} and a
+        user_nl_mosart would be a dead file it never reads.
+        """
         case_dir = Path(built_adapter._case_dir)
-        nl_file  = case_dir / "user_nl_mosart"
-        assert nl_file.exists(), (
-            f"user_nl_mosart not found in {case_dir}"
+        assert not (case_dir / "user_nl_mosart").exists(), (
+            f"user_nl_mosart should NOT exist for an SROF (ELM-only) case, "
+            f"found one in {case_dir}"
         )
 
-    def test_namelist_mosart_rtm_disabled(self, built_adapter):
-        """user_nl_mosart has do_rtm = .false."""
+    def test_rof_component_is_stub(self, built_adapter):
+        """The case's ROF component is the stub (srof), not MOSART."""
         case_dir = Path(built_adapter._case_dir)
-        nl_file  = case_dir / "user_nl_mosart"
-        content  = nl_file.read_text()
-        assert 'do_rtm = .false.' in content, (
-            "do_rtm = .false. not found in user_nl_mosart"
+        comp_rof = subprocess.check_output(
+            ["./xmlquery", "COMP_ROF", "--value"],
+            cwd=case_dir, text=True,
+        ).strip()
+        assert comp_rof == "srof", (
+            f"expected COMP_ROF=srof (ELM-only), got {comp_rof!r}"
         )
-        print(f"\n   do_rtm = .false.: ✓")
+        print(f"\n   COMP_ROF = {comp_rof}: ✓")
 
     def test_executable_exists(self, built_adapter):
         """e3sm.exe was built successfully."""

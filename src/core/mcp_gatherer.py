@@ -6,6 +6,7 @@ Geocoding:  Nominatim (OpenStreetMap) - free, no key
 Streamflow: waterdata.usgs.gov direct API
             (waterservices.usgs.gov is blocked on Perlmutter/NERSC)
 """
+import os
 import json
 import requests
 from datetime import datetime
@@ -15,7 +16,12 @@ from .mcp_context import MCPContext
 
 NOMINATIM_URL      = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_HEADERS  = {"User-Agent": "PFLOTRAN-MCP/1.0 hoang.tran@pnnl.gov"}
-USGS_WATERDATA_URL = "https://waterdata.usgs.gov/nwis/iv/"
+# NWIS instantaneous-values service. On NERSC/Perlmutter the legacy
+# waterdata.usgs.gov host was used because waterservices.usgs.gov was blocked;
+# on Compy (2026-07-23) that is reversed — waterdata.usgs.gov/nwis/iv now 404s
+# (decommissioned) while waterservices.usgs.gov returns 200. Overridable via env.
+USGS_WATERDATA_URL = os.environ.get(
+	"USGS_NWIS_IV_URL", "https://waterservices.usgs.gov/nwis/iv/")
 
 
 class MCPGatherer:

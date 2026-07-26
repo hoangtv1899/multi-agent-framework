@@ -736,7 +736,7 @@ def write_slide_content(analysis: dict) -> dict:
     )
 
     response = client.chat.completions.create(
-        model    = "claude-opus-4-5-20251101-v1-project",
+        model    = "claude-opus-4-8-project",
         messages = [
             {"role": "system",
              "content": (
@@ -780,7 +780,7 @@ def _parse_llm_json(raw: str, client=None) -> dict:
         if client:
             print("   🔄 Asking Claude to fix JSON...")
             fix_response = client.chat.completions.create(
-                model    = "claude-opus-4-5-20251101-v1-project",
+                model    = "claude-opus-4-8-project",
                 messages = [
                     {"role": "system",
                      "content": "Fix the JSON syntax error. "

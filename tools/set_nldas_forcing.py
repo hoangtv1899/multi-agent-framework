@@ -13,8 +13,10 @@ elevation, unlike Qian's 2 giant cells).
 import argparse
 from pathlib import Path
 
-NLDAS = "/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.NLDAS2.0.125d.v1"
-DOMAIN_DIR = "/global/cfs/cdirs/e3sm/inputdata/share/domains/domain.clm"
+# NOTE (Compy): the NLDAS2 tree exists under /compyfs/inputdata but only
+# Solar/ is populated (1980-01..1981-11); Precip/ and TPQWL/ are empty.
+NLDAS = "/compyfs/inputdata/atm/datm7/atm_forcing.datm7.NLDAS2.0.125d.v1"
+DOMAIN_DIR = "/compyfs/inputdata/share/domains/domain.clm"
 DOMAIN = "domain.lnd.nldas2_0224x0464_c110415.nc"
 # stream label -> (NLDAS2 subdir, filename token, field variableNames block)
 STREAMS = {

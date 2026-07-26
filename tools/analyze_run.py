@@ -13,7 +13,7 @@ Writes hydro_summary.json (+ an elevation-gradient figure with --plot) into
 <run-dir>/04_analysis/. NOTHING is executed — read-only over existing output.
 
 Run from the project root with the analysis env:
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/analyze_run.py --run-dir workflow_outputs/pipeline_XXXX --plot
 """
 import argparse

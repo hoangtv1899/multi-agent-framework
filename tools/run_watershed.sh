@@ -31,9 +31,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."                  # project root
 
-REF=${REF:-/pscratch/sd/h/hvtran/E3SMv3/1D_ELM.3c13216be8.2026-06-19-150916.elm_phase0}
+# NOTE: a Compy reference case must be built (once ELM runs on Compy) and
+# placed at this default path — the old NERSC pscratch case does not exist here.
+REF=${REF:-${PSCRATCH:-/compyfs/tran289}/E3SMv3/elm_phase0_ref}
 PY=python3
-SALLOC="salloc -N 1 -t 60:00 -q interactive -C cpu -A m3780"
+SALLOC="salloc -N 1 -t 60:00 -p short -A e3sm"
 
 analyze() {                              # step 6
     local RD="$1"
@@ -189,7 +191,8 @@ if [ "$SUBMIT" ]; then
     NYR=$((YR_END - YR_START + 1))
     TMIN=$((30 + NYR * 60))
     if [ -z "${SUBMIT_Q:-}" ]; then
-        if [ "$TMIN" -le 30 ]; then SUBMIT_Q=debug; else SUBMIT_Q=regular; fi
+        # Compy partitions: 'short' (2 h limit) or 'slurm' (4 days)
+        if [ "$TMIN" -le 120 ]; then SUBMIT_Q=short; else SUBMIT_Q=slurm; fi
     fi
     SUBMIT_T=${SUBMIT_T:-$(printf "%02d:%02d:00" $((TMIN / 60)) $((TMIN % 60)))}
     MAILARG=()
@@ -217,7 +220,7 @@ else
 NEXT — [5+6/6] run all columns in parallel as one batch job; the analysis
 runs inside the job when they finish (submit and walk away):
 
-  bash tools/submit_cases.sh $RD -q regular -t 01:30:00 --analyze-in-job -m you@email.gov
+  bash tools/submit_cases.sh $RD -q short -t 01:30:00 --analyze-in-job -m you@email.gov
 
   (budget ~1 h wall time per simulated year; -m adds a completion email.
    synchronous instead: swap --analyze-in-job for --wait --analyze)

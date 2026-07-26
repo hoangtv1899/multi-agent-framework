@@ -7,7 +7,7 @@ extracts the water-table depth through time, and writes:
     pflotran_summary.json   per-column WTD initial/final, storage, scenario
     pflotran_profiles.png   saturation profiles + WTD-vs-Fan drift figure
 
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/analyze_pflotran_run.py --run-dir workflow_outputs/pflotran_naches
 """
 import argparse

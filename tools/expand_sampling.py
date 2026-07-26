@@ -12,7 +12,7 @@ Operates on a pipeline run dir (reads reception_brief.json for the bbox and
 plan.json for N / band count), or standalone via --bbox/--n/--bands.
 
 Run from the project root with the MCP runtime env:
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/expand_sampling.py --run-dir workflow_outputs/pipeline_XXXX
     python3 tools/expand_sampling.py --bbox -121.52,46.46,-120.51,47.14 --n 12 --bands 4
 """
@@ -174,7 +174,10 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, do_soil=True, boundary=N
 # PLOTTING (--plot) — illustration of the sampling design
 # ─────────────────────────────────────────────────────────────────────────────
 
-NLDAS_PRECIP = ("/global/cfs/cdirs/e3sm/inputdata/atm/datm7/"
+# NOTE (Compy): this directory exists but is currently empty — the ctsmforc
+# monthly Precip files are not yet staged (/compyfs/tran289/raw_nldas holds
+# only raw hourly NLDAS_FORA files, a different format).
+NLDAS_PRECIP = ("/compyfs/inputdata/atm/datm7/"
                 "atm_forcing.datm7.NLDAS2.0.125d.v1/Precip")
 
 

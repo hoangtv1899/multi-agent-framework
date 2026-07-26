@@ -44,6 +44,22 @@ sys.path.insert(0, "src")
 
 from core.elm_experiment_builder import ELMExperimentBuilder
 from core.elm_results_analyzer   import ELMResultsAnalyzer
+from core.columns_to_plan        import columns_to_elm_plan
+
+
+# Repo root — this file is <root>/src/core/elm_exp_manager.py
+_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_expander():
+	"""Import tools/expand_sampling.py (not a package) for stage 1."""
+	import importlib.util
+	path = _ROOT / "tools" / "expand_sampling.py"
+	spec = importlib.util.spec_from_file_location("expand_sampling", path)
+	mod  = importlib.util.module_from_spec(spec)
+	sys.modules["expand_sampling"] = mod
+	spec.loader.exec_module(mod)
+	return mod
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -94,6 +110,14 @@ class ELMExpManager:
 		start_time = datetime.now()
 
 		try:
+			# Step 0 — Materialize sampling (strategy → concrete columns)
+			# The capability-aware planner emits sampling_strategy, NOT
+			# CONDITIONS_COUPLERS. Turning one into the other is the
+			# "Materialize sampling" stage of the Experiment Manager; it
+			# used to live only in tools/expand_sampling.py, so a plan
+			# straight from the planner could never be executed.
+			experiment_plan = self._materialize(experiment_plan, config)
+
 			# Step 1 — Build + setup plots → 01_inputs/, 02_setup_plots/
 			print("📋 STEP 1: Building Experiments")
 			print("-" * 40)
@@ -144,6 +168,122 @@ class ELMExpManager:
 			raise
 
 	# ─────────────────────────────────────────────────────────
+	# STEP 0 — MATERIALIZE SAMPLING (strategy → concrete columns)
+	# ─────────────────────────────────────────────────────────
+	def _materialize(self,
+					 plan:   Dict[str, Any],
+					 config: Dict[str, Any]) -> Dict[str, Any]:
+		"""
+		Turn a capability-aware planner strategy into CONDITIONS_COUPLERS.
+
+		No-op when the plan already carries CONDITIONS_COUPLERS (the legacy
+		single-site plan shape), so old plans keep working unchanged.
+
+		Needs, via config:
+			brief        — reception brief (domain bbox + optional HUC)
+			mcp_clients  — dict of live MCP clients (terrain/fan_wtd/geology)
+		Optional: yr_start, yr_end, soil_config, substrate, n_columns, n_bands.
+		"""
+		if plan.get("CONDITIONS_COUPLERS"):
+			return plan
+
+		exp = _load_expander()
+		brief   = config.get("brief") or {}
+		clients = config.get("mcp_clients") or {}
+
+		bbox = exp._bbox_from_brief(brief)
+		if not bbox:
+			raise ValueError(
+				"Cannot materialize sampling: no domain bbox in the reception "
+				"brief, and the plan has no CONDITIONS_COUPLERS. Pass "
+				"config['brief'] with domain.bbox, or supply an explicit plan."
+			)
+		if not clients.get("terrain"):
+			raise ValueError(
+				"Cannot materialize sampling: the 'terrain' MCP client is "
+				"required. Pass config['mcp_clients']."
+			)
+
+		n_total = config.get("n_columns") or exp._n_from_plan(plan)
+		if not n_total:
+			raise ValueError(
+				"Cannot materialize sampling: no column count in the plan "
+				"(sampling_strategy.n_exploratory) and none in config."
+			)
+		bands = config.get("n_bands") or len(
+			(brief.get("heterogeneity") or {}).get("elevation_bands") or []) or 4
+
+		print("🗺️  STEP 0: Materializing Sampling")
+		print("-" * 40)
+		print(f"   bbox={bbox} N={n_total} bands={bands}")
+
+		# Clip the rectangular DEM sample to the real basin when we know the HUC.
+		# Without a boundary the sample is the raw bbox, so columns can land
+		# OUTSIDE the basin — the run still completes, but the ensemble no
+		# longer represents the watershed that was asked about. That is a
+		# scientific difference, so say so loudly rather than degrade silently.
+		boundary = None
+		huc = (brief.get("domain") or {}).get("huc")
+		if huc:
+			try:
+				b = clients["terrain"].call_tool_json(
+					"get_watershed_boundary",
+					{"huc": huc, "huc_level": len(str(huc))}) or {}
+				boundary = b.get("rings")
+			except Exception as e:
+				print(f"   ⚠️  boundary lookup FAILED for HUC {huc} ({e})")
+		if not boundary:
+			why = ("no HUC in the reception brief"
+				   if not huc else f"boundary lookup returned nothing for HUC {huc}")
+			print(f"   ⚠️  WARNING: sampling the RAW BBOX, not the watershed "
+				  f"— {why}.")
+			print(f"   ⚠️  Columns may fall outside the basin; the ensemble is "
+				  f"a bounding-box sample, not '{(brief.get('domain') or {}).get('name') or 'the watershed'}'.")
+			print(f"   ⚠️  Fix: ensure reception resolves a HUC, or pass "
+				  f"config['boundary'] explicitly.")
+		boundary = config.get("boundary", boundary)
+
+		res = exp.expand(clients, bbox, n_total, bands, boundary=boundary)
+		if res.get("error"):
+			raise RuntimeError(f"Sampling expansion failed: {res['error']}")
+		columns = res.get("columns", [])
+		if not columns:
+			raise RuntimeError("Sampling expansion produced no columns.")
+
+		# Provenance: was this a true watershed sample or a bbox fallback?
+		res["sampling_domain"] = {
+			"clipped_to_watershed": bool(boundary),
+			"huc": huc,
+			"name": (brief.get("domain") or {}).get("name"),
+			"bbox": bbox,
+			"caveat": None if boundary else (
+				"Columns were sampled from the bounding box, NOT clipped to the "
+				"watershed boundary (no HUC resolved). Some columns may lie "
+				"outside the basin; treat the ensemble as a bbox sample."),
+		}
+
+		# Persist the materialized columns next to the run's other inputs, so
+		# analyze_run.py / make_warmstart.py can consume this run like any other.
+		(self.input_dir / "columns.json").write_text(json.dumps(res, indent=2))
+		(self.run_dir  / "columns.json").write_text(json.dumps(res, indent=2))
+
+		yr_start = int(config.get("yr_start", 1995))
+		yr_end   = int(config.get("yr_end",   yr_start))
+		executable = columns_to_elm_plan(
+			columns,
+			yr_start    = yr_start,
+			yr_end      = yr_end,
+			soil_config = config.get("soil_config", "native"),
+			substrate   = config.get("substrate",   "extrapolate"),
+		)
+
+		merged = {**plan, **executable}
+		(self.run_dir / "run_plan.json").write_text(json.dumps(merged, indent=2))
+		print(f"✓ {len(columns)} column(s) materialized "
+			  f"({yr_start}-{yr_end}) → CONDITIONS_COUPLERS")
+		return merged
+
+	# ─────────────────────────────────────────────────────────
 	# STEP 1 — BUILD (writes to 01_inputs/ + 02_setup_plots/)
 	# ─────────────────────────────────────────────────────────
 	def _build(self,
@@ -151,6 +291,7 @@ class ELMExpManager:
 			   config: Dict[str, Any]) -> List[Dict]:
 		"""Build ELMAgentAdapter list from plan + generate setup plots."""
 		builder     = ELMExperimentBuilder(plan)
+		self._builder = builder          # reused by _prepare for the fast path
 		experiments = builder.build_experiments()
 
 		# Save experiment_summary.json to 01_inputs/
@@ -242,12 +383,34 @@ class ELMExpManager:
 	# STEP 2 — PREPARE (cases live at $PSCRATCH)
 	# ─────────────────────────────────────────────────────────
 	def _prepare(self, experiments: List[Dict]) -> None:
-		"""Prepare (build) all ELM cases."""
+		"""
+		Prepare (build) all ELM cases.
+
+		Uses ELMExperimentBuilder.prepare_cases(): builds the FIRST case from
+		scratch (~8-10 min CIME compile) and clones the rest with
+		--keepexe (~30 s each, in parallel, with a serial retry pass for the
+		known parallel-filesystem race). The previous implementation called
+		prepare_case() per experiment with no ref_case_dir, i.e. a full
+		compile for EVERY column — ~2 h for a 14-column watershed instead of
+		~12 min.
+		"""
+		builder = getattr(self, "_builder", None)
+		if builder is not None:
+			case_dirs = builder.prepare_cases(output_dir=str(self.run_dir))
+			for exp, cd in zip(experiments, case_dirs):
+				exp['case_dir'] = cd
+			n_ok = sum(1 for c in case_dirs if c)
+			if not n_ok:
+				raise RuntimeError("No ELM cases could be prepared.")
+			if n_ok != len(case_dirs):
+				print(f"   ⚠️  {len(case_dirs) - n_ok} case(s) failed to prepare")
+			return
+
+		# Fallback: no builder handle (e.g. a caller that bypassed _build)
 		for exp in experiments:
-			case_dir = exp['elm_agent'].prepare_case(
+			exp['case_dir'] = exp['elm_agent'].prepare_case(
 				output_dir = str(self.run_dir)
 			)
-			exp['case_dir'] = case_dir
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 3 — RUN (writes to 03_results/)
@@ -260,15 +423,20 @@ class ELMExpManager:
 		After runs complete, write execution_report.txt and
 		results_summary.csv to 03_results/.
 		"""
-		results = {}
+		results = self._run_batch(experiments, config)
+		if results is None:
+			# Fallback: bare srun, serially. Requires an interactive node.
+			results = {}
+			for exp in experiments:
+				results[exp['case_name']] = exp['elm_agent'].run_simulation()
 
 		for exp in experiments:
-			case_name = exp['case_name']
-			success   = exp['elm_agent'].run_simulation()
-			results[case_name] = success
-			exp['run_summary'] = exp['elm_agent'].get_run_summary()
+			try:
+				exp['run_summary'] = exp['elm_agent'].get_run_summary()
+			except Exception as e:
+				print(f"   ⚠️  run summary failed for {exp['case_name']}: {e}")
 
-		n_ok   = sum(results.values())
+		n_ok   = sum(1 for v in results.values() if v)
 		n_fail = len(results) - n_ok
 		print(f"✓ {n_ok} succeeded, {n_fail} failed")
 
@@ -276,6 +444,61 @@ class ELMExpManager:
 		self._write_execution_report(experiments, results)
 		self._write_results_csv(experiments, results)
 
+		return results
+
+	def _run_batch(self,
+				   experiments: List[Dict],
+				   config:      Dict[str, Any]):
+		"""
+		Run every column as ONE sbatch job via tools/submit_cases.sh --wait.
+
+		Works from a login node (the bare-srun path needs a pre-held
+		allocation) and runs the columns concurrently on one node. Returns
+		{case_name: bool} or None if batch submission isn't usable, in which
+		case the caller falls back to serial srun.
+		"""
+		import shutil, subprocess, glob
+		if config.get("no_batch") or not shutil.which("sbatch"):
+			return None
+
+		cases = [e.get('case_dir') for e in experiments if e.get('case_dir')]
+		if not cases:
+			return None
+		try:
+			exeroot = subprocess.check_output(
+				["./xmlquery", "EXEROOT", "--value"], cwd=cases[0],
+				env={**__import__("os").environ,
+					 "LC_ALL": "en_US.utf8", "LANG": "en_US.utf8"},
+				text=True).strip()
+		except Exception as e:
+			print(f"   ⚠️  could not resolve EXEROOT ({e}) — serial fallback")
+			return None
+
+		# submit_cases.sh reads these two files from the run dir
+		(self.run_dir / "cases.json").write_text(json.dumps(cases, indent=1))
+		(self.run_dir / "exe_path.txt").write_text(
+			str(Path(exeroot) / "e3sm.exe") + "\n")
+
+		cmd = ["bash", str(_ROOT / "tools" / "submit_cases.sh"),
+			   str(self.run_dir), "--wait",
+			   "-q", str(config.get("queue", "short")),
+			   "-t", str(config.get("walltime", "00:40:00"))]
+		if config.get("email"):
+			cmd += ["-m", str(config["email"])]
+		print(f"   submitting {len(cases)} column(s) as one batch job "
+			  f"(queue={config.get('queue', 'short')}) ...")
+		try:
+			subprocess.run(cmd, cwd=str(_ROOT), check=False)
+		except Exception as e:
+			print(f"   ⚠️  batch submission failed ({e}) — serial fallback")
+			return None
+
+		# Success == the column actually produced history files.
+		results = {}
+		for exp in experiments:
+			cd = exp.get('case_dir')
+			results[exp['case_name']] = bool(
+				cd and glob.glob(f"{cd}/run/*.elm.h0.*.nc"))
 		return results
 
 	def _write_execution_report(self,

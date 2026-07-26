@@ -1,15 +1,25 @@
 # test_my_site.py
 import asyncio
 import os
+import sys
 import json
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+# Path to the usgs-water-mcp server script. Default assumes it sits alongside
+# the other MCP servers in this repo's mcp/ directory; override with
+# USGS_WATER_MCP_MAIN if it lives elsewhere.
+USGS_WATER_MCP_MAIN = os.getenv(
+    "USGS_WATER_MCP_MAIN",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "usgs-water-mcp", "main.py"),
+)
+
 async def test_my_site(site_number, site_name):
     current_env = os.environ.copy()
     server_params = StdioServerParameters(
-        command="/global/common/software/nersc9/pytorch/2.8.0/bin/python3",
-        args=["/global/homes/h/hvtran/RCSFA/mcp/usgs-water-mcp/main.py"],
+        command=sys.executable,
+        args=[USGS_WATER_MCP_MAIN],
         env=current_env
     )
     

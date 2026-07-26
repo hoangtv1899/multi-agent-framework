@@ -30,7 +30,7 @@ class AnalysisReportAgent(LLMAgent):
 	"""
 	
 	def __init__(self,
-				 model:       str  = "claude-sonnet-4-5-20250929-v1-project",
+				 model:       str  = "claude-opus-4-8-project",
 				 model_type:  str  = "pflotran",
 				 mcp_clients: Dict = None):
 	
@@ -141,7 +141,7 @@ class AnalysisReportAgent(LLMAgent):
 				user_message   = prompt,
 				system_message = self.prompt_analysis
 			)
-			return self.parse_json(response)
+			return self.parse_json_resilient(response)
 		except Exception as e:
 			print(f"   ⚠️  Analysis failed: {e}")
 			return self._default_analysis(user_request)
@@ -165,7 +165,7 @@ class AnalysisReportAgent(LLMAgent):
 				user_message   = prompt,
 				system_message = self.prompt_validation
 			)
-			result = self.parse_json(response)
+			result = self.parse_json_resilient(response)
 	
 			# Report issues
 			for issue in result.get("issues", []):

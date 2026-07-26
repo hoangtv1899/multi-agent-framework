@@ -10,7 +10,7 @@ Each coupler = one synthetic UNIFORM soil profile (constant organic + bulk
 density; only clay/sand vary) at the same (lat,lon), native soil_config +
 extrapolate substrate — the same surface-generation path the real run used.
 
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/make_soil_sweep.py --out-dir workflow_outputs/soil_sweep
     # then:
     #   python3 tools/build_cases.py --plan <out>/soilsweep_plan.json --ref <ref_case> --out-dir <out>

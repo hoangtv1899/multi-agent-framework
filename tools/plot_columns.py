@@ -14,7 +14,7 @@ problems at the two steps that otherwise have no picture.
 
 Reads cases.json in the run dir (written by build_cases.py). NOTHING is executed.
 
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/plot_columns.py --run-dir <dir> --cases-file cases.json --surfaces
     python3 tools/plot_columns.py --run-dir <dir> --cases-file cases.json --timeseries
 """

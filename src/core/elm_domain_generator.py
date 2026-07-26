@@ -16,6 +16,7 @@ Domain file structure (confirmed):
     frac : (1,1)   ← always 1.0
     area : (1,1)   ← cell area (keep from template)
 """
+import os
 from pathlib import Path
 from typing  import Optional
 
@@ -30,13 +31,16 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────────
 # PATHS
 # ─────────────────────────────────────────────────────────────────────
+# ELM 1d input files (originals on NERSC; copy them here on Compy)
+_ELM_INPUT_FILES_DIR = os.getenv(
+    "ELM_INPUT_FILES_DIR",
+    "/qfs/people/tran289/IDEAS/1d_elm/input_files",
+)
 DOMAIN_TEMPLATE = (
-    "/global/homes/h/hvtran/RCSFA/1d_elm/"
-    "input_files/Domainfile_station_2006_.nc"
+    _ELM_INPUT_FILES_DIR + "/Domainfile_station_2006_.nc"
 )
 DOMAIN_OUTPUT_DIR = (
-    "/global/homes/h/hvtran/RCSFA/1d_elm/"
-    "input_files/domains"
+    _ELM_INPUT_FILES_DIR + "/domains"
 )
 
 # ─────────────────────────────────────────────────────────────────────

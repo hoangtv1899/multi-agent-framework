@@ -10,7 +10,7 @@ Writes <out-dir>/cases.json (the cloned case dirs) + exe_path.txt. The
 build/clone runs on the login node; the ELM run is a separate salloc step
 (tools/run_cases.sh).
 
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/build_cases.py --plan <plan.json> --ref <ref_case_dir> --out-dir <run_dir>
 """
 import argparse

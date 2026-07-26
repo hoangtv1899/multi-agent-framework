@@ -6,7 +6,7 @@ in-domain observations — SNOTEL SWE stations, USGS stream gages, GW wells — 
 area and relief, so you can pick a data-rich basin (and, for less forcing
 confound, a lower-relief one).
 
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/scout_watersheds.py "Naches" "Yakima" "Walla Walla" 17030001
 """
 import argparse

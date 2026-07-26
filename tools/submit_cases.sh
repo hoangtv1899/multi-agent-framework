@@ -4,7 +4,7 @@
 # 128-core node). Default is submit-and-forget; --wait blocks until the job
 # finishes and prints a per-column summary; --analyze runs step 6 after that.
 #
-#   bash tools/submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00]
+#   bash tools/submit_cases.sh <run-dir> [-q short|slurm] [-t 00:30:00]
 #                              [--dry] [--wait] [--analyze]
 #                              [--analyze-in-job] [-m <email>]
 #
@@ -20,8 +20,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 
-RD="${1:?usage: submit_cases.sh <run-dir> [-q debug|regular] [-t 00:30:00] [--dry] [--wait] [--analyze] [--analyze-in-job] [-m <email>]}"; shift || true
-QUEUE=debug; TLIMIT=00:30:00; DRY=""; WAIT=""; ANALYZE=""; AJOB=""; MAIL=""
+RD="${1:?usage: submit_cases.sh <run-dir> [-q short|slurm] [-t 00:30:00] [--dry] [--wait] [--analyze] [--analyze-in-job] [-m <email>]}"; shift || true
+# Compy partitions: 'short' (2 h limit) or 'slurm' (4 days).
+QUEUE=short; TLIMIT=00:30:00; DRY=""; WAIT=""; ANALYZE=""; AJOB=""; MAIL=""
 while [ "${1:-}" ]; do
     case "$1" in
         -q) QUEUE="$2"; shift 2;;
@@ -52,7 +53,7 @@ MAILLINES=""
 AJOBLINES=""
 [ -n "$AJOB" ] && AJOBLINES="
 echo \"── in-job analysis ──\"
-module load pytorch/2.8.0 2>/dev/null || true
+source /qfs/people/tran289/IDEAS/env_compy.sh 2>/dev/null || true
 cd $ROOT
 bash tools/run_watershed.sh --analyze $ABS_RD \\
   || echo \"analysis failed — rerun with: bash tools/run_watershed.sh --analyze $ABS_RD\""
@@ -61,14 +62,18 @@ cat > "$SB" <<SBATCH
 #!/bin/bash
 #SBATCH -J elm_cols
 #SBATCH -N 1
-#SBATCH -q $QUEUE
-#SBATCH -C cpu
-#SBATCH -A m3780
+#SBATCH -p $QUEUE
+#SBATCH -A e3sm
 #SBATCH -t $TLIMIT
 #SBATCH -o $ABS_RD/run.log
 $MAILLINES
-# Run every column concurrently: each srun step takes exactly 1 task / 2 cores
-# (--exact), so they pack onto the node instead of serialising.
+# Run every column concurrently: each srun step takes 1 task / 2 cores and
+# --exclusive keeps steps from sharing CPUs, so they pack onto the node
+# instead of serialising.
+#   NOTE: --exclusive, not --exact. Compy runs Slurm 18.08, and --exact was
+#   only added in Slurm 20.11 ("srun: unrecognized option '--exact'", every
+#   column exits instantly with 0 history files). On 18.08 the step-level
+#   spelling of "don't share CPUs between steps" is --exclusive.
 EXE="$EXE"
 echo "running $N columns concurrently on \$SLURM_NODELIST"
 t0=\$SECONDS
@@ -77,8 +82,9 @@ for C in $CASES; do
     cd "\$C/run" || exit
     source ../.env_mach_specific.sh 2>/dev/null
     mkdir -p timing/checkpoints
-    srun --exact --ntasks=1 --cpus-per-task=2 --cpu-bind=cores --mem=4G "\$EXE" > srun.out 2>&1
-    echo "  \$(basename \$C): rc=\$? history=\$(ls *.elm.h0.*.nc 2>/dev/null | wc -l)"
+    srun --mpi=pmi2 --exclusive --ntasks=1 --cpus-per-task=2 --cpu_bind=cores --mem=4G "\$EXE" > srun.out 2>&1
+    RC=\$?   # capture immediately: \$(basename ...) below would reset \$?
+    echo "  \$(basename \$C): rc=\$RC history=\$(ls *.elm.h0.*.nc 2>/dev/null | wc -l)"
   ) &
 done
 wait
@@ -123,7 +129,7 @@ NOK=$(awk '/rc=/{ if ($0 ~ /rc=0( |$)/) n++ } END{print n+0}' "$RD/run.log")
 NBAD=$(awk '/rc=/{ if ($0 !~ /rc=0( |$)/) n++ } END{print n+0}' "$RD/run.log")
 if ! grep -q "ALL_DONE" "$RD/run.log"; then
     echo "⚠️  job ended WITHOUT ALL_DONE — likely hit the $TLIMIT wall time."
-    echo "    Resubmit with more time, e.g.: bash tools/submit_cases.sh $RD -q regular -t 02:00:00 --wait"
+    echo "    Resubmit with more time, e.g.: bash tools/submit_cases.sh $RD -q slurm -t 02:00:00 --wait"
     exit 1
 fi
 if [ "$NBAD" -gt 0 ]; then

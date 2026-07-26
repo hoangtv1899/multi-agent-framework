@@ -18,6 +18,7 @@ docs/reaction_mcp_port_notes.md):
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -25,8 +26,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PFL = Path("/global/homes/h/hvtran/petsc/pflotran")
-EXE = PFL / "src/pflotran/bin/pflotran"
+PFL = Path(os.getenv("PFLOTRAN_DIR", "/qfs/people/tran289/pflotran"))
+EXE = PFL / "src/pflotran/pflotran"
 RT = PFL / "regression_tests/default/reaction_sandbox"
 DB = PFL / "database/lambda.dat"
 SRC_RUN = ROOT / "workflow_outputs/gunnison_pflotran/r100"

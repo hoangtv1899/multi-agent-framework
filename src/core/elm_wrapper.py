@@ -4,7 +4,7 @@ ELM Wrapper
 src/core/elm_wrapper.py
 
 Simplified wrapper for creating, configuring, building, and
-running a single-column ELM case on Perlmutter.
+running a single-column ELM case on Compy.
 
 Phase 1 design:
     - srun-only execution (no sbatch)
@@ -32,20 +32,53 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────
+# CIME subprocess environment
+# ─────────────────────────────────────────────────────────────────────
+# Intel's compiler toolchain (icc/mpiicc, used for COMPILER='intel' below)
+# hard-fails ("Catastrophic error: could not set locale") under LANG=C.UTF-8
+# with LC_ALL unset -- the ambient state of a typical Compy shell/MCP-spawned
+# process. en_US.utf8 is a real installed locale (confirmed via `locale -a`)
+# that Intel's toolchain accepts; C.UTF-8 is glibc's synthetic locale, which
+# it does not. Applied to every subprocess call that invokes CIME scripts so
+# case creation/build never depends on the caller's ambient locale.
+def _cime_env() -> dict:
+    return {**os.environ, 'LC_ALL': 'en_US.utf8', 'LANG': 'en_US.utf8'}
+
+
+# ─────────────────────────────────────────────────────────────────────
 # FIXED CONFIG — never changed by planner
 # ─────────────────────────────────────────────────────────────────────
+# ELM 1d input files (originals on NERSC; copy them here on Compy)
+_ELM_INPUT_FILES_DIR = os.getenv(
+    "ELM_INPUT_FILES_DIR",
+    "/qfs/people/tran289/IDEAS/1d_elm/input_files",
+)
+
 FIXED_CONFIG = {
-    'RES':      'ELMMOS_USRDAT',
-    'COMPSET':  'IELM',
-    'MACH':     'pm-cpu',
-    'COMPILER': 'gnu',
-    'PROJECT':  'm3780',
-    'SRC_DIR':  '/global/u2/h/hvtran/E3SM',
-    'INPUT_FILES_DIR':
-        '/global/homes/h/hvtran/RCSFA/1d_elm/input_files',
+    # ELM-only, no river routing (2026-07-23). RES and COMPSET are COUPLED --
+    # change both together or create_newcase hard-fails:
+    #   * No ELM compset ALIAS has a stub river: all 149 aliases in
+    #     components/elm/cime_config/config_compsets.xml hardcode MOSART
+    #     (IELM = 2000_DATM%QIA_ELM%SP_SICE_SOCN_MOSART_SGLC_SWAV), so a
+    #     compset longname is the only route. CIME accepts longnames and
+    #     auto-appends the trailing stubs (_SIAC_SESP).
+    #   * ELMMOS_USRDAT is gated on compset regex "(DATM|SATM).+ELM.+MOSART"
+    #     (cime_config/config_grids.xml:71) and no longer matches; ELM_USRDAT
+    #     ("(DATM|SATM).+ELM", :61) is the drop-in, identical except rof->null.
+    # KEEP "DATM%QIA" VERBATIM: it sets DATM_MODE=CLM_QIAN, and
+    # tools/set_nldas_forcing.py hardcodes datm.streams.txt.CLM_QIAN.* run-dir
+    # filenames. Any other DATM modifier would make it write orphan files with
+    # NO error -- cases would silently run Qian forcing while the run record
+    # claims NLDAS-2. To restore routing: RES='ELMMOS_USRDAT', COMPSET='IELM'.
+    'RES':      'ELM_USRDAT',
+    'COMPSET':  '2000_DATM%QIA_ELM%SP_SICE_SOCN_SROF_SGLC_SWAV',
+    'MACH':     'compy',
+    'COMPILER': 'intel',
+    'PROJECT':  'e3sm',
+    'SRC_DIR':  '/qfs/people/tran289/E3SM',
+    'INPUT_FILES_DIR': _ELM_INPUT_FILES_DIR,
     'FSURDAT':
-        '/global/homes/h/hvtran/RCSFA/1d_elm/input_files/'
-        'Surfacedata_Station_2006_.nc',
+        _ELM_INPUT_FILES_DIR + '/Surfacedata_Station_2006_.nc',
     'DOMAIN_FILE': 'Domainfile_station_2006_.nc',
 }
 
@@ -56,21 +89,38 @@ FIXED_XML = {
     'LND_DOMAIN_PATH': FIXED_CONFIG['INPUT_FILES_DIR'],
     'ATM_DOMAIN_PATH': FIXED_CONFIG['INPUT_FILES_DIR'],
     'NTASKS':          '1',
+    # NLDAS-2 forcing at 1/8 deg (~12 km), set explicitly 2026-07-25.
+    # The compset's %QIA modifier otherwise defaults DATM_MODE to CLM_QIAN =
+    # Qian T62 (~1.9x2.5 deg). At T62 an entire small watershed falls inside
+    # ONE forcing cell, so every column gets identical precip/temperature and
+    # any elevation-gradient study is meaningless (observed: 11 of 14 Naches
+    # columns produced near-identical QOVER/QDRAI across 398-1868 m relief).
+    # CLMMOSARTTEST reads $DIN_LOC_ROOT/atm/datm7/NLDAS/clmforc.nldas.%ym.nc,
+    # which on Compy covers 1979-2023 complete. Its name mentions MOSART but
+    # it is purely a DATM stream preset -- orthogonal to the ROF component and
+    # fine with SROF. NOTE: tools/set_nldas_forcing.py is NOT usable on Compy;
+    # it points at atm_forcing.datm7.NLDAS2.0.125d.v1, whose Precip and TPQWL
+    # directories are EMPTY here (Solar has only 1980-81).
+    # DATM_MODE lives in env_run.xml, so changing it needs only case.setup
+    # --reset, not a rebuild.
+    'DATM_MODE':       'CLMMOSARTTEST',
 }
 
 # Fixed namelists for components other than ELM
 # (ELM namelist is constructed in _write_namelists so it can use FSURDAT)
+#
+# No 'mosart' entry: the compset above uses a stub river (SROF), so case.setup
+# generates only user_nl_{cpl,datm,elm} -- a user_nl_mosart would be a dead
+# file CIME never reads. This also drops the external dependency on
+# /compyfs/inputdata/rof/mosart/MOSART_NLDAS_8th_20160426.nc, which existed
+# purely to satisfy build-namelist validation and was never read at runtime
+# (it was also the source of the invalid-frivinp_mesh build failure).
+# mapalgo is ONE entry because DATM_MODE=CLMMOSARTTEST is a SINGLE stream
+# (TBOT,WIND,QBOT,PSRF,FLDS,PRECTmms,FSDS all in one file). It was 3-wide for
+# CLM_QIAN, which has three streams (Solar/Precip/TPQW) -- if you ever switch
+# DATM_MODE back, this must change with it.
 FIXED_NAMELISTS = {
-    'mosart': (
-        "do_rtm = .false.\n"
-        "frivinp_rtm = '/global/cfs/cdirs/e3sm/inputdata/"
-        "rof/mosart/MOSART_NLDAS_8th_20160426.nc'\n"
-        "frivinp_mesh = '/global/cfs/cdirs/e3sm/inputdata/"
-        "rof/mosart/MOSART_NLDAS_8th_20160426.nc'\n"
-        "wrmflag = .false.\n"
-        "inundflag = .false.\n"
-    ),
-    'datm': 'mapalgo = "nn", "nn", "nn"\n',
+    'datm': 'mapalgo = "nn"\n',
 }
 
 # Default runtime config
@@ -190,7 +240,7 @@ class GeneratedELMAgent:
         try:
             exeroot = subprocess.check_output(
                 ["./xmlquery", "EXEROOT", "--value"],
-                cwd=self.case_dir, text=True,
+                cwd=self.case_dir, env=_cime_env(), text=True,
             ).strip()
             exe_path = Path(exeroot) / "e3sm.exe"
         except Exception:
@@ -207,7 +257,11 @@ class GeneratedELMAgent:
         start  = time.time()
         result = subprocess.run(
             [
-                "srun", "--label",
+                # --mpi=pmi2 is REQUIRED on Compy: cases are built against
+                # Intel MPI (mpilib=impi) and CIME's compy config specifies
+                # --mpi=pmi2 for it. Without it Intel MPI falls back to its
+                # hydra bootstrap and dies setting up proxies.
+                "srun", "--mpi=pmi2", "--label",
                 "-n", "1", "-N", "1", "-c", "2",
                 "--cpu_bind=cores",
                 str(exe_path),
@@ -263,7 +317,7 @@ class GeneratedELMAgent:
         suffix    = f".{self.case_suffix}" if self.case_suffix else ""
         self.case_name = f"1D_ELM.{git_hash}.{timestamp}{suffix}"
 
-        pscratch = os.environ.get('PSCRATCH', '/tmp')
+        pscratch = os.environ.get('PSCRATCH', '/compyfs/tran289')
         self.case_dir = Path(pscratch) / "E3SMv3" / self.case_name
 
         logger.info(f"Creating: {self.case_name}")
@@ -281,6 +335,7 @@ class GeneratedELMAgent:
                     "--project", FIXED_CONFIG['PROJECT'],
                 ],
                 cwd            = scripts_dir,
+                env            = _cime_env(),
                 check          = True,
                 capture_output = True,
                 text           = True,
@@ -307,7 +362,7 @@ class GeneratedELMAgent:
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         suffix    = f".{self.case_suffix}" if self.case_suffix else ""
         self.case_name = f"1D_ELM.{git_hash}.{timestamp}{suffix}"
-        pscratch = os.environ.get('PSCRATCH', '/tmp')
+        pscratch = os.environ.get('PSCRATCH', '/compyfs/tran289')
         self.case_dir = Path(pscratch) / "E3SMv3" / self.case_name
         ref_name = Path(ref_case_dir).name
         logger.info(f"Cloning from {ref_name} → {self.case_name}")
@@ -321,6 +376,7 @@ class GeneratedELMAgent:
                     "--keepexe",
                 ],
                 cwd            = scripts_dir,
+                env            = _cime_env(),
                 check          = True,
                 capture_output = True,
                 text           = True,
@@ -367,6 +423,7 @@ class GeneratedELMAgent:
         subprocess.run(
             ['./xmlchange', f'{key}={value}'],
             cwd            = self.case_dir,
+            env            = _cime_env(),
             check          = True,
             capture_output = True,
             text           = True,
@@ -401,7 +458,6 @@ class GeneratedELMAgent:
 
         namelists = {
             'elm':    elm_namelist,
-            'mosart': FIXED_NAMELISTS['mosart'],
             'datm':   FIXED_NAMELISTS['datm'],
         }
 
@@ -416,6 +472,7 @@ class GeneratedELMAgent:
         subprocess.run(
             ['./case.setup', '--reset'],
             cwd            = self.case_dir,
+            env            = _cime_env(),
             check          = True,
             capture_output = True,
             text           = True,
@@ -428,6 +485,7 @@ class GeneratedELMAgent:
             subprocess.run(
                 ['./case.setup'],
                 cwd            = self.case_dir,
+                env            = _cime_env(),
                 check          = True,
                 capture_output = True,
                 text           = True,
@@ -438,6 +496,7 @@ class GeneratedELMAgent:
             subprocess.run(
                 ['./case.build'],
                 cwd            = self.case_dir,
+                env            = _cime_env(),
                 check          = True,
                 capture_output = True,
                 text           = True,

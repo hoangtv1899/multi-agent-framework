@@ -9,7 +9,7 @@ counts, Fan no-data — so you can see where coverage is thin BEFORE designing a
 study there. The deterministic logic is covered by tests/test_mcp_tools.py.
 
 Run from the project root with the MCP runtime env:
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/mcp_conus_sweep.py                 # full report
     python3 tools/mcp_conus_sweep.py --max-sites 4   # quick subset
     python3 tools/mcp_conus_sweep.py --assert         # report + exit 1 on sanity failures

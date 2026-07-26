@@ -7,6 +7,7 @@ Translates plan JSON from PlannerAgent into a list of
 ELMAgentAdapter instances, one per experiment.
 """
 import logging
+import shutil
 from pathlib import Path
 from typing import Dict, List, Any
 
@@ -154,8 +155,41 @@ class ELMExperimentBuilder:
                         f"   ✓ Cloned: {Path(case_dir).name}"
                     )
                 except Exception as e:
-                    logger.error(
+                    logger.warning(
                         f"   ✗ Clone failed for {exp['case_name']}: {e}"
+                    )
+                    exp['case_dir'] = None
+
+        # ── Serial retry pass ──
+        # create_clone races on a parallel filesystem: concurrent clones hit
+        # FileNotFoundError inside CIME's safe_copy -> os.utime(dst), in
+        # whichever component's buildnml happens to lose (datm/drv/elm all
+        # observed). The source files are fine; retrying the same clone
+        # serially succeeds. Observed 2026-07-25: 3/13 parallel clones failed,
+        # all 3 succeeded on serial retry (~17 s each).
+        failed = [e for e in remaining if not e.get('case_dir')]
+        if failed:
+            logger.info(
+                f"Retrying {len(failed)} failed clone(s) serially "
+                f"(parallel-filesystem race)..."
+            )
+            for exp in failed:
+                # Clear any partial case dir left by the failed attempt.
+                stale = getattr(exp['elm_agent'], '_case_dir', None) or \
+                        getattr(getattr(exp['elm_agent'], '_elm', None),
+                                'case_dir', None)
+                if stale and Path(stale).is_dir():
+                    shutil.rmtree(stale, ignore_errors=True)
+                try:
+                    case_dir = exp['elm_agent'].prepare_case(
+                        output_dir   = output_dir,
+                        ref_case_dir = ref_case_dir,
+                    )
+                    exp['case_dir'] = case_dir
+                    logger.info(f"   ✓ Cloned (retry): {Path(case_dir).name}")
+                except Exception as e:
+                    logger.error(
+                        f"   ✗ Clone failed again for {exp['case_name']}: {e}"
                     )
                     exp['case_dir'] = None
 
@@ -309,11 +343,17 @@ class ELMExperimentBuilder:
             # can never match the per-column domain -> ELM aborts at init
             # (surfdata/fatmgrid lon/lat mismatch).
             if soil_config == 'native':
+                # veg_source='conus': pull real per-location vegetation
+                # (PCT_NAT_PFT/LAI/SAI/HEIGHT) from CONUS_SURFDATA_NC instead
+                # of freezing whatever site the surface template was built
+                # from. Falls back to template vegetation (logged warning)
+                # if that global file isn't available in this environment.
                 surface_path = surface_gen.generate_from_mcp(
-                    lat       = lat,
-                    lon       = lon,
-                    mcp_data  = mcp_data or {},
-                    substrate = substrate,
+                    lat        = lat,
+                    lon        = lon,
+                    mcp_data   = mcp_data or {},
+                    substrate  = substrate,
+                    veg_source = 'conus',
                 )
             elif soil_config in ('sandy', 'loamy', 'clayey'):
                 surface_path = surface_gen.generate_synthetic(

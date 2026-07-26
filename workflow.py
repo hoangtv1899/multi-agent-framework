@@ -30,13 +30,15 @@ class PFLOTRANCoordinator:
 	"""
 	
 	def __init__(self,
-				 reception_model:      str = "gpt-5.5-project",
+				 reception_model:      str = "claude-opus-4-8-project",
 				 planner_model:        str = "claude-opus-4-8-project",
 				 analyzer_model:       str = "claude-opus-4-8-project",
 				 default_pflotran_exe: str = "pflotran",
 				 default_output_dir:   str = "./workflow_outputs",
 				 mcp_config_file:      str = "mcp_config.json",
-				 model_type:           str = "pflotran"):  # ← NEW
+				 model_type:           str = "pflotran",   # ← NEW
+				 agentic_reception:    bool = True,
+				 interactive_reception: bool = False):
 	
 		# ── MCP Manager ───────────────────────────────────────
 		print("\n" + "=" * 70)
@@ -56,16 +58,34 @@ class PFLOTRANCoordinator:
 			mcp_clients = {}
 		print("=" * 70 + "\n")
 	
+		# Keep the live clients: the ELM manager's materialize stage needs
+		# terrain/fan_wtd/geology to turn a sampling strategy into columns.
+		self.mcp_clients = mcp_clients
+
 		# ── Model type ────────────────────────────────────────
 		self.model_type = model_type.lower()  # ← NEW
 		print(f"🔧 Model type: {self.model_type.upper()}\n")
 	
 		# ── Agents ────────────────────────────────────────────
-		self.reception = ReceptionAgent(
-			model       = reception_model,
-			mcp_clients = mcp_clients,
-			model_type  = self.model_type,
-		)
+		# Agentic reception (default): LLM-driven tool loop over all MCP
+		# servers, and — critically — it emits `domain: {name, huc, bbox}`,
+		# which the Experiment Manager's materialize stage needs. The legacy
+		# two-pass agent is single-point (`region: {location, lat, lon}`) and
+		# cannot express a watershed, so it can only drive single-site plans.
+		if agentic_reception:
+			from agents.reception_adapter import AgenticReceptionAdapter
+			self.reception = AgenticReceptionAdapter(
+				model       = reception_model,
+				mcp_clients = mcp_clients,
+				model_type  = self.model_type,
+				interactive = interactive_reception,
+			)
+		else:
+			self.reception = ReceptionAgent(
+				model       = reception_model,
+				mcp_clients = mcp_clients,
+				model_type  = self.model_type,
+			)
 		self.planner = PlannerAgent(
 			model      = planner_model,
 			model_type = self.model_type,   # ← NEW
@@ -234,6 +254,8 @@ class PFLOTRANCoordinator:
 				plan         = plan,
 				pflotran_exe = pflotran_exe,
 				output_dir   = output_dir,
+				brief        = result.to_planner_brief(),
+				period       = (result.parameters or {}).get('resolved_period'),
 			)
 			print(f"✓ Execution: "
 				  f"{run_summary['experiments_success']}/"
@@ -274,7 +296,9 @@ class PFLOTRANCoordinator:
 	def _execute(self,
 				 plan:         dict,
 				 pflotran_exe: str,
-				 output_dir:   str) -> dict:
+				 output_dir:   str,
+				 brief:        dict = None,
+				 period:       dict = None) -> dict:
 		"""
 		Route execution to correct model manager.
 		PFLOTRAN → ExpManager
@@ -285,10 +309,20 @@ class PFLOTRANCoordinator:
 			executor = ELMExpManager(
 				base_output_dir = output_dir
 			)
-			return executor.execute_plan(
-				plan,
-				{}
-			)
+			# brief + mcp_clients feed the manager's materialize stage, which
+			# turns the planner's sampling_strategy into CONDITIONS_COUPLERS.
+			cfg = {
+				'brief':       brief or {},
+				'mcp_clients': self.mcp_clients,
+			}
+			# Honour the period reception resolved, instead of silently
+			# defaulting to 1995 inside the manager.
+			if period:
+				if period.get('yr_start'):
+					cfg['yr_start'] = int(period['yr_start'])
+				cfg['yr_end'] = int(period.get('yr_end')
+									or period.get('yr_start') or 1995)
+			return executor.execute_plan(plan, cfg)
 		else:
 			executor = ExpManager(
 				base_output_dir = output_dir
@@ -413,13 +447,27 @@ def main():
         default = 'mcp_config.json',
         help    = 'MCP configuration file'
     )
+    parser.add_argument(
+        '--legacy-reception',
+        action = 'store_true',
+        help   = 'use the old two-pass ReceptionAgent (single-point only; '
+                 'cannot express a watershed)'
+    )
+    parser.add_argument(
+        '--ask', '-a',
+        action = 'store_true',
+        help   = 'let reception ask clarifying questions instead of '
+                 'silently defaulting (needs a TTY)'
+    )
     args = parser.parse_args()
 
     coordinator = PFLOTRANCoordinator(
-        default_pflotran_exe = args.pflotran_exe,
-        default_output_dir   = args.output_dir,
-        mcp_config_file      = args.mcp_config,
-        model_type           = args.model,       # ← NEW
+        default_pflotran_exe  = args.pflotran_exe,
+        default_output_dir    = args.output_dir,
+        mcp_config_file       = args.mcp_config,
+        model_type            = args.model,       # ← NEW
+        agentic_reception     = not args.legacy_reception,
+        interactive_reception = args.ask,
     )
 
     if args.interactive:

@@ -10,7 +10,11 @@ for C in "$@"; do
   mkdir -p run/timing/checkpoints
   cd run
   t0=$SECONDS
-  srun --label -n 1 -N 1 -c 2 --cpu_bind=cores "$EXE" > srun.out 2>&1
+  # --mpi=pmi2 is REQUIRED on Compy: the case is built against Intel MPI
+  # (mpilib=impi) and CIME's own compy config specifies --mpi=pmi2 for that
+  # mpilib. Without it Intel MPI falls back to its hydra bootstrap and dies
+  # with "[mpiexec@...] error setting up the boostrap proxies".
+  srun --mpi=pmi2 --label -n 1 -N 1 -c 2 --cpu_bind=cores "$EXE" > srun.out 2>&1
   rc=$?
   nh=$(ls *.elm.h0.*.nc 2>/dev/null | wc -l)
   echo "  $name: rc=$rc  $(( (SECONDS - t0) / 60 ))min  history_files=$nh"

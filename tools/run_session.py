@@ -7,7 +7,7 @@ context so a follow-up can build on "the previous experiment" — including a
 CROSS-MODEL follow-up like "now design a PFLOTRAN run using that ELM recharge".
 Reception + planner reason; nothing executes.
 
-Run from the project root (module load pytorch/2.8.0):
+Run from the project root (source /qfs/people/tran289/IDEAS/env_compy.sh):
     python3 tools/run_session.py \
       "Design an ELM experiment for the Naches sub-watershed (HUC8 17030002) to study recharge partitioning" \
       --then "Now design a PFLOTRAN run that uses the recharge / sub-surface drainage from that ELM experiment, and say what comparing the two would reveal"

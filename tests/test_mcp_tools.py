@@ -145,10 +145,14 @@ class TestFanWtd:
 # usgs groundwater — OGC response parsing
 # ─────────────────────────────────────────────────────────────────────────────
 pytest.importorskip("httpx")
-gw = _load(MCP / "usgs-water-mcp" / "groundwater_api.py", "gw_api",
-           extra_syspath=MCP / "usgs-water-mcp")
+# usgs-water-mcp is a nested repo that exists only on NERSC (down for
+# maintenance); skip its parser tests when the code isn't present.
+_GW_API = MCP / "usgs-water-mcp" / "groundwater_api.py"
+gw = (_load(_GW_API, "gw_api", extra_syspath=MCP / "usgs-water-mcp")
+      if _GW_API.exists() else None)
 
 
+@pytest.mark.skipif(gw is None, reason="usgs-water-mcp code not present (NERSC-only)")
 class TestGroundwaterParsers:
     def test_parse_sites(self):
         data = {"features": [{

@@ -10,7 +10,7 @@ it, whether the water balance makes sense, what the validation verdicts mean,
 and what to run next. Writes 04_analysis/interpretation.md (picked up by the
 story deck).
 
-    module load pytorch/2.8.0            # needs PNNL_API_KEY
+    source /qfs/people/tran289/IDEAS/env_compy.sh            # needs PNNL_API_KEY
     python3 tools/interpret_run.py --run-dir <dir> [--model claude-opus-4-8-project]
 """
 import argparse

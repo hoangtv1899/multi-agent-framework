@@ -2,9 +2,8 @@
 #SBATCH -J elm_workflow_test
 #SBATCH -N 1
 #SBATCH -t 30:00
-#SBATCH -q debug
-#SBATCH -C cpu
-#SBATCH -A m3780
+#SBATCH -p short
+#SBATCH -A e3sm
 #SBATCH -o slurm_logs/elm_workflow_test_%j.out
 #SBATCH -e slurm_logs/elm_workflow_test_%j.err
 #
@@ -23,9 +22,9 @@
 #
 # USAGE
 # ─────
-#   cd ~/RCSFA/multi-agent
+#   cd /qfs/people/tran289/IDEAS/multi-agent-framework
 #   mkdir -p slurm_logs
-#   sbatch tests/submit_workflow_test.sh
+#   sbatch scripts/submit_workflow_test.sh
 #
 #   # Watch progress:
 #   squeue -u $USER
@@ -34,7 +33,7 @@
 set -e
 
 # ── Working directory ────────────────────────────────────────────────
-cd $HOME/RCSFA/multi-agent
+cd /qfs/people/tran289/IDEAS/multi-agent-framework
 mkdir -p slurm_logs
 
 # ── Environment ──────────────────────────────────────────────────────
@@ -56,7 +55,7 @@ echo "────────────────────────�
 echo
 
 # ── Run the workflow ─────────────────────────────────────────────────
-module load pytorch
+source /qfs/people/tran289/IDEAS/env_compy.sh
 python3 tests/test_workflow_elm.py
 RC=$?
 

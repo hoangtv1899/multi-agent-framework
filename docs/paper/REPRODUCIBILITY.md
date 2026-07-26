@@ -14,6 +14,14 @@ reproduce the runs.
   (build tag `1D_ELM.3c13216be8`). Single-column configuration:
   RES=ELMMOS_USRDAT, COMPSET=IELM, 10-layer soil column.
   All cases clone a shared executable (`create_clone --keepexe`).
+  > Note (2026-07-23, Compy port): the above records the configuration used
+  > for the published runs. The Compy port switched to an explicitly
+  > river-free configuration — RES=ELM_USRDAT,
+  > COMPSET=2000_DATM%QIA_ELM%SP_SICE_SOCN_SROF_SGLC_SWAV (stub river),
+  > E3SM commit `b198763`. This is scientifically equivalent, not a change
+  > in physics: the published config already set do_rtm=.false., and both
+  > yield rof_present=.false. with zero flood/volr/supply/deficit into ELM.
+  > DATM%QIA (DATM_MODE=CLM_QIAN) is unchanged, so forcing is identical.
 - **PFLOTRAN**: user build at commit `7d24fd57c`, PETSc 3.24.
   1-D Richards mode, direct solver.
 

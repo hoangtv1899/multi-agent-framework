@@ -18,12 +18,12 @@ import sys
 from pathlib import Path
 
 SERVER_DIR = Path(os.getenv(
-    "REACTION_MCP_DIR", "/global/homes/h/hvtran/RCSFA/reaction_sandbox_mcp"))
+    "REACTION_MCP_DIR", "/qfs/people/tran289/IDEAS/reaction_sandbox_mcp-main"))
 SHIM_DIR = Path(__file__).resolve().parent / "_shim"
-PFLOTRAN = ("/global/homes/h/hvtran/petsc/pflotran/src/pflotran/bin/pflotran")
+PFLOTRAN = ("/qfs/people/tran289/pflotran/src/pflotran/pflotran")
 
 os.environ.setdefault("PFLOTRAN_EXECUTABLE", PFLOTRAN)
-os.environ.setdefault("MPI_COMMAND", "srun")
+os.environ.setdefault("MPI_COMMAND", "mpirun")
 
 if not SERVER_DIR.is_dir():
     sys.exit(f"reaction MCP: server dir not found: {SERVER_DIR}")

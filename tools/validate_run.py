@@ -16,7 +16,7 @@ Reads reception_brief.json (bbox), columns.json (Fan WTD per column), the run
 plan (simulation year) and 04_analysis/hydro_summary.json (model state — run
 analyze_run.py first). Writes 04_analysis/validation.json + validation.png.
 
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/validate_run.py --run-dir <dir>
 """
 import argparse

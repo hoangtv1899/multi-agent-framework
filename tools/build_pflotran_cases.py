@@ -17,12 +17,13 @@ from the expander's columns.json — NO ELM anywhere:
 Reuses the legacy deck writer (core.pflotran_input_agent). Runs are SERIAL and
 take seconds — `--run` executes them all right here (no batch queue needed).
 
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/build_pflotran_cases.py --columns <run>/columns.json \
         --out-dir workflow_outputs/<study> [--recharge-mm-yr 100] [--run]
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -31,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, "src")
 from core.pflotran_input_agent import PFLOTRANInputAgent
 
-PFLOTRAN_EXE = "/global/homes/h/hvtran/petsc/pflotran/src/pflotran/bin/pflotran"
+PFLOTRAN_EXE = os.getenv("PFLOTRAN_EXECUTABLE", "/qfs/people/tran289/pflotran/src/pflotran/pflotran")
 VISC, RHO_G = 1.002e-3, 998.0 * 9.81          # k[m2] = Ksat[m/s] * mu / rho*g
 ATM = 101325.0
 

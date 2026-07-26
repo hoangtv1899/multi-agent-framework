@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────
 PSCRATCH_ROOT = Path(
-    os.environ.get('PSCRATCH', '/pscratch/sd/h/hvtran')
+    os.environ.get('PSCRATCH', '/compyfs/tran289')
 ) / "E3SMv3"
 
 PERIOD_COLORS = {

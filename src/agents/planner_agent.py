@@ -34,7 +34,7 @@ class PlannerAgent(LLMAgent):
     """Designs experiment plans for ELM / PFLOTRAN. Capability-aware by default."""
 
     def __init__(self,
-                 model:            str  = "claude-sonnet-4-5-20250929-v1-project",
+                 model:            str  = "claude-opus-4-8-project",
                  model_type:       str  = "pflotran",
                  capability_aware: bool = True,
                  mcp_clients:      Dict = None,
@@ -96,7 +96,10 @@ class PlannerAgent(LLMAgent):
         try:
             response = self.ask_with_system(
                 user_message=prompt, system_message=self.prompt_design)
-            plan = self.parse_json(response)
+            # The strategy JSON is long (~90 lines) and structural slips such
+            # as a missing comma are the single most common way an otherwise
+            # good plan is lost, so allow one self-repair round.
+            plan = self.parse_json_resilient(response)
         except Exception as e:
             err = RuntimeError(f"Strategy design failed: {e}")
             err.raw_response = response

@@ -8,7 +8,7 @@ executed — no experiment manager, no SLURM. Transcripts (reception trace + bri
 + plan) are saved under workflow_outputs/pipeline_<ts>/.
 
 Run from the project root with the MCP runtime env:
-    module load pytorch/2.8.0
+    source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/run_pipeline.py "explore GW / soil-moisture partitioning in the \
         Naches sub-watershed using ELM, validate with observations"
     python3 tools/run_pipeline.py --reception-model gemini-2.5-flash-project "..."

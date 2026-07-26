@@ -77,6 +77,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 try:
+    import numpy as np
     import xarray as xr
     import netCDF4  # noqa: F401  (required by xarray engine='netcdf4')
     XARRAY_AVAILABLE = True
@@ -90,17 +91,30 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────
 # PATHS — overridable via env vars
 # ─────────────────────────────────────────────────────────────────────
+# ELM 1d input files (originals on NERSC; copy them here on Compy)
+_ELM_INPUT_FILES_DIR = os.getenv(
+    "ELM_INPUT_FILES_DIR",
+    "/qfs/people/tran289/IDEAS/1d_elm/input_files",
+)
 _DEFAULT_TEMPLATE = (
-    "/global/homes/h/hvtran/RCSFA/1d_elm/"
-    "input_files/Surfacedata_Station_2006_.nc"
+    _ELM_INPUT_FILES_DIR + "/Surfacedata_Station_2006_.nc"
 )
 _DEFAULT_OUTPUT_DIR = (
-    "/global/homes/h/hvtran/RCSFA/1d_elm/"
-    "input_files/surfaces"
+    _ELM_INPUT_FILES_DIR + "/surfaces"
 )
 
 SURFACE_TEMPLATE   = os.environ.get('ELM_SURFACE_TEMPLATE',   _DEFAULT_TEMPLATE)
 SURFACE_OUTPUT_DIR = os.environ.get('ELM_SURFACE_OUTPUT_DIR', _DEFAULT_OUTPUT_DIR)
+
+# Global (CONUS/world) mksurfdata-format surface file used to extract REAL
+# per-location vegetation/land-cover for veg_source='conus' (see
+# generate_from_mcp). Without this, every generated column's PCT_NAT_PFT /
+# LAI / SAI / HEIGHT are frozen copies of SURFACE_TEMPLATE's single site.
+CONUS_SURFDATA_NC = os.environ.get(
+    "CONUS_SURFDATA_NC",
+    "/qfs/people/tran289/IDEAS/1d_elm/conus_surfdata/"
+    "surfdata_0.5x0.5_rcp3.0_simyr2015_c231113.nc",
+)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -109,6 +123,30 @@ SURFACE_OUTPUT_DIR = os.environ.get('ELM_SURFACE_OUTPUT_DIR', _DEFAULT_OUTPUT_DI
 N_SOIL_LEVELS = 10
 
 SOIL_VARS = ['PCT_SAND', 'PCT_CLAY', 'ORGANIC', 'PCT_GRVL']
+
+# Vegetation/land-cover variables that veg_source='conus' overwrites with a
+# real per-location extraction instead of leaving them as frozen template
+# copies. Shapes (from CONUS_SURFDATA_NC): PCT_NAT_PFT (natpft,lsmlat,lsmlon),
+# PCT_CFT (cft,lsmlat,lsmlon), MONTHLY_* (time,lsmpft,lsmlat,lsmlon), the rest
+# (lsmlat,lsmlon). All identical dim names/sizes to the single-point template.
+VEG_VARS = [
+    'PCT_NAT_PFT', 'PCT_CFT',
+    'MONTHLY_LAI', 'MONTHLY_SAI', 'MONTHLY_HEIGHT_TOP', 'MONTHLY_HEIGHT_BOT',
+    # LANDUNIT_PCT_VARS below MUST be extracted as a complete set from the same
+    # source cell -- ELM's surfrd_get_data -> check_sums_equal_1(wt_lunit)
+    # aborts the run if they do not sum to 100%. Taking only some of them from
+    # CONUS while leaving the rest at the template site's values yields e.g.
+    # 101.086% and a hard MPI_Abort deep in initialization.
+    'PCT_NATVEG', 'PCT_CROP',
+    'PCT_URBAN', 'PCT_LAKE', 'PCT_WETLAND', 'PCT_GLACIER',
+]
+
+# The subset of VEG_VARS that partitions the gridcell into landunits; these
+# must total 100% (ELM tolerance is 1e-14 on the normalized sum).
+LANDUNIT_PCT_VARS = [
+    'PCT_NATVEG', 'PCT_CROP',
+    'PCT_URBAN', 'PCT_LAKE', 'PCT_WETLAND', 'PCT_GLACIER',
+]
 
 # ELM standard nlevsoi=10 node depths (center of each soil cell), m.
 # Used for depth-aware mapping of variable-depth MCP horizons to
@@ -165,6 +203,70 @@ _DERIVATION_PCT_RE = re.compile(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# CONUS/global vegetation extraction (veg_source='conus')
+#
+# The shipped SURFACE_TEMPLATE (Surfacedata_Station_2006_.nc) is itself a
+# single-point nearest-neighbor extraction from a global 0.5x0.5 mksurfdata
+# file (verified: identical PCT_NAT_PFT to CONUS_SURFDATA_NC at the
+# template's own lat/lon). generate_from_mcp(..., veg_source='conus') reruns
+# that same extraction for the REQUESTED lat/lon instead of always reusing
+# the template's site — see single_column/create_surfdata.py for the
+# original technique this replicates.
+# ─────────────────────────────────────────────────────────────────────
+_conus_ds_cache: Dict[str, Any] = {}
+
+
+def _conus_dataset(path: str = CONUS_SURFDATA_NC):
+    """
+    Lazily open + coordinate-index the global surfdata file. Cached by
+    path across calls. Returns None (logging a warning once) if the file
+    isn't available, so callers can fall back to template vegetation
+    instead of crashing.
+    """
+    if path in _conus_ds_cache:
+        return _conus_ds_cache[path]
+
+    if not Path(path).exists():
+        logger.warning(
+            f"CONUS_SURFDATA_NC not found at {path} — veg_source='conus' "
+            f"will fall back to template vegetation. Set the CONUS_SURFDATA_NC "
+            f"env var to a global 0.5x0.5-degree mksurfdata-format file."
+        )
+        _conus_ds_cache[path] = None
+        return None
+
+    ds = xr.open_dataset(path, engine='netcdf4')
+    n_lat = ds.sizes['lsmlat']
+    n_lon = ds.sizes['lsmlon']
+    # Raw mksurfdata files carry lsmlat/lsmlon as plain dims, not coordinate
+    # values -- reconstruct the regular half-degree global grid so .sel(...,
+    # method='nearest') can index by real lat/lon.
+    lat_vals = np.linspace(-90 + 0.25, 90 - 0.25, n_lat)
+    lon_vals = np.linspace(-180 + 0.25, 180 - 0.25, n_lon)
+    ds = ds.assign_coords(
+        lsmlat=xr.DataArray(lat_vals, dims='lsmlat'),
+        lsmlon=xr.DataArray(lon_vals, dims='lsmlon'),
+    )
+    _conus_ds_cache[path] = ds
+    return ds
+
+
+def _extract_conus_veg(lat: float, lon: float,
+                       path: str = CONUS_SURFDATA_NC
+                       ) -> Optional[Dict[str, Any]]:
+    """
+    Nearest-gridcell extraction of VEG_VARS from the global surfdata file
+    for (lat, lon). Returns None if the file is unavailable.
+    """
+    ds = _conus_dataset(path)
+    if ds is None:
+        return None
+
+    cell = ds.sel(lsmlat=[lat], lsmlon=[lon], method='nearest')
+    return {var: cell[var].values for var in VEG_VARS if var in cell}
+
+
+# ─────────────────────────────────────────────────────────────────────
 # SURFACE GENERATOR
 # ─────────────────────────────────────────────────────────────────────
 class ELMSurfaceGenerator:
@@ -199,19 +301,32 @@ class ELMSurfaceGenerator:
     # MODE 1 — From MCP geology data (layered SSURGO)
     # ─────────────────────────────────────────────────────────
     def generate_from_mcp(self,
-                          lat:       float,
-                          lon:       float,
-                          mcp_data:  Dict[str, Any],
-                          substrate: str  = 'template',
-                          force:     bool = False) -> str:
+                          lat:        float,
+                          lon:        float,
+                          mcp_data:   Dict[str, Any],
+                          substrate:  str  = 'template',
+                          veg_source: str  = 'template',
+                          force:      bool = False) -> str:
         """
         Generate surface file with depth-mapped soil from MCP horizons,
         plus configurable substrate for ELM levels beyond MCP coverage.
+
+        veg_source controls PCT_NAT_PFT/PCT_CFT/LAI/SAI/HEIGHT (vegetation
+        composition), which soil-mapping above never touches:
+            'template' → keep the template site's vegetation (default,
+                         same behavior as before this parameter existed)
+            'conus'    → real per-location extraction from CONUS_SURFDATA_NC
+                         (nearest gridcell); falls back to 'template'
+                         with a logged warning if that file is unavailable
         """
         if substrate not in SUBSTRATE_OPTIONS:
             raise ValueError(
                 f"Unknown substrate '{substrate}'. "
                 f"Choose: {sorted(SUBSTRATE_OPTIONS.keys())}"
+            )
+        if veg_source not in ('template', 'conus'):
+            raise ValueError(
+                f"Unknown veg_source '{veg_source}'. Choose: template, conus"
             )
 
         # soil signature differentiates DIFFERENT soils at the SAME (lat,lon)
@@ -219,9 +334,10 @@ class ELMSurfaceGenerator:
         soil_sig = hashlib.md5(
             json.dumps(mcp_data, sort_keys=True, default=str).encode()
         ).hexdigest()[:6]
+        veg_tag = '' if veg_source == 'template' else f'_veg-{veg_source}'
         output_path = (
             self.output_dir /
-            f"Surfacedata_{lat:.4f}_{lon:.4f}_native_{substrate}_{soil_sig}.nc"
+            f"Surfacedata_{lat:.4f}_{lon:.4f}_native_{substrate}{veg_tag}_{soil_sig}.nc"
         )
 
         if output_path.exists() and not force:
@@ -252,6 +368,7 @@ class ELMSurfaceGenerator:
             lon         = lon,
             elm_levels  = elm_levels,
             label       = f'native_{substrate}',
+            veg_source  = veg_source,
         )
 
     # ─────────────────────────────────────────────────────────
@@ -406,12 +523,17 @@ class ELMSurfaceGenerator:
                        lat:         float,
                        lon:         float,
                        elm_levels:  List[Optional[Dict]],
-                       label:       str) -> str:
+                       label:       str,
+                       veg_source:  str = 'template') -> str:
         """
         Open template, write per-ELM-level soil + coordinates, save out.
 
         elm_levels is a list of N_SOIL_LEVELS entries; None means
         "keep the template's value at this level".
+
+        veg_source: 'template' leaves PCT_NAT_PFT/PCT_CFT/LAI/SAI/HEIGHT as
+        the template's values (default); 'conus' overwrites them with a real
+        nearest-gridcell extraction from CONUS_SURFDATA_NC for (lat, lon).
         """
         ds     = xr.open_dataset(str(self.template_path), engine='netcdf4')
         ds_new = ds.copy(deep=True)
@@ -429,6 +551,52 @@ class ELMSurfaceGenerator:
                 vals[i, 0, 0] = layer.get(var, _FALLBACK_LAYER[var])
             ds_new[var].values[:] = vals
 
+        if veg_source == 'conus':
+            conus_veg = _extract_conus_veg(lat, lon)
+            if conus_veg:
+                applied = set()
+                for var, arr in conus_veg.items():
+                    if var not in ds_new:
+                        continue
+                    try:
+                        ds_new[var].values[:] = arr
+                        applied.add(var)
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not apply CONUS '{var}' to surface file "
+                            f"(shape mismatch?): {e} — keeping template value"
+                        )
+                # The landunit partition must be all-or-nothing: a partial
+                # overwrite mixes two sites' percentages and will not total
+                # 100%. Fail loudly here (seconds) rather than in ELM's
+                # check_sums_equal_1 (minutes into a job).
+                lu_present = [v for v in LANDUNIT_PCT_VARS if v in ds_new]
+                missed = [v for v in lu_present if v not in applied]
+                if missed:
+                    raise RuntimeError(
+                        f"CONUS extraction applied only part of the landunit "
+                        f"partition (missing {missed}). Mixing sites here makes "
+                        f"PCT_* sum != 100% and ELM aborts in "
+                        f"surfrd_get_data/check_sums_equal_1."
+                    )
+                total = float(sum(
+                    ds_new[v].values.sum() for v in lu_present))
+                if abs(total - 100.0) > 1e-6:
+                    raise RuntimeError(
+                        f"Landunit percentages sum to {total:.6f}%, expected "
+                        f"100% (lat={lat:.4f} lon={lon:.4f}). ELM would abort "
+                        f"in check_sums_equal_1. Vars: {lu_present}"
+                    )
+                logger.info(
+                    f"   Vegetation: CONUS extraction @ lat={lat:.4f} "
+                    f"lon={lon:.4f} (landunit sum {total:.3f}%)"
+                )
+            else:
+                logger.warning(
+                    "veg_source='conus' requested but CONUS data unavailable "
+                    "— keeping template vegetation"
+                )
+
         # Update location — both data variables and dimension coords
         if 'LATIXY' in ds_new:
             ds_new['LATIXY'].values[:] = lat
@@ -442,9 +610,10 @@ class ELMSurfaceGenerator:
         ds_new.attrs['latitude']     = float(lat)
         ds_new.attrs['longitude']    = float(lon)
         ds_new.attrs['soil_texture'] = label
+        ds_new.attrs['veg_source']   = veg_source
         ds_new.attrs['generated_by'] = (
             f"ELMSurfaceGenerator lat={lat:.4f} lon={lon:.4f} "
-            f"label={label} (depth-aware mapping)"
+            f"label={label} veg_source={veg_source} (depth-aware mapping)"
         )
 
         ds_new.to_netcdf(str(output_path), engine='netcdf4')
