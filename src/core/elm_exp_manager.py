@@ -51,13 +51,20 @@ from core.columns_to_plan        import columns_to_elm_plan
 _ROOT = Path(__file__).resolve().parents[2]
 
 
-def _load_expander():
-	"""Import tools/expand_sampling.py (not a package) for stage 1."""
+def _load_tool(name: str):
+	"""Import tools/<name>.py by path — tools/ is a script dir, not a package.
+
+	The manager and the standalone CLIs then share ONE implementation of each
+	stage instead of drifting apart: expand_sampling (materialize),
+	plot_columns (setup figures), validate_run (4b), interpret_run (4c).
+	"""
 	import importlib.util
-	path = _ROOT / "tools" / "expand_sampling.py"
-	spec = importlib.util.spec_from_file_location("expand_sampling", path)
+	if name in sys.modules:
+		return sys.modules[name]
+	path = _ROOT / "tools" / f"{name}.py"
+	spec = importlib.util.spec_from_file_location(name, path)
 	mod  = importlib.util.module_from_spec(spec)
-	sys.modules["expand_sampling"] = mod
+	sys.modules[name] = mod
 	spec.loader.exec_module(mod)
 	return mod
 
@@ -118,7 +125,8 @@ class ELMExpManager:
 			# straight from the planner could never be executed.
 			experiment_plan = self._materialize(experiment_plan, config)
 
-			# Step 1 — Build + setup plots → 01_inputs/, 02_setup_plots/
+			# Step 1 — Build → 01_inputs/ (setup plots come after step 2,
+			# once each case has a run/lnd_in to read its real FSURDAT from)
 			print("📋 STEP 1: Building Experiments")
 			print("-" * 40)
 			experiments = self._build(
@@ -198,7 +206,7 @@ class ELMExpManager:
 		if plan.get("CONDITIONS_COUPLERS"):
 			return plan
 
-		exp = _load_expander()
+		exp = _load_tool("expand_sampling")
 		brief   = config.get("brief") or {}
 		clients = config.get("mcp_clients") or {}
 
@@ -322,12 +330,12 @@ class ELMExpManager:
 		return merged
 
 	# ─────────────────────────────────────────────────────────
-	# STEP 1 — BUILD (writes to 01_inputs/ + 02_setup_plots/)
+	# STEP 1 — BUILD (writes to 01_inputs/)
 	# ─────────────────────────────────────────────────────────
 	def _build(self,
 			   plan:   Dict[str, Any],
 			   config: Dict[str, Any]) -> List[Dict]:
-		"""Build ELMAgentAdapter list from plan + generate setup plots."""
+		"""Build the ELMAgentAdapter list from the plan (per-column surfaces)."""
 		builder     = ELMExperimentBuilder(plan)
 		self._builder = builder          # reused by _prepare for the fast path
 		experiments = builder.build_experiments()
@@ -340,82 +348,33 @@ class ELMExpManager:
 				f, indent=2, default=str
 			)
 
-		# Phase B: generate setup plots → 02_setup_plots/
-		self._plot_setups(experiments, plan)
-
 		print(f"✓ {len(experiments)} experiment(s) built")
 		return experiments
 
-	def _plot_setups(self,
-					 experiments: List[Dict],
-					 plan:        Dict[str, Any]) -> None:
-		"""
-		Generate setup-time plots into 02_setup_plots/.
+	def _plot_setups(self, cases: List[str]) -> None:
+		"""02_setup_plots/column_surfaces.png — the soil each column ACTUALLY got.
 
-		Per-experiment: 02_setup_plots/exp_NNN_<case_name>/domain_configuration.png
-		Cross-experiment: 02_setup_plots/comparison_{experiments,forcing_conditions}.png
+		Runs after _prepare, because it reads every case's generated FSURDAT via
+		its `run/lnd_in`; that is the only way to see what ELM will really use.
+		It also cross-checks each surface's lat/lon against the case's domain
+		file and shouts if they disagree — that mismatch aborts ELM at init.
 
-		Failures here are non-fatal — pipeline continues.
+		This replaced a plan-driven version that drew soil from ELM_CONFIG
+		(which never carries soil — it is per-coupler) and labelled every x-axis
+		"Qian 1948-2004" while the pipeline runs NLDAS. It was confidently wrong
+		on both counts, which is worse than having no figure.
+
+		Non-fatal.
 		"""
-		if not experiments:
+		if not cases:
 			return
-
 		try:
-			from core.elm_setup_plotting import (
-				plot_domain_configuration,
-				compare_experiments,
-				compare_forcing_conditions,
-			)
-		except ImportError as e:
-			print(f"   ⚠️  elm_setup_plotting unavailable — "
-				  f"skipping setup plots ({e})")
-			return
-
-		elm_config = plan.get('ELM_CONFIG', {}) if plan else {}
-		n_ok = 0
-
-		# Per-experiment plots
-		for i, exp in enumerate(experiments, 1):
-			case_name = exp.get('case_name', f'exp_{i:03d}')
-			exp_dir   = self.setup_plots_dir / f"exp_{i:03d}_{case_name}"
-			exp_dir.mkdir(exist_ok=True)
-			try:
-				ok = plot_domain_configuration(
-					experiment  = exp,
-					elm_config  = elm_config,
-					output_path = str(exp_dir / "domain_configuration.png"),
-				)
-				if ok:
-					n_ok += 1
-			except Exception as e:
-				print(f"   ⚠️  domain plot failed for {case_name}: {e}")
-
-		# Cross-experiment comparisons (only useful with 2+ experiments)
-		if len(experiments) >= 2:
-			try:
-				ok = compare_experiments(
-					experiments,
-					output_path = str(
-						self.setup_plots_dir / "comparison_experiments.png"),
-				)
-				if ok:
-					n_ok += 1
-			except Exception as e:
-				print(f"   ⚠️  compare_experiments failed: {e}")
-
-			try:
-				ok = compare_forcing_conditions(
-					experiments,
-					output_path = str(
-						self.setup_plots_dir /
-						"comparison_forcing_conditions.png"),
-				)
-				if ok:
-					n_ok += 1
-			except Exception as e:
-				print(f"   ⚠️  compare_forcing_conditions failed: {e}")
-
-		print(f"✓ {n_ok} setup plot(s) → 02_setup_plots/")
+			pc  = _load_tool("plot_columns")
+			out = self.setup_plots_dir / "column_surfaces.png"
+			pc.plot_surfaces(list(cases), str(out))
+			print(f"✓ setup plot → 02_setup_plots/{out.name}")
+		except Exception as e:
+			print(f"   ⚠️  surface plot failed: {e}")
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 2 — PREPARE (cases live at $PSCRATCH)
@@ -442,13 +401,15 @@ class ELMExpManager:
 				raise RuntimeError("No ELM cases could be prepared.")
 			if n_ok != len(case_dirs):
 				print(f"   ⚠️  {len(case_dirs) - n_ok} case(s) failed to prepare")
-			return
+		else:
+			# Fallback: no builder handle (e.g. a caller that bypassed _build)
+			for exp in experiments:
+				exp['case_dir'] = exp['elm_agent'].prepare_case(
+					output_dir = str(self.run_dir)
+				)
 
-		# Fallback: no builder handle (e.g. a caller that bypassed _build)
-		for exp in experiments:
-			exp['case_dir'] = exp['elm_agent'].prepare_case(
-				output_dir = str(self.run_dir)
-			)
+		# Now that each case has a run/lnd_in, plot the soil it actually got.
+		self._plot_setups([e['case_dir'] for e in experiments if e.get('case_dir')])
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 3 — RUN (writes to 03_results/)
@@ -681,13 +642,7 @@ class ELMExpManager:
 			print("   ⚠️  no MCP clients — skipping observation validation")
 			return False
 		try:
-			import importlib.util
-			spec = importlib.util.spec_from_file_location(
-				"validate_run", _ROOT / "tools" / "validate_run.py")
-			vr = importlib.util.module_from_spec(spec)
-			sys.modules["validate_run"] = vr
-			spec.loader.exec_module(vr)
-
+			vr = _load_tool("validate_run")
 			val = vr.build_validation(self.run_dir, clients)
 			(self.analysis_dir / "validation.json").write_text(
 				json.dumps(val, indent=2, default=str))
@@ -711,12 +666,7 @@ class ELMExpManager:
 		feasibility verdict and the observation validation
 		-> 04_analysis/interpretation.md. Non-fatal."""
 		try:
-			import importlib.util
-			spec = importlib.util.spec_from_file_location(
-				"interpret_run", _ROOT / "tools" / "interpret_run.py")
-			ir = importlib.util.module_from_spec(spec)
-			sys.modules["interpret_run"] = ir
-			spec.loader.exec_module(ir)
+			ir = _load_tool("interpret_run")
 			ir.interpret(self.run_dir,
 						 model = (config or {}).get(
 							 "interpreter_model", "claude-opus-4-8-project"),

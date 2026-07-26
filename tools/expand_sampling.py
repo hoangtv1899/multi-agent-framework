@@ -243,7 +243,7 @@ def plot_columns(res, out_path, forcing_year=None):
     """Render a 2x2 illustration of the sampling design from an expand() result.
 
     Purpose-built for the spatial sampling layer (NOT the ELM-case domain plots
-    in elm_setup_plotting.py, which draw a single configured column).
+    per-column setup figures, which draw one configured column each).
     """
     import matplotlib
     matplotlib.use("Agg")

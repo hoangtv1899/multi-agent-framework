@@ -18,7 +18,6 @@ pytest                             # tier 1 only — offline unit tests
 | `pytest --runlive` | live MCP data-source tests | network |
 | `pytest --runllm` | real reception/planner round-trips | `PNNL_API_KEY` |
 | `pytest --runcompute` | ELM build/run on SLURM | an `salloc` node |
-| `pytest --runlegacy` | retired PFLOTRAN-era tests (reference) | — (some fail by design) |
 
 Flags compose: `pytest --runlive --runllm` runs offline + live + LLM. The
 `live`/`llm`/`compute` markers and the `--run*` flags live in
@@ -35,7 +34,7 @@ Flags compose: `pytest --runlive --runllm` runs offline + live + LLM. The
 | `test_mcp_tools.py` | each MCP server's pure parse logic + expander band/allocate helpers |
 | `test_validate.py` | brief/plan deterministic validator |
 | `test_columns_adapter.py` | Tier-2 → Tier-3 `columns_to_elm_plan` adapter |
-| `test_elm_wrapper.py`, `test_elm_clone_routing.py`, `test_elm_exp_manager_structure.py`, `test_elm_setup_plotting.py`, `test_elm_integration.py` | ELM wrapper, `--keepexe` clone routing, exp-manager structure, plotting, integration glue |
+| `test_elm_wrapper.py`, `test_elm_clone_routing.py`, `test_elm_exp_manager_structure.py`, `test_elm_integration.py` | ELM wrapper, `--keepexe` clone routing, exp-manager structure, integration glue |
 
 ## What's covered (opt-in tiers)
 
@@ -57,7 +56,3 @@ Flags compose: `pytest --runlive --runllm` runs offline + live + LLM. The
 
 ## Legacy
 
-`tests/legacy/` holds the retired PFLOTRAN-era reception/planner/validator tests
-and old manual driver scripts — superseded by `reception_llm.py`, the planner
-capability probe, `validate.py`, and `tools/run_pipeline.py`. Auto-marked
-`legacy` and skipped unless `--runlegacy`. Kept for reference only.

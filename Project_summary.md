@@ -86,7 +86,7 @@ A multi-agent LLM-orchestrated framework for scientific simulations on Perlmutte
 │   └── (existing) replot.py, create_slides.py, regenerate_surface.py, …
 │
 ├── tests/   (62 passing under pytorch/2.8.0)
-│   ├── test_elm_exp_manager_structure.py (20) / test_elm_setup_plotting.py (14)
+│   ├── test_elm_exp_manager_structure.py (20)
 │   │   / smoke_test_elm_wrapper.py (2)        = 36 legacy ELM guardrail
 │   ├── test_mcp_tools.py ★NEW (20)            = terrain/fan/groundwater/expander logic
 │   └── test_agentic.py   ★NEW (6)             = tool-schema gen + brief parse
@@ -168,7 +168,7 @@ python3 tools/expand_sampling.py --run-dir workflow_outputs/pipeline_<ts>
 cd ~/RCSFA/multi-agent && module load pytorch/2.8.0
 
 # Full suite: 62 passing (36 legacy ELM + 20 MCP/expander + 6 agentic)
-python3 -m pytest tests/test_elm_exp_manager_structure.py tests/test_elm_setup_plotting.py \
+python3 -m pytest tests/test_elm_exp_manager_structure.py \
                   tests/smoke_test_elm_wrapper.py tests/test_mcp_tools.py tests/test_agentic.py -q
 
 # The 5 MCP servers load + a coverage sweep
