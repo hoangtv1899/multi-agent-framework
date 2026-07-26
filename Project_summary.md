@@ -162,9 +162,20 @@ in 83 s, forced by each column's own daily QINFL. Shallow water tables
 - The WTD target reports `compared` on weak evidence.
 
 **Science:**
-- Only 2 of 14 Naches columns produce meaningful recharge (r²=0.018 vs
-  elevation). Consistent with the shallow-soil/one-way-coupling framing, but
-  worth confirming it is physics and not configuration.
+- The near-zero recharge across the cold ensemble was a **cold-start artifact**,
+  not physics — demonstrated, not assumed. Validation run 768895 (col_02, 1995,
+  same column, warm-started from CONUS):
+
+  | term | warm | cold |
+  |---|---:|---:|
+  | recharge | 308.6 | −0.18 mm/yr |
+  | drainage | 431.2 | 0.004 mm/yr |
+  | ZWT mean → end | 4.97 → 5.33 | 8.802 → 8.803 m |
+
+  The cold run's water table moved 1 mm in a year: it started at ELM's default
+  depth with an empty aquifer and never equilibrated, pinning QCHARGE at zero.
+  Re-run the ensemble warm before drawing any recharge conclusion. Only one
+  column has been checked so far.
 - GSDE gridded soil (BNU, 30″, 8 layers to 2.3 m) as a fan_wtd-style MCP would
   make soil a real stratification axis. Deferred.
 - Topographic-position sampling (TWI / height-above-drainage) beyond elevation bands.
