@@ -121,7 +121,9 @@ def call_arm(arm: str, p: dict, model: str) -> dict:
         # capability_prompt pins A4 to the FROZEN v0.1 prompt (freeze commit
         # fcd9793). Production moved to planner_capability_probe_v2 after the
         # eval; this pin keeps re-runs byte-identical to the pre-registration.
-        agent = PlannerAgent(model=model, model_type="elm", capability_aware=True,
+        # (capability_aware=True used to be passed here; it is now the only
+        # behaviour, so the parameter is gone. The pin below is what matters.)
+        agent = PlannerAgent(model=model, model_type="elm",
                              capability_prompt="planner_capability_probe")
         agent.llm.temperature, agent.llm.seed = TEMPERATURE, SEED
         agent.llm.max_tokens = MAX_TOKENS

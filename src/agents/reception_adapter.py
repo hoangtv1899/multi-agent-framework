@@ -17,7 +17,6 @@ the coordinator routes on. Two mismatches, both handled here:
                    "design_and_run". An unmapped intent falls straight through
                    to "Unknown intent" and the run silently does nothing.
 
-Everything else in workflow.py is left alone.
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
@@ -50,7 +49,7 @@ _INTENT_MAP = {
 
 
 class AgenticReceptionAdapter:
-    """LLMReceptionAgent behind the legacy ReceptionAgent interface."""
+    """LLMReceptionAgent behind the coordinator's ReceptionResult interface."""
 
     def __init__(self,
                  model:       str,

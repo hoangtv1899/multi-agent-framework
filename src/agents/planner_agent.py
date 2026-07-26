@@ -2,10 +2,8 @@
 """
 Planner Agent
 
-Two modes:
-
-  capability-aware (DEFAULT for ELM / multi-model) — ONE LLM call with the
-  capability-probe system prompt. The LLM emits a STRATEGY only: scientific
+ONE LLM call with the capability-probe system prompt. The LLM emits a
+STRATEGY only: scientific
   decomposition, an explicit full/partial/infeasible feasibility verdict
   (answerable vs not-answerable), a stratified sampling_strategy expressed as
   RULES (elevation/forcing strata, justified N) — never coordinates or per-
@@ -15,10 +13,8 @@ Two modes:
   forbidden from inventing a number that must be real. A light deterministic
   schema check replaces the old LLM "fix" call (reproducible, no second call).
 
-  legacy treatment-suite (capability_aware=False, or PFLOTRAN) — the original
-  two-call design+validate path that emits CONDITIONS_COUPLERS treatment suites
-  (baseline/wet/dry x soil). Kept for the single-site PFLOTRAN workflow and the
-  retired ELM tests.
+The older two-call design+validate path (capability_aware=False) was removed:
+no caller ever set the flag, so it and its four prompts were unreachable.
 """
 import json
 from typing import Dict, Any
@@ -35,30 +31,14 @@ class PlannerAgent(LLMAgent):
 
     def __init__(self,
                  model:            str  = "claude-opus-4-8-project",
-                 model_type:       str  = "pflotran",
-                 capability_aware: bool = True,
+                 model_type:       str  = "elm",
                  mcp_clients:      Dict = None,
                  capability_prompt: str = "planner_capability_probe_v2"):
 
         self.model_type = model_type.lower()
-        # Capability-aware (strategy + feasibility verdict) is the production
-        # default for BOTH models since prompt v2. The frozen v1 prompt
-        # (planner_capability_probe) is pinned by the pre-registered eval via
-        # the capability_prompt argument — do not change v1.
-        self.capability_aware = bool(capability_aware)
-
-        if self.capability_aware:
-            self.prompt_design     = load_prompt(capability_prompt)
-            self.prompt_validation = None
-            self._model_label      = "multi-model (ELM/PFLOTRAN) strategy"
-        elif self.model_type == "elm":
-            self.prompt_design     = load_prompt("planner_system_elm")
-            self.prompt_validation = load_prompt("planner_validation_elm")
-            self._model_label      = "ELM land-surface"
-        else:
-            self.prompt_design     = load_prompt("planner_system")
-            self.prompt_validation = load_prompt("planner_validation")
-            self._model_label      = "PFLOTRAN groundwater"
+        # The frozen v1 prompt (planner_capability_probe) is pinned by the
+        # pre-registered eval via capability_prompt — do not change v1.
+        self.prompt_design = load_prompt(capability_prompt)
 
         super().__init__("planner", self.prompt_design, model)
 
@@ -66,19 +46,10 @@ class PlannerAgent(LLMAgent):
     # MAIN ENTRY POINT
     # ─────────────────────────────────────────────────────────────────
     def create_plan(self, brief: Dict[str, Any]) -> Dict[str, Any]:
-        """Design (and validate) an experiment plan from a reception brief."""
-        if self.capability_aware:
-            print("\n📋 Designing strategy (capability-aware)...")
-            plan = self._design_strategy(brief)
-            self._report_strategy(plan)
-            return plan
-
-        # ── legacy treatment-suite path ──
-        print("\n📋 Designing experiments...")
-        plan = self._design(brief)
-        print(f"   ✓ {len(plan.get('CONDITIONS_COUPLERS', []))} experiments designed")
-        print("\n🔬 Validating plan...")
-        plan = self._validate_and_fix(plan, brief)
+        """Design an experiment strategy from a reception brief."""
+        print("\n📋 Designing strategy (capability-aware)...")
+        plan = self._design_strategy(brief)
+        self._report_strategy(plan)
         return plan
 
     # ─────────────────────────────────────────────────────────────────
@@ -158,46 +129,5 @@ class PlannerAgent(LLMAgent):
         for w in plan.get("_schema_warnings", []):
             print(f"   ⚠️  {w}")
 
-    # ─────────────────────────────────────────────────────────────────
-    # LEGACY TREATMENT-SUITE PATH (design + validate)
-    # ─────────────────────────────────────────────────────────────────
-    def _design(self, brief: Dict) -> Dict:
-        prompt = (
-            f"Design {self._model_label} experiments based on this brief:\n\n"
-            f"{json.dumps(brief, indent=2)}\n\n"
-            f"Think through the parameter space first, then output the complete "
-            f"plan as JSON."
-        )
-        try:
-            response = self.ask_with_system(
-                user_message=prompt, system_message=self.prompt_design)
-            return self.parse_json(response)
-        except Exception as e:
-            raise RuntimeError(f"Experiment design failed: {e}") from e
-
-    def _validate_and_fix(self, plan: Dict, brief: Dict) -> Dict:
-        prompt = (
-            f"Review and fix this {self._model_label} experiment plan.\n\n"
-            f"Original brief:\n{json.dumps(brief, indent=2)}\n\n"
-            f"Generated plan:\n{json.dumps(plan, indent=2)}"
-        )
-        try:
-            response = self.ask_with_system(
-                user_message=prompt, system_message=self.prompt_validation)
-            result = self.parse_json(response)
-            for issue in result.get("issues", []):
-                icon = "❌" if issue.get("severity") == "critical" else "⚠️"
-                print(f"   {icon} [{issue.get('check')}] {issue.get('issue')}")
-            corrected = result.get("corrected_plan")
-            if corrected:
-                print("   ✓ Plan corrected by validator")
-                return corrected
-            print("   ✓ All checks passed")
-            return plan
-        except Exception as e:
-            print(f"   ⚠️  Validation failed: {e} — using original plan")
-            return plan
-
     def __repr__(self):
-        mode = "capability-aware" if self.capability_aware else "treatment-suite"
-        return f"PlannerAgent(model={self.llm.model}, type={self.model_type}, mode={mode})"
+        return f"PlannerAgent(model={self.llm.model}, type={self.model_type})"
