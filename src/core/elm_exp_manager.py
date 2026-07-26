@@ -261,6 +261,12 @@ class ELMExpManager:
 		if not columns:
 			raise RuntimeError("Sampling expansion produced no columns.")
 
+		# Keep the WBD polygon in the result: plot_columns() draws it as the
+		# basin outline in panel (a), and it makes columns.json self-contained
+		# (grid + boundary) so a later re-plot needs no MCP fetch.
+		if boundary:
+			res["boundary"] = boundary
+
 		# Provenance: was this a true watershed sample or a bbox fallback?
 		res["sampling_domain"] = {
 			"clipped_to_watershed": bool(boundary),
