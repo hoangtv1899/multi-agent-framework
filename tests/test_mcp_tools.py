@@ -253,6 +253,28 @@ class TestStreamflowCoverage:
         out = gw._parse_coverage(self.DAILY, self.SITES, min_days=1)
         assert [a["n_days"] for a in out["available"]] == [2, 1]
 
+    def test_year_chunking_splits_a_long_window(self):
+        """The OGC daily collection cancels any query over ~60 s of server time
+        ("Long running query has been cancelled", returned as 400). Four years
+        of one bbox sits under that budget; five is over. The failure is TIME,
+        not size, so paging cannot help — the first page never arrives."""
+        assert gw._year_chunks("1985-01-01", "1985-12-31") == [
+            ("1985-01-01", "1985-12-31")]
+        chunks = gw._year_chunks("1987-01-01", "1989-12-31")
+        assert len(chunks) == 3
+        assert chunks[0] == ("1987-01-01", "1987-12-31")
+        assert chunks[-1] == ("1989-01-01", "1989-12-31")
+
+    def test_chunk_edges_keep_the_users_actual_dates(self):
+        """A window starting mid-year must not silently widen to the whole
+        year — that would report records from months never simulated."""
+        chunks = gw._year_chunks("1985-06-15", "1987-03-02")
+        assert chunks[0] == ("1985-06-15", "1985-12-31")
+        assert chunks[-1] == ("1987-01-01", "1987-03-02")
+
+    def test_a_reversed_window_yields_nothing(self):
+        assert gw._year_chunks("1990-01-01", "1988-12-31") == []
+
     def test_a_truncated_fetch_announces_itself(self):
         """An undercount is indistinguishable from a real finding — "only one
         gauge reports" reads the same whether it is true or whether we stopped

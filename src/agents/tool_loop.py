@@ -36,10 +36,17 @@ ASK_USER_TOOL = {
     "function": {
         "name": "ask_user",
         "description": ("Ask the human one clarifying question and get their "
-                        "answer. Use ONLY for material ambiguity you cannot "
-                        "resolve from the request + tools (which of several "
-                        "watersheds, HUC scale, vague location). Present concrete "
-                        "candidates when you have them."),
+                        "answer. Use for a decision that is THEIRS to make and "
+                        "that you cannot settle from the request + tools:\n"
+                        "  - which of several watersheds, or which HUC scale\n"
+                        "  - a vague or ambiguous location\n"
+                        "  - THE SIMULATION PERIOD, whenever the request did "
+                        "not state one. Never default it silently when this "
+                        "tool is available: the period sets compute cost, "
+                        "spin-up and which observations exist, and the user is "
+                        "the one who knows which year they mean.\n"
+                        "Always present concrete candidates and your "
+                        "recommendation, so the human can just confirm."),
         "parameters": {"type": "object",
                        "properties": {"question": {"type": "string"}},
                        "required": ["question"]},

@@ -36,6 +36,7 @@ WTD_PARAMETER_CODE = "72019"          # depth to water, ft below land surface
 Q_PARAMETER_CODE = "00060"            # discharge, cubic feet per second
 DAILY_PAGE = 5000                     # rows per page on the daily collection
 MAX_PAGES  = 10                       # ~50k records; beyond this, say truncated
+MAX_YEARS  = 12                       # chunks per dated query; see fetch_daily
 # The OGC API answers a COLD (bbox, period) query in ~30-60 s and the same
 # query in 0.2 s once its cache is warm. 30 s therefore failed exactly where it
 # hurt most — the first time anyone asked about a new basin or a new year — and
@@ -80,6 +81,27 @@ def fetch_field_measurements(monitoring_location_id, limit=100,
     return _ogc_items("field-measurements", params)
 
 
+def _year_chunks(start_date, end_date):
+    """Split a date window into one (start, end) pair per calendar year.
+
+    The OGC `daily` collection cancels any query that exceeds ~60 s of server
+    time — "Long running query has been cancelled", returned as a 400. A
+    four-year window for one bbox sits just under that; five years is over it.
+    Since the failure is TIME, not result size, paging does not help: the first
+    page never arrives. Splitting by year keeps every request well inside the
+    budget and makes long windows work at all.
+    """
+    y0, y1 = int(str(start_date)[:4]), int(str(end_date)[:4])
+    if y1 < y0:
+        return []
+    out = []
+    for y in range(y0, y1 + 1):
+        lo = start_date if y == y0 else f"{y}-01-01"
+        hi = end_date if y == y1 else f"{y}-12-31"
+        out.append((lo, hi))
+    return out
+
+
 def fetch_daily(bbox, start_date, end_date, limit=DAILY_PAGE,
                 parameter_code=Q_PARAMETER_CODE, max_pages=MAX_PAGES,
                 with_time=False):
@@ -105,30 +127,47 @@ def fetch_daily(bbox, start_date, end_date, limit=DAILY_PAGE,
     count is never mistaken for a complete one.
     """
     url = f"{OGC_BASE}/collections/daily/items"
-    q = {"f": "json", "bbox": bbox, "parameter_code": parameter_code,
-         "datetime": f"{start_date}/{end_date}", "limit": int(limit),
-         "properties": ("monitoring_location_id,time,value" if with_time
-                        else "monitoring_location_id,value")}
+    props = ("monitoring_location_id,time,value" if with_time
+             else "monitoring_location_id,value")
+    chunks = _year_chunks(start_date, end_date)
+    if not chunks:
+        raise ValueError(f"end_date {end_date} precedes start_date {start_date}")
+    if len(chunks) > MAX_YEARS:
+        raise ValueError(
+            f"{len(chunks)}-year window is too long to confirm record by record. "
+            f"Call without dates for the period of record instead, or ask about "
+            f"at most {MAX_YEARS} years.")
+
     feats, pages, truncated = [], 0, False
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, verify=True) as cx:
-        r = cx.get(url, params=q)
-        r.raise_for_status()
-        page = r.json()
-        while True:
-            feats.extend(page.get("features") or [])
-            pages += 1
-            nxt = next((l.get("href") for l in (page.get("links") or [])
-                        if l.get("rel") == "next"), None)
-            if not nxt:
-                break
-            if pages >= max_pages:
-                truncated = True
-                break
-            r = cx.get(nxt)
+        for lo, hi in chunks:
+            q = {"f": "json", "bbox": bbox, "parameter_code": parameter_code,
+                 "datetime": f"{lo}/{hi}", "limit": int(limit),
+                 "properties": props}
+            r = cx.get(url, params=q)
+            if r.status_code == 400 and "Long running" in r.text:
+                # Server-side cancellation is transient (it depends on cache
+                # warmth), so one retry usually succeeds where the first failed.
+                r = cx.get(url, params=q)
             r.raise_for_status()
             page = r.json()
+            while True:
+                feats.extend(page.get("features") or [])
+                pages += 1
+                nxt = next((l.get("href") for l in (page.get("links") or [])
+                            if l.get("rel") == "next"), None)
+                if not nxt:
+                    break
+                if pages >= max_pages * len(chunks):
+                    truncated = True
+                    break
+                r = cx.get(nxt)
+                r.raise_for_status()
+                page = r.json()
+            if truncated:
+                break
     return {"type": "FeatureCollection", "features": feats,
-            "truncated": truncated, "n_pages": pages}
+            "truncated": truncated, "n_pages": pages, "n_chunks": len(chunks)}
 
 
 def fetch_record_spans(bbox, parameter_code=Q_PARAMETER_CODE, limit=500):

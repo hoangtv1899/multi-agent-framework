@@ -59,6 +59,14 @@ imports the `tools/` implementations rather than duplicating them.)
 - Slurm 18.08 has no `srun --exact` → use `--exclusive`; MPI needs `--mpi=pmi2`
   or Intel MPI hydra bootstrap hangs.
 - `pip` cannot build from source on this glibc → `export PIP_ONLY_BINARY=":all:"`.
+- **cartopy** (locator inset on `sampling_design.png`) installs fine from a
+  wheel: `PIP_ONLY_BINARY=":all:" pip install cartopy`. Its absence is not an
+  error — the inset is skipped and the figure still renders.
+- The USGS OGC `daily` collection **cancels any query over ~60 s of server
+  time** with a 400 (`"Long running query has been cancelled"`). Four years of
+  one bbox is under the budget, five is over, so dated queries are split per
+  calendar year (`groundwater_api._year_chunks`). Cold queries take 30-60 s and
+  the same query warm takes 0.2 s, which is why the timeouts are 90 s/120 s.
 
 ---
 

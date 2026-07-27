@@ -99,17 +99,26 @@ From the request, extract the SIMULATION PERIOD and resolve it:
     falls WHOLLY outside, that is a refusal, not a shift — say the request
     cannot be run and give the runnable range. Do not silently relocate a
     study to a different decade.
-  • No period stated → you must pick one, and say why.
-    – State the runnable range to the user FIRST.
-    – If ask_user is available, ask which period, offering the range and
-      your recommendation. The period is load-bearing (spin-up, climate
-      percentile, compute cost).
-    – Otherwise choose a single year inside the range, source "default",
-      and record "simulation period not specified" in conflicts.
-    Any year in the range is equally valid as far as forcing is concerned.
-    When nothing else distinguishes them, break the tie with observation
-    coverage (below) and say that is what you did — a tiebreak among legal
-    years, never a constraint on which years are legal.
+  • No period stated → the period is the user's decision, not yours.
+    – If `ask_user` is in your tool list you MUST call it before you finalise
+      the period. This is not optional and having a good default is not a
+      reason to skip it: the period sets compute cost, spin-up need, and
+      which observations exist. Resolve the domain and check coverage FIRST,
+      then ask ONE question carrying:
+          the runnable years, your recommended year, and why you
+          recommend it (e.g. "1988 — the basin-outlet gauge reports that
+          year, so streamflow can be checked at full basin scale; 1995
+          would leave only a 7% headwater gauge").
+      A user who agrees just says yes; a user with a reason of their own
+      now has the chance to give it. Set source "user" once they answer.
+    – ONLY if `ask_user` is absent (batch mode): choose a single year inside
+      the range, source "default", and record "simulation period not
+      specified" in conflicts.
+    Any year in the range is equally valid as far as forcing is concerned, so
+    break the tie with observation coverage (below) — as the RECOMMENDATION
+    inside your question when you can ask, and as the choice itself when you
+    cannot. It is a tiebreak among legal years, never a constraint on which
+    years are legal.
 Never leave the period only in prose. It must appear in run_settings.
 
 Also extract the INITIALIZATION, into run_settings.initialization:
