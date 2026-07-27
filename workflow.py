@@ -43,6 +43,13 @@ class WorkflowCoordinator:
 				print(f"✓ Loaded {len(mcp_clients)} MCP server(s)")
 				for name in mcp_clients:
 					print(f"  - {name}")
+				# The servers' own INFO logging would otherwise interleave with
+				# the reception trace between every prompt. Say where it went.
+				from core.mcp_client import mcp_errlog
+				_log = getattr(mcp_errlog(), "name", "<stderr>")
+				if _log != "<stderr>":
+					print(f"  server logs \u2192 {_log}  "
+					      f"(IDEAS_MCP_LOG=stderr to show them here)")
 			else:
 				print("⚠️  No MCP servers configured")
 		except Exception as e:
@@ -401,17 +408,29 @@ def main():
         help    = 'MCP configuration file'
     )
     parser.add_argument(
+        '--no-ask',
+        action = 'store_true',
+        help   = 'do NOT let reception ask clarifying questions — it resolves '
+                 'the period and other gaps itself and records them as '
+                 'conflicts (the old default)'
+    )
+    parser.add_argument(
         '--ask', '-a',
         action = 'store_true',
-        help   = 'let reception ask clarifying questions instead of '
-                 'silently defaulting (needs a TTY)'
+        help   = argparse.SUPPRESS       # implied by --interactive; kept so
+                                         # existing commands keep working
     )
     args = parser.parse_args()
 
+    # --interactive means the user is sitting at a TTY answering prompts, so
+    # reception may ask them things. Requiring a second --ask flag to enable
+    # that made "interactive" mode silently non-interactive: it resolved the
+    # simulation period on its own and went straight to the planner, which is
+    # the one decision a user most wants to make.
     coordinator = WorkflowCoordinator(
         default_output_dir    = args.output_dir,
         mcp_config_file       = args.mcp_config,
-        interactive_reception = args.ask,
+        interactive_reception = (args.interactive or args.ask) and not args.no_ask,
     )
 
     if args.interactive:

@@ -10,11 +10,53 @@ Changes from original:
 import asyncio
 import os
 import json
+import sys
 import threading
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Where the MCP SERVERS' stderr goes.
+#
+# Every stdio server logs "Processing request of type CallToolRequest" at INFO
+# through rich, and its stderr is inherited by this process — so an interactive
+# session is buried under timestamped log lines between every prompt, and the
+# reception trace the user is actually reading scrolls away.
+#
+# The output is worth keeping (it is the only view into a server that fails to
+# start), so it goes to a file rather than being discarded. Set IDEAS_MCP_LOG to
+# another path to move it, or to "stderr"/"-" to put it back on the terminal
+# when debugging a server.
+# ─────────────────────────────────────────────────────────────────────────────
+DEFAULT_MCP_LOG = "logs/mcp_servers.log"
+_ERRLOG_LOCK = threading.Lock()
+_ERRLOGS: Dict[str, Any] = {}
+
+
+def mcp_errlog():
+    """Open TextIO for the child's stderr — one cached handle per path.
+
+    Cached because a fresh session is opened per tool call; reopening the file
+    hundreds of times per run would be wasteful and would race between threads.
+    Falls back to stderr if the path cannot be opened, since losing the log is
+    better than failing the call.
+    """
+    path = os.environ.get("IDEAS_MCP_LOG", DEFAULT_MCP_LOG)
+    if path in ("stderr", "-", ""):
+        return sys.stderr
+    with _ERRLOG_LOCK:
+        handle = _ERRLOGS.get(path)
+        if handle is None or handle.closed:
+            try:
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+                handle = open(path, "a", buffering=1, encoding="utf-8")
+            except OSError:
+                return sys.stderr
+            _ERRLOGS[path] = handle
+        return handle
 
 
 class MCPClient:
@@ -49,7 +91,7 @@ class MCPClient:
             args=self.args,
             env=self.env
         )
-        async with stdio_client(server_params) as (read, write):
+        async with stdio_client(server_params, errlog=mcp_errlog()) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(tool_name, arguments=arguments)
@@ -64,7 +106,7 @@ class MCPClient:
             args=self.args,
             env=self.env
         )
-        async with stdio_client(server_params) as (read, write):
+        async with stdio_client(server_params, errlog=mcp_errlog()) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools_result = await session.list_tools()

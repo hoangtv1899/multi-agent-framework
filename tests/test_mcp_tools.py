@@ -387,3 +387,63 @@ class TestSnotel:
     def test_parse_swe_empty(self):
         obs, summary = snotel._parse_swe([])
         assert obs == [] and summary["n_obs"] == 0 and summary["peak_swe_mm"] is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MCP server stderr routing
+# ─────────────────────────────────────────────────────────────────────────────
+class TestServerLogRouting:
+    """Every stdio server logs at INFO through rich and its stderr is inherited,
+    so an interactive session was buried under timestamped log lines between
+    prompts. The output still matters when a server fails to start, so it is
+    redirected to a file rather than discarded."""
+
+    def _fresh(self, monkeypatch, path):
+        import core.mcp_client as mc
+        mc._ERRLOGS.clear()
+        if path is None:
+            monkeypatch.delenv("IDEAS_MCP_LOG", raising=False)
+        else:
+            monkeypatch.setenv("IDEAS_MCP_LOG", str(path))
+        return mc
+
+    def test_output_goes_to_a_file_by_default(self, monkeypatch, tmp_path):
+        mc = self._fresh(monkeypatch, tmp_path / "logs" / "mcp.log")
+        h = mc.mcp_errlog()
+        assert h is not sys.stderr
+        h.write("hello\n")
+        h.flush()
+        assert (tmp_path / "logs" / "mcp.log").read_text() == "hello\n"
+
+    def test_the_directory_is_created(self, monkeypatch, tmp_path):
+        mc = self._fresh(monkeypatch, tmp_path / "deep" / "nested" / "mcp.log")
+        mc.mcp_errlog()
+        assert (tmp_path / "deep" / "nested").is_dir()
+
+    def test_stderr_is_the_documented_escape_hatch(self, monkeypatch):
+        """Debugging a server that will not start needs the log back inline."""
+        mc = self._fresh(monkeypatch, "stderr")
+        assert mc.mcp_errlog() is sys.stderr
+        monkeypatch.setenv("IDEAS_MCP_LOG", "-")
+        assert mc.mcp_errlog() is sys.stderr
+
+    def test_the_handle_is_reused_across_calls(self, monkeypatch, tmp_path):
+        """A fresh session opens per tool call; reopening the file hundreds of
+        times per run would race between threads."""
+        mc = self._fresh(monkeypatch, tmp_path / "mcp.log")
+        assert mc.mcp_errlog() is mc.mcp_errlog()
+
+    def test_an_unwritable_path_falls_back_rather_than_failing_the_call(
+            self, monkeypatch, tmp_path):
+        """Losing the log is better than losing the tool call."""
+        blocker = tmp_path / "blocker"
+        blocker.write_text("i am a file, not a directory")
+        mc = self._fresh(monkeypatch, blocker / "sub" / "mcp.log")
+        assert mc.mcp_errlog() is sys.stderr
+
+    def test_both_session_openers_are_routed(self):
+        """call_tool and list_tools each open their own session — missing
+        either one leaves half the noise on the terminal."""
+        src = (ROOT / "src" / "core" / "mcp_client.py").read_text()
+        assert src.count("stdio_client(server_params, errlog=mcp_errlog())") == 2
+        assert "stdio_client(server_params)" not in src

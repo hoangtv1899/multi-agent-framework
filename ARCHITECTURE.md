@@ -18,8 +18,8 @@ listed under it are the only files that implement it.
 Entry point: `workflow.py` (`WorkflowCoordinator`). It owns the arrows, nothing else.
 
 ```
-python workflow.py --interactive          # normal use
-python workflow.py --interactive --ask    # let Reception ask instead of defaulting
+python workflow.py --interactive           # normal use; Reception may ask you
+python workflow.py --interactive --no-ask  # it resolves gaps itself instead
 ```
 
 ---

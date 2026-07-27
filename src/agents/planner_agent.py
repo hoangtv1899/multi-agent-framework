@@ -148,14 +148,16 @@ class PlannerAgent(LLMAgent):
     def _report_strategy(self, plan: Dict) -> None:
         fe = plan.get("feasibility") or {}
         verdict = fe.get("verdict", "(no verdict)") if isinstance(fe, dict) else str(fe)
+        # Report the count the EXPERIMENT MANAGER will build, which is
+        # expand_sampling._n_from_plan: sampling_strategy.n_exploratory, then
+        # experiment_summary.exploratory. Preferring `sampling_plan` here (as
+        # this did) printed a different N two lines above the coordinator's,
+        # from a field nothing downstream reads — a plan showed "N=4" and then
+        # "N=11", and 11 was what ran.
         ss = plan.get("sampling_strategy") or {}
-        sp = plan.get("sampling_plan")
-        n = None
-        for src in (sp, ss):
-            if isinstance(src, dict):
-                n = n or src.get("n_exploratory") or src.get("n_columns")
-            elif isinstance(src, list):
-                n = n or len(src)
+        n = ss.get("n_exploratory") if isinstance(ss, dict) else None
+        if n is None:
+            n = (plan.get("experiment_summary") or {}).get("exploratory")
         print(f"   ✓ feasibility: {str(verdict)[:88]}")
         if n:
             print(f"   ✓ sampling: N={n} (strategy rules only — no coordinates)")
