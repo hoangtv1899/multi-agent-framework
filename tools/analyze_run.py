@@ -126,68 +126,9 @@ def print_summary(results, spatial):
     print("=" * 84)
 
 
-def plot_gradient(spatial, out_path, basin="Spatial ensemble"):
-    """Honest scatter: points coloured by forcing bin, with recharge plotted
-    against BOTH elevation (confounded proxy) and precip (the actual driver) —
-    no connecting lines that would imply a smooth gradient."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
-    import numpy as np
-
-    rows = spatial["by_elevation"]
-    nan = float("nan")
-    e = np.array([r["elevation_m"] for r in rows], float)
-    p = np.array([r["precip_mm_yr"] if r["precip_mm_yr"] is not None else nan for r in rows], float)
-    rech = np.array([r["recharge_mm_yr"] for r in rows], float)
-    frac = np.array([r["recharge_fraction"] for r in rows], float)
-
-    bins = spatial["forcing"]["precip_mm_yr_distinct"]
-    many_bins = len(bins) > 6
-    if many_bins:                       # continuous forcing -> colorbar, not a legend
-        import matplotlib.cm as mcm
-        norm = plt.Normalize(min(bins), max(bins))
-        cols = [mcm.viridis(norm(pi)) if not np.isnan(pi) else "#999999" for pi in p]
-    else:
-        palette = ["#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a"]
-        cmap = {b: palette[i % len(palette)] for i, b in enumerate(bins)}
-        cols = [cmap.get(round(pi), "#999999") if not np.isnan(pi) else "#999999" for pi in p]
-
-    fig, ax = plt.subplots(1, 3, figsize=(12.6, 3.9))
-    ax[0].scatter(e, rech, c=cols, s=60, edgecolor="#222", zorder=3)
-    r2 = spatial["vs_elevation"]["fit_r2"]["recharge_mm_yr"]
-    ax[0].set_title("Recharge vs elevation", fontweight="bold")
-    ax[0].set_xlabel("elevation (m)"); ax[0].set_ylabel("recharge (mm/yr)")
-    ax[0].text(0.04, 0.92, f"linear fit r²={r2}", transform=ax[0].transAxes,
-               fontsize=9, color="#b91c1c")
-    ax[1].scatter(p, rech, c=cols, s=60, edgecolor="#222", zorder=3)
-    ax[1].set_title("Recharge vs precip  (actual driver)", fontweight="bold")
-    ax[1].set_xlabel("precip / forcing (mm/yr)"); ax[1].set_ylabel("recharge (mm/yr)")
-    ax[2].scatter(e, frac, c=cols, s=60, edgecolor="#222", zorder=3)
-    ax[2].set_title("Recharge fraction vs elevation", fontweight="bold")
-    ax[2].set_xlabel("elevation (m)"); ax[2].set_ylabel("recharge fraction"); ax[2].set_ylim(0, 1)
-
-    if many_bins:
-        import matplotlib.cm as mcm
-        fig.colorbar(mcm.ScalarMappable(norm=norm, cmap="viridis"), ax=ax[1],
-                     label="forcing precip (mm/yr)", shrink=.85)
-    else:
-        handles = [Line2D([0], [0], marker="o", ls="", mfc=cmap[b], mec="#222",
-                          label=f"{b} mm/yr") for b in bins]
-        ax[1].legend(handles=handles, title="forcing bin", frameon=False, fontsize=8)
-    for a in ax:
-        a.spines[["top", "right"]].set_visible(False); a.grid(alpha=.25)
-    fig.suptitle(f"{basin} — recharge is forcing/soil-controlled, "
-                 "not a smooth elevation gradient", fontweight="bold", y=1.03)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=300, bbox_inches="tight")
-    print(f"\n   ✓ figure: {out_path}")
-
-
 def print_soil(soil):
     if not soil:
-        print("\n(no soil attribution — need >=3 columns sharing a forcing bin with soil data)")
+        print("\n(no soil attribution — need >=2 columns sharing a forcing bin with soil data)")
         return
     print("\n" + "=" * 84)
     print(f"SOIL CONTROL  (forcing held at {soil['forcing_held_mm_yr']} mm/yr across "
@@ -242,11 +183,24 @@ def plot_soil(soil, out_path):
     print(f"   ✓ soil figure: {out_path}")
 
 
-def plot_budget(results, out_path):
-    """Per-column water-budget closure: stacked export terms (runoff, drainage,
-    ET, Δstorage) vs the precipitation input, columns ordered by elevation.
-    Recharge sits INSIDE Δstorage here (the aquifer is part of TWS) — a large
-    Δstorage bar is the visible no-spin-up signature."""
+def plot_partitioning(results, out_path):
+    """Where precipitation goes, as FRACTIONS of P — the partitioning question.
+
+    Replaces the old absolute-mm stack, which had two defects:
+
+      * it clamped Δstorage with max(v, 0), so a column RELEASING storage showed
+        no storage term at all and its export stack simply exceeded P with
+        nothing to explain it (col_12: 3750 mm of exports against 1870 mm of
+        precipitation).
+      * absolute mm/yr across columns whose P spans 472-1575 mm/yr cannot be
+        compared by eye, which is what "how does P partition" asks for.
+
+    Here every column is normalised by its own P, a 100% reference line marks
+    the input, and storage is SIGNED: a stack short of 100% put water into
+    storage, a stack past it took water out. Recharge is annotated rather than
+    stacked — it is an internal flux (soil -> aquifer), not a sink parallel to
+    drainage (aquifer -> stream), and stacking it double-counts.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -259,45 +213,98 @@ def plot_budget(results, out_path):
         return False
     names = [f"{r['case_name']}\n{r.get('elevation_m') or 0:.0f} m" for r in ok]
     wb = [r["metrics"]["water_budget"] for r in ok]
-    P = [r["metrics"].get("precip_total_mm_yr") or 0 for r in ok]
-    parts = [("runoff", "runoff_mm_yr", "#d95f0e"),
-             ("drainage", "drainage_mm_yr", "#fdae6b"),
-             ("ET", "et_mm_yr", "#31a354"),
-             ("Δstorage", "storage_change_mm", "#9ecae1")]
+    P = np.array([(r["metrics"].get("precip_total_mm_yr")
+                   or r["metrics"].get("precip_mm_yr") or np.nan) for r in ok], float)
 
+    def frac(key):
+        return np.array([(b.get(key) or 0.0) for b in wb], float) / np.where(P > 0, P, np.nan)
+
+    parts = [("runoff", "runoff_mm_yr", "#d95f0e"),
+             ("ET", "et_mm_yr", "#31a354"),
+             ("drainage", "drainage_mm_yr", "#fdae6b")]
     x = np.arange(len(ok))
-    fig, ax = plt.subplots(figsize=(12.8, 4.6))
+    fig, ax = plt.subplots(1, 2, figsize=(15.5, 5.0),
+                           gridspec_kw={"width_ratios": [1.35, 1]})
+
+    # ── panel 1: fractions of P ──
     bottom = np.zeros(len(ok))
     for label, key, color in parts:
-        v = np.array([max(b.get(key) or 0, 0) for b in wb], float)
-        ax.bar(x, v, bottom=bottom, color=color, edgecolor="#222",
-               width=.72, label=label)
-        bottom += v
-    ax.scatter(x, P, marker="_", s=420, color="k", lw=2.2, zorder=4,
-               label="precipitation (P)")
-    rech = [b.get("recharge_mm_yr") for b in wb]
-    for xi, (rv, b) in enumerate(zip(rech, bottom)):
-        if rv is not None:
-            ax.text(xi, b + 28, f"R {rv:.0f}", ha="center", fontsize=7.5, color="#08519c")
-    ax.set_xticks(x)
-    ax.set_xticklabels(names, fontsize=7.5)
-    ax.set_ylabel("mm / yr")
-    ax.set_title("Water budget per column — where the precipitation goes  "
-                 "(R = recharge, contained in Δstorage; big Δstorage = no spin-up)",
-                 fontweight="bold", fontsize=12)
-    ax.legend(frameon=False, ncol=5, fontsize=9, loc="upper left")
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.grid(alpha=.25, axis="y")
+        v = frac(key)
+        ax[0].bar(x, v, bottom=bottom, color=color, edgecolor="#222",
+                  width=.72, label=label)
+        bottom += np.nan_to_num(v)
+    ax[0].axhline(1.0, color="k", ls="--", lw=1.4, zorder=5)
+    ax[0].text(len(ok) - .35, 1.0, " 100% of P", fontsize=8.5, color="k",
+               va="center", ha="left")
+    ax[0].set_xlim(-.8, len(ok) + .6)
+
+    # storage, signed and visible in both directions
+    gain = np.clip(1.0 - bottom, 0, None)
+    rel  = np.clip(bottom - 1.0, 0, None)
+    ax[0].bar(x, gain, bottom=bottom, color="#9ecae1", edgecolor="#222",
+              width=.72, label="→ into storage")
+    ax[0].bar(x, -rel, bottom=1.0 + rel, color="none", edgecolor="#c00",
+              width=.72, hatch="///", lw=1.2, label="← released from storage")
+
+    rf = frac("recharge_mm_yr")
+    for xi, (v, top) in enumerate(zip(rf, np.maximum(bottom, 1.0))):
+        if np.isfinite(v):
+            ax[0].text(xi, top + .04, f"R {v:.2f}", ha="center", fontsize=7.5,
+                       color="#08519c")
+    ax[0].set_xticks(x); ax[0].set_xticklabels(names, fontsize=7.5)
+    ax[0].set_ylabel("fraction of precipitation")
+    ax[0].legend(frameon=False, ncol=5, fontsize=8.5, loc="upper left")
+    ax[0].set_title("Partitioning — every column normalised by its OWN P.\n"
+                    "R = recharge fraction (internal flux: soil → aquifer)",
+                    fontweight="bold", fontsize=11)
+
+    # ── panel 2: magnitudes, with storage signed ──
+    w = .38
+    ax[1].bar(x - w / 2, P, w, color="#4d4d4d", edgecolor="#222", label="P")
+    exp = np.array([sum((b.get(k) or 0.0) for _, k, _ in parts) for b in wb], float)
+    ax[1].bar(x + w / 2, exp, w, color="#fdae6b", edgecolor="#222",
+              label="exports (runoff+ET+drainage)")
+    ds = np.array([(b.get("storage_change_mm") or 0.0) for b in wb], float)
+    ax[1].bar(x, ds, .72, color="#9ecae1", edgecolor="#222", alpha=.85,
+              label="Δstorage (signed)")
+    ax[1].axhline(0, color="#222", lw=.8)
+    ax[1].set_xticks(x)
+    ax[1].set_xticklabels([r["case_name"] for r in ok], fontsize=7, rotation=60,
+                          ha="right")
+    ax[1].set_ylabel("mm / yr")
+    ax[1].legend(frameon=False, fontsize=8.5)
+    ax[1].set_title("Magnitudes — exports above P means storage was drained\n"
+                    "(the un-equilibrated signature; spin-up closes it)",
+                    fontweight="bold", fontsize=11)
+    for a in ax:
+        a.spines[["top", "right"]].set_visible(False)
+        a.grid(alpha=.25, axis="y")
     fig.tight_layout()
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"   ✓ budget figure: {out_path}")
     return True
 
 
-def plot_relations(results, out_path):
-    """The full relationship grid: every response (runoff, infiltration, ET,
-    recharge) scattered against every driver (elevation, precip, clay, Ksat),
-    Pearson r annotated — the visual companion to the driver matrix."""
+def plot_controls(results, out_path):
+    """What controls the partitioning — FRACTIONS of P against each driver.
+
+    Replaces the old 4x4 absolute-flux matrix and the separate elevation-gradient
+    figure. Three deliberate choices:
+
+      * Responses are FRACTIONS. "How does P partition" is a ratio question, and
+        a fraction is comparable across columns whose P differs three-fold.
+      * Elevation panels are COLOURED BY PRECIPITATION, so the orographic
+        confound is visible rather than asserted. High columns are wet columns;
+        an elevation correlation and a precipitation correlation are not
+        independent claims, and no partial-correlation statistic on n=13 would
+        be more honest than simply showing it.
+      * A within-forcing-bin panel does the one piece of real attribution
+        available: where two columns share a precipitation cell (12 km NLDAS
+        quantises the forcing heavily) any difference between them CANNOT be
+        forcing, so it is soil.
+
+    Correlations are screening only at this sample size and the figure says so.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -306,36 +313,51 @@ def plot_relations(results, out_path):
     ok = [r for r in results.values() if r["status"] == "ok"]
     if len(ok) < 3:
         return False
-    drivers = [("elevation (m)", lambda r: r.get("elevation_m")),
-               ("precip P (mm/yr)", lambda r: r["metrics"].get("precip_total_mm_yr")
-                                              or r["metrics"].get("precip_mm_yr")),
-               ("max clay (%)", lambda r: (r.get("soil") or {}).get("clay_max_pct")),
-               ("min Ksat (µm/s)", lambda r: (r.get("soil") or {}).get("ksat_min_ums"))]
-    responses = [("runoff (mm/yr)", lambda m: m.get("annual_runoff_mm_yr")),
-                 ("infiltration (mm/yr)", lambda m: (m.get("water_budget") or {}).get("infiltration_mm_yr")),
-                 ("ET (mm/yr)", lambda m: (m.get("water_budget") or {}).get("et_mm_yr")),
-                 ("recharge (mm/yr)", lambda m: m.get("annual_recharge_mm_yr"))]
-    # keep only responses the run actually has (old runs lack budget terms)
-    responses = [(lab, g) for lab, g in responses
-                 if any(g(r["metrics"]) is not None for r in ok)]
+
+    def P_of(r):
+        m = r["metrics"]
+        return m.get("precip_total_mm_yr") or m.get("precip_mm_yr")
+
+    def fr(r, key):
+        wb = r["metrics"].get("water_budget") or {}
+        v, P = wb.get(key), P_of(r)
+        return (v / P) if (v is not None and P) else np.nan
+
+    responses = [("runoff / P", "runoff_mm_yr"),
+                 ("ET / P", "et_mm_yr"),
+                 ("recharge / P", "recharge_mm_yr")]
+    drivers = [("elevation (m)", lambda r: r.get("elevation_m"), True),
+               ("precip P (mm/yr)", P_of, False),
+               ("max clay (%)", lambda r: (r.get("soil") or {}).get("clay_max_pct"), False)]
 
     nr, nc = len(responses), len(drivers)
-    fig, axes = plt.subplots(nr, nc, figsize=(3.1 * nc, 2.5 * nr),
-                             sharey="row", squeeze=False)
-    for i, (rlab, rget) in enumerate(responses):
-        for j, (dlab, dget) in enumerate(drivers):
-            a = axes[i][j]
+    fig = plt.figure(figsize=(3.4 * nc + 4.6, 2.7 * nr))
+    # dedicated narrow slot for the colourbar: letting matplotlib steal space
+    # from the axes list put it on top of the within-bin panel's y-axis.
+    gs = fig.add_gridspec(nr, nc + 2, width_ratios=[1] * nc + [.10, 1.25],
+                          wspace=.34)
+    pv = np.array([P_of(r) or np.nan for r in ok], float)
+    norm = plt.Normalize(np.nanmin(pv), np.nanmax(pv))
+
+    sc = None
+    for i, (rlab, rkey) in enumerate(responses):
+        y = np.array([fr(r, rkey) for r in ok], float)
+        for j, (dlab, dget, colour_by_p) in enumerate(drivers):
+            a = fig.add_subplot(gs[i, j])
             x = np.array([dget(r) if dget(r) is not None else np.nan for r in ok], float)
-            y = np.array([rget(r["metrics"]) if rget(r["metrics"]) is not None
-                          else np.nan for r in ok], float)
             m = ~np.isnan(x) & ~np.isnan(y)
-            a.scatter(x[m], y[m], s=26, color="#2c7fb8", edgecolor="#222",
-                      linewidth=.4, alpha=.85, zorder=3)
+            if colour_by_p:
+                sc = a.scatter(x[m], y[m], c=pv[m], cmap="viridis", norm=norm,
+                               s=42, edgecolor="#222", linewidth=.4, zorder=3)
+            else:
+                a.scatter(x[m], y[m], s=42, color="#2c7fb8", edgecolor="#222",
+                          linewidth=.4, zorder=3)
             if m.sum() >= 3 and np.ptp(x[m]) > 1e-9 and np.ptp(y[m]) > 1e-9:
                 rr = float(np.corrcoef(x[m], y[m])[0, 1])
-                a.text(.04, .88, f"r={rr:+.2f}", transform=a.transAxes,
-                       fontsize=9, fontweight="bold",
-                       color="#b91c1c" if abs(rr) >= .5 else "#64748b")
+                a.text(.03, .955, f"r={rr:+.2f}", transform=a.transAxes,
+                       fontsize=8.5, fontweight="bold", color="#64748b",
+                       va="top", bbox=dict(boxstyle="round,pad=.18", fc="white",
+                                           ec="none", alpha=.75))
             if i == nr - 1:
                 a.set_xlabel(dlab, fontsize=9)
             if j == 0:
@@ -343,11 +365,68 @@ def plot_relations(results, out_path):
             a.tick_params(labelsize=7.5)
             a.grid(alpha=.25)
             a.spines[["top", "right"]].set_visible(False)
-    fig.suptitle("Driver → response relations (each point = one column)",
-                 fontweight="bold", y=1.0)
-    fig.tight_layout()
+
+    # ── within-forcing-bin attribution ──
+    ab = fig.add_subplot(gs[:, nc + 1])
+    bins = {}
+    for r in ok:
+        P = P_of(r)
+        if P:
+            bins.setdefault(round(P, 1), []).append(r)
+    shared = {k: v for k, v in bins.items() if len(v) >= 2}
+    if shared:
+        yy, lbl = [], []
+        for k in sorted(shared):
+            grp = shared[k]
+            for r in grp:
+                yy.append((k, fr(r, "recharge_mm_yr"),
+                           (r.get("soil") or {}).get("clay_max_pct"),
+                           r["case_name"]))
+            lbl.append(k)
+        ks = sorted({q[0] for q in yy})
+        for gi, k in enumerate(ks):
+            grp = [q for q in yy if q[0] == k]
+            xs = [gi] * len(grp)
+            cl = [q[2] if q[2] is not None else np.nan for q in grp]
+            ab.scatter(xs, [q[1] for q in grp], c=cl, cmap="copper_r",
+                       s=70, edgecolor="#222", zorder=3)
+            for q, xq in zip(grp, xs):
+                ab.annotate(q[3].replace("col_", ""), (xq, q[1]),
+                            textcoords="offset points", xytext=(7, -2),
+                            fontsize=7, color="#444")
+            if len(grp) >= 2:
+                ab.plot([gi, gi], [min(q[1] for q in grp), max(q[1] for q in grp)],
+                        color="#999", lw=1, zorder=1)
+        ab.set_xticks(range(len(ks)))
+        ab.set_xticklabels([f"{k:.0f}" for k in ks], fontsize=8, rotation=45)
+        ab.set_xlabel("precipitation bin (mm/yr)", fontsize=9)
+        ab.set_ylabel("recharge / P", fontsize=9)
+        ab.set_title("Same forcing, different soil\n"
+                     "spread within a bin is NOT forcing\n(colour = max clay %)",
+                     fontweight="bold", fontsize=9.5)
+    else:
+        ab.axis("off")
+        ab.text(.5, .5, "no two columns share\na precipitation bin",
+                ha="center", va="center", color="#888", fontsize=9)
+    # ticks on the RIGHT: this panel sits immediately beside the colourbar and
+    # a left-hand axis draws straight over it.
+    ab.yaxis.tick_right()
+    ab.yaxis.set_label_position("right")
+    ab.grid(alpha=.25)
+    ab.spines[["top", "left"]].set_visible(False)
+
+    if sc is not None:
+        cax = fig.add_subplot(gs[:, nc])
+        cb = fig.colorbar(sc, cax=cax)
+        cb.set_label("precipitation (mm/yr)", fontsize=8.5)
+        cb.ax.tick_params(labelsize=7.5)
+    fig.suptitle(f"Controls on partitioning — each point is one column (n={len(ok)}). "
+                 "Elevation panels are coloured by precipitation: high columns are "
+                 "wet columns, so the two drivers are confounded.\n"
+                 "Correlations are SCREENING ONLY at this sample size.",
+                 fontweight="bold", fontsize=10.5, y=1.02)
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
-    print(f"   ✓ relations figure: {out_path}")
+    print(f"   ✓ controls figure: {out_path}")
     return True
 
 
@@ -464,18 +543,14 @@ def main():
     print_soil(soil)
     print_matrix(az._compute_driver_matrix())
 
-    if args.plot and spatial:
-        basin = "Spatial ensemble"
-        bf = run_dir / "reception_brief.json"
-        if bf.exists():
-            basin = (json.loads(bf.read_text()).get("domain") or {}).get("name") or basin
-        plot_gradient(spatial, analysis_dir / "elevation_gradient.png", basin=basin)
-    if args.plot and soil:
-        plot_soil(soil, analysis_dir / "soil_control.png")
     if args.plot:
-        plot_budget(az.results, analysis_dir / "water_budget.png")
-        plot_relations(az.results, analysis_dir / "driver_response.png")
+        # partitioning + controls replace the old water_budget, driver_response
+        # and elevation_gradient figures (see their docstrings for why).
+        plot_partitioning(az.results, analysis_dir / "partitioning.png")
+        plot_controls(az.results, analysis_dir / "controls.png")
         plot_wtd(az.results, run_dir, analysis_dir / "wtd_columns.png")
+        if soil:
+            plot_soil(soil, analysis_dir / "soil_control.png")
     print(f"\nanalysis written to {analysis_dir}/")
 
 

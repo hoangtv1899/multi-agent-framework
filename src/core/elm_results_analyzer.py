@@ -478,6 +478,7 @@ class ELMResultsAnalyzer:
         def corr(metric_key, xs):
             ys = col(metric_key)
             mask = ~np.isnan(ys) & ~np.isnan(xs)
+            # a correlation still needs 3; with 2 the rows carry the comparison
             if mask.sum() < 3 or np.ptp(xs[mask]) < 1e-9 or np.ptp(ys[mask]) < 1e-9:
                 return None
             return round(float(np.corrcoef(xs[mask], ys[mask])[0, 1]), 3)
@@ -540,7 +541,12 @@ class ELMResultsAnalyzer:
             p = r['metrics'].get('precip_mm_yr')
             bins.setdefault(round(p) if p is not None else None, []).append(r)
         precip_bin, group = max(bins.items(), key=lambda kv: len(kv[1]))
-        if len(group) < 3:
+        # 2, not 3. The 12 km forcing quantises precipitation so heavily that a
+        # 13-column ensemble rarely puts 3 columns in one bin — so the ONE
+        # analysis that holds forcing constant almost never ran. With 2 the
+        # correlation is meaningless, but the PAIR is not: two columns under
+        # identical forcing that differ in recharge differ because of soil.
+        if len(group) < 2:
             return {}
 
         group.sort(key=lambda r: -(r['metrics'].get('annual_recharge_mm_yr') or 0))
@@ -558,6 +564,7 @@ class ELMResultsAnalyzer:
             xs = np.array([r['soil'].get(feat) for r in group], dtype=float)
             ys = np.array([r['metrics'].get(target) for r in group], dtype=float)
             mask = ~np.isnan(xs) & ~np.isnan(ys)
+            # a correlation still needs 3; with 2 the rows carry the comparison
             if mask.sum() < 3 or np.ptp(xs[mask]) < 1e-9 or np.ptp(ys[mask]) < 1e-9:
                 return None
             return round(float(np.corrcoef(xs[mask], ys[mask])[0, 1]), 3)

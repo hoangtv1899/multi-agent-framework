@@ -312,17 +312,22 @@ def model_daily_context(run_dir: Path, cases_file: str):
     validates NLDAS, not ELM) and there is no in-basin flux tower for ET. They
     are plotted so the water-balance terms can be read in time, never scored.
 
-        P   = RAIN + SNOW                      mm/day
-        ET  = QVEGE + QVEGT + QSOIL            mm/day  (canopy + transpiration + soil)
-        SWE = H2OSNO                           mm
+        P        = RAIN + SNOW                 mm/day
+        ET       = QVEGE + QVEGT + QSOIL       mm/day  (canopy + transpiration + soil)
+        runoff   = QOVER                       mm/day
+        recharge = QCHARGE                     mm/day
+        SWE      = H2OSNO                      mm      (state)
+        ZWT      = water-table depth           m       (state)
     """
     import numpy as np
     import xarray as xr
     cf = run_dir / cases_file
     if not cf.exists():
         return None
-    GROUPS = {"P": ("RAIN", "SNOW"), "ET": ("QVEGE", "QVEGT", "QSOIL")}
-    acc = {k: {} for k in list(GROUPS) + ["SWE"]}
+    GROUPS = {"P": ("RAIN", "SNOW"), "ET": ("QVEGE", "QVEGT", "QSOIL"),
+              "runoff": ("QOVER",), "recharge": ("QCHARGE",)}
+    STATE = {"SWE": ("H2OSNO",), "ZWT": ("ZWT",)}
+    acc = {k: {} for k in list(GROUPS) + list(STATE)}
     for cd in json.loads(cf.read_text()):
         fs = sorted(glob.glob(cd + "/run/*.elm.h0.*.nc"))
         if not fs:
@@ -335,12 +340,12 @@ def model_daily_context(run_dir: Path, cases_file: str):
         except Exception:
             continue
         days = ds["time"].dt.strftime("%Y-%m-%d").values
-        for name, vs in list(GROUPS.items()) + [("SWE", ("H2OSNO",))]:
+        for name, vs in list(GROUPS.items()) + list(STATE.items()):
             present = [v for v in vs if v in ds]
             if not present:
                 continue
             tot = sum(ds[v] for v in present).squeeze()
-            if name != "SWE":
+            if name in GROUPS:
                 tot = tot * 86400.0                      # mm/s -> mm/day
             arr = np.asarray(tot.values, dtype=float)
             per = {}
@@ -1008,29 +1013,71 @@ def plot_swe(val, out_path):
 
 
 def plot_context(val, out_path):
-    """Precipitation and ET through time. NOT validation: P is the forcing
-    (comparing it to a station tests NLDAS, not ELM) and there is no in-basin
-    flux tower for ET. Plotted so the budget can be read in time."""
+    """The year in time — the seasonal story behind the annual numbers.
+
+    NOT validation. Precipitation is model INPUT (comparing it to a station
+    tests NLDAS, not ELM) and there is no in-basin flux tower for ET. Nothing
+    here is scored; it exists so an annual total can be read as a sequence:
+    snow accumulates, melts, and the melt pulse drives runoff and recharge.
+
+    Fluxes are OVERLAID on one axis so their competition for the same water is
+    visible; the slow states (snowpack, water table) sit beneath on their own
+    scales.
+    """
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
     cx = val.get("context_series") or {}
-    if not cx.get("P") and not cx.get("ET"):
+    if not any(cx.get(k) for k in ("P", "ET", "runoff", "recharge", "SWE", "ZWT")):
         return None
-    fig, ax = plt.subplots(figsize=(11.5, 4))
-    for key, col, lbl in (("P", "#4d4d4d", "precipitation (forcing)"),
-                          ("ET", _G, "evapotranspiration")):
+
+    fig, ax = plt.subplots(3, 1, figsize=(12, 8), sharex=True,
+                           gridspec_kw={"height_ratios": [1.5, 1, 1]})
+
+    # ── fluxes, overlaid ──
+    for key, col, lbl, style in (
+            ("P",        "#4d4d4d", "precipitation (forcing)", dict(lw=1.0, alpha=.55)),
+            ("ET",       "#31a354", "evapotranspiration",      dict(lw=1.4)),
+            ("runoff",   "#d95f0e", "runoff (QOVER)",          dict(lw=1.2)),
+            ("recharge", "#2c7fb8", "recharge (QCHARGE)",      dict(lw=1.2))):
         s = cx.get(key)
         if not s:
             continue
         d = sorted(s)
-        ax.plot(_dates(d), [s[k] for k in d], color=col, lw=1.1, label=lbl)
-    ax.set_ylabel("mm/day")
-    ax.legend(frameon=False, fontsize=8.5)
-    ax.set_title("Context — column-mean forcing and flux. NOT scored: "
-                 "precipitation is model INPUT, and no in-basin flux tower exists for ET.",
-                 fontweight="bold", fontsize=10)
-    _style(ax)
+        ax[0].plot(_dates(d), [s[k] for k in d], color=col, label=lbl, **style)
+    ax[0].set_ylabel("mm / day")
+    ax[0].legend(frameon=False, fontsize=8.5, ncol=4)
+    ax[0].set_title("Water fluxes through the year — column mean. NOT scored: "
+                    "precipitation is model INPUT and no in-basin flux tower "
+                    "exists for ET.", fontweight="bold", fontsize=10.5)
+
+    # ── snowpack ──
+    s = cx.get("SWE")
+    if s:
+        d = sorted(s)
+        v = [s[k] for k in d]
+        ax[1].fill_between(_dates(d), v, color="#9ecae1", alpha=.8)
+        ax[1].plot(_dates(d), v, color="#3182bd", lw=1.0)
+        pk = int(np.argmax(v))
+        ax[1].annotate(f"peak {v[pk]:.0f} mm", (_dates(d)[pk], v[pk]),
+                       textcoords="offset points", xytext=(6, -10), fontsize=8,
+                       color="#3182bd")
+    ax[1].set_ylabel("SWE (mm)")
+    ax[1].set_title("Snowpack — the melt pulse is what the fluxes above respond to",
+                    fontweight="bold", fontsize=10)
+
+    # ── water table ──
+    s = cx.get("ZWT")
+    if s:
+        d = sorted(s)
+        ax[2].plot(_dates(d), [s[k] for k in d], color="#756bb1", lw=1.3)
+        ax[2].invert_yaxis()
+    ax[2].set_ylabel("water table (m)")
+    ax[2].set_title("Water-table depth — a flat line means the aquifer never "
+                    "responded (no spin-up)", fontweight="bold", fontsize=10)
+
+    for a in ax:
+        _style(a)
     fig.tight_layout()
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)

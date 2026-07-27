@@ -132,8 +132,11 @@ CLI and you get the same code.
 | `src/agents/analysis_report_agent.py` | final report the coordinator returns |
 | `src/agents/prompts/analyzer_system_elm.txt`, `analyzer_validation.txt` | prompts |
 
-The five figures: `elevation_gradient`, `soil_control`, `water_budget`,
-`driver_response`, `wtd_columns`. Plus `sampling_design.png` (step 0) and
+Analysis figures: `partitioning` (where P goes, as fractions), `controls`
+(fractions vs drivers with the orographic confound made visible),
+`soil_control` (forcing held constant) and `wtd_columns`. Validation emits one
+figure per observable: `hydrograph`, `yield`, `water_table`, `swe`, and
+`context` (not scored). Plus `sampling_design.png` (step 0) and
 `column_surfaces.png` (step 2).
 
 ---

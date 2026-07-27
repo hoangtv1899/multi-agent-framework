@@ -191,3 +191,69 @@ class TestRunoffRatioGuard:
         src = (ROOT / "tools" / "validate_run.py").read_text()
         assert "tests \"\n                \"partitioning, not forcing" in src \
             or "partitioning, not forcing" in src
+
+
+# ── analysis figures: partitioning + controls ────────────────────────────────
+ar = _load("ar_mod", "tools/analyze_run.py")
+
+
+def _col(name, P, runoff, et, drain, ds, elev, clay=None, rech=0.0):
+    return {"case_name": name, "status": "ok", "elevation_m": elev,
+            "soil": {"clay_max_pct": clay},
+            "metrics": {"precip_total_mm_yr": P, "precip_mm_yr": P,
+                        "annual_runoff_mm_yr": runoff,
+                        "annual_recharge_mm_yr": rech,
+                        "water_budget": {"runoff_mm_yr": runoff, "et_mm_yr": et,
+                                         "drainage_mm_yr": drain,
+                                         "recharge_mm_yr": rech,
+                                         "storage_change_mm": ds}}}
+
+
+class TestPartitioningFigure:
+    def test_storage_release_is_not_clamped_away(self):
+        """The defect this replaces: the old plot_budget did max(v, 0) on
+        Δstorage, so a column DRAINING storage showed no storage term and its
+        stack silently exceeded P (col_12: 3750 mm exported against 1870 mm)."""
+        src = (ROOT / "tools" / "analyze_run.py").read_text()
+        assert "def plot_partitioning(" in src
+        assert "def plot_budget(" not in src
+        body = src[src.index("def plot_partitioning("):src.index("def plot_controls(")]
+        assert "max(b.get(key) or 0, 0)" not in body
+        assert "released from storage" in body
+
+    def test_it_renders_a_column_that_drains_storage(self, tmp_path):
+        results = {"a": _col("col_a", 1000, 100, 300, 1800, -1200, 900),
+                   "b": _col("col_b", 800, 80, 400, 200, 120, 1500)}
+        out = tmp_path / "partitioning.png"
+        assert ar.plot_partitioning(results, out) is True
+        assert out.exists() and out.stat().st_size > 0
+
+    def test_no_budget_terms_means_no_figure(self, tmp_path):
+        assert ar.plot_partitioning({}, tmp_path / "x.png") is False
+
+
+class TestControlsFigure:
+    def test_it_replaces_the_absolute_flux_matrix(self):
+        src = (ROOT / "tools" / "analyze_run.py").read_text()
+        assert "def plot_controls(" in src
+        assert "def plot_relations(" not in src
+        assert "def plot_gradient(" not in src
+
+    def test_it_renders_and_needs_at_least_three_columns(self, tmp_path):
+        results = {f"c{i}": _col(f"col_{i}", 800 + 200 * i, 50 + i, 300, 200,
+                                 10, 800 + 100 * i, clay=5 + 3 * i,
+                                 rech=100 + 20 * i)
+                   for i in range(4)}
+        out = tmp_path / "controls.png"
+        assert ar.plot_controls(results, out) is True
+        assert out.exists()
+        assert ar.plot_controls({k: results[k] for k in list(results)[:2]},
+                                tmp_path / "y.png") is False
+
+    def test_shared_forcing_bin_panel_survives_no_shared_bins(self, tmp_path):
+        """Every column in its own precipitation bin — the attribution panel
+        must say so rather than crash."""
+        results = {f"c{i}": _col(f"col_{i}", 500 + 400 * i, 20, 300, 100, 5,
+                                 700 + 200 * i, clay=10)
+                   for i in range(3)}
+        assert ar.plot_controls(results, tmp_path / "z.png") is True
