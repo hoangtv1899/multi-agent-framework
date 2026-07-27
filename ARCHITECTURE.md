@@ -55,6 +55,14 @@ feasibility verdict, and a `requires_capabilities` backlog. It is architecturall
 forbidden from inventing a number that has to be real — turning rules into
 coordinates is the next stage's job, and that stage uses data.
 
+**Why the Planner is strict and the Analyzer is not.** A planner error is
+expensive and silent: a bad sampling strategy costs a CIME build per column and
+every downstream stage inherits it, and you only see the consequence once the
+compute is spent. An analyzer error is cheap and visible — the data is
+unchanged, regeneration takes seconds, and the failure lands in front of a
+human. The two stages carry different risk, so they carry different
+constraints.
+
 ## 3. Experiment Manager — strategy → runs
 
 `src/core/elm_exp_manager.py` (`ELMExpManager.execute_plan`) is the whole stage.
@@ -133,11 +141,35 @@ CLI and you get the same code.
 | `src/agents/prompts/analyzer_system_elm.txt`, `analyzer_validation.txt` | prompts |
 
 Analysis figures: `partitioning` (where P goes, as fractions), `controls`
-(fractions vs drivers with the orographic confound made visible),
-`soil_control` (forcing held constant) and `wtd_columns`. Validation emits one
-figure per observable: `hydrograph`, `yield`, `water_table`, `swe`, and
-`context` (not scored). Plus `sampling_design.png` (step 0) and
-`column_surfaces.png` (step 2).
+(fractions vs drivers with the orographic confound made visible), `spatial`
+(the same quantities mapped over the watershed), `soil_control` (forcing held
+constant) and `wtd_columns`. Validation emits one figure per observable:
+`hydrograph`, `yield`, `water_table`, `swe`, and `context` (not scored). Plus
+`sampling_design.png` (step 0) and `column_surfaces.png` (step 2).
+
+**Figures illustrate; text interprets.** Figures render clean — axes, units,
+legend. Every verdict lives in `figure_captions.json` beside them, which is
+what the interpretation and any manuscript text draw from. `--annotate` puts
+the verdicts back on the image for debugging a run rather than publishing it.
+
+### The Analyzer is agentic, but bound to the evidence
+
+It chooses which figures answer the question, renders them, LOOKS at them, and
+revises — the same loop a person runs. Three guardrails, and only three:
+
+1. **Numbers trace to JSON.** Any value the interpretation asserts comes from
+   `hydro_summary.json` / `validation.json`. Vision judges whether a figure is
+   *readable and on-point*; it never reads a measurement off an image.
+2. **Provenance per figure** — registry-vetted or analyzer-authored — so a
+   figure heading for a manuscript declares which it is.
+3. **Verdicts are not negotiable.** It may plot anything and propose anything,
+   but it cannot upgrade a `context-only` comparison to evidence, nor restate a
+   number the deterministic artifacts do not contain. The honesty machinery
+   (assumptions ledger, limitations catalogue, `compared` vs `context-only`,
+   the domain-match and impossible-ratio refusals) binds the interpretation the
+   way real coordinates bind the Planner.
+
+Flexible about what it explores; strict about what it may claim.
 
 ---
 

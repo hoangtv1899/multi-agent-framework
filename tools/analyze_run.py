@@ -430,6 +430,96 @@ def plot_controls(results, out_path):
     return True
 
 
+def plot_spatial(results, run_dir, out_path, annotate=False):
+    """The same partitioning quantities, MAPPED over the watershed.
+
+    Every other analysis figure is aspatial — scatter against elevation, bars
+    per column, series through time. None of them can answer "is the
+    low-recharge cluster spatially coherent, or scattered?", and the difference
+    matters: coherent structure points at orography or geology, scatter points
+    at soil heterogeneity. sampling_design.png shows where we SAMPLED; this
+    shows what we FOUND.
+
+    Deliberately NOT interpolated. Thirteen points over ~2900 km2 is a sample,
+    not a field; kriging or IDW would manufacture spatial structure out of 13
+    numbers and render it authoritatively. Markers only.
+    """
+    import json as _json
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    ok = [r for r in results.values() if r["status"] == "ok"
+          and r.get("lat") is not None and r.get("lon") is not None]
+    if len(ok) < 2:
+        return False
+    cj = Path(run_dir) / "columns.json"
+    meta = _json.loads(cj.read_text()) if cj.exists() else {}
+    boundary = meta.get("boundary") or []
+    grid = meta.get("grid") or []
+
+    def P_of(r):
+        m = r["metrics"]
+        return m.get("precip_total_mm_yr") or m.get("precip_mm_yr")
+
+    def frac(r, key):
+        wb = r["metrics"].get("water_budget") or {}
+        v, P = wb.get(key), P_of(r)
+        return (v / P) if (v is not None and P) else np.nan
+
+    panels = [
+        ("recharge / P", lambda r: frac(r, "recharge_mm_yr"), "viridis"),
+        ("runoff / P",   lambda r: frac(r, "runoff_mm_yr"),   "Oranges"),
+        ("ET / P",       lambda r: frac(r, "et_mm_yr"),       "Greens"),
+        ("peak SWE (mm)", lambda r: r["metrics"].get("peak_swe_mm"), "Blues"),
+    ]
+    lat = np.array([r["lat"] for r in ok], float)
+    lon = np.array([r["lon"] for r in ok], float)
+
+    fig, axes = plt.subplots(2, 2, figsize=(11.5, 9.5))
+    for ax, (label, get, cmap) in zip(axes.ravel(), panels):
+        # terrain context from the DEM points the expander already sampled
+        if grid:
+            gx = [g["lon"] for g in grid]
+            gy = [g["lat"] for g in grid]
+            ge = [g.get("elevation_m") for g in grid]
+            ax.scatter(gx, gy, c=ge, cmap="Greys", s=14, alpha=.45,
+                       linewidth=0, zorder=1)
+        for ring in boundary:
+            ax.plot([q[0] for q in ring], [q[1] for q in ring],
+                    color="#123", lw=1.3, zorder=2)
+
+        v = np.array([get(r) if get(r) is not None else np.nan for r in ok], float)
+        m = ~np.isnan(v)
+        sc = ax.scatter(lon[m], lat[m], c=v[m], cmap=cmap, s=150,
+                        edgecolor="#111", linewidth=.7, zorder=4)
+        if m.sum():
+            cb = fig.colorbar(sc, ax=ax, fraction=.046, pad=.02)
+            cb.ax.tick_params(labelsize=7.5)
+        for xi, yi, r in zip(lon, lat, ok):
+            ax.annotate(r["case_name"].replace("col_", ""), (xi, yi),
+                        textcoords="offset points", xytext=(8, 4), fontsize=6.5,
+                        color="#333", zorder=5)
+        ax.set_title(label, fontweight="bold", fontsize=10.5)
+        ax.set_xlabel("longitude", fontsize=8.5)
+        ax.set_ylabel("latitude", fontsize=8.5)
+        ax.tick_params(labelsize=7.5)
+        ax.set_aspect(1.0 / max(np.cos(np.radians(float(np.nanmean(lat)))), 1e-6))
+        ax.grid(alpha=.2)
+        ax.spines[["top", "right"]].set_visible(False)
+
+    title = f"Spatial distribution — {len(ok)} sampled columns"
+    if annotate:
+        title += ("\nMARKERS ONLY: 13 samples over ~2900 km², not an interpolated "
+                  "field. Grey = sampled terrain; navy = watershed boundary.")
+    fig.suptitle(title, fontweight="bold", fontsize=12, y=.995)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
+    print(f"   ✓ spatial figure: {out_path}")
+    return True
+
+
 def plot_wtd(results, run_dir, out_path):
     """Per-column water table: model ZWT initial vs final vs the Fan (2013)
     equilibrium WTD at the same point. Exposes the cold-start problem — every
@@ -548,6 +638,7 @@ def main():
         # and elevation_gradient figures (see their docstrings for why).
         plot_partitioning(az.results, analysis_dir / "partitioning.png")
         plot_controls(az.results, analysis_dir / "controls.png")
+        plot_spatial(az.results, run_dir, analysis_dir / "spatial.png")
         plot_wtd(az.results, run_dir, analysis_dir / "wtd_columns.png")
         if soil:
             plot_soil(soil, analysis_dir / "soil_control.png")

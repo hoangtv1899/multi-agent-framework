@@ -736,6 +736,8 @@ class ELMExpManager:
 								 self.analysis_dir / "partitioning.png"); n += 1
 			ar.plot_controls(analyzer.results,
 							 self.analysis_dir / "controls.png"); n += 1
+			ar.plot_spatial(analyzer.results, self.run_dir,
+							self.analysis_dir / "spatial.png"); n += 1
 			ar.plot_wtd(analyzer.results, self.run_dir,
 						self.analysis_dir / "wtd_columns.png"); n += 1
 			if soil:
