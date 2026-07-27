@@ -47,7 +47,10 @@ imports the `tools/` implementations rather than duplicating them.)
 
 - **NLDAS-2 forcing comes from `DATM_MODE=CLMMOSARTTEST`** (`elm_wrapper.py`
   `FIXED_XML`), which reads `$DIN_LOC_ROOT/atm/datm7/NLDAS/clmforc.nldas.%ym.nc`
-  (1979–2023, complete). The `atm_forcing.datm7.NLDAS2.0.125d.v1` tree that the
+  (**1979–2023**, complete; 2024 is staged but only 8/12 months). This is the
+  ONLY forcing the framework can run — the Qian fallback that the prompts used
+  to advertise is unreachable. `src/core/forcing_availability.py` reads the
+  window off disk; nothing should restate it from memory. The `atm_forcing.datm7.NLDAS2.0.125d.v1` tree that the
   NERSC path used has **empty** `Precip/` and `TPQWL/` here. The name mentions
   MOSART but it is purely a DATM stream preset — fine with the SROF stub.
 - **ELM only, no MOSART**: compset uses `SROF`. Do not add a `mosart` namelist.
@@ -69,7 +72,7 @@ session per call (HPC-safe). All tools are **read-only** fetches.
 |---|---|---|---|
 | weather | NWS / Open-Meteo | `get_climate_summary` | point |
 | geology | USDA SSURGO | `get_soil_profile`, `get_pflotran_materials` | point |
-| usgs_water | USGS OGC API | `get_groundwater_sites`, `get_water_table_depth` (param 72019), `get_monitoring_locations` | bbox |
+| usgs_water | USGS OGC API | `get_groundwater_sites`, `get_water_table_depth` (param 72019), `get_monitoring_locations`, `get_streamflow_availability` | bbox |
 | terrain | USGS 3DEP + WBD | `resolve_watershed` (HUC/name→bbox+area), `get_elevation`, `sample_elevation_grid` | point+bbox |
 | fan_wtd | Fan et al. 2013 (local NetCDF) | `get_fan_wtd`, `sample_fan_wtd`, `data_status` | point+bbox |
 | reaction_sandbox | PFLOTRAN reaction sandbox | reactive-transport deck helpers | — |
@@ -78,6 +81,11 @@ session per call (HPC-safe). All tools are **read-only** fetches.
 - Observed WTD uses the **OGC API** (`api.waterdata.usgs.gov`), not legacy
   `waterservices.usgs.gov`. Depth-to-water = parameter **72019**, collection
   `field-measurements`.
+- **A station list is not a data list.** `get_monitoring_locations` answers
+  *which gauges exist*; `get_streamflow_availability` answers *which gauges have
+  records in a window*, with drainage area so a caller can judge representativeness.
+  For the Naches in 1995 those numbers are 93 and 1. Reception calls it before
+  the design; `validate_run.py` calls the same tool afterwards.
 - Fan tiles store WTD **negative-below-surface**; the server auto-detects sign,
   returns positive `depth_to_water_m`, reduces `time`, applies the land mask.
 - SSURGO and weather are point-only → watershed work uses `sample_elevation_grid`
@@ -170,6 +178,11 @@ climatological (0 of 14 well measurements fall in 1995).
 **Validation quality — addressed, with one input still missing:**
 - Metric units throughout; per-observable figures with individual verdicts;
   warm-up exclusion; area weighting; NLDI catchment restriction; runoff ratio.
+- Observation coverage is now checked **before** the run, not after: Reception
+  calls `get_streamflow_availability` and writes
+  `run_settings.observations` + a conflict line. Verified live on the Naches —
+  "only 1 of 93 stream gauges has records in 1995, draining ~7% of the basin;
+  streamflow comparison will be context-only" now appears in the brief.
 - **Still blocking a real partitioning verdict: precipitation over the GAUGED
   catchment.** Without it the observed ratio is computed against the basin mean
   and comes out impossible (1.74). Either an in-catchment precipitation product

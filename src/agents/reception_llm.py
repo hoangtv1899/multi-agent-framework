@@ -16,6 +16,7 @@ import re
 from typing import Any, Dict
 
 from agents.prompts import load_prompt
+from core.forcing_availability import render_forcing_facts
 from agents.tool_loop import ToolLoopAgent
 
 # Curated tool subset reception may use (keeps the schema focused vs all ~30).
@@ -27,6 +28,7 @@ DEFAULT_ALLOWLIST = {
     "usgs_water__get_groundwater_sites",
     "usgs_water__get_water_table_depth",
     "usgs_water__get_monitoring_locations",
+    "usgs_water__get_streamflow_availability",
     "fan_wtd__get_fan_wtd",
     "fan_wtd__sample_fan_wtd",
     "fan_wtd__data_status",
@@ -47,7 +49,11 @@ class LLMReceptionAgent:
                  max_rounds: int = 10,
                  verbose: bool = True,
                  interactive: bool = False):
-        self.system = load_prompt("reception_agentic")
+        # Forcing years are read off disk at construction, not asserted in the
+        # prompt text: the window is the one hard constraint on a request, and
+        # a hardcoded sentence had already drifted 5 years from the filesystem.
+        self.system = load_prompt("reception_agentic",
+                                  forcing_facts=render_forcing_facts())
         self.loop = ToolLoopAgent(
             model=model,
             mcp_clients=mcp_clients,

@@ -3,33 +3,45 @@
   "mcp_servers": {
     "usgs_water": {
       "command": "/path/to/your/python3",
-      "args": ["/path/to/RCSFA/mcp/usgs-water-mcp/main.py"],
-      "timeout": 30.0
+      "args": [
+        "/path/to/RCSFA/mcp/usgs-water-mcp/main.py"
+      ],
+      "timeout": 120.0
     },
     "weather": {
       "command": "/path/to/your/python3",
-      "args": ["/path/to/RCSFA/mcp/weather-mcp/main.py"],
+      "args": [
+        "/path/to/RCSFA/mcp/weather-mcp/main.py"
+      ],
       "timeout": 60.0
     },
     "geology": {
       "command": "/path/to/your/python3",
-      "args": ["/path/to/RCSFA/mcp/geology-mcp/main.py"],
+      "args": [
+        "/path/to/RCSFA/mcp/geology-mcp/main.py"
+      ],
       "timeout": 30.0
     },
     "terrain": {
       "command": "/path/to/your/python3",
-      "args": ["/path/to/RCSFA/mcp/terrain-mcp/main.py"],
+      "args": [
+        "/path/to/RCSFA/mcp/terrain-mcp/main.py"
+      ],
       "timeout": 150.0
     },
     "fan_wtd": {
       "_note": "needs a Fan 2013 NetCDF tile; set FAN_WTD_NC or place it in data/fan_wtd/",
       "command": "/path/to/your/python3",
-      "args": ["/path/to/RCSFA/mcp/fan-wtd-mcp/main.py"],
+      "args": [
+        "/path/to/RCSFA/mcp/fan-wtd-mcp/main.py"
+      ],
       "timeout": 30.0
     },
     "snotel": {
       "command": "/path/to/your/python3",
-      "args": ["/path/to/RCSFA/mcp/snotel-mcp/main.py"],
+      "args": [
+        "/path/to/RCSFA/mcp/snotel-mcp/main.py"
+      ],
       "timeout": 90.0
     }
   }

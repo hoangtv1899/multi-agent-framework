@@ -74,14 +74,16 @@ one of these, the current stack CANNOT answer the question as posed — say so i
 `feasibility` and list the missing piece under requires_capabilities. Never
 design around a mechanism the runs can't represent and then claim to test it.
 
-  • FORCING (CONUS): NLDAS-2 at 0.125° (~12 km, 1980-2018) is the DEFAULT —
-    each column gets its nearest 12 km cell, so precipitation/temperature DO
-    vary with location and (orographically) with elevation across a HUC8.
-    Verified: a 1625 m-relief basin spans ~15 distinct precip values (Qian T62
-    gave 2). LIMITS that remain: sub-12 km terrain is unresolved (no within-
-    cell lapse rate), coverage is CONUS-only (outside CONUS falls back to Qian
-    T62 ~1.9°, which is NOT elevation-resolved), and NLDAS runs cost ~10x Qian
-    (~30 min per simulated year per column).
+  • FORCING: NLDAS-2 at 0.125° (~12 km) is the ONLY forcing — DATM_MODE is
+    fixed in code, there is no fallback. Each column gets its nearest 12 km
+    cell, so precipitation/temperature DO vary with location and
+    (orographically) with elevation across a HUC8. Verified: a 1625 m-relief
+    basin spans ~15 distinct precip values. LIMITS that remain: sub-12 km
+    terrain is unresolved (no within-cell lapse rate), coverage is CONUS-only
+    (outside CONUS there is NO forcing at all — such a domain cannot be run),
+    and cost is ~30 min per simulated year per column. The RUNNABLE YEARS are
+    stated in the brief's forcing_data, read off disk by Reception — use that
+    range, do not carry a remembered one.
   • SNOW / SWE is simulated and IS in the default history output (H2OSNO,
     QSNOMELT, SNOW) → SNOTEL peak-SWE comparison is possible. Expect
     underestimation at ridgetop stations (12 km cells average over terrain).
@@ -105,7 +107,7 @@ design around a mechanism the runs can't represent and then claim to test it.
     result); root-zone soil moisture is untouched (fast state). A ParFlow-
     CONUS2 (1-km) prior is a possible future upgrade, not yet available.
   • The levers the ELM runs CAN pull: per-column SOIL (SSURGO), FORCING PERIOD
-    (any years in 1980-2018), spin-up length, and location/elevation (via
+    (any years inside the brief's forcing_data range), spin-up length, and location/elevation (via
     NLDAS). Prefer designs built on these.
 
 PFLOTRAN EXECUTION LIMITS (the 1-D Richards column as configured)

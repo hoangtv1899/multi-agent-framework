@@ -32,10 +32,33 @@ python workflow.py --interactive --ask    # let Reception ask instead of default
 | `src/agents/tool_loop.py` | `ToolLoopAgent`: generic LLM↔MCP tool-calling loop. |
 | `src/agents/reception_adapter.py` | Coordinator-facing shim + the `ReceptionResult` contract. |
 | `src/agents/prompts/reception_agentic.txt` | The system prompt. |
+| `src/core/forcing_availability.py` | Runnable years, read off disk into the prompt. |
 
 The LLM decides what to fetch, when to stop, and what it means. It emits
 `domain: {name, huc, bbox}` — the spatial handle everything downstream needs —
-plus intent, scientific framing, and `run_settings.resolved_period`.
+plus intent, scientific framing, `run_settings.resolved_period`,
+`initialization`, and `observations`.
+
+**Forcing is the hard constraint; observations are supplementary.** Without
+forcing there is no run at all; without observations the run happens and simply
+cannot be checked. The two are treated accordingly.
+
+`forcing_availability.py` reads the runnable years off the NLDAS tree and
+`load_prompt` substitutes them into the prompt at construction. It is the only
+thing that may refuse a period. It is read rather than asserted because the
+asserted version had drifted: the prompt claimed 1980–2018 where Compy holds
+1979–2023, refusing five runnable years, and it offered a Qian fallback that
+`elm_wrapper.FIXED_XML` makes unreachable (`DATM_MODE=CLMMOSARTTEST`). A
+directory listing cannot drift.
+
+`observations` records coverage and never gates. `get_streamflow_availability`
+reports how many gauges hold records in the period, not how many exist, and a
+thin answer becomes a conflict line — not a question, because the user may have
+chosen that period for a scientific reason and an unvalidatable run is still a
+valid run. Where the user named no period, coverage breaks the tie between
+equally-legal years. On the Naches that is the whole difference between a
+context-only comparison and a basin-scale one: 1995 has one gauge covering 7% of
+the basin, 1988 has the outlet gauge covering 100%.
 
 Rule enforced by the prompt: **only state tool-returned values.** If it did not
 come back from an MCP call, Reception does not claim it.

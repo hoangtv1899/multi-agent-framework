@@ -145,8 +145,8 @@ class TestFanWtd:
 # usgs groundwater — OGC response parsing
 # ─────────────────────────────────────────────────────────────────────────────
 pytest.importorskip("httpx")
-# usgs-water-mcp is a nested repo that exists only on NERSC (down for
-# maintenance); skip its parser tests when the code isn't present.
+# usgs-water-mcp is vendored, not a submodule; skip its parser tests on a
+# checkout where it isn't present.
 _GW_API = MCP / "usgs-water-mcp" / "groundwater_api.py"
 gw = (_load(_GW_API, "gw_api", extra_syspath=MCP / "usgs-water-mcp")
       if _GW_API.exists() else None)
@@ -190,6 +190,81 @@ class TestGroundwaterParsers:
     def test_parse_wtd_empty(self):
         obs, summary = gw._parse_wtd({"features": []})
         assert obs == [] and summary["n_obs"] == 0 and summary["mean_depth_m"] is None
+
+
+@pytest.mark.skipif(gw is None, reason="usgs-water-mcp code not present")
+class TestStreamflowCoverage:
+    """Record availability: which gauges HAVE data, not which gauges exist.
+
+    The distinction is the whole point of the tool. In the Naches bbox, 93
+    stream gauges are present and one has 1995 daily discharge — a station
+    count would have reported 93 and sent the design off believing streamflow
+    was well observed.
+    """
+    DAILY = {"features": [
+        {"properties": {"monitoring_location_id": "USGS-1", "value": 12.0}},
+        {"properties": {"monitoring_location_id": "USGS-1", "value": 13.0}},
+        {"properties": {"monitoring_location_id": "USGS-2", "value": 5.0}},
+        {"properties": {"monitoring_location_id": "USGS-1", "value": None}},
+    ]}
+    SITES = {"features": [
+        {"id": "USGS-1", "geometry": {"coordinates": [-121.17, 46.98]},
+         "properties": {"monitoring_location_name": "American R", "drainage_area": "78.9"}},
+        {"id": "USGS-2", "geometry": {"coordinates": [-120.9, 46.7]},
+         "properties": {"monitoring_location_name": "Dry Creek", "drainage_area": None}},
+        {"id": "USGS-3", "geometry": {"coordinates": [-120.8, 46.6]},
+         "properties": {"monitoring_location_name": "No Records At All"}},
+    ]}
+
+    def test_only_gauges_meeting_min_days_are_available(self):
+        out = gw._parse_coverage(self.DAILY, self.SITES, min_days=2)
+        assert [a["id"] for a in out["available"]] == ["USGS-1"]
+        assert out["n_available"] == 1
+        assert out["n_sites"] == 3
+        assert out["n_without_records"] == 2
+
+    def test_null_values_do_not_count_as_records(self):
+        """A feature with value=None is a gap in the record, not a day of data;
+        counting it would let an empty gauge pass the min_days gate."""
+        out = gw._parse_coverage(self.DAILY, self.SITES, min_days=3)
+        assert out["available"] == []           # USGS-1 has 2 real days, not 3
+
+    def test_drainage_area_is_converted_to_km2(self):
+        out = gw._parse_coverage(self.DAILY, self.SITES, min_days=2)
+        assert abs(out["available"][0]["drainage_area_km2"] - 204.4) < 0.1
+
+    def test_coordinates_travel_with_the_gauge(self):
+        """The observation map and the sampling design both need them; a bare
+        id would force a second round-trip to place the gauge."""
+        a = gw._parse_coverage(self.DAILY, self.SITES, min_days=2)["available"][0]
+        assert a["lat"] == 46.98 and a["lon"] == -121.17
+
+    def test_missing_drainage_area_is_none_not_a_crash(self):
+        out = gw._parse_coverage(self.DAILY, self.SITES, min_days=1)
+        two = next(a for a in out["available"] if a["id"] == "USGS-2")
+        assert two["drainage_area_km2"] is None
+
+    def test_empty_inputs_report_nothing_available(self):
+        out = gw._parse_coverage({}, {}, min_days=300)
+        assert out == {"n_sites": 0, "n_available": 0, "n_without_records": 0,
+                       "min_days": 300, "available": []}
+
+    def test_sorted_by_record_length(self):
+        out = gw._parse_coverage(self.DAILY, self.SITES, min_days=1)
+        assert [a["n_days"] for a in out["available"]] == [2, 1]
+
+    def test_a_truncated_fetch_announces_itself(self):
+        """An undercount is indistinguishable from a real finding — "only one
+        gauge reports" reads the same whether it is true or whether we stopped
+        reading early. So truncation must be stated, never inferred."""
+        clipped = dict(self.DAILY, truncated=True)
+        out = gw._parse_coverage(clipped, self.SITES, min_days=1)
+        assert out["truncated"] is True
+        assert "lower bound" in out["warning"]
+
+    def test_a_complete_fetch_carries_no_warning(self):
+        out = gw._parse_coverage(self.DAILY, self.SITES, min_days=1)
+        assert "truncated" not in out and "warning" not in out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

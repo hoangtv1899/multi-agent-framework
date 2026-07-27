@@ -53,8 +53,10 @@ STEP 3 — GATHER (site archetype): use tools, in roughly this order
   3. usgs_water__get_groundwater_sites(bbox, limit=25) → wells = candidate
      water-table validation points. If some exist, optionally check one with
      usgs_water__get_water_table_depth to confirm there are records.
-  4. usgs_water__get_monitoring_locations(bbox, site_type_code="ST", limit=15)
-     → streamflow gages = integrated water-balance validation.
+  4. usgs_water__get_streamflow_availability(bbox, start_date, end_date)
+     → streamflow gages that HAVE records in the resolved period, with their
+     catchment areas = integrated water-balance validation. Prefer this over
+     get_monitoring_locations: a bbox can hold 93 gages of which one reports.
   5. fan_wtd__get_fan_wtd / fan_wtd__sample_fan_wtd(bbox) → equilibrium
      water-table-depth prior (heterogeneity context + a benchmark surface).
   6. geology__get_soil_profile(lat,lon) at the domain centroid → soil-texture
@@ -77,32 +79,41 @@ Turn data into decisions, e.g.:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 5 — EXTRACT RUN SETTINGS (every design request)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FRAMEWORK FORCING FACTS (ground truth — do NOT invent other values):
-  • NLDAS-2, 0.125° (~12 km): the build DEFAULT for CONUS domains.
-    Available years: 1980–2018.
-  • Qian T62 (~1.9°, 2 giant cells): global fallback only (non-CONUS
-    domains). Available years: 1948–2004.
-  A CONUS domain gets NLDAS-2 unless the user asks otherwise. Report the
-  facts for the forcing that will actually be used.
+FORCING — THE HARD CONSTRAINT. Read from disk at startup, not asserted:
+
+{forcing_facts}
+
+  Forcing decides whether the run can happen AT ALL. Every other data gap
+  only costs a comparison afterwards. So the runnable years above are the
+  first thing you tell the user, and the only thing that may REFUSE a
+  period. Never state a year outside that range as runnable.
 
 From the request, extract the SIMULATION PERIOD and resolve it:
   • Period stated (e.g. "from 1990 to 2005") → resolved = that period,
-    source "user". If it falls partly outside the forcing availability:
-    interactive → ask_user how to proceed (trim vs shift); otherwise clamp
-    to the available window, source "user-clamped", and record the
-    conflict in run_settings.conflicts.
-  • No period stated → resolved = single year 1995, source "default",
-    and add "simulation period not specified" to run_settings.conflicts.
-    If ask_user is available, ask for the period instead of defaulting —
-    it is load-bearing (spin-up, climate percentile, compute cost).
+    source "user". If it falls partly outside the runnable years: clamp to
+    the overlap, source "user-clamped", and record the conflict. If it
+    falls WHOLLY outside, that is a refusal, not a shift — say the request
+    cannot be run and give the runnable range. Do not silently relocate a
+    study to a different decade.
+  • No period stated → you must pick one, and say why.
+    – State the runnable range to the user FIRST.
+    – If ask_user is available, ask which period, offering the range and
+      your recommendation. The period is load-bearing (spin-up, climate
+      percentile, compute cost).
+    – Otherwise choose a single year inside the range, source "default",
+      and record "simulation period not specified" in conflicts.
+    Any year in the range is equally valid as far as forcing is concerned.
+    When nothing else distinguishes them, break the tie with observation
+    coverage (below) and say that is what you did — a tiebreak among legal
+    years, never a constraint on which years are legal.
 Never leave the period only in prose. It must appear in run_settings.
 
 Also extract the INITIALIZATION, into run_settings.initialization:
   • The framework can WARM START each column from a spun-up CONUS 1-km ELM
     restart (deep soil temperature, soil moisture and aquifer state), or from
-    the Fan-2013 equilibrium water table. Warm start REQUIRES a completed
-    earlier run of the SAME columns to act as a carrier — it edits that run's
-    restart files. It is therefore only available as a FOLLOW-UP.
+    the Fan-2013 equilibrium water table. It needs NO prior run: each column's
+    donor gridcell is subset straight out of the CONUS restart. It is available
+    on a first request, not only as a follow-up.
   • User asks to warm start / spin up / "start from the CONUS restart" /
     "use the spun-up state"  → {"mode": "warm", "source": "conus"}
     (use "fan" only if they explicitly name the Fan water table).
@@ -120,9 +131,38 @@ Also extract the INITIALIZATION, into run_settings.initialization:
     add "cold start with short run — storage terms are transient" to
     run_settings.conflicts. Initialization sets the water table, which controls
     the sign of recharge in short runs; do not let it default silently.
-  • If they ask to warm start and there is NO prior run in CONVERSATION
-    CONTEXT, still set mode "warm" and note in conflicts that a carrier run is
-    needed first — the Experiment Manager reports this and cold starts.
+  • Warm start is a per-column subset of the CONUS restart, so it is never
+    blocked by the absence of a prior run. If a column has no CONUS donor the
+    Experiment Manager reports it and cold starts that column only.
+
+OBSERVATIONS — SUPPLEMENTARY. They decide whether the run can be CHECKED,
+never whether it can happen. Record them; do not let them gate anything.
+Do this whenever the request says "compare with observations", "validate",
+"evaluate against measurements" — or names streamflow at all.
+  • Call usgs_water__get_streamflow_availability with the domain bbox and the
+    resolved period. It answers what a station list cannot: how many gauges
+    HAVE daily discharge in that window, not how many exist.
+  • Record into run_settings.observations:
+    {"streamflow_gauges_in_bbox": n_sites,
+     "with_records_in_period": n_available,
+     "largest_catchment_km2": <max drainage_area_km2 of the available>,
+     "basin_area_km2": <from resolve_watershed>}
+  • Then state the consequence in run_settings.conflicts — a note, not a veto:
+      – n_available == 0 → "no streamflow gauge has records in <period>;
+        streamflow cannot be validated". Say it in the notes too, because the
+        user asked for a comparison the data cannot support. Do NOT change
+        the period over this and do NOT ask to change it: the user may have
+        chosen that period for a scientific reason, and an unvalidatable run
+        is still a valid run.
+      – largest_catchment_km2 < 0.5 × basin_area_km2 → "the largest gauged
+        catchment covers only X% of the basin; streamflow comparison will be
+        context-only, not basin-scale".
+  Measured, not hypothetical: for the Naches (HUC 17030002) in 1995, 93 stream
+  gauges sit in the bbox and exactly ONE has daily records, draining 204 km2 of
+  a 2861 km2 basin — 7%. In 1987-1989 the basin OUTLET gauge reports instead,
+  covering 100%. Same basin, same forcing, entirely different validation — which
+  is why this is worth reporting, and why it is a sound tiebreak when the user
+  named no period, but never a reason to override one they did name.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES
@@ -184,10 +224,10 @@ design (the brief):
                      "soil_note": "…" },          // null for conceptual
   "observations_available": [ {"variable":"…","source":"…","detail":"… (e.g. N wells)"} ],
   "observations_missing":   [ {"variable":"…","reason":"…"} ],
-  "forcing_data": {          // the forcing that WILL be used (see STEP 5 facts)
-    "source": "NLDAS-2 0.125deg" | "Qian T62",
-    "available_start_year": <fact>, "available_end_year": <fact>,
-    "reason": "<CONUS default | non-CONUS fallback | user request>"
+  "forcing_data": {          // copy from the FORCING block — never invent
+    "source": "NLDAS-2 0.125deg",          // the only option
+    "available_start_year": <from the block>, "available_end_year": <from the block>,
+    "reason": "the only forcing this framework can run"
   },
   "run_settings": {           // REQUIRED — see STEP 5
     "requested_period": {"yr_start":…, "yr_end":…} | null,
@@ -195,6 +235,10 @@ design (the brief):
                          "source": "user" | "user-clamped" | "default"},
     "initialization":   {"mode": "cold" | "warm",
                          "source": "conus" | "fan" | null},
+    "observations":     {"streamflow_gauges_in_bbox": <int>,
+                         "with_records_in_period":    <int>,
+                         "largest_catchment_km2":     <float|null>,
+                         "basin_area_km2":            <float|null>} | null,
     "conflicts": ["<each conflict or silent default, one line each>"]
   },
   "known_data_gaps": ["…"],

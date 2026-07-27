@@ -199,31 +199,29 @@ def fetch_wells(clients, bb, max_sample=10):
 def fetch_gauge_yields(clients, bb, year, max_gauges=4):
     """Observed specific discharge (mm/yr) for in-domain gauges: mean daily flow
     in the simulated year ÷ drainage area. The honest routing-free comparison.
-    Discovers which gauges HAVE data via one bbox query on the OGC daily
-    collection, then matches their drainage areas from monitoring-locations."""
+
+    Which gauges HAVE records this year — and how large their catchments are —
+    comes from `usgs_water.get_streamflow_availability`, the same MCP call
+    Reception can make BEFORE a study is designed. That query used to be inlined
+    here, which is why "the only gauge with 1995 data drains 7% of the basin"
+    was a post-run discovery rather than a design input.
+    """
     import httpx
     out = {"n_gauges_bbox": None, "gauges": []}
     try:
-        sg = clients["usgs_water"].call_tool_json("get_monitoring_locations", {
-            "bbox": _bbox_str(bb), "site_type_code": "ST", "limit": 200}) or {}
-        feats = sg.get("features") or []
-        out["n_gauges_bbox"] = sg.get("numberReturned") or len(feats)
-        meta = {f"USGS-{f['properties'].get('monitoring_location_number')}":
-                (f["properties"].get("monitoring_location_name", ""),
-                 _n(f["properties"].get("drainage_area"))) for f in feats}
+        cov = clients["usgs_water"].call_tool_json("get_streamflow_availability", {
+            "bbox": _bbox_str(bb), "start_date": f"{year}-01-01",
+            "end_date": f"{year}-12-31", "min_days": 300, "limit": 200}) or {}
+        out["n_gauges_bbox"]        = cov.get("n_sites")
+        out["n_gauges_with_records"] = cov.get("n_available")
 
         with httpx.Client(timeout=90, follow_redirects=True) as cx:
-            # one spatial query tells us which gauges actually have records
-            disc = cx.get(OGC_DAILY, params={
-                "bbox": _bbox_str(bb), "parameter_code": "00060",
-                "datetime": f"{year}-01-01/{year}-12-31",
-                "limit": 1000, "f": "json"}).json()
-            site_ids = sorted({f["properties"]["monitoring_location_id"]
-                               for f in disc.get("features", [])})
-            for sid in site_ids[:max_gauges * 2]:
-                name, da_mi2 = meta.get(sid, (sid, None))
-                if not da_mi2:
+            for site in (cov.get("available") or [])[:max_gauges * 2]:
+                sid, da_km2 = site["id"], site.get("drainage_area_km2")
+                if not da_km2:
                     continue                               # no drainage area → no yield
+                name  = (site.get("name") or sid)
+                da_m2 = da_km2 * 1e6
                 r = cx.get(OGC_DAILY, params={
                     "monitoring_location_id": sid, "parameter_code": "00060",
                     "datetime": f"{year}-01-01/{year}-12-31",
@@ -234,16 +232,16 @@ def fetch_gauge_yields(clients, bb, year, max_gauges=4):
                 if len(pairs) < 300:                       # need (most of) the year
                     continue
                 vals = [v for _, v in pairs]
-                q_mm = sum(vals) / len(vals) * CFS_TO_M3YR / (da_mi2 * MI2_TO_M2) * 1000
+                q_mm = sum(vals) / len(vals) * CFS_TO_M3YR / da_m2 * 1000
                 out["gauges"].append({"id": sid, "name": name.title()[:38],
-                                      "drainage_area_km2": round(da_mi2 * MI2_TO_KM2, 1),
+                                      "drainage_area_km2": da_km2,
                                       "n_days": len(vals),
                                       "specific_discharge_mm_yr": round(q_mm, 1)})
                 if "daily_best" not in out:                # keep one daily series
-                    to_mm_day = CFS_TO_M3S * 86400 / (da_mi2 * MI2_TO_M2) * 1000
+                    to_mm_day = CFS_TO_M3S * 86400 / da_m2 * 1000
                     out["daily_best"] = {
                         "gauge": name.title()[:38], "id": sid,
-                        "drainage_area_km2": round(da_mi2 * MI2_TO_KM2, 1),
+                        "drainage_area_km2": da_km2,
                         "mm_day": {t[:10]: round(v * to_mm_day, 4) for t, v in pairs}}
                 if len(out["gauges"]) >= max_gauges:
                     break

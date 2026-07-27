@@ -23,6 +23,11 @@ Tools:
     get_groundwater_sites(bbox, limit=25)
         -> {n_sites, sites[]} — wells (site_type_code=GW) as flat dicts
            (id, lat, lon, name, aquifer_code, altitude)
+    get_streamflow_availability(bbox, start_date, end_date, min_days=300)
+        -> {n_sites, n_available, n_without_records, available[]} — which
+           stream gauges actually HAVE daily discharge in a window, with
+           coordinates and drainage_area_km2 so a caller can judge whether any
+           of them represents the modelled domain
     get_water_table_depth(monitoring_location_id, limit=100)
         -> {observations[], summary{n_obs,min/mean/median/max/latest_depth_m}}
            observed depth-to-water (ft->m) from field-measurements param 72019
@@ -79,6 +84,31 @@ def get_groundwater_sites(bbox: str, limit: int = 25) -> str:
     sites = gw._parse_sites(data)
     return json.dumps({"bbox": bbox, "n_sites": len(sites), "sites": sites,
                        "source": _SOURCE})
+
+
+@mcp.tool()
+def get_streamflow_availability(bbox: str, start_date: str, end_date: str,
+                                min_days: int = 300, limit: int = 200) -> str:
+    """Which stream gauges in a bbox HAVE daily discharge over a date window.
+
+    A station list says what exists; this says what is USABLE. Returns each
+    qualifying gauge with its coordinates and drainage_area_km2, so a caller can
+    check not only that a gauge has data but whether its catchment resembles the
+    domain being modelled.
+
+    bbox='min_lon,min_lat,max_lon,max_lat'; dates 'YYYY-MM-DD'; min_days is the
+    minimum number of days with a value for a gauge to count as usable.
+    """
+    try:
+        daily = gw.fetch_daily_coverage(bbox, start_date, end_date, limit=1000)
+        sites = gw.fetch_monitoring_locations(bbox, site_type_code="ST",
+                                              limit=int(limit))
+        out = gw._parse_coverage(daily, sites, min_days=min_days)
+        out["period"] = f"{start_date}/{end_date}"
+        out["source"] = _SOURCE
+        return json.dumps(out)
+    except Exception as e:
+        return json.dumps({"error": str(e)[:200]})
 
 
 @mcp.tool()
