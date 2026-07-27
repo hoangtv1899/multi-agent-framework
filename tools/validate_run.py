@@ -858,10 +858,18 @@ def plot_yield(val, out_path):
             # short model bar leaves room — the previous placement rode on top
             # of the observed bar and collided with the title.
             ax[1].axhline(1.0, color="#222", ls=":", lw=1.2)
-            ax[1].text(-0.42, 1.02, "ratio > 1 is impossible — the gauged\n"
-                       "catchment gets more P than the basin mean",
-                       fontsize=7.5, color=_W, va="bottom", ha="left")
-            ax[1].set_ylim(0, max(b[1] for b in bars) * 1.28)
+            # Headroom ABOVE the tallest bar, so the note cannot be overrun by
+            # it. The previous placement sat at the impossibility line and the
+            # observed bar grew straight through it (caught by the analyzer's
+            # own review of the rendered figure).
+            top = max(b[1] for b in bars) * 1.42
+            ax[1].set_ylim(0, top)
+            ax[1].text(0.5, top * .985,
+                       "ratio > 1 is impossible — the gauged catchment\n"
+                       "receives more P than the basin mean",
+                       fontsize=7.5, color=_W, va="top", ha="center",
+                       transform=ax[1].get_xaxis_transform(which="grid")
+                       if False else ax[1].transData)
         for i, b in enumerate(bars):
             ax[1].text(i, b[1], f"{b[1]:.2f}", ha="center", va="bottom",
                        fontsize=9.5, fontweight="bold")

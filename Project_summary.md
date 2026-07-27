@@ -110,7 +110,7 @@ No hallucinated coordinates is a structural guarantee, not a prompt instruction.
 source /qfs/people/tran289/IDEAS/env_compy.sh
 cd /qfs/people/tran289/IDEAS/multi-agent-framework
 
-python -m pytest -q                       # expect: 3 failed, 190 passed, 62 skipped
+python -m pytest -q                       # expect: 3 failed, 239 passed, 62 skipped
 python3 tools/mcp_conus_sweep.py --max-sites 4 --assert
 python3 workflow.py --interactive
 ```
@@ -121,23 +121,35 @@ The **3 failures are known test drift**, not regressions — see §7.
 
 ## 6. Most-recent run
 
-`workflow_outputs/elm_run_20260725_225034/` — Naches sub-watershed, WA
-(HUC 17030002). 14 columns, 750–1868 m, NLDAS-2 1995. 14/14 succeeded.
-Sampling design, per-column surfaces (14 distinct SSURGO profiles), and the
-five analysis figures all present.
+`workflow_outputs/elm_run_20260726_155406/` — Naches (HUC 17030002), 13 columns,
+NLDAS-2 1995, **warm-started from the CONUS 1-km restarts** (13/13, bands lat11
+and lat12, snapped 227–367 m). 13/13 succeeded in 4 m 42 s of SLURM time.
 
-It is **cold-started** — its `user_nl_elm` has no `finidat` line — because
-warm start was unreachable from `workflow.py` when it ran. It is now reachable
-(step 0b) and needs no prior run at all: the finidat is subset straight out of
-the CONUS 1-km restart. Verified across all 14 columns, bands lat11 (12) and
-lat12 (2), uniform 16 column / 32 pft, snapped 227–367 m.
+Reception chose the warm start itself: the request asked about recharge, and a
+cold 1-year run cannot answer that. Measured on the same column: cold gives
+−0.18 mm/yr of recharge with the water table moving 1 mm in a year; warm gives
+309 mm/yr.
 
-The ELM→PFLOTRAN coupling has been run against it: 14/14 1-D Richards columns
-in 83 s, forced by each column's own daily QINFL. Shallow water tables
-(0.18 m) pass the signal through (lag 0 d, attenuation ~1.0); deep ones
-(145 m) damp it completely — the vadose zone as a low-pass filter.
+**What it shows.** Recharge-dominated partitioning, median recharge:runoff ≈ 4,
+runoff 0.4–13.5 % of P and recharge 2–70 %. Runoff and recharge both scale with
+precipitation (r = 0.82, 0.62). The spatial maps show a coherent west→east
+gradient — high recharge fraction along the western edge, near zero in the east,
+with ET/P the exact inverse. That is the Cascade rain shadow, and its coherence
+says the control is climatic rather than soil noise.
 
----
+**What it does NOT show.** Magnitudes are transient: five columns drain more
+water than falls on them (col_10 at 4.6× P), closure residuals reach ±1500 mm,
+and the water table deepens 0.6 m across the year. That is initial CONUS storage
+draining, exactly as a warm-started column with no spin-up should behave. The
+*direction* is defensible; the *magnitudes* are not, until spin-up.
+
+**Validation** (one figure per observable, each with its own verdict):
+hydrograph −66 % cumulative with NSE −0.32 after the 30-day warm-up is excluded;
+water yield **context-only** because the gauge drains 7.1 % of the basin and only
+1 of 13 columns falls inside its NLDI catchment; the observed runoff ratio 1.74
+is **refused** as physically impossible; SWE is 2–20× low with *no* elevation
+gradient where SNOTEL has a steep one; the water-table comparison is
+climatological (0 of 14 well measurements fall in 1995).
 
 ## 7. Open work
 
@@ -150,16 +162,18 @@ in 83 s, forced by each column's own daily QINFL. Shallow water tables
   construction; there is no TTY under pytest.
 
 **Wiring gaps:**
-- **The refinement loop is not closed.** `conversation_context['last_analysis']`
-  is stored but no agent reads it, so "now try X instead" starts from scratch.
 - **Standalone PFLOTRAN and the reactive-transport demo are still CLI-only.**
   The *coupled* path is wired (step 4d); recharge-scenario ensembles are not.
+- **No auto-carrier is needed any more**, but a multi-year **spin-up** still is:
+  every magnitude in a 1-year run is transient (see §6).
 
-**Validation quality (needs a look):**
-- 93 gauges found in-domain but 0 with 1995 records — the validation reports a
-  comparison it cannot actually make.
-- SWE is off by 3–20× against SNOTEL.
-- The WTD target reports `compared` on weak evidence.
+**Validation quality — addressed, with one input still missing:**
+- Metric units throughout; per-observable figures with individual verdicts;
+  warm-up exclusion; area weighting; NLDI catchment restriction; runoff ratio.
+- **Still blocking a real partitioning verdict: precipitation over the GAUGED
+  catchment.** Without it the observed ratio is computed against the basin mean
+  and comes out impossible (1.74). Either an in-catchment precipitation product
+  or a gauge whose catchment the sampling actually covers.
 
 **Science:**
 - The near-zero recharge across the cold ensemble was a **cold-start artifact**,

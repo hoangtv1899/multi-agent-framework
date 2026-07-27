@@ -782,15 +782,43 @@ class ELMExpManager:
 	# STEP 4c — INTERPRET (numbers + feasibility + validation)
 	# ─────────────────────────────────────────────────────────
 	def _interpret(self, config: Dict[str, Any]) -> bool:
-		"""LLM interpretation grounded in the computed numbers, the plan's
-		feasibility verdict and the observation validation
-		-> 04_analysis/interpretation.md. Non-fatal."""
+		"""The Analyzer: choose figures, render, LOOK at them, interpret.
+
+		Agentic by default — it picks which figures answer the question rather
+		than emitting a fixed set, renders them from the vetted registry, and
+		reviews each rendering by sight before writing the interpretation.
+		config['agentic_analyzer']=False falls back to the one-shot interpreter.
+
+		Flexible in what it explores; bound in what it may claim. Numbers must
+		trace to the JSON, every figure records its provenance, and the
+		validation verdicts (context-only, the domain-match and impossible-ratio
+		refusals) are not negotiable. Non-fatal either way.
+		"""
+		cfg = config or {}
+		model = cfg.get("interpreter_model", "claude-opus-4-8-project")
+		if cfg.get("agentic_analyzer", True):
+			try:
+				ag = _load_tool("analyze_agentic")
+				import sys as _sys
+				argv = _sys.argv
+				_sys.argv = ["analyze_agentic", "--run-dir", str(self.run_dir),
+							 "--model", model]
+				if not cfg.get("analyzer_vision", True):
+					_sys.argv.append("--no-vision")
+				try:
+					ag.main()
+				finally:
+					_sys.argv = argv
+				print("✓ analysis → 04_analysis/{analysis_plan,figure_captions}.json"
+					  " + interpretation.md")
+				return True
+			except SystemExit as e:
+				print(f"   ⚠️  agentic analyzer stopped ({e}) — falling back")
+			except Exception as e:
+				print(f"   ⚠️  agentic analyzer failed ({e}) — falling back")
 		try:
 			ir = _load_tool("interpret_run")
-			ir.interpret(self.run_dir,
-						 model = (config or {}).get(
-							 "interpreter_model", "claude-opus-4-8-project"),
-						 quiet = True)
+			ir.interpret(self.run_dir, model=model, quiet=True)
 			print("✓ interpretation → 04_analysis/interpretation.md")
 			return True
 		except Exception as e:

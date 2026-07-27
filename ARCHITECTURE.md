@@ -76,7 +76,7 @@ constraints.
 | 3 run | all columns as one SLURM job | `03_results/` |
 | 4 analyze | history files → metrics + 5 figures | `04_analysis/` |
 | 4b validate | compare against USGS / SNOTEL observations | `04_analysis/validation.json` |
-| 4c interpret | LLM reads the numbers + verdicts | `04_analysis/interpretation.md` |
+| 4c interpret | Analyzer selects figures, renders, LOOKS at them, interprets | `04_analysis/interpretation.md`, `analysis_plan.json`, `figure_captions.json` |
 | 4d couple | each column's daily QINFL drives its own 1-D PFLOTRAN column | `05_pflotran/` *(only if the plan couples)* |
 | 5 package | everything the Analyzer agent needs | `LLM_ANALYSIS_INPUT.json` |
 
@@ -137,6 +137,9 @@ CLI and you get the same code.
 | `tools/analyze_run.py` | the five science figures + `hydro_summary.json` |
 | `tools/validate_run.py` | observation comparison → `validation.json` |
 | `tools/interpret_run.py` | LLM interpretation grounded in numbers + verdicts |
+| `src/agents/analyzer_agent.py` | the agentic Analyzer: selects, reviews by sight, interprets |
+| `src/core/figure_registry.py` | the menu it selects from; capability detection |
+| `tools/analyze_agentic.py` | orchestration: select → render → look → interpret |
 | `src/agents/analysis_report_agent.py` | final report the coordinator returns |
 | `src/agents/prompts/analyzer_system_elm.txt`, `analyzer_validation.txt` | prompts |
 

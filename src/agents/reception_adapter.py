@@ -48,6 +48,48 @@ _INTENT_MAP = {
 }
 
 
+def _distil_context(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Compact the coordinator's conversation state into something a prompt can
+    actually use.
+
+    The raw state carries `last_plan` and `last_analysis` — whole nested
+    documents. Passing them verbatim floods the context window and buries the
+    two things a follow-up actually needs: what was asked last time, and what
+    came back. Without this, "now try X instead" started from scratch even
+    though the state was sitting right there.
+    """
+    ctx = ctx or {}
+    out: Dict[str, Any] = {}
+    if ctx.get("last_run_dir"):
+        out["prior_run_dir"] = str(ctx["last_run_dir"])
+    if ctx.get("last_focus"):
+        out["prior_focus"] = str(ctx["last_focus"])[:300]
+
+    plan = ctx.get("last_plan") or {}
+    if isinstance(plan, dict):
+        strat = plan.get("sampling_strategy") or {}
+        if strat:
+            out["prior_design"] = {
+                "approach": strat.get("approach"),
+                "n_exploratory": strat.get("n_exploratory")}
+        verdict = (plan.get("feasibility") or {}).get("verdict")
+        if verdict:
+            out["prior_feasibility"] = verdict
+
+    ana = ctx.get("last_analysis")
+    if isinstance(ana, dict):
+        answer = (ana.get("answer_to_user_question")
+                  or ana.get("answer") or "")
+        if answer:
+            out["prior_answer"] = str(answer)[:600]
+        finds = ana.get("key_findings") or []
+        if finds:
+            out["prior_findings"] = [str(f)[:200] for f in finds[:3]]
+    elif isinstance(ana, str) and ana.strip():
+        out["prior_answer"] = ana[:600]
+    return out
+
+
 class AgenticReceptionAdapter:
     """LLMReceptionAgent behind the coordinator's ReceptionResult interface."""
 
@@ -82,7 +124,7 @@ class AgenticReceptionAdapter:
         """Run the agentic loop and return a legacy-shaped ReceptionResult."""
         # The agentic agent takes a prior-experiment dict for cross-model
         # follow-ups; workflow.py's context carries last_plan/last_run_dir/etc.
-        ctx = {k: v for k, v in (conversation_context or {}).items() if v}
+        ctx = _distil_context(conversation_context)
         out = self.agent.process(user_request, context=ctx or None)
         brief = out.get("brief") or {}
 
