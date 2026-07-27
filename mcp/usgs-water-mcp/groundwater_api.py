@@ -80,8 +80,9 @@ def fetch_field_measurements(monitoring_location_id, limit=100,
     return _ogc_items("field-measurements", params)
 
 
-def fetch_daily_coverage(bbox, start_date, end_date, limit=DAILY_PAGE,
-                         parameter_code=Q_PARAMETER_CODE, max_pages=MAX_PAGES):
+def fetch_daily(bbox, start_date, end_date, limit=DAILY_PAGE,
+                parameter_code=Q_PARAMETER_CODE, max_pages=MAX_PAGES,
+                with_time=False):
     """Which sites in this bbox actually have records in this window.
 
     This is the question a station list cannot answer. A bbox can hold 93
@@ -106,7 +107,61 @@ def fetch_daily_coverage(bbox, start_date, end_date, limit=DAILY_PAGE,
     url = f"{OGC_BASE}/collections/daily/items"
     q = {"f": "json", "bbox": bbox, "parameter_code": parameter_code,
          "datetime": f"{start_date}/{end_date}", "limit": int(limit),
-         "properties": "monitoring_location_id,value"}
+         "properties": ("monitoring_location_id,time,value" if with_time
+                        else "monitoring_location_id,value")}
+    feats, pages, truncated = [], 0, False
+    with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, verify=True) as cx:
+        r = cx.get(url, params=q)
+        r.raise_for_status()
+        page = r.json()
+        while True:
+            feats.extend(page.get("features") or [])
+            pages += 1
+            nxt = next((l.get("href") for l in (page.get("links") or [])
+                        if l.get("rel") == "next"), None)
+            if not nxt:
+                break
+            if pages >= max_pages:
+                truncated = True
+                break
+            r = cx.get(nxt)
+            r.raise_for_status()
+            page = r.json()
+    return {"type": "FeatureCollection", "features": feats,
+            "truncated": truncated, "n_pages": pages}
+
+
+def fetch_record_spans(bbox, parameter_code=Q_PARAMETER_CODE, limit=500):
+    """Period of record per station, WITHOUT pulling any records.
+
+    Answers "which years could this basin ever be validated in" in one 0.3 s
+    query, where probing candidate years costs ~45 s each on a cold cache.
+
+    Read it as an OUTER ENVELOPE, never as truth: the Naches outlet gauge
+    reports a span of 1899-1990 and yet has nothing at all in 1985. A span rules
+    a year OUT reliably; only a counts query rules one IN.
+    """
+    return _ogc_items("time-series-metadata",
+                      {"bbox": bbox, "parameter_code": parameter_code,
+                       "limit": int(limit),
+                       "properties": "monitoring_location_id,begin,end"})
+
+
+def fetch_field_measurements_bbox(bbox, start_date=None, end_date=None,
+                                  limit=DAILY_PAGE, max_pages=MAX_PAGES,
+                                  parameter_code=WTD_PARAMETER_CODE):
+    """Every well measurement in a bbox in one paged query.
+
+    Replaces a site list plus one call per well. The old N+1 shape forced a
+    sample cap (10 wells) that silently decided the answer: the Naches "0 of 14
+    wells have records" came from looking at 14 of 2667 wells. One period-scoped
+    query here returns 232 wells with records in 1988.
+    """
+    url = f"{OGC_BASE}/collections/field-measurements/items"
+    q = {"f": "json", "bbox": bbox, "parameter_code": parameter_code,
+         "limit": int(limit), "properties": "monitoring_location_id,time,value"}
+    if start_date and end_date:
+        q["datetime"] = f"{start_date}/{end_date}"
     feats, pages, truncated = [], 0, False
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, verify=True) as cx:
         r = cx.get(url, params=q)
@@ -179,22 +234,14 @@ def _parse_sites(data):
     return sites
 
 
-def _parse_coverage(daily_data, sites_data, min_days=300):
-    """(daily FeatureCollection, monitoring-locations FeatureCollection)
-    -> {available[], n_available, n_sites, n_without_records}.
+def _site_meta(sites_data):
+    """{station id: name/lat/lon/drainage_area_km2} from monitoring-locations.
 
-    Network-free, like the other parsers. `available` carries what a caller
-    needs to decide whether a station is USEFUL, not merely present:
-    coordinates (to place a column or draw a map) and drainage area in km2
-    (to judge whether the station represents the modelled domain at all).
+    Coordinates and catchment area travel with every station because a caller
+    needs both to judge whether a station is USEFUL, not merely present: where
+    to place it on a map, and whether its catchment resembles the domain being
+    modelled at all.
     """
-    counts = {}
-    for f in (daily_data or {}).get("features", []) or []:
-        props = f.get("properties", {}) or {}
-        sid = props.get("monitoring_location_id")
-        if sid and props.get("value") is not None:
-            counts[sid] = counts.get(sid, 0) + 1
-
     meta = {}
     for f in (sites_data or {}).get("features", []) or []:
         props = f.get("properties", {}) or {}
@@ -214,6 +261,136 @@ def _parse_coverage(daily_data, sites_data, min_days=300):
             "lon": round(coords[0], 5) if len(coords) > 0 and coords[0] is not None else None,
             "drainage_area_km2": da_km2,
         }
+    return meta
+
+
+def _parse_spans(md_data, sites_data):
+    """time-series-metadata -> one first/last year per station.
+
+    A station can carry several series (different statistics or sublocations);
+    they are merged into the outer envelope, since any of them existing means
+    the year is not ruled out.
+    """
+    meta = _site_meta(sites_data)
+    spans = {}
+    for f in (md_data or {}).get("features", []) or []:
+        props = f.get("properties", {}) or {}
+        sid = props.get("monitoring_location_id")
+        b, e = str(props.get("begin") or "")[:4], str(props.get("end") or "")[:4]
+        if not (sid and b.isdigit() and e.isdigit()):
+            continue
+        lo, hi = int(b), int(e)
+        cur = spans.get(sid)
+        spans[sid] = (min(cur[0], lo), max(cur[1], hi)) if cur else (lo, hi)
+
+    stations = [{"id": sid, "first_year": lo, "last_year": hi, **meta.get(sid, {})}
+                for sid, (lo, hi) in spans.items()]
+    # Widest catchment first: the station that could validate the whole domain
+    # is the one a caller is looking for, and it is rarely the first returned.
+    stations.sort(key=lambda s: (-(s.get("drainage_area_km2") or 0), s["id"]))
+    return {"n_stations": len(stations), "stations": stations,
+            "caveat": ("spans are an OUTER ENVELOPE — a year inside a span may "
+                       "still hold no records; confirm with a dated query")}
+
+
+def _parse_wells(fm_data, sites_data, min_obs=1, with_values=False):
+    """field-measurements -> wells that actually have depth-to-water records.
+
+    `value` is a STRING in FEET in this collection; metres are computed here so
+    no caller has to remember the unit.
+    """
+    meta = _site_meta(sites_data)
+    per = {}
+    for f in (fm_data or {}).get("features", []) or []:
+        props = f.get("properties", {}) or {}
+        sid, tm = props.get("monitoring_location_id"), props.get("time")
+        try:
+            ft = float(props.get("value"))
+        except (TypeError, ValueError):
+            continue
+        if not sid:
+            continue
+        per.setdefault(sid, []).append({"date": str(tm)[:10] if tm else None,
+                                        "wtd_m": round(ft * FT_TO_M, 3)})
+
+    wells = []
+    for sid, obs in per.items():
+        if len(obs) < int(min_obs):
+            continue
+        depths = [o["wtd_m"] for o in obs]
+        w = {"id": sid, "n_obs": len(obs),
+             "wtd_m": round(_median(depths), 2),
+             "min_depth_m": round(min(depths), 2),
+             "max_depth_m": round(max(depths), 2),
+             **{k: v for k, v in meta.get(sid, {}).items()
+                if k in ("name", "lat", "lon")}}
+        if with_values:
+            w["series"] = sorted((o for o in obs if o["date"]),
+                                 key=lambda o: o["date"])
+        wells.append(w)
+    wells.sort(key=lambda w: -w["n_obs"])
+
+    out = {"n_wells_with_records": len(wells), "min_obs": int(min_obs),
+           "wells": wells}
+    if (fm_data or {}).get("truncated"):
+        out["truncated"] = True
+        out["warning"] = ("well list is INCOMPLETE — the query hit its page cap")
+    return out
+
+
+CFS_TO_M3S = 0.0283168
+
+
+def attach_daily_series(coverage, daily_data):
+    """Add each available gauge's daily series as SPECIFIC DISCHARGE (mm/day).
+
+    Flow divided by catchment area. A raw cfs hydrograph cannot be compared with
+    a modelled column at all — the column has no catchment and no routing — but
+    depth per unit area is the same quantity in both, so this is the conversion
+    that makes the comparison meaningful rather than merely plottable.
+
+    A gauge with no drainage area gets no series rather than a wrong one.
+    """
+    by_site = {}
+    for f in (daily_data or {}).get("features", []) or []:
+        props = f.get("properties", {}) or {}
+        sid, tm, val = (props.get("monitoring_location_id"),
+                        props.get("time"), props.get("value"))
+        if not (sid and tm) or val is None:
+            continue
+        try:
+            by_site.setdefault(sid, {})[str(tm)[:10]] = float(val)
+        except (TypeError, ValueError):
+            continue
+
+    for g in coverage.get("available", []) or []:
+        da_km2 = g.get("drainage_area_km2")
+        series = by_site.get(g["id"])
+        if not da_km2 or not series:
+            continue
+        to_mm_day = CFS_TO_M3S * 86400 / (da_km2 * 1e6) * 1000
+        g["mm_day"] = {d: round(v * to_mm_day, 4) for d, v in sorted(series.items())}
+        g["mean_cfs"] = round(sum(series.values()) / len(series), 1)
+    return coverage
+
+
+def _parse_coverage(daily_data, sites_data, min_days=300):
+    """(daily FeatureCollection, monitoring-locations FeatureCollection)
+    -> {available[], n_available, n_sites, n_without_records}.
+
+    Network-free, like the other parsers. `available` carries what a caller
+    needs to decide whether a station is USEFUL, not merely present:
+    coordinates (to place a column or draw a map) and drainage area in km2
+    (to judge whether the station represents the modelled domain at all).
+    """
+    counts = {}
+    for f in (daily_data or {}).get("features", []) or []:
+        props = f.get("properties", {}) or {}
+        sid = props.get("monitoring_location_id")
+        if sid and props.get("value") is not None:
+            counts[sid] = counts.get(sid, 0) + 1
+
+    meta = _site_meta(sites_data)
 
     available = []
     for sid, n in sorted(counts.items(), key=lambda kv: -kv[1]):

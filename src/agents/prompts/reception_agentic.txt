@@ -50,16 +50,20 @@ STEP 3 — GATHER (site archetype): use tools, in roughly this order
      is given, use terrain__get_elevation and reason about extent.)
   2. terrain__elevation_summary(bbox, n=60) → relief + elevation bands
      (the heterogeneity that drives stratification).
-  3. usgs_water__get_groundwater_sites(bbox, limit=25) → wells = candidate
-     water-table validation points. If some exist, optionally check one with
-     usgs_water__get_water_table_depth to confirm there are records.
-  4. usgs_water__get_streamflow_availability(bbox, start_date, end_date)
-     → streamflow gages that HAVE records in the resolved period, with their
-     catchment areas = integrated water-balance validation. Prefer this over
-     get_monitoring_locations: a bbox can hold 93 gages of which one reports.
-  5. fan_wtd__get_fan_wtd / fan_wtd__sample_fan_wtd(bbox) → equilibrium
+  3. OBSERVATIONS — three tools, all the same shape:
+       usgs_water__get_streamflow(bbox[, start_date, end_date])
+       usgs_water__get_water_table(bbox[, start_date, end_date])
+       snotel__get_swe(bbox[, start_date, end_date])
+     WITHOUT dates each returns what exists and its period of record — one
+     cheap call that shows which years the basin could ever be validated in.
+     WITH dates each returns what actually REPORTED in that window, which is
+     the only thing that settles it: a bbox can hold 93 stream gages of which
+     one has records, and which one changes with the year.
+     Never pass with_values=True — that returns full timeseries, for the
+     validators, not for framing a brief.
+  4. fan_wtd__get_fan_wtd / fan_wtd__sample_fan_wtd(bbox) → equilibrium
      water-table-depth prior (heterogeneity context + a benchmark surface).
-  6. geology__get_soil_profile(lat,lon) at the domain centroid → soil-texture
+  5. geology__get_soil_profile(lat,lon) at the domain centroid → soil-texture
      context (NOTE: this is POINT only — gridded soil is a known gap).
 
 Decide which of these matter for THIS question; you need not call all of them.
@@ -139,9 +143,11 @@ OBSERVATIONS — SUPPLEMENTARY. They decide whether the run can be CHECKED,
 never whether it can happen. Record them; do not let them gate anything.
 Do this whenever the request says "compare with observations", "validate",
 "evaluate against measurements" — or names streamflow at all.
-  • Call usgs_water__get_streamflow_availability with the domain bbox and the
-    resolved period. It answers what a station list cannot: how many gauges
-    HAVE daily discharge in that window, not how many exist.
+  • Call usgs_water__get_streamflow with the domain bbox and the resolved
+    period. It answers what a station list cannot: how many gauges HAVE daily
+    discharge in that window, not how many exist. To choose among years
+    instead, call it with NO dates first and read the record spans — one query
+    rather than one per candidate year.
   • Record into run_settings.observations:
     {"streamflow_gauges_in_bbox": n_sites,
      "with_records_in_period": n_available,

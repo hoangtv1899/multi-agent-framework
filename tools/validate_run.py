@@ -148,103 +148,114 @@ def _n(x):
         return None
 
 
+def _temporal_note(n_in_year, n_total, year, yr_lo, yr_hi):
+    """Say whether the well comparison is year-matched, and how strongly.
+
+    This used to assert a temporal mismatch unconditionally, because when it was
+    written the well query was capped at 10 sites and found 0 measurements in
+    the simulated year. The bulk query finds 86, all of them in-year — at which
+    point the fixed sentence contradicted the count printed beside it. The
+    strength of the comparison is a property of the data, so read it off.
+    """
+    if not yr_lo:
+        return ""
+    if n_total and n_in_year == n_total:
+        return (f"YEAR-MATCHED: all {n_total} well measurements fall in {year}.")
+    if n_in_year:
+        return (f"PARTIALLY year-matched: {n_in_year} of {n_total} well "
+                f"measurements fall in {year} (records span {yr_lo}-{yr_hi}); "
+                f"the rest are climatological.")
+    return (f"TEMPORAL MISMATCH: none of the {n_total} well measurements fall "
+            f"in {year} (records span {yr_lo}-{yr_hi}) — this is a "
+            f"CLIMATOLOGICAL comparison, not a year-matched one.")
+
+
 def _bbox_str(bb):
     return f'{bb["min_lon"]},{bb["min_lat"]},{bb["max_lon"]},{bb["max_lat"]}'
 
 
 # ── observation fetchers ─────────────────────────────────────────────────────
-def fetch_wells(clients, bb, max_sample=10):
-    """Observed water-table depths at USGS wells that actually have records."""
+def fetch_wells(clients, bb, year=None, max_sample=40):
+    """Observed water-table depths at USGS wells that actually have records.
+
+    One bulk query now, not a site list plus one call per well. The old N+1
+    shape needed a sample cap, and that cap silently decided the answer: "0 of
+    14 wells have records" was 14 wells looked at out of 2667 in the bbox.
+    """
     out = {"n_sites": None, "sampled": 0, "wells": []}
     try:
-        gw = clients["usgs_water"].call_tool_json(
-            "get_groundwater_sites", {"bbox": _bbox_str(bb), "limit": 200}) or {}
-        sites = gw.get("sites", [])
-        out["n_sites"] = gw.get("n_sites", len(sites))
-        for s in sites[:max_sample]:
-            sid = s.get("id") or s.get("monitoring_location_id")
-            if not sid:
-                continue
-            out["sampled"] += 1
-            w = clients["usgs_water"].call_tool_json(
-                "get_water_table_depth", {"monitoring_location_id": sid, "limit": 50}) or {}
-            summ = w.get("summary") or {}
-            if not summ.get("n_obs"):
-                continue
-            d = next((_n(summ.get(k)) for k in
-                      ("mean_depth_m", "median_depth_m", "latest_depth_m")
-                      if _n(summ.get(k)) is not None), None)
-            if d is not None:
-                # Location and the individual measurements: needed to pair a
-                # well with its nearest column and to plot it through time.
-                # These are discrete field measurements, not a logger series.
-                series = []
-                for m in (w.get("measurements") or w.get("observations") or []):
-                    dt = m.get("time") or m.get("date") or m.get("datetime")
-                    dv = next((_n(m.get(k)) for k in
-                               ("depth_to_water_m", "depth_m", "value")
-                               if _n(m.get(k)) is not None), None)
-                    if dt and dv is not None:
-                        series.append({"date": str(dt)[:10], "wtd_m": round(dv, 3)})
-                out["wells"].append({
-                    "id": sid, "wtd_m": round(d, 2), "n_obs": summ.get("n_obs"),
-                    "lat": _n(s.get("lat") or s.get("latitude")),
-                    "lon": _n(s.get("lon") or s.get("longitude")),
-                    "series": sorted(series, key=lambda r: r["date"])})
+        args = {"bbox": _bbox_str(bb), "with_values": True}
+        if year:
+            args.update(start_date=f"{year}-01-01", end_date=f"{year}-12-31")
+        gwr = clients["usgs_water"].call_tool_json("get_water_table", args) or {}
+        wells = gwr.get("wells") or []
+        if year and not wells:
+            # Nothing measured in the simulated year. Fall back to the whole
+            # record so the comparison is climatological rather than absent —
+            # but SAY which it is, because a climatological match is weaker
+            # evidence than a contemporaneous one and must not be read as one.
+            out["in_period"] = False
+            out["fell_back_to_all_records"] = True
+            gwr = clients["usgs_water"].call_tool_json(
+                "get_water_table", {"bbox": _bbox_str(bb), "with_values": True}) or {}
+            wells = gwr.get("wells") or []
+        out["n_sites"] = gwr.get("n_wells_with_records", len(wells))
+        out["sampled"] = min(len(wells), max_sample)
+        out["in_period"] = bool(year)
+        for w in wells[:max_sample]:
+            out["wells"].append({
+                "id": w.get("id"), "wtd_m": _n(w.get("wtd_m")),
+                "n_obs": w.get("n_obs"),
+                "lat": _n(w.get("lat")), "lon": _n(w.get("lon")),
+                "series": w.get("series") or []})
+        if gwr.get("truncated"):
+            out["truncated"] = True
     except Exception as e:
         out["error"] = str(e)[:100]
     return out
 
 
 def fetch_gauge_yields(clients, bb, year, max_gauges=4):
-    """Observed specific discharge (mm/yr) for in-domain gauges: mean daily flow
-    in the simulated year ÷ drainage area. The honest routing-free comparison.
+    """Observed specific discharge (mm/yr) for in-domain gauges: daily flow
+    divided by catchment area. The honest routing-free comparison.
 
-    Which gauges HAVE records this year — and how large their catchments are —
-    comes from `usgs_water.get_streamflow_availability`, the same MCP call
-    Reception can make BEFORE a study is designed. That query used to be inlined
-    here, which is why "the only gauge with 1995 data drains 7% of the basin"
-    was a post-run discovery rather than a design input.
+    Discovery, catchment areas and the daily series now all come from one
+    `get_streamflow` call — the same tool Reception uses before a study is
+    designed, so the two stages can never disagree about which gauge reports.
     """
-    import httpx
     out = {"n_gauges_bbox": None, "gauges": []}
     try:
-        cov = clients["usgs_water"].call_tool_json("get_streamflow_availability", {
+        r = clients["usgs_water"].call_tool_json("get_streamflow", {
             "bbox": _bbox_str(bb), "start_date": f"{year}-01-01",
-            "end_date": f"{year}-12-31", "min_days": 300, "limit": 200}) or {}
-        out["n_gauges_bbox"]        = cov.get("n_sites")
-        out["n_gauges_with_records"] = cov.get("n_available")
+            "end_date": f"{year}-12-31", "with_values": True,
+            "min_days": 300}) or {}
+        out["n_gauges_bbox"]         = r.get("n_sites")
+        out["n_gauges_with_records"] = r.get("n_available")
+        if r.get("truncated"):
+            out["truncated"] = True
 
-        with httpx.Client(timeout=90, follow_redirects=True) as cx:
-            for site in (cov.get("available") or [])[:max_gauges * 2]:
-                sid, da_km2 = site["id"], site.get("drainage_area_km2")
-                if not da_km2:
-                    continue                               # no drainage area → no yield
-                name  = (site.get("name") or sid)
-                da_m2 = da_km2 * 1e6
-                r = cx.get(OGC_DAILY, params={
-                    "monitoring_location_id": sid, "parameter_code": "00060",
-                    "datetime": f"{year}-01-01/{year}-12-31",
-                    "limit": 400, "f": "json"})
-                pairs = [(f["properties"].get("time"), _n(f["properties"].get("value")))
-                         for f in r.json().get("features", [])]
-                pairs = [(t, v) for t, v in pairs if v is not None and t]
-                if len(pairs) < 300:                       # need (most of) the year
-                    continue
-                vals = [v for _, v in pairs]
-                q_mm = sum(vals) / len(vals) * CFS_TO_M3YR / da_m2 * 1000
-                out["gauges"].append({"id": sid, "name": name.title()[:38],
-                                      "drainage_area_km2": da_km2,
-                                      "n_days": len(vals),
-                                      "specific_discharge_mm_yr": round(q_mm, 1)})
-                if "daily_best" not in out:                # keep one daily series
-                    to_mm_day = CFS_TO_M3S * 86400 / da_m2 * 1000
-                    out["daily_best"] = {
-                        "gauge": name.title()[:38], "id": sid,
-                        "drainage_area_km2": da_km2,
-                        "mm_day": {t[:10]: round(v * to_mm_day, 4) for t, v in pairs}}
-                if len(out["gauges"]) >= max_gauges:
-                    break
+        for g in (r.get("available") or []):
+            mm = g.get("mm_day") or {}
+            if not mm:
+                continue                        # no catchment area -> no yield
+            vals = list(mm.values())
+            name = (g.get("name") or g["id"]).title()[:38]
+            # Annualise on the year's OWN length. A gauge may report 300-366
+            # days, so the mean daily depth is scaled by the calendar rather
+            # than summed, and 1988 is 366 days, not 365.25.
+            days_in_year = 366 if (year % 4 == 0 and
+                                   (year % 100 != 0 or year % 400 == 0)) else 365
+            out["gauges"].append({
+                "id": g["id"], "name": name,
+                "drainage_area_km2": g.get("drainage_area_km2"),
+                "n_days": len(vals),
+                "specific_discharge_mm_yr": round(sum(vals) / len(vals) * days_in_year, 1)})
+            if "daily_best" not in out:         # keep one daily series
+                out["daily_best"] = {"gauge": name, "id": g["id"],
+                                     "drainage_area_km2": g.get("drainage_area_km2"),
+                                     "mm_day": mm}
+            if len(out["gauges"]) >= max_gauges:
+                break
     except Exception as e:
         out["error"] = str(e)[:100]
     return out
@@ -386,32 +397,25 @@ def flow_metrics(obs: dict, mod: dict, warmup_days: int = WARMUP_DAYS):
 
 
 def fetch_peak_swe(clients, bb, year):
-    """Observed peak SWE per SNOTEL station for the water year (Oct–Sep)."""
+    """Observed peak SWE per SNOTEL station for the water year (Oct-Sep)."""
     out = {"n_stations": None, "stations": []}
     try:
-        sn = clients["snotel"].call_tool_json("get_snotel_stations", {
-            "min_lon": bb["min_lon"], "min_lat": bb["min_lat"],
-            "max_lon": bb["max_lon"], "max_lat": bb["max_lat"]}) or {}
-        stations = sn.get("stations", [])
-        out["n_stations"] = sn.get("n_stations", len(stations))
-        for s in stations[:8]:
-            trip = s.get("triplet") or s.get("station_triplet")
-            if not trip:
+        sn = clients["snotel"].call_tool_json("get_swe", {
+            "bbox": _bbox_str(bb),
+            "start_date": f"{year - 1}-10-01",
+            "end_date": f"{year}-09-30"}) or {}
+        out["n_stations"] = sn.get("n_stations")
+        out["n_reporting"] = sn.get("n_reporting")
+        for s in (sn.get("stations") or [])[:8]:
+            if _n(s.get("peak_swe_mm")) is None:
                 continue
-            sw = clients["snotel"].call_tool_json("get_snotel_swe", {
-                "station_triplet": trip,
-                "start_date": f"{year - 1}-10-01",
-                "end_date": f"{year}-09-30"}) or {}
-            summ = sw.get("summary") or {}
-            if _n(summ.get("peak_swe_mm")) is not None:
-                elev_ft = _n(s.get("elevation_ft") or s.get("elevation"))
-                out["stations"].append({
-                    "name": (s.get("name") or trip)[:24], "triplet": trip,
-                    "elevation_m": round(elev_ft * FT_TO_M, 1) if elev_ft else None,
-                    "lat": _n(s.get("lat") or s.get("latitude")),
-                    "lon": _n(s.get("lon") or s.get("longitude")),
-                    "peak_swe_mm": round(_n(summ["peak_swe_mm"]), 1),
-                    "peak_date": summ.get("peak_date")})
+            out["stations"].append({
+                "name": (s.get("name") or s.get("triplet") or "")[:24],
+                "triplet": s.get("triplet"),
+                "elevation_m": _n(s.get("elevation_m")),
+                "lat": _n(s.get("lat")), "lon": _n(s.get("lon")),
+                "peak_swe_mm": round(_n(s["peak_swe_mm"]), 1),
+                "peak_date": s.get("peak_date")})
     except Exception as e:
         out["error"] = str(e)[:100]
     return out
@@ -452,7 +456,7 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     precip = [p for p in precip if p is not None]
 
     print("  fetching observations (wells, gauge discharge, SNOTEL SWE)…")
-    wells = fetch_wells(clients, bb)
+    wells = fetch_wells(clients, bb, year=year)
     gauges = fetch_gauge_yields(clients, bb, year)
     swe = fetch_peak_swe(clients, bb, year)
 
@@ -656,11 +660,9 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
          "note": ("distribution comparison (wells are not co-located with columns); the "
                   "column ZWT is a shallow/perched table — offsets from the deep regional "
                   "WTD are expected without groundwater coupling + spin-up. "
-                  + (f"TEMPORAL MISMATCH: {_n_in_year} of "
-                     f"{sum(len(w['points']) for w in well_series)} well measurements "
-                     f"fall in {year} (records span {_yr_lo}-{_yr_hi}) — this is a "
-                     f"CLIMATOLOGICAL comparison, not a year-matched one."
-                     if _yr_lo else ""))},
+                  + _temporal_note(_n_in_year,
+                                   sum(len(w['points']) for w in well_series),
+                                   year, _yr_lo, _yr_hi))},
         {"variable": "streamflow (water yield)",
          "status": ("compared" if (obs_q and comparable) else "context-only"),
          "obs": f"{len(obs_q)} in-domain gauges with {year} daily records ÷ drainage area",
@@ -709,6 +711,7 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
                 "snotel": {"n": swe["n_stations"], "with_swe": len(peak_swes)},
                 "streamgages": {"n": gauges["n_gauges_bbox"], "with_year_records": len(obs_q)},
                 "gwwells": {"n": wells["n_sites"], "sampled": wells["sampled"],
+                            "in_period": wells.get("in_period"),
                             "with_records": len(obs_wtd)}},
             "wtd_comparison": {"model_zwt_m": model_zwt, "fan_at_columns_m": fan_at_cols,
                                "observed_wells_m": obs_wtd},

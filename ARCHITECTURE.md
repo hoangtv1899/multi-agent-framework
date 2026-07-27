@@ -51,6 +51,16 @@ asserted version had drifted: the prompt claimed 1980–2018 where Compy holds
 `elm_wrapper.FIXED_XML` makes unreachable (`DATM_MODE=CLMMOSARTTEST`). A
 directory listing cannot drift.
 
+Observation coverage comes from three tools with one shape —
+`get_streamflow`, `get_water_table`, `get_swe` — each answering
+*what exists* (no dates), *what reported* (dates), or *the records themselves*
+(`with_values`). They replaced six tools that split those questions apart, and
+the split was not cosmetic: asking "which wells exist" separately from "which
+have data" forced a per-well loop, which forced a sample cap, and the cap
+silently decided the answer — the Naches "0 of 14 wells have records in 1995"
+was 14 wells looked at out of 2667. One bulk query finds 86, all measured
+in-year, turning a climatological comparison into a year-matched one.
+
 `observations` records coverage and never gates. `get_streamflow_availability`
 reports how many gauges hold records in the period, not how many exist, and a
 thin answer becomes a conflict line — not a question, because the user may have

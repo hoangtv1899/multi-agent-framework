@@ -72,18 +72,17 @@ def sweep(mgr, sites, do_assert):
             if do_assert and not (-100 <= elev <= 5000):
                 failures.append(f"{name}: elevation {elev} out of CONUS range")
 
-        gw = usgs.call_tool_json("get_groundwater_sites", {"bbox": _bbox(lat, lon), "limit": 100}) or {}
-        sites_list = gw.get("sites", [])
-        wells = gw.get("n_sites")
+        # One call now answers both questions the sweep asks — are there wells,
+        # and do any of them hold records — because get_water_table returns only
+        # wells that have measurements.
+        gw = usgs.call_tool_json("get_water_table",
+                                 {"bbox": _bbox(lat, lon)}) or {}
+        wells = wtd = gw.get("n_wells_with_records")
         if wells:
             cov["wells"] += 1
-            sid = sites_list[0].get("id")
-            w = usgs.call_tool_json("get_water_table_depth", {"monitoring_location_id": sid}) or {}
-            wtd = (w.get("summary") or {}).get("n_obs")
-            if wtd:
-                cov["wtd"] += 1
+            cov["wtd"] += 1
         else:
-            note = "no GW wells in bbox"
+            note = "no GW wells with records in bbox"
 
         fr = fan.call_tool_json("get_fan_wtd", {"lat": lat, "lon": lon}) or {}
         fanm = fr.get("depth_to_water_m")

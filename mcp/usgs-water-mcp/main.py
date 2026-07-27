@@ -16,21 +16,13 @@ Data sources (free, no key):
     NWIS IV   https://waterservices.usgs.gov/nwis/iv/   (legacy fetch_usgs_data)
 
 Tools:
-    get_monitoring_locations(bbox, agency_code="", site_type_code="", limit=50)
-        -> near-raw OGC monitoring-locations FeatureCollection
-           (features[].properties.monitoring_location_number / _name /
-           drainage_area, plus numberReturned)
-    get_groundwater_sites(bbox, limit=25)
-        -> {n_sites, sites[]} — wells (site_type_code=GW) as flat dicts
-           (id, lat, lon, name, aquifer_code, altitude)
-    get_streamflow_availability(bbox, start_date, end_date, min_days=300)
-        -> {n_sites, n_available, n_without_records, available[]} — which
-           stream gauges actually HAVE daily discharge in a window, with
-           coordinates and drainage_area_km2 so a caller can judge whether any
-           of them represents the modelled domain
-    get_water_table_depth(monitoring_location_id, limit=100)
-        -> {observations[], summary{n_obs,min/mean/median/max/latest_depth_m}}
-           observed depth-to-water (ft->m) from field-measurements param 72019
+    get_streamflow(bbox[, start_date, end_date, with_values])
+        -> no dates: period of record per gauge; dates: gauges that HAVE daily
+           discharge in that window; with_values: their series in mm/day.
+           Every gauge carries lat/lon + drainage_area_km2.
+    get_water_table(bbox[, start_date, end_date, with_values])
+        -> wells with depth-to-water records (parameter 72019), metres below
+           land surface, same three shapes.
     fetch_usgs_data(sites, parameter_codes="00060,00065,00010", period="P1D")
         -> raw NWIS instantaneous-values WaterML-JSON (legacy passthrough)
 
@@ -58,53 +50,45 @@ mcp = FastMCP("usgs_water")
 # ─────────────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
-def get_monitoring_locations(bbox: str, agency_code: str = "",
-                             site_type_code: str = "", limit: int = 50) -> str:
-    """USGS monitoring locations in a bbox (near-raw OGC FeatureCollection).
-    bbox='min_lon,min_lat,max_lon,max_lat'; site_type_code e.g. 'ST' (stream
-    gauge) or 'GW' (well); agency_code e.g. 'USGS'. Read
-    features[].properties.monitoring_location_number / _name / drainage_area."""
-    try:
-        data = gw.fetch_monitoring_locations(bbox, agency_code, site_type_code, limit)
-    except Exception as e:
-        return json.dumps({"error": f"USGS monitoring-locations query failed: {e}"})
-    return json.dumps({**data, "source": _SOURCE})
+def get_streamflow(bbox: str, start_date: str = "", end_date: str = "",
+                   with_values: bool = False, min_days: int = 300,
+                   limit: int = 200) -> str:
+    """Stream gauges in a bbox — what exists, what has records, and the records.
 
+    ONE tool, three uses, chosen by the arguments:
 
-@mcp.tool()
-def get_groundwater_sites(bbox: str, limit: int = 25) -> str:
-    """USGS groundwater wells (site_type_code=GW) in a bbox.
-    Returns {n_sites, sites[]} where each site has id (usable as
-    monitoring_location_id), lat, lon, name, aquifer_code, altitude.
-    bbox='min_lon,min_lat,max_lon,max_lat'."""
-    try:
-        data = gw.fetch_monitoring_locations(bbox, site_type_code="GW", limit=limit)
-    except Exception as e:
-        return json.dumps({"error": f"USGS groundwater sites query failed: {e}"})
-    sites = gw._parse_sites(data)
-    return json.dumps({"bbox": bbox, "n_sites": len(sites), "sites": sites,
-                       "source": _SOURCE})
+      no dates                 -> period of record per gauge (first_year,
+                                  last_year). One cheap query. Use this to see
+                                  which years the basin could EVER be validated
+                                  in, instead of guessing a year and probing.
+      dates                    -> gauges with >= min_days of daily discharge in
+                                  that window, the truth a span cannot give.
+      dates + with_values=True -> the same, plus each gauge's daily series as
+                                  specific discharge in mm/day (flow divided by
+                                  catchment area, so it compares directly with a
+                                  modelled column). For validators, NOT for
+                                  conversational use — it is large.
 
+    Every gauge carries lat/lon and drainage_area_km2, so a caller can judge
+    whether its catchment resembles the domain being modelled: a bbox may hold
+    93 gauges of which one reports, draining 7% of the basin.
 
-@mcp.tool()
-def get_streamflow_availability(bbox: str, start_date: str, end_date: str,
-                                min_days: int = 300, limit: int = 200) -> str:
-    """Which stream gauges in a bbox HAVE daily discharge over a date window.
-
-    A station list says what exists; this says what is USABLE. Returns each
-    qualifying gauge with its coordinates and drainage_area_km2, so a caller can
-    check not only that a gauge has data but whether its catchment resembles the
-    domain being modelled.
-
-    bbox='min_lon,min_lat,max_lon,max_lat'; dates 'YYYY-MM-DD'; min_days is the
-    minimum number of days with a value for a gauge to count as usable.
+    bbox='min_lon,min_lat,max_lon,max_lat'; dates 'YYYY-MM-DD'.
     """
     try:
-        daily = gw.fetch_daily_coverage(bbox, start_date, end_date, limit=1000)
         sites = gw.fetch_monitoring_locations(bbox, site_type_code="ST",
                                               limit=int(limit))
-        out = gw._parse_coverage(daily, sites, min_days=min_days)
-        out["period"] = f"{start_date}/{end_date}"
+        if not (start_date and end_date):
+            out = gw._parse_spans(gw.fetch_record_spans(bbox), sites)
+            out["mode"] = "record_spans"
+        else:
+            daily = gw.fetch_daily(bbox, start_date, end_date,
+                                   with_time=bool(with_values))
+            out = gw._parse_coverage(daily, sites, min_days=min_days)
+            out["mode"] = "with_values" if with_values else "coverage"
+            out["period"] = f"{start_date}/{end_date}"
+            if with_values:
+                gw.attach_daily_series(out, daily)
         out["source"] = _SOURCE
         return json.dumps(out)
     except Exception as e:
@@ -112,20 +96,33 @@ def get_streamflow_availability(bbox: str, start_date: str, end_date: str,
 
 
 @mcp.tool()
-def get_water_table_depth(monitoring_location_id: str, limit: int = 100) -> str:
-    """Observed depth-to-water (metres below land surface) at a USGS well from
-    field measurements (parameter 72019). monitoring_location_id e.g.
-    'USGS-465728120401801'. Returns {observations[], summary{n_obs, min/mean/
-    median/max/latest_depth_m}} — use it to confirm a site has records."""
+def get_water_table(bbox: str, start_date: str = "", end_date: str = "",
+                    with_values: bool = False, min_obs: int = 1,
+                    limit: int = 500) -> str:
+    """Groundwater wells in a bbox that actually have depth-to-water records.
+
+    Same three shapes as get_streamflow: no dates = every well with any record;
+    dates = wells measured in that window; with_values=True adds each well's
+    measurements through time. Depths are metres below land surface (USGS
+    parameter 72019, reported in feet, converted here).
+
+    These are discrete field measurements, not a logger series — a well may hold
+    a handful of visits per decade, so min_obs defaults to 1 rather than the
+    near-continuous threshold a stream gauge gets.
+    """
     try:
-        data = gw.fetch_field_measurements(monitoring_location_id, limit=limit)
+        fm = gw.fetch_field_measurements_bbox(bbox, start_date or None,
+                                              end_date or None)
+        sites = gw.fetch_monitoring_locations(bbox, site_type_code="GW",
+                                              limit=int(limit))
+        out = gw._parse_wells(fm, sites, min_obs=min_obs,
+                              with_values=bool(with_values))
+        out["period"] = (f"{start_date}/{end_date}"
+                         if start_date and end_date else "all records")
+        out["source"] = _SOURCE
+        return json.dumps(out)
     except Exception as e:
-        return json.dumps({"error": f"USGS field-measurements query failed: {e}"})
-    obs, summary = gw._parse_wtd(data)
-    return json.dumps({"monitoring_location_id": monitoring_location_id,
-                       "parameter_code": gw.WTD_PARAMETER_CODE,
-                       "summary": summary, "observations": obs,
-                       "source": _SOURCE})
+        return json.dumps({"error": str(e)[:200]})
 
 
 @mcp.tool()

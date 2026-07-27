@@ -64,5 +64,5 @@ def test_geology_soil_profile_responds(clients):
 
 def test_usgs_groundwater_sites_respond(clients):
     r = clients["usgs_water"].call_tool_json(
-        "get_groundwater_sites", {"bbox": "-96.95,40.56,-96.45,41.06", "limit": 50}) or {}
-    assert {"n_sites", "sites", "error"} & set(r)
+        "get_water_table", {"bbox": "-96.95,40.56,-96.45,41.06"}) or {}
+    assert {"n_wells_with_records", "wells", "error"} & set(r)

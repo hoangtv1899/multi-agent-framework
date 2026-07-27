@@ -25,17 +25,14 @@ DEFAULT_ALLOWLIST = {
     "terrain__elevation_summary",
     "terrain__get_elevation",
     "terrain__sample_elevation_grid",
-    "usgs_water__get_groundwater_sites",
-    "usgs_water__get_water_table_depth",
-    "usgs_water__get_monitoring_locations",
-    "usgs_water__get_streamflow_availability",
+    "usgs_water__get_streamflow",
+    "usgs_water__get_water_table",
     "fan_wtd__get_fan_wtd",
     "fan_wtd__sample_fan_wtd",
     "fan_wtd__data_status",
     "geology__get_soil_profile",
     "weather__get_climate_summary",
-    "snotel__get_snotel_stations",
-    "snotel__get_snotel_swe",
+    "snotel__get_swe",
 }
 
 

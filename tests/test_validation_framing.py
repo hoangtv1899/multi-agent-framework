@@ -54,11 +54,49 @@ class TestMetricUnits:
                    if '"drainage_mi2":' in ln or '"elevation_ft":' in ln]
         assert emitted == [], f"imperial keys still emitted: {emitted}"
 
-    def test_imperial_is_still_read_at_the_boundary(self):
-        """The conversion must have a source: USGS/SNOTEL only offer imperial."""
-        src = (ROOT / "tools" / "validate_run.py").read_text()
-        assert 'get("elevation_ft")' in src
-        assert "MI2_TO_KM2" in src
+    def test_imperial_is_still_converted_at_the_boundary(self):
+        """The conversion must have a source: USGS/SNOTEL only offer imperial.
+
+        The boundary MOVED when the observation tools were consolidated —
+        drainage area and station elevation are now converted inside the MCP
+        servers, so everything downstream is metric on arrival. This asserts the
+        conversion still exists SOMEWHERE rather than having been dropped along
+        with the code that used to do it, which is exactly how a unit bug gets
+        reintroduced during a refactor.
+        """
+        gw = (ROOT / "mcp" / "usgs-water-mcp" / "groundwater_api.py").read_text()
+        assert "MI2_TO_KM2" in gw and "drainage_area_km2" in gw
+        assert 'FT_TO_M' in gw                       # well depths, feet -> metres
+
+        sn = (ROOT / "mcp" / "snotel-mcp" / "main.py").read_text()
+        assert 'elevation_ft' in sn and 'elevation_m' in sn
+        assert "IN_TO_MM" in sn                      # SWE, inches -> mm
+
+
+# ── how strong is the well comparison, really ───────────────────────────────
+class TestTemporalNote:
+    """The note used to assert a mismatch unconditionally. That was correct
+    while the well query was capped at 10 sites and found nothing in-year; once
+    the bulk query found 86 wells all measured in 1995, the fixed sentence
+    contradicted the count printed next to it. Strength is a property of the
+    data, so these pin that it is read off rather than assumed."""
+
+    def test_all_in_year_is_year_matched(self):
+        n = vr._temporal_note(71, 71, 1995, "1995", "1995")
+        assert "YEAR-MATCHED" in n
+        assert "MISMATCH" not in n and "CLIMATOLOGICAL" not in n
+
+    def test_none_in_year_is_a_mismatch(self):
+        n = vr._temporal_note(0, 14, 1995, "1951", "2001")
+        assert "TEMPORAL MISMATCH" in n and "CLIMATOLOGICAL" in n
+        assert "1951-2001" in n
+
+    def test_some_in_year_says_partially(self):
+        n = vr._temporal_note(3, 20, 1995, "1990", "2001")
+        assert "PARTIALLY" in n and "3 of 20" in n
+
+    def test_no_records_says_nothing_rather_than_guessing(self):
+        assert vr._temporal_note(0, 0, 1995, None, None) == ""
 
 
 # ── figures ──────────────────────────────────────────────────────────────────

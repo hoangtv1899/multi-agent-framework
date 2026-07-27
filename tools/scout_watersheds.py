@@ -39,12 +39,13 @@ def scout(clients, query):
         except Exception:
             return None
 
-    snotel = count("snotel", "get_snotel_stations",
-                   {"min_lon": bb["min_lon"], "min_lat": bb["min_lat"],
-                    "max_lon": bb["max_lon"], "max_lat": bb["max_lat"]}, "n_stations")
-    gages = count("usgs_water", "get_monitoring_locations",
-                  {"bbox": bs, "site_type_code": "ST", "limit": 200}, "numberReturned")
-    wells = count("usgs_water", "get_groundwater_sites", {"bbox": bs, "limit": 200}, "n_sites")
+    snotel = count("snotel", "get_swe", {"bbox": bs}, "n_stations")
+    gages = count("usgs_water", "get_streamflow", {"bbox": bs}, "n_stations")
+    # Wells are counted as "has records", not "exists": an empty well is not a
+    # validation point, and this script exists to say whether a basin is worth
+    # studying at all.
+    wells = count("usgs_water", "get_water_table", {"bbox": bs},
+                  "n_wells_with_records")
     bands = []
     try:
         bands = (terr.call_tool_json("elevation_summary", {**bb, "n": 60}) or {}).get(

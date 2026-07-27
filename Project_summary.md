@@ -72,7 +72,7 @@ session per call (HPC-safe). All tools are **read-only** fetches.
 |---|---|---|---|
 | weather | NWS / Open-Meteo | `get_climate_summary` | point |
 | geology | USDA SSURGO | `get_soil_profile`, `get_pflotran_materials` | point |
-| usgs_water | USGS OGC API | `get_groundwater_sites`, `get_water_table_depth` (param 72019), `get_monitoring_locations`, `get_streamflow_availability` | bbox |
+| usgs_water | USGS OGC API | `get_streamflow`, `get_water_table` (param 72019) | bbox |
 | terrain | USGS 3DEP + WBD | `resolve_watershed` (HUC/name→bbox+area), `get_elevation`, `sample_elevation_grid` | point+bbox |
 | fan_wtd | Fan et al. 2013 (local NetCDF) | `get_fan_wtd`, `sample_fan_wtd`, `data_status` | point+bbox |
 | reaction_sandbox | PFLOTRAN reaction sandbox | reactive-transport deck helpers | — |
@@ -81,11 +81,20 @@ session per call (HPC-safe). All tools are **read-only** fetches.
 - Observed WTD uses the **OGC API** (`api.waterdata.usgs.gov`), not legacy
   `waterservices.usgs.gov`. Depth-to-water = parameter **72019**, collection
   `field-measurements`.
-- **A station list is not a data list.** `get_monitoring_locations` answers
-  *which gauges exist*; `get_streamflow_availability` answers *which gauges have
-  records in a window*, with drainage area so a caller can judge representativeness.
-  For the Naches in 1995 those numbers are 93 and 1. Reception calls it before
-  the design; `validate_run.py` calls the same tool afterwards.
+- **A station list is not a data list, and one tool answers both.** Each
+  observation tool — `usgs_water.get_streamflow`, `usgs_water.get_water_table`,
+  `snotel.get_swe` — takes the same three shapes:
+  **no dates** → period of record (one cheap query: which years could this basin
+  *ever* be validated in); **dates** → which stations actually reported then;
+  **dates + `with_values=True`** → the series, for validators only.
+  For the Naches in 1995 the counts are 93 gauges present and 1 reporting.
+  Reception calls these before the design, `validate_run.py` after it, so the
+  two stages cannot disagree about which station reports.
+- Record **spans are an outer envelope, not truth** — the Naches outlet gauge
+  reports 1899–1990 yet has nothing in 1985. A span rules a year OUT reliably;
+  only a dated query rules one IN.
+- Imperial→metric conversion happens **inside the servers** (mi²→km², ft→m,
+  in→mm), so everything downstream is metric on arrival.
 - Fan tiles store WTD **negative-below-surface**; the server auto-detects sign,
   returns positive `depth_to_water_m`, reduces `time`, applies the land mask.
 - SSURGO and weather are point-only → watershed work uses `sample_elevation_grid`
