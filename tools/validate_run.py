@@ -33,6 +33,10 @@ OGC_DAILY = "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items"
 CFS_TO_M3S = 0.0283168
 CFS_TO_M3YR = CFS_TO_M3S * 86400 * 365.25
 MI2_TO_M2 = 2.58999e6
+# USGS reports drainage area in square miles and SNOTEL elevation in feet.
+# Everything this module EMITS is metric — convert at the boundary, once.
+MI2_TO_KM2 = 2.58999
+FT_TO_M = 0.3048
 
 
 def _n(x):
@@ -69,8 +73,22 @@ def fetch_wells(clients, bb, max_sample=10):
                       ("mean_depth_m", "median_depth_m", "latest_depth_m")
                       if _n(summ.get(k)) is not None), None)
             if d is not None:
-                out["wells"].append({"id": sid, "wtd_m": round(d, 2),
-                                     "n_obs": summ.get("n_obs")})
+                # Location and the individual measurements: needed to pair a
+                # well with its nearest column and to plot it through time.
+                # These are discrete field measurements, not a logger series.
+                series = []
+                for m in (w.get("measurements") or w.get("observations") or []):
+                    dt = m.get("time") or m.get("date") or m.get("datetime")
+                    dv = next((_n(m.get(k)) for k in
+                               ("depth_to_water_m", "depth_m", "value")
+                               if _n(m.get(k)) is not None), None)
+                    if dt and dv is not None:
+                        series.append({"date": str(dt)[:10], "wtd_m": round(dv, 3)})
+                out["wells"].append({
+                    "id": sid, "wtd_m": round(d, 2), "n_obs": summ.get("n_obs"),
+                    "lat": _n(s.get("lat") or s.get("latitude")),
+                    "lon": _n(s.get("lon") or s.get("longitude")),
+                    "series": sorted(series, key=lambda r: r["date"])})
     except Exception as e:
         out["error"] = str(e)[:100]
     return out
@@ -116,12 +134,14 @@ def fetch_gauge_yields(clients, bb, year, max_gauges=4):
                 vals = [v for _, v in pairs]
                 q_mm = sum(vals) / len(vals) * CFS_TO_M3YR / (da_mi2 * MI2_TO_M2) * 1000
                 out["gauges"].append({"id": sid, "name": name.title()[:38],
-                                      "drainage_mi2": da_mi2, "n_days": len(vals),
+                                      "drainage_area_km2": round(da_mi2 * MI2_TO_KM2, 1),
+                                      "n_days": len(vals),
                                       "specific_discharge_mm_yr": round(q_mm, 1)})
                 if "daily_best" not in out:                # keep one daily series
                     to_mm_day = CFS_TO_M3S * 86400 / (da_mi2 * MI2_TO_M2) * 1000
                     out["daily_best"] = {
-                        "gauge": name.title()[:38], "id": sid, "drainage_mi2": da_mi2,
+                        "gauge": name.title()[:38], "id": sid,
+                        "drainage_area_km2": round(da_mi2 * MI2_TO_KM2, 1),
                         "mm_day": {t[:10]: round(v * to_mm_day, 4) for t, v in pairs}}
                 if len(out["gauges"]) >= max_gauges:
                     break
@@ -164,6 +184,55 @@ def model_daily_runoff(run_dir: Path, cases_file: str):
                        for d, v in sorted(per_day.items())}}
 
 
+def model_daily_context(run_dir: Path, cases_file: str):
+    """Column-mean daily precipitation, ET and SWE — {var: {date: value}}.
+
+    Context only: precipitation is the FORCING (comparing it to a station
+    validates NLDAS, not ELM) and there is no in-basin flux tower for ET. They
+    are plotted so the water-balance terms can be read in time, never scored.
+
+        P   = RAIN + SNOW                      mm/day
+        ET  = QVEGE + QVEGT + QSOIL            mm/day  (canopy + transpiration + soil)
+        SWE = H2OSNO                           mm
+    """
+    import numpy as np
+    import xarray as xr
+    cf = run_dir / cases_file
+    if not cf.exists():
+        return None
+    GROUPS = {"P": ("RAIN", "SNOW"), "ET": ("QVEGE", "QVEGT", "QSOIL")}
+    acc = {k: {} for k in list(GROUPS) + ["SWE"]}
+    for cd in json.loads(cf.read_text()):
+        fs = sorted(glob.glob(cd + "/run/*.elm.h0.*.nc"))
+        if not fs:
+            continue
+        try:
+            ds = xr.open_mfdataset(fs, combine="by_coords", decode_times=True,
+                                   engine="netcdf4", data_vars="all",
+                                   coords="different", compat="no_conflicts",
+                                   join="outer")
+        except Exception:
+            continue
+        days = ds["time"].dt.strftime("%Y-%m-%d").values
+        for name, vs in list(GROUPS.items()) + [("SWE", ("H2OSNO",))]:
+            present = [v for v in vs if v in ds]
+            if not present:
+                continue
+            tot = sum(ds[v] for v in present).squeeze()
+            if name != "SWE":
+                tot = tot * 86400.0                      # mm/s -> mm/day
+            arr = np.asarray(tot.values, dtype=float)
+            per = {}
+            for d, v in zip(days, arr):
+                per.setdefault(d, []).append(v)
+            for d, vv in per.items():
+                acc[name].setdefault(d, []).append(float(np.mean(vv)))
+        ds.close()
+    out = {k: {d: round(float(sum(v) / len(v)), 4) for d, v in sorted(s.items())}
+           for k, s in acc.items() if s}
+    return out or None
+
+
 def flow_metrics(obs: dict, mod: dict):
     """NSE and KGE between two {date: mm/day} series on their common days."""
     import numpy as np
@@ -202,9 +271,12 @@ def fetch_peak_swe(clients, bb, year):
                 "end_date": f"{year}-09-30"}) or {}
             summ = sw.get("summary") or {}
             if _n(summ.get("peak_swe_mm")) is not None:
+                elev_ft = _n(s.get("elevation_ft") or s.get("elevation"))
                 out["stations"].append({
                     "name": (s.get("name") or trip)[:24], "triplet": trip,
-                    "elevation_ft": s.get("elevation_ft") or s.get("elevation"),
+                    "elevation_m": round(elev_ft * FT_TO_M, 1) if elev_ft else None,
+                    "lat": _n(s.get("lat") or s.get("latitude")),
+                    "lon": _n(s.get("lon") or s.get("longitude")),
                     "peak_swe_mm": round(_n(summ["peak_swe_mm"]), 1),
                     "peak_date": summ.get("peak_date")})
     except Exception as e:
@@ -265,35 +337,127 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
         fm = flow_metrics(daily_best["mm_day"], mod_daily["mm_day"])
         if fm:
             hydro = {"gauge": daily_best["gauge"], "gauge_id": daily_best["id"],
-                     "drainage_mi2": daily_best["drainage_mi2"],
-                     "model_columns": mod_daily["n_columns"], **fm}
+                     "drainage_area_km2": daily_best["drainage_area_km2"],
+                     "model_columns": mod_daily["n_columns"],
+                     "obs_mm_day": daily_best["mm_day"],
+                     "mod_mm_day": mod_daily["mm_day"], **fm}
+
+    # ── DOMAIN MATCH ───────────────────────────────────────────────────────
+    # The columns sample the whole basin; a gauge sees only its own catchment.
+    # Naches is ~2861 km2 and American River near Nile drains 204 km2 — 7% of
+    # it, and a wet headwater at that. Comparing a basin-wide ensemble mean to
+    # that gauge is not a model error, it is a different question. Quantify the
+    # overlap and refuse to SCORE absolute yield when it is poor.
+    basin_km2 = _n(dom.get("area_km2"))
+    gauge_km2 = _n((gauges["gauges"] or [{}])[0].get("drainage_area_km2"))
+    frac = (gauge_km2 / basin_km2) if (basin_km2 and gauge_km2) else None
+    comparable = bool(frac and frac >= 0.5)
+    domain_match = {
+        "basin_area_km2": basin_km2, "gauge_area_km2": gauge_km2,
+        "gauge_fraction_of_basin": round(frac, 3) if frac else None,
+        "absolute_yield_comparable": comparable,
+        "note": (
+            f"the gauge drains {frac:.1%} of the basin"
+            if frac else "gauge or basin area unknown") + (
+            " — absolute yield is NOT comparable; the gauged catchment is a "
+            "sub-domain with its own precipitation regime. Treat yield as "
+            "context and judge partitioning by the runoff RATIO instead."
+            if not comparable else " — areas are close enough to compare yields."),
+    }
+    context = model_daily_context(run_dir, cases_file)
+
+    # ── pair point observations to their NEAREST column ────────────────────
+    # A basin-wide distribution hides which site is being missed; pairing makes
+    # each comparison local and answerable.
+    def _near(lat, lon):
+        cand = [(r, r.get("lat"), r.get("lon")) for r in ok
+                if r.get("lat") is not None and r.get("lon") is not None]
+        if lat is None or lon is None or not cand:
+            return None
+        return min(cand, key=lambda c: (c[1] - lat) ** 2 + (c[2] - lon) ** 2)[0]
+
+    well_series = []
+    for wl in wells["wells"]:
+        n = _near(wl.get("lat"), wl.get("lon"))
+        pts = wl.get("series") or []
+        well_series.append({
+            "id": wl["id"], "lat": wl.get("lat"), "lon": wl.get("lon"),
+            "points": pts,
+            "n_in_sim_year": sum(1 for q in pts
+                                 if q["date"][:4] == str(year)),
+            "nearest_column": n["case_name"] if n else None,
+            "nearest_column_zwt_m": (_n(n["metrics"].get("water_table_depth_m"))
+                                     if n else None)})
+
+    swe_pairs = []
+    for s in swe["stations"]:
+        n = _near(s.get("lat"), s.get("lon"))
+        swe_pairs.append({
+            "station": s["name"], "elevation_m": s.get("elevation_m"),
+            "obs_peak_swe_mm": s["peak_swe_mm"],
+            "nearest_column": n["case_name"] if n else None,
+            "model_peak_swe_mm": (_n(n["metrics"].get("peak_swe_mm")) if n else None),
+            "column_elevation_m": (_n(n.get("elevation_m")) if n else None)})
+
+    model_swe_by_elev = [
+        {"column": r["case_name"], "elevation_m": _n(r.get("elevation_m")),
+         "peak_swe_mm": _n(r["metrics"].get("peak_swe_mm"))}
+        for r in ok
+        if _n(r.get("elevation_m")) is not None
+        and _n(r["metrics"].get("peak_swe_mm")) is not None]
+
+    # column-mean water budget, so yield can be read as P - ET - dStorage
+    wb_keys = ("precip_mm_yr", "et_mm_yr", "runoff_mm_yr", "drainage_mm_yr",
+               "storage_change_mm", "closure_residual_mm_yr")
+    wbs = [r["metrics"].get("water_budget") or {} for r in ok]
+    water_budget_mean = {
+        k: round(float(np.mean([b[k] for b in wbs if _n(b.get(k)) is not None])), 1)
+        for k in wb_keys
+        if any(_n(b.get(k)) is not None for b in wbs)}
+    # precip lives on metrics, not inside water_budget — without it the budget
+    # bars have no P to balance against.
+    if "precip_mm_yr" not in water_budget_mean and precip:
+        water_budget_mean["precip_mm_yr"] = round(float(np.mean(precip)), 1)
 
     # model SWE (present in runs since H2OSNO joined hist_fincl1)
     model_peak_swe = [_n(r["metrics"].get("peak_swe_mm")) for r in ok]
     model_peak_swe = [s for s in model_peak_swe if s is not None]
+
+    _all_pts = [q for w in well_series for q in w["points"]]
+    _yrs = sorted({q["date"][:4] for q in _all_pts})
+    _yr_lo, _yr_hi = (_yrs[0], _yrs[-1]) if _yrs else (None, None)
+    _n_in_year = sum(w["n_in_sim_year"] for w in well_series)
 
     targets = [
         {"variable": "water-table depth", "status": "compared",
          "obs": f"Fan 2013 at columns + {len(obs_wtd)} USGS wells with records",
          "result": (f"model ZWT median {med(model_zwt)} m vs Fan {med(fan_at_cols)} m "
                     f"vs observed wells {med(obs_wtd)} m (median; n={len(obs_wtd)})"),
-         "note": "distribution comparison (wells are not co-located with columns); the "
-                 "column ZWT is a shallow/perched table — offsets from the deep regional "
-                 "WTD are expected without groundwater coupling + spin-up."},
-        {"variable": "streamflow (water yield)", "status": "compared" if obs_q else "context-only",
+         "note": ("distribution comparison (wells are not co-located with columns); the "
+                  "column ZWT is a shallow/perched table — offsets from the deep regional "
+                  "WTD are expected without groundwater coupling + spin-up. "
+                  + (f"TEMPORAL MISMATCH: {_n_in_year} of "
+                     f"{sum(len(w['points']) for w in well_series)} well measurements "
+                     f"fall in {year} (records span {_yr_lo}-{_yr_hi}) — this is a "
+                     f"CLIMATOLOGICAL comparison, not a year-matched one."
+                     if _yr_lo else ""))},
+        {"variable": "streamflow (water yield)",
+         "status": ("compared" if (obs_q and comparable) else "context-only"),
          "obs": f"{len(obs_q)} in-domain gauges with {year} daily records ÷ drainage area",
          "result": (f"modeled yield {mean_yield} mm/yr vs observed specific discharge "
                     f"{', '.join(str(q) for q in obs_q)} mm/yr "
                     f"({', '.join(g['name'] for g in gauges['gauges'])})"
                     if obs_q else f"no in-domain gauge had {year} daily records"),
-         "note": "first-order water-balance check — unweighted column mean vs gauge "
-                 "subcatchments (which may drain the wetter headwaters); routing/area-"
-                 "weighting would sharpen this.",
-         "needs": None if obs_q else "runoff routing / column aggregation"},
+         "note": ((domain_match["note"] + " Model spread across columns is "
+                   f"{min(yields):.0f}-{max(yields):.0f} mm/yr, so the ensemble "
+                   "mean alone hides most of the signal.") if obs_q else None),
+         "needs": (None if (obs_q and comparable)
+                   else "gauge whose catchment matches the modelled domain, or "
+                        "restrict columns to the gauged catchment (USGS NLDI)")},
         {"variable": "streamflow (daily hydrograph)",
          "status": "compared" if hydro else "context-only",
          "obs": (f"daily specific discharge at {hydro['gauge']} "
-                 f"({hydro['drainage_mi2']:.0f} mi²), {hydro['n_days']} common days"
+                 f"({hydro['drainage_area_km2']:.0f} km²), {hydro['n_days']} common days"
                  if hydro else "needs surviving history files + a gauge with daily records"),
          "result": (f"NSE={hydro['NSE']}, KGE={hydro['KGE']} (r={hydro['r']}, "
                     f"variability α={hydro['alpha_var_ratio']}, bias β={hydro['beta_bias_ratio']}) — "
@@ -330,108 +494,304 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
                                "observed_wells_m": obs_wtd},
             "streamflow_comparison": {"modeled_yield_mm_yr": mean_yield,
                                       "gauges": gauges["gauges"]},
+            "domain_match": domain_match,
+            "per_column_yield_mm_yr": [round(y, 1) for y in yields],
+            "water_budget_mean": water_budget_mean,
+            "well_series": well_series,
+            "swe_pairs": swe_pairs,
+            "model_swe_by_elevation": model_swe_by_elev,
+            "context_series": context,
             "hydrograph": hydro,
             "swe_context": swe["stations"],
             "model_peak_swe_mm": model_peak_swe,
             "targets": targets}
 
 
-# ── figure ───────────────────────────────────────────────────────────────────
-def plot_validation(val, out_path):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
+# ── figures ──────────────────────────────────────────────────────────────────
+# One figure per observable, each carrying its OWN verdict. A single blended
+# panel let a weak comparison borrow credibility from a strong one, and hid
+# which quantity actually disagreed.
+_W = "#d95f0e"      # observed
+_M = "#2c7fb8"      # model
+_G = "#31a354"      # secondary observed
+
+
+def _style(ax):
+    ax.grid(alpha=.25)
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def _dates(keys):
     from datetime import datetime
+    return [datetime.strptime(k, "%Y-%m-%d") for k in keys]
+
+
+def plot_hydrograph(val, out_path):
+    """Daily shape + cumulative volume. The cumulative panel is the verdict:
+    a 1-D column has no routing, so instantaneous timing is expected to be
+    wrong, while total volume is a fair test."""
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
     import numpy as np
+    h = val.get("hydrograph")
+    if not (h and h.get("obs_mm_day") and h.get("mod_mm_day")):
+        return None
+    days = sorted(set(h["obs_mm_day"]) & set(h["mod_mm_day"]))
+    if not days:
+        return None
+    o = np.array([h["obs_mm_day"][d] for d in days])
+    m = np.array([h["mod_mm_day"][d] for d in days])
+    x = _dates(days)
 
-    hydro = val.get("hydrograph")
-    if hydro:
-        fig = plt.figure(figsize=(13.2, 8.6))
-        gs = fig.add_gridspec(2, 3, height_ratios=[1.05, 1], hspace=.42, wspace=.3)
-        axh = fig.add_subplot(gs[0, :])
-        ax = [fig.add_subplot(gs[1, i]) for i in range(3)]
-        dates = [datetime.strptime(d, "%Y-%m-%d") for d in hydro["days"]]
-        axh.plot(dates, hydro["obs"], color="#d95f0e", lw=1.4,
-                 label=f"observed — {hydro['gauge']} ({hydro['drainage_mi2']:.0f} mi²)")
-        axh.plot(dates, hydro["mod"], color="#2c7fb8", lw=1.4,
-                 label=f"model — column-mean QOVER+QDRAI ({hydro['model_columns']} cols)")
-        axh.set_ylabel("specific discharge (mm/day)")
-        axh.set_title(f"Daily hydrograph — NSE={hydro['NSE']}  KGE={hydro['KGE']}  "
-                      f"(r={hydro['r']}, α={hydro['alpha_var_ratio']}, β={hydro['beta_bias_ratio']})",
-                      fontweight="bold")
-        axh.legend(frameon=False, fontsize=9)
-        axh.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
-        axh.spines[["top", "right"]].set_visible(False); axh.grid(alpha=.25)
-    else:
-        fig, ax = plt.subplots(1, 3, figsize=(13.2, 4.3))
+    fig, ax = plt.subplots(2, 1, figsize=(11.5, 7), sharex=True)
+    ax[0].plot(x, o, color=_W, lw=1.2, label=f"observed — {h['gauge']} "
+               f"({h['drainage_area_km2']:.0f} km²)")
+    ax[0].plot(x, m, color=_M, lw=1.2, label=f"model — column-mean QOVER+QDRAI "
+               f"({h['model_columns']} cols)")
+    ax[0].set_ylabel("specific discharge (mm/day)")
+    ax[0].legend(frameon=False, fontsize=8.5)
+    ax[0].set_title("Daily hydrograph — shape only; a 1-D column has no routing, "
+                    "so timing disagreement is expected",
+                    fontweight="bold", fontsize=11)
 
-    # 1 · WTD distributions: model vs Fan vs observed wells
-    wtd = val["wtd_comparison"]
-    groups = [("model ZWT", wtd["model_zwt_m"], "#2c7fb8"),
-              ("Fan 2013\n(at columns)", wtd["fan_at_columns_m"], "#8856a7"),
-              ("USGS wells\n(observed)", wtd["observed_wells_m"], "#31a354")]
-    rng = np.random.default_rng(0)
-    for i, (lab, vals, c) in enumerate(groups):
-        v = np.array([x for x in vals if x is not None and x > 0], float)
-        if not len(v):
-            continue
-        x = np.full(len(v), i) + rng.uniform(-.12, .12, len(v))
-        ax[0].scatter(x, v, s=42, color=c, edgecolor="#222", zorder=3, alpha=.85)
-        ax[0].hlines(np.median(v), i - .25, i + .25, color=c, lw=2.6, zorder=4)
-    ax[0].set_xticks(range(3))
-    ax[0].set_xticklabels([g[0] for g in groups], fontsize=9)
-    ax[0].set_yscale("log"); ax[0].invert_yaxis()
-    ax[0].set_ylabel("water-table depth (m, log)")
-    ax[0].set_title("Water table — model vs Fan vs wells", fontweight="bold")
-
-    # 2 · water yield: modeled vs gauge specific discharge
-    sf = val["streamflow_comparison"]
-    labels = ["model\n(yield)"] + [g["name"][:16] + f"\n({g['drainage_mi2']:.0f} mi²)"
-                                   for g in sf["gauges"]]
-    vals = [sf["modeled_yield_mm_yr"]] + [g["specific_discharge_mm_yr"] for g in sf["gauges"]]
-    colors = ["#2c7fb8"] + ["#d95f0e"] * len(sf["gauges"])
-    ax[1].bar(range(len(vals)), [v or 0 for v in vals], color=colors, edgecolor="#222")
-    for i, v in enumerate(vals):
-        if v is not None:
-            ax[1].text(i, v, f"{v:.0f}", ha="center", va="bottom", fontsize=9)
-    ax[1].set_xticks(range(len(labels)))
-    ax[1].set_xticklabels(labels, fontsize=8)
-    ax[1].set_ylabel("mm / yr")
-    ax[1].set_title(f"Water yield vs gauges ({val['sim_year']})", fontweight="bold")
-    if not sf["gauges"]:
-        ax[1].text(.5, .55, f"no in-domain gauge had\ndaily records for {val['sim_year']}\n(context-only — needs routing)",
-                   transform=ax[1].transAxes, ha="center", fontsize=9,
-                   color="#64748b", style="italic")
-
-    # 3 · peak SWE — observed stations (+ model range when the run has H2OSNO)
-    swe = val["swe_context"]
-    mswe = val.get("model_peak_swe_mm") or []
-    if swe:
-        names = [s["name"][:14] for s in swe]
-        peaks = [s["peak_swe_mm"] for s in swe]
-        ax[2].bar(range(len(peaks)), peaks, color="#756bb1", edgecolor="#222",
-                  label="SNOTEL observed")
-        ax[2].set_xticks(range(len(names)))
-        ax[2].set_xticklabels(names, fontsize=8, rotation=30, ha="right")
-        ax[2].set_ylabel("peak SWE (mm)")
-    if mswe:
-        ax[2].axhspan(min(mswe), max(mswe) + 1, color="#2c7fb8", alpha=.3,
-                      label="model columns (range)")
-        ax[2].legend(frameon=False, fontsize=8, loc="upper left")
-        ax[2].set_title(f"Peak SWE, WY{val['sim_year']} — model vs SNOTEL",
-                        fontweight="bold", fontsize=11)
-    else:
-        ax[2].set_title(f"Observed peak SWE, WY{val['sim_year']}\n"
-                        "(context — run predates SWE output)", fontweight="bold", fontsize=11)
-
+    ax[1].plot(x, np.cumsum(o), color=_W, lw=1.8, label="observed")
+    ax[1].plot(x, np.cumsum(m), color=_M, lw=1.8, label="model")
+    ax[1].set_ylabel("cumulative depth (mm)")
+    ax[1].legend(frameon=False, fontsize=8.5)
+    gap = (np.sum(m) - np.sum(o)) / np.sum(o) * 100 if np.sum(o) else float("nan")
+    ax[1].set_title(f"Cumulative volume — THE verdict: model {np.sum(m):.0f} mm vs "
+                    f"observed {np.sum(o):.0f} mm ({gap:+.0f}%)",
+                    fontweight="bold", fontsize=11)
     for a in ax:
-        a.spines[["top", "right"]].set_visible(False); a.grid(alpha=.25)
-    fig.suptitle(f"Observation validation — {val['domain'].get('name')} "
-                 f"(HUC {val['domain'].get('huc')})", fontweight="bold", y=1.02)
+        _style(a)
+    dm = val.get("domain_match") or {}
+    fig.suptitle("Streamflow — " + (dm.get("note") or ""), fontsize=9.5,
+                 y=.99, color="#555")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=300, bbox_inches="tight")
-    print(f"   ✓ {out_path}")
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return str(out_path)
+
+
+def plot_yield(val, out_path):
+    """Per-column yield spread against the gauge, plus the water-balance terms.
+    The single 'model' bar it replaces averaged 13 very different columns."""
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    ys = val.get("per_column_yield_mm_yr") or []
+    gauges = (val.get("streamflow_comparison") or {}).get("gauges") or []
+    if not ys:
+        return None
+    dm = val.get("domain_match") or {}
+    fig, ax = plt.subplots(1, 2, figsize=(11.5, 4.6),
+                           gridspec_kw={"width_ratios": [1, 1.25]})
+
+    x = np.random.default_rng(0).normal(0, .05, len(ys))
+    ax[0].scatter(x, ys, s=48, color=_M, edgecolor="#222", zorder=3,
+                  label=f"model columns (n={len(ys)})")
+    ax[0].hlines(np.median(ys), -.28, .28, color=_M, lw=2.5)
+    for g in gauges:
+        ax[0].axhline(g["specific_discharge_mm_yr"], color=_W, lw=2, ls="--")
+        ax[0].text(.32, g["specific_discharge_mm_yr"],
+                   f"  {g['name']}\n  {g['drainage_area_km2']:.0f} km²",
+                   va="center", fontsize=8, color=_W)
+    ax[0].set_xlim(-.5, 1.1); ax[0].set_xticks([])
+    ax[0].set_ylabel("water yield (mm/yr)")
+    ax[0].legend(frameon=False, fontsize=8, loc="upper left")
+    ok = dm.get("absolute_yield_comparable")
+    ax[0].set_title("Water yield — model spread vs gauge\n"
+                    + ("comparable domains" if ok else "DIFFERENT DOMAINS — context only"),
+                    fontweight="bold", fontsize=10.5,
+                    color=("#222" if ok else _W))
+
+    terms = [("precip", "precip_mm_yr"), ("ET", "et_mm_yr"),
+             ("runoff", "runoff_mm_yr"), ("drainage", "drainage_mm_yr"),
+             ("Δstorage", "storage_change_mm")]
+    wb = val.get("water_budget_mean") or {}
+    vals = [wb.get(k) for _, k in terms]
+    if any(v is not None for v in vals):
+        cols = ["#4d4d4d", "#31a354", "#d95f0e", "#fdae6b", "#9ecae1"]
+        ax[1].bar([t for t, _ in terms], [v or 0 for v in vals], color=cols,
+                  edgecolor="#222")
+        ax[1].axhline(0, color="#222", lw=.8)
+        ax[1].set_ylabel("mm/yr")
+        ax[1].set_title("Water balance (column mean) — yield is P − ET − Δstorage;\n"
+                        "a large Δstorage means the year is not at equilibrium",
+                        fontweight="bold", fontsize=10.5)
+    else:
+        ax[1].axis("off")
+        ax[1].text(.5, .5, "water-budget terms unavailable", ha="center",
+                   va="center", color="#888")
+    for a in ax:
+        _style(a)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return str(out_path)
+
+
+def plot_water_table(val, out_path):
+    """The distribution comparison, plus each well's measurements through time
+    against its nearest column. Wells are discrete field visits, not loggers —
+    drawn as markers, never interpolated into a curve."""
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    w = val.get("wtd_comparison") or {}
+    groups = [("model ZWT", w.get("model_zwt_m") or [], _M),
+              ("Fan 2013\n(at columns)", w.get("fan_at_columns_m") or [], "#756bb1"),
+              ("USGS wells\n(observed)", w.get("observed_wells_m") or [], _G)]
+    if not any(g[1] for g in groups):
+        return None
+    series = [s for s in (val.get("well_series") or []) if s.get("points")]
+    fig, ax = plt.subplots(1, 2 if series else 1,
+                           figsize=(11.5 if series else 6, 4.8))
+    axes = ax if series else [ax]
+
+    rng = np.random.default_rng(0)
+    for i, (lbl, v, c) in enumerate(groups):
+        if not v:
+            continue
+        axes[0].scatter(i + rng.normal(0, .06, len(v)), v, s=46, color=c,
+                        edgecolor="#222", zorder=3)
+        axes[0].hlines(np.median(v), i - .28, i + .28, color=c, lw=2.5)
+    axes[0].set_xticks(range(len(groups)))
+    axes[0].set_xticklabels([g[0] for g in groups], fontsize=9)
+    axes[0].set_yscale("log"); axes[0].invert_yaxis()
+    axes[0].set_ylabel("water-table depth (m, log)")
+    axes[0].set_title("Distribution — wells are NOT co-located with columns",
+                      fontweight="bold", fontsize=10.5)
+
+    if series:
+        for s in series[:6]:
+            d = _dates([p["date"] for p in s["points"]])
+            axes[1].plot(d, [p["wtd_m"] for p in s["points"]], "o", ms=5,
+                         color=_G, label="observed well" if s is series[0] else None)
+            if s.get("nearest_column_zwt_m") is not None:
+                axes[1].axhline(s["nearest_column_zwt_m"], color=_M, lw=1.2, ls="--",
+                                label=("nearest column ZWT"
+                                       if s is series[0] else None))
+        axes[1].invert_yaxis()
+        axes[1].set_ylabel("water-table depth (m)")
+        axes[1].legend(frameon=False, fontsize=8)
+        yrs = sorted({q["date"][:4] for s in series for q in s["points"]})
+        n_in = sum(s.get("n_in_sim_year") or 0 for s in series)
+        span = f"{yrs[0]}-{yrs[-1]}" if yrs else "?"
+        axes[1].set_title(f"Wells through time vs nearest column\n"
+                          f"{n_in} of {sum(len(s['points']) for s in series)} "
+                          f"measurements in the simulated year (records span {span})",
+                          fontweight="bold", fontsize=10,
+                          color=("#222" if n_in else _W))
+    for a in axes:
+        _style(a)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return str(out_path)
+
+
+def plot_swe(val, out_path):
+    """Each SNOTEL paired with its NEAREST column, and peak SWE against
+    elevation — the axis where the physics lives. The range band this replaces
+    said nothing about which station was being missed."""
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    pairs = val.get("swe_pairs") or []
+    st = val.get("swe_context") or []
+    if not (pairs or st):
+        return None
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4.6))
+
+    if pairs:
+        lbl = [p["station"][:14] for p in pairs]
+        i = np.arange(len(pairs)); wdt = .38
+        ax[0].bar(i - wdt/2, [p["obs_peak_swe_mm"] for p in pairs], wdt,
+                  color=_W, edgecolor="#222", label="SNOTEL observed")
+        ax[0].bar(i + wdt/2, [p.get("model_peak_swe_mm") or 0 for p in pairs], wdt,
+                  color=_M, edgecolor="#222", label="nearest column")
+        ax[0].set_xticks(i); ax[0].set_xticklabels(lbl, rotation=30, ha="right",
+                                                   fontsize=8)
+        ax[0].set_ylabel("peak SWE (mm)")
+        ax[0].legend(frameon=False, fontsize=8.5)
+        ax[0].set_title("Peak SWE — station vs its nearest column",
+                        fontweight="bold", fontsize=10.5)
+    else:
+        ax[0].axis("off")
+
+    oe = [(s.get("elevation_m"), s.get("peak_swe_mm")) for s in st]
+    oe = [(e, v) for e, v in oe if e and v]
+    me = val.get("model_swe_by_elevation") or []
+    if oe:
+        ax[1].scatter([e for e, _ in oe], [v for _, v in oe], s=54, color=_W,
+                      edgecolor="#222", label="SNOTEL")
+    if me:
+        ax[1].scatter([r["elevation_m"] for r in me], [r["peak_swe_mm"] for r in me],
+                      s=54, color=_M, edgecolor="#222", marker="s", label="model columns")
+    ax[1].set_xlabel("elevation (m)"); ax[1].set_ylabel("peak SWE (mm)")
+    ax[1].legend(frameon=False, fontsize=8.5)
+    ax[1].set_title("Peak SWE vs elevation — is the lapse behaviour right?",
+                    fontweight="bold", fontsize=10.5)
+    for a in ax:
+        _style(a)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return str(out_path)
+
+
+def plot_context(val, out_path):
+    """Precipitation and ET through time. NOT validation: P is the forcing
+    (comparing it to a station tests NLDAS, not ELM) and there is no in-basin
+    flux tower for ET. Plotted so the budget can be read in time."""
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    cx = val.get("context_series") or {}
+    if not cx.get("P") and not cx.get("ET"):
+        return None
+    fig, ax = plt.subplots(figsize=(11.5, 4))
+    for key, col, lbl in (("P", "#4d4d4d", "precipitation (forcing)"),
+                          ("ET", _G, "evapotranspiration")):
+        s = cx.get(key)
+        if not s:
+            continue
+        d = sorted(s)
+        ax.plot(_dates(d), [s[k] for k in d], color=col, lw=1.1, label=lbl)
+    ax.set_ylabel("mm/day")
+    ax.legend(frameon=False, fontsize=8.5)
+    ax.set_title("Context — column-mean forcing and flux. NOT scored: "
+                 "precipitation is model INPUT, and no in-basin flux tower exists for ET.",
+                 fontweight="bold", fontsize=10)
+    _style(ax)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return str(out_path)
+
+
+def plot_validation(val, out_path):
+    """Write every validation figure beside `out_path`; returns the paths.
+
+    Kept as the entry point ELMExpManager and the CLI already call, but it now
+    emits one file per observable instead of a single blended panel.
+    """
+    out = Path(out_path)
+    stem, sfx, d = out.stem, out.suffix or ".png", out.parent
+    made = {}
+    for name, fn in (("hydrograph", plot_hydrograph), ("yield", plot_yield),
+                     ("water_table", plot_water_table), ("swe", plot_swe),
+                     ("context", plot_context)):
+        try:
+            r = fn(val, d / f"{stem}_{name}{sfx}")
+            if r:
+                made[name] = r
+        except Exception as e:
+            print(f"   ⚠️  {name} figure failed: {e}")
+    for k, v in made.items():
+        print(f"   ✓ {k}: {Path(v).name}")
+    return made
 
 
 def main():

@@ -303,6 +303,14 @@ class ELMExperimentBuilder:
             'stop_n':         int(stop_n),
             'start_date':     start_date,
             'description':    coupler.get('DESCRIPTION', ''),
+            # Place, so ELMResultsAnalyzer can relate results to terrain and
+            # observations. tools/analyze_run.py reads these from the plan; the
+            # manager path had no equivalent and emitted None.
+            'lat':            float(lat) if lat is not None else None,
+            'lon':            float(lon) if lon is not None else None,
+            'elevation_m':    coupler.get('elevation_m',
+                                          elm_cfg.get('elevation_m')),
+            'band':           coupler.get('band'),
             'elm_agent':      adapter,
         }
 
