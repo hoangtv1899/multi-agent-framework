@@ -101,7 +101,7 @@ class ToolLoopAgent:
                  mcp_clients: Dict[str, Any],
                  allowlist: Optional[set] = None,
                  max_rounds: int = 8,
-                 max_tokens: int = 4000,
+                 max_tokens: int = 8192,
                  verbose: bool = True,
                  interactive: bool = False):
         self.llm = SimpleLLMClient(model=model)
@@ -162,11 +162,19 @@ class ToolLoopAgent:
 
     def _create(self, messages):
         # tools= passed every round (Bedrock/Claude requirement).
-        return self.llm.client.chat.completions.create(
+        r = self.llm.client.chat.completions.create(
             model=self.llm.model, messages=messages,
             tools=self.tools, tool_choice="auto",
             max_tokens=self.max_tokens,
         )
+        # A cut-off reply is not a formatting problem: the brief silently loses
+        # its trailing fields, and downstream that looks like the model chose to
+        # omit them. Say so rather than letting it pass as a finished answer.
+        if (getattr(r, "choices", None)
+                and getattr(r.choices[0], "finish_reason", None) == "length"):
+            print(f"   ⚠️  reply hit the {self.max_tokens}-token cap and was cut "
+                  f"off — raise max_tokens; trailing fields may be missing")
+        return r
 
     # ── the loop ─────────────────────────────────────────────────────────
     def run(self, system_prompt: str, user_message: str) -> Dict[str, Any]:

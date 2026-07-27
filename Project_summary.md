@@ -38,7 +38,7 @@ imports the `tools/` implementations rather than duplicating them.)
 | E3SM source | `/qfs/people/tran289/E3SM` |
 | ELM case scratch | `/compyfs/tran289/E3SMv3/` |
 | SLURM | account `e3sm`, partition `short` |
-| LLM gateway | `https://ai-incubator-api.pnnl.gov` (OpenAI-compatible). Default model `claude-opus-4-8-project`. `tools=` must be passed on EVERY request or Bedrock-routed Claude 400s. |
+| LLM gateway | `https://ai-incubator-api.pnnl.gov` (OpenAI-compatible). Default model `claude-opus-4-8-project`. `tools=` must be passed on EVERY request or Bedrock-routed Claude 400s. **`max_tokens` must be set explicitly** — the default is 4096, which truncated every planner reply mid-JSON (`SimpleLLMClient.max_tokens = 16384`, tool loop 8192). |
 | Style convention | Tabs in `src/core/`, spaces in `src/agents/`, `tests/`, `tools/` |
 | **No packaging** | No setup.py; `sys.path.insert(0, "src")` — **run everything from the repo root**. |
 | Git | branch `compy-port-agentic-pipeline`. `mcp/usgs-water-mcp` is vendored (rebuilt on Compy), not a submodule. |

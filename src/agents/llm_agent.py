@@ -24,8 +24,17 @@ class SimpleLLMClient:
         # reproducibility knobs (None = provider default, preserves old behavior)
         self.temperature = None
         self.seed = None
-        self.max_tokens = None
+        # NOT None. The gateway defaults to 4096 completion tokens, and the
+        # planner's plan is longer than that: every call came back
+        # finish_reason="length", truncated mid-JSON. The parse then failed, and
+        # the repair round asked the model to "fix" JSON that was not malformed
+        # but INCOMPLETE -- so it invented the missing tail. Measured over five
+        # runs of the same brief, n_exploratory came back 8, 11, 12, 12 and then
+        # missing entirely: the sampling design was partly written by a
+        # JSON-repair prompt rather than by the planner.
+        self.max_tokens = 16384
         self.last_response_model = None      # provider-reported model version
+        self.last_finish_reason = None       # "length" == the reply was cut off
 
     def ask(self,
             messages:       List[Dict[str, str]],
@@ -52,6 +61,8 @@ class SimpleLLMClient:
             else:
                 raise
         self.last_response_model = getattr(response, "model", None) or self.model
+        choice = (getattr(response, "choices", None) or [None])[0]
+        self.last_finish_reason = getattr(choice, "finish_reason", None)
         u = getattr(response, "usage", None)   # exact token accounting when the
         self.last_usage = ({"prompt_tokens": u.prompt_tokens,      # gateway
                             "completion_tokens": u.completion_tokens}
@@ -202,9 +213,20 @@ class LLMAgent:
         Only the JSON is regenerated, not the reasoning, so this is cheap and
         cannot change the scientific content of a valid response.
         """
+        truncated = getattr(self.llm, "last_finish_reason", None) == "length"
         try:
             return self.parse_json(response)
         except Exception as first:
+            if truncated:
+                # Repairing a truncated reply means asking the model to INVENT
+                # the part that never arrived, and the invention is then
+                # indistinguishable from a designed value. Fail loudly instead.
+                raise ValueError(
+                    "LLM reply was cut off (finish_reason='length'), so the JSON "
+                    "is incomplete rather than malformed. Raise max_tokens — "
+                    "repairing this would fabricate the missing fields, not "
+                    "recover them."
+                ) from first
             print(f"   ⚠️  JSON parse failed ({str(first)[:90]}…) — "
                   f"asking the model to repair it")
             try:
