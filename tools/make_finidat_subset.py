@@ -78,12 +78,42 @@ class SubsetError(RuntimeError):
     """Raised before anything is written — never leave a half-valid finidat."""
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Index-vector cache.
+#
+# plan_subset() needs six whole index vectors -- grid1d_lat/lon plus the four
+# *1d_gridcell_index arrays -- to locate one gridcell. They describe the BAND,
+# not the column, so they are identical for every column drawn from the same
+# restart, and re-reading them per column is the dominant cost of a warm start:
+# hundreds of MB per column off Lustre, for eleven columns, to extract 0.2 MB
+# each. Cached per file, they are read once per band instead.
+#
+# Only ONE file's vectors are held at a time. build_finidats() visits columns
+# band by band, so a single slot is enough, and the arrays are large enough
+# that keeping every band would matter on a login node.
+# ─────────────────────────────────────────────────────────────────────────────
+_IDX_CACHE = {"path": None, "vars": {}}
+
+
+def _idx(d, var):
+    """Whole index vector `var`, read once per restart file."""
+    import numpy as np
+    path = d.filepath()
+    if _IDX_CACHE["path"] != path:
+        _IDX_CACHE["path"], _IDX_CACHE["vars"] = path, {}
+    hit = _IDX_CACHE["vars"].get(var)
+    if hit is None:
+        hit = np.asarray(d.variables[var][:])
+        _IDX_CACHE["vars"][var] = hit
+    return hit
+
+
 def _locate(d, lat, lon):
     """Nearest gridcell to (lat, lon); returns (g0, dist_km, glat, glon)."""
     import numpy as np
-    glat = d.variables["grid1d_lat"][:]
-    glon = np.asarray(d.variables["grid1d_lon"][:])
-    glon = np.where(glon > 180, glon - 360, glon)
+    glat = _idx(d, "grid1d_lat")
+    glon = np.where(_idx(d, "grid1d_lon") > 180,
+                    _idx(d, "grid1d_lon") - 360, _idx(d, "grid1d_lon"))
     g0 = int(np.argmin((np.asarray(glat) - lat) ** 2 + (glon - lon) ** 2))
     dist = 111.0 * float(np.hypot(glat[g0] - lat,
                                   (glon[g0] - lon) * np.cos(np.radians(lat))))
@@ -93,7 +123,7 @@ def _locate(d, lat, lon):
 def _rows_for(d, var, g1):
     """Contiguous row range of `var`'s level belonging to 1-based gridcell g1."""
     import numpy as np
-    idx = np.where(np.asarray(d.variables[var][:]) == g1)[0]
+    idx = np.where(_idx(d, var) == g1)[0]
     if idx.size == 0:
         raise SubsetError(f"gridcell {g1} has no rows in {var}")
     if not np.all(np.diff(idx) == 1):
@@ -467,14 +497,26 @@ def build_finidats(columns, out_dir, bands, quiet=False):
     out_dir = Path(out_dir)
     manifest, skipped = {}, []
     surf_cache = {}
+    # Resolve every column's band FIRST, then walk band by band. The index
+    # vectors are cached one file at a time (see _idx), so grouping turns
+    # "read them per column" into "read them per band" — the whole reason a
+    # warm start was slow. Order within a band is preserved.
+    resolved, order = [], {}
     for c in columns:
         cid, lat, lon = c.get("id"), c.get("lat"), c.get("lon")
         if lat is None or lon is None:
             skipped.append((cid, "no lat/lon")); continue
-        band, src = bands.for_lat(lat)
-        if src is None:
+        band, restart = (bands.path_for_lat(lat)
+                         if hasattr(bands, "path_for_lat") else
+                         (lambda bs: (bs[0], bs[1].d.filepath() if bs[1] else None))(
+                             bands.for_lat(lat)))
+        if restart is None:
             skipped.append((cid, f"lat {lat:.3f} in no CONUS band")); continue
-        restart = src.d.filepath()
+        order.setdefault(band, len(order))
+        resolved.append((c, cid, lat, lon, band, restart))
+    resolved.sort(key=lambda r: order[r[4]])
+
+    for c, cid, lat, lon, band, restart in resolved:
         try:
             info = write_subset(restart, lat, lon,
                                 out_dir / f"finidat_{cid}.nc", quiet=quiet)

@@ -256,6 +256,20 @@ class ConusBandSet:
                 return band, src
         return None, None
 
+    def path_for_lat(self, lat):
+        """(band, path) covering `lat` WITHOUT opening the restart.
+
+        ConusSource's constructor reads four whole index vectors so that
+        natveg_column() can answer per-column queries. A caller that only wants
+        the filename — make_finidat_subset does its own, finer-grained lookup —
+        would pay hundreds of MB of I/O per band for nothing.
+        """
+        for band, lo, hi, path in self.sources:
+            if lo is not None and lo <= lat < hi:
+                return band, path
+        band, src = self.for_lat(lat)          # undeclared ranges: must open
+        return band, (src.d.filepath() if src is not None else None)
+
     def _get(self, band, path):
         if band not in self._open:
             print(f"    opening CONUS band {band}: {Path(path).name}")

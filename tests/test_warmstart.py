@@ -241,3 +241,93 @@ class TestManagerWarmstartStep:
             COLS, {"warm_start": True, "conus_restart": None})
         # no real CONUS access in tests -> cold start, but it must not raise
         assert got is None or isinstance(got, dict)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Index-vector reuse — why a warm start was slow
+# ─────────────────────────────────────────────────────────────────────────────
+class _CountingVar:
+    def __init__(self, arr, owner): self.arr, self.owner = arr, owner
+    def __getitem__(self, k):
+        self.owner.reads += 1
+        return self.arr[k]
+
+
+class _FakeRestart:
+    """Stands in for a 70 GB CONUS band; counts whole-vector reads."""
+    def __init__(self, path, n=6):
+        import numpy as np
+        self.path, self.reads = path, 0
+        self.variables = {
+            "grid1d_lat": _CountingVar(np.arange(n, dtype=float), self),
+            "grid1d_lon": _CountingVar(np.full(n, -121.0), self),
+            "cols1d_gridcell_index": _CountingVar(
+                np.repeat(np.arange(1, n + 1), 2), self),
+        }
+    def filepath(self): return self.path
+
+
+@pytest.fixture(autouse=True)
+def _clear_idx_cache():
+    fs._IDX_CACHE.update(path=None, vars={})
+    yield
+    fs._IDX_CACHE.update(path=None, vars={})
+
+
+class TestIndexVectorCache:
+    """plan_subset needs six whole index vectors to locate ONE gridcell. They
+    describe the band, not the column, so re-reading them per column was the
+    dominant cost of a warm start: measured on a real run, 11 columns across two
+    bands took 15 min 11 s — about 83 s per column — to extract 0.2 MB each."""
+
+    def test_one_read_per_vector_per_band(self):
+        d = _FakeRestart("/band/lat11.nc")
+        for _ in range(11):
+            fs._idx(d, "grid1d_lat")
+            fs._idx(d, "grid1d_lon")
+            fs._idx(d, "cols1d_gridcell_index")
+        assert d.reads == 3, "vectors must be read once per band, not per column"
+
+    def test_the_cached_values_are_correct_not_just_few(self):
+        """A cache that returns the wrong array is worse than no cache."""
+        import numpy as np
+        d = _FakeRestart("/band/lat11.nc")
+        first = fs._idx(d, "grid1d_lat").copy()
+        assert np.array_equal(fs._idx(d, "grid1d_lat"), first)
+        assert np.array_equal(first, np.arange(6, dtype=float))
+
+    def test_switching_band_evicts_the_previous_one(self):
+        """Only one band is held: these arrays are hundreds of MB and the
+        loop visits bands in order, so a single slot is enough."""
+        a = _FakeRestart("/band/lat11.nc")
+        b = _FakeRestart("/band/lat12.nc")
+        fs._idx(a, "grid1d_lat")
+        fs._idx(b, "grid1d_lat")
+        assert fs._IDX_CACHE["path"] == "/band/lat12.nc"
+        assert len(fs._IDX_CACHE["vars"]) == 1
+
+    def test_a_second_band_does_not_serve_stale_data(self):
+        import numpy as np
+        a = _FakeRestart("/band/lat11.nc", n=6)
+        b = _FakeRestart("/band/lat12.nc", n=9)
+        assert len(fs._idx(a, "grid1d_lat")) == 6
+        assert len(fs._idx(b, "grid1d_lat")) == 9
+
+
+class TestBandLookupWithoutOpening:
+    """build_finidats needs the FILE PATH, not ConusSource's index vectors —
+    it does its own finer-grained lookup. Constructing ConusSource anyway read
+    four whole vectors per band for nothing."""
+
+    def test_declared_ranges_answer_without_opening_anything(self):
+        bs = mw.ConusBandSet([("lat11", 46.0, 47.0, "/x/lat11.nc"),
+                              ("lat12", 47.0, 48.0, "/x/lat12.nc")])
+        assert bs.path_for_lat(46.5) == ("lat11", "/x/lat11.nc")
+        assert bs.path_for_lat(47.5) == ("lat12", "/x/lat12.nc")
+        assert bs._open == {}, "no restart may be opened to answer this"
+
+    def test_a_latitude_outside_every_band_opens_nothing(self):
+        bs = mw.ConusBandSet([("lat11", 46.0, 47.0, "/x/lat11.nc")])
+        band, path = bs.path_for_lat(20.0)
+        assert path is None
+        assert bs._open == {}

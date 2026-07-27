@@ -106,6 +106,25 @@ design around a mechanism the runs can't represent and then claim to test it.
     lateral-flow equilibrium (some drift is expected and is itself a
     result); root-zone soil moisture is untouched (fast state). A ParFlow-
     CONUS2 (1-km) prior is a possible future upgrade, not yet available.
+  • COLUMN BUDGET — n_exploratory is CONSTRAINED, not a free judgement call.
+    Every column is a separate CIME case (~30 min per simulated year), and it
+    is the number that fixes both compute cost and spatial coverage, so it must
+    be reproducible from the strata rather than chosen afresh each time.
+
+        n_exploratory = (number of elevation bands) x (2 to 4 per band)
+                        + replication you explicitly justify
+        HARD BOUNDS: 6 <= n_exploratory <= 24 for a single HUC8.
+
+    Pick per-band within 2-4 using RELIEF: 2 when the band spans < 300 m or
+    the basin is smaller than ~500 km2, 4 when a band spans > 700 m or carries
+    a strong soil contrast, 3 otherwise. State the arithmetic in
+    n_justification — "3 bands x 3 per band = 9, +2 replication in the
+    valley-bottom band = 11" — so a reader can check it and the same brief
+    gives the same N twice.
+
+    Do NOT invent a number outside these bounds. If the strata genuinely need
+    more than 24, say so in requires_capabilities instead of exceeding it.
+
   • The levers the ELM runs CAN pull: per-column SOIL (SSURGO), FORCING PERIOD
     (any years inside the brief's forcing_data range), spin-up length, and location/elevation (via
     NLDAS). Prefer designs built on these.
@@ -282,8 +301,8 @@ read and critiqued). THEN output one JSON object with this shape:
     "approach":        "<stratified | clustered | ...>",
     "strata":          [ {"driver": "elevation", "bands": ["<...>"]},
                          {"driver": "soil",      "classes": ["<...>"]} ],
-    "n_exploratory":   <int>,
-    "n_justification": "<why this N, tied to strata and question>",
+    "n_exploratory":   <int — SEE THE COLUMN BUDGET RULE BELOW; not free choice>,
+    "n_justification": "<the arithmetic: bands x per-band + any replication = N>",
     "placement_logic": "<where columns concentrate and why>",
     "replication":     "<if any, and why>"
   },
