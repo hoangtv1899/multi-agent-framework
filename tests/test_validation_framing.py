@@ -86,3 +86,108 @@ class TestFigureSplit:
         import inspect
         doc = inspect.getdoc(vr.plot_context) or ""
         assert "NOT validation" in doc or "not validation" in doc.lower()
+
+
+# ── warm-up exclusion (item 3a) ──────────────────────────────────────────────
+class TestWarmupExclusion:
+    def _series(self, n=200, spike=None):
+        obs = {f"1995-{1 + d // 30:02d}-{1 + d % 30:02d}": 5.0 + (d % 7)
+               for d in range(n)}
+        mod = dict.fromkeys(obs, 5.0)
+        if spike is not None:
+            mod[list(obs)[0]] = spike
+        return obs, mod
+
+    def test_first_days_are_dropped(self):
+        obs, mod = self._series()
+        m = vr.flow_metrics(obs, mod, warmup_days=30)
+        assert m["warmup_days_excluded"] == 30
+        assert m["n_days"] == m["n_days_before_warmup_cut"] - 30
+
+    def test_an_initialisation_spike_stops_dominating(self):
+        """The regression this exists for: one 405 mm/day day-1 flush drove
+        alpha to 6.1 and NSE to -36.9 on the real Naches run."""
+        obs, mod = self._series(spike=400.0)
+        scored = vr.flow_metrics(obs, mod, warmup_days=0)
+        clean = vr.flow_metrics(obs, mod, warmup_days=30)
+        assert scored["alpha_var_ratio"] > 5      # spike inflates variability
+        assert clean["alpha_var_ratio"] < 1       # and is gone once discarded
+        assert clean["NSE"] > scored["NSE"]
+
+    def test_zero_warmup_keeps_everything(self):
+        obs, mod = self._series()
+        assert (vr.flow_metrics(obs, mod, warmup_days=0)["n_days"]
+                == len(set(obs) & set(mod)))
+
+    def test_too_short_after_the_cut_returns_none(self):
+        obs, mod = self._series(n=110)
+        assert vr.flow_metrics(obs, mod, warmup_days=30) is None
+
+
+# ── area weighting (item 3b) ─────────────────────────────────────────────────
+class TestAreaWeighting:
+    COLS = [{"id": "a", "band": 1}, {"id": "b", "band": 2}, {"id": "c", "band": 2}]
+    BANDS = [{"band": 1, "grid_points": 90}, {"band": 2, "grid_points": 10}]
+
+    def test_weights_sum_to_one(self):
+        w = vr.band_weights(self.COLS, self.BANDS)
+        assert sum(w.values()) == pytest.approx(1.0)
+
+    def test_band_area_beats_column_count(self):
+        """Band 1 is 90% of the area with ONE column; band 2 is 10% with two.
+        An unweighted mean would give band 2 twice band 1's influence."""
+        w = vr.band_weights(self.COLS, self.BANDS)
+        assert w["a"] == pytest.approx(0.9)
+        assert w["b"] == pytest.approx(0.05)
+        assert w["c"] == pytest.approx(0.05)
+
+    def test_missing_band_metadata_falls_back_to_equal(self):
+        w = vr.band_weights(self.COLS, None)
+        assert len(w) == 3
+        assert all(v == pytest.approx(1 / 3) for v in w.values())
+
+    def test_weighted_mean_uses_the_weights(self):
+        vals = {"a": 100.0, "b": 0.0, "c": 0.0}
+        w = vr.band_weights(self.COLS, self.BANDS)
+        assert vr.weighted_mean(vals, w) == pytest.approx(90.0)
+        assert vr.weighted_mean({}, w) is None
+
+
+# ── catchment restriction (item 4a) ──────────────────────────────────────────
+class TestCatchmentGeometry:
+    SQUARE = [[(-121.0, 46.0), (-120.0, 46.0), (-120.0, 47.0),
+               (-121.0, 47.0), (-121.0, 46.0)]]
+
+    def test_point_inside_and_outside(self):
+        assert vr._in_polygon(46.5, -120.5, self.SQUARE) is True
+        assert vr._in_polygon(48.0, -120.5, self.SQUARE) is False
+        assert vr._in_polygon(46.5, -119.0, self.SQUARE) is False
+
+    def test_missing_coordinates_are_not_inside(self):
+        assert vr._in_polygon(None, -120.5, self.SQUARE) is False
+        assert vr._in_polygon(46.5, None, self.SQUARE) is False
+        assert vr._in_polygon(46.5, -120.5, []) is False
+
+    def test_rings_handles_polygon_and_multipolygon(self):
+        poly = {"type": "Polygon", "coordinates": [self.SQUARE[0]]}
+        multi = {"type": "MultiPolygon", "coordinates": [[self.SQUARE[0]]]}
+        assert len(vr._rings(poly)) == 1
+        assert len(vr._rings(multi)) == 1
+        assert vr._rings(None) == []
+        assert vr._rings({"type": "Point", "coordinates": [0, 0]}) == []
+
+
+# ── runoff ratio (item 4b) ───────────────────────────────────────────────────
+class TestRunoffRatioGuard:
+    def test_an_impossible_observed_ratio_is_rejected_in_source(self):
+        """yield > precipitation cannot happen over a closed catchment in a
+        year; it means the P used is not the catchment's P. On the real Naches
+        run the observed ratio came out 1.74 and must not read as a verdict."""
+        src = (ROOT / "tools" / "validate_run.py").read_text()
+        assert "observed_ratio_valid" in src
+        assert "> 1.0" in src or "> 1:" in src
+
+    def test_ratio_uses_shared_precipitation_and_says_so(self):
+        src = (ROOT / "tools" / "validate_run.py").read_text()
+        assert "tests \"\n                \"partitioning, not forcing" in src \
+            or "partitioning, not forcing" in src

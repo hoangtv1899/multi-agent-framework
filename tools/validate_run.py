@@ -38,6 +38,108 @@ MI2_TO_M2 = 2.58999e6
 MI2_TO_KM2 = 2.58999
 FT_TO_M = 0.3048
 
+# Days discarded before any streamflow metric. A warm-started column flushes its
+# prescribed initial storage in the first days — on the 1995 Naches run that was
+# a single 405 mm/day spike contributing ~400 of the model's 1011 mm annual
+# total, which alone drove alpha to 6.1 and NSE to -36.9. Scoring it measures
+# initialization, not hydrology.
+WARMUP_DAYS = 30
+NLDI_BASIN = ("https://api.water.usgs.gov/nldi/linked-data/nwissite/"
+              "{site}/basin")
+
+
+def _rings(geom):
+    """GeoJSON Polygon/MultiPolygon -> list of exterior rings [(lon,lat), ...]."""
+    if not geom:
+        return []
+    if geom.get("type") == "Polygon":
+        return [geom["coordinates"][0]]
+    if geom.get("type") == "MultiPolygon":
+        return [poly[0] for poly in geom["coordinates"]]
+    return []
+
+
+def _in_polygon(lat, lon, rings):
+    """Ray-casting point-in-polygon. Rings are (lon, lat) as GeoJSON stores them."""
+    if lat is None or lon is None or not rings:
+        return False
+    inside = False
+    for ring in rings:
+        n = len(ring)
+        for i in range(n):
+            x1, y1 = ring[i][0], ring[i][1]
+            x2, y2 = ring[(i + 1) % n][0], ring[(i + 1) % n][1]
+            if (y1 > lat) != (y2 > lat):
+                xin = x1 + (lat - y1) * (x2 - x1) / (y2 - y1)
+                if lon < xin:
+                    inside = not inside
+    return inside
+
+
+def fetch_gauge_basin(gauge_id):
+    """The gauge's contributing-area polygon from the USGS NLDI.
+
+    Without it, a basin-wide ensemble is scored against whatever sub-catchment
+    the gauge happens to drain — the dominant error in the previous comparison.
+    """
+    import httpx
+    site = gauge_id if gauge_id.startswith("USGS-") else f"USGS-{gauge_id}"
+    try:
+        r = httpx.get(NLDI_BASIN.format(site=site), timeout=45,
+                      follow_redirects=True)
+        if r.status_code != 200:
+            return None
+        feats = (r.json() or {}).get("features") or []
+        rings = _rings(feats[0].get("geometry")) if feats else []
+        return rings or None
+    except Exception:
+        return None
+
+
+def band_weights(columns, bands):
+    """{col_id: area weight}, summing to 1.
+
+    Bands carry `grid_points` — the DEM sample count in that elevation band.
+    On a regular sampling grid that is proportional to band AREA, so a band's
+    share of the basin is grid_points / total, split evenly among the columns
+    allocated to it.
+
+    Why it matters: the sampler allocates N proportional to area but with a
+    floor of >=1 per band, so a small high band gets the same single column as
+    a large valley band. An unweighted mean then over-represents the small
+    band. Falls back to equal weights when the band metadata is absent.
+    """
+    from collections import defaultdict
+    per_band = defaultdict(list)
+    for c in columns:
+        per_band[c.get("band")].append(c["id"])
+
+    gp = {b.get("band"): _n(b.get("grid_points")) or 0.0 for b in (bands or [])}
+    total = sum(gp.get(b, 0.0) for b in per_band)
+    if not total:
+        n = len(columns) or 1
+        return {c["id"]: 1.0 / n for c in columns}
+
+    w = {}
+    for b, ids in per_band.items():
+        share = gp.get(b, 0.0) / total
+        for cid in ids:
+            w[cid] = share / len(ids)
+    s = sum(w.values()) or 1.0
+    return {k: v / s for k, v in w.items()}
+
+
+def weighted_mean(values_by_id, weights):
+    """Area-weighted mean over whatever ids are present in BOTH dicts."""
+    ids = [i for i in values_by_id if weights.get(i) is not None
+           and values_by_id[i] is not None]
+    if not ids:
+        return None
+    wsum = sum(weights[i] for i in ids)
+    if wsum <= 0:
+        return None
+    return sum(values_by_id[i] * weights[i] for i in ids) / wsum
+
 
 def _n(x):
     try:
@@ -150,17 +252,29 @@ def fetch_gauge_yields(clients, bb, year, max_gauges=4):
     return out
 
 
-def model_daily_runoff(run_dir: Path, cases_file: str):
-    """Column-mean daily total runoff (QOVER+QDRAI, mm/day) keyed by date string.
-    Returns None when the case dirs no longer exist (scratch purged)."""
+def model_daily_runoff(run_dir: Path, cases_file: str, weights=None,
+                       only_columns=None):
+    """Daily total runoff (QOVER+QDRAI, mm/day) keyed by date.
+
+    weights       {col_id: area weight} — AREA-weighted mean instead of a plain
+                  one. The sampler allocates >=1 column per band regardless of
+                  band size, so an unweighted mean over-weights small bands.
+    only_columns  restrict to a set of column ids (the gauge's catchment).
+
+    Also returns the per-column series, so a subset can be re-aggregated
+    without re-reading 13 multi-file datasets.
+    Returns None when the case dirs no longer exist (scratch purged).
+    """
     import numpy as np
     import xarray as xr
     cf = run_dir / cases_file
     if not cf.exists():
         return None
-    per_day = {}
-    n_cols = 0
+    per_col = {}
     for cd in json.loads(cf.read_text()):
+        name = cd.split(".")[-1]
+        if only_columns is not None and name not in only_columns:
+            continue
         fs = sorted(glob.glob(cd + "/run/*.elm.h0.*.nc"))
         if not fs:
             continue
@@ -174,14 +288,21 @@ def model_daily_runoff(run_dir: Path, cases_file: str):
         agg = {}
         for d, v in zip(days, vals):
             agg.setdefault(d, []).append(v)
-        n_cols += 1
-        for d, vs in agg.items():
-            per_day.setdefault(d, []).append(float(np.mean(vs)))
-    if not per_day:
+        per_col[name] = {d: float(np.mean(vs)) for d, vs in agg.items()}
+    if not per_col:
         return None
-    return {"n_columns": n_cols,
-            "mm_day": {d: round(float(sum(v) / len(v)), 4)
-                       for d, v in sorted(per_day.items())}}
+
+    all_days = sorted({d for s in per_col.values() for d in s})
+    w = {c: (weights or {}).get(c, 1.0) for c in per_col}
+    tot = sum(w.values()) or 1.0
+    mean = {}
+    for d in all_days:
+        num = sum(s[d] * w[c] for c, s in per_col.items() if d in s)
+        den = sum(w[c] for c, s in per_col.items() if d in s) or tot
+        mean[d] = round(num / den, 4)
+    return {"n_columns": len(per_col), "columns": sorted(per_col),
+            "weighted": bool(weights),
+            "mm_day": mean, "per_column": per_col}
 
 
 def model_daily_context(run_dir: Path, cases_file: str):
@@ -233,10 +354,17 @@ def model_daily_context(run_dir: Path, cases_file: str):
     return out or None
 
 
-def flow_metrics(obs: dict, mod: dict):
-    """NSE and KGE between two {date: mm/day} series on their common days."""
+def flow_metrics(obs: dict, mod: dict, warmup_days: int = WARMUP_DAYS):
+    """NSE and KGE between two {date: mm/day} series on their common days.
+
+    The first `warmup_days` are DISCARDED. A warm-started column dumps its
+    prescribed initial storage in the opening days; including that measures
+    initialization rather than hydrology, and on the Naches run a single day
+    drove alpha to 6.1 and NSE to -36.9 on its own.
+    """
     import numpy as np
-    days = sorted(set(obs) & set(mod))
+    days_all = sorted(set(obs) & set(mod))
+    days = days_all[warmup_days:] if warmup_days else days_all
     if len(days) < 100:
         return None
     o = np.array([obs[d] for d in days], float)
@@ -246,7 +374,9 @@ def flow_metrics(obs: dict, mod: dict):
     alpha = float(m.std() / o.std()) if o.std() > 0 else np.nan
     beta = float(m.mean() / o.mean()) if o.mean() > 0 else np.nan
     kge = 1 - float(np.sqrt((r - 1) ** 2 + (alpha - 1) ** 2 + (beta - 1) ** 2))
-    return {"n_days": len(days), "NSE": round(nse, 3), "KGE": round(kge, 3),
+    return {"n_days": len(days), "warmup_days_excluded": warmup_days,
+            "n_days_before_warmup_cut": len(days_all),
+            "NSE": round(nse, 3), "KGE": round(kge, 3),
             "r": round(r, 3), "alpha_var_ratio": round(alpha, 3),
             "beta_bias_ratio": round(beta, 3), "days": days,
             "obs": o.tolist(), "mod": m.tolist()}
@@ -303,8 +433,9 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     dom = brief.get("domain", {})
     bb = dom["bbox"]
     year = sim_year(run_dir)
-    cols = json.loads((run_dir / "columns.json").read_text())
-    cols = cols["columns"] if isinstance(cols, dict) else cols
+    _cj  = json.loads((run_dir / "columns.json").read_text())
+    cols = _cj["columns"] if isinstance(_cj, dict) else _cj
+    _bands = _cj.get("bands") if isinstance(_cj, dict) else None
     fan = {c["id"]: _n(c.get("fan_wtd_m")) for c in cols}
     hs = json.loads((run_dir / "04_analysis" / "hydro_summary.json").read_text())
 
@@ -332,13 +463,47 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     print("  building daily hydrograph comparison (NSE/KGE)…")
     hydro = None
     daily_best = gauges.get("daily_best")
-    mod_daily = model_daily_runoff(run_dir, cases_file)
+
+    # ── restrict the model to the GAUGE'S OWN CATCHMENT ────────────────────
+    # The previous comparison scored a basin-wide ensemble against whatever
+    # sub-catchment the gauge drains. Ask the USGS NLDI for the actual
+    # contributing-area polygon and keep only the columns inside it.
+    cols_by_id = {c["id"]: c for c in cols}
+    weights_all = band_weights(cols, _bands)
+    catchment = {"gauge_id": None, "rings": 0, "columns_inside": [],
+                 "n_inside": 0, "restricted": False, "note": None}
+    if daily_best:
+        rings = fetch_gauge_basin(daily_best["id"])
+        catchment["gauge_id"] = daily_best["id"]
+        catchment["rings"] = len(rings or [])
+        if rings:
+            inside = [cid for cid, c in cols_by_id.items()
+                      if _in_polygon(_n(c.get("lat")), _n(c.get("lon")), rings)]
+            catchment["columns_inside"] = sorted(inside)
+            catchment["n_inside"] = len(inside)
+            catchment["restricted"] = len(inside) >= 3
+            catchment["note"] = (
+                f"{len(inside)} of {len(cols_by_id)} columns fall inside the "
+                f"gauge's contributing area"
+                + ("; the hydrograph is computed from those only."
+                   if len(inside) >= 3 else
+                   " — too few to represent the catchment, so the basin-wide "
+                   "ensemble is used and the comparison stays CONTEXT-ONLY. "
+                   "Sampling targeted at the gauged catchment would fix this."))
+        else:
+            catchment["note"] = "NLDI returned no basin polygon for this gauge"
+
+    only = (set(catchment["columns_inside"]) if catchment["restricted"] else None)
+    mod_daily = model_daily_runoff(run_dir, cases_file, weights=weights_all,
+                                   only_columns=only)
     if daily_best and mod_daily:
         fm = flow_metrics(daily_best["mm_day"], mod_daily["mm_day"])
         if fm:
             hydro = {"gauge": daily_best["gauge"], "gauge_id": daily_best["id"],
                      "drainage_area_km2": daily_best["drainage_area_km2"],
                      "model_columns": mod_daily["n_columns"],
+                     "area_weighted": mod_daily.get("weighted"),
+                     "restricted_to_catchment": catchment["restricted"],
                      "obs_mm_day": daily_best["mm_day"],
                      "mod_mm_day": mod_daily["mm_day"], **fm}
 
@@ -365,6 +530,58 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
             if not comparable else " — areas are close enough to compare yields."),
     }
     context = model_daily_context(run_dir, cases_file)
+
+    # ── RUNOFF RATIO — the comparison that survives a forcing bias ─────────
+    # Absolute yield conflates two errors: getting precipitation wrong and
+    # partitioning it wrong. The ratio yield/P removes the first. The question
+    # asked ("how does precipitation PARTITION") is a ratio question, so this
+    # is the honest headline even when absolute yield is not comparable.
+    #
+    # Both ratios use the SAME modelled precipitation, because no independent
+    # precipitation product is fetched for the gauged catchment. That makes the
+    # comparison a partitioning test, not a forcing test — stated, not implied.
+    ids_for_ratio = (catchment["columns_inside"] if catchment["restricted"]
+                     else [r["case_name"] for r in ok])
+    p_by_id = {r["case_name"]: _n(r["metrics"].get("precip_mm_yr")) for r in ok}
+    y_by_id = {r["case_name"]: ((_n(r["metrics"].get("annual_recharge_mm_yr")) or 0)
+                                + (_n(r["metrics"].get("annual_runoff_mm_yr")) or 0))
+               for r in ok}
+    sel_w = {i: weights_all.get(i, 0.0) for i in ids_for_ratio}
+    p_mean = weighted_mean({i: p_by_id.get(i) for i in ids_for_ratio}, sel_w)
+    y_mean = weighted_mean({i: y_by_id.get(i) for i in ids_for_ratio}, sel_w)
+    obs_q_best = (gauges["gauges"][0]["specific_discharge_mm_yr"]
+                  if gauges["gauges"] else None)
+    runoff_ratio = {
+        "columns_used": sorted(ids_for_ratio),
+        "restricted_to_catchment": catchment["restricted"],
+        "area_weighted": True,
+        "precip_mm_yr": round(p_mean, 1) if p_mean else None,
+        "model_yield_mm_yr": round(y_mean, 1) if y_mean else None,
+        "model_ratio": (round(y_mean / p_mean, 3) if (p_mean and y_mean) else None),
+        "observed_yield_mm_yr": obs_q_best,
+        "observed_ratio": (round(obs_q_best / p_mean, 3)
+                           if (p_mean and obs_q_best) else None),
+        "note": "both ratios use the MODELLED precipitation; no independent "
+                "catchment precipitation product is fetched, so this tests "
+                "partitioning, not forcing.",
+    }
+    # A runoff ratio above 1 means more water left than fell — impossible for a
+    # closed catchment over a year. When it appears on the OBSERVED side it is
+    # not a model result at all: it means the precipitation used is not the
+    # precipitation the gauged catchment received. Say so rather than letting a
+    # nonsensical ratio be read as a partitioning verdict.
+    _or = runoff_ratio.get("observed_ratio")
+    if _or is not None and _or > 1.0:
+        runoff_ratio["observed_ratio_valid"] = False
+        runoff_ratio["note"] += (
+            f" WARNING: the observed ratio is {_or:.2f} (>1) — the gauge yields "
+            f"more than the {runoff_ratio['precip_mm_yr']:.0f} mm/yr of modelled "
+            f"basin-mean precipitation. That is impossible for a closed "
+            f"catchment, so the gauged headwater plainly receives far more "
+            f"precipitation than the basin mean. The observed ratio is NOT "
+            f"usable until precipitation over the gauged catchment is supplied.")
+    else:
+        runoff_ratio["observed_ratio_valid"] = True
 
     # ── pair point observations to their NEAREST column ────────────────────
     # A basin-wide distribution hides which site is being missed; pairing makes
@@ -495,6 +712,9 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
             "streamflow_comparison": {"modeled_yield_mm_yr": mean_yield,
                                       "gauges": gauges["gauges"]},
             "domain_match": domain_match,
+            "catchment": catchment,
+            "runoff_ratio": runoff_ratio,
+            "band_weights": {k: round(v, 4) for k, v in weights_all.items()},
             "per_column_yield_mm_yr": [round(y, 1) for y in yields],
             "water_budget_mean": water_budget_mean,
             "well_series": well_series,
@@ -536,23 +756,36 @@ def plot_hydrograph(val, out_path):
     h = val.get("hydrograph")
     if not (h and h.get("obs_mm_day") and h.get("mod_mm_day")):
         return None
-    days = sorted(set(h["obs_mm_day"]) & set(h["mod_mm_day"]))
-    if not days:
+    days_all = sorted(set(h["obs_mm_day"]) & set(h["mod_mm_day"]))
+    if not days_all:
         return None
+    nwu = int(h.get("warmup_days_excluded") or 0)
+    days = days_all[nwu:] if nwu else days_all
     o = np.array([h["obs_mm_day"][d] for d in days])
     m = np.array([h["mod_mm_day"][d] for d in days])
     x = _dates(days)
+    x_wu = _dates(days_all[:nwu]) if nwu else []
 
     fig, ax = plt.subplots(2, 1, figsize=(11.5, 7), sharex=True)
     ax[0].plot(x, o, color=_W, lw=1.2, label=f"observed — {h['gauge']} "
                f"({h['drainage_area_km2']:.0f} km²)")
     ax[0].plot(x, m, color=_M, lw=1.2, label=f"model — column-mean QOVER+QDRAI "
                f"({h['model_columns']} cols)")
+    if x_wu:
+        for a in ax:
+            a.axvspan(x_wu[0], x_wu[-1], color="#bbb", alpha=.35, zorder=0)
+        ax[0].text(x_wu[0], ax[0].get_ylim()[1] * .92,
+                   f" {nwu}-day warm-up\n discarded", fontsize=8, color="#555",
+                   va="top")
     ax[0].set_ylabel("specific discharge (mm/day)")
     ax[0].legend(frameon=False, fontsize=8.5)
-    ax[0].set_title("Daily hydrograph — shape only; a 1-D column has no routing, "
-                    "so timing disagreement is expected",
-                    fontweight="bold", fontsize=11)
+    scope = ("gauge catchment only" if h.get("restricted_to_catchment")
+             else "basin-wide ensemble")
+    wgt = "area-weighted" if h.get("area_weighted") else "unweighted"
+    ax[0].set_title(f"Daily hydrograph — shape only; a 1-D column has no routing, "
+                    f"so timing disagreement is expected\n"
+                    f"model = {wgt} mean of {h['model_columns']} columns ({scope})",
+                    fontweight="bold", fontsize=10.5)
 
     ax[1].plot(x, np.cumsum(o), color=_W, lw=1.8, label="observed")
     ax[1].plot(x, np.cumsum(m), color=_M, lw=1.8, label="model")
@@ -584,8 +817,9 @@ def plot_yield(val, out_path):
     if not ys:
         return None
     dm = val.get("domain_match") or {}
-    fig, ax = plt.subplots(1, 2, figsize=(11.5, 4.6),
-                           gridspec_kw={"width_ratios": [1, 1.25]})
+    rr = val.get("runoff_ratio") or {}
+    fig, ax = plt.subplots(1, 3, figsize=(15, 4.6),
+                           gridspec_kw={"width_ratios": [1, .8, 1.25]})
 
     x = np.random.default_rng(0).normal(0, .05, len(ys))
     ax[0].scatter(x, ys, s=48, color=_M, edgecolor="#222", zorder=3,
@@ -605,6 +839,38 @@ def plot_yield(val, out_path):
                     fontweight="bold", fontsize=10.5,
                     color=("#222" if ok else _W))
 
+    # runoff ratio — the partitioning test, immune to precipitation bias
+    if rr.get("model_ratio") is not None:
+        bars = [("model", rr["model_ratio"], _M)]
+        if rr.get("observed_ratio") is not None:
+            bars.append(("gauge", rr["observed_ratio"], _W))
+        bad = rr.get("observed_ratio_valid") is False
+        ax[1].bar([b[0] for b in bars], [b[1] for b in bars],
+                  color=[b[2] for b in bars], edgecolor="#222", width=.55,
+                  hatch=["", "//"][:len(bars)] if bad else None)
+        if bad:
+            # Anchor to the impossibility line itself, on the left where the
+            # short model bar leaves room — the previous placement rode on top
+            # of the observed bar and collided with the title.
+            ax[1].axhline(1.0, color="#222", ls=":", lw=1.2)
+            ax[1].text(-0.42, 1.02, "ratio > 1 is impossible — the gauged\n"
+                       "catchment gets more P than the basin mean",
+                       fontsize=7.5, color=_W, va="bottom", ha="left")
+            ax[1].set_ylim(0, max(b[1] for b in bars) * 1.28)
+        for i, b in enumerate(bars):
+            ax[1].text(i, b[1], f"{b[1]:.2f}", ha="center", va="bottom",
+                       fontsize=9.5, fontweight="bold")
+        ax[1].set_ylabel("runoff ratio (yield / P)")
+        n_used = len(rr.get("columns_used") or [])
+        ax[1].set_title(f"Runoff ratio — THE partitioning test\n"
+                        f"immune to precipitation bias ({n_used} cols, "
+                        f"{'catchment' if rr.get('restricted_to_catchment') else 'basin'})",
+                        fontweight="bold", fontsize=10.5)
+    else:
+        ax[1].axis("off")
+        ax[1].text(.5, .5, "runoff ratio unavailable", ha="center", va="center",
+                   color="#888")
+
     terms = [("precip", "precip_mm_yr"), ("ET", "et_mm_yr"),
              ("runoff", "runoff_mm_yr"), ("drainage", "drainage_mm_yr"),
              ("Δstorage", "storage_change_mm")]
@@ -612,16 +878,16 @@ def plot_yield(val, out_path):
     vals = [wb.get(k) for _, k in terms]
     if any(v is not None for v in vals):
         cols = ["#4d4d4d", "#31a354", "#d95f0e", "#fdae6b", "#9ecae1"]
-        ax[1].bar([t for t, _ in terms], [v or 0 for v in vals], color=cols,
+        ax[2].bar([t for t, _ in terms], [v or 0 for v in vals], color=cols,
                   edgecolor="#222")
-        ax[1].axhline(0, color="#222", lw=.8)
-        ax[1].set_ylabel("mm/yr")
-        ax[1].set_title("Water balance (column mean) — yield is P − ET − Δstorage;\n"
+        ax[2].axhline(0, color="#222", lw=.8)
+        ax[2].set_ylabel("mm/yr")
+        ax[2].set_title("Water balance (column mean) — yield is P − ET − Δstorage;\n"
                         "a large Δstorage means the year is not at equilibrium",
                         fontweight="bold", fontsize=10.5)
     else:
-        ax[1].axis("off")
-        ax[1].text(.5, .5, "water-budget terms unavailable", ha="center",
+        ax[2].axis("off")
+        ax[2].text(.5, .5, "water-budget terms unavailable", ha="center",
                    va="center", color="#888")
     for a in ax:
         _style(a)
