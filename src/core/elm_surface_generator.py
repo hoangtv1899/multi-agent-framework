@@ -296,6 +296,17 @@ def _extract_conus_veg(lat: float, lon: float,
 # ─────────────────────────────────────────────────────────────────────
 # SURFACE GENERATOR
 # ─────────────────────────────────────────────────────────────────────
+# Key spellings accepted for each quantity, most specific first. The MCP emits
+# `organic_matter_pct` and `gravel_pct`; older passthrough payloads use the
+# short forms; SSURGO column names appear when a profile is passed through raw.
+_PCT_KEYS = {
+    'sand':    ('sand_pct', 'sand', 'sandtotal_r'),
+    'clay':    ('clay_pct', 'clay', 'claytotal_r'),
+    'organic': ('organic_pct', 'organic', 'organic_matter_pct', 'om_pct', 'om_r'),
+    'gravel':  ('gravel_pct', 'gravel', 'coarse_fragment_pct', 'frag_pct'),
+}
+
+
 class ELMSurfaceGenerator:
     """
     Generates ELM surface data NetCDF files for single-column simulations.
@@ -682,6 +693,7 @@ class ELMSurfaceGenerator:
             return []
 
         parsed = []
+        fallbacks_used: Dict[tuple, list] = {}
         for i, layer in enumerate(raw_layers):
             if not isinstance(layer, dict):
                 logger.warning(f"MCP layer {i} is not a dict — skipping")
@@ -702,10 +714,10 @@ class ELMSurfaceGenerator:
                 ) if val is None
             ]
             if missing:
-                logger.warning(
-                    f"MCP layer {i} missing {missing} — "
-                    f"using loam fallback values"
-                )
+                # Collected, not logged per layer: an 8-layer profile x 14
+                # columns printed ~100 identical lines, which buries anything
+                # that matters. Summarised once below.
+                fallbacks_used.setdefault(tuple(missing), []).append(i)
 
             row = {
                 'PCT_SAND': sand if sand is not None
@@ -729,6 +741,12 @@ class ELMSurfaceGenerator:
 
             parsed.append(row)
 
+        for fields, layers in fallbacks_used.items():
+            logger.warning(
+                f"soil: {', '.join(fields)} not reported by SSURGO for "
+                f"{len(layers)} of {len(raw_layers)} layers — loam fallback "
+                f"used for those fields only (measured sand/clay retained)"
+            )
         return parsed
 
     # ─────────────────────────────────────────────────────────
@@ -743,8 +761,11 @@ class ELMSurfaceGenerator:
           2. derivation.inputs string: "sand=80.0% silt=17.5% clay=2.5%"
           3. None (caller uses fallback)
         """
-        # 1. Direct keys
-        direct = self._extract(layer, [f'{what}_pct', what])
+        # 1. Direct keys, including the names the geology MCP actually emits.
+        #    'organic' used to look only for organic_pct/organic while SSURGO
+        #    arrives as organic_matter_pct, so every column silently discarded
+        #    a real measurement and substituted the loam constant.
+        direct = self._extract(layer, _PCT_KEYS.get(what, (f'{what}_pct', what)))
         if direct is not None:
             return direct
 

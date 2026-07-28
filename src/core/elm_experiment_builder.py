@@ -155,8 +155,17 @@ class ELMExperimentBuilder:
                         f"   ✓ Cloned: {Path(case_dir).name}"
                     )
                 except Exception as e:
+                    # Expected and recovered: concurrent create_clone races on
+                    # a parallel filesystem and the serial pass below retries
+                    # it. Printing CIME's whole traceback here made a handled
+                    # transient look like a failed run, so keep the cause to
+                    # one line and save the detail in case the retry fails too.
+                    exp['_clone_error'] = str(e)
+                    first = next((ln.strip() for ln in reversed(str(e).splitlines())
+                                  if ln.strip()), str(e))
                     logger.warning(
-                        f"   ✗ Clone failed for {exp['case_name']}: {e}"
+                        f"   ✗ Clone raced for {exp['case_name']} "
+                        f"({first[:110]}) — will retry serially"
                     )
                     exp['case_dir'] = None
 
@@ -188,9 +197,16 @@ class ELMExperimentBuilder:
                     exp['case_dir'] = case_dir
                     logger.info(f"   ✓ Cloned (retry): {Path(case_dir).name}")
                 except Exception as e:
+                    # Both attempts gone: now the detail earns its space,
+                    # including the first failure, because this column will
+                    # cold-start or be dropped and someone must diagnose it.
                     logger.error(
                         f"   ✗ Clone failed again for {exp['case_name']}: {e}"
                     )
+                    if exp.get('_clone_error'):
+                        logger.error(
+                            f"     first attempt was: {exp['_clone_error']}"
+                        )
                     exp['case_dir'] = None
 
         # Return in original experiment order

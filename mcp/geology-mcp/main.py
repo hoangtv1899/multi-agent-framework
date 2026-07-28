@@ -56,7 +56,8 @@ SELECT
     hz.wfifteenbar_r,
     hz.ksat_r,
     hz.dbthirdbar_r,
-    hz.om_r
+    hz.om_r,
+    hz.sieveno10_r
 FROM
     component co
     INNER JOIN chorizon hz ON hz.cokey = co.cokey
@@ -89,6 +90,16 @@ ORDER BY co.comppct_r DESC, hz.hzdept_r ASC
         return [{"error": str(e)}]
 
 
+def _coarse_fragment_pct(hz: dict):
+    """Percent >2 mm from SSURGO's #10 sieve column; None when not reported."""
+    v = hz.get('sieveno10_r')
+    try:
+        pct = 100.0 - float(v)
+    except (TypeError, ValueError):
+        return None
+    return round(max(0.0, min(100.0, pct)), 2)
+
+
 def _layers_from(horizons: list) -> list:
     """SSURGO horizon rows -> the layer dicts get_soil_profile returns."""
     layers = []
@@ -107,6 +118,11 @@ def _layers_from(horizons: list) -> list:
             "bulk_density_gcc":   hz.get('dbthirdbar_r'),
             "ksat_ums":           hz.get('ksat_r'),
             "organic_matter_pct": hz.get('om_r'),
+            # Coarse fragments (>2 mm). SSURGO reports the percent PASSING the
+            # #10 sieve (2 mm) by weight, so the complement is the fragment
+            # fraction. Weight-based, not volumetric — stated here because the
+            # two differ once fragments are abundant.
+            "gravel_pct": _coarse_fragment_pct(hz),
             "van_genuchten": {"theta_s": vg["theta_s"], "theta_r": vg["theta_r"],
                               "alpha_per_m": vg["alpha_per_m"], "n": vg["n"],
                               "m": vg["m"], "ksat_ms": vg["ksat_ms"]},

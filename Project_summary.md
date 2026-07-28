@@ -107,6 +107,11 @@ session per call (HPC-safe). All tools are **read-only** fetches.
   returns positive `depth_to_water_m`, reduces `time`, applies the land mask.
 - SSURGO and weather are point-only → watershed work uses `sample_elevation_grid`
   and `sample_fan_wtd`.
+- SSURGO layers carry `organic_matter_pct` (from `om_r`) and `gravel_pct`
+  (100 − `sieveno10_r`, the >2 mm fraction **by weight**). The surface generator
+  matches those names via `_PCT_KEYS`; it previously looked only for
+  `organic_pct`, so real organic matter was discarded in favour of a loam
+  constant on every layer of every column.
 - `tools/mcp_conus_sweep.py` surfaces sparse-well / no-data regions *before* you
   design a study.
 - **Ask for many points in ONE call.** A fresh session per call is what makes
