@@ -298,11 +298,6 @@ class ELMExpManager:
 				"outside the basin; treat the ensemble as a bbox sample."),
 		}
 
-		# Persist the materialized columns next to the run's other inputs, so
-		# analyze_run.py / make_warmstart.py can consume this run like any other.
-		(self.input_dir / "columns.json").write_text(json.dumps(res, indent=2))
-		(self.run_dir  / "columns.json").write_text(json.dumps(res, indent=2))
-
 		yr_start = int(config.get("yr_start", 1995))
 		yr_end   = int(config.get("yr_end",   yr_start))
 
@@ -321,6 +316,15 @@ class ELMExpManager:
 		finidat_map = self._warmstart(columns, config)
 		self._attach_donor_soil(columns, finidat_map)
 		res["columns"] = columns
+
+		# Persist AFTER step 0b, not before. The warm start SNAPS each column to
+		# its donor gridcell and hands it that cell's soil, so a file written
+		# earlier describes a plan that no longer matches the run: every column
+		# of the 2026-07-28 run was 200-700 m from where columns.json claimed.
+		# analyze_run and validate_run read this file for the spatial maps and
+		# for nearest-station matching, so the error propagated into both.
+		(self.input_dir / "columns.json").write_text(json.dumps(res, indent=2))
+		(self.run_dir  / "columns.json").write_text(json.dumps(res, indent=2))
 
 		# The sampling-design figure: domain map + watershed outline,
 		# hypsometry with band edges, soil configs, Fan WTD vs elevation,

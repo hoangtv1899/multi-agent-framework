@@ -99,3 +99,31 @@ class TestLedgerFollowsTheState:
         assert "warm" in self._spinup_row(
             {"col_01": {"source": "conus"}})["value"]
         assert self._spinup_row(None)["value"] == "none"
+
+
+class TestColumnsJsonMatchesTheRun:
+    """columns.json is what analyze_run and validate_run read for coordinates
+    and soil. The warm start SNAPS each column to its donor gridcell and hands
+    it that cell's soil, so a file written before step 0b describes a plan the
+    run then departed from — every column of the 2026-07-28 run sat 200–700 m
+    from where columns.json claimed, and the spatial maps and nearest-station
+    matching inherited that error."""
+
+    def test_it_is_written_after_the_warm_start(self):
+        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        warm = src.index("finidat_map = self._warmstart")
+        soil = src.index("self._attach_donor_soil")
+        write = src.index('"columns.json").write_text')
+        assert warm < write, "columns.json written before coordinates are snapped"
+        assert soil < write, "columns.json written before the run's soil is known"
+
+    def test_and_before_the_design_figure_and_the_plan(self):
+        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        write = src.index('"columns.json").write_text')
+        assert write < src.index("png = exp.plot_columns")
+        assert write < src.index("executable = columns_to_elm_plan")
+
+    def test_it_is_only_written_once(self):
+        """Two write sites would let one of them drift back before step 0b."""
+        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        assert src.count('"columns.json").write_text') == 2   # input_dir + run_dir
