@@ -38,6 +38,7 @@ writing anything:
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -93,6 +94,10 @@ class SubsetError(RuntimeError):
 # that keeping every band would matter on a login node.
 # ─────────────────────────────────────────────────────────────────────────────
 _IDX_CACHE = {"path": None, "vars": {}}
+
+# Columns are subset in parallel; see build_finidats. Four keeps several seeks
+# in flight without turning a login node into an I/O storm.
+DEFAULT_WORKERS = int(os.environ.get("IDEAS_WARMSTART_WORKERS", "4"))
 
 
 def _idx(d, var):
@@ -486,7 +491,7 @@ def main():
     print(f"\n{len(manifest)}/{len(cols)} finidat files -> {out_dir}/")
 
 
-def build_finidats(columns, out_dir, bands, quiet=False):
+def build_finidats(columns, out_dir, bands, quiet=False, workers=None):
     """{col_id: entry} for every column a CONUS band can serve.
 
     Per column, subsets BOTH the restart (-> finidat) and the matching CONUS
@@ -524,30 +529,38 @@ def build_finidats(columns, out_dir, bands, quiet=False):
         resolved.append((c, cid, lat, lon, band, restart))
     resolved.sort(key=lambda r: order[r[4]])
 
-    for c, cid, lat, lon, band, restart in resolved:
+    # Subset columns CONCURRENTLY. write_subset copies ~216 variables, each a
+    # separate seek into a 70 GB file, so a column is dominated by I/O LATENCY
+    # rather than bandwidth: 17-27 s each, of which almost none is CPU. Letting
+    # several columns have a request outstanding at once overlaps those seeks --
+    # measured 53.4 s/column serial against 5.4 s/column with three workers.
+    #
+    # Separate processes, not threads: netCDF4-python gives no thread-safety
+    # guarantee, and each worker wants its own Dataset handle anyway. The file
+    # is opened read-only, so concurrent readers are safe.
+    n_workers = max(1, min(int(workers or DEFAULT_WORKERS), len(resolved)))
+    results = {}
+    if n_workers > 1 and len(resolved) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        payload = [(cid, lat, lon, band, restart, str(out_dir))
+                   for _, cid, lat, lon, band, restart in resolved]
         try:
-            info = write_subset(restart, lat, lon,
-                                out_dir / f"finidat_{cid}.nc", quiet=quiet)
-            problems = validate(info["finidat"])
-            if problems:
-                raise SubsetError("finidat validation: " + "; ".join(problems))
+            with ProcessPoolExecutor(max_workers=n_workers) as ex:
+                for cid, info, reason in ex.map(_subset_one, payload):
+                    results[cid] = (info, reason)
+        except Exception as e:
+            say(f"  (parallel subset unavailable: {str(e)[:60]} — falling back)")
+            results = {}
+    if not results:                                   # serial path / fallback
+        for _, cid, lat, lon, band, restart in resolved:
+            c2, info, reason = _subset_one(
+                (cid, lat, lon, band, restart, str(out_dir)))
+            results[c2] = (info, reason)
 
-            if band not in surf_cache:
-                surf_cache[band] = conus_surfdata_for(restart)
-            sd = write_surfdata_subset(surf_cache[band], info["donor_ixy"],
-                                       info["donor_jxy"],
-                                       out_dir / f"surfdata_{cid}.nc", quiet=quiet)
-
-            gate = check_weights_agree(info["finidat"], sd["fsurdat"])
-            if gate:
-                raise SubsetError("; ".join(gate))
-        except SubsetError as e:
-            skipped.append((cid, str(e))); continue
-
-        info["conus_band"] = band
-        info["surface_template"] = sd["fsurdat"]
-        info["conus_surfdata"] = surf_cache[band]
-        info["requested_lat"], info["requested_lon"] = lat, lon
+    for _, cid, lat, lon, band, restart in resolved:  # report in stable order
+        info, reason = results.get(cid, (None, "not attempted"))
+        if info is None:
+            skipped.append((cid, reason)); continue
         manifest[cid] = info
         say(f"  ✓ {cid}: {info['n_column']} col / {info['n_pft']} pft, "
             f"band {band}, snapped {info['dist_km']} km to "
@@ -555,6 +568,50 @@ def build_finidats(columns, out_dir, bands, quiet=False):
     for cid, why in skipped:
         say(f"  ! {cid}: {why} — skipped (will COLD start)")
     return manifest
+
+
+def _subset_one(args):
+    """One column, start to finish. Returns (cid, entry|None, reason).
+
+    Re-imports this module by path rather than relying on the parent's import
+    name: ELMExpManager loads it through importlib under a custom name, which a
+    pickled reference could not resolve in a fresh worker.
+    """
+    cid, lat, lon, band, restart, out_dir = args
+    import importlib.util as _il
+    import sys as _sys
+    from pathlib import Path as _P
+    mod = _sys.modules.get("_finidat_worker")
+    if mod is None:
+        _spec = _il.spec_from_file_location("_finidat_worker", __file__)
+        mod = _il.module_from_spec(_spec)
+        _sys.modules["_finidat_worker"] = mod
+        _spec.loader.exec_module(mod)
+    out_dir = _P(out_dir)
+    try:
+        info = mod.write_subset(restart, lat, lon,
+                                out_dir / f"finidat_{cid}.nc", quiet=True)
+        problems = mod.validate(info["finidat"])
+        if problems:
+            raise mod.SubsetError("finidat validation: " + "; ".join(problems))
+
+        conus_sd = mod.conus_surfdata_for(restart)
+        sd = mod.write_surfdata_subset(conus_sd, info["donor_ixy"],
+                                       info["donor_jxy"],
+                                       out_dir / f"surfdata_{cid}.nc", quiet=True)
+        gate = mod.check_weights_agree(info["finidat"], sd["fsurdat"])
+        if gate:
+            raise mod.SubsetError("; ".join(gate))
+    except mod.SubsetError as e:
+        return cid, None, str(e)
+    except Exception as e:                       # never take the ensemble down
+        return cid, None, f"{type(e).__name__}: {str(e)[:120]}"
+
+    info["conus_band"] = band
+    info["surface_template"] = sd["fsurdat"]
+    info["conus_surfdata"] = conus_sd
+    info["requested_lat"], info["requested_lon"] = lat, lon
+    return cid, info, None
 
 
 def _load_make_warmstart():

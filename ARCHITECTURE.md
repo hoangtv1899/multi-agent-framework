@@ -113,7 +113,11 @@ constraints.
 | 4d couple | each column's daily QINFL drives its own 1-D PFLOTRAN column | `05_pflotran/` *(only if the plan couples)* |
 | 5 package | everything the Analyzer agent needs | `LLM_ANALYSIS_INPUT.json` |
 
-**Step 0b — warm start** needs no prior run. `tools/make_finidat_subset.py`
+**Step 0b — warm start** needs no prior run, and runs columns concurrently.
+`write_subset` copies ~216 variables, each a separate seek into a 70 GB file, so
+a column is bound by I/O latency and barely touches the CPU — overlapping
+columns hides the seeks (14 columns: 941 s serial → 27 s, identical donors).
+`IDEAS_WARMSTART_WORKERS` dials it down on a busy login node. `tools/make_finidat_subset.py`
 subsets one gridcell — its landunits, columns and PFTs — out of the CONUS 1-km
 restart into a standalone single-column `finidat`. The band is picked per column
 from the MANIFEST, so a basin straddling a band edge is one pass, not one per
