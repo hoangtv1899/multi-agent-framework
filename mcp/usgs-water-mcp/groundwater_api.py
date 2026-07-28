@@ -25,9 +25,23 @@ Notes / lessons carried from the NERSC original:
 Pure parsers `_parse_sites` / `_parse_wtd` are network-free by design.
 HTTP client is httpx (synchronous), one short timeout, no retry loops.
 """
+import os
+import time
+
 import httpx
 
 OGC_BASE = "https://api.waterdata.usgs.gov/ogcapi/v0"
+
+# The OGC API allows 1000 requests per window unauthenticated and answers 429
+# OVER_RATE_LIMIT after that, with a `retry-after` telling you exactly how long.
+# A 15-basin evaluation exhausted it, and every fetch in the tail of that run
+# came back ok=false -- correctly reported, but no data.
+#
+# Set USGS_API_KEY (free, https://api.waterdata.usgs.gov/signup/) for a higher
+# limit. Without one the retry below still recovers, just slowly.
+USGS_API_KEY = os.environ.get("USGS_API_KEY", "").strip()
+_RATE_RETRIES = 3
+_RATE_MAX_WAIT = 90        # seconds; longer than this, fail and say so
 NWIS_IV = "https://waterservices.usgs.gov/nwis/iv/"
 
 FT_TO_M = 0.3048
@@ -50,12 +64,35 @@ _TIMEOUT = 90
 # NETWORK (thin, no retries — one request, explicit timeout)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _headers():
+    return {"X-Api-Key": USGS_API_KEY} if USGS_API_KEY else {}
+
+
+def _get(cx, url, params=None):
+    """One GET that respects the server's own rate-limit instruction.
+
+    429 carries `retry-after` in seconds. Honouring it is the difference
+    between recovering and reporting a basin as unobserved: in a 15-case run
+    the tail failed on OVER_RATE_LIMIT with retry-after=66, which one wait
+    would have cleared.
+    """
+    for attempt in range(_RATE_RETRIES):
+        r = cx.get(url, params=params, headers=_headers())
+        if r.status_code != 429:
+            return r
+        wait = min(float(r.headers.get("retry-after", 30) or 30), _RATE_MAX_WAIT)
+        if attempt == _RATE_RETRIES - 1 or wait >= _RATE_MAX_WAIT:
+            return r                      # caller raises; the error says 429
+        time.sleep(wait)
+    return r
+
+
 def _ogc_items(collection, params):
     """GET one OGC API `items` page and return the parsed FeatureCollection."""
     url = f"{OGC_BASE}/collections/{collection}/items"
     q = {"f": "json", **params}
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, verify=True) as cx:
-        r = cx.get(url, params=q)
+        r = _get(cx, url, q)
         r.raise_for_status()
         return r.json()
 
@@ -144,11 +181,11 @@ def fetch_daily(bbox, start_date, end_date, limit=DAILY_PAGE,
             q = {"f": "json", "bbox": bbox, "parameter_code": parameter_code,
                  "datetime": f"{lo}/{hi}", "limit": int(limit),
                  "properties": props}
-            r = cx.get(url, params=q)
+            r = _get(cx, url, q)
             if r.status_code == 400 and "Long running" in r.text:
                 # Server-side cancellation is transient (it depends on cache
                 # warmth), so one retry usually succeeds where the first failed.
-                r = cx.get(url, params=q)
+                r = _get(cx, url, q)
             r.raise_for_status()
             page = r.json()
             while True:
@@ -161,7 +198,7 @@ def fetch_daily(bbox, start_date, end_date, limit=DAILY_PAGE,
                 if pages >= max_pages * len(chunks):
                     truncated = True
                     break
-                r = cx.get(nxt)
+                r = _get(cx, nxt)
                 r.raise_for_status()
                 page = r.json()
             if truncated:
@@ -203,7 +240,7 @@ def fetch_field_measurements_bbox(bbox, start_date=None, end_date=None,
         q["datetime"] = f"{start_date}/{end_date}"
     feats, pages, truncated = [], 0, False
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, verify=True) as cx:
-        r = cx.get(url, params=q)
+        r = _get(cx, url, q)
         r.raise_for_status()
         page = r.json()
         while True:
@@ -216,7 +253,7 @@ def fetch_field_measurements_bbox(bbox, start_date=None, end_date=None,
             if pages >= max_pages:
                 truncated = True
                 break
-            r = cx.get(nxt)
+            r = _get(cx, nxt)
             r.raise_for_status()
             page = r.json()
     return {"type": "FeatureCollection", "features": feats,

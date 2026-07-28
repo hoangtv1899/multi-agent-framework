@@ -190,7 +190,7 @@ if __name__ == "__main__":
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--only", default="")
-    ap.add_argument("--out", default="reception_eval.json")
+    ap.add_argument("--out", default="workflow_outputs/reception_eval")
     ap.add_argument("--model", default="claude-opus-4-8-project")
     a = ap.parse_args()
 
@@ -207,7 +207,9 @@ if __name__ == "__main__":
     todo = [c for c in CASES if not only or c["id"] in only]
     clients = MCPManager("mcp_config.json").get_all_clients()
 
-    results = []
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    summary = []
     for c in todo:
         agent = LLMReceptionAgent(model=a.model, mcp_clients=clients,
                                   verbose=False, interactive=False)
@@ -219,14 +221,27 @@ if __name__ == "__main__":
             pkg, err = {}, f"{type(e).__name__}: {e}"
         el = time.time() - t0
         n_ok, fails = check(c, pkg) if not err else (0, [err])
-        results.append({"id": c["id"], "seconds": round(el, 1),
-                        "passed": n_ok, "failures": fails,
-                        "rounds": pkg.get("rounds"),
-                        "package": pkg})
+
+        # ONE FILE PER CASE, and it is exactly the artifact the pipeline
+        # writes — debug fields stripped. Two runs of the same basin in
+        # different years then diff cleanly, which is the whole point of
+        # having six Naches cases.
+        artifact = {k: v for k, v in pkg.items() if k not in ("trace", "raw")}
+        (out / f"{c['id']}.json").write_text(
+            json.dumps(artifact, indent=2, default=str))
+
+        summary.append({"id": c["id"], "query": c["query"], "why": c["why"],
+                        "seconds": round(el, 1), "rounds": pkg.get("rounds"),
+                        "checks_passed": n_ok, "failures": fails,
+                        "artifact": f"{c['id']}.json"})
+        # written after EVERY case: a crash at case 12 must not cost the
+        # eleven that already ran
+        (out / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
+
         mark = "ok  " if not fails else "FAIL"
         print(f"  {mark} {c['id']:<20} {el:6.1f}s  {n_ok} checks"
-              + ("" if not fails else "  | " + "; ".join(fails[:2])))
+              + ("" if not fails else "  | " + "; ".join(fails[:2])), flush=True)
 
-    Path(a.out).write_text(json.dumps(results, indent=2, default=str))
-    bad = [r for r in results if r["failures"]]
-    print(f"\n  {len(results) - len(bad)}/{len(results)} cases clean -> {a.out}")
+    bad = [r for r in summary if r["failures"]]
+    print(f"\n  {len(summary) - len(bad)}/{len(summary)} cases clean")
+    print(f"  artifacts -> {out}/<case>.json   summary -> {out}/summary.json")
