@@ -148,6 +148,26 @@ def _n(x):
         return None
 
 
+def _unavailable(fetch_result, what, year):
+    """Why an observable is missing: NOT FOUND, or NOT LOOKED AT.
+
+    Every fetcher already records out["error"] when its query fails, and until
+    now nothing read it — so a 400 from the USGS API and a genuinely ungauged
+    basin produced the identical verdict. The 2020 run reported "no in-domain
+    gauge had 2020 daily records" for a basin whose gauge has reported every
+    year since 1979, because the query timed out.
+
+    A failure is not a finding. Returns (status, text).
+    """
+    err = (fetch_result or {}).get("error")
+    if err:
+        return ("unavailable",
+                f"{what} could not be checked for {year} — the observation "
+                f"query FAILED ({str(err)[:90]}). This is not evidence of "
+                f"absence; re-run the validation.")
+    return ("context-only", f"no {what} for {year}")
+
+
 def _temporal_note(n_in_year, n_total, year, yr_lo, yr_hi):
     """Say whether the well comparison is year-matched, and how strongly.
 
@@ -450,7 +470,12 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     model_zwt = [_n(r["metrics"].get("water_table_depth_m")) for r in ok]
     model_zwt = [z for z in model_zwt if z is not None]
     fan_at_cols = [fan[r["case_name"]] for r in ok if fan.get(r["case_name"]) is not None]
-    yields = [(_n(r["metrics"].get("annual_recharge_mm_yr")) or 0)
+    # WATER YIELD = what would reach a stream = surface runoff + sub-surface
+    # drainage (baseflow). This summed runoff + QCHARGE, which is the soil ->
+    # aquifer flux, not streamflow — so the annual comparison was measuring a
+    # different quantity from the daily hydrograph two panels away, which
+    # already used QOVER + QDRAI. Against a gauge, QDRAI is the right term.
+    yields = [(_n((r["metrics"].get("water_budget") or {}).get("drainage_mm_yr")) or 0)
               + (_n(r["metrics"].get("annual_runoff_mm_yr")) or 0) for r in ok]
     precip = [_n(r["metrics"].get("precip_mm_yr")) for r in ok]
     precip = [p for p in precip if p is not None]
@@ -550,7 +575,7 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     ids_for_ratio = (catchment["columns_inside"] if catchment["restricted"]
                      else [r["case_name"] for r in ok])
     p_by_id = {r["case_name"]: _n(r["metrics"].get("precip_mm_yr")) for r in ok}
-    y_by_id = {r["case_name"]: ((_n(r["metrics"].get("annual_recharge_mm_yr")) or 0)
+    y_by_id = {r["case_name"]: ((_n((r["metrics"].get("water_budget") or {}).get("drainage_mm_yr")) or 0)
                                 + (_n(r["metrics"].get("annual_runoff_mm_yr")) or 0))
                for r in ok}
     sel_w = {i: weights_all.get(i, 0.0) for i in ids_for_ratio}
@@ -653,8 +678,17 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     _n_in_year = sum(w["n_in_sim_year"] for w in well_series)
 
     targets = [
-        {"variable": "water-table depth", "status": "compared",
-         "obs": f"Fan 2013 at columns + {len(obs_wtd)} USGS wells with records",
+        {"variable": "water-table depth",
+         # Was hardcoded "compared". With no wells the only reference left is
+         # Fan 2013 — a MODELLED equilibrium prior, so calling that a
+         # comparison against observation overstates it, and if the well query
+         # merely failed it overstates it twice.
+         "status": ("compared" if obs_wtd
+                    else _unavailable(wells, "USGS well with records", year)[0]),
+         "obs": (f"Fan 2013 at columns + {len(obs_wtd)} USGS wells with records"
+                 if obs_wtd else
+                 "Fan 2013 prior only — no observed wells; Fan is a modelled "
+                 "equilibrium, not a measurement"),
          "result": (f"model ZWT median {med(model_zwt)} m vs Fan {med(fan_at_cols)} m "
                     f"vs observed wells {med(obs_wtd)} m (median; n={len(obs_wtd)})"),
          "note": ("distribution comparison (wells are not co-located with columns); the "
@@ -664,12 +698,14 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
                                    sum(len(w['points']) for w in well_series),
                                    year, _yr_lo, _yr_hi))},
         {"variable": "streamflow (water yield)",
-         "status": ("compared" if (obs_q and comparable) else "context-only"),
+         "status": ("compared" if (obs_q and comparable)
+                    else _unavailable(gauges, "gauge", year)[0] if not obs_q
+                    else "context-only"),
          "obs": f"{len(obs_q)} in-domain gauges with {year} daily records ÷ drainage area",
          "result": (f"modeled yield {mean_yield} mm/yr vs observed specific discharge "
                     f"{', '.join(str(q) for q in obs_q)} mm/yr "
                     f"({', '.join(g['name'] for g in gauges['gauges'])})"
-                    if obs_q else f"no in-domain gauge had {year} daily records"),
+                    if obs_q else _unavailable(gauges, "in-domain gauge with daily records", year)[1]),
          "note": ((domain_match["note"] + " Model spread across columns is "
                    f"{min(yields):.0f}-{max(yields):.0f} mm/yr, so the ensemble "
                    "mean alone hides most of the signal.") if obs_q else None),
@@ -677,19 +713,21 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
                    else "gauge whose catchment matches the modelled domain, or "
                         "restrict columns to the gauged catchment (USGS NLDI)")},
         {"variable": "streamflow (daily hydrograph)",
-         "status": "compared" if hydro else "context-only",
+         "status": ("compared" if hydro
+                    else _unavailable(gauges, "gauge", year)[0]),
          "obs": (f"daily specific discharge at {hydro['gauge']} "
                  f"({hydro['drainage_area_km2']:.0f} km²), {hydro['n_days']} common days"
                  if hydro else "needs surviving history files + a gauge with daily records"),
          "result": (f"NSE={hydro['NSE']}, KGE={hydro['KGE']} (r={hydro['r']}, "
                     f"variability α={hydro['alpha_var_ratio']}, bias β={hydro['beta_bias_ratio']}) — "
                     f"column-mean QOVER+QDRAI vs gauge"
-                    if hydro else "daily comparison unavailable"),
+                    if hydro else _unavailable(gauges, "daily gauge series", year)[1]),
          "note": "unrouted, unweighted columns vs an integrated gauge — timing errors are "
                  "expected; poor NSE/KGE quantifies exactly what routing + snow + spin-up "
                  "would need to fix." if hydro else None},
         {"variable": "snow water equivalent",
-         "status": "compared" if (model_peak_swe and peak_swes) else "context-only",
+         "status": ("compared" if (model_peak_swe and peak_swes)
+                    else _unavailable(swe, "SNOTEL station", year)[0]),
          "obs": f"{len(peak_swes)} SNOTEL stations, water year {year}",
          "result": ((f"model peak SWE {min(model_peak_swe):.0f}–{max(model_peak_swe):.0f} mm "
                      f"across columns vs observed {min(peak_swes):.0f}–{max(peak_swes):.0f} mm "

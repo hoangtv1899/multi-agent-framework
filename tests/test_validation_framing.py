@@ -295,3 +295,64 @@ class TestControlsFigure:
                                  700 + 200 * i, clay=10)
                    for i in range(3)}
         assert ar.plot_controls(results, tmp_path / "z.png") is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A failed query is not a finding
+# ─────────────────────────────────────────────────────────────────────────────
+class TestFailureIsNotAbsence:
+    """Every fetcher recorded out["error"] and nothing read it, so a 400 from
+    USGS and a genuinely ungauged basin produced the same verdict. The 2020 run
+    reported "no in-domain gauge had 2020 daily records" for a basin whose gauge
+    has reported every year since 1979."""
+
+    def test_a_failed_fetch_is_labelled_unavailable(self):
+        status, text = vr._unavailable({"error": "400 Bad Request"}, "gauge", 2020)
+        assert status == "unavailable"
+        assert "FAILED" in text
+        assert "not evidence of absence" in text
+
+    def test_a_clean_empty_fetch_stays_context_only(self):
+        status, text = vr._unavailable({"gauges": []}, "gauge", 2020)
+        assert status == "context-only"
+        assert "FAILED" not in text
+
+    def test_none_is_treated_as_a_clean_empty(self):
+        assert vr._unavailable(None, "gauge", 2020)[0] == "context-only"
+
+    def test_the_verdicts_actually_consult_it(self):
+        """It is only worth having if the targets use it."""
+        src = (ROOT / "tools" / "validate_run.py").read_text()
+        i = src.index('"variable": "streamflow (water yield)"')
+        assert "_unavailable(" in src[i:i + 900]
+        j = src.index('"variable": "water-table depth"')
+        assert "_unavailable(" in src[j:j + 700], \
+            "water-table status was hardcoded 'compared'"
+
+
+class TestYieldMatchesWhatAGaugeMeasures:
+    """A stream gauge integrates surface runoff plus baseflow. The annual yield
+    summed runoff + QCHARGE — the soil-to-aquifer flux — while the daily
+    hydrograph two panels away already used QOVER + QDRAI. The same run was
+    compared against the gauge two different ways: 538.5 mm/yr one way, 874.6
+    the other, against 964.2 observed."""
+
+    def test_yield_uses_drainage_not_recharge(self):
+        src = (ROOT / "tools" / "validate_run.py").read_text()
+        i = src.index("yields = [")
+        seg = src[i:i + 400]
+        assert "drainage_mm_yr" in seg
+        assert "annual_recharge_mm_yr" not in seg
+
+    def test_the_ratio_uses_the_same_definition(self):
+        """If the two drift apart, the ratio and the yield describe different
+        quantities under the same heading."""
+        src = (ROOT / "tools" / "validate_run.py").read_text()
+        i = src.index("y_by_id = {")
+        seg = src[i:i + 400]
+        assert "drainage_mm_yr" in seg
+        assert "annual_recharge_mm_yr" not in seg
+
+    def test_it_agrees_with_the_hydrograph(self):
+        src = (ROOT / "tools" / "validate_run.py").read_text()
+        assert 'ds["QOVER"] + ds["QDRAI"]' in src
