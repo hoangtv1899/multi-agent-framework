@@ -369,6 +369,12 @@ class ELMExperimentBuilder:
             # global file would overwrite it with a coarser mixture and break
             # the finidat/fsurdat weight agreement ELM checks.
             veg_source = 'template' if surface_template else 'conus'
+            # A CONUS-subset template means this run is WARM-started, and the
+            # restart's moisture is equilibrated against that gridcell's soil.
+            # Overwriting it with SSURGO makes the inherited state inconsistent
+            # with its own hydraulics and spends year one relaxing. Same
+            # condition, same reason as veg_source above.
+            soil_source = 'conus' if surface_template else 'ssurgo'
             surface_gen = (ELMSurfaceGenerator(template_path=surface_template)
                            if surface_template else ELMSurfaceGenerator())
 
@@ -387,8 +393,9 @@ class ELMExperimentBuilder:
                     lat        = lat,
                     lon        = lon,
                     mcp_data   = mcp_data or {},
-                    substrate  = substrate,
-                    veg_source = veg_source,
+                    substrate   = substrate,
+                    veg_source  = veg_source,
+                    soil_source = soil_source,
                 )
             elif soil_config in ('sandy', 'loamy', 'clayey'):
                 surface_path = surface_gen.generate_synthetic(

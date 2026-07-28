@@ -18,6 +18,7 @@ Run from the project root with the MCP runtime env:
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -223,6 +224,9 @@ NLDAS_PRECIP = ("/compyfs/inputdata/atm/datm7/"
 # on either -- only the filename differs. Preferring this one means the
 # preview panel shows the forcing the run is actually driven by.
 NLDAS_CLM_DIR = "/compyfs/inputdata/atm/datm7/NLDAS"
+# Months read in parallel; see nldas_annual_precip. Six keeps enough seeks in
+# flight to hide the latency without monopolising a login node.
+NLDAS_WORKERS = int(os.environ.get("IDEAS_NLDAS_WORKERS", "6"))
 
 
 def _nldas_month_file(year, mm):
@@ -251,6 +255,29 @@ def _soil_cov(c):
     clays = [v for v in (num(l.get("clay_pct")) for l in hz) if v is not None]
     ks = [v for v in (num(l.get("ksat_ums")) for l in hz) if v is not None]
     return (max(clays) if clays else None, min(ks) if ks else None)
+
+
+def _nldas_month_slab(args):
+    """(slab, mm_per_step) for one month's lat/lon box, or (None, 0) if absent.
+
+    Module-level and self-contained so it can cross a process boundary; returns
+    only the small box, never the 2 GB file.
+    """
+    year, mm, i0, i1, j0, j1 = args
+    import numpy as np
+    import xarray as xr
+    try:
+        ds = xr.open_dataset(_nldas_month_file(year, mm))
+    except FileNotFoundError:
+        return None, 0.0
+    try:
+        var = next(v for v in ds.data_vars if "PREC" in v.upper())
+        nt = ds.sizes["time"]
+        slab = np.asarray(ds[var][:, i0:i1 + 1, j0:j1 + 1].values)
+        per_step = 86400.0 / (24 if nt > 400 else 8)    # hourly vs 3-hourly
+    finally:
+        ds.close()
+    return slab, per_step
 
 
 def nldas_annual_precip(cols, year):
@@ -282,17 +309,30 @@ def nldas_annual_precip(cols, year):
     i0 = min(i for i, _ in idx.values()); i1 = max(i for i, _ in idx.values())
     j0 = min(j for _, j in idx.values()); j1 = max(j for _, j in idx.values())
 
+    # The twelve months are read CONCURRENTLY. Precipitation is
+    # (time, lat, lon) and contiguous, so a lat/lon box across all times is one
+    # strided read PER TIMESTEP -- 744 per month, 8928 for the year. That is
+    # seek latency, not bandwidth or CPU (the slab is a few MB), and it was
+    # 4 min 14 s of a run's step 0. Independent files, so overlapping them is
+    # the same trick that fixed the warm start.
     tot = {cid: 0.0 for cid in idx}
-    for mm in range(1, 13):
-        ds = xr.open_dataset(_nldas_month_file(year, mm))
-        var = next(v for v in ds.data_vars if "PREC" in v.upper())
-        nt = ds.sizes["time"]
-        # one read; .values forces it now rather than per column
-        slab = np.asarray(ds[var][:, i0:i1 + 1, j0:j1 + 1].values)
-        per_step = 86400.0 / (24 if nt > 400 else 8)   # hourly vs 3-hourly
+    jobs = [(year, mm, i0, i1, j0, j1) for mm in range(1, 13)]
+    parts = None
+    if len(jobs) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        try:
+            with ProcessPoolExecutor(max_workers=NLDAS_WORKERS) as ex:
+                parts = list(ex.map(_nldas_month_slab, jobs))
+        except Exception:
+            parts = None                      # fall through to serial
+    if parts is None:
+        parts = [_nldas_month_slab(j) for j in jobs]
+
+    for slab, per_step in parts:
+        if slab is None:
+            continue
         for cid, (i, j) in idx.items():
             tot[cid] += float(slab[:, i - i0, j - j0].sum()) * per_step
-        ds.close()
     return tot
 
 

@@ -124,6 +124,11 @@ N_SOIL_LEVELS = 10
 
 SOIL_VARS = ['PCT_SAND', 'PCT_CLAY', 'ORGANIC', 'PCT_GRVL']
 
+# Used when a horizon reports organic matter but no bulk density. A mid-range
+# mineral soil; only ever scales the % -> kg/m3 conversion, never replaces a
+# reported density.
+_NOMINAL_BULK_DENSITY_GCC = 1.3
+
 # Vegetation/land-cover variables that veg_source='conus' overwrites with a
 # real per-location extraction instead of leaving them as frozen template
 # copies. Shapes (from CONUS_SURFDATA_NC): PCT_NAT_PFT (natpft,lsmlat,lsmlon),
@@ -194,15 +199,15 @@ ELM_LEVEL_NODE_DEPTH_M = [
 SYNTHETIC_PROFILES = {
     'sandy': {
         'PCT_SAND': 75.0, 'PCT_CLAY':  8.0,
-        'ORGANIC':   1.0, 'PCT_GRVL':  5.0,
+        'ORGANIC':  13.0, 'PCT_GRVL':  5.0,   # kg/m3 (was 1.0 %)
     },
     'loamy': {
         'PCT_SAND': 40.0, 'PCT_CLAY': 20.0,
-        'ORGANIC':   3.0, 'PCT_GRVL':  2.0,
+        'ORGANIC':  39.0, 'PCT_GRVL':  2.0,   # kg/m3 (was 3.0 %)
     },
     'clayey': {
         'PCT_SAND': 20.0, 'PCT_CLAY': 45.0,
-        'ORGANIC':   2.0, 'PCT_GRVL':  1.0,
+        'ORGANIC':  26.0, 'PCT_GRVL':  1.0,   # kg/m3 (was 2.0 %)
     },
 }
 
@@ -217,7 +222,7 @@ SUBSTRATE_OPTIONS = {
 _FALLBACK_LAYER = {
     'PCT_SAND': 40.0,
     'PCT_CLAY': 20.0,
-    'ORGANIC':   3.0,
+    'ORGANIC':  39.0,   # kg/m3, not % — see _organic_kg_m3
     'PCT_GRVL':  2.0,
 }
 
@@ -342,9 +347,10 @@ class ELMSurfaceGenerator:
                           lat:        float,
                           lon:        float,
                           mcp_data:   Dict[str, Any],
-                          substrate:  str  = 'template',
-                          veg_source: str  = 'template',
-                          force:      bool = False) -> str:
+                          substrate:   str  = 'template',
+                          veg_source:  str  = 'template',
+                          soil_source: str  = 'ssurgo',
+                          force:       bool = False) -> str:
         """
         Generate surface file with depth-mapped soil from MCP horizons,
         plus configurable substrate for ELM levels beyond MCP coverage.
@@ -356,6 +362,25 @@ class ELMSurfaceGenerator:
             'conus'    → real per-location extraction from CONUS_SURFDATA_NC
                          (nearest gridcell); falls back to 'template'
                          with a logged warning if that file is unavailable
+
+        soil_source controls PCT_SAND/PCT_CLAY/ORGANIC/PCT_GRVL:
+            'ssurgo' → map the MCP horizons onto ELM's levels (default)
+            'conus'  → leave the template's own soil untouched
+
+        Why 'conus' exists, and when it is right. A warm start hands ELM the
+        CONUS restart's moisture, which is equilibrated against the CONUS
+        gridcell's SOIL. Overwriting that soil with SSURGO leaves the inherited
+        water inconsistent with its own hydraulics, and year one is spent
+        relaxing rather than simulating: on a 14-column Naches run, five
+        columns drained MORE than their annual precipitation (one at 2.98x)
+        and closure residuals reached 2491 mm. Keeping the donor's soil is what
+        makes a warm start actually skip spin-up.
+
+        This costs no spatial resolution — CONUS 1 km soil varies column to
+        column (37-68 % sand, 40-95 kg/m3 organic across those same 14) — it
+        trades SSURGO's survey fidelity for a self-consistent initial state.
+        Use 'ssurgo' when soil is the experimental axis, or when cold-starting,
+        where there is no inherited state to be consistent with.
         """
         if substrate not in SUBSTRATE_OPTIONS:
             raise ValueError(
@@ -366,6 +391,10 @@ class ELMSurfaceGenerator:
             raise ValueError(
                 f"Unknown veg_source '{veg_source}'. Choose: template, conus"
             )
+        if soil_source not in ('ssurgo', 'conus'):
+            raise ValueError(
+                f"Unknown soil_source '{soil_source}'. Choose: ssurgo, conus"
+            )
 
         # soil signature differentiates DIFFERENT soils at the SAME (lat,lon)
         # — e.g. a controlled soil sweep at one site (else they'd share a file).
@@ -373,25 +402,38 @@ class ELMSurfaceGenerator:
             json.dumps(mcp_data, sort_keys=True, default=str).encode()
         ).hexdigest()[:6]
         veg_tag = '' if veg_source == 'template' else f'_veg-{veg_source}'
+        # in the filename so a ssurgo-soil and a conus-soil surface for the
+        # same column never collide in the cache
+        soil_tag = '' if soil_source == 'ssurgo' else f'_soil-{soil_source}'
         output_path = (
             self.output_dir /
-            f"Surfacedata_{lat:.4f}_{lon:.4f}_native_{substrate}{veg_tag}_{soil_sig}.nc"
+            f"Surfacedata_{lat:.4f}_{lon:.4f}_native_{substrate}"
+            f"{veg_tag}{soil_tag}_{soil_sig}.nc"
         )
 
         if output_path.exists() and not force:
             logger.info(f"Cached surface file: {output_path.name}")
             return str(output_path)
 
-        # Stage 1: parse MCP layers into a normalized form
-        mcp_layers = self._parse_mcp_layers(mcp_data)
+        if soil_source == 'conus':
+            # None at every level means "keep the template's value" in
+            # _write_surface — i.e. the donor gridcell's own soil, which the
+            # restart was equilibrated against. Coordinates are still
+            # rewritten, which is the other reason this path exists.
+            mcp_layers = []
+            elm_levels = [None] * N_SOIL_LEVELS
+        else:
+            # Stage 1: parse MCP layers into a normalized form
+            mcp_layers = self._parse_mcp_layers(mcp_data)
 
-        # Stage 2: depth-aware mapping onto ELM's 10-level grid
-        elm_levels = self._map_to_elm_levels(
-            mcp_layers, substrate, lat, lon)
+            # Stage 2: depth-aware mapping onto ELM's 10-level grid
+            elm_levels = self._map_to_elm_levels(
+                mcp_layers, substrate, lat, lon)
 
         logger.info(
             f"Generating native surface: lat={lat:.4f}, lon={lon:.4f} "
-            f"(substrate={substrate}, n_mcp_layers={len(mcp_layers)})"
+            f"(soil={soil_source}, substrate={substrate}, "
+            f"n_mcp_layers={len(mcp_layers)})"
         )
         if mcp_layers:
             depth_top = mcp_layers[ 0].get('depth_top_m')
@@ -701,7 +743,7 @@ class ELMSurfaceGenerator:
 
             sand = self._extract_pct(layer, 'sand')
             clay = self._extract_pct(layer, 'clay')
-            org  = self._extract_pct(layer, 'organic')
+            org  = self._organic_kg_m3(layer)
             grvl = self._extract_pct(layer, 'gravel')
 
             depth_top_m = self._extract_depth(layer, top=True)
@@ -752,6 +794,31 @@ class ELMSurfaceGenerator:
     # ─────────────────────────────────────────────────────────
     # PRIVATE — Pull a percentage from a layer dict (dual format)
     # ─────────────────────────────────────────────────────────
+    def _organic_kg_m3(self, layer: Dict[str, Any]) -> Optional[float]:
+        """SSURGO organic matter (% by weight) -> ELM's ORGANIC (kg/m3).
+
+        ELM divides this field by organic_max = 130 kg/m3 to get om_frac, which
+        sets porosity, saturated conductivity and retention
+        (SoilStateType.F90: om_frac = organic3d/organic_max). SSURGO reports a
+        PERCENT, and it was being written straight in — so a soil the CONUS
+        donor describes as 57 kg/m3 (om_frac 0.44) was handed to ELM as 3.0
+        (om_frac 0.023): organic soil told to behave like mineral soil, in the
+        field that decides how much water it holds.
+
+        density = mass_fraction x bulk_density. Checked against the CONUS 1 km
+        product at a Naches column: 3.0 % x 1.2 g/cc -> 36 kg/m3 against its
+        57 kg/m3 — same magnitude, which is the point; the two come from
+        different soil products and different layer boundaries.
+        """
+        om = self._extract_pct(layer, 'organic')
+        if om is None:
+            return None
+        bd = self._extract(layer, ('bulk_density_gcc', 'bulk_density',
+                                   'dbthirdbar_r'))
+        if bd is None or bd <= 0:
+            bd = _NOMINAL_BULK_DENSITY_GCC
+        return round(om / 100.0 * bd * 1000.0, 2)
+
     def _extract_pct(self,
                      layer:  Dict[str, Any],
                      what:   str) -> Optional[float]:

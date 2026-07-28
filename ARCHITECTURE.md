@@ -132,8 +132,15 @@ explicitly, because both abort ELM at init if wrong:
   and finidat must agree on coordinates; the shift goes in the ledger.
 - The donor's own surfdata is subset alongside and used as the surface
   **template**, so `fsurdat` and `finidat` describe the same gridcell — ELM's
-  `check_weights` gate. SSURGO soil is still overwritten on top, so the
-  per-column soil science is unchanged.
+  `check_weights` gate. **Its soil is now kept, not overwritten**
+  (`soil_source='conus'` whenever a template is present). The restart's
+  moisture is equilibrated against that gridcell's soil; replacing the soil
+  with SSURGO left the inherited water inconsistent with its own hydraulics
+  and spent year one relaxing — five of fourteen Naches columns drained more
+  than their annual precipitation, one at 2.98×. Nothing spatial is lost:
+  CONUS 1 km soil varies column to column (37–68 % sand, 40–95 kg/m³ organic
+  across those fourteen). `soil_source='ssurgo'` remains for cold starts and
+  for treating soil as the experimental axis.
 
 `check_weights_agree()` reproduces that gate locally, so a mismatch costs a
 second rather than a queue slot. Failure is non-fatal: the ensemble cold starts

@@ -107,6 +107,11 @@ session per call (HPC-safe). All tools are **read-only** fetches.
   returns positive `depth_to_water_m`, reduces `time`, applies the land mask.
 - SSURGO and weather are point-only → watershed work uses `sample_elevation_grid`
   and `sample_fan_wtd`.
+- **ELM's `ORGANIC` is kg/m³, not a percentage** — it is divided by
+  `organic_max = 130` to give the `om_frac` that sets porosity, conductivity
+  and retention (`SoilStateType.F90`). SSURGO's percent was being written
+  straight in, so a soil the CONUS donor calls 57 kg/m³ (om_frac 0.44) reached
+  ELM as 3.0 (om_frac 0.023). Converted now as `om% /100 × bulk_density × 1000`.
 - SSURGO layers carry `organic_matter_pct` (from `om_r`) and `gravel_pct`
   (100 − `sieveno10_r`, the >2 mm fraction **by weight**). The surface generator
   matches those names via `_PCT_KEYS`; it previously looked only for
