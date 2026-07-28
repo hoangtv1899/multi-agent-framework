@@ -570,6 +570,67 @@ def build_finidats(columns, out_dir, bands, quiet=False, workers=None):
     return manifest
 
 
+# ELM's 10 soil levels — node depths (m), CLM/ELM standard. Only used to give
+# the donor's soil the same depth-labelled shape SSURGO horizons arrive in, so
+# the sampling-design figure can draw either without knowing which it got.
+ELM_NODE_DEPTH_M = (0.0175, 0.0451, 0.0906, 0.1655, 0.2891,
+                    0.4929, 0.8289, 1.3828, 2.2961, 3.8019)
+
+
+def _texture_class(sand, clay):
+    """USDA class from sand/clay percent. Same thresholds the geology MCP uses,
+    so a CONUS-soil column and an SSURGO column get comparable labels."""
+    silt = max(0.0, 100.0 - sand - clay)
+    if clay >= 40:                      return "clay"
+    if clay >= 27 and sand <= 20:       return "silty clay"
+    if clay >= 27:                      return "clay loam"
+    if clay >= 20 and sand <= 45:       return "loam"
+    if silt >= 50 and clay < 27:        return "silt loam"
+    if sand >= 85:                      return "sand"
+    if sand >= 70 and clay < 15:        return "sandy loam"
+    return "loam"
+
+
+def donor_soil_profile(surfdata_path):
+    """The donor gridcell's own soil, shaped like an MCP soil_profile.
+
+    This is the soil the run ACTUALLY uses once a warm start keeps the donor's
+    surfdata, so the sampling-design figure should show it rather than the
+    SSURGO profile that was gathered and then not applied. Same keys the
+    geology MCP emits, so the figure needs no special case.
+
+    ORGANIC is already kg/m3 in surfdata; it is reported as-is rather than
+    converted back to a percentage, since kg/m3 is the quantity ELM uses.
+    """
+    import netCDF4
+    import numpy as np
+    with netCDF4.Dataset(surfdata_path) as d:
+        def col(name):
+            if name not in d.variables:
+                return None
+            return np.atleast_1d(np.asarray(d.variables[name][:]).squeeze())
+        sand, clay = col("PCT_SAND"), col("PCT_CLAY")
+        org, grvl = col("ORGANIC"), col("PCT_GRVL")
+    if sand is None or clay is None:
+        return None
+
+    layers, prev = [], 0.0
+    for i in range(min(len(sand), len(ELM_NODE_DEPTH_M))):
+        bot = ELM_NODE_DEPTH_M[i] * 100.0
+        layers.append({
+            "component": "CONUS 1km",
+            "depth_top_cm": round(prev, 1), "depth_bot_cm": round(bot, 1),
+            "sand_pct": round(float(sand[i]), 1),
+            "clay_pct": round(float(clay[i]), 1),
+            "texture_class": _texture_class(float(sand[i]), float(clay[i])),
+            "organic_kg_m3": round(float(org[i]), 1) if org is not None else None,
+            "gravel_pct": round(float(grvl[i]), 1) if grvl is not None else None,
+        })
+        prev = bot
+    return {"source": "CONUS 1 km surface dataset (donor gridcell)",
+            "num_layers": len(layers), "layers": layers}
+
+
 def _subset_one(args):
     """One column, start to finish. Returns (cid, entry|None, reason).
 

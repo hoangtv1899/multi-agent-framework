@@ -312,6 +312,21 @@ class ELMExpManager:
 		# function tools/expand_sampling.py --plot uses; passing
 		# forcing_year populates the precip-vs-elevation panel that is
 		# otherwise blank.
+		# Step 0b — warm start. Must happen BEFORE columns_to_elm_plan, because
+		# FINIDAT is a per-coupler key the builder reads at build time, and
+		# BEFORE the design figure, because a warm start changes both the
+		# coordinates (columns snap to their donor cell) and the SOIL the run
+		# will use. Drawing the design first showed a plan that was then
+		# quietly superseded.
+		finidat_map = self._warmstart(columns, config)
+		self._attach_donor_soil(columns, finidat_map)
+		res["columns"] = columns
+
+		# The sampling-design figure: domain map + watershed outline,
+		# hypsometry with band edges, soil configs, Fan WTD vs elevation,
+		# per-band allocation, NLDAS precip gradient. Same function
+		# tools/expand_sampling.py --plot uses; forcing_year populates the
+		# precip-vs-elevation panel that is otherwise blank.
 		try:
 			png = exp.plot_columns(
 				res, str(self.run_dir / "sampling_design.png"),
@@ -319,9 +334,6 @@ class ELMExpManager:
 			print(f"✓ sampling design → {Path(png).name}")
 		except Exception as e:
 			print(f"   ⚠️  sampling_design.png failed ({e}) — non-fatal")
-		# Step 0b — warm start. Must happen BEFORE columns_to_elm_plan, because
-		# FINIDAT is a per-coupler key the builder reads at build time.
-		finidat_map = self._warmstart(columns, config)
 
 		executable = columns_to_elm_plan(
 			columns,
@@ -354,6 +366,40 @@ class ELMExpManager:
 	# ─────────────────────────────────────────────────────────
 	# STEP 0b — WARM START (carrier restarts + a CONUS/Fan prior → finidat)
 	# ─────────────────────────────────────────────────────────
+	def _attach_donor_soil(self, columns, finidat_map):
+		"""Replace each warm-started column's soil with the donor's own.
+
+		A warm start keeps the donor gridcell's surfdata, so the SSURGO profile
+		gathered in step 0 is characterisation, not what ELM runs on. The design
+		figure and columns.json must show the dataset the experiment actually
+		uses, or the plan on the page and the run on the machine disagree.
+
+		SSURGO is not discarded — it moves to `ssurgo_profile`, so the two can
+		still be compared and nothing that was measured is lost.
+		"""
+		if not finidat_map:
+			return                              # cold start: SSURGO is what runs
+		fs = _load_tool("make_finidat_subset")
+		n = 0
+		for c in columns:
+			entry = finidat_map.get(c.get("id")) or {}
+			sd = entry.get("surface_template")
+			if not sd or not Path(sd).exists():
+				continue
+			prof = fs.donor_soil_profile(sd)
+			if not prof:
+				continue
+			if c.get("soil_profile"):
+				c["ssurgo_profile"] = c["soil_profile"]      # kept for comparison
+			c["soil_profile"] = prof
+			c["soil_layers"] = prof["num_layers"]
+			c["soil_top_texture"] = prof["layers"][0]["texture_class"]
+			c["soil_source"] = "conus"
+			n += 1
+		if n:
+			print(f"   soil for the design/figure taken from the CONUS donor "
+				  f"cells ({n} column(s)) — the dataset the run uses")
+
 	def _warmstart(self, columns, config: Dict[str, Any]):
 		"""Build a finidat per column straight from the CONUS 1-km restarts.
 

@@ -140,7 +140,12 @@ Also extract the INITIALIZATION, into run_settings.initialization:
     is an initialization artifact, not the basin. Say so in
     run_settings.conflicts when you make this choice for the user.
     Questions about runoff, ET or snow alone do not need it.
-  • Otherwise → {"mode": "cold", "source": null}, and if the run is 1-2 years
+  • DEFAULT IS WARM. Unless the user explicitly asks for a cold start,
+    emit {"mode": "warm", "source": "conus"}. A cold single-column year
+    begins from ELM's generic state and spends itself relaxing out of it,
+    and the subset costs about two seconds per column — there is nothing to
+    save by starting cold. Only when the user ASKS for cold:
+    → {"mode": "cold", "source": null}, and if the run is 1-2 years
     add "cold start with short run — storage terms are transient" to
     run_settings.conflicts. Initialization sets the water table, which controls
     the sign of recharge in short runs; do not let it default silently.

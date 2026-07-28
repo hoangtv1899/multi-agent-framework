@@ -245,7 +245,15 @@ def _nldas_month_file(year, mm):
 
 
 def _soil_cov(c):
-    """(clay_max %, ksat_min um/s) from the column's dominant-component horizons."""
+    """(clay_max %, second_metric, axis_label) for the soil-coverage panel.
+
+    The second axis is whichever discriminator the profile in use actually
+    carries. SSURGO reports saturated conductivity; the CONUS 1 km surface
+    dataset does not (ELM derives Ksat internally from sand and organic), but
+    it does carry organic matter, which plays the same role of separating
+    soils that differ hydraulically at similar clay content. Reporting the one
+    that exists beats an empty panel labelled with the one that does not.
+    """
     layers = (c.get("soil_profile") or {}).get("layers") or []
     comp = layers[0].get("component") if layers else None
     hz = [l for l in layers if l.get("component") == comp]
@@ -254,7 +262,13 @@ def _soil_cov(c):
         except (TypeError, ValueError): return None
     clays = [v for v in (num(l.get("clay_pct")) for l in hz) if v is not None]
     ks = [v for v in (num(l.get("ksat_ums")) for l in hz) if v is not None]
-    return (max(clays) if clays else None, min(ks) if ks else None)
+    clay_max = max(clays) if clays else None
+    if ks:
+        return clay_max, min(ks), "min Ksat (um/s, log)"
+    org = [v for v in (num(l.get("organic_kg_m3")) for l in hz) if v is not None]
+    if org:
+        return clay_max, max(org), "max organic (kg/m3)"
+    return clay_max, None, None
 
 
 def _nldas_month_slab(args):
@@ -481,18 +495,29 @@ def plot_columns(res, out_path, forcing_year=None):
 
     # P5 — soil configuration coverage: clay vs Ksat actually sampled
     a = ax[0, 2]
-    plotted = False
+    plotted, xlabel, logx = False, None, True
     for c in cols:
-        clay, ks = _soil_cov(c)
-        if clay is None or ks is None:
+        clay, second, lab = _soil_cov(c)
+        if clay is None or second is None:
             continue
-        a.scatter(max(ks, 0.05), clay, color=bcolor(c["band"]),
+        xlabel = xlabel or lab
+        logx = "Ksat" in (lab or "")
+        a.scatter(max(second, 0.05), clay, color=bcolor(c["band"]),
                   marker=tmark.get(c.get("soil_top_texture"), "x"),
                   s=85, edgecolor="k", linewidth=0.4)
         plotted = True
-    a.set_xscale("log")
-    a.set_xlabel("min Ksat (µm/s, log)"); a.set_ylabel("max clay (%)")
-    a.set_title("Soil configurations sampled (SSURGO)")
+    if logx:
+        a.set_xscale("log")
+    a.set_xlabel(xlabel or "min Ksat (µm/s, log)")
+    a.set_ylabel("max clay (%)")
+    # Name the dataset the RUN uses, not the one that happened to be gathered:
+    # a warm start keeps the donor gridcell's soil, and a panel captioned
+    # SSURGO would then describe a profile the model never saw.
+    srcs = {c.get("soil_source") for c in cols if c.get("soil_source")}
+    src_name = ("CONUS 1 km" if srcs == {"conus"} else
+                "SSURGO" if not srcs or srcs == {"ssurgo"} else
+                "/".join(sorted(srcs)))
+    a.set_title(f"Soil configurations sampled ({src_name})")
     if not plotted:
         a.text(0.5, 0.5, "no soil profiles", transform=a.transAxes, ha="center")
 

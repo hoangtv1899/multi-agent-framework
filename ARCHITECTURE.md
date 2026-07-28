@@ -102,8 +102,8 @@ constraints.
 
 | step | what happens | writes |
 |---|---|---|
-| 0 materialize | strategy → real columns via MCP terrain/soil/WTD | `columns.json`, `run_plan.json`, `sampling_design.png`, `assumptions.json` |
-| 0b warm start | subset each column's donor gridcell out of the CONUS 1-km restart → per-column `finidat` + surfdata | `warmstart/` *(only if requested)* |
+| 0 materialize | strategy → real columns via MCP terrain/soil/WTD | `columns.json`, `run_plan.json`, `assumptions.json` |
+| 0b warm start | subset each column's donor gridcell out of the CONUS 1-km restart → per-column `finidat` + surfdata; columns snap to the donor and adopt its soil | `warmstart/`, `sampling_design.png` |
 | 1 build | per-column domain + surface NetCDFs | `01_inputs/` |
 | 2 prepare | one CIME build, then `--keepexe` clones | `02_setup_plots/column_surfaces.png` |
 | 3 run | all columns as one SLURM job | `03_results/` |
@@ -113,7 +113,19 @@ constraints.
 | 4d couple | each column's daily QINFL drives its own 1-D PFLOTRAN column | `05_pflotran/` *(only if the plan couples)* |
 | 5 package | everything the Analyzer agent needs | `LLM_ANALYSIS_INPUT.json` |
 
-**Step 0b — warm start** needs no prior run, and runs columns concurrently.
+**Step 0b — warm start is the DEFAULT**; cold is an explicit opt-out. A cold
+single-column year begins from ELM's generic state and spends itself relaxing
+out of it — measured on the same column, recharge came out −0.18 mm/yr cold
+against 309 warm — and the subset costs ~2 s per column, so there is nothing to
+save by starting cold.
+
+It runs BEFORE the design figure, because it changes both the coordinates
+(columns snap to their donor cell) and the soil the run will use. The figure
+then shows the dataset the experiment actually uses; SSURGO is kept alongside
+as `ssurgo_profile` for comparison, and the soil panel names its own source
+rather than assuming SSURGO.
+
+Warm start needs no prior run, and runs columns concurrently.
 `write_subset` copies ~216 variables, each a separate seek into a 70 GB file, so
 a column is bound by I/O latency and barely touches the CPU — overlapping
 columns hides the seeks (14 columns: 941 s serial → 27 s, identical donors).

@@ -169,3 +169,104 @@ class TestSoilSource:
         share a filename, and the second run would silently reuse the first."""
         src = (ROOT / "src" / "core" / "elm_surface_generator.py").read_text()
         assert "soil_tag" in src and "_soil-" in src
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The design figure must describe the run, not the gathering
+# ─────────────────────────────────────────────────────────────────────────────
+import importlib.util  # noqa: E402
+
+
+def _tool(name):
+    spec = importlib.util.spec_from_file_location(name, str(ROOT / "tools" / f"{name}.py"))
+    m = importlib.util.module_from_spec(spec)
+    sys.modules[name] = m
+    spec.loader.exec_module(m)
+    return m
+
+
+class TestWarmStartIsTheDefault:
+    """A cold single-column year starts from ELM's generic state and spends
+    itself relaxing: -0.18 mm/yr recharge cold against 309 warm on the SAME
+    column. The subset costs ~2 s per column, so cold is now an opt-out."""
+
+    def test_no_initialization_still_warm_starts(self):
+        src = (ROOT / "workflow.py").read_text()
+        assert "get('mode') != 'cold'" in src
+        assert "get('mode') == 'warm'" not in src
+
+    def test_the_prompt_agrees_with_the_code(self):
+        """If the prompt still said 'otherwise cold', reception would report a
+        cold start while the manager warm-started — the run record would be
+        wrong about what it did."""
+        p = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
+        assert "DEFAULT IS WARM" in p
+
+
+class TestDonorSoilProfile:
+    def test_shape_matches_what_the_figure_reads(self, tmp_path):
+        """Same keys the geology MCP emits, so the figure needs no special
+        case for which dataset it was handed."""
+        import numpy as np
+        import netCDF4
+        f = tmp_path / "surfdata.nc"
+        with netCDF4.Dataset(f, "w") as d:
+            d.createDimension("nlevsoi", 4)
+            d.createDimension("lsmlat", 1)
+            d.createDimension("lsmlon", 1)
+            for name, vals in (("PCT_SAND", [40.0, 41.0, 42.0, 43.0]),
+                               ("PCT_CLAY", [17.0, 17.0, 18.0, 18.0]),
+                               ("ORGANIC", [57.4, 57.4, 36.7, 27.3]),
+                               ("PCT_GRVL", [13.9, 14.0, 14.1, 14.3])):
+                v = d.createVariable(name, "f8", ("nlevsoi", "lsmlat", "lsmlon"))
+                v[:] = np.array(vals).reshape(4, 1, 1)
+        fs = _tool("make_finidat_subset")
+        prof = fs.donor_soil_profile(str(f))
+        assert prof["num_layers"] == 4
+        L = prof["layers"][0]
+        for k in ("component", "depth_top_cm", "depth_bot_cm", "sand_pct",
+                  "clay_pct", "texture_class", "organic_kg_m3", "gravel_pct"):
+            assert k in L
+        assert L["sand_pct"] == 40.0 and L["organic_kg_m3"] == 57.4
+        assert L["depth_top_cm"] == 0.0 and L["depth_bot_cm"] > 0
+
+    def test_depths_are_monotonic_and_start_at_the_surface(self, tmp_path):
+        import numpy as np, netCDF4
+        f = tmp_path / "s.nc"
+        with netCDF4.Dataset(f, "w") as d:
+            d.createDimension("nlevsoi", 5)
+            for name in ("PCT_SAND", "PCT_CLAY"):
+                v = d.createVariable(name, "f8", ("nlevsoi",))
+                v[:] = np.full(5, 30.0)
+        fs = _tool("make_finidat_subset")
+        L = fs.donor_soil_profile(str(f))["layers"]
+        tops = [l["depth_top_cm"] for l in L]
+        assert tops[0] == 0.0
+        assert all(b > a for a, b in zip(tops, tops[1:]))
+
+
+class TestSoilPanelFollowsTheData:
+    """A warm start keeps the donor's soil, so a panel captioned SSURGO would
+    describe a profile the model never saw."""
+
+    def test_ksat_is_used_when_present(self):
+        exp = _tool("expand_sampling")
+        clay, second, lab = exp._soil_cov({"soil_profile": {"layers": [
+            {"component": "A", "clay_pct": 12.0, "ksat_ums": 9.0}]}})
+        assert (clay, second) == (12.0, 9.0)
+        assert "Ksat" in lab
+
+    def test_organic_substitutes_when_ksat_is_absent(self):
+        """CONUS carries no Ksat — ELM derives it internally — so the panel
+        falls back to the discriminator that does exist rather than blanking."""
+        exp = _tool("expand_sampling")
+        clay, second, lab = exp._soil_cov({"soil_profile": {"layers": [
+            {"component": "CONUS 1km", "clay_pct": 17.0, "organic_kg_m3": 57.4}]}})
+        assert (clay, second) == (17.0, 57.4)
+        assert "organic" in lab
+
+    def test_neither_present_reports_nothing_plottable(self):
+        exp = _tool("expand_sampling")
+        clay, second, lab = exp._soil_cov({"soil_profile": {"layers": [
+            {"component": "A", "clay_pct": 5.0}]}})
+        assert second is None and lab is None

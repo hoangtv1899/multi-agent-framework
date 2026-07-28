@@ -292,9 +292,15 @@ class WorkflowCoordinator:
 			# work as a plain follow-up, with no paths for the user to supply.
 			'last_run_dir': self.conversation_context.get('last_run_dir'),
 		}
-		if (initialization or {}).get('mode') == 'warm':
+		# WARM IS THE DEFAULT. A cold single-column year starts from ELM's
+		# generic state and spends the run relaxing out of it -- measured on
+		# this framework, recharge came out -0.18 mm/yr cold against 309 warm
+		# on the SAME column. Subsetting the CONUS restart costs ~2 s per
+		# column, so there is no reason to pay that price by default. Cold is
+		# now an explicit opt-out, not what you get by saying nothing.
+		if (initialization or {}).get('mode') != 'cold':
 			cfg['warm_start'] = {
-				'source': (initialization.get('source') or 'conus'),
+				'source': ((initialization or {}).get('source') or 'conus'),
 			}
 		# Honour the period reception resolved, instead of silently
 		# defaulting to 1995 inside the manager.
