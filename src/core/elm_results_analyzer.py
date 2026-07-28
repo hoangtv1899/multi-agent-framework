@@ -342,8 +342,22 @@ class ELMResultsAnalyzer:
             metrics['annual_recharge_mm_yr'] = qc.get('annual_mean')
         if qo:
             metrics['annual_runoff_mm_yr'] = qo.get('annual_mean')
-        if rn:
-            metrics['precip_mm_yr'] = rn.get('annual_mean')   # forcing input per column
+        sf = variables.get('SNOW') or {}
+        if rn or sf:
+            # PRECIPITATION IS RAIN + SNOW. This was RAIN alone, which in a
+            # snow-dominated basin is not a rounding error: across the 2020
+            # Naches columns the two differ by 1.11x in the warm valley and
+            # 2.17x at elevation — the ratio IS the snow fraction. Every
+            # runoff/P and recharge/P fraction built on it was inflated by
+            # exactly that much, and columns appeared to drain more water than
+            # fell on them because more than half of what fell was snow.
+            # The water budget below already used rain + snow, so the two
+            # disagreed inside the same metrics dict.
+            _r = rn.get('annual_mean') if rn else None
+            _s = sf.get('annual_mean') if sf else None
+            if _r is not None or _s is not None:
+                metrics['precip_mm_yr'] = round((_r or 0.0) + (_s or 0.0), 1)
+                metrics['rainfall_mm_yr'] = round(_r, 1) if _r is not None else None
         if qc and qo:
             qc_m = qc.get('annual_mean', 0) or 0
             qo_m = qo.get('annual_mean', 0) or 0
