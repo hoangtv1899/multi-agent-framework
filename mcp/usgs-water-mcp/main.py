@@ -82,13 +82,16 @@ def get_streamflow(bbox: str, start_date: str = "", end_date: str = "",
             out = gw._parse_spans(gw.fetch_record_spans(bbox), sites)
             out["mode"] = "record_spans"
         else:
-            daily = gw.fetch_daily(bbox, start_date, end_date,
-                                   with_time=bool(with_values))
+            # Coverage is ALWAYS the cheap bbox query without timestamps;
+            # values are then pulled per qualifying station. Asking the bbox
+            # query for `time` exceeds the collection's server budget and 400s.
+            daily = gw.coverage_by_station(bbox, start_date, end_date,
+                                           sites_data=sites)
             out = gw._parse_coverage(daily, sites, min_days=min_days)
             out["mode"] = "with_values" if with_values else "coverage"
             out["period"] = f"{start_date}/{end_date}"
             if with_values:
-                gw.attach_daily_series(out, daily)
+                gw.attach_daily_series(out, start_date, end_date)
         out["source"] = _SOURCE
         return json.dumps(out)
     except Exception as e:

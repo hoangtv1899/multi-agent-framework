@@ -469,3 +469,42 @@ class TestServerLogRouting:
         src = (ROOT / "src" / "core" / "mcp_client.py").read_text()
         assert src.count("stdio_client(server_params, errlog=mcp_errlog())") == 2
         assert "stdio_client(server_params)" not in src
+
+
+class TestCoverageAvoidsTheBboxDatetimeShape:
+    """The `daily` collection scoped to a bbox AND a date range is unreliable:
+    the same 2020 request took 9.5 s one hour and 75.8 s the next, and the
+    collection hard-cancels at ~60 s with a 400. Retrying does not help, because
+    the cost is the shape rather than luck. When it failed, the validator wrote
+    "no in-domain gauge had 2020 daily records" for a basin whose gauge has
+    reported every year since 1979 — a failed query presented as a finding."""
+
+    def test_the_tool_no_longer_asks_a_bbox_for_a_window(self):
+        src = (MCP / "usgs-water-mcp" / "main.py").read_text()
+        i = src.index("def get_streamflow(")
+        j = src.index("def get_water_table(")
+        body = src[i:j]
+        assert "coverage_by_station(" in body
+        assert "fetch_daily(" not in body, \
+            "bbox+datetime query is back in the streamflow path"
+
+    def test_spans_filter_before_any_station_is_probed(self):
+        """Spans are an outer envelope, so filtering on them only ever discards
+        stations that are certainly empty — never one that might report."""
+        src = (MCP / "usgs-water-mcp" / "groundwater_api.py").read_text()
+        i = src.index("def coverage_by_station(")
+        body = src[i:i + 2000]
+        assert "_parse_spans" in body
+        assert body.index("_parse_spans") < body.index("fetch_station_series")
+
+    def test_values_are_fetched_per_station(self):
+        """Adding `time` to the bbox query pushed even a single year past the
+        budget: 60.6 s and a 400, against 0.4 s scoped to one station."""
+        src = (MCP / "usgs-water-mcp" / "groundwater_api.py").read_text()
+        i = src.index("def attach_daily_series(")
+        assert "fetch_station_series(" in src[i:i + 1600]
+
+    def test_a_station_that_errors_does_not_lose_the_others(self):
+        src = (MCP / "usgs-water-mcp" / "groundwater_api.py").read_text()
+        i = src.index("def coverage_by_station(")
+        assert "except Exception" in src[i:i + 2000]

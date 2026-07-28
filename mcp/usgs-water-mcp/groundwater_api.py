@@ -223,6 +223,66 @@ def fetch_field_measurements_bbox(bbox, start_date=None, end_date=None,
             "truncated": truncated, "n_pages": pages}
 
 
+def coverage_by_station(bbox, start_date, end_date, sites_data=None,
+                        parameter_code=Q_PARAMETER_CODE, max_probe=25):
+    """Which stations have records in this window — WITHOUT a bbox+datetime query.
+
+    That query shape is the problem. Scoped to a bbox and a date range the
+    `daily` collection is wildly variable: the same 2020 request took 9.5 s one
+    hour and 75.8 s the next, and the collection hard-cancels at ~60 s with a
+    400. Retrying does not help, because the cost is the shape, not luck. When
+    it failed, the validator recorded "no in-domain gauge had 2020 daily
+    records" for a basin whose gauge has reported every year since 1979 — a
+    silent wrong answer of exactly the kind this module exists to avoid.
+
+    So the window is never asked of the whole bbox. Instead:
+      1. period-of-record spans for the bbox (one query, ~0.3 s) rule out every
+         station that cannot possibly have data — usually most of them;
+      2. each survivor is asked directly (station-scoped, ~0.4 s), which is the
+         cheap shape.
+    Spans are an outer envelope, so step 1 only ever discards stations that are
+    certainly empty, never one that might report.
+    """
+    spans = _parse_spans(fetch_record_spans(bbox, parameter_code=parameter_code),
+                         sites_data or {"features": []})
+    y0, y1 = int(str(start_date)[:4]), int(str(end_date)[:4])
+    cands = [s for s in spans["stations"]
+             if s.get("first_year") is not None
+             and s["first_year"] <= y1 and s["last_year"] >= y0]
+
+    feats, probed = [], 0
+    for s in cands[:max_probe]:
+        try:
+            raw = fetch_station_series(s["id"], start_date, end_date,
+                                       parameter_code=parameter_code, limit=5000)
+        except Exception:
+            continue
+        probed += 1
+        feats.extend(raw.get("features") or [])
+    return {"type": "FeatureCollection", "features": feats,
+            "truncated": len(cands) > max_probe, "n_pages": probed,
+            "n_candidates": len(cands)}
+
+
+def fetch_station_series(site_id, start_date, end_date,
+                         parameter_code=Q_PARAMETER_CODE, limit=500):
+    """One station's daily values WITH timestamps.
+
+    Per station, not per bbox. Asking the bbox query to carry `time` pushes it
+    past the collection's ~60 s server budget even for a single year -- 60.6 s
+    and a 400 against 9.5 s without -- because the timestamp defeats whatever
+    aggregation makes the wide query cheap. Scoped to one station the same year
+    returns in 0.4 s. Coverage stays a bbox query; only the VALUES are fetched
+    per station, and there are rarely more than a handful of qualifying ones.
+    """
+    return _ogc_items("daily", {
+        "monitoring_location_id": site_id,
+        "parameter_code": parameter_code,
+        "datetime": f"{start_date}/{end_date}",
+        "limit": int(limit),
+        "properties": "monitoring_location_id,time,value"})
+
+
 def fetch_nwis_iv(sites, parameter_codes="00060,00065,00010", period="P1D"):
     """Legacy NWIS instantaneous-values (WaterML-JSON) passthrough."""
     params = {"format": "json", "sites": sites,
@@ -380,7 +440,8 @@ def _parse_wells(fm_data, sites_data, min_obs=1, with_values=False):
 CFS_TO_M3S = 0.0283168
 
 
-def attach_daily_series(coverage, daily_data):
+def attach_daily_series(coverage, start_date, end_date,
+                        parameter_code=Q_PARAMETER_CODE):
     """Add each available gauge's daily series as SPECIFIC DISCHARGE (mm/day).
 
     Flow divided by catchment area. A raw cfs hydrograph cannot be compared with
@@ -390,22 +451,27 @@ def attach_daily_series(coverage, daily_data):
 
     A gauge with no drainage area gets no series rather than a wrong one.
     """
-    by_site = {}
-    for f in (daily_data or {}).get("features", []) or []:
-        props = f.get("properties", {}) or {}
-        sid, tm, val = (props.get("monitoring_location_id"),
-                        props.get("time"), props.get("value"))
-        if not (sid and tm) or val is None:
-            continue
-        try:
-            by_site.setdefault(sid, {})[str(tm)[:10]] = float(val)
-        except (TypeError, ValueError):
-            continue
-
     for g in coverage.get("available", []) or []:
         da_km2 = g.get("drainage_area_km2")
-        series = by_site.get(g["id"])
-        if not da_km2 or not series:
+        if not da_km2:
+            continue
+        try:
+            raw = fetch_station_series(g["id"], start_date, end_date,
+                                       parameter_code=parameter_code)
+        except Exception as e:
+            g["series_error"] = str(e)[:120]
+            continue
+        series = {}
+        for f in (raw or {}).get("features", []) or []:
+            props = f.get("properties", {}) or {}
+            tm, val = props.get("time"), props.get("value")
+            if not tm or val is None:
+                continue
+            try:
+                series[str(tm)[:10]] = float(val)
+            except (TypeError, ValueError):
+                continue
+        if not series:
             continue
         to_mm_day = CFS_TO_M3S * 86400 / (da_km2 * 1e6) * 1000
         g["mm_day"] = {d: round(v * to_mm_day, 4) for d, v in sorted(series.items())}
