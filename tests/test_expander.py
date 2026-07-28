@@ -62,14 +62,32 @@ def _terrain(grid=None):
 
 
 def _fan(depth=5.0):
-    return _Fake(lambda tool, args: {"depth_to_water_m": depth})
+    """Answers the BATCHED tool: one call carries every column's point.
+
+    Enrichment used to ask per column, which cost a fresh MCP session — and for
+    Fan, a reopen of the dataset — per column. Measured live: 41.4 s for 6
+    points per-call against 7.7 s batched, identical values.
+    """
+    def fn(tool, args):
+        if tool == "get_fan_wtd_points":
+            n = len(args.get("lats") or [])
+            return {"n_points": n,
+                    "points": [{"depth_to_water_m": depth} for _ in range(n)]}
+        return {"depth_to_water_m": depth}          # legacy single-point form
+    return _Fake(fn)
 
 
 def _geo(layers=(("loam", 3),)):
-    def fn(tool, args):
+    def _profile():
         lyrs = [{"texture_class": t} for t, _ in layers]
         return {"layers": lyrs, "num_layers": (layers[0][1] if layers else 0),
                 "source": "SSURGO"}
+
+    def fn(tool, args):
+        if tool == "get_soil_profiles":
+            n = len(args.get("lats") or [])
+            return {"n_points": n, "profiles": [_profile() for _ in range(n)]}
+        return _profile()                            # legacy single-point form
     return _Fake(fn)
 
 
@@ -151,3 +169,52 @@ def test_clips_sample_to_watershed_boundary():
                      boundary=[ring])
     assert len(res["grid"]) < 24                            # some points clipped out
     assert all(p["lat"] <= 46.26 for p in res["grid"])      # kept points inside poly
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Enrichment is batched — one call per source, not one per column
+# ─────────────────────────────────────────────────────────────────────────────
+class TestBatchedEnrichment:
+    """Every MCP call opens a fresh session (HPC-safe by design), so asking per
+    column paid a process spawn — and for Fan a dataset reopen — per column.
+    Live: 6 points took 41.4 s per-call vs 7.7 s batched, same values."""
+
+    def test_one_fan_call_serves_every_column(self):
+        fan = _fan(depth=7.5)
+        res = exp.expand(_clients(fan=fan), BBOX, n_total=6, n_bands=3,
+                         grid_n=24, do_soil=False)
+        fan_calls = [c for c in fan.calls if "fan" in c[0]]
+        assert len(fan_calls) == 1, f"expected 1 batched call, got {fan_calls}"
+        assert fan_calls[0][0] == "get_fan_wtd_points"
+        assert len(fan_calls[0][1]["lats"]) == len(res["columns"])
+        assert all(c["fan_wtd_m"] == 7.5 for c in res["columns"])
+
+    def test_one_soil_call_serves_every_column(self):
+        geo = _geo()
+        res = exp.expand(_clients(geo=geo), BBOX, n_total=6, n_bands=3,
+                         grid_n=24, do_soil=True)
+        soil_calls = [c for c in geo.calls if "soil" in c[0]]
+        assert len(soil_calls) == 1
+        assert soil_calls[0][0] == "get_soil_profiles"
+        assert all(c["soil_top_texture"] == "loam" for c in res["columns"])
+
+    def test_points_are_sent_in_column_order(self):
+        """Results are zipped back positionally — a reordering here would give
+        every column its neighbour's water table, silently and plausibly."""
+        fan = _fan()
+        res = exp.expand(_clients(fan=fan), BBOX, n_total=5, n_bands=2,
+                         grid_n=24, do_soil=False)
+        sent = [c for c in fan.calls if c[0] == "get_fan_wtd_points"][0][1]
+        assert sent["lats"] == [c["lat"] for c in res["columns"]]
+        assert sent["lons"] == [c["lon"] for c in res["columns"]]
+
+    def test_a_short_reply_leaves_the_rest_none_not_shifted(self):
+        """If the server returns fewer points than asked, the remainder must be
+        None — never silently filled from the wrong column."""
+        short = _Fake(lambda tool, args: {"n_points": 1, "points":
+                                          [{"depth_to_water_m": 3.3}]})
+        res = exp.expand(_clients(fan=short), BBOX, n_total=5, n_bands=2,
+                         grid_n=24, do_soil=False)
+        vals = [c["fan_wtd_m"] for c in res["columns"]]
+        assert vals[0] == 3.3
+        assert all(v is None for v in vals[1:])

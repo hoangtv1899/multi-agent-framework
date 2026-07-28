@@ -89,6 +89,46 @@ ORDER BY co.comppct_r DESC, hz.hzdept_r ASC
         return [{"error": str(e)}]
 
 
+def _layers_from(horizons: list) -> list:
+    """SSURGO horizon rows -> the layer dicts get_soil_profile returns."""
+    layers = []
+    for hz in horizons:
+        sand = _safe_float(hz.get('sandtotal_r'), 40.0)
+        silt = _safe_float(hz.get('silttotal_r'), 40.0)
+        clay = _safe_float(hz.get('claytotal_r'), 20.0)
+        vg = _derive_van_genuchten(hz)
+        layers.append({
+            "component":    hz.get('compname', 'Unknown'),
+            "horizon":      hz.get('texturerv', 'Unknown'),
+            "depth_top_cm": hz.get('hzdept_r'),
+            "depth_bot_cm": hz.get('hzdepb_r'),
+            "texture_class": _texture_class(sand, silt, clay),
+            "sand_pct": sand, "silt_pct": silt, "clay_pct": clay,
+            "bulk_density_gcc":   hz.get('dbthirdbar_r'),
+            "ksat_ums":           hz.get('ksat_r'),
+            "organic_matter_pct": hz.get('om_r'),
+            "van_genuchten": {"theta_s": vg["theta_s"], "theta_r": vg["theta_r"],
+                              "alpha_per_m": vg["alpha_per_m"], "n": vg["n"],
+                              "m": vg["m"], "ksat_ms": vg["ksat_ms"]},
+            "note": vg["note"],
+        })
+    return layers
+
+
+def _soil_profile(lat: float, lon: float) -> dict:
+    """One point's profile, or an {error} dict. Shared by both soil tools."""
+    horizons = _query_ssurgo(lat, lon)
+    if not horizons:
+        return {"location": {"lat": lat, "lon": lon},
+                "error": "No SSURGO data found for this location"}
+    if "error" in horizons[0]:
+        return {"location": {"lat": lat, "lon": lon}, "error": horizons[0]["error"]}
+    layers = _layers_from(horizons)
+    return {"location": {"lat": lat, "lon": lon},
+            "source": "USDA SSURGO Soil Data Access",
+            "num_layers": len(layers), "layers": layers}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # VAN GENUCHTEN PARAMETER DERIVATION
 # ─────────────────────────────────────────────────────────────────────────────
@@ -257,6 +297,25 @@ async def list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="get_soil_profiles",
+            description=(
+                "Soil horizon profiles for MANY locations in ONE call. "
+                "Same content as get_soil_profile per point, but a single MCP "
+                "session instead of one per point — use this whenever you have "
+                "more than one location, e.g. enriching sampling columns. "
+                "SSURGO itself is queried per point (its mukey lookup is "
+                "point-wise), so this saves session setup, not upstream calls."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lats": {"type": "array", "items": {"type": "number"}},
+                    "lons": {"type": "array", "items": {"type": "number"}},
+                },
+                "required": ["lats", "lons"]
+            }
+        ),
+        types.Tool(
             name="get_pflotran_materials",
             description=(
                 "Get PFLOTRAN-ready MATERIAL_PROPERTIES for a location. "
@@ -279,6 +338,20 @@ async def list_tools() -> list[types.Tool]:
 async def call_tool(name: str,
                     arguments: dict) -> list[types.TextContent]:
 
+    # Batch tool first: it carries no single lat/lon to unpack.
+    if name == "get_soil_profiles":
+        lats = arguments.get("lats") or []
+        lons = arguments.get("lons") or []
+        if len(lats) != len(lons):
+            return [types.TextContent(type="text", text=json.dumps(
+                {"error": f"lats/lons length mismatch ({len(lats)} vs {len(lons)})"}))]
+        profiles = [_soil_profile(float(a), float(o)) for a, o in zip(lats, lons)]
+        return [types.TextContent(type="text", text=json.dumps(
+            {"n_points": len(profiles),
+             "n_with_data": sum(1 for p in profiles if p.get("layers")),
+             "profiles": profiles,
+             "source": "USDA SSURGO Soil Data Access"}))]
+
     lat = arguments["lat"]
     lon = arguments["lon"]
 
@@ -297,36 +370,7 @@ async def call_tool(name: str,
 
     # ── Tool 1: get_soil_profile ─────────────────────────────────────────────
     if name == "get_soil_profile":
-        layers = []
-        for hz in horizons:
-            sand  = _safe_float(hz.get('sandtotal_r'), 40.0)
-            silt  = _safe_float(hz.get('silttotal_r'), 40.0)
-            clay  = _safe_float(hz.get('claytotal_r'), 20.0)
-            vg    = _derive_van_genuchten(hz)
-
-            layers.append({
-                "component":    hz.get('compname', 'Unknown'),
-                "horizon":      hz.get('texturerv', 'Unknown'),
-                "depth_top_cm": hz.get('hzdept_r'),
-                "depth_bot_cm": hz.get('hzdepb_r'),
-                "texture_class": _texture_class(sand, silt, clay),
-                "sand_pct":     sand,
-                "silt_pct":     silt,
-                "clay_pct":     clay,
-                "bulk_density_gcc":  hz.get('dbthirdbar_r'),
-                "ksat_ums":          hz.get('ksat_r'),
-                "organic_matter_pct": hz.get('om_r'),
-                "van_genuchten": {
-                    "theta_s":     vg["theta_s"],
-                    "theta_r":     vg["theta_r"],
-                    "alpha_per_m": vg["alpha_per_m"],
-                    "n":           vg["n"],
-                    "m":           vg["m"],
-                    "ksat_ms":     vg["ksat_ms"],
-                },
-                "note": vg["note"]
-            })
-
+        layers = _layers_from(horizons)
         result = {
             "location":   {"lat": lat, "lon": lon},
             "source":     "USDA SSURGO Soil Data Access",

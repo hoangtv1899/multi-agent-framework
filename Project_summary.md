@@ -79,10 +79,10 @@ session per call (HPC-safe). All tools are **read-only** fetches.
 | Server | Source | Key tools | Shape |
 |---|---|---|---|
 | weather | NWS / Open-Meteo | `get_climate_summary` | point |
-| geology | USDA SSURGO | `get_soil_profile`, `get_pflotran_materials` | point |
+| geology | USDA SSURGO | `get_soil_profile`, **`get_soil_profiles`** (batch), `get_pflotran_materials` | point |
 | usgs_water | USGS OGC API | `get_streamflow`, `get_water_table` (param 72019) | bbox |
 | terrain | USGS 3DEP + WBD | `resolve_watershed` (HUC/name→bbox+area), `get_elevation`, `sample_elevation_grid` | point+bbox |
-| fan_wtd | Fan et al. 2013 (local NetCDF) | `get_fan_wtd`, `sample_fan_wtd`, `data_status` | point+bbox |
+| fan_wtd | Fan et al. 2013 (local NetCDF) | `get_fan_wtd`, **`get_fan_wtd_points`** (batch), `sample_fan_wtd`, `data_status` | point+bbox |
 | reaction_sandbox | PFLOTRAN reaction sandbox | reactive-transport deck helpers | — |
 
 **Gotchas:**
@@ -109,6 +109,11 @@ session per call (HPC-safe). All tools are **read-only** fetches.
   and `sample_fan_wtd`.
 - `tools/mcp_conus_sweep.py` surfaces sparse-well / no-data regions *before* you
   design a study.
+- **Ask for many points in ONE call.** A fresh session per call is what makes
+  the layer HPC-safe, but it means a per-point loop pays a process spawn (and,
+  for `fan_wtd`, a NetCDF reopen) every time. Measured: 6 Fan points 41.4 s
+  per-call vs **7.7 s** batched; 4 SSURGO points 7.6 s vs **3.1 s**. Identical
+  values both ways. `expand_sampling` enriches a whole design in two calls.
 
 ---
 

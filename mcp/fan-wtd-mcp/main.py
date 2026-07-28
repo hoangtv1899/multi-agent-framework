@@ -150,6 +150,47 @@ def _point(lat, lon):
             "grid_lon": round(float(sel[d["lon"]].values), 5)}
 
 
+def _points(lats, lons):
+    """Nearest Fan value at MANY points, in one vectorised selection.
+
+    The caller enriching a sampling design wants one value per column. Asking
+    per column means a fresh MCP session per column, and each session reopens
+    the Fan NetCDF — the dataset load, not the lookup, is the cost. One call
+    with N points opens it once and indexes all N at once.
+    """
+    d = _load()
+    if d["error"]:
+        return {"error": d["error"]}
+    import numpy as np
+    import xarray as xr
+    lats = [float(x) for x in lats]
+    lons = [float(x) for x in lons]
+    if len(lats) != len(lons):
+        return {"error": f"lats/lons length mismatch ({len(lats)} vs {len(lons)})"}
+    if not lats:
+        return {"n_points": 0, "points": []}
+
+    sel = d["da"].sel({d["lat"]: xr.DataArray(lats, dims="pt"),
+                       d["lon"]: xr.DataArray(lons, dims="pt")}, method="nearest")
+    vals = np.asarray(sel.values).reshape(-1)
+    glat = np.asarray(sel[d["lat"]].values).reshape(-1)
+    glon = np.asarray(sel[d["lon"]].values).reshape(-1)
+
+    out = []
+    for k, v in enumerate(vals):
+        v = float(v)
+        if math.isnan(v):
+            out.append({"lat": lats[k], "lon": lons[k], "wtd_m": None,
+                        "depth_to_water_m": None,
+                        "note": "outside Fan land domain (masked / no-data)"})
+        else:
+            out.append({"lat": lats[k], "lon": lons[k], "wtd_m": round(v, 3),
+                        "depth_to_water_m": _depth(v),
+                        "grid_lat": round(float(glat[k]), 5),
+                        "grid_lon": round(float(glon[k]), 5)})
+    return {"n_points": len(out), "points": out}
+
+
 def _sample(min_lon, min_lat, max_lon, max_lat, n):
     d = _load()
     if d["error"]:
@@ -211,6 +252,19 @@ def data_status() -> str:
 def get_fan_wtd(lat: float, lon: float) -> str:
     """Equilibrium depth-to-water (m below surface) at the nearest Fan 2013 grid cell."""
     return json.dumps({**_point(lat, lon), "source": _SOURCE})
+
+
+@mcp.tool()
+def get_fan_wtd_points(lats: list[float], lons: list[float]) -> str:
+    """Equilibrium depth-to-water at MANY points in one call (array-wise).
+
+    Same answer as calling get_fan_wtd once per point, but the dataset is opened
+    once instead of once per point. Use this whenever you have more than one
+    location — enriching a set of sampling columns, for instance.
+
+    lats/lons are parallel lists. Returns {n_points, points[]} in input order.
+    """
+    return json.dumps({**_points(lats, lons), "source": _SOURCE})
 
 
 @mcp.tool()

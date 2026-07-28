@@ -78,19 +78,29 @@ def _allocate(counts, n_total):
 
 
 def _farthest_point_select(pts, k):
-    """Greedy farthest-point sampling for spatial spread within a band."""
+    """Greedy farthest-point sampling for spatial spread within a band.
+
+    Array-wise: one running array of "distance to the nearest chosen point",
+    updated with a single minimum against the newest pick. The scalar form
+    recomputed every candidate against every chosen point on each step
+    (O(k^2 n) dict lookups); this is O(k n) in numpy and gives identical picks.
+    """
+    import numpy as np
     if k >= len(pts):
         return list(pts)
     if k <= 0:
         return []
-    clat = sum(p["lat"] for p in pts) / len(pts)
-    clon = sum(p["lon"] for p in pts) / len(pts)
-    chosen = [min(pts, key=lambda p: (p["lat"] - clat) ** 2 + (p["lon"] - clon) ** 2)]
-    while len(chosen) < k:
-        nxt = max(pts, key=lambda p: min((p["lat"] - c["lat"]) ** 2
-                                         + (p["lon"] - c["lon"]) ** 2 for c in chosen))
-        chosen.append(nxt)
-    return chosen
+    lat = np.fromiter((p["lat"] for p in pts), float, len(pts))
+    lon = np.fromiter((p["lon"] for p in pts), float, len(pts))
+
+    first = int(np.argmin((lat - lat.mean()) ** 2 + (lon - lon.mean()) ** 2))
+    picks = [first]
+    d2 = (lat - lat[first]) ** 2 + (lon - lon[first]) ** 2
+    while len(picks) < k:
+        nxt = int(np.argmax(d2))
+        picks.append(nxt)
+        np.minimum(d2, (lat - lat[nxt]) ** 2 + (lon - lon[nxt]) ** 2, out=d2)
+    return [pts[i] for i in picks]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,7 +124,19 @@ def _clip_to_polygon(pts, rings):
     if not polys:
         return pts
     poly = max(polys, key=lambda p: p.area)
-    inside = [p for p in pts if poly.contains(Point(p["lon"], p["lat"]))]
+    # One prepared-geometry pass over all points instead of a Python-level
+    # contains() per point: shapely builds the edge index once and vectorises
+    # the test. Identical predicate, same points kept.
+    try:
+        import numpy as np
+        from shapely import points as _shp_points, contains as _shp_contains
+        arr = _shp_points(np.fromiter((q["lon"] for q in pts), float, len(pts)),
+                          np.fromiter((q["lat"] for q in pts), float, len(pts)))
+        keep = np.asarray(_shp_contains(poly, arr), dtype=bool)
+        inside = [q for q, k in zip(pts, keep) if k]
+    except Exception:
+        # shapely < 2 has no vectorised API; the scalar predicate is the same.
+        inside = [q for q in pts if poly.contains(Point(q["lon"], q["lat"]))]
     return inside or pts          # never drop everything on a bad clip
 
 
@@ -146,19 +168,34 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, do_soil=True, boundary=N
                    "lat": round(p["lat"], 5), "lon": round(p["lon"], 5),
                    "elevation_m": p["elevation_m"], "band": i + 1,
                    "band_range_m": [round(bands[i][0]), round(bands[i][1])]}
-            if fan:
-                fr = fan.call_tool_json("get_fan_wtd",
-                                        {"lat": p["lat"], "lon": p["lon"]}) or {}
-                col["fan_wtd_m"] = fr.get("depth_to_water_m")
-            if geo and do_soil:
-                sp = geo.call_tool_json("get_soil_profile",
-                                        {"lat": p["lat"], "lon": p["lon"]}) or {}
-                layers = sp.get("layers") or []
-                col["soil_top_texture"] = layers[0].get("texture_class") if layers else None
-                col["soil_layers"] = sp.get("num_layers")
-                col["soil_profile"] = sp if layers else None   # full profile (None if no SSURGO)
             columns.append(col)
             cid += 1
+
+    # Enrichment is batched, not per column. Every MCP call is a fresh session
+    # (HPC-safe by design), so asking per column paid a process spawn plus a
+    # dataset open per column -- for Fan the open IS the cost. Two calls now
+    # serve the whole design.
+    lats = [c["lat"] for c in columns]
+    lons = [c["lon"] for c in columns]
+    if fan and columns:
+        fr = fan.call_tool_json("get_fan_wtd_points",
+                                {"lats": lats, "lons": lons}) or {}
+        pts_out = fr.get("points") or []
+        for col, entry in zip(columns, pts_out):
+            col["fan_wtd_m"] = (entry or {}).get("depth_to_water_m")
+        for col in columns[len(pts_out):]:
+            col["fan_wtd_m"] = None
+    if geo and do_soil and columns:
+        sr = geo.call_tool_json("get_soil_profiles",
+                                {"lats": lats, "lons": lons}) or {}
+        profs = sr.get("profiles") or []
+        for col, sp in zip(columns, profs):
+            layers = (sp or {}).get("layers") or []
+            col["soil_top_texture"] = layers[0].get("texture_class") if layers else None
+            col["soil_layers"] = (sp or {}).get("num_layers")
+            col["soil_profile"] = sp if layers else None
+        for col in columns[len(profs):]:
+            col["soil_top_texture"] = col["soil_layers"] = col["soil_profile"] = None
 
     return {"bbox": bbox, "n_requested": n_total, "n_columns": len(columns),
             "bands": [{"band": i + 1, "elev_lo_m": round(bands[i][0]),
@@ -217,8 +254,21 @@ def _soil_cov(c):
 
 
 def nldas_annual_precip(cols, year):
-    """Per-column annual NLDAS precipitation (mm/yr) — nearest 12 km cell,
-    lazy point reads over the 12 monthly files."""
+    """Per-column annual NLDAS precipitation (mm/yr) from the nearest 12 km cell.
+
+    Reads ONE small lat/lon slab per month, then takes every column out of it in
+    memory.
+
+    The obvious form -- `ds[var][:, i, j]` once per column -- looks like a cheap
+    point read and is not. Precipitation is stored (time, lat, lon) contiguously
+    in a ~2 GB monthly file, so pulling one (i, j) across all timesteps strides
+    the whole array, and doing it per column repeats that traversal once per
+    column per month: 14 columns x 12 months was 168 passes over 24 GB, roughly
+    an hour of Lustre time to fill one panel of the design figure.
+
+    The columns of a HUC8 span a handful of 12 km cells, so their bounding box
+    is tiny; reading it whole costs one pass and a few MB.
+    """
     import numpy as np
     import xarray as xr
     d0 = xr.open_dataset(_nldas_month_file(year, 1))
@@ -227,14 +277,21 @@ def nldas_annual_precip(cols, year):
     d0.close()
     idx = {c["id"]: (int(np.abs(lats - c["lat"]).argmin()),
                      int(np.abs(lons - (c["lon"] % 360.0)).argmin())) for c in cols}
+    if not idx:
+        return {}
+    i0 = min(i for i, _ in idx.values()); i1 = max(i for i, _ in idx.values())
+    j0 = min(j for _, j in idx.values()); j1 = max(j for _, j in idx.values())
+
     tot = {cid: 0.0 for cid in idx}
     for mm in range(1, 13):
         ds = xr.open_dataset(_nldas_month_file(year, mm))
         var = next(v for v in ds.data_vars if "PREC" in v.upper())
         nt = ds.sizes["time"]
+        # one read; .values forces it now rather than per column
+        slab = np.asarray(ds[var][:, i0:i1 + 1, j0:j1 + 1].values)
+        per_step = 86400.0 / (24 if nt > 400 else 8)   # hourly vs 3-hourly
         for cid, (i, j) in idx.items():
-            v = float(ds[var][:, i, j].sum())            # mm/s summed over hours
-            tot[cid] += v * (86400.0 / (24 if nt > 400 else 8))  # hourly vs 3-hourly
+            tot[cid] += float(slab[:, i - i0, j - j0].sum()) * per_step
         ds.close()
     return tot
 

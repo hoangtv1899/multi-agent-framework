@@ -121,7 +121,15 @@ def _locate(d, lat, lon):
 
 
 def _rows_for(d, var, g1):
-    """Contiguous row range of `var`'s level belonging to 1-based gridcell g1."""
+    """Contiguous row range of `var`'s level belonging to 1-based gridcell g1.
+
+    A linear scan, deliberately. Binary search looks like the obvious win on a
+    20M-row vector, but it must first prove the vector non-decreasing, and
+    `np.all(np.diff(a) >= 0)` allocates a second 20M array: measured at 175 ms
+    for a 14-column run against 140 ms for simply scanning. Scanning was never
+    the bottleneck — READING the vector was, and _idx now does that once per
+    band instead of once per column.
+    """
     import numpy as np
     idx = np.where(_idx(d, var) == g1)[0]
     if idx.size == 0:
