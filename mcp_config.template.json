@@ -8,13 +8,6 @@
       ],
       "timeout": 120.0
     },
-    "weather": {
-      "command": "/path/to/your/python3",
-      "args": [
-        "/path/to/RCSFA/mcp/weather-mcp/main.py"
-      ],
-      "timeout": 60.0
-    },
     "geology": {
       "command": "/path/to/your/python3",
       "args": [

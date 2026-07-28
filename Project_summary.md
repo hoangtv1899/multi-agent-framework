@@ -78,7 +78,6 @@ session per call (HPC-safe). All tools are **read-only** fetches.
 
 | Server | Source | Key tools | Shape |
 |---|---|---|---|
-| weather | NWS / Open-Meteo | `get_climate_summary` | point |
 | geology | USDA SSURGO | `get_soil_profile`, **`get_soil_profiles`** (batch), `get_pflotran_materials` | point |
 | usgs_water | USGS OGC API | `get_streamflow`, `get_water_table` (param 72019) | bbox |
 | terrain | USGS 3DEP + WBD | `resolve_watershed` (HUC/name→bbox+area), `get_elevation`, `sample_elevation_grid` | point+bbox |
@@ -105,7 +104,7 @@ session per call (HPC-safe). All tools are **read-only** fetches.
   in→mm), so everything downstream is metric on arrival.
 - Fan tiles store WTD **negative-below-surface**; the server auto-detects sign,
   returns positive `depth_to_water_m`, reduces `time`, applies the land mask.
-- SSURGO and weather are point-only → watershed work uses `sample_elevation_grid`
+- SSURGO is point-only → watershed work uses `sample_elevation_grid`
   and `sample_fan_wtd`.
 - **ELM's `ORGANIC` is kg/m³, not a percentage** — it is divided by
   `organic_max = 130` to give the `om_frac` that sets porosity, conductivity
