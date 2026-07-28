@@ -147,15 +147,36 @@ def test_bad_tool_arguments_default_to_empty(monkeypatch):
     assert clients["terrain"].calls == [("resolve_watershed", {})]
 
 
+class _FakeTTY:
+    """The loop reads the human's reply off a terminal opened at construction,
+    not via input(). Under pytest there is no controlling terminal, so the test
+    supplies one — patching builtins.input reaches nothing and the assertion
+    then only proves the batch fallback it caused itself."""
+    def __init__(self, line): self.line, self.reads = line, 0
+    def readline(self): self.reads += 1; return self.line
+
+
 def test_ask_user_interactive_uses_human_answer(monkeypatch):
-    monkeypatch.setattr("builtins.input", lambda *a, **k: "the Washington one")
     scripted = [_msg(tool_calls=[("ask_user", {"question": "WA or CA American River?"})]),
                 _msg(content="done")]
     agent, _, _ = _make_agent(monkeypatch, scripted, interactive=True)
+    tty = _FakeTTY("the Washington one\n")
+    agent._tty = tty
     assert any(t["function"]["name"] == "ask_user" for t in agent.tools)
     out = agent.run("sys", "go")
     assert out["trace"][0]["tool"] == "ask_user"
     assert out["trace"][0]["result"]["answer"] == "the Washington one"
+    assert tty.reads == 1, "the human must actually be read, not defaulted past"
+
+
+def test_ask_user_without_a_terminal_does_not_hang(monkeypatch):
+    """No terminal (batch, piped, nohup) must degrade to the sentinel."""
+    scripted = [_msg(tool_calls=[("ask_user", {"question": "which basin?"})]),
+                _msg(content="done")]
+    agent, _, _ = _make_agent(monkeypatch, scripted, interactive=True)
+    agent._tty = None
+    out = agent.run("sys", "go")
+    assert "non-interactive" in out["trace"][0]["result"]["answer"].lower()
 
 
 def test_ask_user_batch_returns_sentinel(monkeypatch):

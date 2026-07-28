@@ -12,8 +12,18 @@ class TestCheckBrief:
     def test_clean_site_brief(self):
         b = {"intent": "design", "design_archetype": "site",
              "domain": {"bbox": {"min_lon": -1, "min_lat": 1, "max_lon": 2, "max_lat": 3}},
-             "observations_available": [], "observations_missing": []}
+             "observations_available": [], "observations_missing": [],
+             # A brief without a resolved period is NOT clean: the period would
+             # fall back to the wrapper default, silently deciding the run.
+             "run_settings": {"resolved_period": {"yr_start": 1988, "yr_end": 1988,
+                                                  "source": "user"}}}
         assert check_brief(b) == []
+
+    def test_a_brief_without_a_period_is_not_clean(self):
+        b = {"intent": "design", "design_archetype": "site",
+             "domain": {"bbox": {"min_lon": -1, "min_lat": 1, "max_lon": 2, "max_lat": 3}},
+             "observations_available": [], "observations_missing": []}
+        assert any("resolved_period" in i for i in check_brief(b))
 
     def test_site_missing_bbox(self):
         b = {"intent": "design", "design_archetype": "site", "domain": {}}

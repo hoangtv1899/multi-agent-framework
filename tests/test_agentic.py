@@ -81,7 +81,13 @@ class TestReceptionParse:
 
 class TestAskUser:
     def test_batch_returns_sentinel(self):
-        r = _human_answer("CA or WA American River?", interactive=False)
+        r = _human_answer("CA or WA American River?", None, interactive=False)
+        assert "non-interactive" in r["answer"].lower()
+
+    def test_no_terminal_falls_back_to_the_sentinel(self):
+        """interactive=True is not enough — a batch job or a piped run has no
+        terminal, and blocking forever on a read would hang the pipeline."""
+        r = _human_answer("which basin?", None, interactive=True)
         assert "non-interactive" in r["answer"].lower()
 
     def test_ask_user_tool_schema(self):

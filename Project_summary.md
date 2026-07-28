@@ -135,12 +135,12 @@ No hallucinated coordinates is a structural guarantee, not a prompt instruction.
 source /qfs/people/tran289/IDEAS/env_compy.sh
 cd /qfs/people/tran289/IDEAS/multi-agent-framework
 
-python -m pytest -q                       # expect: 3 failed, 239 passed, 62 skipped
+python -m pytest -q                       # expect: 297 passed, 62 skipped
 python3 tools/mcp_conus_sweep.py --max-sites 4 --assert
 python3 workflow.py --interactive
 ```
 
-The **3 failures are known test drift**, not regressions — see §7.
+A green suite is the expectation. Any failure is a regression.
 
 ---
 
@@ -177,14 +177,6 @@ gradient where SNOTEL has a steep one; the water-table comparison is
 climatological (0 of 14 well measurements fall in 1995).
 
 ## 7. Open work
-
-**Known test drift (3 failures, pre-existing):**
-- `test_validate.py::test_clean_site_brief` — `agents/validate.py` gained a
-  `run_settings.resolved_period` check the fixture predates.
-- `test_agentic.py::test_batch_returns_sentinel` and
-  `test_tool_loop.py::test_ask_user_interactive_uses_human_answer` —
-  `tool_loop._human_answer` gained a `tty` parameter and now opens `/dev/tty` at
-  construction; there is no TTY under pytest.
 
 **Wiring gaps:**
 - **Standalone PFLOTRAN and the reactive-transport demo are still CLI-only.**
