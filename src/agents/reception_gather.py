@@ -34,6 +34,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 GRID_N = 120          # sampler resolution; expand_sampling's own default
+MIN_IN_BASIN = 55     # below this the sampler has too little to choose from
+MAX_GRID_N = 480      # ceiling on the retry, so a pathological shape cannot
+                      # turn one terrain call into a very large one
 
 
 def _now() -> str:
@@ -127,6 +130,27 @@ def gather_grid(clients, bbox: Dict[str, float], huc: str = "", boundary=None,
     clipped = [p for p in pts if _inside(p.get("lat"), p.get("lon"), rings)]
     if not clipped:                              # a bad polygon must not empty the grid
         clipped, rings = pts, []
+
+    # A grid is requested over the BOUNDING BOX but used inside the BASIN, and
+    # the two differ by the shape of the watershed: compact basins keep ~50% of
+    # the points, an elongated coastal strip keeps 18%. Central Coastal
+    # California came back with 21 usable points for 4984 km2 — 4.2 per
+    # 1000 km2 against 20-37 elsewhere — which leaves farthest-point selection
+    # almost nothing to choose from and barely samples the elevation bands.
+    # So the request is scaled by the fill ratio and retried once.
+    if pts and len(clipped) < MIN_IN_BASIN and int(n) < MAX_GRID_N:
+        fill = max(len(clipped) / len(pts), 0.05)
+        bigger = min(int(int(n) / fill), MAX_GRID_N)
+        if bigger > int(n):
+            g2 = _call(clients, "terrain", "sample_elevation_grid",
+                       {**bbox, "n": bigger})
+            prov.append({k: g2[k] for k in
+                         ("tool", "args", "fetched_at", "ok", "error")})
+            pts2 = [p for p in ((g2.get("result") or {}).get("points") or [])
+                    if p.get("elevation_m") is not None]
+            clip2 = [p for p in pts2 if _inside(p.get("lat"), p.get("lon"), rings)]
+            if len(clip2) > len(clipped):
+                pts, clipped, n = pts2, clip2, bigger
 
     grid = [{"lat": round(p["lat"], 5), "lon": round(p["lon"], 5),
              "elevation_m": p["elevation_m"]} for p in clipped]

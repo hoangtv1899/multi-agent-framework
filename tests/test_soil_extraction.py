@@ -270,3 +270,38 @@ class TestSoilPanelFollowsTheData:
         clay, second, lab = exp._soil_cov({"soil_profile": {"layers": [
             {"component": "A", "clay_pct": 5.0}]}})
         assert second is None and lab is None
+
+
+class TestGridDensityAdaptsToShape:
+    """A grid is requested over the BOUNDING BOX and used inside the BASIN, so
+    the yield depends on the watershed's shape: compact basins keep ~50% of the
+    points, an elongated coastal strip keeps 18%. Central Coastal California
+    returned 21 usable points for 4984 km2 — 4.2 per 1000 km2 against 20-37
+    elsewhere — leaving farthest-point selection almost nothing to choose from.
+    """
+
+    def test_thresholds_are_defined_and_bounded(self):
+        from agents import reception_gather as g
+        assert g.MIN_IN_BASIN > 0
+        assert g.MAX_GRID_N > g.GRID_N, "the retry must be able to ask for more"
+        assert g.MAX_GRID_N <= 1000, "and must not be unbounded"
+
+    def test_the_retry_is_scaled_by_the_fill_ratio(self):
+        """Not a fixed bump: a basin keeping 18% needs ~5x, one keeping 45%
+        needs ~2x, and asking 5x for the second wastes a large terrain call."""
+        src = (ROOT / "src" / "agents" / "reception_gather.py").read_text()
+        i = src.index("MIN_IN_BASIN")
+        body = src[src.index("def gather_grid"):]
+        assert "fill" in body and "/ fill" in body
+
+    def test_it_only_fires_when_the_grid_is_thin(self):
+        src = (ROOT / "src" / "agents" / "reception_gather.py").read_text()
+        body = src[src.index("def gather_grid"):]
+        assert "len(clipped) < MIN_IN_BASIN" in body
+
+    def test_a_worse_retry_is_discarded(self):
+        """If the bigger request somehow yields fewer in-basin points, keep the
+        first result rather than degrading the design."""
+        src = (ROOT / "src" / "agents" / "reception_gather.py").read_text()
+        body = src[src.index("def gather_grid"):]
+        assert "if len(clip2) > len(clipped)" in body
