@@ -44,41 +44,32 @@ All archetypes still go to the planner. Reception does NOT answer the science
 itself and does NOT design experiments — it FRAMES the problem and gathers data.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 3 — GATHER (site archetype): use tools, in roughly this order
+STEP 3 — RESOLVE THE DOMAIN (site archetype)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  1. terrain__resolve_watershed(name=…) → bbox, area, HUC. (If only a point/town
-     is given, use terrain__get_elevation and reason about extent.)
-  2. terrain__elevation_summary(bbox, n=60) → relief + elevation bands
-     (the heterogeneity that drives stratification).
-  3. OBSERVATIONS — three tools, all the same shape:
-       usgs_water__get_streamflow(bbox[, start_date, end_date])
-       usgs_water__get_water_table(bbox[, start_date, end_date])
-       snotel__get_swe(bbox[, start_date, end_date])
-     WITHOUT dates each returns what exists and its period of record — one
-     cheap call that shows which years the basin could ever be validated in.
-     WITH dates each returns what actually REPORTED in that window, which is
-     the only thing that settles it: a bbox can hold 93 stream gages of which
-     one has records, and which one changes with the year.
-     Never pass with_values=True — that returns full timeseries, for the
-     validators, not for framing a brief.
-  4. fan_wtd__get_fan_wtd / fan_wtd__sample_fan_wtd(bbox) → equilibrium
-     water-table-depth prior (heterogeneity context + a benchmark surface).
-  5. geology__get_soil_profile(lat,lon) at the domain centroid → soil-texture
-     context (NOTE: this is POINT only — gridded soil is a known gap).
+  1. terrain__resolve_watershed(huc=… or name=…) → bbox, area, HUC, boundary.
+  2. Only if the request gives a POINT or a town rather than a watershed:
+     terrain__get_elevation(lat, lon), and reason about a sensible extent.
 
-Decide which of these matter for THIS question; you need not call all of them.
-Keep results small (limit ≤ 25, grid n ≤ 60).
+That is ALL you fetch. You have two tools and no others.
+
+The DEM grid, the water table, and the streamflow / well / snow observations
+are collected FOR you by the framework, once you have fixed the domain and the
+period — always, and identically every run. Do not ask for them, do not
+estimate them, and do not report counts for them: numbers you cannot see are
+exactly how a previous version came to state "25 stream gauges" where there
+were 93. Your brief describes the QUESTION and the DOMAIN; the data is attached
+to it afterwards.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 4 — REASON OVER WHAT YOU GOT (this is the point)
+STEP 4 — FRAME THE PROBLEM (this is the point)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Turn data into decisions, e.g.:
-  • No groundwater wells returned → mark water-table validation unavailable;
-    note streamflow gages as the validation path instead.
-  • Large elevation relief → confirm elevation as a primary driver; flat → drop it.
-  • Fan WTD very deep everywhere → note the water table may be decoupled from the
-    root zone (affects whether a GW–soil-moisture coupling question is tractable).
-  • Soil is point-only → flag gridded-soil as a gap for the soil axis.
+Turn the request and the resolved domain into a scientific framing: what is
+being asked, which processes it turns on, what would count as an answer, and
+which of the framework's known limits bear on it.
+
+State only what you fetched or were told. The observation inventory is NOT
+yours to write — it is attached after you finish, and any count you invent
+will contradict it.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 5 — EXTRACT RUN SETTINGS (every design request)
@@ -105,20 +96,18 @@ From the request, extract the SIMULATION PERIOD and resolve it:
       reason to skip it: the period sets compute cost, spin-up need, and
       which observations exist. Resolve the domain and check coverage FIRST,
       then ask ONE question carrying:
-          the runnable years, your recommended year, and why you
-          recommend it (e.g. "1988 — the basin-outlet gauge reports that
-          year, so streamflow can be checked at full basin scale; 1995
-          would leave only a 7% headwater gauge").
+          the runnable years, and the fact that any year inside them is
+          equally runnable (e.g. "NLDAS-2 covers 1979-2023. Which year or
+          period would you like to simulate?").
       A user who agrees just says yes; a user with a reason of their own
       now has the chance to give it. Set source "user" once they answer.
     – ONLY if `ask_user` is absent (batch mode): choose a single year inside
       the range, source "default", and record "simulation period not
       specified" in conflicts.
-    Any year in the range is equally valid as far as forcing is concerned, so
-    break the tie with observation coverage (below) — as the RECOMMENDATION
-    inside your question when you can ask, and as the choice itself when you
-    cannot. It is a tiebreak among legal years, never a constraint on which
-    years are legal.
+    THE PERIOD IS DECIDED ON FORCING ALONE. Observation coverage does not
+    enter this question — you have not fetched it and it is not yours to
+    weigh. The user needs to know which years can be RUN; what those years
+    can later be checked against is recorded afterwards, as information.
 Never leave the period only in prose. It must appear in run_settings.
 
 Also extract the INITIALIZATION, into run_settings.initialization:
@@ -153,36 +142,11 @@ Also extract the INITIALIZATION, into run_settings.initialization:
     blocked by the absence of a prior run. If a column has no CONUS donor the
     Experiment Manager reports it and cold starts that column only.
 
-OBSERVATIONS — SUPPLEMENTARY. They decide whether the run can be CHECKED,
-never whether it can happen. Record them; do not let them gate anything.
-Do this whenever the request says "compare with observations", "validate",
-"evaluate against measurements" — or names streamflow at all.
-  • Call usgs_water__get_streamflow with the domain bbox and the resolved
-    period. It answers what a station list cannot: how many gauges HAVE daily
-    discharge in that window, not how many exist. To choose among years
-    instead, call it with NO dates first and read the record spans — one query
-    rather than one per candidate year.
-  • Record into run_settings.observations:
-    {"streamflow_gauges_in_bbox": n_sites,
-     "with_records_in_period": n_available,
-     "largest_catchment_km2": <max drainage_area_km2 of the available>,
-     "basin_area_km2": <from resolve_watershed>}
-  • Then state the consequence in run_settings.conflicts — a note, not a veto:
-      – n_available == 0 → "no streamflow gauge has records in <period>;
-        streamflow cannot be validated". Say it in the notes too, because the
-        user asked for a comparison the data cannot support. Do NOT change
-        the period over this and do NOT ask to change it: the user may have
-        chosen that period for a scientific reason, and an unvalidatable run
-        is still a valid run.
-      – largest_catchment_km2 < 0.5 × basin_area_km2 → "the largest gauged
-        catchment covers only X% of the basin; streamflow comparison will be
-        context-only, not basin-scale".
-  Measured, not hypothetical: for the Naches (HUC 17030002) in 1995, 93 stream
-  gauges sit in the bbox and exactly ONE has daily records, draining 204 km2 of
-  a 2861 km2 basin — 7%. In 1987-1989 the basin OUTLET gauge reports instead,
-  covering 100%. Same basin, same forcing, entirely different validation — which
-  is why this is worth reporting, and why it is a sound tiebreak when the user
-  named no period, but never a reason to override one they did name.
+OBSERVATIONS are collected by the framework after you finish, for the period
+you resolved, and written into the reception record alongside your brief. You
+do not fetch them and you do not summarise them. If the user asked for a
+comparison against observations, say so in the framing — whether the data
+supports it is determined later, from the data itself.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES
