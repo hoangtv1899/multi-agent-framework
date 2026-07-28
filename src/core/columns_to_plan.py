@@ -40,10 +40,19 @@ def build_ledger(columns, yr_start, yr_end, soil_config, substrate,
          "source": period_source or "DEFAULT",
          "note": "science year = last simulated year; the year's climatic "
                  "percentile is not characterized"},
+        # The note has to follow the initialization, not assert past it. A
+        # CONUS warm start that keeps the donor's soil inherits an equilibrated,
+        # self-consistent state — saying "transient without >=3 spin-up years"
+        # there sent the analyzer on to recommend spin-up the run had already
+        # avoided.
         {"parameter": "spin-up", "value": (f"{n_years - 1} yr (in-run)" if n_years > 1
-                                           else "none"),
-         "source": "derived", "note": "recharge/storage terms are transient "
-                                      "without >=3 spin-up years"},
+                                           else ("none — warm started" if n_warm
+                                                 else "none")),
+         "source": "derived",
+         "note": ("storage inherited from the CONUS spin-up; residual adjustment "
+                  "to this period shows up in the annual closure"
+                  if n_warm else
+                  "recharge/storage terms are transient without >=3 spin-up years")},
         {"parameter": "initialization", "value": init_value, "source": init_source,
          "note": "initial water table controls recharge sign in 1-yr runs"},
         {"parameter": "soil configuration", "value": soil_config,

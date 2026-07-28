@@ -743,6 +743,15 @@ class ELMExpManager:
 					warm_start    = bool(couplers[0].get("FINIDAT")),
 					forcing       = cfg.get("forcing", "nldas"),
 					spinup_years  = int(cfg.get("spinup_years", 0)),
+					# WHICH warm start, and whether the soil was kept with it.
+					# Without these the caveat cannot tell an equilibrated,
+					# self-consistent state from the mismatch that made year
+					# one a relaxation — and it defaulted to warning about both.
+					warm_source   = ((cfg.get("warm_start") or {}).get("source")
+									 if isinstance(cfg.get("warm_start"), dict)
+									 else cfg.get("warm_start")) or "conus",
+					soil_source   = ("conus" if couplers[0].get("SURFACE_TEMPLATE")
+									 else "ssurgo"),
 				),
 				"assumptions_ledger": (
 					json.loads((self.run_dir / "assumptions.json").read_text())
