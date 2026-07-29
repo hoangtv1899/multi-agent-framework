@@ -776,3 +776,63 @@ class TestPackageCarriesTheEnsemble:
         import types
         pkg = mgr._package({}, types.SimpleNamespace(results=[]), {})
         assert pkg["sampling_domain"]["clipped_to_watershed"] is True
+
+
+class TestDailySeries:
+    """_extract captures a daily series, so the Analyzer stops needing scratch.
+
+    Nothing used to extract one: validate_run rebuilt hydrographs by
+    re-reading history NetCDFs off $PSCRATCH. That left the Analyzer coupled
+    to scratch rather than to the manager's package, and meant the series
+    died with the purge while the run directory survived.
+    """
+
+    def _summarize(self, values, var, with_time=True):
+        pytest.importorskip("xarray")
+        import numpy as np, xarray as xr
+        from core.elm_results_analyzer import ELMResultsAnalyzer
+        n = len(values)
+        coords, dims = {}, ("time",)
+        if with_time:
+            coords["time"] = np.array(
+                [np.datetime64("2019-01-01") + np.timedelta64(3 * i, "h")
+                 for i in range(n)])
+        da = xr.DataArray(np.array(values, dtype=float), dims=dims,
+                          coords=coords)
+        ra = ELMResultsAnalyzer(experiments=[], analysis_dir="/tmp")
+        return ra._summarize(da, var)
+
+    def test_three_hourly_is_aggregated_to_daily(self):
+        """ELM writes 3-hourly. 13 variables x 2921 steps x 19 columns is
+        ~5.8 MB of JSON that nothing reads at that resolution — USGS
+        observations are daily, so a comparison resamples anyway."""
+        out = self._summarize([1.0] * 80, "QOVER")     # 80 steps = 10 days
+        assert len(out["daily"]["values"]) == 10
+
+    def test_fluxes_are_converted_to_mm_per_day(self):
+        """ELM stores mm/s; the annual metrics use mm/yr. A daily hydrograph
+        is plotted in mm/day, and saying so is what stops the next reader
+        guessing which of the three this is."""
+        out = self._summarize([1.0] * 8, "QOVER")
+        assert out["daily"]["units"] == "mm/day"
+        assert out["daily"]["values"][0] == pytest.approx(86400.0)
+
+    def test_states_keep_their_native_units(self):
+        out = self._summarize([100.0] * 8, "TWS")
+        assert out["daily"]["units"] == "mm"
+        assert out["daily"]["values"][0] == pytest.approx(100.0)
+
+    def test_the_series_carries_dates(self):
+        out = self._summarize([1.0] * 16, "QOVER")
+        assert out["daily"]["dates"][0] == "2019-01-01"
+        assert len(out["daily"]["dates"]) == len(out["daily"]["values"])
+
+    def test_stats_still_produced_alongside(self):
+        """The series must be additive — the annual metrics are built from
+        the stats and must not change."""
+        out = self._summarize([1.0] * 8, "QOVER")
+        assert "annual_mean" in out and "n_timesteps" in out
+
+    def test_no_time_coordinate_is_not_fatal(self):
+        out = self._summarize([1.0] * 8, "QOVER", with_time=False)
+        assert "annual_mean" in out          # stats survive

@@ -238,9 +238,70 @@ class ELMResultsAnalyzer:
             print(f"   ✗ Extraction failed: {e}")
             return self._empty_result(exp, str(e))
 
+    def _daily(self, da: "xr.DataArray", var_name: str) -> Dict[str, Any]:
+        """The variable as a DAILY series, for the hydrograph and the budget.
+
+        Nothing in the pipeline used to extract this, so validate_run rebuilt
+        hydrographs by re-reading the history NetCDFs off $PSCRATCH — which
+        left the Analyzer coupled to scratch rather than to the manager's
+        package, and meant the series died with the scratch purge while the
+        run directory survived.
+
+        DAILY, not raw. ELM writes 3-hourly here (2921 steps for one year),
+        and 13 variables x 2921 steps x 19 columns is ~5.8 MB of JSON that
+        nothing reads at that resolution: USGS observations are daily, so a
+        hydrograph comparison resamples to daily anyway. Aggregating at
+        extraction costs one pass and saves 8x.
+
+        Fluxes come out in mm/day — the unit a daily hydrograph is actually
+        plotted in, rather than the mm/s ELM stores or the mm/yr the annual
+        metrics use. Stating it here is what stops the next reader guessing.
+        """
+        try:
+            if "time" in getattr(da, "dims", ()):
+                d = da.squeeze().resample(time="1D").mean()
+                vals = np.array(d.values, dtype=float).flatten()
+                stamps = [str(t)[:10] for t in np.array(d["time"].values)]
+            else:
+                vals = np.array(da.squeeze().values, dtype=float).flatten()
+                stamps = []
+        except Exception:
+            return {}
+
+        if vals.size == 0:
+            return {}
+        if var_name in FLUX_VARIABLES:
+            vals = vals * 86400.0          # mm/s -> mm/day
+            units = "mm/day"
+        else:
+            units = VARIABLE_UNITS.get(var_name, "")
+        out = {"units": units,
+               "values": [None if np.isnan(v) else round(float(v), 5)
+                          for v in vals]}
+        if stamps:
+            out["dates"] = stamps
+        return out
+
     def _summarize(self,
                    da:       "xr.DataArray",
                    var_name: str) -> Dict[str, Any]:
+        """Summary statistics for one variable, plus its daily series.
+
+        The stats and the series answer different questions and are kept
+        apart: the stats are what the annual metrics are built from, the
+        series is what a hydrograph is drawn from. Attaching the series here
+        rather than inside each branch means every variable gets one, and a
+        new branch cannot forget.
+        """
+        stats = self._summarize_stats(da, var_name)
+        daily = self._daily(da, var_name)
+        if daily:
+            stats["daily"] = daily
+        return stats
+
+    def _summarize_stats(self,
+                         da:       "xr.DataArray",
+                         var_name: str) -> Dict[str, Any]:
         """Compute summary statistics for one variable."""
         da  = da.squeeze()
         val = np.array(da.values, dtype=float)
