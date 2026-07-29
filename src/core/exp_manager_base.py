@@ -432,12 +432,12 @@ class ExperimentManagerBase:
 				hs = json.loads(f.read_text()) or {}
 			except Exception as e:
 				print(f"   ⚠️  could not read the extraction ({e})")
-		# spatial_summary and driver_matrix are the Analyzer's to compute now
-		# (src/agents/drivers.py) — they are interpretation, and the package
-		# carries evidence.
-		for k in ("comparisons", "soil_attribution"):
-			if hs.get(k):
-				out[k] = hs[k]
+		# No derived blocks at all. comparisons, soil_attribution,
+		# spatial_summary and driver_matrix are the Analyzer's to compute
+		# (src/agents/drivers.py): every one of them is a claim about the
+		# ensemble, and the package carries evidence. Three of the four were
+		# also silently empty here, because they filtered on a `soil` field
+		# extraction never wrote.
 
 		# The honesty payload: what this run cannot support, and what was
 		# assumed to make it runnable. It reached the written report but not

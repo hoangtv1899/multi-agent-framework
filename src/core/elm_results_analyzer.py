@@ -725,8 +725,13 @@ class ELMResultsAnalyzer:
             json.dump(
                 {
                     'experiments':      list(self.results.values()),
-                    'comparisons':      self._compute_comparisons(),
-                    'soil_attribution': self._compute_soil_attribution(),
+                    # comparisons and soil_attribution are NOT here either,
+                    # for the same reason as the correlations: both are
+                    # derived claims, and both filtered on row['soil'], which
+                    # extraction never populates. soil_attribution therefore
+                    # returned {} on EVERY run and soil_control.png was
+                    # silently never drawn. src/agents/drivers.py computes
+                    # them from the package rows, where the soil profile is.
                     # spatial_summary and driver_matrix are NOT here any more.
                     # A correlation is a claim about a relationship, which is
                     # interpretation; extraction reads the model's output

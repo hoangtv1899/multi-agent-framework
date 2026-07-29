@@ -104,7 +104,15 @@ class Analyzer:
 		"""
 		try:
 			ar   = _load_tool("analyze_run")
-			soil = analyzer._compute_soil_attribution()
+			from agents import drivers as _drv
+			rows = getattr(analyzer, "results", None) or []
+			if isinstance(rows, dict):
+				rows = list(rows.values())
+			# computed here, not read off the extraction object: the old call
+			# returned {} on every run, so soil_control.png was never drawn
+			soil = _drv.soil_attribution(rows)
+			if not soil.get("available"):
+				soil = None
 
 			n = 0
 			ar.plot_partitioning(analyzer.results,

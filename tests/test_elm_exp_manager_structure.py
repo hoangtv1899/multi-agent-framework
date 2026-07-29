@@ -27,6 +27,8 @@ USAGE
 
 Expected: all tests pass.
 """
+from pathlib import Path as _P
+ROOT = _P(__file__).resolve().parents[1]
 import csv
 import json
 import sys
@@ -721,36 +723,30 @@ class TestPackageCarriesTheEnsemble:
             extra_summary=extra or {})
         return mgr, mgr._package({}, res, {})
 
-    def test_ensemble_products_are_carried(self, tmp_path):
-        _, pkg = self._run_dir(tmp_path, hydro={
-            "soil_attribution": {"a": 1}, "comparisons": [{"c": 3}]})
-        for k in ("soil_attribution", "comparisons"):
-            assert pkg.get(k), f"{k} was dropped — a figure depends on it"
+    def test_no_derived_blocks_are_carried(self):
+        """The package carries EVIDENCE. comparisons, soil_attribution,
+        spatial_summary and driver_matrix are all claims ABOUT the ensemble,
+        and all four are now the Analyzer's to compute from the rows
+        (src/agents/drivers.py).
 
-    def test_correlations_are_not_carried(self, tmp_path):
-        """driver_matrix and spatial_summary are the ANALYZER's to compute
-        (src/agents/drivers.py). A correlation is a claim about a
-        relationship — interpretation, not evidence — and frozen in the
-        package it could never answer a driver thought of later.
+        Three of the four were also silently empty here, because they filtered
+        on a `soil` field extraction never wrote — soil_attribution returned
+        {} on every run and soil_control.png was never drawn."""
+        from core.exp_manager_base import ExperimentManagerBase
+        import inspect
+        src = inspect.getsource(ExperimentManagerBase._ensemble_blocks)
+        for k in ("comparisons", "soil_attribution", "spatial_summary",
+                  "driver_matrix"):
+            assert f'"{k}"' not in src, \
+                f"{k} is a derived claim; it belongs to the Analyzer"
 
-        The old arrangement also hid a bug for every run: the correlation
-        read row['soil'].get('clay_max_pct'), extraction never populates
-        `soil`, so every soil driver came out null — and null in a
-        correlation table reads as 'no relationship', not 'not computed'."""
+    def test_derived_blocks_do_not_reach_the_package(self, tmp_path):
         _, pkg = self._run_dir(tmp_path, hydro={
+            "soil_attribution": {"a": 1}, "comparisons": [{"c": 3}],
             "driver_matrix": {"b": 2}, "spatial_summary": {"d": 4}})
-        assert "driver_matrix" not in pkg
-        assert "spatial_summary" not in pkg
-
-    def test_absent_is_omitted_not_nulled(self, tmp_path):
-        """An empty block means 'not computed for this run' — the 2019
-        Gunnison run had soil_attribution={} and drew no soil_control figure.
-        Emitting it as null would say 'computed as nothing', which is a
-        different claim."""
-        _, pkg = self._run_dir(tmp_path, hydro={
-            "soil_attribution": {}, "comparisons": [{"c": 3}]})
-        assert "soil_attribution" not in pkg
-        assert pkg["comparisons"] == [{"c": 3}]
+        for k in ("soil_attribution", "comparisons", "driver_matrix",
+                  "spatial_summary"):
+            assert k not in pkg
 
     def test_the_honesty_payload_reaches_the_package(self, tmp_path):
         """limitations and the assumptions ledger reached the written report
@@ -1054,3 +1050,91 @@ class TestDrivers:
         ss = drivers.spatial_summary(self._rows())
         assert ss["n_bands"] == 3
         assert all("mean" in b for b in ss["by_band"].values())
+
+
+class TestSoilAttribution:
+    """The one analysis that separates soil from forcing — and never ran.
+
+    The spatial ensemble confounds them: wetter columns are also higher.
+    Holding precipitation fixed and letting only soil vary is what separates
+    them. The old version filtered on row['soil'], which extraction never
+    populates, so the candidate set was empty on EVERY run, it returned {},
+    and soil_control.png was silently never drawn.
+    """
+
+    @staticmethod
+    def _rows(precips, clays):
+        return [{"case_name": f"col_{i:02d}", "status": "ok",
+                 "soil_top_texture": "loam",
+                 "soil_profile": {"layers": [{"clay_pct": c, "sand_pct": 40.0,
+                                              "organic_kg_m3": 55.0}]},
+                 "metrics": {"precip_mm_yr": p,
+                             "annual_recharge_mm_yr": 10.0 + i,
+                             "annual_runoff_mm_yr": 5.0 + i,
+                             "recharge_fraction": 0.3}}
+                for i, (p, c) in enumerate(zip(precips, clays))]
+
+    def test_it_holds_forcing_constant(self):
+        from agents import drivers
+        sa = drivers.soil_attribution(
+            self._rows([500, 500, 500, 900], [20, 30, 40, 25]))
+        assert sa["available"] is True
+        assert sa["forcing_held_mm_yr"] == 500
+        assert sa["n_columns"] == 3          # the 900 column is excluded
+
+    def test_a_pair_is_reported_as_a_pair(self):
+        """The 12 km forcing quantises precipitation so heavily that an
+        ensemble rarely puts 3 columns in one bin. Two is still informative —
+        same forcing, different recharge, so soil — but it is not a
+        correlation and must not be dressed up as one."""
+        from agents import drivers
+        sa = drivers.soil_attribution(self._rows([500, 500, 900], [20, 40, 25]))
+        assert sa["available"] is True and sa["n_columns"] == 2
+        assert sa["soil_correlation"]["recharge_vs_clay_max"] is None
+        assert "too few columns" in sa["strongest_predictor"]
+
+    def test_no_shared_bin_says_why(self):
+        from agents import drivers
+        sa = drivers.soil_attribution(self._rows([400, 600, 900], [20, 30, 40]))
+        assert sa["available"] is False
+        assert "forcing bin" in sa["reason"]
+
+    def test_missing_soil_says_why_rather_than_returning_empty(self):
+        """Returning {} is what hid this for months — indistinguishable from
+        'computed, found nothing'."""
+        from agents import drivers
+        rows = self._rows([500, 500], [20, 30])
+        for r in rows:
+            r.pop("soil_profile")
+        sa = drivers.soil_attribution(rows)
+        assert sa["available"] is False and "soil profile" in sa["reason"]
+
+    def test_it_renders_the_figure(self, tmp_path):
+        """plot_soil reads by_recharge, soil_correlation, forcing_held_mm_yr
+        and strongest_predictor. The contract is the figure drawing."""
+        import importlib.util as u
+        from agents import drivers
+        spec = u.spec_from_file_location("ar", ROOT / "tools" / "analyze_run.py")
+        ar = u.module_from_spec(spec); spec.loader.exec_module(ar)
+        sa = drivers.soil_attribution(
+            self._rows([500, 500, 500, 500], [20, 30, 40, 50]))
+        out = tmp_path / "soil_control.png"
+        ar.plot_soil(sa, out)
+        assert out.exists() and out.stat().st_size > 0
+
+
+class TestComparisons:
+    def test_ratio_is_none_rather_than_infinite(self):
+        """A zero minimum is a real result. inf in a report reads as a bug."""
+        from agents import drivers
+        rows = [{"case_name": "a", "metrics": {"annual_runoff_mm_yr": 0.0}},
+                {"case_name": "b", "metrics": {"annual_runoff_mm_yr": 200.0}}]
+        c = next(x for x in drivers.comparisons(rows)
+                 if x["metric"] == "annual_runoff_mm_yr")
+        assert c["ratio"] is None and c["range"] == 200.0
+
+    def test_it_carries_units(self):
+        from agents import drivers
+        rows = [{"case_name": "a", "metrics": {"precip_mm_yr": 400.0}},
+                {"case_name": "b", "metrics": {"precip_mm_yr": 800.0}}]
+        assert all("units" in c for c in drivers.comparisons(rows))

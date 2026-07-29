@@ -197,3 +197,137 @@ def spatial_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "by_band": bands,
         "n_bands": len(bands),
     }
+
+
+def soil_attribution(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Attribute the partitioning to SOIL, holding forcing constant.
+
+    The spatial ensemble confounds soil with forcing: wetter columns are also
+    higher and steeper. Fixing precipitation and letting only soil vary is the
+    one comparison that separates them, which is why the figure exists.
+
+    It never ran. The old version filtered on `row['soil']`, which extraction
+    does not populate, so the candidate set was empty on every run and this
+    returned {} — and soil_control.png was silently never drawn. Here the
+    predictors come from soil_profile, the form the data actually arrives in.
+
+    The bin threshold is 2, not 3, deliberately. The 12 km forcing quantises
+    precipitation so heavily that a 19-column ensemble rarely puts three
+    columns in one bin. With two the correlation is meaningless, but the PAIR
+    is not: two columns under identical forcing that differ in recharge differ
+    because of soil.
+    """
+    rows = [r for r in (rows or [])
+            if isinstance(r, dict)
+            and str(r.get("status", "ok")).lower() not in
+            {"failed", "error", "timeout"}]
+    usable = [r for r in rows if _clay_max_pct(r) is not None]
+    if len(usable) < 2:
+        return {"available": False,
+                "reason": f"only {len(usable)} column(s) carry a soil profile; "
+                          f"soil attribution needs at least 2"}
+
+    bins: Dict[Any, List[Dict[str, Any]]] = {}
+    for r in usable:
+        p = _num((r.get("metrics") or {}).get("precip_mm_yr"))
+        bins.setdefault(round(p) if p is not None else None, []).append(r)
+    precip_bin, group = max(bins.items(), key=lambda kv: len(kv[1]))
+    if len(group) < 2:
+        return {"available": False,
+                "reason": "no two columns share a forcing bin, so soil cannot "
+                          "be separated from precipitation",
+                "n_forcing_bins": len(bins)}
+
+    group = sorted(group, key=lambda r: -( _num(
+        (r.get("metrics") or {}).get("annual_recharge_mm_yr")) or 0))
+    table = [{
+        "case_name":         r.get("case_name"),
+        "texture_top":       r.get("soil_top_texture"),
+        "clay_max_pct":      _clay_max_pct(r),
+        "sand_max_pct":      _sand_max_pct(r),
+        "organic_max":       _organic_max(r),
+        "recharge_mm_yr":    _num((r.get("metrics") or {}).get("annual_recharge_mm_yr")),
+        "runoff_mm_yr":      _num((r.get("metrics") or {}).get("annual_runoff_mm_yr")),
+        "recharge_fraction": _num((r.get("metrics") or {}).get("recharge_fraction")),
+    } for r in group]
+
+    out: Dict[str, Any] = {
+        "available":     True,
+        "precip_bin_mm_yr": precip_bin,
+        # names plot_soil() and the CLI's print_soil() read
+        "forcing_held_mm_yr": precip_bin,
+        "n_columns":     len(group),
+        "n_forcing_bins": len(bins),
+        "columns":       table,
+        # plot_soil() reads `by_recharge` and `soil_correlation`. Emitting the
+        # shape it already expects keeps the figure working while the
+        # computation moves; the figure itself is repointed separately.
+        "by_recharge":   [dict(t, ksat_min_ums=None) for t in table],
+        "note": "Forcing held constant by keeping only the most-populated "
+                "precipitation bin, so differences here are attributable to "
+                "soil. With 2 columns this is a PAIR, not a correlation.",
+    }
+    rech = [t["recharge_mm_yr"] for t in table]
+    if len(group) >= 3:
+        for pred in ("clay_max_pct", "sand_max_pct", "organic_max"):
+            xs = [t[pred] for t in table]
+            out.setdefault("pearson_r", {})[pred] = {
+                "recharge": _pearson(xs, rech),
+                "runoff":   _pearson(xs, [t["runoff_mm_yr"] for t in table]),
+            }
+    # Also the flat form plot_soil() reads. None where undefined — with two
+    # columns there is no correlation, only a pair, and the figure says so.
+    out["soil_correlation"] = {
+        "recharge_vs_clay_max": _pearson([t["clay_max_pct"] for t in table], rech),
+        "recharge_vs_sand_max": _pearson([t["sand_max_pct"] for t in table], rech),
+        "recharge_vs_ksat_min": None,      # see KNOWN_UNAVAILABLE
+    }
+    # Whichever soil predictor actually tracks recharge best — named, so the
+    # figure and the prose cannot disagree about which one they mean.
+    ranked = [(k, v) for k, v in (
+        ("clay_max_pct", out["soil_correlation"]["recharge_vs_clay_max"]),
+        ("sand_max_pct", out["soil_correlation"]["recharge_vs_sand_max"]),
+    ) if v is not None]
+    out["strongest_predictor"] = (
+        max(ranked, key=lambda kv: abs(kv[1]))[0] if ranked
+        else "none — too few columns share a forcing bin to rank predictors")
+    return out
+
+
+def comparisons(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Spread of each headline metric across the ensemble.
+
+    Range and ratio, not a ranking: which column is highest matters less than
+    whether the ensemble spans anything at all. A near-zero spread means the
+    columns are not telling you about heterogeneity, whatever else they say.
+    """
+    rows = [r for r in (rows or [])
+            if isinstance(r, dict)
+            and str(r.get("status", "ok")).lower() not in
+            {"failed", "error", "timeout"}]
+    if len(rows) < 2:
+        return []
+
+    out = []
+    for key in ("annual_recharge_mm_yr", "annual_runoff_mm_yr",
+                "precip_mm_yr", "recharge_fraction"):
+        vals = {r.get("case_name"): _num((r.get("metrics") or {}).get(key))
+                for r in rows}
+        vals = {k: v for k, v in vals.items() if v is not None}
+        if len(vals) < 2:
+            continue
+        lo_k, lo = min(vals.items(), key=lambda kv: kv[1])
+        hi_k, hi = max(vals.items(), key=lambda kv: kv[1])
+        out.append({
+            "metric":  key,
+            "units":   "mm/yr" if key.endswith("mm_yr") else "1",
+            "n":       len(vals),
+            "min":     {"column": lo_k, "value": round(lo, 3)},
+            "max":     {"column": hi_k, "value": round(hi, 3)},
+            "mean":    round(sum(vals.values()) / len(vals), 3),
+            "range":   round(hi - lo, 3),
+            # None, not inf: a zero minimum is a real result, and inf in a
+            # report reads as a bug rather than as "unbounded".
+            "ratio":   round(hi / lo, 2) if lo not in (0,) and lo > 0 else None,
+        })
+    return out
