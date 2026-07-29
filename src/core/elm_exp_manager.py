@@ -243,7 +243,23 @@ class ELMExpManager:
 		bands = config.get("n_bands") or len(
 			(brief.get("heterogeneity") or {}).get("elevation_bands") or []) or 4
 
-		print("🗺️  STEP 0: Materializing Sampling")
+		# STEP 0 begins with the gate: reception.json and strategy.json are
+		# compared here because this is the last moment before compute, and the
+		# only place that holds both.
+		from core.strategy_check import check as _check_strategy, render as _render_check
+		_reception = config.get("reception") or {"brief": brief}
+		_report, _fixed = _check_strategy(_reception, config.get("strategy") or plan)
+		print("🔎 STEP 0: Checking strategy against reception")
+		print(_render_check(_report))
+		if not _report["ok"]:
+			raise ValueError(
+				"strategy does not agree with reception: "
+				+ "; ".join(_report["stop"]))
+		if _report["corrections"]:
+			config = {**config, "strategy": _fixed}
+		self.strategy_report = _report
+
+		print("\n🗺️  STEP 0: Materializing Sampling")
 		print("-" * 40)
 		print(f"   bbox={bbox} N={n_total} bands={bands}")
 
@@ -369,6 +385,12 @@ class ELMExpManager:
 		reception = config.get("reception") or {"brief": brief}
 		(self.run_dir / "reception.json").write_text(json.dumps(reception, indent=2))
 		(self.run_dir / "reception_brief.json").write_text(json.dumps(brief, indent=2))
+		# strategy.json is the PLANNER's output, named for what it is. plan.json
+		# stays as an alias: it is the EXECUTABLE plan by the time the manager
+		# has merged CONDITIONS_COUPLERS into it, and the standalone tools open
+		# it under that name.
+		strategy = config.get("strategy") or plan
+		(self.run_dir / "strategy.json").write_text(json.dumps(strategy, indent=2))
 		(self.run_dir / "plan.json").write_text(json.dumps(plan, indent=2))
 		print(f"✓ {len(columns)} column(s) materialized "
 			  f"({yr_start}-{yr_end}) → CONDITIONS_COUPLERS")

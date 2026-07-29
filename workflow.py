@@ -294,6 +294,7 @@ class WorkflowCoordinator:
 		cfg = {
 			'brief':       brief or {},
 			'reception':   result,
+			'strategy':    plan,
 			'mcp_clients': self.mcp_clients,
 			# Warm start edits a completed run's restart files, so the carrier
 			# is whatever this session ran last. That makes "now warm-start it"
