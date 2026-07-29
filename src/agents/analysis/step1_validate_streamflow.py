@@ -308,10 +308,16 @@ def plot_series(result: Dict[str, Any], out_path,
             ser = it["series"]
             xs = _to_dates(ser.get("dates") or [])
             ys = ser.get("values") or []
-            pts = [(x, y) for x, y in zip(xs, ys)
-                   if x is not None and y is not None]
-            if pts:
-                ax.plot([p[0] for p in pts], [p[1] for p in pts],
+            # Exact zeros are BROKEN OUT of the line rather than drawn at the
+            # axis floor. On a symlog axis a day of zero flow between two
+            # positive days draws two full-height vertical strokes, and 9 of
+            # 19 columns are zero on most days — the panel became a hatch
+            # pattern that hid the series it was made of. A gap reads as what
+            # a zero means here: no flow that day.
+            pts = [(x, (y if (y is not None and y > 0) else None))
+                   for x, y in zip(xs, ys) if x is not None]
+            if any(q[1] is not None for q in pts):
+                ax.plot([q[0] for q in pts], [q[1] for q in pts],
                         lw=1.5, alpha=0.85)
         if log:
             ax.set_yscale("symlog", linthresh=max(lo, 1e-5))
