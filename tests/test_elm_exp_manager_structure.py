@@ -474,3 +474,60 @@ class TestAnalyzerBoundary:
         az = Analyzer(str(tmp_path / "old_run"), verbose=False)
         assert az.analysis_dir.exists()
         assert az.analysis_dir.name == "04_analysis"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# CATEGORY 0 — BASE / BACKEND SPLIT
+# ═════════════════════════════════════════════════════════════════════
+
+class TestManagerSplit:
+    """Sampling and packaging are model-agnostic; warm start and case
+    building are not. PFLOTRAN will subclass the same base, and coupling is
+    only meaningful if both backends sampled from one materialisation."""
+
+    def test_elm_manager_is_a_backend(self):
+        from core.exp_manager_base import ExperimentManagerBase
+        assert issubclass(ELMExpManager, ExperimentManagerBase)
+        assert ELMExpManager.MODEL == "elm"
+
+    def test_base_refuses_to_guess_a_backend_plan(self, tmp_path):
+        """A backend that forgets _to_run_plan must fail loudly, not produce
+        an empty experiment."""
+        from core.exp_manager_base import ExperimentManagerBase
+        base = ExperimentManagerBase(base_output_dir=str(tmp_path))
+        with pytest.raises(NotImplementedError):
+            base._to_run_plan({}, [], {}, {})
+
+    def test_base_refinement_hook_is_a_no_op(self, tmp_path):
+        """A backend with nothing to add to the columns still materializes."""
+        from core.exp_manager_base import ExperimentManagerBase
+        base = ExperimentManagerBase(base_output_dir=str(tmp_path))
+        assert base._refine_columns([], {}) == {}
+
+    def test_elm_hook_turns_columns_into_conditions_couplers(self, tmp_path):
+        mgr  = ELMExpManager(base_output_dir=str(tmp_path))
+        cols = [{"id": "col_01", "lat": 46.8, "lon": -121.0,
+                 "elevation_m": 900.0, "band": 1,
+                 "soil": {"sand_pct": 40, "clay_pct": 20, "organic": 57.4}}]
+        plan = mgr._to_run_plan({}, cols,
+                                {"yr_start": 1988, "yr_end": 1988}, {})
+        cc = plan.get("CONDITIONS_COUPLERS")
+        assert cc and len(cc) == 1
+        # xmlchange values are strings — every reader int()s them, and
+        # pinning the string here is what keeps that true.
+        assert str(cc[0]["DATM_CLMNCEP_YR_START"]) == "1988"
+        assert str(cc[0]["DATM_CLMNCEP_YR_END"])   == "1988"
+
+    def test_warm_start_finidat_reaches_the_coupler(self, tmp_path):
+        """FINIDAT is a per-coupler key the builder reads at build time, which
+        is the whole reason the warm start runs in _refine_columns rather than
+        in _to_run_plan."""
+        mgr  = ELMExpManager(base_output_dir=str(tmp_path))
+        cols = [{"id": "col_01", "lat": 46.8, "lon": -121.0,
+                 "elevation_m": 900.0, "band": 1,
+                 "soil": {"sand_pct": 40, "clay_pct": 20, "organic": 57.4}}]
+        plan = mgr._to_run_plan(
+            {}, cols, {"yr_start": 1988, "yr_end": 1988},
+            {"finidat_map": {"col_01": {"finidat": "/x/Warmstart_col_01.nc"}}})
+        assert plan["CONDITIONS_COUPLERS"][0]["FINIDAT"] == \
+            "/x/Warmstart_col_01.nc"

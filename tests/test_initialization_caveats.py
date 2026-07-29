@@ -110,20 +110,29 @@ class TestColumnsJsonMatchesTheRun:
     matching inherited that error."""
 
     def test_it_is_written_after_the_warm_start(self):
-        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
-        warm = src.index("finidat_map = self._warmstart")
-        soil = src.index("self._attach_donor_soil")
-        write = src.index('"columns.json").write_text')
-        assert warm < write, "columns.json written before coordinates are snapped"
-        assert soil < write, "columns.json written before the run's soil is known"
+        """The ordering now lives in the base, which is the point: no backend
+        can get it wrong, because the backend does not control it. The base
+        calls _refine_columns() — ELM's warm start — before persisting."""
+        src = (ROOT / "src" / "core" / "exp_manager_base.py").read_text()
+        refine = src.index("refine = self._refine_columns")
+        write  = src.index('"columns.json").write_text')
+        assert refine < write, "columns.json written before coordinates are snapped"
+
+        elm = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        warm = elm.index("finidat_map = self._warmstart")
+        soil = elm.index("self._attach_donor_soil")
+        hook = elm.index("def _refine_columns")
+        assert hook < warm < soil, (
+            "ELM must snap coordinates and adopt the donor soil inside "
+            "_refine_columns, which is the hook the base calls before writing")
 
     def test_and_before_the_design_figure_and_the_plan(self):
-        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        src = (ROOT / "src" / "core" / "exp_manager_base.py").read_text()
         write = src.index('"columns.json").write_text')
         assert write < src.index("png = exp.plot_columns")
-        assert write < src.index("executable = columns_to_elm_plan")
+        assert write < src.index("executable = self._to_run_plan")
 
     def test_it_is_only_written_once(self):
         """Two write sites would let one of them drift back before step 0b."""
-        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        src = (ROOT / "src" / "core" / "exp_manager_base.py").read_text()
         assert src.count('"columns.json").write_text') == 2   # input_dir + run_dir

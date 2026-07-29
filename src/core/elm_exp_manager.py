@@ -47,6 +47,7 @@ from typing   import Dict, Any, List
 sys.path.insert(0, "src")
 
 from agents.analyzer          import Analyzer
+from core.exp_manager_base       import ExperimentManagerBase
 from core.elm_experiment_builder import ELMExperimentBuilder
 from core.elm_results_analyzer   import ELMResultsAnalyzer
 from core.columns_to_plan        import columns_to_elm_plan
@@ -78,7 +79,7 @@ def _load_tool(name: str):
 # ─────────────────────────────────────────────────────────────────────
 # ELM EXPERIMENT MANAGER
 # ─────────────────────────────────────────────────────────────────────
-class ELMExpManager:
+class ELMExpManager(ExperimentManagerBase):
 	"""
 	Executes ELM experiment plans.
 
@@ -90,37 +91,12 @@ class ELMExpManager:
 	the Analyzer (src/agents/analyzer.py), which execute_plan invokes after
 	extraction.
 	"""
+	MODEL = "elm"
 
 	def __init__(self,
 				 base_output_dir: str = "./workflow_outputs",
 				 run_dir: str = None):
-		"""
-		run_dir  an EXISTING directory to run in. The coordinator creates it and
-		         writes reception.json and strategy.json into it as each stage
-		         finishes, so every file is written by whatever produced it and
-		         this stage only ever READS its inputs. It also means a crash
-		         here leaves those two intact.
-
-		         Omitted (standalone / CLI use), one is minted as before.
-		"""
-		self.base_output_dir = Path(base_output_dir)
-		if run_dir:
-			self.run_dir = Path(run_dir)
-		else:
-			timestamp    = datetime.now().strftime("%Y%m%d_%H%M%S")
-			self.run_dir = self.base_output_dir / f"elm_run_{timestamp}"
-		self.run_dir.mkdir(parents=True, exist_ok=True)
-
-		# Four numbered subdirs — names match PFLOTRAN exactly
-		self.input_dir       = self.run_dir / "01_inputs"
-		self.setup_plots_dir = self.run_dir / "02_setup_plots"
-		self.results_dir     = self.run_dir / "03_results"
-		self.analysis_dir    = self.run_dir / "04_analysis"
-
-		for d in [self.input_dir, self.setup_plots_dir,
-				  self.results_dir, self.analysis_dir]:
-			d.mkdir(exist_ok=True)
-
+		super().__init__(base_output_dir, run_dir)
 		print(f"\n{'=' * 60}")
 		print(f"ELM Experiment Manager")
 		print(f"Run dir : {self.run_dir}")
@@ -128,7 +104,45 @@ class ELMExpManager:
 		print(f"{'=' * 60}\n")
 
 	# ─────────────────────────────────────────────────────────
-	# MAIN ENTRY POINT — mirrors ExpManager exactly
+	# BACKEND HOOKS — what the base cannot know about ELM
+	# ─────────────────────────────────────────────────────────
+	def _already_executable(self, plan: Dict[str, Any]) -> bool:
+		"""CONDITIONS_COUPLERS is ELM's executable payload (the legacy shape)."""
+		return bool(plan.get("CONDITIONS_COUPLERS"))
+
+	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""Warm start, then adopt the donor cell's soil.
+
+		Runs inside the base's materialize, BEFORE columns.json is written and
+		before the design figure is drawn — the warm start snaps each column to
+		its donor gridcell, so anything persisted earlier describes a plan the
+		run will not follow.
+		"""
+		finidat_map = self._warmstart(columns, config)
+		self._attach_donor_soil(columns, finidat_map)
+		return {"finidat_map": finidat_map}
+
+	def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
+		"""Columns → CONDITIONS_COUPLERS.
+
+		FINIDAT is a per-coupler key the builder reads at build time, which is
+		why the warm start had to happen in _refine_columns rather than here.
+		"""
+		yr_start = int(config.get("yr_start", 1995))
+		yr_end   = int(config.get("yr_end",   yr_start))
+		return columns_to_elm_plan(
+			columns,
+			yr_start      = yr_start,
+			yr_end        = yr_end,
+			soil_config   = config.get("soil_config", "native"),
+			substrate     = config.get("substrate",   "extrapolate"),
+			finidat_map   = refine.get("finidat_map") or {},
+			period_source = (config.get("period_source")
+							 or ("reception" if config.get("yr_start") else "DEFAULT")),
+		)
+
+	# ─────────────────────────────────────────────────────────
+	# MAIN ENTRY POINT
 	# ─────────────────────────────────────────────────────────
 	def execute_plan(self,
 					 experiment_plan: Dict[str, Any],
@@ -208,203 +222,6 @@ class ELMExpManager:
 		except Exception as e:
 			self._save_error(e, start_time)
 			raise
-
-	# ─────────────────────────────────────────────────────────
-	# STEP 0 — MATERIALIZE SAMPLING (strategy → concrete columns)
-	# ─────────────────────────────────────────────────────────
-	def _materialize(self,
-					 plan:   Dict[str, Any],
-					 config: Dict[str, Any]) -> Dict[str, Any]:
-		"""
-		Turn a capability-aware planner strategy into CONDITIONS_COUPLERS.
-
-		No-op when the plan already carries CONDITIONS_COUPLERS (the legacy
-		single-site plan shape), so old plans keep working unchanged.
-
-		Needs, via config:
-			brief        — reception brief (domain bbox + optional HUC)
-			mcp_clients  — dict of live MCP clients (terrain/fan_wtd/geology)
-		Optional: yr_start, yr_end, soil_config, substrate, n_columns, n_bands.
-		"""
-		if plan.get("CONDITIONS_COUPLERS"):
-			return plan
-
-		exp = _load_tool("expand_sampling")
-		brief   = config.get("brief") or {}
-		clients = config.get("mcp_clients") or {}
-
-		bbox = exp._bbox_from_brief(brief)
-		if not bbox:
-			raise ValueError(
-				"Cannot materialize sampling: no domain bbox in the reception "
-				"brief, and the plan has no CONDITIONS_COUPLERS. Pass "
-				"config['brief'] with domain.bbox, or supply an explicit plan."
-			)
-		if not clients.get("terrain"):
-			raise ValueError(
-				"Cannot materialize sampling: the 'terrain' MCP client is "
-				"required. Pass config['mcp_clients']."
-			)
-
-		n_total = config.get("n_columns") or exp._n_from_plan(plan)
-		if not n_total:
-			raise ValueError(
-				"Cannot materialize sampling: no column count in the plan "
-				"(sampling_strategy.n_exploratory) and none in config."
-			)
-		bands = config.get("n_bands") or len(
-			(brief.get("heterogeneity") or {}).get("elevation_bands") or []) or 4
-
-		# STEP 0 begins with the gate: reception.json and strategy.json are
-		# compared here because this is the last moment before compute, and the
-		# only place that holds both.
-		from core.strategy_check import check as _check_strategy, render as _render_check
-		_reception = config.get("reception") or {"brief": brief}
-		_report, _fixed = _check_strategy(_reception, config.get("strategy") or plan)
-		print("🔎 STEP 0: Checking strategy against reception")
-		print(_render_check(_report))
-		if not _report["ok"]:
-			raise ValueError(
-				"strategy does not agree with reception: "
-				+ "; ".join(_report["stop"]))
-		if _report["corrections"]:
-			config = {**config, "strategy": _fixed}
-		self.strategy_report = _report
-
-		print("\n🗺️  STEP 0: Materializing Sampling")
-		print("-" * 40)
-		print(f"   bbox={bbox} N={n_total} bands={bands}")
-
-		# Clip the rectangular DEM sample to the real basin when we know the HUC.
-		# Without a boundary the sample is the raw bbox, so columns can land
-		# OUTSIDE the basin — the run still completes, but the ensemble no
-		# longer represents the watershed that was asked about. That is a
-		# scientific difference, so say so loudly rather than degrade silently.
-		boundary = None
-		huc = (brief.get("domain") or {}).get("huc")
-		if huc:
-			try:
-				b = clients["terrain"].call_tool_json(
-					"get_watershed_boundary",
-					{"huc": huc, "huc_level": len(str(huc))}) or {}
-				boundary = b.get("rings")
-			except Exception as e:
-				print(f"   ⚠️  boundary lookup FAILED for HUC {huc} ({e})")
-		if not boundary:
-			why = ("no HUC in the reception brief"
-				   if not huc else f"boundary lookup returned nothing for HUC {huc}")
-			print(f"   ⚠️  WARNING: sampling the RAW BBOX, not the watershed "
-				  f"— {why}.")
-			print(f"   ⚠️  Columns may fall outside the basin; the ensemble is "
-				  f"a bounding-box sample, not '{(brief.get('domain') or {}).get('name') or 'the watershed'}'.")
-			print(f"   ⚠️  Fix: ensure reception resolves a HUC, or pass "
-				  f"config['boundary'] explicitly.")
-		boundary = config.get("boundary", boundary)
-
-		res = exp.expand(clients, bbox, n_total, bands, boundary=boundary)
-		if res.get("error"):
-			raise RuntimeError(f"Sampling expansion failed: {res['error']}")
-		columns = res.get("columns", [])
-		if not columns:
-			raise RuntimeError("Sampling expansion produced no columns.")
-
-		# Keep the WBD polygon in the result: plot_columns() draws it as the
-		# basin outline in panel (a), and it makes columns.json self-contained
-		# (grid + boundary) so a later re-plot needs no MCP fetch.
-		if boundary:
-			res["boundary"] = boundary
-
-		# Provenance: was this a true watershed sample or a bbox fallback?
-		res["sampling_domain"] = {
-			"clipped_to_watershed": bool(boundary),
-			"huc": huc,
-			"name": (brief.get("domain") or {}).get("name"),
-			"bbox": bbox,
-			"caveat": None if boundary else (
-				"Columns were sampled from the bounding box, NOT clipped to the "
-				"watershed boundary (no HUC resolved). Some columns may lie "
-				"outside the basin; treat the ensemble as a bbox sample."),
-		}
-
-		yr_start = int(config.get("yr_start", 1995))
-		yr_end   = int(config.get("yr_end",   yr_start))
-
-		# The real sampling-design figure (domain map + watershed outline,
-		# hypsometry with band edges, SSURGO soil configs, Fan WTD vs
-		# elevation, per-band allocation, NLDAS precip gradient). Same
-		# function tools/expand_sampling.py --plot uses; passing
-		# forcing_year populates the precip-vs-elevation panel that is
-		# otherwise blank.
-		# Step 0b — warm start. Must happen BEFORE columns_to_elm_plan, because
-		# FINIDAT is a per-coupler key the builder reads at build time, and
-		# BEFORE the design figure, because a warm start changes both the
-		# coordinates (columns snap to their donor cell) and the SOIL the run
-		# will use. Drawing the design first showed a plan that was then
-		# quietly superseded.
-		finidat_map = self._warmstart(columns, config)
-		self._attach_donor_soil(columns, finidat_map)
-		res["columns"] = columns
-
-		# Persist AFTER step 0b, not before. The warm start SNAPS each column to
-		# its donor gridcell and hands it that cell's soil, so a file written
-		# earlier describes a plan that no longer matches the run: every column
-		# of the 2026-07-28 run was 200-700 m from where columns.json claimed.
-		# analyze_run and validate_run read this file for the spatial maps and
-		# for nearest-station matching, so the error propagated into both.
-		(self.input_dir / "columns.json").write_text(json.dumps(res, indent=2))
-		(self.run_dir  / "columns.json").write_text(json.dumps(res, indent=2))
-
-		# The sampling-design figure: domain map + watershed outline,
-		# hypsometry with band edges, soil configs, Fan WTD vs elevation,
-		# per-band allocation, NLDAS precip gradient. Same function
-		# tools/expand_sampling.py --plot uses; forcing_year populates the
-		# precip-vs-elevation panel that is otherwise blank.
-		try:
-			png = exp.plot_columns(
-				res, str(self.run_dir / "sampling_design.png"),
-				forcing_year = yr_start)
-			print(f"✓ sampling design → {Path(png).name}")
-		except Exception as e:
-			print(f"   ⚠️  sampling_design.png failed ({e}) — non-fatal")
-
-		executable = columns_to_elm_plan(
-			columns,
-			yr_start      = yr_start,
-			yr_end        = yr_end,
-			soil_config   = config.get("soil_config", "native"),
-			substrate     = config.get("substrate",   "extrapolate"),
-			finidat_map   = finidat_map,
-			period_source = (config.get("period_source")
-							 or ("reception" if config.get("yr_start") else "DEFAULT")),
-		)
-
-		merged = {**plan, **executable}
-		# The honesty payload reads this back in _extract; without it an
-		# integrated run shipped an empty ledger.
-		(self.run_dir / "assumptions.json").write_text(
-			json.dumps(executable.get("assumptions_ledger", []), indent=2))
-		(self.run_dir / "run_plan.json").write_text(json.dumps(merged, indent=2))
-		# Make the run dir self-describing, with the SAME filenames the
-		# standalone tools expect. validate_run.build_validation() needs
-		# reception_brief.json (domain bbox) and interpret_run.interpret()
-		# needs plan.json (goals + feasibility verdict). Writing them here
-		# means an integrated run is consumable by every existing tool.
-		# reception_brief.json: an alias for the standalone tools that open it by
-		# that name. reception.json itself is the coordinator's to write.
-		if not (self.run_dir / "reception_brief.json").exists():
-			(self.run_dir / "reception_brief.json").write_text(json.dumps(brief, indent=2))
-		# plan.json only — it is the EXECUTABLE plan by now, with
-		# CONDITIONS_COUPLERS merged in, so it is this stage's own product.
-		# reception.json and strategy.json were written by the coordinator when
-		# their producers finished.
-		(self.run_dir / "plan.json").write_text(json.dumps(plan, indent=2))
-		print(f"✓ {len(columns)} column(s) materialized "
-			  f"({yr_start}-{yr_end}) → CONDITIONS_COUPLERS")
-		return merged
-
-	# ─────────────────────────────────────────────────────────
-	# STEP 0b — WARM START (carrier restarts + a CONUS/Fan prior → finidat)
-	# ─────────────────────────────────────────────────────────
 	def _attach_donor_soil(self, columns, finidat_map):
 		"""Replace each warm-started column's soil with the donor's own.
 
@@ -881,138 +698,3 @@ class ELMExpManager:
 		except Exception as e:
 			print(f"   ⚠️  coupling failed ({e}) — the ELM study stands")
 			return False
-
-	# ─────────────────────────────────────────────────────────
-	# STEP 5 — PACKAGE LLM INPUT (top level)
-	# ─────────────────────────────────────────────────────────
-	def _save_llm_input(self,
-						plan:     Dict[str, Any],
-						analyzer: ELMResultsAnalyzer) -> None:
-		"""Save LLM_ANALYSIS_INPUT.json at the top level of run_dir."""
-		llm_input = analyzer.get_llm_analysis_input()
-		llm_input['experiment_plan'] = plan
-		llm_input['run_directory']   = str(self.run_dir)
-
-		# get_llm_analysis_input() omits extra_summary, so the honesty payload
-		# and the observation verdicts never reached the report agent. Attach
-		# them here so the written report can be held to the same standard as
-		# 04_analysis/interpretation.md.
-		if getattr(analyzer, 'extra_summary', None):
-			llm_input['limitations'] = analyzer.extra_summary.get('limitations')
-			llm_input['assumptions_ledger'] = \
-				analyzer.extra_summary.get('assumptions_ledger')
-		vp = self.analysis_dir / "validation.json"
-		if vp.exists():
-			try:
-				val = json.loads(vp.read_text())
-				llm_input['validation'] = {
-					"targets": val.get("targets"),
-					"observation_inventory": val.get("observation_inventory"),
-					"hydrograph_metrics": {
-						k: v for k, v in (val.get("hydrograph") or {}).items()
-						if k not in ("days", "obs", "mod")},
-				}
-			except Exception as e:
-				print(f"   ⚠️  could not attach validation to LLM input: {e}")
-		ip = self.analysis_dir / "interpretation.md"
-		if ip.exists():
-			llm_input['interpretation_md'] = ip.read_text()
-
-		llm_file = self.run_dir / "LLM_ANALYSIS_INPUT.json"
-		with open(llm_file, 'w') as f:
-			json.dump(llm_input, f, indent=2, default=str)
-		print(f"✓ LLM_ANALYSIS_INPUT.json saved")
-
-	# ─────────────────────────────────────────────────────────
-	# RUN SUMMARY
-	# ─────────────────────────────────────────────────────────
-	def _create_run_summary(self,
-							plan:        Dict[str, Any],
-							experiments: List[Dict],
-							results:     Dict[str, bool],
-							start_time:  datetime,
-							end_time:    datetime
-							) -> Dict[str, Any]:
-		n_total   = len(experiments)
-		n_success = sum(results.values())
-
-		exp_details = [
-			{
-				'name':              e['scenario_name'],
-				'case_name':         e['case_name'],
-				'status':            'completed'
-									 if results.get(e['case_name'])
-									 else 'failed',
-				'forcing_period':    e['forcing_period'],
-				'forcing_start':     e['forcing_start'],
-				'forcing_end':       e['forcing_end'],
-				'model_type':        'elm',
-				'runtime_seconds':   0,
-				'timesteps':         0,
-				'newton_iterations': 0,
-			}
-			for e in experiments
-		]
-
-		return {
-			'run_directory':         str(self.run_dir),
-			'start_time':            start_time.isoformat(),
-			'end_time':              end_time.isoformat(),
-			'total_runtime_seconds': (
-				end_time - start_time
-			).total_seconds(),
-			'experiments_total':     n_total,
-			'experiments_success':   n_success,
-			'experiments_failed':    n_total - n_success,
-			'experiments':           exp_details,
-			'convergence_warnings':  [],
-			'output_files': {
-				'inputs':             str(self.input_dir),
-				'setup_plots':        str(self.setup_plots_dir),
-				'results':            str(self.results_dir),
-				'analysis':           str(self.analysis_dir),
-				'experiment_summary': str(
-					self.input_dir / "experiment_summary.json"),
-				'execution_report':   str(
-					self.results_dir / "execution_report.txt"),
-				'results_csv':        str(
-					self.results_dir / "results_summary.csv"),
-				'hydro_summary':      str(
-					self.analysis_dir / "hydro_summary.json"),
-				'llm_input':          str(
-					self.run_dir / "LLM_ANALYSIS_INPUT.json"),
-			},
-			'model_type': 'elm',
-		}
-
-	def _save_run_summary(self,
-						  run_summary: Dict[str, Any]) -> None:
-		summary_file = self.run_dir / "RUN_SUMMARY.json"
-		with open(summary_file, 'w') as f:
-			json.dump(run_summary, f, indent=2, default=str)
-		print(f"✓ RUN_SUMMARY.json saved")
-
-	def _save_error(self,
-					error:      Exception,
-					start_time: datetime) -> None:
-		import traceback
-		error_log = {
-			'run_directory': str(self.run_dir),
-			'start_time':    start_time.isoformat(),
-			'end_time':      datetime.now().isoformat(),
-			'status':        'failed',
-			'error':         str(error),
-			'traceback':     traceback.format_exc(),
-			'model_type':    'elm',
-		}
-		error_file = self.run_dir / "ERROR_LOG.json"
-		with open(error_file, 'w') as f:
-			json.dump(error_log, f, indent=2)
-
-
-# ─────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    print("ELMExpManager — call via workflow.py or test directly:")
-    print("  from core.elm_exp_manager import ELMExpManager")
-    print("  mgr = ELMExpManager()")
-    print("  run_summary = mgr.execute_plan(plan, {})")
