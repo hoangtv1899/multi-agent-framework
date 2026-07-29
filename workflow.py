@@ -89,6 +89,34 @@ class WorkflowCoordinator:
 	# ═════════════════════════════════════════════════════════
 	# MAIN ENTRY POINT
 	# ═════════════════════════════════════════════════════════
+	def _reception_context(self) -> Optional[dict]:
+		"""What reception should know about earlier turns — and nothing more.
+
+		The context is JSON-dumped verbatim into reception's prompt, so this
+		is a token budget, not just a convenience. conversation_context holds
+		last_analysis and last_plan in FULL; sending those would put an entire
+		analysis report and strategy into every subsequent request.
+
+		What reception actually needs is enough to resolve a follow-up: which
+		run to look at for "analyze that again", and what was being studied so
+		"the same basin" resolves. Returns None on the first turn so no
+		CONVERSATION CONTEXT block is emitted at all.
+		"""
+		cc = self.conversation_context or {}
+		ctx = {}
+		if cc.get('last_run_dir'):
+			ctx['prior_run_dir'] = str(cc['last_run_dir'])
+		if cc.get('last_focus'):
+			ctx['prior_focus'] = cc['last_focus']
+		plan = cc.get('last_plan') or {}
+		if isinstance(plan, dict):
+			samp = plan.get('sampling') or {}
+			if samp.get('n_columns'):
+				ctx['prior_n_columns'] = samp['n_columns']
+			if plan.get('archetype'):
+				ctx['prior_archetype'] = plan['archetype']
+		return ctx or None
+
 	def process_request(self,
 						user_request: str,
 						output_dir:   Optional[str] = None
@@ -101,8 +129,8 @@ class WorkflowCoordinator:
 	
 		# Step 1 — Reception
 		result = self.reception.process(
-			user_request         = user_request,
-			conversation_context = self.conversation_context,
+			user_request = user_request,
+			context      = self._reception_context(),
 		)
 		# Reception returns the whole package now: route (dispatch), brief
 		# (science), observations + grid (what was fetched), provenance.
