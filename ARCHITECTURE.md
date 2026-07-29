@@ -15,7 +15,17 @@ listed under it are the only files that implement it.
         MCP tool loop           one LLM call               SLURM, no LLM                    └──────────────┘
 ```
 
-Entry point: `workflow.py` (`WorkflowCoordinator`). It owns the arrows, nothing else.
+Entry point: `workflow.py` (`WorkflowCoordinator`). It owns the arrows — and the
+run directory. Each stage's file is written when THAT stage finishes:
+
+```
+reception  ──▶ reception.json      written by the coordinator
+planner    ──▶ strategy.json       written by the coordinator
+manager    ──▶ plan.json, columns.json, results, analysis
+```
+
+so the Experiment Manager only ever READS its inputs, and a failure inside it
+leaves reception.json and strategy.json intact.
 
 ```
 python workflow.py --interactive           # normal use; Reception may ask you

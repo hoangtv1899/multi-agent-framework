@@ -89,12 +89,23 @@ class ELMExpManager:
 	"""
 
 	def __init__(self,
-				 base_output_dir: str = "./workflow_outputs"):
+				 base_output_dir: str = "./workflow_outputs",
+				 run_dir: str = None):
+		"""
+		run_dir  an EXISTING directory to run in. The coordinator creates it and
+		         writes reception.json and strategy.json into it as each stage
+		         finishes, so every file is written by whatever produced it and
+		         this stage only ever READS its inputs. It also means a crash
+		         here leaves those two intact.
+
+		         Omitted (standalone / CLI use), one is minted as before.
+		"""
 		self.base_output_dir = Path(base_output_dir)
-		timestamp    = datetime.now().strftime("%Y%m%d_%H%M%S")
-		self.run_dir = (
-			self.base_output_dir / f"elm_run_{timestamp}"
-		)
+		if run_dir:
+			self.run_dir = Path(run_dir)
+		else:
+			timestamp    = datetime.now().strftime("%Y%m%d_%H%M%S")
+			self.run_dir = self.base_output_dir / f"elm_run_{timestamp}"
 		self.run_dir.mkdir(parents=True, exist_ok=True)
 
 		# Four numbered subdirs — names match PFLOTRAN exactly
@@ -377,20 +388,14 @@ class ELMExpManager:
 		# reception_brief.json (domain bbox) and interpret_run.interpret()
 		# needs plan.json (goals + feasibility verdict). Writing them here
 		# means an integrated run is consumable by every existing tool.
-		# reception.json is the WHOLE package — brief, the observations that
-		# were fetched, the DEM grid, and provenance. Writing `brief` alone is
-		# how observations and grid used to vanish between reception and every
-		# consumer downstream. reception_brief.json stays as an alias for the
-		# standalone tools that still open it by that name.
-		reception = config.get("reception") or {"brief": brief}
-		(self.run_dir / "reception.json").write_text(json.dumps(reception, indent=2))
-		(self.run_dir / "reception_brief.json").write_text(json.dumps(brief, indent=2))
-		# strategy.json is the PLANNER's output, named for what it is. plan.json
-		# stays as an alias: it is the EXECUTABLE plan by the time the manager
-		# has merged CONDITIONS_COUPLERS into it, and the standalone tools open
-		# it under that name.
-		strategy = config.get("strategy") or plan
-		(self.run_dir / "strategy.json").write_text(json.dumps(strategy, indent=2))
+		# reception_brief.json: an alias for the standalone tools that open it by
+		# that name. reception.json itself is the coordinator's to write.
+		if not (self.run_dir / "reception_brief.json").exists():
+			(self.run_dir / "reception_brief.json").write_text(json.dumps(brief, indent=2))
+		# plan.json only — it is the EXECUTABLE plan by now, with
+		# CONDITIONS_COUPLERS merged in, so it is this stage's own product.
+		# reception.json and strategy.json were written by the coordinator when
+		# their producers finished.
 		(self.run_dir / "plan.json").write_text(json.dumps(plan, indent=2))
 		print(f"✓ {len(columns)} column(s) materialized "
 			  f"({yr_start}-{yr_end}) → CONDITIONS_COUPLERS")

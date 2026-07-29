@@ -557,7 +557,8 @@ def _bbox_from_brief(brief):
 
 
 def _n_from_plan(plan):
-    return ((plan.get("sampling_strategy") or {}).get("n_exploratory")
+    return ((plan.get("sampling") or {}).get("n_columns")
+            or (plan.get("sampling_strategy") or {}).get("n_exploratory")
             or (plan.get("experiment_summary") or {}).get("exploratory"))
 
 
@@ -609,7 +610,8 @@ def main():
             rd = Path(args.run_dir)
             brief = json.loads((rd / "reception_brief.json").read_text())
             plan = json.loads((rd / "plan.json").read_text()) if (rd / "plan.json").exists() else {}
-            if (plan.get("model_choice") or {}).get("design_archetype") == "conceptual":
+            if (plan.get("archetype")
+            or (plan.get("model_choice") or {}).get("design_archetype")) == "conceptual":
                 sys.exit("Plan is 'conceptual' archetype — no spatial expansion needed.")
             bbox = _bbox_from_brief(brief)
             n_total = _n_from_plan(plan)

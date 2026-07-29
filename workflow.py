@@ -14,6 +14,7 @@ are documented in docs/PFLOTRAN_PLAN.md.
 """
 import sys
 import traceback
+import json
 from pathlib import Path
 from typing  import Optional
 sys.path.insert(0, "src")
@@ -211,18 +212,32 @@ class WorkflowCoordinator:
 	def _workflow_design_and_run(self, result, output_dir: str) -> str:
 		print("🚀 WORKFLOW: Design & Run\n")
 		try:
+			# The COORDINATOR owns the run directory, and each stage's file is
+			# written when that stage finishes. Reception and the planner then
+			# only ever produce, and the Experiment Manager only ever reads —
+			# which also means a failure downstream leaves both intact.
+			from datetime import datetime as _dt
+			run_dir = Path(output_dir) / f"elm_run_{_dt.now():%Y%m%d_%H%M%S}"
+			run_dir.mkdir(parents=True, exist_ok=True)
+			(run_dir / "reception.json").write_text(
+				json.dumps({k: v for k, v in result.items()
+							if k not in ("trace", "raw")}, indent=2, default=str))
+			# alias for the standalone tools that open it by this name
+			(run_dir / "reception_brief.json").write_text(
+				json.dumps(result.get("brief") or {}, indent=2, default=str))
+
 			# Step 1 — Plan
 			print("📋 STEP 1: Planning Experiments")
 			print("-" * 50)
-			plan  = self.planner.create_plan(
-				brief = result.get('brief') or {}
-			)
+			plan = self.planner.plan(result)
+			(run_dir / "strategy.json").write_text(
+				json.dumps(plan, indent=2, default=str))
 			# The capability-aware planner emits a STRATEGY, never
 			# CONDITIONS_COUPLERS — those are materialized against real data in
 			# the Experiment Manager's step 0. Counting them here printed
 			# "0 experiments" on every successful plan, which reads as a failure.
-			strat = plan.get('sampling_strategy') or {}
-			n_req = strat.get('n_exploratory')
+			strat = plan.get('sampling') or {}
+			n_req = strat.get('n_columns')
 			verdict = (plan.get('feasibility') or {}).get('verdict', '?')
 			print(f"✓ Strategy: {strat.get('approach', 'n/a')}, "
 				  f"N={n_req if n_req is not None else 'expander decides'}, "
@@ -288,7 +303,7 @@ class WorkflowCoordinator:
 				 initialization: dict = None) -> dict:
 		"""Hand the plan to the Experiment Manager."""
 		from core.elm_exp_manager import ELMExpManager
-		executor = ELMExpManager(base_output_dir=output_dir)
+		executor = ELMExpManager(base_output_dir=output_dir, run_dir=str(run_dir))
 		# brief + mcp_clients feed the manager's materialize stage, which
 		# turns the planner's sampling_strategy into CONDITIONS_COUPLERS.
 		cfg = {
