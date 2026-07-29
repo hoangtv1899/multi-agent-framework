@@ -531,3 +531,78 @@ class TestManagerSplit:
             {"finidat_map": {"col_01": {"finidat": "/x/Warmstart_col_01.nc"}}})
         assert plan["CONDITIONS_COUPLERS"][0]["FINIDAT"] == \
             "/x/Warmstart_col_01.nc"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# CATEGORY 5 — PACKAGE → experiment.json
+# ═════════════════════════════════════════════════════════════════════
+
+class TestPackage:
+    """experiment.json is the manager's product and the Analyzer's input."""
+
+    @staticmethod
+    def _rows():
+        return [{"case_name": "col_01", "status": "ok", "lat": 46.7,
+                 "lon": -120.8, "elevation_m": 700.0,
+                 "metrics": {"precip_mm_yr": 507.0,
+                             "annual_runoff_mm_yr": 3.0}},
+                {"case_name": "col_02", "status": "ok", "lat": 46.9,
+                 "lon": -121.0, "elevation_m": 1400.0,
+                 "metrics": {"precip_mm_yr": 1200.0,
+                             "annual_runoff_mm_yr": 640.0}}]
+
+    def _pkg(self, tmp_path, rows=None, config=None):
+        import types
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        res = types.SimpleNamespace(results=rows if rows is not None
+                                    else self._rows(), units={"QOVER": "mm/s"})
+        return mgr, mgr._package({}, res, config or {})
+
+    def test_it_writes_experiment_json(self, tmp_path):
+        mgr, pkg = self._pkg(tmp_path)
+        on_disk = json.loads((mgr.run_dir / "experiment.json").read_text())
+        assert on_disk["columns_total"] == 2
+        assert on_disk["model"] == "elm"
+
+    def test_success_is_counted_by_excluding_failure(self, tmp_path):
+        """Backends spell success differently ('ok', 'success', 'completed').
+        Enumerating success strings reported a fully good 14-column run as
+        0/14; enumerating FAILURE cannot fail that way."""
+        rows = self._rows() + [
+            {"case_name": "col_03", "status": "failed", "metrics": None},
+            {"case_name": "col_04", "status": "success",
+             "metrics": {"precip_mm_yr": 900.0}},
+            {"case_name": "col_05", "status": "completed",
+             "metrics": {"precip_mm_yr": 800.0}}]
+        _, pkg = self._pkg(tmp_path, rows)
+        assert pkg["columns_total"] == 5
+        assert pkg["columns_succeeded"] == 4
+
+    def test_a_column_without_metrics_did_not_produce_numbers(self, tmp_path):
+        _, pkg = self._pkg(tmp_path, [{"case_name": "col_01", "status": "ok",
+                                       "metrics": {}}])
+        assert pkg["columns_succeeded"] == 0
+
+    def test_every_reported_field_says_what_it_means(self, tmp_path):
+        """precip_mm_yr once held RAIN alone, so every fraction against it was
+        inflated and a run reported draining more water than fell on it. A
+        semantic bug no schema check catches — naming the source variables
+        beside the number is what makes the next one visible."""
+        _, pkg = self._pkg(tmp_path)
+        sem = pkg["field_semantics"]
+        reported = {k for r in pkg["columns"] for k in (r.get("metrics") or {})}
+        undocumented = reported - set(sem)
+        assert not undocumented, f"fields with no stated meaning: {undocumented}"
+        assert sem["precip_mm_yr"]["from"] == ["RAIN", "SNOW"]
+        assert set(sem["annual_runoff_mm_yr"]["from"]) == {"QOVER", "QDRAI"}
+        assert all("units" in v for v in sem.values())
+
+    def test_domain_and_period_come_from_the_brief(self, tmp_path):
+        _, pkg = self._pkg(tmp_path, config={"brief": {
+            "domain": {"name": "Naches", "huc": "17030002"},
+            "run_settings": {"resolved_period": {"yr_start": 1988,
+                                                 "yr_end": 1988,
+                                                 "source": "user"}}}})
+        assert pkg["domain"]["huc"] == "17030002"
+        assert pkg["period"] == {"yr_start": 1988, "yr_end": 1988,
+                                 "source": "user"}

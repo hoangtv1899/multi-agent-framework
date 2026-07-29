@@ -283,6 +283,100 @@ class ExperimentManagerBase:
 
 
 	# ─────────────────────────────────────────────────────────
+	# PACKAGE — the one file the Analyzer reads
+	# ─────────────────────────────────────────────────────────
+	#
+	# FIELD_SEMANTICS is the point of this stage. `precip_mm_yr` once held
+	# RAIN alone, so every fraction computed against it was inflated and a
+	# run was reported as draining more water than fell on it — a semantic
+	# bug, not a structural one, and no schema check could have caught it.
+	# Naming the source variables next to the number is what makes the next
+	# one visible.
+	FIELD_SEMANTICS = {
+		"precip_mm_yr":            {"units": "mm/yr", "from": ["RAIN", "SNOW"],
+									"note": "TOTAL precipitation: rain + snow"},
+		"rainfall_mm_yr":          {"units": "mm/yr", "from": ["RAIN"]},
+		"snowfall_mm_yr":          {"units": "mm/yr", "from": ["SNOW"]},
+		"annual_runoff_mm_yr":     {"units": "mm/yr", "from": ["QOVER", "QDRAI"],
+									"note": "surface + subsurface drainage, "
+											"the streamflow-comparable total"},
+		"annual_recharge_mm_yr":   {"units": "mm/yr", "from": ["QCHARGE"]},
+		"runoff_fraction":         {"units": "1", "from": ["annual_runoff_mm_yr",
+														   "precip_mm_yr"]},
+		"recharge_fraction":       {"units": "1", "from": ["annual_recharge_mm_yr",
+														   "precip_mm_yr"]},
+		"water_table_depth_m":     {"units": "m", "from": ["ZWT"],
+									"note": "positive downward from the surface"},
+		"peak_swe_mm":             {"units": "mm", "from": ["H2OSNO"]},
+		"tws_seasonal_range_mm":   {"units": "mm", "from": ["TWS"]},
+	}
+
+	def _package(self,
+				 plan:    Dict[str, Any],
+				 results: Any,
+				 config:  Dict[str, Any] = None) -> Dict[str, Any]:
+		"""experiment.json — everything the Analyzer needs, and nothing else.
+
+		Deliberately simple. The expensive stages are the build and the run;
+		this one is cheap to revise, so it carries what is known now rather
+		than waiting for a schema the Analyzer has not yet asked for.
+
+		The per-column rows come straight from the backend's extraction, so
+		this stage stays model-agnostic: it labels and assembles, it does not
+		compute.
+		"""
+		config = config or {}
+		rows   = getattr(results, "results", None) or []
+		if isinstance(rows, dict):
+			rows = list(rows.values())
+
+		brief  = config.get("brief") or {}
+		period = ((brief.get("run_settings") or {}).get("resolved_period")) or {}
+		# Enumerate FAILURE, not success. Backends spell success differently
+		# ("ok", "success", "completed") and a new spelling must not silently
+		# report a good run as zero columns; a column with metrics and no
+		# failure status produced numbers, which is the thing being counted.
+		FAILED = {"failed", "error", "timeout", "cancelled"}
+		ok = [r for r in rows
+			  if str((r or {}).get("status", "")).lower() not in FAILED
+			  and (r or {}).get("metrics")]
+
+		pkg = {
+			"model":   self.MODEL,
+			"run_dir": str(self.run_dir),
+			"created": datetime.now().isoformat(timespec="seconds"),
+			"domain": {
+				"name": (brief.get("domain") or {}).get("name"),
+				"huc":  (brief.get("domain") or {}).get("huc"),
+				"bbox": (brief.get("domain") or {}).get("bbox"),
+			},
+			"period": {"yr_start": period.get("yr_start") or config.get("yr_start"),
+					   "yr_end":   period.get("yr_end")   or config.get("yr_end"),
+					   "source":   period.get("source")},
+			"columns_total":     len(rows),
+			"columns_succeeded": len(ok),
+			# What the numbers MEAN — see FIELD_SEMANTICS above.
+			"field_semantics":   self.FIELD_SEMANTICS,
+			"variable_units":    getattr(results, "units", None)
+								 or (getattr(results, "summary", {}) or {}).get("units"),
+			"strategy_check":    self.strategy_report,
+			"goals":             plan.get("goals"),
+			"columns":           rows,
+			"artifacts": {
+				"sampling_design": "sampling_design.png",
+				"columns":         "columns.json",
+				"run_plan":        "run_plan.json",
+				"extracted":       "04_analysis/hydro_summary.json",
+			},
+		}
+		(self.run_dir / "experiment.json").write_text(
+			json.dumps(pkg, indent=2, default=str))
+		print(f"✓ experiment.json — {len(ok)}/{len(rows)} column(s) "
+			  f"→ the Analyzer's only input")
+		return pkg
+
+
+	# ─────────────────────────────────────────────────────────
 	# PACKAGE — run summary + the payload the Analyzer reads
 	# ─────────────────────────────────────────────────────────
 

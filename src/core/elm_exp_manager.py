@@ -196,9 +196,12 @@ class ELMExpManager(ExperimentManagerBase):
 			# for it. Non-fatal: the ELM study stands on its own.
 			self._couple_pflotran(experiment_plan, config)
 
-			# Step 5 — Package for LLM (top level)
-			print("\n📦 STEP 5: Packaging LLM Input")
+			# Step 5 — Package. experiment.json is the manager's product and
+			# the Analyzer's only input; LLM_ANALYSIS_INPUT.json stays as the
+			# alias the standalone tools open by that name.
+			print("\n📦 STEP 5: Packaging")
 			print("-" * 40)
+			self._package(experiment_plan, analyzer, config)
 			self._save_llm_input(experiment_plan, analyzer)
 
 			# Create + save run summary (top level)
