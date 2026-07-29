@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""The coordinator, driven end to end with the expensive stages stubbed.
+
+Every runtime break this framework has had came from verifying that imports
+resolve rather than that calls connect: a method reaching for a caller's local,
+a renamed keyword, an alias orphaned when its producer was deleted. None of
+those are import errors, and none of them are visible until a real run reaches
+that line — which costs a queue slot and an hour to find out.
+
+So this drives the REAL coordinator, the REAL execute_plan skeleton, the REAL
+packaging, with only the four stages that need MCP, CIME or SLURM replaced.
+Fast enough to run every time; catches exactly the class of bug that has
+actually happened here.
+
+The reception package is a genuine artifact from the evaluation suite when one
+is present, so the shape under test is the shape reception really emits.
+"""
+import json
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
+
+
+# ── the reception package under test ────────────────────────────────────
+def _reception():
+    """A real reception artifact if the eval suite has run, else a minimal
+    one with the same shape."""
+    for name in ("naches_1988.json", "brandywine_2010.json"):
+        f = ROOT / "workflow_outputs" / "reception_eval" / name
+        if f.exists():
+            try:
+                pkg = json.loads(f.read_text())
+                if (pkg.get("brief") or {}).get("domain"):
+                    return pkg
+            except Exception:
+                pass
+    return {
+        "route": {"action": "design"},
+        "brief": {
+            "domain": {"name": "Naches", "huc": "17030002",
+                       "bbox": "-121.6,46.5,-120.3,47.1"},
+            "run_settings": {
+                "resolved_period": {"yr_start": 1988, "yr_end": 1988,
+                                    "source": "user"},
+                "initialization": {"mode": "warm", "source": "conus"},
+            },
+            "heterogeneity": {"relief_m": 1800},
+            "scientific_framing": {"goals": ["partition P"]},
+        },
+        "observations": {"streamflow": {"ok": True, "n_in_bbox": 3,
+                                        "stations": [{"id": "12494000"}]}},
+        "grid": {"n_in_basin": 96},
+        "provenance": [],
+    }
+
+
+STRATEGY = {
+    "archetype": "elevation_gradient",
+    "goals": ["partition precipitation into runoff and recharge"],
+    "feasibility": {"verdict": "feasible"},
+    "sampling": {"n_bands": 4, "per_band": 3, "n_columns": 12,
+                 "approach": "stratified by elevation"},
+    "validation": [{"variable": "streamflow", "stations": ["12494000"],
+                    "comparison": "annual yield"}],
+    "requires": [], "coupling": None,
+}
+
+
+def _columns(n=12):
+    return [{"id": f"col_{i:02d}", "lat": 46.5 + i * 0.02,
+             "lon": -121.0 + i * 0.02, "elevation_m": 600.0 + i * 100,
+             "band": i % 4 + 1,
+             "soil": {"sand_pct": 40, "clay_pct": 20, "organic": 57.4}}
+            for i in range(1, n + 1)]
+
+
+@pytest.fixture
+def stubbed(tmp_path):
+    """Patch out MCP, CIME and SLURM; leave every seam between them real."""
+    from core.elm_exp_manager import ELMExpManager
+
+    cols  = _columns()
+    calls = []
+
+    def fake_materialize(self, plan, config):
+        calls.append("materialize")
+        # the gate is cheap and real — run it
+        config = self.check(plan, config)
+        (self.run_dir / "columns.json").write_text(
+            json.dumps({"columns": cols}, indent=2))
+        merged = {**plan, **self._to_run_plan(plan, cols, config, {})}
+        (self.run_dir / "run_plan.json").write_text(json.dumps(merged, indent=2))
+        return merged
+
+    def fake_build(self, plan, config):
+        calls.append("build")
+        # the same keys src/core/elm_experiment_builder.py really returns
+        return [{"case_name": c["id"], "scenario_name": c["id"],
+                 "case_dir": f"/scratch/{c['id']}",
+                 "forcing_period": "1988-1988",
+                 "forcing_start": 1988, "forcing_end": 1988} for c in cols]
+
+    def fake_prepare(self, experiments):
+        calls.append("prepare")
+
+    def fake_run(self, experiments, config):
+        calls.append("run")
+        return {e["case_name"]: True for e in experiments}
+
+    def fake_extract(self, experiments, plan=None, config=None):
+        calls.append("extract")
+        import types
+        rows = [{"case_name": c["id"], "status": "ok", "lat": c["lat"],
+                 "lon": c["lon"], "elevation_m": c["elevation_m"],
+                 "metrics": {"precip_mm_yr": 900.0 + c["elevation_m"],
+                             "annual_runoff_mm_yr": 300.0,
+                             "annual_recharge_mm_yr": 120.0,
+                             "runoff_fraction": 0.33}}
+                for c in cols]
+        ns = types.SimpleNamespace(results=rows, units={"QOVER": "mm/s"},
+                                   extra_summary={})
+        # ELMResultsAnalyzer exposes this; the base uses it for the alias file
+        ns.get_llm_analysis_input = lambda: {"experiments": rows}
+        return ns
+
+    def fake_couple(self, plan, config):
+        calls.append("couple")
+
+    with patch.object(ELMExpManager, "_materialize", fake_materialize), \
+         patch.object(ELMExpManager, "_build",   fake_build),   \
+         patch.object(ELMExpManager, "_prepare", fake_prepare), \
+         patch.object(ELMExpManager, "_run",     fake_run),     \
+         patch.object(ELMExpManager, "_extract", fake_extract), \
+         patch.object(ELMExpManager, "_couple_pflotran", fake_couple):
+        yield calls
+
+
+class TestCoordinatorEndToEnd:
+
+    def _coordinator(self, tmp_path):
+        import workflow as wf
+        co = object.__new__(wf.WorkflowCoordinator)
+        co.mcp_clients = {"terrain": object()}
+        co.conversation_context = {}
+        co.planner = type("P", (), {"plan": lambda self, r: dict(STRATEGY)})()
+        # the WRITTEN-REPORT agent (an LLM call), distinct from the Analyzer box
+        co.analyzer = type("A", (), {
+            "generate_analysis_report": lambda self, **kw: {"summary": "ok"}})()
+        return co
+
+    def test_design_and_run_completes(self, tmp_path, stubbed):
+        co  = self._coordinator(tmp_path)
+        out = co._workflow_design_and_run(_reception(), str(tmp_path))
+        assert "❌" not in out, out
+        # every stage was actually reached, in order
+        assert stubbed == ["materialize", "build", "prepare", "run",
+                           "extract", "couple"]
+
+    def test_the_four_files_land_in_one_run_dir(self, tmp_path, stubbed):
+        """reception.json, strategy.json, experiment.json — each written by
+        whatever produced it, all in the directory the coordinator owns."""
+        co = self._coordinator(tmp_path)
+        co._workflow_design_and_run(_reception(), str(tmp_path))
+        runs = list(Path(tmp_path).glob("elm_run_*"))
+        assert len(runs) == 1, f"expected ONE run dir, got {runs}"
+        rd = runs[0]
+        for f in ("reception.json", "strategy.json", "experiment.json",
+                  "RUN_SUMMARY.json"):
+            assert (rd / f).exists(), f"{f} missing from {rd.name}"
+
+    def test_experiment_json_is_readable_and_populated(self, tmp_path, stubbed):
+        co = self._coordinator(tmp_path)
+        co._workflow_design_and_run(_reception(), str(tmp_path))
+        rd  = next(Path(tmp_path).glob("elm_run_*"))
+        exp = json.loads((rd / "experiment.json").read_text())
+        assert exp["columns_total"] == 12
+        assert exp["columns_succeeded"] == 12
+        assert exp["period"]["yr_start"]                # reception's period survived
+        assert exp["field_semantics"]["precip_mm_yr"]["from"] == ["RAIN", "SNOW"]
+
+    def test_reception_period_reaches_the_couplers(self, tmp_path, stubbed):
+        """The period the user gave must not be silently replaced by the
+        manager's 1995 default — that is the whole point of resolving it."""
+        pkg = _reception()
+        period = ((pkg["brief"].get("run_settings") or {})
+                  .get("resolved_period") or {})
+        co = self._coordinator(tmp_path)
+        co._workflow_design_and_run(pkg, str(tmp_path))
+        rd   = next(Path(tmp_path).glob("elm_run_*"))
+        plan = json.loads((rd / "run_plan.json").read_text())
+        cc   = plan["CONDITIONS_COUPLERS"][0]
+        assert str(cc["DATM_CLMNCEP_YR_START"]) == str(period["yr_start"])
+        assert str(cc["DATM_CLMNCEP_YR_END"])   == str(period["yr_end"])
+
+    def test_analyzer_is_invoked_and_cannot_sink_the_run(self, tmp_path,
+                                                         stubbed):
+        """The Analyzer runs after extraction, and a failure inside it must
+        not cost the compute that produced the numbers."""
+        from agents.analyzer import Analyzer
+        seen = {}
+        real = Analyzer.run
+
+        def boom(self, results=None, config=None):
+            seen["called"] = True
+            raise RuntimeError("analyzer exploded")
+
+        with patch.object(Analyzer, "run", boom):
+            co  = self._coordinator(tmp_path)
+            out = co._workflow_design_and_run(_reception(), str(tmp_path))
+        assert seen.get("called"), "the Analyzer was never invoked"
+        assert "❌" not in out, (
+            "an Analyzer failure sank the whole run:\n" + out)
+        rd = next(Path(tmp_path).glob("elm_run_*"))
+        assert (rd / "experiment.json").exists(), (
+            "the results package was lost when the Analyzer failed")

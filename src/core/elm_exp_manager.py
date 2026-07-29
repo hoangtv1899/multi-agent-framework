@@ -186,22 +186,34 @@ class ELMExpManager(ExperimentManagerBase):
 			analyzer = self._extract(
 				experiments, plan=experiment_plan, config=config)
 
-			# The Analyzer box — figures, observation comparison,
-			# interpretation. Non-fatal as a whole: the run stands without it.
-			print("\n🔭 STEP 4b: Analyzer")
+			# Step 4b — PACKAGE FIRST. experiment.json is this manager's
+			# product and the Analyzer's input, so it is written before
+			# anything interpretive runs. Ordered the other way, a crash in
+			# the Analyzer took the results package with it — the ensemble
+			# was computed, and nothing on disk said so.
+			print("\n📦 STEP 4b: Packaging Results")
 			print("-" * 40)
-			Analyzer(str(self.run_dir)).run(results=analyzer, config=config)
+			self._package(experiment_plan, analyzer, config)
+
+			# Step 4c — the Analyzer box: figures, observation comparison,
+			# interpretation. Non-fatal AS A WHOLE, not merely stage by
+			# stage: an unexpected failure here must not cost the compute
+			# that produced the numbers.
+			print("\n🔭 STEP 4c: Analyzer")
+			print("-" * 40)
+			try:
+				Analyzer(str(self.run_dir)).run(results=analyzer, config=config)
+			except Exception as e:                              # noqa: BLE001
+				print(f"   ⚠️  analyzer failed ({e}) — experiment.json stands")
 
 			# Step 4d — one-way ELM → PFLOTRAN coupling, when the plan asks
 			# for it. Non-fatal: the ELM study stands on its own.
 			self._couple_pflotran(experiment_plan, config)
 
-			# Step 5 — Package. experiment.json is the manager's product and
-			# the Analyzer's only input; LLM_ANALYSIS_INPUT.json stays as the
-			# alias the standalone tools open by that name.
-			print("\n📦 STEP 5: Packaging")
+			# Step 5 — the alias the standalone report tools open by name.
+			# experiment.json was already written at 4b.
+			print("\n📦 STEP 5: Packaging LLM Input")
 			print("-" * 40)
-			self._package(experiment_plan, analyzer, config)
 			self._save_llm_input(experiment_plan, analyzer)
 
 			# Create + save run summary (top level)

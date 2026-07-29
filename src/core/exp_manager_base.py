@@ -386,8 +386,22 @@ class ExperimentManagerBase:
 	def _save_llm_input(self,
 						plan:     Dict[str, Any],
 						analyzer: Any) -> None:
-		"""Save LLM_ANALYSIS_INPUT.json at the top level of run_dir."""
-		llm_input = analyzer.get_llm_analysis_input()
+		"""Save LLM_ANALYSIS_INPUT.json at the top level of run_dir.
+
+		An ALIAS. experiment.json is the manager's real product; this exists
+		because the standalone report tools open it by this name.
+
+		Non-fatal, and that matters: it runs AFTER the compute has succeeded,
+		so anything raising here throws away a finished ensemble over a
+		convenience file. get_llm_analysis_input() is also specific to ELM's
+		results object — a backend without it must still finish its run.
+		"""
+		try:
+			llm_input = analyzer.get_llm_analysis_input()
+		except Exception as e:
+			print(f"   ⚠️  LLM_ANALYSIS_INPUT.json skipped ({e}) — "
+				  f"experiment.json is unaffected")
+			return
 		llm_input['experiment_plan'] = plan
 		llm_input['run_directory']   = str(self.run_dir)
 
@@ -416,10 +430,13 @@ class ExperimentManagerBase:
 		if ip.exists():
 			llm_input['interpretation_md'] = ip.read_text()
 
-		llm_file = self.run_dir / "LLM_ANALYSIS_INPUT.json"
-		with open(llm_file, 'w') as f:
-			json.dump(llm_input, f, indent=2, default=str)
-		print(f"✓ LLM_ANALYSIS_INPUT.json saved")
+		try:
+			llm_file = self.run_dir / "LLM_ANALYSIS_INPUT.json"
+			with open(llm_file, 'w') as f:
+				json.dump(llm_input, f, indent=2, default=str)
+			print(f"✓ LLM_ANALYSIS_INPUT.json saved")
+		except Exception as e:
+			print(f"   ⚠️  LLM_ANALYSIS_INPUT.json not written ({e})")
 
 	# ─────────────────────────────────────────────────────────
 	# RUN SUMMARY
@@ -438,17 +455,20 @@ class ExperimentManagerBase:
 		n_total   = len(experiments)
 		n_success = sum(results.values())
 
+		# .get(), not [], deliberately. This is the LAST step: the ensemble is
+		# already computed and experiment.json already written, so a missing
+		# key here would throw away a finished run over a summary field.
 		exp_details = [
 			{
-				'name':              e['scenario_name'],
-				'case_name':         e['case_name'],
+				'name':              e.get('scenario_name') or e.get('case_name'),
+				'case_name':         e.get('case_name'),
 				'status':            'completed'
-									 if results.get(e['case_name'])
+									 if results.get(e.get('case_name'))
 									 else 'failed',
-				'forcing_period':    e['forcing_period'],
-				'forcing_start':     e['forcing_start'],
-				'forcing_end':       e['forcing_end'],
-				'model_type':        'elm',
+				'forcing_period':    e.get('forcing_period'),
+				'forcing_start':     e.get('forcing_start'),
+				'forcing_end':       e.get('forcing_end'),
+				'model_type':        self.MODEL,
 				'runtime_seconds':   0,
 				'timesteps':         0,
 				'newton_iterations': 0,

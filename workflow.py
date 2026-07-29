@@ -255,6 +255,8 @@ class WorkflowCoordinator:
 			run_summary = self._execute(
 				plan         = plan,
 				output_dir   = output_dir,
+				run_dir      = run_dir,
+				reception    = result,
 				brief        = result.get('brief') or {},
 				period       = ((result.get('brief') or {}).get('run_settings') or {}).get('resolved_period'),
 				initialization = ((result.get('brief') or {}).get('run_settings') or {}).get('initialization'),
@@ -275,18 +277,39 @@ class WorkflowCoordinator:
 				Path(run_summary['run_directory']) /
 				"LLM_ANALYSIS_INPUT.json"
 			)
-			analysis = self.analyzer.generate_analysis_report(
-				user_request    = result.get('user_request', ''),
-				experiment_plan = plan,
-				llm_input_file  = str(llm_input_file),
-				output_file     = str(
-					Path(run_summary['run_directory']) /
-					"ANALYSIS_REPORT.json"
-				),
-			)
-			print("✓ Analysis complete\n")
-			self.conversation_context['last_analysis'] = analysis
+			# NON-FATAL. The ensemble is computed and experiment.json is
+			# written by the time we get here, so a report failure — a dead
+			# gateway, a missing alias file — must not be reported as a failed
+			# pipeline. It reads as though the run was lost, and it was not.
+			analysis = None
+			try:
+				if not llm_input_file.exists():
+					raise FileNotFoundError(
+						f"{llm_input_file.name} was not written; "
+						f"experiment.json holds the results")
+				analysis = self.analyzer.generate_analysis_report(
+					user_request    = result.get('user_request', ''),
+					experiment_plan = plan,
+					llm_input_file  = str(llm_input_file),
+					output_file     = str(
+						Path(run_summary['run_directory']) /
+						"ANALYSIS_REPORT.json"
+					),
+				)
+				print("✓ Analysis complete\n")
+				self.conversation_context['last_analysis'] = analysis
+			except Exception as e:                              # noqa: BLE001
+				print(f"   ⚠️  written report failed ({e}) — the run and its "
+					  f"results are intact\n")
 	
+			if analysis is None:
+				return (self._format_execution_only_response(run_summary)
+						if hasattr(self, "_format_execution_only_response")
+						else f"✅ Run complete: {run_summary['experiments_success']}"
+							 f"/{run_summary['experiments_total']} columns → "
+							 f"{run_summary['run_directory']}\n"
+							 f"   (the written report was not produced; "
+							 f"experiment.json holds the results)")
 			return self._format_full_pipeline_response(
 				run_summary, analysis
 			)
@@ -298,17 +321,25 @@ class WorkflowCoordinator:
 	def _execute(self,
 				 plan:           dict,
 				 output_dir:     str,
+				 run_dir:        Path,
+				 reception:      dict,
 				 brief:          dict = None,
 				 period:         dict = None,
 				 initialization: dict = None) -> dict:
-		"""Hand the plan to the Experiment Manager."""
+		"""Hand the plan to the Experiment Manager.
+
+		run_dir and reception are PASSED IN, not rediscovered. The coordinator
+		created the directory and holds the reception package; reaching for
+		either as a free variable is how this method came to reference two
+		names that only existed in its caller.
+		"""
 		from core.elm_exp_manager import ELMExpManager
 		executor = ELMExpManager(base_output_dir=output_dir, run_dir=str(run_dir))
 		# brief + mcp_clients feed the manager's materialize stage, which
 		# turns the planner's sampling_strategy into CONDITIONS_COUPLERS.
 		cfg = {
 			'brief':       brief or {},
-			'reception':   result,
+			'reception':   reception,
 			'strategy':    plan,
 			'mcp_clients': self.mcp_clients,
 			# Warm start edits a completed run's restart files, so the carrier
