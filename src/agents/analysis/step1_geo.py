@@ -217,3 +217,125 @@ def plot_two_maps(obs_points:  Sequence[Tuple[float, float, float, str]],
     fig.savefig(out_path, dpi=135)
     plt.close(fig)
     return str(out_path)
+
+
+def plot_panels(panels, boundary, out_path, label: str,
+                basemap: bool = True, zoom: int = 9,
+                log: bool = False) -> str:
+    """N map panels, one per network, ONE shared colour scale.
+
+    panels is [(title, points, sizes_or_None)] with points as
+    (lon, lat, value, name). The panel COUNT follows the data: a basin with no
+    in-domain wells gets two panels rather than an empty third, because an
+    empty axis reads as "measured nothing" instead of "nothing to measure".
+
+    The shared scale is the reason this exists. Independent scales would map
+    each network's own maximum to the same colour and make fields that differ
+    by two orders of magnitude look alike.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    panels = [pn for pn in panels if pn[1]]
+    if not panels:
+        fig, ax = plt.subplots(figsize=(7, 4))
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.text(0.5, 0.5, "NOTHING TO MAP", ha="center", va="center",
+                transform=ax.transAxes, fontsize=15, color="#b30000",
+                fontweight="bold")
+        fig.savefig(out_path, dpi=135)
+        plt.close(fig)
+        return str(out_path)
+
+    allv = [q[2] for _t, pts, _s in panels for q in pts]
+    vmin, vmax = (min(allv), max(allv)) if allv else (0.0, 1.0)
+
+    norm = None
+    if log and allv:
+        try:
+            from matplotlib.colors import SymLogNorm
+            pos = [v for v in allv if v > 0]
+            lt = min(pos) if pos else 1e-3
+            norm = SymLogNorm(linthresh=max(lt, 1e-6), vmin=0.0,
+                              vmax=max(vmax, lt * 10), base=10)
+        except Exception:
+            norm = None
+
+    xs = [q[0] for _t, pts, _s in panels for q in pts]
+    ys = [q[1] for _t, pts, _s in panels for q in pts]
+    for ring in (boundary or []):
+        try:
+            xs += [q[0] for q in ring]; ys += [q[1] for q in ring]
+        except Exception:
+            pass
+    if not xs:
+        xs, ys = [-108.0, -106.5], [37.5, 39.0]
+    mx = 0.06 * (max(xs) - min(xs) or 1)
+    my = 0.06 * (max(ys) - min(ys) or 1)
+    extent = [min(xs) - mx, max(xs) + mx, min(ys) - my, max(ys) + my]
+
+    proj = tiler = None
+    if basemap:
+        try:
+            import cartopy.crs as ccrs
+            import cartopy.io.img_tiles as cimgt
+            tiler, proj = cimgt.OSM(), ccrs.PlateCarree()
+        except Exception:
+            proj = None
+
+    n = len(panels)
+    fig, axes = plt.subplots(
+        1, n, figsize=(8.8 * n, 8.4), squeeze=False,
+        subplot_kw={"projection": proj} if proj is not None else None)
+    axes = [a for row in axes for a in row]
+
+    sc = None
+    for ax, (title, pts, sizes) in zip(axes, panels):
+        if proj is not None:
+            import cartopy.crs as ccrs
+            ax.set_extent(extent, crs=ccrs.PlateCarree())
+            try:
+                ax.add_image(tiler, zoom, alpha=0.45, zorder=0)
+            except Exception:
+                pass
+            gl = ax.gridlines(draw_labels=True, alpha=0.25, zorder=1)
+            gl.top_labels = gl.right_labels = False
+            gl.xlabel_style = gl.ylabel_style = {"size": 13}
+            kw = {"transform": ccrs.PlateCarree()}
+        else:
+            ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3])
+            ax.set_xlabel("longitude", fontsize=18)
+            ax.set_ylabel("latitude", fontsize=18)
+            ax.tick_params(labelsize=13); ax.grid(alpha=0.25)
+            kw = {}
+
+        for ring in (boundary or []):
+            try:
+                ax.plot([q[0] for q in ring], [q[1] for q in ring],
+                        color="#111", lw=2.2, zorder=3, **kw)
+            except Exception:
+                pass
+        ckw = {"norm": norm} if norm is not None else {"vmin": vmin, "vmax": vmax}
+        sc = ax.scatter([q[0] for q in pts], [q[1] for q in pts],
+                        c=[q[2] for q in pts], cmap="viridis",
+                        s=(list(sizes) if sizes else 300),
+                        edgecolor="#fff", linewidth=1.8, zorder=5,
+                        **ckw, **kw)
+        ax.text(0.5, 0.965, f"{title}   (n={len(pts)})",
+                transform=ax.transAxes, ha="center", va="top",
+                fontsize=24, fontweight="bold", color="#111", zorder=10,
+                bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="#333",
+                          alpha=0.92))
+
+    if sc is not None:
+        cb = fig.colorbar(sc, ax=list(axes), fraction=0.032, pad=0.04)
+        cb.set_label(label, fontsize=19)
+        cb.ax.tick_params(labelsize=14)
+    try:
+        fig.canvas.draw()
+    except Exception:
+        pass
+    fig.savefig(out_path, dpi=135)
+    plt.close(fig)
+    return str(out_path)

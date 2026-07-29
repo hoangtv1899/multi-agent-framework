@@ -260,7 +260,7 @@ def plot_maps(result: Dict[str, Any], ctx, out_path, **kw) -> str:
 
 
 def plot_series(result: Dict[str, Any], out_path,
-                log: bool = True) -> str:
+                log: bool = False) -> str:
     """Two panels side by side: every in-basin gauge, every ELM column.
 
     NOT paired, and not overlaid. The maps already established these two
@@ -273,10 +273,15 @@ def plot_series(result: Dict[str, Any], out_path,
     coherent seasonal pulse and the other does not; independent axes would
     scale both to fill their panel and destroy exactly that.
 
-    SYMLOG y. On the 2019 Gunnison run the gauges span 0.1-10 mm/day while the
-    columns run from EXACTLY zero to a 870 mm/day first-day spike. Linear shows
-    only the spike; plain log cannot draw the zeros, and 15 of 19 columns are
-    zero for most of the year — which is the finding, not a gap.
+    LINEAR y, SCALED TO THE OBSERVED RANGE. A log axis made every column's
+    10^-5 flicker as visually loud as the gauges' snowmelt pulse, which is the
+    opposite of the weight those two deserve. But a linear axis spanning the
+    full data range is no better: col_19's 870 mm/day first-day warm-start
+    spike would compress all seven gauges into a flat line at the bottom.
+
+    So the axis is set by the GAUGES, and model values above it are counted
+    rather than drawn. The count is stated on the panel, because an axis that
+    silently hides data is worse than one that admits it.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -295,9 +300,11 @@ def plot_series(result: Dict[str, Any], out_path,
     gauges = [g for g in (result.get("gauges") or []) if (g.get("series") or {}).get("dates")]
     cols   = [c for c in (result.get("columns") or []) if (c.get("series") or {}).get("dates")]
 
+    obsv = [v for g in gauges for v in (g["series"].get("values") or [])
+            if v is not None]
     allv = [v for grp in (gauges, cols) for it in grp
             for v in (it["series"].get("values") or []) if v is not None]
-    hi = max(allv) if allv else 1.0
+    hi = (max(obsv) * 1.15) if obsv else (max(allv) if allv else 1.0)
     pos = [v for v in allv if v > 0]
     lo = min(pos) if pos else 1e-4
 
@@ -321,7 +328,16 @@ def plot_series(result: Dict[str, Any], out_path,
                         lw=1.5, alpha=0.85)
         if log:
             ax.set_yscale("symlog", linthresh=max(lo, 1e-5))
-        ax.set_ylim(0, hi * 1.3)
+            ax.set_ylim(0, max(allv) * 1.3 if allv else 1.0)
+        else:
+            ax.set_ylim(0, hi)
+            n_over = sum(1 for it in items
+                         for v in (it["series"].get("values") or [])
+                         if v is not None and v > hi)
+            if n_over:
+                ax.text(0.985, 0.86, f"{n_over} value(s) above axis",
+                        transform=ax.transAxes, ha="right", va="top",
+                        fontsize=13, color="#b30000")
         ax.set_xlabel("date", fontsize=18)
         ax.tick_params(labelsize=13)
         ax.grid(alpha=0.25)
