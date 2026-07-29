@@ -87,9 +87,14 @@ From the request, extract the SIMULATION PERIOD and resolve it:
   • Period stated (e.g. "from 1990 to 2005") → resolved = that period,
     source "user". If it falls partly outside the runnable years: clamp to
     the overlap, source "user-clamped", and record the conflict. If it
-    falls WHOLLY outside, that is a refusal, not a shift — say the request
-    cannot be run and give the runnable range. Do not silently relocate a
-    study to a different decade.
+    falls WHOLLY outside, REFUSE OUTRIGHT and stop. Set
+    intent = "clarification_needed", leave run_settings.resolved_period
+    null, and put ONE question in `questions` naming the runnable range and
+    asking which period they want instead. Do NOT substitute a year of your
+    own, not even a well-flagged one, and not in batch mode either: the user
+    asked about a period that cannot be forced, and answering with a
+    different period answers a question they did not ask. This is the one
+    place where producing no brief is the correct output.
   • No period stated → the period is the user's decision, not yours.
     – If `ask_user` is in your tool list you MUST call it before you finalise
       the period. This is not optional and having a good default is not a
@@ -101,9 +106,11 @@ From the request, extract the SIMULATION PERIOD and resolve it:
           period would you like to simulate?").
       A user who agrees just says yes; a user with a reason of their own
       now has the chance to give it. Set source "user" once they answer.
-    – ONLY if `ask_user` is absent (batch mode): choose a single year inside
-      the range, source "default", and record "simulation period not
-      specified" in conflicts.
+    – ONLY if `ask_user` is absent (batch mode) AND the request named no
+      period at all: choose a single year inside the range, source
+      "default", and record "simulation period not specified" in conflicts.
+      This does NOT apply when a period WAS named and is unrunnable — that
+      is refused outright above.
     THE PERIOD IS DECIDED ON FORCING ALONE. Observation coverage does not
     enter this question — you have not fetched it and it is not yours to
     weigh. The user needs to know which years can be RUN; what those years
