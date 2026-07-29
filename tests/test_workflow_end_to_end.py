@@ -219,3 +219,43 @@ class TestCoordinatorEndToEnd:
         rd = next(Path(tmp_path).glob("elm_run_*"))
         assert (rd / "experiment.json").exists(), (
             "the results package was lost when the Analyzer failed")
+
+
+class TestRouteDispatch:
+    """Reception decides the route; the coordinator must honour all three and
+    not crash on a malformed one."""
+
+    def _co(self):
+        import workflow as wf
+        co = object.__new__(wf.WorkflowCoordinator)
+        co.mcp_clients = {}
+        co.conversation_context = {}
+        co.planner  = type("P", (), {"plan": lambda self, r: dict(STRATEGY)})()
+        co.analyzer = type("A", (), {
+            "generate_analysis_report": lambda self, **kw: {"summary": "ok"}})()
+        return co
+
+    def test_clarify_asks_rather_than_running(self, tmp_path):
+        co  = self._co()
+        out = co._workflow_clarification(
+            {"route": {"action": "clarify",
+                       "questions": ["Which years should I simulate?"]}})
+        assert "Which years" in out
+        assert not list(Path(tmp_path).glob("elm_run_*")), \
+            "a clarify route must not create a run directory"
+
+    def test_unknown_route_is_reported_not_raised(self):
+        co = self._co()
+        co.reception = type("R", (), {
+            "process": lambda self, *a, **k: {"route": {"action": "nonsense"}}})()
+        out = co.process_request("do something", output_dir="/tmp")
+        assert "nonsense" in out or "Unknown route" in out
+
+    def test_a_missing_route_defaults_to_clarify_not_to_compute(self):
+        """A reception package with no route must not fall through into a
+        design-and-run — that spends a queue slot on an unresolved request."""
+        co = self._co()
+        co.reception = type("R", (), {
+            "process": lambda self, *a, **k: {"brief": {}}})()
+        out = co.process_request("vague", output_dir="/tmp")
+        assert "elm_run_" not in out

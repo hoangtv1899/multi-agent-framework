@@ -606,3 +606,20 @@ class TestPackage:
         assert pkg["domain"]["huc"] == "17030002"
         assert pkg["period"] == {"yr_start": 1988, "yr_end": 1988,
                                  "source": "user"}
+
+
+    def test_it_accepts_both_results_shapes(self, tmp_path):
+        """ELMResultsAnalyzer.results is a DICT keyed by case name;
+        hydro_summary.json['experiments'] is the LIST form of the same thing.
+        Both reach this stage depending on how it was invoked, and a dict
+        silently packaged as zero columns would report a finished ensemble as
+        empty."""
+        import types
+        mgr  = ELMExpManager(base_output_dir=str(tmp_path))
+        rows = self._rows()
+        as_list = mgr._package({}, types.SimpleNamespace(results=rows), {})
+        as_dict = mgr._package(
+            {}, types.SimpleNamespace(
+                results={r["case_name"]: r for r in rows}), {})
+        assert as_list["columns_total"] == as_dict["columns_total"] == 2
+        assert as_list["columns_succeeded"] == as_dict["columns_succeeded"] == 2

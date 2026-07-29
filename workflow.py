@@ -303,13 +303,11 @@ class WorkflowCoordinator:
 					  f"results are intact\n")
 	
 			if analysis is None:
-				return (self._format_execution_only_response(run_summary)
-						if hasattr(self, "_format_execution_only_response")
-						else f"✅ Run complete: {run_summary['experiments_success']}"
-							 f"/{run_summary['experiments_total']} columns → "
-							 f"{run_summary['run_directory']}\n"
-							 f"   (the written report was not produced; "
-							 f"experiment.json holds the results)")
+				return (f"✅ Run complete: {run_summary['experiments_success']}"
+						f"/{run_summary['experiments_total']} columns → "
+						f"{run_summary['run_directory']}\n"
+						f"   (the written report was not produced; "
+						f"experiment.json holds the results)")
 			return self._format_full_pipeline_response(
 				run_summary, analysis
 			)
