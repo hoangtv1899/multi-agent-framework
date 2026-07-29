@@ -836,3 +836,73 @@ class TestDailySeries:
     def test_no_time_coordinate_is_not_fatal(self):
         out = self._summarize([1.0] * 8, "QOVER", with_time=False)
         assert "annual_mean" in out          # stats survive
+
+
+class TestColumnMetadataJoin:
+    """Sampling metadata must ride along with the extracted rows.
+
+    The extraction reads history files and knows nothing about elevation
+    bands or water-table priors; columns.json holds those and nothing else
+    does. Keeping them in two files is exactly what forced the Analyzer to
+    open both.
+    """
+
+    def _pkg(self, tmp_path, cols, rows=None):
+        import types
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        (mgr.run_dir / "columns.json").write_text(json.dumps({"columns": cols}))
+        rows = rows or [{"case_name": "col_01", "status": "ok",
+                         "metrics": {"precip_mm_yr": 900.0}}]
+        return mgr._package({}, types.SimpleNamespace(results=rows), {})
+
+    def test_band_reaches_the_row(self, tmp_path):
+        """Without band, area-weighting silently degrades to a plain average.
+        The sampler allocates >=1 column per band regardless of band size, so
+        an unweighted mean over-weights the small ones."""
+        pkg = self._pkg(tmp_path, [{"id": "col_01", "band": 2,
+                                    "band_range_m": "[2031, 2684]"}])
+        assert pkg["columns"][0]["band"] == 2
+        assert pkg["columns"][0]["band_range_m"] == "[2031, 2684]"
+
+    def test_priors_and_soil_reach_the_row(self, tmp_path):
+        pkg = self._pkg(tmp_path, [{"id": "col_01", "fan_wtd_m": 251.2,
+                                    "soil_top_texture": "loam",
+                                    "soil_source": "conus"}])
+        r = pkg["columns"][0]
+        assert r["fan_wtd_m"] == 251.2
+        assert r["soil_top_texture"] == "loam" and r["soil_source"] == "conus"
+
+    def test_extraction_values_win_over_metadata(self, tmp_path):
+        """The row describes what the model DID; columns.json describes what
+        was planned. Where both have a field, the run is the truth."""
+        pkg = self._pkg(
+            tmp_path, [{"id": "col_01", "lat": 1.0}],
+            rows=[{"case_name": "col_01", "lat": 38.4625, "metrics": {"a": 1}}])
+        assert pkg["columns"][0]["lat"] == 38.4625
+
+    def test_an_unmatched_row_is_kept_and_reported(self, tmp_path, capsys):
+        """A mismatch means the run directory is inconsistent. Dropping the
+        row is not the way to report that."""
+        pkg = self._pkg(tmp_path, [{"id": "col_99", "band": 1}])
+        assert len(pkg["columns"]) == 1          # kept
+        assert pkg["columns"][0].get("band") is None
+        assert "cannot be area-weighted" in capsys.readouterr().out
+
+    def test_no_columns_file_is_not_fatal(self, tmp_path):
+        import types
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        pkg = mgr._package({}, types.SimpleNamespace(
+            results=[{"case_name": "col_01", "metrics": {"a": 1}}]), {})
+        assert pkg["columns_total"] == 1
+
+    def test_the_package_does_not_mutate_the_extraction(self, tmp_path):
+        """_package copies rows before joining. Mutating the analyzer's own
+        results would make hydro_summary.json and experiment.json disagree
+        depending on which was written first."""
+        import types
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        (mgr.run_dir / "columns.json").write_text(
+            json.dumps({"columns": [{"id": "col_01", "band": 3}]}))
+        original = {"case_name": "col_01", "metrics": {"a": 1}}
+        mgr._package({}, types.SimpleNamespace(results=[original]), {})
+        assert "band" not in original

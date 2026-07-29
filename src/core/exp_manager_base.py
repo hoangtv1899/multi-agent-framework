@@ -354,6 +354,60 @@ class ExperimentManagerBase:
 					pass
 		return {}
 
+	# Fields the extraction cannot know, because they describe how the column
+	# was CHOSEN rather than what the model did with it. Each is here because
+	# something downstream reads it:
+	#
+	#   band, band_range_m   area-weighting the ensemble. The sampler allocates
+	#                        >=1 column per elevation band regardless of band
+	#                        size, so an unweighted mean over-weights small
+	#                        bands. Without this the weighting silently
+	#                        degrades to a plain average.
+	#   fan_wtd_m            the prior water-table depth, compared against
+	#                        modelled ZWT and plotted per column.
+	#   soil_*               which soil this column actually got, and from
+	#                        where — the soil-attribution figure and any claim
+	#                        that soil explains a gradient rest on it.
+	COLUMN_METADATA = ("band", "band_range_m", "fan_wtd_m", "soil_top_texture",
+					   "soil_layers", "soil_source", "soil_profile")
+
+	def _merge_column_metadata(self, rows: List[Dict[str, Any]]) -> None:
+		"""Join the sampling metadata onto the extracted rows, in place.
+
+		The extraction reads history files and knows nothing about bands or
+		priors; columns.json holds those and nothing else does. Keeping them
+		in two files is what forced the Analyzer to open both, and the row's
+		own `soil` field comes back null without this.
+
+		Joined on the column id. A row with no matching column keeps whatever
+		it has — a mismatch here means the run directory is inconsistent, and
+		dropping data is not the way to report that.
+		"""
+		f = _resolve_columns(self.run_dir)
+		if not f:
+			return
+		try:
+			cols = (json.loads(f.read_text()) or {}).get("columns") or []
+		except Exception as e:
+			print(f"   ⚠️  could not read column metadata ({e})")
+			return
+		by_id = {c.get("id"): c for c in cols if c.get("id")}
+		if not by_id:
+			return
+
+		missed = 0
+		for r in rows:
+			src = by_id.get(r.get("case_name") or r.get("scenario_name"))
+			if not src:
+				missed += 1
+				continue
+			for k in self.COLUMN_METADATA:
+				if src.get(k) is not None and r.get(k) is None:
+					r[k] = src[k]
+		if missed:
+			print(f"   ⚠️  {missed} extracted column(s) had no sampling "
+				  f"metadata — experiment.json cannot be area-weighted")
+
 	def _ensemble_blocks(self, results: Any) -> Dict[str, Any]:
 		"""Whole-ensemble products, plus the honesty payload.
 
@@ -436,6 +490,8 @@ class ExperimentManagerBase:
 		rows   = getattr(results, "results", None) or []
 		if isinstance(rows, dict):
 			rows = list(rows.values())
+		rows = [dict(r) for r in rows if isinstance(r, dict)]
+		self._merge_column_metadata(rows)
 
 		brief  = config.get("brief") or {}
 		period = ((brief.get("run_settings") or {}).get("resolved_period")) or {}
