@@ -201,3 +201,51 @@ class TestPlannedVsActual:
         c = next(c for c in load(rd).planned_vs_actual()
                  if c["claim"] == "validation:streamflow")
         assert c["ok"] is False and c["planned"] == 2 and c["actual"] == 1
+
+
+class TestSweSeriesCap:
+    """A station-year of daily SWE is ~7.7 KB columnar. Five stations is
+    fine; a basin with forty SNOTEL sites would put 300 KB into every
+    reception.json."""
+
+    @staticmethod
+    def _stations(n):
+        return [{"triplet": f"{i}:CO:SNTL", "peak_swe_mm": float(i * 10),
+                 "daily": {"units": "mm", "dates": ["2019-01-01"] * 365,
+                           "values": [1.0] * 365}}
+                for i in range(n)]
+
+    def test_summaries_are_kept_for_every_station(self):
+        from core.data_gather import _cap_series
+        out = _cap_series(self._stations(20), 5)
+        assert len(out) == 20, "capping the SERIES must not drop stations"
+        assert all("peak_swe_mm" in s for s in out)
+
+    def test_only_the_deepest_keep_their_series(self):
+        """Not first-N: the server's order would quietly bias which
+        snowpacks the analysis can see."""
+        from core.data_gather import _cap_series
+        out = _cap_series(self._stations(20), 5)
+        with_series = [s for s in out if "daily" in s]
+        assert len(with_series) == 5
+        assert [s["peak_swe_mm"] for s in with_series] == [190.0, 180.0,
+                                                           170.0, 160.0, 150.0]
+
+    def test_what_was_dropped_is_recorded(self):
+        from core.data_gather import _cap_series
+        out = _cap_series(self._stations(20), 5)
+        assert "15 further station" in out[0]["_note"]
+
+    def test_under_the_cap_nothing_is_touched(self):
+        from core.data_gather import _cap_series
+        out = _cap_series(self._stations(3), 12)
+        assert all("daily" in s for s in out)
+        assert not any("_note" in s for s in out)
+
+    def test_the_series_is_columnar_like_the_model(self):
+        """Same shape as the model's daily block, so the tidy frame builds
+        from both with one code path instead of two."""
+        from core.data_gather import _cap_series
+        d = _cap_series(self._stations(1), 12)[0]["daily"]
+        assert set(d) == {"units", "dates", "values"}
+        assert len(d["dates"]) == len(d["values"])

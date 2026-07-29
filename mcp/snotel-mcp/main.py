@@ -9,7 +9,8 @@ stations report daily SWE in mountain basins. Source: NRCS AWDB REST API
 Tools:
     get_swe(bbox[, start_date, end_date, with_values])
         -> no dates: stations + elevation; dates: which REPORTED, with peak SWE
-           and its date; with_values: the daily series. One bulk AWDB call.
+           and its date; with_values: the daily series, columnar
+           ({units, dates, values}) — the same shape the model uses.
 
 Pure parsers (_filter_stations / _parse_swe / _parse_swe_bulk) are network-free
 and unit-tested.
@@ -89,7 +90,16 @@ def _parse_swe_bulk(data, with_values=False):
                    "peak_date": (obs[swe.index(peak)]["date"]
                                  if peak is not None else None)}
         if with_values:
-            summary["series"] = obs
+            # COLUMNAR, and deliberately the same shape the model's daily
+            # series uses ({units, values, dates}): row-wise
+            # [{"date":…,"swe_mm":…}] is 2x the characters for the same
+            # numbers (15.0 KB vs 7.7 KB per station-year) and has to be
+            # unpacked and re-packed to build a frame from it.
+            summary["daily"] = {
+                "units":  "mm",
+                "dates":  [o["date"] for o in obs],
+                "values": [o["swe_mm"] for o in obs],
+            }
         out[trip] = summary
     return out
 

@@ -181,6 +181,28 @@ def gather_grid(clients, bbox: Dict[str, float], huc: str = "", boundary=None,
     }
 
 
+# A station-year of daily SWE is ~7.7 KB columnar. Five stations is fine; a
+# basin with forty SNOTEL sites would put 300 KB of series into every
+# reception.json. Cap the series, keep every station's SUMMARY, and record
+# what was dropped — a silent first-N would quietly bias the sample toward
+# whatever order the server returned.
+MAX_SWE_SERIES = 12
+
+
+def _cap_series(stations, limit, key="daily"):
+    """Keep the series on the `limit` deepest-snowpack stations, summaries on all."""
+    ranked = sorted(stations, key=lambda s: -(s.get("peak_swe_mm") or 0))
+    dropped = 0
+    for st in ranked[limit:]:
+        if st.pop(key, None) is not None:
+            dropped += 1
+    if dropped:
+        for st in ranked[:limit]:
+            st.setdefault("_note", f"{dropped} further station(s) kept their "
+                                   f"summary but not their daily series")
+    return ranked
+
+
 def gather_observations(clients, bbox_str: str, yr_start: int, yr_end: int,
                         provenance: Optional[List] = None) -> Dict[str, Any]:
     """Streamflow, water table and snow for the RESOLVED period.
@@ -223,9 +245,16 @@ def gather_observations(clients, bbox_str: str, yr_start: int, yr_end: int,
         "wells": wr.get("wells") or [],
     }
 
+    # with_values: the DAILY series, not just the peak. Peak alone cannot
+    # answer the question SWE is actually good for — accumulation and melt
+    # TIMING, which is far less sensitive to the elevation offset between a
+    # SNOTEL site and a model column than magnitude is. Streamflow and water
+    # table already carry their series; this was the one observable that
+    # threw its away, and n_obs=365 in the old output proves the server had
+    # it all along.
     s = _call(clients, "snotel", "get_swe",
               {"bbox": bbox_str, "start_date": swe_start, "end_date": swe_end,
-               "with_values": False})
+               "with_values": True})
     prov.append({k: s[k] for k in ("tool", "args", "fetched_at", "ok", "error")})
     sr = s.get("result") or {}
     out["swe"] = {
@@ -233,7 +262,7 @@ def gather_observations(clients, bbox_str: str, yr_start: int, yr_end: int,
         "period": f"{swe_start}/{swe_end}",
         "n_stations": sr.get("n_stations"),
         "n_reporting": sr.get("n_reporting"),
-        "stations": sr.get("stations") or [],
+        "stations": _cap_series(sr.get("stations") or [], MAX_SWE_SERIES),
     }
     return out
 
