@@ -1178,3 +1178,23 @@ class TestSeriesPrecisionAndSize:
         text = (mgr.run_dir / "experiment.json").read_text()
         assert "\n" not in text, "the package must be written compactly"
         assert json.loads(text)["columns_total"] == 1   # still valid JSON
+
+
+class TestCoordinatesSurviveTheJoin:
+    """lat/lon/elevation_m normally come from the extraction, which reads them
+    off the coupler. columns.json is the AUTHORITY on where a column is, so
+    the join lists them too — an extraction invoked without them produced 19
+    rows with elevation_m absent, which silently flattens every elevation
+    figure and every gradient claim to a single point. Nothing errors."""
+
+    def test_elevation_is_restored_from_columns_json(self, tmp_path):
+        import types
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        (mgr.run_dir / "columns.json").write_text(json.dumps({"columns": [
+            {"id": "col_01", "lat": 38.46, "lon": -107.36,
+             "elevation_m": 2430.16}]}))
+        pkg = mgr._package({}, types.SimpleNamespace(results=[
+            {"case_name": "col_01", "metrics": {"precip_mm_yr": 400.0}}]), {})
+        r = pkg["columns"][0]
+        assert r["elevation_m"] == 2430.16
+        assert r["lat"] == 38.46 and r["lon"] == -107.36

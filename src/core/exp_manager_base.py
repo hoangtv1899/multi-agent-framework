@@ -375,7 +375,15 @@ class ExperimentManagerBase:
 	#   soil_*               which soil this column actually got, and from
 	#                        where — the soil-attribution figure and any claim
 	#                        that soil explains a gradient rest on it.
-	COLUMN_METADATA = ("band", "band_range_m", "fan_wtd_m", "soil_top_texture",
+	#   lat, lon, elevation_m  normally come from the extraction, which reads
+	#                        them off the coupler. Listed here too because
+	#                        columns.json is the AUTHORITY on where a column
+	#                        is, and an extraction invoked without them
+	#                        produced 19 rows with elevation_m absent — which
+	#                        silently flattens every elevation figure and
+	#                        every gradient claim to a single point.
+	COLUMN_METADATA = ("lat", "lon", "elevation_m",
+					   "band", "band_range_m", "fan_wtd_m", "soil_top_texture",
 					   "soil_layers", "soil_source", "soil_profile")
 
 	def _merge_column_metadata(self, rows: List[Dict[str, Any]]) -> None:
