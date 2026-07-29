@@ -63,3 +63,56 @@ class TestMissingColumns:
     def test_it_says_what_is_missing(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="materialize has not run"):
             _mod().build_all(tmp_path)
+
+
+class TestSoilReachesTheGenerator:
+    """The per-column soil key is `soil_profile`, not `soil`.
+
+    Reading the wrong one returned None for every column, so every surface
+    file was built from an EMPTY soil dict and they all collapsed to a single
+    identical file — same content hash for 19 different columns. Nothing
+    fails: ELM runs, every column silently carries template soil instead of
+    its own, and the ensemble stops being an ensemble.
+
+    Caught by comparing against what the working path produced for a real
+    run, not by a fixture. The generators are expensive, so this test asserts
+    on the ARGUMENTS instead.
+    """
+
+    def _capture(self, tmp_path, column, monkeypatch):
+        m = _mod()
+        seen = {}
+
+        def fake_build_one(**kw):
+            seen.update(kw)
+            return {"domain": "/d.nc", "surface": "/s.nc"}
+
+        monkeypatch.setattr(m, "build_one", fake_build_one)
+        (tmp_path / "columns.json").write_text(
+            json.dumps({"columns": [column]}))
+        m.build_all(tmp_path, quiet=True)
+        return seen
+
+    def test_soil_profile_is_forwarded(self, tmp_path, monkeypatch):
+        profile = {"source": "CONUS 1 km", "num_layers": 10,
+                   "layers": [{"sand_pct": 40.2, "clay_pct": 24.1}]}
+        seen = self._capture(tmp_path, {
+            "id": "col_01", "lat": 38.4625, "lon": -107.3625,
+            "soil_profile": profile}, monkeypatch)
+        assert seen["soil"] == profile, (
+            "soil_profile must reach the generator — an empty dict makes "
+            "every column produce the SAME surface file")
+
+    def test_a_column_with_no_soil_is_not_silently_normal(self, tmp_path,
+                                                          monkeypatch):
+        """No soil is a legitimate state (cold, no donor). It must arrive as
+        falsy rather than as a plausible-looking empty profile."""
+        seen = self._capture(tmp_path, {
+            "id": "col_01", "lat": 38.4, "lon": -107.3}, monkeypatch)
+        assert not seen["soil"]
+
+    def test_legacy_soil_key_still_read(self, tmp_path, monkeypatch):
+        seen = self._capture(tmp_path, {
+            "id": "col_01", "lat": 38.4, "lon": -107.3,
+            "soil": {"sand_pct": 40}}, monkeypatch)
+        assert seen["soil"] == {"sand_pct": 40}

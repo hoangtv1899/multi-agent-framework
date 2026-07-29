@@ -160,7 +160,14 @@ def build_all(run_dir:     Path,
             built[cid] = build_one(
                 lat              = float(c["lat"]),
                 lon              = float(c["lon"]),
-                soil             = c.get("soil"),
+                # `soil_profile` — the key columns.json actually uses, and the
+                # one elm_experiment_builder feeds to the generator as
+                # mcp_data. Reading c["soil"] returned None for every column,
+                # so every surface file was built from an EMPTY soil dict and
+                # they all collapsed to one identical file (hash 99914b, the
+                # hash of {}). The run would have completed normally with
+                # every column carrying template soil instead of its own.
+                soil             = c.get("soil_profile") or c.get("soil"),
                 surface_template = tmpl,
                 soil_config      = soil_config,
                 substrate        = substrate,
@@ -176,8 +183,12 @@ def build_all(run_dir:     Path,
     res = {"run_dir": str(run_dir), "n_columns": len(cols),
            "built": built, "failed": failed,
            "warm_started": bool(donors)}
-    (run_dir / "01_inputs" / "column_inputs.json").write_text(
-        json.dumps(res, indent=2))
+    # mkdir, because this is the LAST line: the pipeline always has
+    # 01_inputs/ but a standalone run on a bare directory does not, and
+    # crashing here would discard every file just generated.
+    manifest = run_dir / "01_inputs" / "column_inputs.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(res, indent=2))
     if not quiet:
         print(f"\n  {len(built)}/{len(built) + len(failed)} column(s) built "
               f"→ 01_inputs/column_inputs.json")
