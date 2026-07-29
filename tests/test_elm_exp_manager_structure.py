@@ -594,8 +594,33 @@ class TestPackage:
         undocumented = reported - set(sem)
         assert not undocumented, f"fields with no stated meaning: {undocumented}"
         assert sem["precip_mm_yr"]["from"] == ["RAIN", "SNOW"]
-        assert set(sem["annual_runoff_mm_yr"]["from"]) == {"QOVER", "QDRAI"}
         assert all("units" in v for v in sem.values())
+
+    def test_the_fractions_are_declared_as_a_split_not_of_precipitation(
+            self, tmp_path):
+        """runoff_fraction is QOVER/(QCHARGE+QOVER), NOT runoff/P.
+
+        They sum to 1 by construction even when both terms are ~0, which on
+        the 2019 Gunnison run made columns draining ~0 mm/yr report
+        recharge_fraction = 1.00. Declaring them against precip_mm_yr — as
+        the first version of FIELD_SEMANTICS did — tells a reader to multiply
+        by P and get a number too large by P/(QCHARGE+QOVER)."""
+        _, pkg = self._pkg(tmp_path)
+        sem = pkg["field_semantics"]
+        for f in ("runoff_fraction", "recharge_fraction"):
+            assert set(sem[f]["from"]) == {"QOVER", "QCHARGE"}, \
+                f"{f} must be declared as the recharge/runoff split"
+            assert "precip" not in " ".join(sem[f]["from"]).lower()
+            assert "not a fraction of precipitation" in sem[f].get("note", "")
+
+    def test_runoff_is_declared_as_surface_only(self, tmp_path):
+        """annual_runoff_mm_yr is QOVER alone. QDRAI is excluded, so it is
+        NOT the streamflow-comparable total — and a validation that compares
+        it to a gauge without saying so is comparing two different things."""
+        _, pkg = self._pkg(tmp_path)
+        sem = pkg["field_semantics"]["annual_runoff_mm_yr"]
+        assert sem["from"] == ["QOVER"]
+        assert "QDRAI" in sem["note"] and "NOT" in sem["note"]
 
     def test_domain_and_period_come_from_the_brief(self, tmp_path):
         _, pkg = self._pkg(tmp_path, config={"brief": {

@@ -297,19 +297,62 @@ class ExperimentManagerBase:
 									"note": "TOTAL precipitation: rain + snow"},
 		"rainfall_mm_yr":          {"units": "mm/yr", "from": ["RAIN"]},
 		"snowfall_mm_yr":          {"units": "mm/yr", "from": ["SNOW"]},
-		"annual_runoff_mm_yr":     {"units": "mm/yr", "from": ["QOVER", "QDRAI"],
-									"note": "surface + subsurface drainage, "
-											"the streamflow-comparable total"},
+		"annual_runoff_mm_yr":     {"units": "mm/yr", "from": ["QOVER"],
+									"note": "SURFACE runoff only. QDRAI "
+											"(subsurface drainage) is NOT "
+											"included, so this is not the "
+											"streamflow-comparable total"},
 		"annual_recharge_mm_yr":   {"units": "mm/yr", "from": ["QCHARGE"]},
-		"runoff_fraction":         {"units": "1", "from": ["annual_runoff_mm_yr",
-														   "precip_mm_yr"]},
-		"recharge_fraction":       {"units": "1", "from": ["annual_recharge_mm_yr",
-														   "precip_mm_yr"]},
+		# NOT fractions of precipitation. Both denominators are
+		# (QCHARGE + QOVER): these say how the drainage SPLITS between
+		# recharge and runoff, and they sum to 1 by construction even when
+		# both terms are ~0. Reading them as runoff/P is wrong by a factor
+		# of P/(QCHARGE+QOVER) — on the 2019 Gunnison run that made columns
+		# draining ~0 mm/yr report recharge_fraction = 1.00.
+		"runoff_fraction":         {"units": "1",
+									"from": ["QOVER", "QCHARGE"],
+									"note": "QOVER / (QCHARGE + QOVER) — the "
+											"recharge-vs-runoff SPLIT, not a "
+											"fraction of precipitation"},
+		"recharge_fraction":       {"units": "1",
+									"from": ["QCHARGE", "QOVER"],
+									"note": "QCHARGE / (QCHARGE + QOVER) — the "
+											"recharge-vs-runoff SPLIT, not a "
+											"fraction of precipitation"},
+		"recharge_to_runoff_ratio": {"units": "1", "from": ["QCHARGE", "QOVER"]},
+		"precip_total_mm_yr":      {"units": "mm/yr", "from": ["RAIN", "SNOW"],
+									"note": "water-budget total; "
+											"precip_mm_yr is the same sum"},
+		"water_budget":            {"units": "mm/yr", "from": ["RAIN", "SNOW",
+															   "QOVER", "QDRAI",
+															   "QCHARGE", "TWS"]},
 		"water_table_depth_m":     {"units": "m", "from": ["ZWT"],
 									"note": "positive downward from the surface"},
 		"peak_swe_mm":             {"units": "mm", "from": ["H2OSNO"]},
 		"tws_seasonal_range_mm":   {"units": "mm", "from": ["TWS"]},
 	}
+
+	def _variable_units(self, results: Any) -> Dict[str, str]:
+		"""Units for the raw model variables, wherever the backend keeps them.
+
+		ELMResultsAnalyzer puts them in summary['units']; a bare namespace may
+		expose .units. Reading only the second gave an EMPTY units block on
+		the 2019 Gunnison run — a results package that states no units is
+		exactly the failure FIELD_SEMANTICS exists to prevent.
+		"""
+		for src in (getattr(results, "units", None),
+					(getattr(results, "summary", None) or {}).get("units"),
+					(self.analysis_dir / "hydro_summary.json")):
+			if isinstance(src, dict) and src:
+				return src
+			if isinstance(src, Path) and src.exists():
+				try:
+					u = (json.loads(src.read_text()) or {}).get("units")
+					if u:
+						return u
+				except Exception:
+					pass
+		return {}
 
 	def _package(self,
 				 plan:    Dict[str, Any],
@@ -357,8 +400,7 @@ class ExperimentManagerBase:
 			"columns_succeeded": len(ok),
 			# What the numbers MEAN — see FIELD_SEMANTICS above.
 			"field_semantics":   self.FIELD_SEMANTICS,
-			"variable_units":    getattr(results, "units", None)
-								 or (getattr(results, "summary", {}) or {}).get("units"),
+			"variable_units":    self._variable_units(results),
 			"strategy_check":    self.strategy_report,
 			"goals":             plan.get("goals"),
 			"columns":           rows,
