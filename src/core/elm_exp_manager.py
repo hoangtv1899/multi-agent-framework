@@ -46,6 +46,7 @@ from typing   import Dict, Any, List
 
 sys.path.insert(0, "src")
 
+from agents.analyzer          import Analyzer
 from core.elm_experiment_builder import ELMExperimentBuilder
 from core.elm_results_analyzer   import ELMResultsAnalyzer
 from core.columns_to_plan        import columns_to_elm_plan
@@ -60,8 +61,7 @@ def _load_tool(name: str):
 
 	The manager and the standalone CLIs then share ONE implementation of each
 	stage instead of drifting apart: expand_sampling (materialize),
-	make_warmstart (0b), plot_columns (setup figures), analyze_run (4),
-	validate_run (4b), interpret_run (4c), build_pflotran_cases +
+	make_warmstart (0b), plot_columns (setup figures), build_pflotran_cases +
 	analyze_pflotran_coupled (4d).
 	"""
 	import importlib.util
@@ -82,10 +82,13 @@ class ELMExpManager:
 	"""
 	Executes ELM experiment plans.
 
-	Stages: materialize -> warm start -> build -> prepare -> run -> analyze
-	-> validate -> interpret -> couple -> package. Steps 0, 0b, 4/4b/4c and 4d
-	delegate to the tools/ CLIs via _load_tool(), so both entry points share
-	one implementation.
+	Stages: materialize -> warm start -> build -> prepare -> run -> extract
+	-> couple -> package. Steps 0, 0b, 4 and 4d delegate to the tools/ CLIs
+	via _load_tool(), so both entry points share one implementation.
+
+	Figures, observation validation and interpretation are NOT here — they are
+	the Analyzer (src/agents/analyzer.py), which execute_plan invokes after
+	extraction.
 	"""
 
 	def __init__(self,
@@ -161,21 +164,19 @@ class ELMExpManager:
 			print("-" * 40)
 			results = self._run(experiments, config)
 
-			# Step 4 — Analyze → 04_analysis/
-			print("\n📊 STEP 4: Analyzing Results")
+			# Step 4 — Extract → 04_analysis/. Reading ELM's own history
+			# format is this backend's job; saying what the numbers mean is
+			# not, and everything past this line belongs to the Analyzer.
+			print("\n📊 STEP 4: Extracting Results")
 			print("-" * 40)
-			analyzer = self._analyze(
+			analyzer = self._extract(
 				experiments, plan=experiment_plan, config=config)
 
-			# Step 4b/4c — validate against observations, then interpret.
-			# Both are non-fatal; the run stands without them.
-			print("\n🔭 STEP 4b: Validating Against Observations")
+			# The Analyzer box — figures, observation comparison,
+			# interpretation. Non-fatal as a whole: the run stands without it.
+			print("\n🔭 STEP 4b: Analyzer")
 			print("-" * 40)
-			self._validate(config)
-
-			print("\n🧭 STEP 4c: Interpreting")
-			print("-" * 40)
-			self._interpret(config)
+			Analyzer(str(self.run_dir)).run(results=analyzer, config=config)
 
 			# Step 4d — one-way ELM → PFLOTRAN coupling, when the plan asks
 			# for it. Non-fatal: the ELM study stands on its own.
@@ -378,7 +379,7 @@ class ELMExpManager:
 		)
 
 		merged = {**plan, **executable}
-		# The honesty payload reads this back in _analyze; without it an
+		# The honesty payload reads this back in _extract; without it an
 		# integrated run shipped an empty ledger.
 		(self.run_dir / "assumptions.json").write_text(
 			json.dumps(executable.get("assumptions_ledger", []), indent=2))
@@ -750,12 +751,16 @@ class ELMExpManager:
 	# ─────────────────────────────────────────────────────────
 	# STEP 4 — ANALYZE (writes to 04_analysis/)
 	# ─────────────────────────────────────────────────────────
-	def _analyze(self,
+	def _extract(self,
 				 experiments,
-				 skip_plotting: bool = False,
-				 plan:          Dict[str, Any] = None,
-				 config:        Dict[str, Any] = None) -> ELMResultsAnalyzer:
-		"""Extract variables from ELM history files into 04_analysis/.
+				 plan:   Dict[str, Any] = None,
+				 config: Dict[str, Any] = None) -> ELMResultsAnalyzer:
+		"""Read the ELM history NetCDFs and pull the numbers out → 04_analysis/.
+
+		This is extraction, not analysis: it knows ELM's output format and
+		nothing about what the numbers mean. Figures, observation comparison
+		and interpretation belong to the Analyzer (src/agents/analyzer.py) and
+		are no longer reachable from here.
 
 		Also attaches the honesty payload (structural + configuration
 		limitations, assumptions ledger). ELMResultsAnalyzer already computes
@@ -800,123 +805,7 @@ class ELMExpManager:
 
 		analyzer.extract_all()
 
-		if not skip_plotting:
-			self._plot_analysis(analyzer)
-
 		return analyzer
-
-	def _plot_analysis(self, analyzer: ELMResultsAnalyzer) -> None:
-		"""04_analysis/ figures — the same five tools/analyze_run.py --plot draws.
-
-		These are the science figures: partitioning (fractions of P per column),
-		controls (fractions vs drivers, confound shown), soil_control (forcing
-		held constant) and wtd_columns. They read the ensemble, so they answer
-		questions about the ensemble.
-
-		They replaced ELMResultsAnalyzer.plot_all(), which drew a 2-panel
-		<case>_overview.png per column plus one comparison figure. That set had
-		no elevation gradient, no soil attribution, no water-budget closure and
-		no WTD panel — everything the study is actually about — and it meant an
-		integrated run produced a strictly weaker figure set than the same run
-		analysed from the command line. Non-fatal.
-		"""
-		try:
-			ar      = _load_tool("analyze_run")
-			soil    = analyzer._compute_soil_attribution()
-
-			n = 0
-			ar.plot_partitioning(analyzer.results,
-								 self.analysis_dir / "partitioning.png"); n += 1
-			ar.plot_controls(analyzer.results,
-							 self.analysis_dir / "controls.png"); n += 1
-			ar.plot_spatial(analyzer.results, self.run_dir,
-							self.analysis_dir / "spatial.png"); n += 1
-			ar.plot_wtd(analyzer.results, self.run_dir,
-						self.analysis_dir / "wtd_columns.png"); n += 1
-			if soil:
-				ar.plot_soil(soil, self.analysis_dir / "soil_control.png"); n += 1
-			print(f"✓ {n} analysis figure(s) → 04_analysis/")
-		except Exception as e:
-			print(f"   ⚠️  analysis plots failed: {e}")
-
-	# ─────────────────────────────────────────────────────────
-	# STEP 4b — VALIDATE AGAINST OBSERVATIONS
-	# ─────────────────────────────────────────────────────────
-	def _validate(self, config: Dict[str, Any]) -> bool:
-		"""Compare the run against in-domain observations (USGS wells and
-		gauges, SNOTEL SWE) -> 04_analysis/validation.json + validation.png.
-
-		Reuses tools/validate_run.build_validation() rather than
-		reimplementing it. Non-fatal: needs live MCP + network, and a run is
-		still useful without it.
-		"""
-		clients = (config or {}).get("mcp_clients") or {}
-		if not clients:
-			print("   ⚠️  no MCP clients — skipping observation validation")
-			return False
-		try:
-			vr = _load_tool("validate_run")
-			val = vr.build_validation(self.run_dir, clients)
-			(self.analysis_dir / "validation.json").write_text(
-				json.dumps(val, indent=2, default=str))
-			try:
-				vr.plot_validation(val, self.analysis_dir / "validation.png")
-			except Exception as e:
-				print(f"   ⚠️  validation plot failed: {e}")
-			n = sum(1 for t in (val.get("targets") or [])
-					if t.get("status") == "compared")
-			print(f"✓ validation: {n} target(s) compared → 04_analysis/validation.json")
-			return True
-		except Exception as e:
-			print(f"   ⚠️  observation validation failed ({e}) — continuing")
-			return False
-
-	# ─────────────────────────────────────────────────────────
-	# STEP 4c — INTERPRET (numbers + feasibility + validation)
-	# ─────────────────────────────────────────────────────────
-	def _interpret(self, config: Dict[str, Any]) -> bool:
-		"""The Analyzer: choose figures, render, LOOK at them, interpret.
-
-		Agentic by default — it picks which figures answer the question rather
-		than emitting a fixed set, renders them from the vetted registry, and
-		reviews each rendering by sight before writing the interpretation.
-		config['agentic_analyzer']=False falls back to the one-shot interpreter.
-
-		Flexible in what it explores; bound in what it may claim. Numbers must
-		trace to the JSON, every figure records its provenance, and the
-		validation verdicts (context-only, the domain-match and impossible-ratio
-		refusals) are not negotiable. Non-fatal either way.
-		"""
-		cfg = config or {}
-		model = cfg.get("interpreter_model", "claude-opus-4-8-project")
-		if cfg.get("agentic_analyzer", True):
-			try:
-				ag = _load_tool("analyze_agentic")
-				import sys as _sys
-				argv = _sys.argv
-				_sys.argv = ["analyze_agentic", "--run-dir", str(self.run_dir),
-							 "--model", model]
-				if not cfg.get("analyzer_vision", True):
-					_sys.argv.append("--no-vision")
-				try:
-					ag.main()
-				finally:
-					_sys.argv = argv
-				print("✓ analysis → 04_analysis/{analysis_plan,figure_captions}.json"
-					  " + interpretation.md")
-				return True
-			except SystemExit as e:
-				print(f"   ⚠️  agentic analyzer stopped ({e}) — falling back")
-			except Exception as e:
-				print(f"   ⚠️  agentic analyzer failed ({e}) — falling back")
-		try:
-			ir = _load_tool("interpret_run")
-			ir.interpret(self.run_dir, model=model, quiet=True)
-			print("✓ interpretation → 04_analysis/interpretation.md")
-			return True
-		except Exception as e:
-			print(f"   ⚠️  interpretation failed ({e}) — continuing")
-			return False
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 4d — ONE-WAY ELM → PFLOTRAN COUPLING

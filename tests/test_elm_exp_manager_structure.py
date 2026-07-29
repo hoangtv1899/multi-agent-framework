@@ -11,7 +11,7 @@ Verifies:
          _build()    → 01_inputs/experiment_summary.json
          _run()      → 03_results/execution_report.txt
                      → 03_results/results_summary.csv
-         _analyze()  → 04_analysis/ (via ELMResultsAnalyzer)
+         _extract()  → 04_analysis/ (via ELMResultsAnalyzer)
     3. Top-level files (LLM_ANALYSIS_INPUT.json, RUN_SUMMARY.json)
        stay at run_dir top-level, not under any subdir.
     4. Analysis figures never create a "plots/" subdir — they save
@@ -269,11 +269,11 @@ class TestRunStepOutputs:
 
 
 # ═════════════════════════════════════════════════════════════════════
-# CATEGORY 4 — STEP 4: ANALYZE → 04_analysis/
+# CATEGORY 4 — STEP 4: EXTRACT → 04_analysis/
 # ═════════════════════════════════════════════════════════════════════
 
 class TestAnalyzeStepOutputs:
-    """_analyze() points ELMResultsAnalyzer at 04_analysis/."""
+    """_extract() points ELMResultsAnalyzer at 04_analysis/."""
 
     def test_analyzer_receives_04_analysis_as_dir(
             self, tmp_path, fake_experiments):
@@ -284,7 +284,7 @@ class TestAnalyzeStepOutputs:
 
         with patch("core.elm_exp_manager.ELMResultsAnalyzer",
                    mock_class):
-            mgr._analyze(fake_experiments)
+            mgr._extract(fake_experiments)
 
         # Verify the analyzer was constructed with analysis_dir =
         # str(self.analysis_dir), which is 04_analysis/
@@ -409,19 +409,68 @@ class TestAnalyzerNoPlotsSubdir:
 
     def test_plotting_does_not_create_plots_subdir(self, tmp_path):
         """
-        _plot_analysis on an empty analyzer must not produce a plots/ subdir
-        under 04_analysis/, and must not raise. (Guards the invariant that
-        used to be tested against the removed ELMResultsAnalyzer.plot_all.)
+        Analyzer.figures() on an empty analyzer must not produce a plots/
+        subdir under 04_analysis/, and must not raise. (Guards the invariant
+        that used to be tested against the removed
+        ELMResultsAnalyzer.plot_all.)
         """
+        from agents.analyzer import Analyzer
         mgr = ELMExpManager(base_output_dir=str(tmp_path))
         analyzer = ELMResultsAnalyzer(
             experiments  = [],
             analysis_dir = str(mgr.analysis_dir),
         )
-        mgr._plot_analysis(analyzer)          # non-fatal by contract
+        Analyzer(str(mgr.run_dir)).figures(analyzer)   # non-fatal by contract
         assert not (mgr.analysis_dir / "plots").exists()
 
 
 # ═════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+# ═════════════════════════════════════════════════════════════════════
+# CATEGORY 4c — THE ANALYZER IS A SEPARATE BOX
+# ═════════════════════════════════════════════════════════════════════
+
+class TestAnalyzerBoundary:
+    """Figures, validation and interpretation left the Experiment Manager.
+
+    The manager runs the model; the Analyzer says what the numbers mean. The
+    two used to be one class, which made 'the run finished' and 'the run
+    showed something' the same judgement. Guards the split.
+    """
+
+    def test_manager_no_longer_owns_analysis_stages(self):
+        for gone in ("_analyze", "_plot_analysis", "_validate", "_interpret"):
+            assert not hasattr(ELMExpManager, gone), (
+                f"{gone} is back on the manager — analysis belongs to "
+                f"src/agents/analyzer.py")
+        assert hasattr(ELMExpManager, "_extract"), (
+            "the manager must keep extraction: reading ELM history NetCDFs "
+            "is a property of the backend, not of the analysis")
+
+    def test_every_analyzer_stage_is_non_fatal(self, tmp_path):
+        """A run stands without figures, observations or prose.
+
+        Each stage returns False rather than raising, and run() survives all
+        three failing at once — losing the interpretation must never cost the
+        compute that produced it.
+        """
+        from agents.analyzer import Analyzer
+        az = Analyzer(str(tmp_path / "run"), verbose=False)
+
+        # no MCP clients, no results, nothing on disk to interpret
+        assert az.validate({}) is False
+        assert az.figures(object()) is False           # no .results attribute
+        out = az.run(results=None, config={"agentic_analyzer": False})
+        assert set(out) == {"figures", "validation", "interpretation"}
+        assert out["figures"] is False                 # skipped without results
+        assert all(v is False for v in out.values())
+
+    def test_analyzer_creates_its_own_analysis_dir(self, tmp_path):
+        """It must work against a run directory it did not create itself —
+        that is how it is invoked against an older run."""
+        from agents.analyzer import Analyzer
+        az = Analyzer(str(tmp_path / "old_run"), verbose=False)
+        assert az.analysis_dir.exists()
+        assert az.analysis_dir.name == "04_analysis"
