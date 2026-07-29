@@ -648,3 +648,52 @@ class TestPackage:
                 results={r["case_name"]: r for r in rows}), {})
         assert as_list["columns_total"] == as_dict["columns_total"] == 2
         assert as_list["columns_succeeded"] == as_dict["columns_succeeded"] == 2
+
+
+class TestInputPreBuild:
+    """_build_inputs() runs before any CIME work.
+
+    It changes nothing about WHAT ELM receives — the generators key on
+    coordinates plus a content hash, so the builder's own calls become cache
+    hits on these files (verified equivalent across the 19 columns of the
+    2019 Upper Gunnison run). It changes WHEN a failure is visible: buried in
+    _build_one it surfaces partway through case creation, after CIME work has
+    started.
+    """
+
+    def test_it_runs_before_the_builder(self):
+        import inspect
+        src = inspect.getsource(ELMExpManager._build)
+        assert src.index("_build_inputs") < src.index("ELMExperimentBuilder"), \
+            "inputs must be built BEFORE the builder, or the early warning " \
+            "is worth nothing"
+
+    def test_it_is_non_fatal(self, tmp_path):
+        """The builder keeps its own generation path, so a failure here costs
+        the early warning and the manifest — not the run."""
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        assert mgr._build_inputs({}) == {}      # no columns.json, no raise
+
+    def test_it_forwards_the_soil_settings(self, tmp_path, monkeypatch):
+        """soil_config and substrate are part of the surface file's identity;
+        dropping them would generate a different file than the builder asks
+        for and defeat the cache-hit equivalence."""
+        import core.elm_exp_manager as M
+        seen = {}
+        fake = type("m", (), {"build_all": staticmethod(
+            lambda rd, **kw: seen.update(kw) or {"built": {}, "failed": {}})})
+        monkeypatch.setattr(M, "_load_tool", lambda name: fake)
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        mgr._build_inputs({"soil_config": "sandy", "substrate": "template"})
+        assert seen["soil_config"] == "sandy"
+        assert seen["substrate"] == "template"
+
+    def test_defaults_match_the_builders(self, tmp_path, monkeypatch):
+        import core.elm_exp_manager as M
+        seen = {}
+        fake = type("m", (), {"build_all": staticmethod(
+            lambda rd, **kw: seen.update(kw) or {"built": {}, "failed": {}})})
+        monkeypatch.setattr(M, "_load_tool", lambda name: fake)
+        ELMExpManager(base_output_dir=str(tmp_path))._build_inputs({})
+        assert seen["soil_config"] == "native"
+        assert seen["substrate"] == "extrapolate"

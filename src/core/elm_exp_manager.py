@@ -335,10 +335,52 @@ class ELMExpManager(ExperimentManagerBase):
 	# ─────────────────────────────────────────────────────────
 	# STEP 1 — BUILD (writes to 01_inputs/)
 	# ─────────────────────────────────────────────────────────
+	def _build_inputs(self, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""domain.nc + surface.nc per column, before any CIME work.
+
+		The builder generates these itself, per coupler, deep inside
+		_build_one(). Doing it here first changes nothing about WHAT ELM
+		receives — the generators key their output on coordinates plus a
+		content hash, so the builder's calls become cache hits on the very
+		files written here. Verified against the 19-column 2019 Upper
+		Gunnison run: every filename matches what that run actually used.
+
+		What it changes is when you find out. Surface generation reads the
+		CONUS donor and can fail for a column; buried in _build_one that
+		surfaces partway through case creation, after CIME work has begun.
+		Here it fails before anything expensive starts, names the column, and
+		leaves 01_inputs/column_inputs.json saying which columns have inputs
+		and which do not.
+
+		Non-fatal by design: the builder retains its own generation path, so
+		a failure here costs the early warning and the manifest, not the run.
+		"""
+		try:
+			bci = _load_tool("build_column_inputs")
+			res = bci.build_all(
+				self.run_dir,
+				soil_config = config.get("soil_config", "native"),
+				substrate   = config.get("substrate",   "extrapolate"),
+				quiet       = True,
+			)
+			n_ok, n_bad = len(res.get("built") or {}), len(res.get("failed") or {})
+			print(f"✓ column inputs: {n_ok} built"
+				  + (f", {n_bad} FAILED" if n_bad else "")
+				  + ("  (warm)" if res.get("warm_started") else "  (cold)"))
+			for cid, why in (res.get("failed") or {}).items():
+				print(f"   ⚠️  {cid}: {why}")
+			return res
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   ⚠️  pre-building column inputs failed ({e}) — the "
+				  f"builder will generate them per column instead")
+			return {}
+
 	def _build(self,
 			   plan:   Dict[str, Any],
 			   config: Dict[str, Any]) -> List[Dict]:
 		"""Build the ELMAgentAdapter list from the plan (per-column surfaces)."""
+		self._build_inputs(config)
+
 		builder     = ELMExperimentBuilder(plan)
 		self._builder = builder          # reused by _prepare for the fast path
 		experiments = builder.build_experiments()
