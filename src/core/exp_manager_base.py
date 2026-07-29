@@ -49,7 +49,7 @@ import json
 import sys
 from pathlib  import Path
 from datetime import datetime
-from typing   import Any, Dict, List
+from typing   import Any, Dict, List, Optional
 
 sys.path.insert(0, "src")
 
@@ -354,6 +354,70 @@ class ExperimentManagerBase:
 					pass
 		return {}
 
+	def _ensemble_blocks(self, results: Any) -> Dict[str, Any]:
+		"""Whole-ensemble products, plus the honesty payload.
+
+		Read from the extraction the backend just wrote rather than from the
+		results object, because that file is the authoritative record of what
+		was extracted and it exists by the time this stage runs. Missing
+		blocks are omitted rather than nulled — a key that is absent says
+		"not computed", where a null says "computed as nothing".
+		"""
+		out: Dict[str, Any] = {}
+		hs: Dict[str, Any] = {}
+		f = self.analysis_dir / "hydro_summary.json"
+		if f.exists():
+			try:
+				hs = json.loads(f.read_text()) or {}
+			except Exception as e:
+				print(f"   ⚠️  could not read the extraction ({e})")
+		for k in ("comparisons", "spatial_summary", "soil_attribution",
+				  "driver_matrix"):
+			if hs.get(k):
+				out[k] = hs[k]
+
+		# The honesty payload: what this run cannot support, and what was
+		# assumed to make it runnable. It reached the written report but not
+		# the package, so an Analyzer reading only this file would have
+		# stated conclusions with none of the caveats attached.
+		extra = getattr(results, "extra_summary", None) or {}
+		for k in ("limitations", "assumptions_ledger"):
+			v = extra.get(k) or hs.get(k)
+			if v:
+				out[k] = v
+		if "assumptions_ledger" not in out:
+			af = self.run_dir / "assumptions.json"
+			if af.exists():
+				try:
+					led = json.loads(af.read_text())
+					if led:
+						out["assumptions_ledger"] = led
+				except Exception:
+					pass
+		return out
+
+	def _sampling_blocks(self) -> Dict[str, Any]:
+		"""Basin outline and how the columns were drawn.
+
+		sampling_domain records whether the sample was clipped to the
+		watershed or fell back to the raw bounding box. That is not
+		decoration: a bbox sample does not represent the basin that was asked
+		about, and an Analyzer that cannot see the difference will describe
+		one as the other.
+		"""
+		out: Dict[str, Any] = {}
+		f = _resolve_columns(self.run_dir)
+		if not f:
+			return out
+		try:
+			cj = json.loads(f.read_text()) or {}
+		except Exception:
+			return out
+		for k in ("boundary", "sampling_domain", "grid", "bands"):
+			if cj.get(k):
+				out[k] = cj[k]
+		return out
+
 	def _package(self,
 				 plan:    Dict[str, Any],
 				 results: Any,
@@ -404,11 +468,28 @@ class ExperimentManagerBase:
 			"strategy_check":    self.strategy_report,
 			"goals":             plan.get("goals"),
 			"columns":           rows,
+
+			# ── ENSEMBLE-LEVEL PRODUCTS ──────────────────────────────
+			# The first cut of this stage took the per-column rows and left
+			# these behind, so hydro_summary.json carried MORE than the
+			# package that was supposed to replace it and the Analyzer went
+			# on reading five files. Each of these is consumed by something:
+			# soil_attribution by the soil_control figure, driver_matrix and
+			# comparisons by controls, spatial_summary by the spatial map.
+			**self._ensemble_blocks(results),
+
+			# ── WHERE THE COLUMNS CAME FROM ──────────────────────────
+			# boundary and sampling_domain draw the basin outline on the
+			# spatial maps, and say whether the ensemble is a watershed
+			# sample or a bbox fallback — which changes what the figures
+			# are entitled to claim.
+			**self._sampling_blocks(),
+
 			"artifacts": {
 				"sampling_design": "sampling_design.png",
-				"columns":         "columns.json",
-				"run_plan":        "run_plan.json",
 				"extracted":       "04_analysis/hydro_summary.json",
+				"note": "hydro_summary.json holds the same per-column rows; "
+						"this file is the one the Analyzer reads",
 			},
 		}
 		(self.run_dir / "experiment.json").write_text(
@@ -582,6 +663,14 @@ if __name__ == "__main__":
     print("  from core.elm_exp_manager import ELMExpManager")
     print("  mgr = ELMExpManager()")
     print("  run_summary = mgr.execute_plan(plan, {})")
+
+
+def _resolve_columns(run_dir: Path) -> Optional[Path]:
+	"""columns.json, canonical location first, then the legacy top level."""
+	for p in (run_dir / "01_inputs" / "columns.json", run_dir / "columns.json"):
+		if p.exists():
+			return p
+	return None
 
 
 def _load_tool(name: str):

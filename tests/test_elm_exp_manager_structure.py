@@ -697,3 +697,82 @@ class TestInputPreBuild:
         ELMExpManager(base_output_dir=str(tmp_path))._build_inputs({})
         assert seen["soil_config"] == "native"
         assert seen["substrate"] == "extrapolate"
+
+
+class TestPackageCarriesTheEnsemble:
+    """experiment.json must be sufficient on its own.
+
+    The first cut took the per-column rows and left the ensemble-level
+    products behind, so hydro_summary.json carried MORE than the package
+    meant to replace it — and the Analyzer went on reading five files.
+    """
+
+    def _run_dir(self, tmp_path, hydro=None, columns=None, extra=None):
+        import types
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        if hydro is not None:
+            (mgr.analysis_dir / "hydro_summary.json").write_text(
+                json.dumps(hydro))
+        if columns is not None:
+            (mgr.run_dir / "columns.json").write_text(json.dumps(columns))
+        res = types.SimpleNamespace(
+            results=[{"case_name": "col_01", "status": "ok",
+                      "metrics": {"precip_mm_yr": 900.0}}],
+            extra_summary=extra or {})
+        return mgr, mgr._package({}, res, {})
+
+    def test_ensemble_products_are_carried(self, tmp_path):
+        _, pkg = self._run_dir(tmp_path, hydro={
+            "soil_attribution": {"a": 1}, "driver_matrix": {"b": 2},
+            "comparisons": [{"c": 3}], "spatial_summary": {"d": 4}})
+        for k in ("soil_attribution", "driver_matrix", "comparisons",
+                  "spatial_summary"):
+            assert pkg.get(k), f"{k} was dropped — a figure depends on it"
+
+    def test_absent_is_omitted_not_nulled(self, tmp_path):
+        """An empty block means 'not computed for this run' — the 2019
+        Gunnison run had soil_attribution={} and drew no soil_control figure.
+        Emitting it as null would say 'computed as nothing', which is a
+        different claim."""
+        _, pkg = self._run_dir(tmp_path, hydro={
+            "soil_attribution": {}, "comparisons": [],
+            "driver_matrix": {"b": 2}})
+        assert "soil_attribution" not in pkg
+        assert "comparisons" not in pkg
+        assert pkg["driver_matrix"] == {"b": 2}
+
+    def test_the_honesty_payload_reaches_the_package(self, tmp_path):
+        """limitations and the assumptions ledger reached the written report
+        but not the package. An Analyzer reading only this file would have
+        stated conclusions with none of the caveats attached."""
+        _, pkg = self._run_dir(
+            tmp_path, hydro={},
+            extra={"limitations": [{"l": 1}], "assumptions_ledger": [{"a": 1}]})
+        assert pkg["limitations"] == [{"l": 1}]
+        assert pkg["assumptions_ledger"] == [{"a": 1}]
+
+    def test_assumptions_fall_back_to_the_ledger_file(self, tmp_path):
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        (mgr.run_dir / "assumptions.json").write_text(json.dumps([{"a": 9}]))
+        import types
+        pkg = mgr._package({}, types.SimpleNamespace(results=[]), {})
+        assert pkg["assumptions_ledger"] == [{"a": 9}]
+
+    def test_sampling_provenance_is_carried(self, tmp_path):
+        """Whether the sample was clipped to the watershed or fell back to the
+        raw bbox changes what the figures are entitled to claim."""
+        _, pkg = self._run_dir(tmp_path, hydro={}, columns={
+            "boundary": [[[1, 2]]],
+            "sampling_domain": {"clipped_to_watershed": False,
+                                "caveat": "bbox sample"},
+            "grid": {"n_in_basin": 67}})
+        assert pkg["sampling_domain"]["clipped_to_watershed"] is False
+        assert pkg["boundary"] and pkg["grid"]["n_in_basin"] == 67
+
+    def test_columns_json_is_found_in_either_location(self, tmp_path):
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        (mgr.input_dir / "columns.json").write_text(
+            json.dumps({"sampling_domain": {"clipped_to_watershed": True}}))
+        import types
+        pkg = mgr._package({}, types.SimpleNamespace(results=[]), {})
+        assert pkg["sampling_domain"]["clipped_to_watershed"] is True
