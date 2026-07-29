@@ -429,14 +429,11 @@ def plot(result: Dict[str, Any], out_path) -> str:
                           alpha=0.92))
         ax.grid(alpha=0.25, zorder=0)
 
-    # Facts only: what was compared, over what window. Why the points sit
-    # where they do is the interpretation's business, and the caveats carry it.
-    win = result.get("window")
-    n_un = len(result.get("unpaired") or [])
-    fig.suptitle("SWE — ELM vs SNOTEL", fontweight="bold", fontsize=21, y=1.05)
-    if win:
-        fig.text(0.5, 0.965, f"{win[0]} to {win[1]}", ha="center",
-                 fontsize=13, color="#444")
+    # No overall title and no date strip. Each panel already names its metric,
+    # and the axes name the two sides; the window, the pair count and the
+    # unpaired station are in the returned record, where a caption or the
+    # interpretation can quote them. A figure that repeats its own metadata
+    # spends space saying what the reader already has.
     fig.tight_layout()
     fig.savefig(out_path, dpi=135, bbox_inches="tight")
     plt.close(fig)
