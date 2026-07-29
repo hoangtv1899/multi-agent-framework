@@ -15,7 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from agents.analysis_context import (  # noqa: E402
+from agents.analysis.step0_context import (  # noqa: E402
     load, BLOCKING, QUALIFY, CONTEXT)
 
 

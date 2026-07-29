@@ -104,7 +104,7 @@ class Analyzer:
 		"""
 		try:
 			ar   = _load_tool("analyze_run")
-			from agents import drivers as _drv
+			from agents.analysis import step2_derive as _drv
 			rows = getattr(analyzer, "results", None) or []
 			if isinstance(rows, dict):
 				rows = list(rows.values())

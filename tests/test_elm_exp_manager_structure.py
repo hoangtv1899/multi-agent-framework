@@ -1009,13 +1009,13 @@ class TestDrivers:
     def test_soil_drivers_are_derived_from_the_profile(self):
         """The old code wanted a precomputed clay_max_pct scalar that nothing
         ever wrote. The data arrives as per-layer clay_pct."""
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         dm = drivers.driver_matrix(self._rows())
         assert "clay_max_pct" in dm["drivers"]["available"]
         assert dm["pearson_r"]["runoff"]["clay_max_pct"] is not None
 
     def test_an_impossible_driver_is_named_not_nulled(self):
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         dm = drivers.driver_matrix(self._rows())
         assert "ksat_min_ums" in dm["drivers"]["unavailable"]
         assert "pedotransfer" in dm["drivers"]["unavailable"]["ksat_min_ums"]
@@ -1024,7 +1024,7 @@ class TestDrivers:
     def test_a_constant_series_gives_none_not_zero(self):
         """Correlating against a constant is 0/0. Reporting 0 would claim
         independence that was never measured."""
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         rows = self._rows()
         for r in rows:
             r["elevation_m"] = 2500.0
@@ -1032,21 +1032,21 @@ class TestDrivers:
         assert dm["pearson_r"]["runoff"].get("elevation_m") is None
 
     def test_too_few_columns_is_not_a_correlation(self):
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         dm = drivers.driver_matrix(self._rows(2))
         assert dm["pearson_r"] == {}
 
     def test_single_forcing_bin_means_elevation_unresolved(self):
         """One forcing value across every column means the gradient is not
         resolved and no elevation claim can rest on it."""
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         rows = self._rows()
         for r in rows:
             r["metrics"]["precip_mm_yr"] = 500.0
         assert drivers.spatial_summary(rows)["forcing"]["elevation_resolved"] is False
 
     def test_spatial_summary_aggregates_by_band(self):
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         ss = drivers.spatial_summary(self._rows())
         assert ss["n_bands"] == 3
         assert all("mean" in b for b in ss["by_band"].values())
@@ -1075,7 +1075,7 @@ class TestSoilAttribution:
                 for i, (p, c) in enumerate(zip(precips, clays))]
 
     def test_it_holds_forcing_constant(self):
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         sa = drivers.soil_attribution(
             self._rows([500, 500, 500, 900], [20, 30, 40, 25]))
         assert sa["available"] is True
@@ -1087,14 +1087,14 @@ class TestSoilAttribution:
         ensemble rarely puts 3 columns in one bin. Two is still informative —
         same forcing, different recharge, so soil — but it is not a
         correlation and must not be dressed up as one."""
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         sa = drivers.soil_attribution(self._rows([500, 500, 900], [20, 40, 25]))
         assert sa["available"] is True and sa["n_columns"] == 2
         assert sa["soil_correlation"]["recharge_vs_clay_max"] is None
         assert "too few columns" in sa["strongest_predictor"]
 
     def test_no_shared_bin_says_why(self):
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         sa = drivers.soil_attribution(self._rows([400, 600, 900], [20, 30, 40]))
         assert sa["available"] is False
         assert "forcing bin" in sa["reason"]
@@ -1102,7 +1102,7 @@ class TestSoilAttribution:
     def test_missing_soil_says_why_rather_than_returning_empty(self):
         """Returning {} is what hid this for months — indistinguishable from
         'computed, found nothing'."""
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         rows = self._rows([500, 500], [20, 30])
         for r in rows:
             r.pop("soil_profile")
@@ -1113,7 +1113,7 @@ class TestSoilAttribution:
         """plot_soil reads by_recharge, soil_correlation, forcing_held_mm_yr
         and strongest_predictor. The contract is the figure drawing."""
         import importlib.util as u
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         spec = u.spec_from_file_location("ar", ROOT / "tools" / "analyze_run.py")
         ar = u.module_from_spec(spec); spec.loader.exec_module(ar)
         sa = drivers.soil_attribution(
@@ -1126,7 +1126,7 @@ class TestSoilAttribution:
 class TestComparisons:
     def test_ratio_is_none_rather_than_infinite(self):
         """A zero minimum is a real result. inf in a report reads as a bug."""
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         rows = [{"case_name": "a", "metrics": {"annual_runoff_mm_yr": 0.0}},
                 {"case_name": "b", "metrics": {"annual_runoff_mm_yr": 200.0}}]
         c = next(x for x in drivers.comparisons(rows)
@@ -1134,7 +1134,7 @@ class TestComparisons:
         assert c["ratio"] is None and c["range"] == 200.0
 
     def test_it_carries_units(self):
-        from agents import drivers
+        from agents.analysis import step2_derive as drivers
         rows = [{"case_name": "a", "metrics": {"precip_mm_yr": 400.0}},
                 {"case_name": "b", "metrics": {"precip_mm_yr": 800.0}}]
         assert all("units" in c for c in drivers.comparisons(rows))

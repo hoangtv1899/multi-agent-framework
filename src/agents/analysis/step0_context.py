@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
-Step 0 of the Analyzer: load the run, split it three ways
-src/agents/analysis_context.py
+Analyzer step 0 — load the run, split it three ways
+src/agents/analysis/step0_context.py
+
+    in   reception.json, strategy.json, experiment.json
+    out  AnalysisContext: {plan, data, caveats} + series() + planned_vs_actual()
+
+The ONLY step that opens a file. Everything downstream takes the context and
+returns data, which is what lets any later step run alone against an archived
+run.
 
 Reads the three boundary files — one per upstream box — and returns a context
 split into PLAN, DATA and CAVEATS.

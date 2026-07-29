@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, "src")
 
-from agents import drivers as _drv
+from agents.analysis import step2_derive as _drv
 
 from core.figure_registry import REGISTRY, available, detect_capabilities
 

@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
 """
-What explains the spread across columns
-src/agents/drivers.py
+Analyzer step 2 — what explains the spread across columns
+src/agents/analysis/step2_derive.py
+
+    in   ctx.data (the column rows), and the verdicts from step 1
+    out  driver_matrix, spatial_summary, soil_attribution, comparisons
+
+Every one of these is a CLAIM about the ensemble, which is why they are a
+step of the Analyzer and not part of extraction.
+
+AFTER validation, not before. The two do not consume each other — both need
+only the context — so the order is a choice, and this is the safer one: a
+correlation across columns the gauges say are wrong is a correlation of
+nonsense. Validation's verdicts and the caveats it raises are available here,
+so a driver table can be reported knowing whether the model it describes has
+any purchase on reality.
 
 Correlations and ensemble aggregates, computed by the ANALYZER from the
 package rows rather than baked into extraction.
