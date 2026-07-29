@@ -257,3 +257,78 @@ def plot_maps(result: Dict[str, Any], ctx, out_path, **kw) -> str:
                          label="mean runoff (mm/day)",
                          obs_title="USGS", mod_title="ELM",
                          obs_sizes=sizes, **kw)
+
+
+def plot_series(result: Dict[str, Any], out_path,
+                log: bool = True) -> str:
+    """Two panels side by side: every in-basin gauge, every ELM column.
+
+    NOT paired, and not overlaid. The maps already established these two
+    fields are not comparable point-for-point — a gauge integrates a
+    catchment, a column is 1 m2 unrouted — so drawing them against each other
+    on one axis would assert a correspondence that does not exist. Side by
+    side each field is shown as it is, and the reader compares the SHAPES.
+
+    ONE SHARED y-AXIS. The whole content of the figure is that one field has a
+    coherent seasonal pulse and the other does not; independent axes would
+    scale both to fill their panel and destroy exactly that.
+
+    SYMLOG y. On the 2019 Gunnison run the gauges span 0.1-10 mm/day while the
+    columns run from EXACTLY zero to a 870 mm/day first-day spike. Linear shows
+    only the spike; plain log cannot draw the zeros, and 15 of 19 columns are
+    zero for most of the year — which is the finding, not a gap.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import datetime as _dt
+
+    def _to_dates(ds):
+        out = []
+        for x in ds:
+            try:
+                out.append(_dt.date.fromisoformat(str(x)[:10]))
+            except Exception:
+                out.append(None)
+        return out
+
+    gauges = [g for g in (result.get("gauges") or []) if (g.get("series") or {}).get("dates")]
+    cols   = [c for c in (result.get("columns") or []) if (c.get("series") or {}).get("dates")]
+
+    allv = [v for grp in (gauges, cols) for it in grp
+            for v in (it["series"].get("values") or []) if v is not None]
+    hi = max(allv) if allv else 1.0
+    pos = [v for v in allv if v > 0]
+    lo = min(pos) if pos else 1e-4
+
+    fig, axes = plt.subplots(1, 2, figsize=(17.5, 6.6), sharey=True)
+    for ax, items, title in ((axes[0], gauges, "USGS"),
+                             (axes[1], cols, "ELM")):
+        for it in items:
+            ser = it["series"]
+            xs = _to_dates(ser.get("dates") or [])
+            ys = ser.get("values") or []
+            pts = [(x, y) for x, y in zip(xs, ys)
+                   if x is not None and y is not None]
+            if pts:
+                ax.plot([p[0] for p in pts], [p[1] for p in pts],
+                        lw=1.5, alpha=0.85)
+        if log:
+            ax.set_yscale("symlog", linthresh=max(lo, 1e-5))
+        ax.set_ylim(0, hi * 1.3)
+        ax.set_xlabel("date", fontsize=18)
+        ax.tick_params(labelsize=13)
+        ax.grid(alpha=0.25)
+        for lb in ax.get_xticklabels():
+            lb.set_rotation(30); lb.set_ha("right")
+        ax.text(0.5, 0.97, f"{title}   (n={len(items)})",
+                transform=ax.transAxes, ha="center", va="top",
+                fontsize=24, fontweight="bold", color="#111", zorder=10,
+                bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="#333",
+                          alpha=0.92))
+    axes[0].set_ylabel("runoff (mm/day)", fontsize=18)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=135)
+    plt.close(fig)
+    return str(out_path)

@@ -172,3 +172,44 @@ class TestMaps:
         import inspect
         src = inspect.getsource(sf.plot_maps)
         assert 'label="mean runoff (mm/day)"' in src
+
+
+class TestSeriesFigure:
+    """Two panels side by side, not overlaid.
+
+    The maps already established that a gauge and a column are not comparable
+    point-for-point — a gauge integrates a catchment, a column is 1 m2
+    unrouted. Drawing them against each other on one axis would assert a
+    correspondence that does not exist. Side by side, the reader compares the
+    SHAPES.
+    """
+
+    def test_it_renders(self, tmp_path):
+        pytest.importorskip("matplotlib")
+        out = tmp_path / "sfs.png"
+        sf.plot_series(sf.compare(_ctx()), out)
+        assert out.exists() and out.stat().st_size > 5000
+
+    def test_the_y_axis_is_shared(self):
+        """The content of the figure is that one field has a coherent seasonal
+        pulse and the other does not. Independent axes would scale both to
+        fill their panel and destroy exactly that."""
+        import inspect
+        src = inspect.getsource(sf.plot_series)
+        assert "sharey=True" in src
+        assert "ax.set_ylim(0, hi * 1.3)" in src
+
+    def test_the_scale_is_symlog(self):
+        """Gauges span 0.1-10 mm/day while columns run from EXACTLY zero to a
+        870 mm/day first-day spike. Linear shows only the spike; plain log
+        cannot draw the zeros, and 9 of 19 columns are zero on >=95% of days —
+        which is the finding, not a gap."""
+        import inspect
+        assert 'ax.set_yscale("symlog"' in inspect.getsource(sf.plot_series)
+
+    def test_a_run_with_no_series_still_renders(self, tmp_path):
+        pytest.importorskip("matplotlib")
+        ctx = _Ctx([{"case_name": "c", "variables": {}}], [])
+        out = tmp_path / "none.png"
+        sf.plot_series(sf.compare(ctx), out)
+        assert out.exists()
