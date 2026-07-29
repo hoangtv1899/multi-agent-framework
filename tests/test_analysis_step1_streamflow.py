@@ -197,15 +197,32 @@ class TestSeriesFigure:
         import inspect
         src = inspect.getsource(sf.plot_series)
         assert "sharey=True" in src
-        assert "ax.set_ylim(0, hi * 1.3)" in src
+        # the limit comes from the OBSERVED range, so the model's warm-start
+        # spike cannot compress the gauges into a flat line
+        assert "obsv = [v for g in gauges" in src
+        assert "hi = (max(obsv) * 1.15)" in src
 
-    def test_the_scale_is_symlog(self):
-        """Gauges span 0.1-10 mm/day while columns run from EXACTLY zero to a
-        870 mm/day first-day spike. Linear shows only the spike; plain log
-        cannot draw the zeros, and 9 of 19 columns are zero on >=95% of days —
-        which is the finding, not a gap."""
+    def test_it_is_linear_by_default_and_states_what_it_hides(self):
+        """A log axis made every column's 10^-5 flicker as visually loud as the
+        gauges' snowmelt pulse, and reading that panel as noise was wrong: on
+        a linear axis col_19 peaks within a day of the gauge cluster at the
+        same magnitude. An axis that hides data must say so."""
+        import inspect
+        src = inspect.getsource(sf.plot_series)
+        assert "log: bool = False" in src
+        assert "value(s) above axis" in src
+
+    def test_symlog_is_still_available(self):
         import inspect
         assert 'ax.set_yscale("symlog"' in inspect.getsource(sf.plot_series)
+
+    def test_zeros_are_gaps_not_strokes(self):
+        """On a symlog axis a zero-flow day between two positive days draws two
+        full-height vertical strokes; 9 of 19 columns are zero on most days, so
+        the panel became a hatch pattern."""
+        import inspect
+        assert "if (y is not None and y > 0) else None" in \
+            inspect.getsource(sf.plot_series)
 
     def test_a_run_with_no_series_still_renders(self, tmp_path):
         pytest.importorskip("matplotlib")
