@@ -215,3 +215,80 @@ class TestSeriesFigure:
         src = inspect.getsource(swe.plot_series)
         assert "ax.set_ylim(0, hi)" in src
         assert "hi = max(hi, max(vs))" in src
+
+
+class TestOutOfBasinStations:
+    """Reception fetches SNOTEL by BBOX, and a bbox is the rectangle around a
+    basin — so sites in its corners lie outside the watershed. The DEM grid was
+    clipped to the boundary; the stations never were. On the 2019 Upper
+    Gunnison run that left 3 of 5 outside, two of them 20 km beyond a divide,
+    and the pairing then dropped an IN-basin station in favour of an
+    out-of-basin one on a 15 m elevation difference.
+    """
+
+    SQUARE = [[[-108.0, 38.0], [-107.0, 38.0], [-107.0, 39.0],
+               [-108.0, 39.0], [-108.0, 38.0]]]
+
+    def test_point_in_polygon(self):
+        assert swe.in_polygon(38.5, -107.5, self.SQUARE)
+        assert not swe.in_polygon(37.5, -107.5, self.SQUARE)
+        assert not swe.in_polygon(38.5, -106.0, self.SQUARE)
+
+    def test_no_boundary_excludes_nothing(self):
+        """A run with no resolved HUC has no polygon to test against.
+        Excluding everything would be worse than excluding nothing."""
+        assert swe.in_polygon(38.5, -107.5, []) is False   # nothing to hit
+
+    def _ctx(self, boundary):
+        md, mv = _series([200] * 60 + [0] * 40, "2019-01-01")
+        od, ov = _series([300] * 100, "2019-01-01")
+        c = TestCompare._ctx()
+        c.data["boundary"] = boundary
+        c.data["observations"]["swe"]["stations"] = [
+            {"name": "Inside",  "lat": 38.5, "lon": -107.5,
+             "daily": {"units": "mm", "dates": od, "values": ov}},
+            {"name": "Outside", "lat": 37.5, "lon": -107.5,
+             "daily": {"units": "mm", "dates": od, "values": ov}}]
+        return c
+
+    def test_outside_stations_are_excluded_and_named(self):
+        r = swe.compare(self._ctx(self.SQUARE))
+        assert r["stations_excluded_outside_basin"] == ["Outside"]
+        assert [m["entity"] for m in r["observed"]] == ["Inside"]
+        c = next(c for c in r["caveats"]
+                 if c["id"] == "swe_stations_outside_basin")
+        assert "Outside" in c["statement"] and "bounding box" in c["statement"]
+
+    def test_without_a_boundary_every_station_is_kept(self):
+        r = swe.compare(self._ctx([]))
+        assert r["stations_excluded_outside_basin"] == []
+        assert len(r["observed"]) == 2
+
+
+class TestMaps:
+    def test_it_renders_without_a_basemap(self, tmp_path):
+        """A figure must not depend on a third-party raster being reachable."""
+        pytest.importorskip("matplotlib")
+        ctx = TestCompare._ctx()
+        out = tmp_path / "maps.png"
+        swe.plot_maps(swe.compare(ctx), ctx, out, basemap=False)
+        assert out.exists() and out.stat().st_size > 5000
+
+    def test_the_colour_scale_is_shared(self):
+        """Independent scales would map the observed maximum and the modelled
+        maximum to the same colour and make two different fields look alike."""
+        import inspect
+        src = inspect.getsource(swe.plot_maps)
+        assert "vmin=vmin, vmax=vmax" in src
+        assert "allv = [q[2] for q in obs_pts + mod_pts]" in src
+
+    def test_it_does_not_use_tight_bbox(self):
+        """With cartopy GeoAxes the tight bounding box is computed before the
+        tiles exist and cropped the whole figure down to the colourbar."""
+        import inspect, re
+        src = inspect.getsource(swe.plot_maps)
+        # the CALL, not the comment that explains why it looks like this
+        calls = re.findall(r"fig\.savefig\([^)]*\)", src)
+        assert calls, "plot_maps must save something"
+        assert all("bbox_inches" not in c for c in calls), calls
+        assert "fig.canvas.draw()" in src
