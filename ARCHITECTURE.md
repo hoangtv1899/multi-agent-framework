@@ -30,9 +30,9 @@ python workflow.py --interactive --no-ask  # it resolves gaps itself instead
 |---|---|
 | `src/agents/reception_llm.py` | `LLMReceptionAgent`: the agent. Drives MCP tools itself. |
 | `src/agents/tool_loop.py` | `ToolLoopAgent`: generic LLM↔MCP tool-calling loop. |
-| `src/agents/reception_adapter.py` | Coordinator-facing shim + the `ReceptionResult` contract. |
 | `src/agents/prompts/reception_agentic.txt` | The system prompt. |
 | `src/core/forcing_availability.py` | Runnable years, read off disk into the prompt. |
+| `src/core/data_gather.py` | The deterministic fetch phase — infrastructure, not an agent. |
 
 The LLM decides what to fetch, when to stop, and what it means. It emits
 `domain: {name, huc, bbox}` — the spatial handle everything downstream needs —
@@ -77,10 +77,10 @@ come back from an MCP call, Reception does not claim it.
 
 | file | role |
 |---|---|
-| `src/agents/planner_agent.py` | `PlannerAgent`: one LLM call, then a deterministic schema check. |
-| `src/agents/prompts/planner_capability_probe_v2.txt` | Production prompt. |
+| `src/agents/planner.py` | `Planner`: one LLM call. Purely LLM — nothing corrects it. |
+| `src/agents/prompts/planner.txt` | The system prompt. |
 | `src/agents/prompts/planner_capability_probe.txt` | Frozen v0.1 — pinned by `eval/`, do not edit. |
-| `src/agents/validate.py` | Deterministic brief/plan checks. |
+| `eval/legacy_planner_agent.py` | The planner as `eval/` was run with, kept beside its record. |
 
 The Planner emits a **strategy, never coordinates**: stratification rules
 (elevation/forcing bands, justified N), an explicit `full`/`partial`/`infeasible`

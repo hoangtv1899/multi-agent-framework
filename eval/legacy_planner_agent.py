@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+FROZEN. This is the planner as it stood when eval/ was run, kept beside the
+record it produced so the paper stays reproducible. The live pipeline uses
+src/agents/planner.py; do not import this from there.
+
 Planner Agent
 
 ONE LLM call with the capability-probe system prompt. The LLM emits a

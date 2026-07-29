@@ -3,7 +3,7 @@
 ELM Experiment Builder
 src/core/elm_experiment_builder.py
 
-Translates plan JSON from PlannerAgent into a list of
+Translates plan JSON from the Planner into a list of
 ELMAgentAdapter instances, one per experiment.
 """
 import logging
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────
 class ELMExperimentBuilder:
     """
-    Translates PlannerAgent output → ELMAgentAdapter list.
+    Translates Planner output → ELMAgentAdapter list.
 
     Expected plan structure:
         {

@@ -41,7 +41,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agents.llm_agent import LLMAgent                      # noqa: E402
-from agents.planner_agent import PlannerAgent              # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))     # noqa: E402
+from legacy_planner_agent import PlannerAgent               # noqa: E402
 from agents.prompts import load_prompt                     # noqa: E402
 
 DEFAULT_MODEL = "claude-sonnet-4-5-20250929-v1-project"    # same for ALL arms

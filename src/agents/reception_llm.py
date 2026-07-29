@@ -9,7 +9,7 @@ means" decisions live in the LLM; this class only runs the loop and parses the
 final JSON.
 
 This is the Reception box of the framework. workflow.py reaches it through
-reception_adapter.AgenticReceptionAdapter; tools/run_pipeline.py uses it raw.
+workflow.py directly; tools/run_pipeline.py uses it for the dry path.
 """
 import json
 import re
@@ -18,7 +18,7 @@ from typing import Any, Dict
 from agents.prompts import load_prompt
 from core.forcing_availability import render_forcing_facts
 from agents.tool_loop import ToolLoopAgent
-from agents import reception_gather as gather
+from core import data_gather as gather
 
 # What the LLM may call. Deliberately tiny.
 #

@@ -25,7 +25,6 @@ from core.mcp_manager import MCPManager
 from agents.reception_llm import LLMReceptionAgent
 from agents.llm_agent import SimpleLLMClient
 from agents.prompts import load_prompt
-from agents.validate import check_brief, check_plan
 
 DEFAULT_MODEL = "claude-opus-4-8-project"
 
@@ -43,7 +42,7 @@ def _parse_json(text):
 
 
 def run_planner(brief, request, model, max_tokens=8000):
-    system = load_prompt("planner_capability_probe_v2")
+    system = load_prompt("planner")
     user = (f"SCIENTIFIC QUESTION:\n{request}\n\n"
             f"DOMAIN BRIEF (from reception):\n{json.dumps(brief, indent=2)}\n\n"
             "Think step by step in prose first, then output the JSON plan as "
@@ -167,8 +166,6 @@ def main():
               f"{fd.get('available_end_year', '?')})")
         for c in rs.get("conflicts") or []:
             print(f"  ⚠️  run-settings: {c}")
-    for w in check_brief(brief):
-        print(f"  ⚠️  brief check: {w}")
 
     intent = brief.get("intent")
     if intent == "clarification_needed":
@@ -193,8 +190,6 @@ def main():
         print("[pipeline] planner produced no parseable JSON — see plan_raw.md")
     else:
         (out_dir / "plan.json").write_text(json.dumps(plan, indent=2))
-        for w in check_plan(plan, brief):
-            print(f"  ⚠️  plan check: {w}")
         print_plan(plan, brief)
 
     print(f"\nDry pipeline complete. Transcripts in: {out_dir}\n")

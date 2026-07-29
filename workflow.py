@@ -17,7 +17,7 @@ import traceback
 from pathlib import Path
 from typing  import Optional
 sys.path.insert(0, "src")
-from agents.planner_agent         import PlannerAgent
+from agents.planner               import Planner
 from agents.analysis_report_agent import AnalysisReportAgent
 from core.mcp_manager             import MCPManager
 
@@ -65,13 +65,13 @@ class WorkflowCoordinator:
 		# Reception is an LLM-driven tool loop over all MCP servers. It emits
 		# `domain: {name, huc, bbox}`, which the Experiment Manager's
 		# materialize stage needs to turn a strategy into columns.
-		from agents.reception_adapter import AgenticReceptionAdapter
-		self.reception = AgenticReceptionAdapter(
+		from agents.reception_llm import LLMReceptionAgent
+		self.reception = LLMReceptionAgent(
 			model       = reception_model,
 			mcp_clients = mcp_clients,
 			interactive = interactive_reception,
 		)
-		self.planner  = PlannerAgent(model=planner_model,  model_type="elm")
+		self.planner  = Planner(model=planner_model)
 		self.analyzer = AnalysisReportAgent(model=analyzer_model, model_type="elm")
 
 		# ── Defaults ──────────────────────────────────────────

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Reception's deterministic gather phase
-src/agents/reception_gather.py
+External data gathering
+src/core/data_gather.py
+
+Infrastructure, not an agent: it makes no decisions and calls no model. It sits
+in core/ because that is what it is — reception CALLS it and receives a report,
+rather than containing one.
 
 Reception is the ONLY component that reaches outside the framework. Everything
 downstream — the planner, the sampler, the validator, the analyzer — reads what
