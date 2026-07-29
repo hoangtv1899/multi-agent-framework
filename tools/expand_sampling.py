@@ -562,6 +562,24 @@ def _n_from_plan(plan):
             or (plan.get("experiment_summary") or {}).get("exploratory"))
 
 
+def _n_bands_from_plan(plan):
+    """The planner's band count, read the same way n_columns is.
+
+    It used to be ignored entirely: the manager fell back to
+    len(brief.heterogeneity.elevation_bands), so a strategy asking for 5
+    bands got however many elevations reception happened to list — 3, for
+    the 2019 Upper Gunnison run. The planner's column count WAS honoured, so
+    the ensemble ended up with the planner's N spread over reception's band
+    count, a design neither box specified.
+
+    len(elevation_bands) was the wrong quantity in any case. Those are band
+    EDGES or representative elevations, not a count: three edges imply two
+    bands or four, never three.
+    """
+    return ((plan.get("sampling") or {}).get("n_bands")
+            or (plan.get("sampling_strategy") or {}).get("n_bands"))
+
+
 def _print_table(res):
     print("\nBANDS:")
     for b in res["bands"]:

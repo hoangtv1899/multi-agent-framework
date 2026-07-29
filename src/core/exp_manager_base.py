@@ -53,6 +53,10 @@ from typing   import Any, Dict, List, Optional
 
 sys.path.insert(0, "src")
 
+# Used only when neither the caller nor the strategy says. The planner
+# always emits n_bands, so reaching this means the plan was hand-written.
+DEFAULT_BANDS = 4
+
 
 class ExperimentManagerBase:
 	"""Sampling, the strategy gate, and packaging — no model in sight."""
@@ -172,8 +176,11 @@ class ExperimentManagerBase:
 			raise ValueError(
 				"Cannot materialize sampling: no column count in the plan "
 				"and none in config.")
-		bands = config.get("n_bands") or len(
-			(brief.get("heterogeneity") or {}).get("elevation_bands") or []) or 4
+		# The planner's band count, not reception's list length. See
+		# expand_sampling._n_bands_from_plan for what that fallback got wrong.
+		bands = (config.get("n_bands")
+				 or exp._n_bands_from_plan(config.get("strategy") or plan)
+				 or DEFAULT_BANDS)
 
 		config = self.check(plan, config)
 

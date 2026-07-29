@@ -906,3 +906,74 @@ class TestColumnMetadataJoin:
         original = {"case_name": "col_01", "metrics": {"a": 1}}
         mgr._package({}, types.SimpleNamespace(results=[original]), {})
         assert "band" not in original
+
+
+class TestBandCountComesFromThePlan:
+    """The planner's n_bands must reach the sampler.
+
+    It did not. The manager fell back to
+    len(brief.heterogeneity.elevation_bands), so the 2019 Upper Gunnison
+    strategy asking for 5 bands got 3 — the number of elevations reception
+    happened to list. n_columns WAS honoured, so the ensemble ended up with
+    the planner's 19 columns spread over reception's 3 bands: a design
+    neither box specified, and the one the area-weighting then operated on.
+    """
+
+    def _bands_used(self, tmp_path, plan, config, monkeypatch):
+        import core.exp_manager_base as B
+        seen = {}
+
+        class FakeExp:
+            _bbox_from_brief = staticmethod(lambda b: "-1,-1,1,1")
+            _n_from_plan     = staticmethod(lambda p: 4)
+            _n_bands_from_plan = staticmethod(
+                lambda p: (p.get("sampling") or {}).get("n_bands"))
+
+            @staticmethod
+            def expand(clients, bbox, n_total, n_bands, boundary=None):
+                seen["n_bands"] = n_bands
+                return {"columns": [{"id": "col_01", "lat": 0.0, "lon": 0.0}]}
+
+            @staticmethod
+            def plot_columns(*a, **k):
+                return "x.png"
+
+        monkeypatch.setattr(B, "_load_tool", lambda n: FakeExp)
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        brief = dict(config.get("brief") or {})
+        brief.setdefault("run_settings", {})["resolved_period"] = {
+            "yr_start": 2019, "yr_end": 2019}
+        mgr._materialize(plan, {**config, "brief": brief,
+                                "reception": {"brief": brief},
+                                "mcp_clients": {"terrain": object()}})
+        return seen["n_bands"]
+
+    def test_the_strategy_wins(self, tmp_path, monkeypatch):
+        n = self._bands_used(
+            tmp_path, {"sampling": {"n_bands": 5, "n_columns": 4}},
+            {"brief": {"domain": {"bbox": "-1,-1,1,1"},
+                       # three listed elevations — the old fallback would
+                       # have produced 3 bands from this
+                       "heterogeneity": {"elevation_bands": [1.0, 2.0, 3.0]}}},
+            monkeypatch)
+        assert n == 5, "the planner asked for 5 bands and must get 5"
+
+    def test_an_explicit_config_still_overrides(self, tmp_path, monkeypatch):
+        n = self._bands_used(
+            tmp_path, {"sampling": {"n_bands": 5, "n_columns": 4}},
+            {"n_bands": 2, "brief": {"domain": {"bbox": "-1,-1,1,1"}}},
+            monkeypatch)
+        assert n == 2
+
+    def test_a_plan_without_bands_gets_the_default(self, tmp_path, monkeypatch):
+        """Reaching this means the plan was hand-written — the planner always
+        emits n_bands. It must NOT fall back to counting elevation_bands,
+        which are band EDGES: three edges imply two bands or four, never
+        three."""
+        from core.exp_manager_base import DEFAULT_BANDS
+        n = self._bands_used(
+            tmp_path, {"sampling": {"n_columns": 4}},
+            {"brief": {"domain": {"bbox": "-1,-1,1,1"},
+                       "heterogeneity": {"elevation_bands": [1.0, 2.0, 3.0]}}},
+            monkeypatch)
+        assert n == DEFAULT_BANDS
