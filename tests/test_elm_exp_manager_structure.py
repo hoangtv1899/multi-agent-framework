@@ -723,11 +723,24 @@ class TestPackageCarriesTheEnsemble:
 
     def test_ensemble_products_are_carried(self, tmp_path):
         _, pkg = self._run_dir(tmp_path, hydro={
-            "soil_attribution": {"a": 1}, "driver_matrix": {"b": 2},
-            "comparisons": [{"c": 3}], "spatial_summary": {"d": 4}})
-        for k in ("soil_attribution", "driver_matrix", "comparisons",
-                  "spatial_summary"):
+            "soil_attribution": {"a": 1}, "comparisons": [{"c": 3}]})
+        for k in ("soil_attribution", "comparisons"):
             assert pkg.get(k), f"{k} was dropped — a figure depends on it"
+
+    def test_correlations_are_not_carried(self, tmp_path):
+        """driver_matrix and spatial_summary are the ANALYZER's to compute
+        (src/agents/drivers.py). A correlation is a claim about a
+        relationship — interpretation, not evidence — and frozen in the
+        package it could never answer a driver thought of later.
+
+        The old arrangement also hid a bug for every run: the correlation
+        read row['soil'].get('clay_max_pct'), extraction never populates
+        `soil`, so every soil driver came out null — and null in a
+        correlation table reads as 'no relationship', not 'not computed'."""
+        _, pkg = self._run_dir(tmp_path, hydro={
+            "driver_matrix": {"b": 2}, "spatial_summary": {"d": 4}})
+        assert "driver_matrix" not in pkg
+        assert "spatial_summary" not in pkg
 
     def test_absent_is_omitted_not_nulled(self, tmp_path):
         """An empty block means 'not computed for this run' — the 2019
@@ -735,11 +748,9 @@ class TestPackageCarriesTheEnsemble:
         Emitting it as null would say 'computed as nothing', which is a
         different claim."""
         _, pkg = self._run_dir(tmp_path, hydro={
-            "soil_attribution": {}, "comparisons": [],
-            "driver_matrix": {"b": 2}})
+            "soil_attribution": {}, "comparisons": [{"c": 3}]})
         assert "soil_attribution" not in pkg
-        assert "comparisons" not in pkg
-        assert pkg["driver_matrix"] == {"b": 2}
+        assert pkg["comparisons"] == [{"c": 3}]
 
     def test_the_honesty_payload_reaches_the_package(self, tmp_path):
         """limitations and the assumptions ledger reached the written report
@@ -977,3 +988,69 @@ class TestBandCountComesFromThePlan:
                        "heterogeneity": {"elevation_bands": [1.0, 2.0, 3.0]}}},
             monkeypatch)
         assert n == DEFAULT_BANDS
+
+
+class TestDrivers:
+    """src/agents/drivers.py — correlations computed by the Analyzer.
+
+    A driver that cannot be computed must say so BY NAME. A table of nulls is
+    indistinguishable from a table of measured non-relationships, and that is
+    how every soil correlation read as 'no relationship' for months.
+    """
+
+    @staticmethod
+    def _rows(n=6):
+        return [{"case_name": f"col_{i:02d}", "elevation_m": 2000 + i * 200,
+                 "band": (i % 3) + 1, "fan_wtd_m": 100.0 + i,
+                 "soil_profile": {"layers": [
+                     {"clay_pct": 20 + i, "sand_pct": 40 - i,
+                      "organic_kg_m3": 50 + i}]},
+                 "metrics": {"precip_mm_yr": 400 + i * 100,
+                             "annual_runoff_mm_yr": 10 + i * 5,
+                             "annual_recharge_mm_yr": 5 + i * 2}}
+                for i in range(n)]
+
+    def test_soil_drivers_are_derived_from_the_profile(self):
+        """The old code wanted a precomputed clay_max_pct scalar that nothing
+        ever wrote. The data arrives as per-layer clay_pct."""
+        from agents import drivers
+        dm = drivers.driver_matrix(self._rows())
+        assert "clay_max_pct" in dm["drivers"]["available"]
+        assert dm["pearson_r"]["runoff"]["clay_max_pct"] is not None
+
+    def test_an_impossible_driver_is_named_not_nulled(self):
+        from agents import drivers
+        dm = drivers.driver_matrix(self._rows())
+        assert "ksat_min_ums" in dm["drivers"]["unavailable"]
+        assert "pedotransfer" in dm["drivers"]["unavailable"]["ksat_min_ums"]
+        assert "ksat_min_ums" not in dm["pearson_r"]["runoff"]
+
+    def test_a_constant_series_gives_none_not_zero(self):
+        """Correlating against a constant is 0/0. Reporting 0 would claim
+        independence that was never measured."""
+        from agents import drivers
+        rows = self._rows()
+        for r in rows:
+            r["elevation_m"] = 2500.0
+        dm = drivers.driver_matrix(rows)
+        assert dm["pearson_r"]["runoff"].get("elevation_m") is None
+
+    def test_too_few_columns_is_not_a_correlation(self):
+        from agents import drivers
+        dm = drivers.driver_matrix(self._rows(2))
+        assert dm["pearson_r"] == {}
+
+    def test_single_forcing_bin_means_elevation_unresolved(self):
+        """One forcing value across every column means the gradient is not
+        resolved and no elevation claim can rest on it."""
+        from agents import drivers
+        rows = self._rows()
+        for r in rows:
+            r["metrics"]["precip_mm_yr"] = 500.0
+        assert drivers.spatial_summary(rows)["forcing"]["elevation_resolved"] is False
+
+    def test_spatial_summary_aggregates_by_band(self):
+        from agents import drivers
+        ss = drivers.spatial_summary(self._rows())
+        assert ss["n_bands"] == 3
+        assert all("mean" in b for b in ss["by_band"].values())

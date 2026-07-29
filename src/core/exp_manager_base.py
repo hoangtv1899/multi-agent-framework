@@ -432,8 +432,10 @@ class ExperimentManagerBase:
 				hs = json.loads(f.read_text()) or {}
 			except Exception as e:
 				print(f"   ⚠️  could not read the extraction ({e})")
-		for k in ("comparisons", "spatial_summary", "soil_attribution",
-				  "driver_matrix"):
+		# spatial_summary and driver_matrix are the Analyzer's to compute now
+		# (src/agents/drivers.py) — they are interpretation, and the package
+		# carries evidence.
+		for k in ("comparisons", "soil_attribution"):
 			if hs.get(k):
 				out[k] = hs[k]
 

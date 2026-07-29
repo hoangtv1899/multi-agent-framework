@@ -21,6 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, "src")
 
+from agents import drivers as _drv
+
 from core.figure_registry import REGISTRY, available, detect_capabilities
 
 
@@ -96,8 +98,9 @@ def evidence_payload(hs, val, brief, plan, assumptions):
         "assumptions_ledger": assumptions,
         "limitations": hs.get("limitations"),
         "columns": cols,
-        "spatial_summary": hs.get("spatial_summary"),
-        "driver_matrix": hs.get("driver_matrix"),
+        # computed here, not read: extraction no longer freezes them
+        "spatial_summary": _drv.spatial_summary(hs.get("experiments") or []),
+        "driver_matrix": _drv.driver_matrix(hs.get("experiments") or []),
         "soil_attribution": {k: v for k, v in (hs.get("soil_attribution") or {}).items()
                              if k != "by_recharge"},
         "validation_verdicts": verdicts,

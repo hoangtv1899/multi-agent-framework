@@ -45,6 +45,8 @@ Output MARKDOWN, UNDER 180 WORDS, exactly these four sections:
 **Next** — 1-2 experiments, each tied to a limitation found."""
 
 
+from agents import drivers as _drv
+
 def load(p):
     try:
         return json.loads(Path(p).read_text())
@@ -62,10 +64,12 @@ def compact_results(hs):
         cols.append({"column": r["case_name"], "elevation_m": r.get("elevation_m"),
                      "soil": r.get("soil"), **m})
     return {"columns": cols,
-            "spatial_summary": hs.get("spatial_summary"),
+            "spatial_summary": _drv.spatial_summary(
+                hs.get("experiments") or []),
             "soil_attribution": {k: v for k, v in (hs.get("soil_attribution") or {}).items()
                                  if k != "by_recharge"},
-            "driver_matrix": hs.get("driver_matrix")}
+            "driver_matrix": _drv.driver_matrix(
+                hs.get("experiments") or [])}
 
 
 def interpret(run_dir, model: str = "claude-opus-4-8-project",

@@ -726,9 +726,19 @@ class ELMResultsAnalyzer:
                 {
                     'experiments':      list(self.results.values()),
                     'comparisons':      self._compute_comparisons(),
-                    'spatial_summary':  self._compute_spatial_summary(),
                     'soil_attribution': self._compute_soil_attribution(),
-                    'driver_matrix':    self._compute_driver_matrix(),
+                    # spatial_summary and driver_matrix are NOT here any more.
+                    # A correlation is a claim about a relationship, which is
+                    # interpretation; extraction reads the model's output
+                    # format and stops. Frozen here they could also never
+                    # answer a driver thought of later. src/agents/drivers.py
+                    # computes both from the package rows.
+                    #
+                    # The concrete damage: this version read
+                    # row['soil'].get('clay_max_pct'), and extraction never
+                    # populates `soil`, so every soil correlation came out
+                    # null on every run — and null in a correlation table
+                    # reads as "no relationship", not "not computed".
                     'units':            VARIABLE_UNITS,
                     **self.extra_summary,
                 },
