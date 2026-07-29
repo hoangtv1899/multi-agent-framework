@@ -123,8 +123,18 @@ def stubbed(tmp_path):
                              "annual_recharge_mm_yr": 120.0,
                              "runoff_fraction": 0.33}}
                 for c in cols]
+        # the shape the REAL _extract now returns: per-variable stats with a
+        # daily series attached, plus the honesty payload
+        for r in rows:
+            r["variables"] = {"QOVER": {
+                "annual_mean": 300.0, "n_timesteps": 2921,
+                "daily": {"units": "mm/day",
+                          "values": [0.5] * 365,
+                          "dates": ["2019-01-01"] * 365}}}
         ns = types.SimpleNamespace(results=rows, units={"QOVER": "mm/s"},
-                                   extra_summary={})
+                                   extra_summary={
+                                       "limitations": [{"l": 1}],
+                                       "assumptions_ledger": [{"a": 1}]})
         # ELMResultsAnalyzer exposes this; the base uses it for the alias file
         ns.get_llm_analysis_input = lambda: {"experiments": rows}
         return ns
@@ -259,3 +269,90 @@ class TestRouteDispatch:
             "process": lambda self, *a, **k: {"brief": {}}})()
         out = co.process_request("vague", output_dir="/tmp")
         assert "elm_run_" not in out
+
+
+class TestPackageIsSelfSufficient:
+    """experiment.json must stand alone — that is the whole contract.
+
+    Checked through the REAL execute_plan rather than by calling _package
+    directly, because the ordering is what makes it true: _extract writes
+    hydro_summary.json, _package reads it back, and both run before the
+    Analyzer touches anything.
+    """
+
+    def test_the_package_carries_series_and_caveats(self, tmp_path, stubbed):
+        import workflow as wf
+        co = object.__new__(wf.WorkflowCoordinator)
+        co.mcp_clients, co.conversation_context = {"terrain": object()}, {}
+        co.planner  = type("P", (), {"plan": lambda self, r: dict(STRATEGY)})()
+        co.analyzer = type("A", (), {
+            "generate_analysis_report": lambda self, **kw: {"s": "ok"}})()
+        co._workflow_design_and_run(_reception(), str(tmp_path))
+
+        rd  = next(Path(tmp_path).glob("elm_run_*"))
+        exp = json.loads((rd / "experiment.json").read_text())
+
+        # the honesty payload — an Analyzer reading only this file would
+        # otherwise state conclusions with none of the caveats attached
+        assert exp["limitations"] and exp["assumptions_ledger"]
+
+        # the daily series, so the Analyzer stops needing $PSCRATCH
+        daily = exp["columns"][0]["variables"]["QOVER"]["daily"]
+        assert len(daily["values"]) == 365
+        assert daily["units"] == "mm/day", \
+            "a hydrograph is plotted in mm/day; ELM stores mm/s and the " \
+            "annual metrics use mm/yr, so the series must say which it is"
+
+    def test_package_is_written_before_the_analyzer_runs(self):
+        import inspect
+        from core.elm_exp_manager import ELMExpManager
+        src = inspect.getsource(ELMExpManager.execute_plan)
+        assert src.index("self._package") < src.index("Analyzer("), \
+            "the manager's product must be on disk before anything " \
+            "interpretive can fail and take it down"
+
+
+class TestNothingPostComputeDiscardsTheRun:
+    """Once 19 columns have run, no downstream stage may throw the run away.
+
+    _run and _extract stay fatal on purpose — without them there are no
+    numbers, so there is nothing to preserve. Everything after them is
+    packaging, coupling or prose, and all of that is recoverable.
+    """
+
+    def _co(self, tmp_path):
+        import workflow as wf
+        co = object.__new__(wf.WorkflowCoordinator)
+        co.mcp_clients, co.conversation_context = {"terrain": object()}, {}
+        co.planner  = type("P", (), {"plan": lambda self, r: dict(STRATEGY)})()
+        co.analyzer = type("A", (), {
+            "generate_analysis_report": lambda self, **kw: {"s": "ok"}})()
+        return co
+
+    @pytest.mark.parametrize("stage", ["_package", "_couple_pflotran"])
+    def test_a_post_compute_failure_is_survived(self, tmp_path, stubbed, stage):
+        from core.elm_exp_manager import ELMExpManager
+
+        def boom(self, *a, **k):
+            raise RuntimeError(f"{stage} exploded")
+
+        with patch.object(ELMExpManager, stage, boom):
+            out = self._co(tmp_path)._workflow_design_and_run(
+                _reception(), str(tmp_path))
+        assert "❌" not in out, f"a {stage} failure sank the whole run:\n{out}"
+        rd = next(Path(tmp_path).glob("elm_run_*"))
+        assert (rd / "RUN_SUMMARY.json").exists(), \
+            "the run summary must survive a downstream failure"
+
+    def test_extraction_failure_is_still_fatal(self, tmp_path, stubbed):
+        """Deliberately NOT guarded: no extraction means no numbers, and
+        reporting success for a run with no results is worse than failing."""
+        from core.elm_exp_manager import ELMExpManager
+
+        def boom(self, *a, **k):
+            raise RuntimeError("extract exploded")
+
+        with patch.object(ELMExpManager, "_extract", boom):
+            out = self._co(tmp_path)._workflow_design_and_run(
+                _reception(), str(tmp_path))
+        assert "❌" in out

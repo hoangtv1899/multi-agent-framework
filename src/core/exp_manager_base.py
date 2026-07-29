@@ -624,10 +624,13 @@ class ExperimentManagerBase:
 					self.results_dir / "results_summary.csv"),
 				'hydro_summary':      str(
 					self.analysis_dir / "hydro_summary.json"),
+				# experiment.json is the product; llm_input is the alias the
+				# standalone report tools open by name.
+				'experiment':         str(self.run_dir / "experiment.json"),
 				'llm_input':          str(
 					self.run_dir / "LLM_ANALYSIS_INPUT.json"),
 			},
-			'model_type': 'elm',
+			'model_type': self.MODEL,
 		}
 
 
@@ -650,19 +653,11 @@ class ExperimentManagerBase:
 			'status':        'failed',
 			'error':         str(error),
 			'traceback':     traceback.format_exc(),
-			'model_type':    'elm',
+			'model_type':    self.MODEL,
 		}
 		error_file = self.run_dir / "ERROR_LOG.json"
 		with open(error_file, 'w') as f:
 			json.dump(error_log, f, indent=2)
-
-
-# ─────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    print("ELMExpManager — call via workflow.py or test directly:")
-    print("  from core.elm_exp_manager import ELMExpManager")
-    print("  mgr = ELMExpManager()")
-    print("  run_summary = mgr.execute_plan(plan, {})")
 
 
 def _resolve_columns(run_dir: Path) -> Optional[Path]:

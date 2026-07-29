@@ -193,7 +193,16 @@ class ELMExpManager(ExperimentManagerBase):
 			# was computed, and nothing on disk said so.
 			print("\n📦 STEP 4b: Packaging Results")
 			print("-" * 40)
-			self._package(experiment_plan, analyzer, config)
+			# Guarded for the same reason the Analyzer is: the compute has
+			# already succeeded and _extract has already written
+			# 04_analysis/hydro_summary.json, so a packaging bug must not
+			# discard an ensemble that cost a queue slot and an hour. Loud,
+			# because experiment.json is what everything downstream reads.
+			try:
+				self._package(experiment_plan, analyzer, config)
+			except Exception as e:                              # noqa: BLE001
+				print(f"   ✗ PACKAGING FAILED ({e}) — the results are still "
+					  f"in 04_analysis/hydro_summary.json")
 
 			# Step 4c — the Analyzer box: figures, observation comparison,
 			# interpretation. Non-fatal AS A WHOLE, not merely stage by
@@ -208,7 +217,11 @@ class ELMExpManager(ExperimentManagerBase):
 
 			# Step 4d — one-way ELM → PFLOTRAN coupling, when the plan asks
 			# for it. Non-fatal: the ELM study stands on its own.
-			self._couple_pflotran(experiment_plan, config)
+			try:
+				self._couple_pflotran(experiment_plan, config)
+			except Exception as e:                              # noqa: BLE001
+				print(f"   ⚠️  PFLOTRAN coupling failed ({e}) — the ELM run "
+					  f"stands")
 
 			# Step 5 — the alias the standalone report tools open by name.
 			# experiment.json was already written at 4b.
