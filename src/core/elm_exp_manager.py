@@ -361,6 +361,13 @@ class ELMExpManager:
 		# reception_brief.json (domain bbox) and interpret_run.interpret()
 		# needs plan.json (goals + feasibility verdict). Writing them here
 		# means an integrated run is consumable by every existing tool.
+		# reception.json is the WHOLE package — brief, the observations that
+		# were fetched, the DEM grid, and provenance. Writing `brief` alone is
+		# how observations and grid used to vanish between reception and every
+		# consumer downstream. reception_brief.json stays as an alias for the
+		# standalone tools that still open it by that name.
+		reception = config.get("reception") or {"brief": brief}
+		(self.run_dir / "reception.json").write_text(json.dumps(reception, indent=2))
 		(self.run_dir / "reception_brief.json").write_text(json.dumps(brief, indent=2))
 		(self.run_dir / "plan.json").write_text(json.dumps(plan, indent=2))
 		print(f"✓ {len(columns)} column(s) materialized "

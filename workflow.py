@@ -103,20 +103,27 @@ class WorkflowCoordinator:
 			user_request         = user_request,
 			conversation_context = self.conversation_context,
 		)
-		print(f"🧠 Intent: {result.intent} ({result.confidence})\n")
-	
-		# Step 2 — Route by intent
-		if result.intent == 'clarification_needed':
+		# Reception returns the whole package now: route (dispatch), brief
+		# (science), observations + grid (what was fetched), provenance.
+		# The adapter that used to flatten this into a dataclass is gone — it
+		# forwarded only `brief`, which is how observations, grid and
+		# provenance were being dropped before anything downstream saw them.
+		result["user_request"] = user_request
+		action = (result.get("route") or {}).get("action", "clarify")
+		print(f"🧠 Route: {action}\n")
+
+		# Step 2 — Route
+		if action == 'clarify':
 			return self._workflow_clarification(result)
-		elif result.intent == 'analyze_existing':
+		elif action == 'analyze_existing':
 			return self._workflow_analyze_existing(result)
-		elif result.intent == 'design_and_run':
+		elif action == 'design':
 			return self._workflow_design_and_run(
 				result     = result,
 				output_dir = output_dir or self.default_output_dir,
 			)
 		else:
-			return f"❌ Unknown intent: {result.intent}"
+			return f"❌ Unknown route: {action}"
 	
 	# ═════════════════════════════════════════════════════════
 	# INTERACTIVE MODE
@@ -162,7 +169,7 @@ class WorkflowCoordinator:
 	def _workflow_clarification(self, result) -> str:
 		print("💬 WORKFLOW: Clarification Needed\n")
 		lines = ["I need some clarification:\n"]
-		for i, q in enumerate(result.clarification_questions, 1):
+		for i, q in enumerate((result.get('route') or {}).get('questions') or [], 1):
 			lines.append(f"{i}. {q}")
 		return "\n".join(lines)
 	
@@ -172,7 +179,7 @@ class WorkflowCoordinator:
 	def _workflow_analyze_existing(self, result) -> str:
 		print("📊 WORKFLOW: Analyze Existing Results\n")
 		run_dir = (
-			result.parameters.get('existing_run_dir') or
+			(result.get('route') or {}).get('prior_run_dir') or
 			self.conversation_context.get('last_run_dir')
 		)
 		if not run_dir or not Path(run_dir).exists():
@@ -186,7 +193,7 @@ class WorkflowCoordinator:
 	
 		try:
 			analysis = self.analyzer.generate_analysis_report(
-				user_request   = result.user_request,
+				user_request   = result.get('user_request', ''),
 				llm_input_file = str(llm_input_file),
 				output_file    = str(
 					Path(run_dir) / "ANALYSIS_REPORT.json"
@@ -208,7 +215,7 @@ class WorkflowCoordinator:
 			print("📋 STEP 1: Planning Experiments")
 			print("-" * 50)
 			plan  = self.planner.create_plan(
-				brief = result.to_planner_brief()
+				brief = result.get('brief') or {}
 			)
 			# The capability-aware planner emits a STRATEGY, never
 			# CONDITIONS_COUPLERS — those are materialized against real data in
@@ -224,7 +231,7 @@ class WorkflowCoordinator:
 	
 			self.conversation_context['last_plan']  = plan
 			self.conversation_context['last_focus'] = (
-				result.parameters.get('experiment_focus')
+				((result.get('brief') or {}).get('scientific_framing') or {}).get('goals', [None])[0]
 			)
 	
 			# Step 2 — Execute
@@ -233,9 +240,9 @@ class WorkflowCoordinator:
 			run_summary = self._execute(
 				plan         = plan,
 				output_dir   = output_dir,
-				brief        = result.to_planner_brief(),
-				period       = (result.parameters or {}).get('resolved_period'),
-				initialization = (result.parameters or {}).get('initialization'),
+				brief        = result.get('brief') or {},
+				period       = ((result.get('brief') or {}).get('run_settings') or {}).get('resolved_period'),
+				initialization = ((result.get('brief') or {}).get('run_settings') or {}).get('initialization'),
 			)
 			print(f"✓ Execution: "
 				  f"{run_summary['experiments_success']}/"
@@ -254,7 +261,7 @@ class WorkflowCoordinator:
 				"LLM_ANALYSIS_INPUT.json"
 			)
 			analysis = self.analyzer.generate_analysis_report(
-				user_request    = result.user_request,
+				user_request    = result.get('user_request', ''),
 				experiment_plan = plan,
 				llm_input_file  = str(llm_input_file),
 				output_file     = str(
@@ -286,6 +293,7 @@ class WorkflowCoordinator:
 		# turns the planner's sampling_strategy into CONDITIONS_COUPLERS.
 		cfg = {
 			'brief':       brief or {},
+			'reception':   result,
 			'mcp_clients': self.mcp_clients,
 			# Warm start edits a completed run's restart files, so the carrier
 			# is whatever this session ran last. That makes "now warm-start it"
