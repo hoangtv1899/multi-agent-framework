@@ -59,6 +59,26 @@ S_TO_YEAR = 86400.0 * 365.25
 # ─────────────────────────────────────────────────────────────────────
 # ELM RESULTS ANALYZER
 # ─────────────────────────────────────────────────────────────────────
+def _sigfig(x: float, n: int = 4) -> float:
+    """Round to n SIGNIFICANT figures, not n decimal places.
+
+    Decimal places are the wrong instrument when one series is a water-table
+    depth near 71.67 m and another is snow water equivalent at 0.00002 mm. Five
+    decimals spends characters on the former; three would zero out 4.7% of the
+    values in a real run, including small-but-real recharge fluxes — 0.0005
+    mm/day is 0.18 mm/yr, which matters on a column that barely recharges.
+
+    Significant figures adapt to magnitude, so nothing real is lost and the
+    string stays short. Four is already more than a land-surface model
+    justifies; it is chosen to be visibly generous rather than to be argued
+    about.
+    """
+    if x == 0 or not np.isfinite(x):
+        return 0.0 if x == 0 else x
+    from math import floor, log10
+    return round(x, -int(floor(log10(abs(x)))) + (n - 1))
+
+
 class ELMResultsAnalyzer:
     """
     Reads ELM NetCDF history files.
@@ -276,7 +296,7 @@ class ELMResultsAnalyzer:
         else:
             units = VARIABLE_UNITS.get(var_name, "")
         out = {"units": units,
-               "values": [None if np.isnan(v) else round(float(v), 5)
+               "values": [None if np.isnan(v) else _sigfig(float(v))
                           for v in vals]}
         if stamps:
             out["dates"] = stamps

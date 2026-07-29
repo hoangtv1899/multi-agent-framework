@@ -1138,3 +1138,43 @@ class TestComparisons:
         rows = [{"case_name": "a", "metrics": {"precip_mm_yr": 400.0}},
                 {"case_name": "b", "metrics": {"precip_mm_yr": 800.0}}]
         assert all("units" in c for c in drivers.comparisons(rows))
+
+
+class TestSeriesPrecisionAndSize:
+    """Four significant figures, and a compact file.
+
+    Decimal places are the wrong instrument when one series is a water-table
+    depth near 71.67 m and another is SWE at 0.00002 mm. Three decimals would
+    zero out 4.7% of the values in a real run — including small-but-real
+    recharge, where 0.0005 mm/day is 0.18 mm/yr on a column that barely
+    recharges.
+    """
+
+    def test_significant_figures_not_decimal_places(self):
+        from core.elm_results_analyzer import _sigfig
+        assert _sigfig(71.67472) == 71.67          # deep water table
+        assert _sigfig(869.7123) == 869.7          # a melt-day flux
+        assert _sigfig(0.0005432) == 0.0005432     # kept, not zeroed
+        assert _sigfig(0.0) == 0.0
+
+    def test_small_values_survive(self):
+        """The whole point: 3 decimals would make these zero."""
+        from core.elm_results_analyzer import _sigfig
+        for v in (2e-05, 0.0005432, 0.000123):
+            assert _sigfig(v) != 0.0
+
+    def test_the_package_is_written_compactly(self, tmp_path):
+        """indent=2 spends ~7 characters of whitespace per value, and a
+        19-column run carries ~188k of them: 6.4 MB indented vs 2.3 MB
+        compact for identical content."""
+        import types
+        mgr = ELMExpManager(base_output_dir=str(tmp_path))
+        rows = [{"case_name": "col_01", "status": "ok",
+                 "metrics": {"precip_mm_yr": 900.0},
+                 "variables": {"QOVER": {"daily": {
+                     "units": "mm/day", "values": [0.5] * 500,
+                     "dates": ["2019-01-01"] * 500}}}}]
+        mgr._package({}, types.SimpleNamespace(results=rows), {})
+        text = (mgr.run_dir / "experiment.json").read_text()
+        assert "\n" not in text, "the package must be written compactly"
+        assert json.loads(text)["columns_total"] == 1   # still valid JSON
