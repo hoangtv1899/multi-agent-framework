@@ -173,8 +173,11 @@ def compare(ctx, threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
         d = ((row.get("variables") or {}).get("H2OSNO") or {}).get("daily") or {}
         dates, vals = clip(d.get("dates") or [], d.get("values") or [])
         m = swe_metrics(dates, vals, threshold)
+        # the clipped series itself, not just its summary — the second figure
+        # draws the accumulation and melt SHAPE, which no scalar carries
         m.update(entity=row.get("case_name"),
-                 elevation_m=_num(row.get("elevation_m")), source="model")
+                 elevation_m=_num(row.get("elevation_m")), source="model",
+                 series={"dates": dates, "values": vals})
         model.append(m)
 
     for st in stations:
@@ -183,7 +186,8 @@ def compare(ctx, threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
         m = swe_metrics(dates, vals, threshold) if dates else {
             "available": False, "reason": "station carries no daily series"}
         m.update(entity=st.get("name") or st.get("triplet"),
-                 elevation_m=_num(st.get("elevation_m")), source="observed")
+                 elevation_m=_num(st.get("elevation_m")), source="observed",
+                 series={"dates": dates, "values": vals})
         obs.append(m)
 
     # SNOTEL sites are chosen for snow retention — sheltered, shaded,
@@ -434,6 +438,91 @@ def plot(result: Dict[str, Any], out_path) -> str:
     # unpaired station are in the returned record, where a caption or the
     # interpretation can quote them. A figure that repeats its own metadata
     # spends space saying what the reader already has.
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=135, bbox_inches="tight")
+    plt.close(fig)
+    return str(out_path)
+
+
+def plot_series(result: Dict[str, Any], out_path) -> str:
+    """One panel per pair: daily SWE, observed and simulated on one axis.
+
+    The scatter answers "how big"; this answers "what shape". A pack that is
+    30% thin but accumulates and melts on the right dates is a precipitation
+    problem; one with the right peak reached a month late is an energetics
+    problem. Neither is visible in a peak value, and the two call for
+    different fixes.
+
+    ONE SHARED y-AXIS across panels. Per-panel scaling would let a column
+    holding 154 mm look like the station holding 925 mm — the axis would
+    quietly normalise away the very deficit the figure exists to show.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import datetime as _dt
+
+    pairs = result.get("pairs") or []
+    if not pairs:
+        fig, ax = plt.subplots(figsize=(7, 4))
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.text(0.5, 0.5, "NOT COMPARABLE\nno station-column pairs",
+                ha="center", va="center", transform=ax.transAxes,
+                fontsize=13, color="#b30000", fontweight="bold")
+        fig.savefig(out_path, dpi=135, bbox_inches="tight")
+        plt.close(fig)
+        return str(out_path)
+
+    n = len(pairs)
+    ncol = 2 if n > 2 else n
+    nrow = (n + ncol - 1) // ncol
+    fig, axes = plt.subplots(nrow, ncol, figsize=(8.4 * ncol, 4.8 * nrow),
+                             squeeze=False)
+    flat = [a for r in axes for a in r]
+
+    hi = 0.0
+    for pr in pairs:
+        for side in ("observed", "model"):
+            vs = [v for v in ((pr[side].get("series") or {}).get("values") or [])
+                  if v is not None]
+            if vs:
+                hi = max(hi, max(vs))
+    hi = hi * 1.12 or 1.0
+
+    def _dates(d):
+        out = []
+        for x in d:
+            try:
+                out.append(_dt.date.fromisoformat(str(x)[:10]))
+            except Exception:
+                out.append(None)
+        return out
+
+    for ax, pr in zip(flat, pairs):
+        for side, colour, style, label in (
+                ("observed", "#e6550d", "-",  "SNOTEL"),
+                ("model",    "#2c7fb8", "-",  "ELM")):
+            ser = pr[side].get("series") or {}
+            xs = _dates(ser.get("dates") or [])
+            ys = ser.get("values") or []
+            pts = [(x, y) for x, y in zip(xs, ys) if x is not None and y is not None]
+            if pts:
+                ax.plot([p[0] for p in pts], [p[1] for p in pts], style,
+                        color=colour, lw=2.4, label=label)
+        ax.set_ylim(0, hi)
+        ax.set_ylabel("SWE (mm)", fontsize=17)
+        ax.set_title(f"{pr['station']}  /  {pr['column']}"
+                     f"   ({pr['delta_elevation_m']:+.0f} m)",
+                     fontweight="bold", fontsize=17, pad=10)
+        ax.tick_params(labelsize=13)
+        ax.grid(alpha=0.25)
+        ax.legend(fontsize=14, loc="upper right")
+        for lb in ax.get_xticklabels():
+            lb.set_rotation(30); lb.set_ha("right")
+
+    for ax in flat[len(pairs):]:
+        ax.axis("off")
+
     fig.tight_layout()
     fig.savefig(out_path, dpi=135, bbox_inches="tight")
     plt.close(fig)

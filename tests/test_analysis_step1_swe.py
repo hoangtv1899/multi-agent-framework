@@ -168,3 +168,50 @@ class TestWaterYearDay:
         assert swe._doy("2018-10-01") == 1
         assert swe._doy("2019-06-01") > swe._doy("2019-01-01")
         assert swe._doy("2018-12-28") < swe._doy("2019-01-05")
+
+
+class TestSeriesFigure:
+    """The scatter answers "how big"; the series answers "what shape".
+
+    A pack 30% thin that accumulates and melts on the right dates is a
+    precipitation problem; one reaching the right peak a month late is an
+    energetics problem. Neither is visible in a peak value, and they call for
+    different fixes.
+    """
+
+    def test_the_clipped_series_is_carried_on_each_side(self):
+        """Metrics alone cannot draw a curve. Both sides must keep the series
+        that the shared-window clip produced — not the raw one, or the two
+        curves would span different winters."""
+        r = swe.compare(TestCompare._ctx())
+        pr = r["pairs"][0]
+        for side in ("observed", "model"):
+            ser = pr[side]["series"]
+            assert ser["dates"] and ser["values"]
+            assert len(ser["dates"]) == len(ser["values"])
+            assert ser["dates"][0] >= r["window"][0]
+            assert ser["dates"][-1] <= r["window"][1]
+
+    def test_it_renders(self, tmp_path):
+        pytest.importorskip("matplotlib")
+        out = tmp_path / "series.png"
+        swe.plot_series(swe.compare(TestCompare._ctx()), out)
+        assert out.exists() and out.stat().st_size > 5000
+
+    def test_no_pairs_renders_a_stated_refusal(self, tmp_path):
+        """An empty axis reads as "measured nothing". It has to say why."""
+        pytest.importorskip("matplotlib")
+        ctx = TestCompare._ctx()
+        ctx.data["observations"]["swe"]["stations"] = []
+        out = tmp_path / "none.png"
+        swe.plot_series(swe.compare(ctx), out)
+        assert out.exists()
+
+    def test_the_y_axis_is_shared_across_panels(self):
+        """Per-panel scaling would let a column holding 154 mm look like the
+        station holding 925 mm — the axis would normalise away the deficit the
+        figure exists to show."""
+        import inspect
+        src = inspect.getsource(swe.plot_series)
+        assert "ax.set_ylim(0, hi)" in src
+        assert "hi = max(hi, max(vs))" in src
