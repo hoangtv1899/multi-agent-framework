@@ -81,9 +81,28 @@ def _columns(n=12):
 
 
 @pytest.fixture
-def stubbed(tmp_path):
-    """Patch out MCP, CIME and SLURM; leave every seam between them real."""
+def stubbed(tmp_path, monkeypatch):
+    """Patch out MCP, CIME, SLURM and the Analyzer's two LLM steps; leave every
+    seam between them real.
+
+    The LLM steps are stubbed for the same reason as SLURM: they are a live
+    external call. Before this the coordinator test reached the real step 2/3
+    loop and hung on the gateway — an end-to-end test that spends API calls is
+    not a test anyone will run.
+    """
     from core.elm_exp_manager import ELMExpManager
+    from agents.analysis import step3_interpret as _s3
+
+    monkeypatch.setattr(_s3, "investigate_and_interpret",
+                        lambda ctx, out_dir, **kw: {
+                            "investigation": {"n_succeeded": 0, "n_proposed": 0,
+                                              "findings": [], "caveats": []},
+                            "interpretation": {"verdict": "insufficient",
+                                               "audit": {"n_claims": 0,
+                                                         "n_struck": 0},
+                                               "claims": [], "struck": []},
+                            "rounds": [], "stopped_because": "stubbed",
+                            "n_rounds": 0})
 
     cols  = _columns()
     calls = []

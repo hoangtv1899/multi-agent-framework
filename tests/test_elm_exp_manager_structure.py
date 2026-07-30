@@ -409,23 +409,6 @@ class TestRunSummaryOutputFiles:
 class TestAnalyzerNoPlotsSubdir:
     """Analysis figures go directly into analysis_dir."""
 
-    def test_plotting_does_not_create_plots_subdir(self, tmp_path):
-        """
-        Analyzer.figures() on an empty analyzer must not produce a plots/
-        subdir under 04_analysis/, and must not raise. (Guards the invariant
-        that used to be tested against the removed
-        ELMResultsAnalyzer.plot_all.)
-        """
-        from agents.analyzer import Analyzer
-        mgr = ELMExpManager(base_output_dir=str(tmp_path))
-        analyzer = ELMResultsAnalyzer(
-            experiments  = [],
-            analysis_dir = str(mgr.analysis_dir),
-        )
-        Analyzer(str(mgr.run_dir)).figures(analyzer)   # non-fatal by contract
-        assert not (mgr.analysis_dir / "plots").exists()
-
-
 # ═════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
@@ -454,20 +437,20 @@ class TestAnalyzerBoundary:
     def test_every_analyzer_stage_is_non_fatal(self, tmp_path):
         """A run stands without figures, observations or prose.
 
-        Each stage returns False rather than raising, and run() survives all
-        three failing at once — losing the interpretation must never cost the
+        Each step records False rather than raising, and run() survives them
+        all failing at once — losing the interpretation must never cost the
         compute that produced it.
         """
         from agents.analyzer import Analyzer
         az = Analyzer(str(tmp_path / "run"), verbose=False)
 
-        # no MCP clients, no results, nothing on disk to interpret
-        assert az.validate({}) is False
-        assert az.figures(object()) is False           # no .results attribute
-        out = az.run(results=None, config={"agentic_analyzer": False})
-        assert set(out) == {"figures", "validation", "interpretation"}
-        assert out["figures"] is False                 # skipped without results
-        assert all(v is False for v in out.values())
+        # Nothing on disk. The box must report that and spend NOTHING: before
+        # the guard, an empty run directory fell through into steps 2-3 and
+        # made real API calls to discover there was no data.
+        out = az.run(results=None)
+        assert out["steps"]["context"] is False or out.get("error")
+        assert not any(out["steps"].get(k) for k in ("investigate", "interpret")), \
+            "no LLM step may run without data"
 
     def test_analyzer_creates_its_own_analysis_dir(self, tmp_path):
         """It must work against a run directory it did not create itself —

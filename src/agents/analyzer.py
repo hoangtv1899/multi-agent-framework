@@ -4,209 +4,164 @@ The Analyzer
 src/agents/analyzer.py
 
 The fourth box. It reads what the Experiment Manager produced and says what it
-means: draws the science figures, compares the run against observations, and
-writes the interpretation.
+means, in five steps that each hand the next one a file:
 
-These three stages used to live inside the Experiment Manager, which made the
-boundary between the boxes fictional — the manager both ran the model and
-judged it, so "the experiment succeeded" and "the experiment showed something"
-were decided by the same code. They are different questions with different
-failure modes. A run whose columns all completed is a manager success even when
-every column drains twice its precipitation; only the Analyzer can say the
-second thing, and it has to be able to say it about a run the manager considers
-finished.
+    step 0  context      the three boundary files -> plan / data / caveats
+    step 1  compare      SWE, streamflow, WTD against observations
+                         -> comparison.json + 5 figures
+    step 2  investigate  an LLM decides which figures answer the user's
+                         question and writes the code; pandas computes
+                         -> investigation.json + up to 5 figures
+    step 3  interpret    an LLM concludes and code audits the conclusion;
+                         may send step 2 back once -> interpretation.json
+    step 4  report       assemble -> analysis.json, the box's boundary file
 
-What stays with the manager is EXTRACTION — pulling numbers out of ELM history
-NetCDFs. That is reading the model's own output format, which is a property of
-the backend, not of the analysis. The Analyzer consumes the extracted shape.
+These stages used to live inside the Experiment Manager, which made the
+boundary between the boxes fictional: the manager both ran the model and judged
+it, so "the experiment succeeded" and "the experiment showed something" were
+decided by the same code. They are different questions with different failure
+modes. A run whose columns all completed is a manager success even when every
+column drains twice its precipitation, and only the Analyzer can say the second
+thing — about a run the manager considers finished.
 
-Every stage here is non-fatal. A run stands as a run without figures, without
-observations, and without prose; losing the interpretation must never cost the
-compute that produced it.
+WHY EACH STEP WRITES A FILE. Any step can be re-run against an archived study
+without repeating the ones before it. That is not tidiness: step 2 costs an LLM
+call plus a subprocess per figure, and step 3 could not be developed at all
+while its input existed only in memory. It is also what lets a person open
+04_analysis/ and see what the machine saw.
+
+EVERY STEP IS NON-FATAL. A step that fails records why and the rest continue.
+An Analyzer that aborted on a failed figure would discard the four that worked
+and the comparison that preceded them — and this box exists to report what a
+run shows, including that part of it could not be shown.
 """
 import json
-import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _load_tool(name: str):
-	"""Import tools/<name>.py by path — tools/ is a script dir, not a package.
-
-	Kept identical to the manager's loader so the Analyzer and the standalone
-	CLIs (analyze_run, validate_run, analyze_agentic, interpret_run) share one
-	implementation of each stage rather than drifting apart.
-	"""
-	import importlib.util
-	if name in sys.modules:
-		return sys.modules[name]
-	path = _ROOT / "tools" / f"{name}.py"
-	spec = importlib.util.spec_from_file_location(name, path)
-	mod  = importlib.util.module_from_spec(spec)
-	sys.modules[name] = mod
-	spec.loader.exec_module(mod)
-	return mod
-
 
 class Analyzer:
-	"""Figures, validation, interpretation — over one finished run directory."""
+    """steps 0-4 over one finished run directory."""
 
-	def __init__(self, run_dir: str, verbose: bool = True):
-		self.run_dir      = Path(run_dir)
-		self.analysis_dir = self.run_dir / "04_analysis"
-		self.analysis_dir.mkdir(parents=True, exist_ok=True)
-		self.verbose      = verbose
+    def __init__(self, run_dir: str, verbose: bool = True):
+        self.run_dir = Path(run_dir)
+        self.analysis_dir = self.run_dir / "04_analysis"
+        self.analysis_dir.mkdir(parents=True, exist_ok=True)
+        self.verbose = verbose
 
-	def _say(self, msg: str) -> None:
-		if self.verbose:
-			print(msg)
+    def _say(self, msg: str) -> None:
+        if self.verbose:
+            print(msg)
 
-	# ─────────────────────────────────────────────────────────
-	# The whole box, in the order the stages depend on each other
-	# ─────────────────────────────────────────────────────────
-	def run(self,
-			results: Any = None,
-			config:  Optional[Dict[str, Any]] = None) -> Dict[str, bool]:
-		"""Figures → validation → interpretation.
+    # ─────────────────────────────────────────────────────────
+    # The whole box, in the order the steps depend on each other
+    # ─────────────────────────────────────────────────────────
+    def run(self,
+            results: Any = None,
+            config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """step 0 -> 1 -> (2 <-> 3) -> 4.
 
-		`results` is the manager's extracted results object when the Analyzer
-		runs in-process straight after a run; the figures need the ensemble in
-		memory. Omitted, the figure stage is skipped and the rest still runs
-		off what is on disk — which is how the Analyzer is invoked against an
-		older run directory.
-		"""
-		config = config or {}
-		return {
-			"figures":        self.figures(results) if results is not None else False,
-			"validation":     self.validate(config),
-			"interpretation": self.interpret(config),
-		}
+        `results` is accepted for the manager's call signature and no longer
+        used: step 0 reads the packaged run off disk, which is what lets the
+        same code serve a live run and an archived one identically. Passing the
+        in-memory object would have made those two paths different.
+        """
+        config = config or {}
+        t0 = time.time()
+        status: Dict[str, Any] = {"steps": {}}
 
-	# ─────────────────────────────────────────────────────────
-	# FIGURES
-	# ─────────────────────────────────────────────────────────
-	def figures(self, analyzer: Any) -> bool:
-		"""04_analysis/ figures — the same five tools/analyze_run.py --plot draws.
+        # ── step 0 ───────────────────────────────────────────────────────
+        try:
+            from agents.analysis import step0_context
+            ctx = step0_context.load(self.run_dir)
+            n_block = sum(1 for c in (ctx.caveats or [])
+                          if c.get("severity") == "blocking")
+            self._say(f"✓ step 0  context: {len(ctx.columns)} columns, "
+                      f"{len(ctx.caveats or [])} caveats ({n_block} blocking)")
+            status["steps"]["context"] = True
+        except Exception as e:
+            # Without step 0 there is nothing for any later step to read, so
+            # this is the one failure that ends the box.
+            self._say(f"❌ step 0  context failed: {e}")
+            status["steps"]["context"] = False
+            status["error"] = str(e)
+            return status
 
-		These are the science figures: partitioning (fractions of P per column),
-		controls (fractions vs drivers, confound shown), soil_control (forcing
-		held constant) and wtd_columns. They read the ensemble, so they answer
-		questions about the ensemble.
+        # NOTHING TO ANALYSE IS NOT A REASON TO CALL AN LLM. A run directory
+        # with no columns — empty, half-written, or one whose extraction failed
+        # — used to fall straight through into steps 2 and 3, which spent real
+        # API calls to discover there was no data. Checked here because it is
+        # the first point that knows.
+        if not ctx.columns:
+            self._say("   ⚠️  no columns in this run — nothing to analyse")
+            status["steps"]["compare"] = False
+            status["steps"]["investigate"] = False
+            status["steps"]["interpret"] = False
+            status["steps"]["report"] = False
+            status["error"] = "no columns"
+            status["seconds"] = round(time.time() - t0, 1)
+            return status
 
-		They replaced ELMResultsAnalyzer.plot_all(), which drew a 2-panel
-		<case>_overview.png per column plus one comparison figure. That set had
-		no elevation gradient, no soil attribution, no water-budget closure and
-		no WTD panel — everything the study is actually about — and it meant an
-		integrated run produced a strictly weaker figure set than the same run
-		analysed from the command line. Non-fatal.
-		"""
-		try:
-			ar   = _load_tool("analyze_run")
-			from agents.analysis import step2_derive as _drv
-			rows = getattr(analyzer, "results", None) or []
-			if isinstance(rows, dict):
-				rows = list(rows.values())
-			# computed here, not read off the extraction object: the old call
-			# returned {} on every run, so soil_control.png was never drawn
-			soil = _drv.soil_attribution(rows)
-			if not soil.get("available"):
-				soil = None
+        # ── step 1 ───────────────────────────────────────────────────────
+        comparison = {}
+        try:
+            from agents.analysis import step1_compare
+            comparison = step1_compare.compare_all(ctx, self.analysis_dir)
+            self._say(f"✓ step 1  compare: {len(comparison.get('figures') or {})} "
+                      f"figures, {len(comparison.get('caveats') or [])} caveats "
+                      f"→ comparison.json")
+            status["steps"]["compare"] = True
+        except Exception as e:
+            self._say(f"   ⚠️  step 1 compare failed: {e}")
+            status["steps"]["compare"] = False
 
-			n = 0
-			ar.plot_partitioning(analyzer.results,
-								 self.analysis_dir / "partitioning.png"); n += 1
-			ar.plot_controls(analyzer.results,
-							 self.analysis_dir / "controls.png"); n += 1
-			ar.plot_spatial(analyzer.results, self.run_dir,
-							self.analysis_dir / "spatial.png"); n += 1
-			ar.plot_wtd(analyzer.results, self.run_dir,
-						self.analysis_dir / "wtd_columns.png"); n += 1
-			if soil:
-				ar.plot_soil(soil, self.analysis_dir / "soil_control.png"); n += 1
-			self._say(f"✓ {n} analysis figure(s) → 04_analysis/")
-			return True
-		except Exception as e:
-			self._say(f"   ⚠️  analysis plots failed: {e}")
-			return False
+        # ── steps 2 and 3, as a bounded loop ─────────────────────────────
+        investigation = interpretation = None
+        rounds, stopped = [], None
+        try:
+            from agents.analysis import step3_interpret
+            loop = step3_interpret.investigate_and_interpret(
+                ctx, self.analysis_dir, comparison=comparison,
+                model=config.get("analysis_model",
+                                 step3_interpret.DEFAULT_MODEL),
+                with_images=config.get("analysis_with_images", True),
+                max_rounds=config.get("analysis_max_rounds",
+                                      step3_interpret.MAX_ROUNDS))
+            investigation = loop["investigation"]
+            interpretation = loop["interpretation"]
+            rounds, stopped = loop["rounds"], loop["stopped_because"]
+            a = interpretation.get("audit") or {}
+            self._say(f"✓ step 2  investigate: "
+                      f"{investigation['n_succeeded']}/{investigation['n_proposed']} "
+                      f"figures over {loop['n_rounds']} round(s) "
+                      f"→ investigation.json")
+            self._say(f"✓ step 3  interpret: {interpretation['verdict']}, "
+                      f"{a.get('n_claims', 0) - a.get('n_struck', 0)} claims kept "
+                      f"of {a.get('n_claims', 0)} ({stopped}) "
+                      f"→ interpretation.json")
+            status["steps"]["investigate"] = True
+            status["steps"]["interpret"] = True
+        except Exception as e:
+            self._say(f"   ⚠️  steps 2-3 failed: {e}")
+            status["steps"]["investigate"] = status["steps"]["interpret"] = False
 
-	# ─────────────────────────────────────────────────────────
-	# VALIDATE AGAINST OBSERVATIONS
-	# ─────────────────────────────────────────────────────────
-	def validate(self, config: Dict[str, Any]) -> bool:
-		"""Compare the run against in-domain observations (USGS wells and
-		gauges, SNOTEL SWE) -> 04_analysis/validation.json + validation.png.
+        # ── step 4 ───────────────────────────────────────────────────────
+        try:
+            from agents.analysis import step4_report
+            report = step4_report.build(
+                ctx, comparison, investigation or {}, interpretation or {},
+                self.run_dir, rounds=rounds, stopped_because=stopped)
+            path = step4_report.write(report, self.analysis_dir)
+            self._say("✓ step 4  report → " + str(Path(path).name))
+            if self.verbose:
+                self._say("\n" + step4_report.summary(report))
+            status["steps"]["report"] = True
+            status["report"] = path
+            status["verdict"] = report.get("verdict")
+        except Exception as e:
+            self._say(f"   ⚠️  step 4 report failed: {e}")
+            status["steps"]["report"] = False
 
-		Reuses tools/validate_run.build_validation() rather than
-		reimplementing it. Non-fatal: needs live MCP + network, and a run is
-		still useful without it.
-		"""
-		clients = (config or {}).get("mcp_clients") or {}
-		if not clients:
-			self._say("   ⚠️  no MCP clients — skipping observation validation")
-			return False
-		try:
-			vr  = _load_tool("validate_run")
-			val = vr.build_validation(self.run_dir, clients)
-			(self.analysis_dir / "validation.json").write_text(
-				json.dumps(val, indent=2, default=str))
-			try:
-				vr.plot_validation(val, self.analysis_dir / "validation.png")
-			except Exception as e:
-				self._say(f"   ⚠️  validation plot failed: {e}")
-			n = sum(1 for t in (val.get("targets") or [])
-					if t.get("status") == "compared")
-			self._say(f"✓ validation: {n} target(s) compared "
-					  f"→ 04_analysis/validation.json")
-			return True
-		except Exception as e:
-			self._say(f"   ⚠️  observation validation failed ({e}) — continuing")
-			return False
-
-	# ─────────────────────────────────────────────────────────
-	# INTERPRET (numbers + feasibility + validation)
-	# ─────────────────────────────────────────────────────────
-	def interpret(self, config: Dict[str, Any]) -> bool:
-		"""Choose figures, render, LOOK at them, interpret.
-
-		Agentic by default — it picks which figures answer the question rather
-		than emitting a fixed set, renders them from the vetted registry, and
-		reviews each rendering by sight before writing the interpretation.
-		config['agentic_analyzer']=False falls back to the one-shot interpreter.
-
-		Flexible in what it explores; bound in what it may claim. Numbers must
-		trace to the JSON, every figure records its provenance, and the
-		validation verdicts (context-only, the domain-match and impossible-ratio
-		refusals) are not negotiable. Non-fatal either way.
-		"""
-		cfg   = config or {}
-		model = cfg.get("interpreter_model", "claude-opus-4-8-project")
-		if cfg.get("agentic_analyzer", True):
-			try:
-				ag = _load_tool("analyze_agentic")
-				import sys as _sys
-				argv = _sys.argv
-				_sys.argv = ["analyze_agentic", "--run-dir", str(self.run_dir),
-							 "--model", model]
-				if not cfg.get("analyzer_vision", True):
-					_sys.argv.append("--no-vision")
-				try:
-					ag.main()
-				finally:
-					_sys.argv = argv
-				self._say("✓ analysis → 04_analysis/{analysis_plan,figure_captions}"
-						  ".json + interpretation.md")
-				return True
-			except SystemExit as e:
-				self._say(f"   ⚠️  agentic analyzer stopped ({e}) — falling back")
-			except Exception as e:
-				self._say(f"   ⚠️  agentic analyzer failed ({e}) — falling back")
-		try:
-			ir = _load_tool("interpret_run")
-			ir.interpret(self.run_dir, model=model, quiet=True)
-			self._say("✓ interpretation → 04_analysis/interpretation.md")
-			return True
-		except Exception as e:
-			self._say(f"   ⚠️  interpretation failed ({e}) — continuing")
-			return False
+        status["seconds"] = round(time.time() - t0, 1)
+        return status
