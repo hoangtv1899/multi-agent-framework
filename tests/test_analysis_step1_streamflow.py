@@ -162,9 +162,31 @@ class TestMaps:
     def test_gauges_are_sized_by_drainage_area(self):
         """They span 173 to 10,285 km2 on the Gunnison run. Drawn at one size
         a headwater gauge and a basin-integrating one look like equivalent
-        evidence."""
-        import inspect
-        assert "drainage_area_km2" in inspect.getsource(sf.plot_maps)
+        evidence.
+
+        Asserted on the sizes map_points RETURNS, not on plot_maps source text:
+        the sizing moved into map_points so the combined grid could reuse it,
+        and the old text match broke on that refactor while the behaviour held.
+        """
+        result = {"gauges": [{"id": "big", "lat": 38.5, "lon": -107.5,
+                              "mean_mm_day": 1.0,
+                              "drainage_area_km2": 10285.0},
+                             {"id": "small", "lat": 38.4, "lon": -107.4,
+                              "mean_mm_day": 1.0,
+                              "drainage_area_km2": 173.0}],
+                  "columns": []}
+        _obs, _mod, sizes = sf.map_points(result)
+        assert sizes is not None and len(sizes) == 2
+        assert sizes[0] > sizes[1], sizes
+
+    def test_gauges_are_unsized_when_no_area_is_known(self):
+        """Sizing by a missing area would draw every gauge at the minimum and
+        imply they are all headwater gauges."""
+        result = {"gauges": [{"id": "g", "lat": 38.5, "lon": -107.5,
+                              "mean_mm_day": 1.0,
+                              "drainage_area_km2": None}],
+                  "columns": []}
+        assert sf.map_points(result)[2] is None
 
     def test_the_label_says_runoff_not_discharge(self):
         """Discharge is a volume rate (m3/s); this is a depth rate over an

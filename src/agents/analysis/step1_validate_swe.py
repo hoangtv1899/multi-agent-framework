@@ -44,6 +44,8 @@ rather than computed, because a first-snow date taken from a warm-started
 """
 from typing import Any, Dict, List, Optional, Tuple
 
+from agents.analysis.step1_geo import plot_panels   # noqa: E402
+
 SWE_THRESHOLD_MM = 25.0      # ~1 inch SWE; see the module docstring
 
 
@@ -576,35 +578,17 @@ def plot_series(result: Dict[str, Any], out_path) -> str:
     return str(out_path)
 
 
-def plot_maps(result: Dict[str, Any], ctx, out_path,
-              basemap: bool = True, zoom: int = 9) -> str:
-    """Two maps of mean SWE — SNOTEL on the left, every ELM column on the right.
+def map_points(result, ctx):
+    """Mean SWE as map points: (stations, columns), each (lon, lat, mm, name).
 
-    Where the two networks sample, not just what they measured. Two SNOTEL
-    sites in one corner of a 6,245 km2 basin is a different claim from two
-    spread across it, and no scatter or hydrograph can show that. This figure
-    is also what caught three of the five stations sitting outside the
-    watershed entirely.
-
-    ONE SHARED COLOUR SCALE across both panels. Independent scales would map
-    the observed maximum and the modelled maximum to the same colour and make
-    two very different fields look alike — the same reason the series figure
-    shares its y-axis.
-
-    OSM underneath, MUTED. Terrain is the reason SNOTEL sites sit where they
-    do, so it is context and not decoration; but a full-strength basemap
-    competes with the data for the eye, so it is drawn at reduced alpha and
-    the data sits on top. Non-fatal if the tiles cannot be fetched — the maps
-    are still readable against the watershed outline alone, and a figure must
-    not depend on a third-party raster being reachable.
+    Coordinates are NOT in the compare() record — it keys on entity name — so
+    they are looked up here against reception's stations and the packaged
+    columns. One definition, used by this module's own maps and by the
+    combined grid, so the two figures can never disagree about where a station
+    is.
     """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    stations = [m for m in result.get("observed") or [] if m.get("available")]
-    columns  = [m for m in result.get("model") or [] if m.get("available")]
-
+    stations = [m for m in (result.get("observed") or []) if m.get("available")]
+    columns  = [m for m in (result.get("model") or []) if m.get("available")]
     by_col = {r.get("case_name"): r for r in ctx.columns}
     raw_st = ((ctx.data.get("observations") or {}).get("swe") or {}) \
         .get("stations") or []
@@ -620,88 +604,27 @@ def plot_maps(result: Dict[str, Any], ctx, out_path,
                 out.append((lon, lat, v, m.get("entity")))
         return out
 
-    obs_pts, mod_pts = pts(stations, by_st), pts(columns, by_col)
-    allv = [q[2] for q in obs_pts + mod_pts]
-    vmin, vmax = (min(allv), max(allv)) if allv else (0.0, 1.0)
-    boundary = ctx.data.get("boundary") or []
+    return pts(stations, by_st), pts(columns, by_col)
 
-    # extent from the watershed plus everything plotted, so both panels show
-    # the same ground and a point's position means the same thing in each
-    xs = [q[0] for q in obs_pts + mod_pts]
-    ys = [q[1] for q in obs_pts + mod_pts]
-    for ring in boundary:
-        try:
-            xs += [q[0] for q in ring]; ys += [q[1] for q in ring]
-        except Exception:
-            pass
-    if not xs:
-        xs, ys = [-108.0, -106.5], [37.5, 39.0]
-    mx = 0.06 * (max(xs) - min(xs) or 1); my = 0.06 * (max(ys) - min(ys) or 1)
-    extent = [min(xs) - mx, max(xs) + mx, min(ys) - my, max(ys) + my]
 
-    proj = None
-    if basemap:
-        try:
-            import cartopy.crs as ccrs
-            import cartopy.io.img_tiles as cimgt
-            tiler = cimgt.OSM()
-            proj = ccrs.PlateCarree()
-        except Exception:
-            proj = None
+def plot_maps(result: Dict[str, Any], ctx, out_path,
+              basemap: bool = True, zoom: int = 9) -> str:
+    """Two maps of mean SWE — SNOTEL on the left, every ELM column on the right.
 
-    fig, axes = plt.subplots(
-        1, 2, figsize=(17.5, 8.4),
-        subplot_kw={"projection": proj} if proj is not None else None)
+    Where the two networks sample, not just what they measured. Two SNOTEL
+    sites in one corner of a 6,245 km2 basin is a different claim from two
+    spread across it, and no scatter or hydrograph can show that. This figure
+    is also what caught three of the five stations sitting outside the
+    watershed entirely.
 
-    sc = None
-    for ax, points, title in ((axes[0], obs_pts, "SNOTEL"),
-                              (axes[1], mod_pts, "ELM")):
-        if proj is not None:
-            import cartopy.crs as ccrs
-            ax.set_extent(extent, crs=ccrs.PlateCarree())
-            try:
-                ax.add_image(tiler, zoom, alpha=0.45, zorder=0)
-            except Exception:
-                pass
-            gl = ax.gridlines(draw_labels=True, alpha=0.25, zorder=1)
-            gl.top_labels = gl.right_labels = False
-            gl.xlabel_style = gl.ylabel_style = {"size": 13}
-            kw = {"transform": ccrs.PlateCarree()}
-        else:
-            ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3])
-            ax.set_xlabel("longitude", fontsize=18)
-            ax.set_ylabel("latitude", fontsize=18)
-            ax.tick_params(labelsize=13)
-            ax.grid(alpha=0.25)
-            kw = {}
-
-        for ring in boundary:
-            try:
-                ax.plot([q[0] for q in ring], [q[1] for q in ring],
-                        color="#111", lw=2.2, zorder=3, **kw)
-            except Exception:
-                pass
-        if points:
-            sc = ax.scatter([q[0] for q in points], [q[1] for q in points],
-                            c=[q[2] for q in points], cmap="viridis",
-                            vmin=vmin, vmax=vmax, s=300, edgecolor="#fff",
-                            linewidth=1.8, zorder=5, **kw)
-        ax.set_title(f"{title}   (n={len(points)})", fontweight="bold",
-                     fontsize=21, pad=14)
-
-    if sc is not None:
-        cb = fig.colorbar(sc, ax=list(axes), fraction=0.032, pad=0.04)
-        cb.set_label("mean SWE (mm)", fontsize=19)
-        cb.ax.tick_params(labelsize=14)
-
-    # NO bbox_inches="tight" here. With cartopy GeoAxes the tight bounding box
-    # is computed before the tiles and the map frame exist, and it cropped the
-    # whole figure down to the colourbar. Drawing the canvas first and saving
-    # the full figure is the reliable order.
-    try:
-        fig.canvas.draw()
-    except Exception:
-        pass
-    fig.savefig(out_path, dpi=135)
-    plt.close(fig)
-    return str(out_path)
+    ONE SHARED COLOUR SCALE across both panels, and OSM underneath at reduced
+    alpha — terrain is why SNOTEL sites sit where they do, so it is context
+    rather than decoration, but a full-strength basemap competes with the data
+    for the eye. Both behaviours live in plot_panels, which this now delegates
+    to; it was a hand-rolled copy of that function and the two had already
+    started to drift.
+    """
+    obs, mod = map_points(result, ctx)
+    return plot_panels([("SNOTEL", obs, None), ("ELM", mod, None)],
+                       ctx.data.get("boundary") or [], out_path,
+                       label="mean SWE (mm)", basemap=basemap, zoom=zoom)

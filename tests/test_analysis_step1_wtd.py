@@ -189,3 +189,100 @@ class TestDistributionFigure:
         out = tmp_path / "d2.png"
         wtd.plot_distribution(wtd.compare(ctx), out)
         assert out.exists()
+
+
+class TestWellSeriesNormalisation:
+    """Wells carry series as [{date, wtd_m}] — a list of records, unlike the
+    model's columnar {dates, values}. Three encodings for three observables is
+    the recurring shape bug in this codebase, so the normalisation is pinned."""
+
+    def test_records_become_sorted_pairs(self):
+        pts = wtd._well_series({"series": [
+            {"date": "2019-09-15", "wtd_m": 6.4},
+            {"date": "2019-04-02", "wtd_m": 20.9}]})
+        assert [p[1] for p in pts] == [20.9, 6.4]          # sorted by date
+        assert str(pts[0][0]) == "2019-04-02"
+
+    def test_unparseable_and_null_readings_are_dropped_not_zeroed(self):
+        pts = wtd._well_series({"series": [
+            {"date": "2019-04-02", "wtd_m": 20.9},
+            {"date": "not-a-date", "wtd_m": 5.0},
+            {"date": "2019-05-02", "wtd_m": None},
+            "junk"]})
+        assert [p[1] for p in pts] == [20.9]
+
+    def test_no_series_is_empty_not_an_error(self):
+        assert wtd._well_series({}) == []
+
+
+class TestDistributionUsesWells:
+    """The wells are the only MEASUREMENT of this quantity. A figure that drew
+    Fan and ELM alone when wells existed would compare two models and call it
+    validation."""
+
+    def _result(self, wells):
+        return {"fan": [{"id": "c1", "wtd_m": 25.0}, {"id": "c2", "wtd_m": 4.4}],
+                "model": [{"id": "c1", "wtd_m": 70.0,
+                           "series": {"units": "m",
+                                      "dates": ["2019-01-01", "2019-06-01"],
+                                      "values": [70.0, 70.1]}},
+                          {"id": "c2", "wtd_m": 2.1,
+                           "series": {"units": "m",
+                                      "dates": ["2019-01-01", "2019-06-01"],
+                                      "values": [2.0, 2.2]}}],
+                "wells": wells}
+
+    def test_wells_are_drawn_in_both_panels(self, tmp_path):
+        import matplotlib
+        matplotlib.use("Agg")
+        r = self._result([{"id": "W1", "lat": 38.4, "lon": -107.4,
+                           "wtd_m": 6.2, "n_obs": 11,
+                           "series": [{"date": "2019-05-15", "wtd_m": 6.0},
+                                      {"date": "2019-09-15", "wtd_m": 6.4}]}])
+        out = tmp_path / "d.png"
+        assert Path(wtd.plot_distribution(r, out)).exists()
+        assert out.stat().st_size > 5000
+
+    def test_degrades_to_two_fields_with_no_wells(self, tmp_path):
+        """The 2019 Upper Gunnison result, not a missing feature."""
+        import matplotlib
+        matplotlib.use("Agg")
+        out = tmp_path / "d0.png"
+        assert Path(wtd.plot_distribution(self._result([]), out)).exists()
+
+    def test_series_panel_goes_log_only_when_scales_diverge(self):
+        """Wells at 5 m beside ELM at 70 m compress to a flat line on a linear
+        axis; a narrow range on a log axis exaggerates noise instead."""
+        def scale(model_vals, wells=()):
+            r = self._result(list(wells))
+            r["model"] = [{"id": "c", "wtd_m": model_vals[0],
+                           "series": {"units": "m",
+                                      "dates": ["2019-01-01", "2019-06-01"],
+                                      "values": list(model_vals)}}]
+            return wtd._series_yscale(r)
+
+        assert scale((2.0, 2.2)) == "linear"        # ratio 1.1
+        assert scale((2.0, 200.0)) == "log"         # ratio 100
+
+    def test_a_shallow_well_against_a_deep_column_forces_log(self):
+        """The case the rule exists for: the model's own span is narrow, and
+        only the well makes the panel span scales."""
+        deep = [{"id": "c", "wtd_m": 70.0,
+                 "series": {"units": "m",
+                            "dates": ["2019-01-01", "2019-06-01"],
+                            "values": [70.0, 70.1]}}]
+        r = {"model": deep, "wells": []}
+        assert wtd._series_yscale(r) == "linear"
+        r["wells"] = [{"id": "W", "series": [{"date": "2019-05-15",
+                                              "wtd_m": 1.5}]}]
+        assert wtd._series_yscale(r) == "log"
+
+    def test_zero_and_negative_depths_do_not_break_the_scale_choice(self):
+        """A water table AT the surface is 0 m and cannot sit on a log axis."""
+        r = {"model": [{"id": "c", "wtd_m": 0.0,
+                        "series": {"units": "m", "dates": ["2019-01-01"],
+                                   "values": [0.0]}}], "wells": []}
+        assert wtd._series_yscale(r) == "linear"
+
+    def test_no_data_at_all_is_linear(self):
+        assert wtd._series_yscale({}) == "linear"

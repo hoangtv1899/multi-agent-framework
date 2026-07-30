@@ -110,6 +110,52 @@ class _Ctx:
         return self._c
 
 
+def _capture_clims(draw, tmp_path):
+    """The (vmin, vmax) every scatter was drawn with, in call order.
+
+    A shared colour scale is a property of the DRAWN FIGURE, so it is read off
+    the Axes.scatter calls rather than matched in source text.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.axes import Axes
+    real, out = Axes.scatter, []
+
+    def spy(self, *a, **kw):
+        sc = real(self, *a, **kw)
+        try:
+            out.append(tuple(round(v, 9) for v in sc.get_clim()))
+        except Exception:
+            pass
+        return sc
+
+    Axes.scatter = spy
+    try:
+        draw(tmp_path / "clim.png")
+    finally:
+        Axes.scatter = real
+    return out
+
+
+def _capture_savefig(draw, tmp_path):
+    """The kwargs of every savefig call, to pin that bbox_inches stays unset."""
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.figure import Figure
+    real, out = Figure.savefig, []
+
+    def spy(self, *a, **kw):
+        out.append(dict(kw))
+        return real(self, *a, **kw)
+
+    Figure.savefig = spy
+    try:
+        draw(tmp_path / "bbox.png")
+    finally:
+        Figure.savefig = real
+    return out
+
+
 class TestCompare:
 
     @staticmethod
@@ -266,29 +312,59 @@ class TestOutOfBasinStations:
 
 
 class TestMaps:
+    """TestCompare._ctx() carries no lat/lon — it exists to exercise metrics
+    and windowing. Feeding it to plot_maps drew the "NOTHING TO MAP"
+    placeholder, and a size assertion on that placeholder passed while testing
+    nothing about a map. These use a fixture with real coordinates."""
+
+    @staticmethod
+    def _ctx():
+        c = TestCompare._ctx()
+        c.data["boundary"] = [[[-108.0, 38.0], [-107.0, 38.0], [-107.0, 39.0],
+                               [-108.0, 39.0], [-108.0, 38.0]]]
+        c.data["observations"]["swe"]["stations"][0].update(
+            {"lat": 38.4, "lon": -107.4})
+        c.columns[0].update({"lat": 38.6, "lon": -107.6})
+        return c
+
+    def test_the_fixture_actually_produces_map_points(self):
+        """Guards the gap above: if this returns empty, every assertion in this
+        class is being made about a placeholder image."""
+        ctx = self._ctx()
+        obs, mod = swe.map_points(swe.compare(ctx), ctx)
+        assert obs and mod, (obs, mod)
+
     def test_it_renders_without_a_basemap(self, tmp_path):
         """A figure must not depend on a third-party raster being reachable."""
         pytest.importorskip("matplotlib")
-        ctx = TestCompare._ctx()
+        ctx = self._ctx()
         out = tmp_path / "maps.png"
         swe.plot_maps(swe.compare(ctx), ctx, out, basemap=False)
         assert out.exists() and out.stat().st_size > 5000
 
-    def test_the_colour_scale_is_shared(self):
+    def test_the_colour_scale_is_shared(self, tmp_path):
         """Independent scales would map the observed maximum and the modelled
-        maximum to the same colour and make two different fields look alike."""
-        import inspect
-        src = inspect.getsource(swe.plot_maps)
-        assert "vmin=vmin, vmax=vmax" in src
-        assert "allv = [q[2] for q in obs_pts + mod_pts]" in src
+        maximum to the same colour and make two different fields look alike.
 
-    def test_it_does_not_use_tight_bbox(self):
+        Asserted on the CLIM THE PANELS ACTUALLY GET, not on source text. The
+        earlier version matched "vmin=vmin, vmax=vmax" in plot_maps and broke
+        the moment the drawing moved into plot_panels — while the behaviour it
+        named was still correct. A test that fails on a refactor it should not
+        care about is testing the wrong thing.
+        """
+        pytest.importorskip("matplotlib")
+        ctx = self._ctx()
+        clims = _capture_clims(lambda out: swe.plot_maps(
+            swe.compare(ctx), ctx, out, basemap=False), tmp_path)
+        assert len(clims) >= 2, clims
+        assert len(set(clims)) == 1, f"panels drew on different scales: {clims}"
+
+    def test_it_does_not_use_tight_bbox(self, tmp_path):
         """With cartopy GeoAxes the tight bounding box is computed before the
         tiles exist and cropped the whole figure down to the colourbar."""
-        import inspect, re
-        src = inspect.getsource(swe.plot_maps)
-        # the CALL, not the comment that explains why it looks like this
-        calls = re.findall(r"fig\.savefig\([^)]*\)", src)
-        assert calls, "plot_maps must save something"
-        assert all("bbox_inches" not in c for c in calls), calls
-        assert "fig.canvas.draw()" in src
+        pytest.importorskip("matplotlib")
+        ctx = self._ctx()
+        saves = _capture_savefig(lambda out: swe.plot_maps(
+            swe.compare(ctx), ctx, out, basemap=False), tmp_path)
+        assert saves, "plot_maps must save something"
+        assert all(kw.get("bbox_inches") is None for kw in saves), saves

@@ -36,7 +36,7 @@ making them.
 from typing import Any, Dict, List, Optional, Tuple
 
 from agents.analysis.step1_geo import (        # noqa: E402
-    in_polygon, split_by_basin, plot_two_maps, _num)
+    in_polygon, split_by_basin, plot_two_maps, plot_panels, _num)
 
 # QOVER is surface runoff; QDRAI is subsurface drainage. A stream gauge sees
 # both. Comparing QOVER alone understates the column by however much leaves
@@ -226,6 +226,29 @@ def _basin_area_km2(rings) -> Optional[float]:
     return total or None
 
 
+def map_points(result, ctx=None):
+    """Mean specific discharge as map points: (gauges, columns, gauge_sizes).
+
+    Gauges are SIZED BY DRAINAGE AREA. A gauge draining 40 km2 and one
+    draining 5,000 km2 are not equivalent evidence about a 6,245 km2 basin,
+    and drawn at one size they look it. Returned here rather than computed at
+    each call site so the standalone map and the combined grid size them
+    identically.
+    """
+    gauges = [g for g in (result.get("gauges") or [])
+              if g.get("lat") is not None and g.get("lon") is not None
+              and g.get("mean_mm_day") is not None]
+    cols = [c for c in (result.get("columns") or [])
+            if c.get("lat") is not None and c.get("lon") is not None
+            and c.get("mean_mm_day") is not None]
+    obs = [(g["lon"], g["lat"], g["mean_mm_day"], g.get("id")) for g in gauges]
+    mod = [(c["lon"], c["lat"], c["mean_mm_day"], c.get("id")) for c in cols]
+    areas = [g.get("drainage_area_km2") or 0 for g in gauges]
+    hi = max(areas) if areas else 0
+    sizes = ([120 + 900 * (a / hi) ** 0.5 for a in areas] if hi else None)
+    return obs, mod, sizes
+
+
 def plot_maps(result: Dict[str, Any], ctx, out_path, **kw) -> str:
     """Two maps of mean specific discharge — USGS left, ELM right.
 
@@ -234,29 +257,11 @@ def plot_maps(result: Dict[str, Any], ctx, out_path, **kw) -> str:
     basin-integrating one look like equivalent evidence, which is the single
     most misleading thing this figure could do.
     """
-    gauges = [g for g in result.get("gauges") or []
-              if g.get("mean_mm_day") is not None
-              and g.get("lat") is not None and g.get("lon") is not None]
-    cols = [c for c in result.get("columns") or []
-            if c.get("mean_mm_day") is not None
-            and c.get("lat") is not None and c.get("lon") is not None]
-
-    obs = [(g["lon"], g["lat"], g["mean_mm_day"], g["id"]) for g in gauges]
-    mod = [(c["lon"], c["lat"], c["mean_mm_day"], c["id"]) for c in cols]
-
-    areas = [g.get("drainage_area_km2") or 0 for g in gauges]
-    hi = max(areas) if areas else 1
-    sizes = [120 + 900 * (a / hi) ** 0.5 for a in areas] if hi else None
-
-    # "runoff", not "discharge". Discharge is a volume rate (m3/s); this is a
-    # depth rate over an area. Reception already divided gauge discharge by
-    # contributing area to get it, which is what makes a catchment gauge
-    # comparable to a 1 m2 column at all.
+    obs, mod, sizes = map_points(result, ctx)
     kw.setdefault("log", True)
-    return plot_two_maps(obs, mod, ctx.data.get("boundary") or [], out_path,
-                         label="mean runoff (mm/day)",
-                         obs_title="USGS", mod_title="ELM",
-                         obs_sizes=sizes, **kw)
+    return plot_panels([("USGS", obs, sizes), ("ELM", mod, None)],
+                       ctx.data.get("boundary") or [], out_path,
+                       label="mean runoff (mm/day)", **kw)
 
 
 def plot_series(result: Dict[str, Any], out_path,
