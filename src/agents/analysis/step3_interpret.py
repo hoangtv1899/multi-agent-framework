@@ -58,9 +58,17 @@ DEFAULT_MODEL = "claude-opus-5-project"
 # make the no-new-numbers audit fire constantly on prose that is fine.
 _YEARLIKE = re.compile(r"^(19|20)\d{2}$")
 
+# A number only counts as a MEASUREMENT when it stands on its own. The lookbehind
+# excludes digits embedded in an identifier: a live run struck a correct claim
+# for "stating 01, 04, 05, 07" — which were col_01, col_04, col_05 and col_07,
+# the names of the columns it was describing. Demanding provenance for the
+# digits inside a name is the same false positive as demanding it for a year,
+# and both silence claims that are fine.
+_NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d+(?:\.\d+)?")
+
 
 def _numbers(text: str) -> List[str]:
-    return re.findall(r"-?\d+(?:\.\d+)?", str(text))
+    return _NUMBER.findall(str(text))
 
 
 def _flatten_numbers(obj) -> set:

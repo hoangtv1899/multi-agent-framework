@@ -160,3 +160,26 @@ class _ctx:
 
     def series(self):
         return None
+
+
+class TestIdentifiersAreNotMeasurements:
+    """A live run struck a correct claim for "stating 01, 04, 05, 07" — the
+    digits inside col_01, col_04, col_05, col_07, the names of the columns it
+    was describing. Provenance is owed for measurements, not for names."""
+
+    def test_column_ids_do_not_need_provenance(self):
+        r = step3.audit([{"claim": "col_01 and col_04 both show 31.4",
+                          "finding_id": "f1", "caveats": ["no_routing"]}],
+                        INV, CAV)
+        assert len(r["kept"]) == 1, r["struck"]
+
+    def test_variable_names_with_digits_are_not_measurements(self):
+        r = step3.audit([{"claim": "H2OSNO peaks at 31.4", "finding_id": "f1",
+                          "caveats": ["no_routing"]}], INV, CAV)
+        assert len(r["kept"]) == 1, r["struck"]
+
+    def test_a_real_invented_number_is_still_struck(self):
+        """The relaxation must not open a hole in the check it protects."""
+        r = step3.audit([{"claim": "col_01 shows 99.9", "finding_id": "f1",
+                          "caveats": ["no_routing"]}], INV, CAV)
+        assert r["kept"] == [] and "99.9" in r["struck"][0]["struck_because"]
