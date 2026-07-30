@@ -51,6 +51,8 @@ from typing import Any, Dict, List, Optional
 
 from agents.analysis import script_runner as _runner   # noqa: E402
 
+FILENAME = "investigation.json"
+
 MAX_PLOTS = 5
 
 # The gateway serves claude-opus-5-project; the rest of the framework defaults
@@ -270,13 +272,23 @@ def _parse(reply: str) -> Dict[str, Any]:
 
 
 def propose(ctx, step1=None, model: str = DEFAULT_MODEL,
-            client=None) -> Dict[str, Any]:
-    """Ask for figure specs. Returns {notes, figures} with figures capped."""
+            client=None, feedback=None) -> Dict[str, Any]:
+    """Ask for figure specs. Returns {notes, figures} with figures capped.
+
+    `feedback` is step 3's verdict from the previous round: what it judged
+    unsupported, unreadable or unanswered. It is appended AFTER the task so the
+    stable part of the prompt stays byte-identical between rounds.
+    """
     if client is None:
         from agents.llm_agent import SimpleLLMClient
         client = SimpleLLMClient(model=model)
-    reply = client.ask([{"role": "user",
-                         "content": context_brief(ctx, step1) + "\n" + TASK}])
+    prompt = context_brief(ctx, step1) + "\n" + TASK
+    if feedback:
+        prompt += ("\n\nA PREVIOUS ROUND OF THESE FIGURES WAS REVIEWED AND "
+                   "JUDGED INSUFFICIENT. Address this and propose a revised "
+                   "set — keep what worked, do not simply re-send it:\n"
+                   + str(feedback))
+    reply = client.ask([{"role": "user", "content": prompt}])
     spec = _parse(reply)
     figs = [f for f in (spec.get("figures") or []) if isinstance(f, dict)]
 
@@ -291,8 +303,44 @@ def propose(ctx, step1=None, model: str = DEFAULT_MODEL,
             "raw": reply}
 
 
+def _blocked_by(variables, caveats) -> List[str]:
+    """Blocking caveats whose SCOPE names a variable this figure used.
+
+    Mechanical, not model-declared: asking step 2 to tag its own figures makes
+    the tag a claim rather than a check, and the reason caveats are uniform
+    records is that an unrespected one must not look like a respected one.
+
+    MATCHED AGAINST `applies_to` ONLY, on word boundaries. A first version
+    searched the full statement too, and struck every claim in a live run:
+    limitation_structural_3 is scoped to the water table but mentions QDRAI in
+    passing ("ELM parameterizes lateral losses (QDRAI)"), so every drainage
+    figure inherited a water-table caveat. An audit that strikes everything
+    tells you nothing — it is indistinguishable from an audit that is broken,
+    which is what it was.
+
+    `applies_to` is the field that exists to say what a caveat governs. The
+    statement is prose about why.
+    """
+    used = {str(v) for v in (variables or []) if v}
+    if not used:
+        return []
+    out = []
+    for c in (caveats or []):
+        if c.get("severity") != "blocking":
+            continue
+        scope = str(c.get("applies_to") or "")
+        # CASE-SENSITIVE. ELM variable names collide with ordinary English:
+        # matching SNOW case-insensitively tagged every precipitation figure
+        # with "snow (SWE) at stations", and RAIN would do the same. Variable
+        # names are uppercase and caveat prose is not, so case is the
+        # discriminator that separates "(QOVER)" from "runoff".
+        if any(re.search(rf"\b{re.escape(v)}\b", scope) for v in used):
+            out.append(c.get("id"))
+    return out
+
+
 def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
-                client=None) -> Dict[str, Any]:
+                client=None, feedback=None, round_no: int = 1) -> Dict[str, Any]:
     """Propose, execute, and report — including what failed and why.
 
     A script that fails becomes a CAVEAT, not a silent gap. That is the whole
@@ -303,7 +351,9 @@ def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    spec = propose(ctx, step1=step1, model=model, client=client)
+    spec = propose(ctx, step1=step1, model=model, client=client,
+                   feedback=feedback)
+    all_caveats = list(ctx.caveats or []) + list((step1 or {}).get("caveats") or [])
     findings, caveats = [], []
 
     for f in spec["figures"]:
@@ -317,7 +367,8 @@ def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
                 "scale": f.get("scale"), "variables": f.get("variables"),
                 "result": run["result"], "figure": run["figure"],
                 "script": run.get("script_path"),
-                "n": (run["result"] or {}).get("n")})
+                "n": (run["result"] or {}).get("n"),
+                "blocked_by": _blocked_by(f.get("variables"), all_caveats)})
         else:
             caveats.append({
                 "id": f"figure_failed:{fid}", "severity": "context",
@@ -327,7 +378,27 @@ def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
                 "applies_to": "completeness of the step 2 figure set",
                 "source": "step2_investigate"})
 
-    return {"notes": spec.get("notes"), "findings": findings,
-            "caveats": caveats,
-            "figures": [f["figure"] for f in findings],
-            "n_proposed": len(spec["figures"]), "n_succeeded": len(findings)}
+    out = {"round": round_no, "notes": spec.get("notes"),
+           "findings": findings, "caveats": caveats,
+           "figures": [f["figure"] for f in findings],
+           "n_proposed": len(spec["figures"]), "n_succeeded": len(findings),
+           "responded_to_feedback": feedback or None}
+
+    # WRITTEN DOWN, not just returned. A round costs an LLM call plus one
+    # subprocess per figure; if step 3 then fails, an in-memory-only result
+    # throws all of it away. It is also the provenance record — findings, their
+    # n, their figure and the script that drew each one.
+    (out_dir / FILENAME).write_text(json.dumps(out, indent=2, default=str))
+    return out
+
+
+def load(out_dir) -> Dict[str, Any]:
+    """Read back a previous investigation, or {} if step 2 has not run."""
+    from pathlib import Path
+    p = Path(out_dir) / FILENAME
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except Exception:
+        return {}
