@@ -9,6 +9,24 @@ import openai
 from typing import List, Dict, Any
 
 
+# Every LLM call in the process, appended here as it completes. A module-level
+# log rather than per-client state because the steps construct their own
+# clients internally: step 4 has to account for tokens spent by objects it
+# never sees. Each entry carries the label the caller set, so cost is
+# attributable to a STEP rather than only to a total.
+USAGE_LOG: List[Dict[str, Any]] = []
+
+
+def usage_totals(label: str = None) -> Dict[str, Any]:
+    """Aggregate USAGE_LOG, optionally for one label."""
+    rows = [r for r in USAGE_LOG if label is None or r.get("label") == label]
+    return {"calls": len(rows),
+            "prompt_tokens": sum(r.get("prompt_tokens") or 0 for r in rows),
+            "completion_tokens": sum(r.get("completion_tokens") or 0 for r in rows),
+            "seconds": round(sum(r.get("seconds") or 0.0 for r in rows), 2),
+            "models": sorted({r.get("model") for r in rows if r.get("model")})}
+
+
 class SimpleLLMClient:
     """Wrapper around OpenAI client for PNNL API."""
 
@@ -33,6 +51,7 @@ class SimpleLLMClient:
         # missing entirely: the sampling design was partly written by a
         # JSON-repair prompt rather than by the planner.
         self.max_tokens = 16384
+        self.label = None                    # which pipeline step is spending
         self.last_response_model = None      # provider-reported model version
         self.last_finish_reason = None       # "length" == the reply was cut off
 
@@ -40,6 +59,8 @@ class SimpleLLMClient:
             messages:       List[Dict[str, str]],
             system_message: str = None) -> str:
         """Send messages to LLM and get response."""
+        import time as _time
+        _t0 = _time.time()
         if system_message:
             messages = [{"role": "system",
                          "content": system_message}] + messages
@@ -67,6 +88,13 @@ class SimpleLLMClient:
         self.last_usage = ({"prompt_tokens": u.prompt_tokens,      # gateway
                             "completion_tokens": u.completion_tokens}
                            if u else None)     # returns it; None otherwise
+        USAGE_LOG.append({
+            "label": self.label,
+            "model": self.last_response_model,
+            "seconds": round(_time.time() - _t0, 2),
+            "finish_reason": self.last_finish_reason,
+            **(self.last_usage or {"prompt_tokens": None,
+                                   "completion_tokens": None})})
         return response.choices[0].message.content
 
 

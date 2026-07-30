@@ -283,6 +283,7 @@ def interpret(ctx, comparison, investigation, out_dir,
     if client is None:
         from agents.llm_agent import SimpleLLMClient
         client = SimpleLLMClient(model=model)
+        client.label = "step3_interpret"      # so step 4 can attribute the spend
 
     brief = review_brief(ctx, comparison or {}, investigation or {})
     content = _content(brief, investigation.get("figures") or [], with_images)

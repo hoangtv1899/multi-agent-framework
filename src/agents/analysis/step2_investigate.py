@@ -282,6 +282,7 @@ def propose(ctx, step1=None, model: str = DEFAULT_MODEL,
     if client is None:
         from agents.llm_agent import SimpleLLMClient
         client = SimpleLLMClient(model=model)
+        client.label = "step2_investigate"      # so step 4 can attribute the spend
     prompt = context_brief(ctx, step1) + "\n" + TASK
     if feedback:
         prompt += ("\n\nA PREVIOUS ROUND OF THESE FIGURES WAS REVIEWED AND "
