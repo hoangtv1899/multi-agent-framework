@@ -205,7 +205,7 @@ class TestRendering:
         out = tmp_path / "combined.png"
         # basemap off: a figure must not depend on a third-party raster being
         # reachable, and the test must not depend on the network.
-        p = maps.plot_all(_ctx(), out, swe=SWE, streamflow=FLOW,
+        p = maps.create_validation_spatial_map(_ctx(), out, swe=SWE, streamflow=FLOW,
                           wtd=WTD_WELLS, basemap=False)
         assert Path(p).exists() and Path(p).stat().st_size > 5000
 
@@ -280,7 +280,7 @@ class TestRenderedScales:
     def test_within_a_row_the_panels_share_and_across_rows_they_differ(
             self, tmp_path):
         out = tmp_path / "g.png"
-        clims = _clims(lambda: maps.plot_all(
+        clims = _clims(lambda: maps.create_validation_spatial_map(
             _ctx(), out, swe=SWE, streamflow=FLOW, wtd=WTD_NO_WELLS,
             basemap=False))
         assert len(clims) == 6, clims
@@ -294,7 +294,7 @@ class TestRenderedScales:
         """SWE runs 33-410 in the model and 190-210 observed. A scale fitted to
         one panel would clip the other."""
         out = tmp_path / "g2.png"
-        clims = _clims(lambda: maps.plot_all(_ctx(), out, swe=SWE,
+        clims = _clims(lambda: maps.create_validation_spatial_map(_ctx(), out, swe=SWE,
                                              basemap=False))
         vmin, vmax = clims[0]
         assert vmin <= 33.0 and vmax >= 410.0, clims
@@ -302,7 +302,7 @@ class TestRenderedScales:
     def test_the_well_overlay_is_drawn_on_the_rows_scale(self, tmp_path):
         """A 6 m well and a 6 m column must be the same colour."""
         out = tmp_path / "g3.png"
-        clims = _clims(lambda: maps.plot_all(_ctx(), out, wtd=WTD_WELLS,
+        clims = _clims(lambda: maps.create_validation_spatial_map(_ctx(), out, wtd=WTD_WELLS,
                                              basemap=False))
         # Fan panel, then its overlay, then ELM — all one scale.
         assert len(clims) == 3, clims
@@ -324,7 +324,7 @@ class TestNoTightBbox:
 
         Figure.savefig = spy
         try:
-            maps.plot_all(_ctx(), tmp_path / "g.png", swe=SWE,
+            maps.create_validation_spatial_map(_ctx(), tmp_path / "g.png", swe=SWE,
                           streamflow=FLOW, wtd=WTD_WELLS, basemap=False)
         finally:
             Figure.savefig = real

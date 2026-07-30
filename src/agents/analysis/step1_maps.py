@@ -91,11 +91,15 @@ def build_rows(ctx,
     return rows
 
 
-def plot_all(ctx, out_path,
-             swe: Optional[Dict[str, Any]] = None,
-             streamflow: Optional[Dict[str, Any]] = None,
-             wtd: Optional[Dict[str, Any]] = None,
-             **kw) -> str:
-    """One figure: every observable that has data, over the same ground."""
+def create_validation_spatial_map(ctx, out_path,
+                                  swe: Optional[Dict[str, Any]] = None,
+                                  streamflow: Optional[Dict[str, Any]] = None,
+                                  wtd: Optional[Dict[str, Any]] = None,
+                                  **kw) -> str:
+    """One figure: every observable that has data, over the same ground.
+
+    The step-1 counterpart to each validator's own plot_maps — same points,
+    same exclusions, one frame. Written as validation_spatial_map.png.
+    """
     return plot_grid(build_rows(ctx, swe=swe, streamflow=streamflow, wtd=wtd),
                      ctx.data.get("boundary") or [], out_path, **kw)
