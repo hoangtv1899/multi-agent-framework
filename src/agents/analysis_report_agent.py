@@ -13,6 +13,41 @@ from agents.llm_agent import LLMAgent
 from agents.prompts   import load_prompt
 
 
+def _drop_daily_series(payload: Dict[str, Any]) -> Dict[str, Any]:
+	"""Strip the per-variable DAILY SERIES before this reaches a prompt.
+
+	This agent summarises; it does not plot. It needs each column's `metrics`,
+	not 365 daily values x 13 variables x 19 columns — which is 2.6 MB of the
+	2.6 MB payload and, at indent=2, about 2 MILLION TOKENS. The run that found
+	this failed with ContextWindowExceeded at 2,009,214 against a 1M limit,
+	after 2406 s of ELM compute had already succeeded.
+
+	The series are not lost: they stay in experiment.json, where the Analyzer's
+	step 2 reads them with pandas. Daily hydrographs belong in a dataframe, not
+	in a prompt — a model cannot do arithmetic over 90,000 numbers, so paying
+	to send them buys nothing even when it fits.
+
+	What survives per variable is the summary stats block, which is what a
+	written report actually quotes.
+	"""
+	kept = 0
+	for exp in (payload.get("experiments") or []):
+		for name, var in (exp.get("variables") or {}).items():
+			if isinstance(var, dict) and "daily" in var:
+				d = var.pop("daily")
+				n = len((d or {}).get("values") or [])
+				var["daily_omitted"] = {
+					"n_days": n,
+					"note": "daily series live in experiment.json; omitted here "
+							"to keep the prompt inside the context window"}
+				kept += n
+	if kept:
+		print(f"   ✓ omitted {kept:,} daily values from the prompt "
+			  f"(they remain in experiment.json)")
+	return payload
+
+
+
 class AnalysisReportAgent(LLMAgent):
 	"""
 	Interprets PFLOTRAN simulation results.
@@ -96,7 +131,7 @@ class AnalysisReportAgent(LLMAgent):
 		path = Path(llm_input_file)
 		if path.exists():
 			with open(path) as f:
-				data["simulation"] = json.load(f)
+				data["simulation"] = _drop_daily_series(json.load(f))
 			print(f"   ✓ Loaded simulation data from {path.name}")
 		else:
 			print(f"   ⚠️  Simulation data not found: {llm_input_file}")
