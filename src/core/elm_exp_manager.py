@@ -144,112 +144,18 @@ class ELMExpManager(ExperimentManagerBase):
 	# ─────────────────────────────────────────────────────────
 	# MAIN ENTRY POINT
 	# ─────────────────────────────────────────────────────────
-	def execute_plan(self,
-					 experiment_plan: Dict[str, Any],
-					 config:          Dict[str, Any]
-					 ) -> Dict[str, Any]:
-		"""Execute complete ELM experiment plan."""
-		start_time = datetime.now()
+	# execute_plan now lives in ExperimentManagerBase. ELM keeps the stages
+	# and the declarations; the sequence and its ordering guarantees are the
+	# base's, so a second backend cannot re-implement them differently.
+	NEEDS_PREPARE   = True          # CIME case build, ~8 min for the first
+	NEEDS_SCHEDULER = True          # sbatch + wait
+	COUPLES_TO      = "pflotran"    # one-way QINFL handoff, when asked for
 
-		try:
-			# Step 0 — Materialize sampling (strategy → concrete columns)
-			# The capability-aware planner emits sampling_strategy, NOT
-			# CONDITIONS_COUPLERS. Turning one into the other is the
-			# "Materialize sampling" stage of the Experiment Manager; it
-			# used to live only in tools/expand_sampling.py, so a plan
-			# straight from the planner could never be executed.
-			experiment_plan = self._materialize(experiment_plan, config)
+	def _couple(self, plan, config):
+		"""Base calls this when COUPLES_TO is set; delegate to the existing
+		implementation so the coupling code has one home."""
+		return self._couple_pflotran(plan, config)
 
-			# Step 1 — Build → 01_inputs/ (setup plots come after step 2,
-			# once each case has a run/lnd_in to read its real FSURDAT from)
-			print("📋 STEP 1: Building Experiments")
-			print("-" * 40)
-			experiments = self._build(
-				experiment_plan, config
-			)
-
-			# Step 2 — Prepare (cases live at $PSCRATCH)
-			print("\n⚙️  STEP 2: Preparing Cases")
-			print("-" * 40)
-			self._prepare(experiments)
-
-			# Step 3 — Run + write 03_results/
-			print("\n🌿 STEP 3: Running Simulations")
-			print("-" * 40)
-			results = self._run(experiments, config)
-
-			# Step 4 — Extract → 04_analysis/. Reading ELM's own history
-			# format is this backend's job; saying what the numbers mean is
-			# not, and everything past this line belongs to the Analyzer.
-			print("\n📊 STEP 4: Extracting Results")
-			print("-" * 40)
-			analyzer = self._extract(
-				experiments, plan=experiment_plan, config=config)
-
-			# Step 4b — PACKAGE FIRST. experiment.json is this manager's
-			# product and the Analyzer's input, so it is written before
-			# anything interpretive runs. Ordered the other way, a crash in
-			# the Analyzer took the results package with it — the ensemble
-			# was computed, and nothing on disk said so.
-			print("\n📦 STEP 4b: Packaging Results")
-			print("-" * 40)
-			# Guarded for the same reason the Analyzer is: the compute has
-			# already succeeded and _extract has already written
-			# 04_analysis/hydro_summary.json, so a packaging bug must not
-			# discard an ensemble that cost a queue slot and an hour. Loud,
-			# because experiment.json is what everything downstream reads.
-			try:
-				self._package(experiment_plan, analyzer, config)
-			except Exception as e:                              # noqa: BLE001
-				print(f"   ✗ PACKAGING FAILED ({e}) — the results are still "
-					  f"in 04_analysis/hydro_summary.json")
-
-			# Step 4c — the Analyzer box: figures, observation comparison,
-			# interpretation. Non-fatal AS A WHOLE, not merely stage by
-			# stage: an unexpected failure here must not cost the compute
-			# that produced the numbers.
-			print("\n🔭 STEP 4c: Analyzer")
-			print("-" * 40)
-			try:
-				Analyzer(str(self.run_dir)).run(results=analyzer, config=config)
-			except Exception as e:                              # noqa: BLE001
-				print(f"   ⚠️  analyzer failed ({e}) — experiment.json stands")
-
-			# Step 4d — one-way ELM → PFLOTRAN coupling, when the plan asks
-			# for it. Non-fatal: the ELM study stands on its own.
-			try:
-				self._couple_pflotran(experiment_plan, config)
-			except Exception as e:                              # noqa: BLE001
-				print(f"   ⚠️  PFLOTRAN coupling failed ({e}) — the ELM run "
-					  f"stands")
-
-			# Step 5 — the alias the standalone report tools open by name.
-			# experiment.json was already written at 4b.
-			print("\n📦 STEP 5: Packaging LLM Input")
-			print("-" * 40)
-			self._save_llm_input(experiment_plan, analyzer)
-
-			# Create + save run summary (top level)
-			end_time    = datetime.now()
-			run_summary = self._create_run_summary(
-				experiment_plan, experiments,
-				results, start_time, end_time
-			)
-			self._save_run_summary(run_summary)
-
-			n_ok  = run_summary['experiments_success']
-			n_tot = run_summary['experiments_total']
-			rt    = run_summary['total_runtime_seconds']
-			print(f"\n{'=' * 60}")
-			print(f"ELM COMPLETE: {n_ok}/{n_tot} | {rt:.1f}s")
-			print(f"Output: {self.run_dir}")
-			print(f"{'=' * 60}\n")
-
-			return run_summary
-
-		except Exception as e:
-			self._save_error(e, start_time)
-			raise
 	def _attach_donor_soil(self, columns, finidat_map):
 		"""Replace each warm-started column's soil with the donor's own.
 

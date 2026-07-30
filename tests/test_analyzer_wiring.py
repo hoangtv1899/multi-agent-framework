@@ -135,5 +135,66 @@ class TestTheManagersCallSiteStillBinds:
         assert "results" in p and "config" in p
 
     def test_the_manager_calls_it_that_way(self):
-        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        """The call site moved to the BASE when execute_plan was lifted, so
+        every backend gets the Analyzer for free rather than each remembering
+        to call it. Asserted against the base for that reason."""
+        src = (ROOT / "src" / "core" / "exp_manager_base.py").read_text()
         assert "Analyzer(str(self.run_dir)).run(" in src
+        elm = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        assert "def execute_plan" not in elm, \
+            "ELM must not re-implement the stage sequence"
+
+
+class TestTheStageSequenceIsSharedNotCopied:
+    """execute_plan was lifted out of ELMExpManager so a second backend cannot
+    re-implement it. The ordering it enforces — _package before the Analyzer,
+    everything from _package on non-fatal — is structural, and two copies of a
+    structural guarantee is one copy too many."""
+
+    def test_every_backend_resolves_to_the_base(self):
+        from core.exp_manager_base import ExperimentManagerBase as B
+        from core.elm_exp_manager import ELMExpManager
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        for M in (ELMExpManager, PFLOTRANExpManager):
+            assert M.execute_plan is B.execute_plan, M.__name__
+
+    def test_backends_declare_their_stages_rather_than_stubbing(self):
+        """A no-op _prepare() reports "prepared nothing, successfully"."""
+        from core.elm_exp_manager import ELMExpManager
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        assert ELMExpManager.NEEDS_PREPARE and ELMExpManager.NEEDS_SCHEDULER
+        assert not PFLOTRANExpManager.NEEDS_PREPARE
+        assert not PFLOTRANExpManager.NEEDS_SCHEDULER
+
+    def test_a_missing_stage_raises_rather_than_returning_empty(self):
+        """A manager without its compute stage must fail at the first call,
+        not report an empty successful run."""
+        from core.exp_manager_base import ExperimentManagerBase as B
+        import pytest as _pt
+        m = B.__new__(B)
+        for stage, args in (("_build", ({}, {})), ("_run", ([], {})),
+                            ("_extract", ([],))):
+            with _pt.raises(NotImplementedError):
+                getattr(m, stage)(*args)
+
+    def test_the_two_backends_cannot_claim_each_others_plans(self):
+        """Sharing a plan key would make an ELM plan look already-materialized
+        to PFLOTRAN, which builds zero experiments WITHOUT raising."""
+        from core.elm_exp_manager import ELMExpManager
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        elm, pf = ELMExpManager.__new__(ELMExpManager), \
+                  PFLOTRANExpManager.__new__(PFLOTRANExpManager)
+        elm_plan = {"CONDITIONS_COUPLERS": [1]}
+        pf_plan = {"PFLOTRAN_CASES": [1]}
+        assert elm._already_executable(elm_plan) and not pf._already_executable(elm_plan)
+        assert pf._already_executable(pf_plan) and not elm._already_executable(pf_plan)
+
+    def test_pflotran_extract_refuses_rather_than_returning_nothing(self):
+        """Pending the profiles-vs-depth-axis decision. Returning an empty
+        results object would let the base package it and the Analyzer run on
+        nothing — success reported over no data."""
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        import pytest as _pt
+        m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
+        with _pt.raises(NotImplementedError, match="depth-axis"):
+            m._extract([])

@@ -125,6 +125,136 @@ class ExperimentManagerBase:
 	# ─────────────────────────────────────────────────────────
 	# BACKEND HOOKS
 	# ─────────────────────────────────────────────────────────
+	# ─────────────────────────────────────────────────────────
+	# THE STAGE SEQUENCE — one implementation, all backends
+	# ─────────────────────────────────────────────────────────
+	# Backends declare what they need rather than stubbing stages they do not
+	# have. A no-op _prepare() reads as "prepared nothing, successfully", which
+	# is the silent-success pattern this codebase keeps rediscovering; a
+	# declaration reads as "this model has no such stage".
+	NEEDS_PREPARE   = True    # ELM compiles CIME cases; PFLOTRAN writes decks
+	NEEDS_SCHEDULER = True    # ELM submits to SLURM; PFLOTRAN runs in 0.3 s
+	COUPLES_TO      = None    # backend name this one hands its output to
+
+	def execute_plan(self,
+					 experiment_plan: Dict[str, Any],
+					 config:          Dict[str, Any]
+					 ) -> Dict[str, Any]:
+		"""materialize → build → [prepare] → run → extract → package → analyze.
+
+		Lifted out of ELMExpManager so a second backend cannot re-implement it.
+		Two orderings here are structural and the reason this is a template
+		method rather than something each backend writes:
+
+		  * _package BEFORE the Analyzer. experiment.json is this box's product
+		    and the Analyzer's input. Ordered the other way, a crash in the
+		    Analyzer took the results package with it — the ensemble was
+		    computed and nothing on disk said so.
+		  * every stage from _package onward is NON-FATAL. By then the compute
+		    has succeeded and _extract has written its summary; a reporting bug
+		    must not discard an ensemble that cost a queue slot and an hour.
+
+		Backends supply _build/_run/_extract, and _prepare only if they have
+		one. Nothing below knows what model is running.
+		"""
+		start_time = datetime.now()
+		model = self.MODEL.upper()
+
+		try:
+			# Step 0 — strategy → concrete columns → executable plan.
+			experiment_plan = self._materialize(experiment_plan, config)
+
+			print(f"📋 STEP 1: Building Experiments")
+			print("-" * 40)
+			experiments = self._build(experiment_plan, config)
+
+			if self.NEEDS_PREPARE:
+				print("\n⚙️  STEP 2: Preparing Cases")
+				print("-" * 40)
+				self._prepare(experiments)
+
+			print(f"\n🌿 STEP 3: Running Simulations")
+			print("-" * 40)
+			results = self._run(experiments, config)
+
+			# Reading the model's own output format is the backend's job;
+			# saying what the numbers MEAN is not, and everything past this
+			# line belongs to the Analyzer.
+			print("\n📊 STEP 4: Extracting Results")
+			print("-" * 40)
+			analyzer = self._extract(
+				experiments, plan=experiment_plan, config=config)
+
+			print("\n📦 STEP 4b: Packaging Results")
+			print("-" * 40)
+			try:
+				self._package(experiment_plan, analyzer, config)
+			except Exception as e:                              # noqa: BLE001
+				print(f"   ✗ PACKAGING FAILED ({e}) — the results are still "
+					  f"in 04_analysis/")
+
+			print("\n🔭 STEP 4c: Analyzer")
+			print("-" * 40)
+			try:
+				from agents.analyzer import Analyzer
+				Analyzer(str(self.run_dir)).run(results=analyzer, config=config)
+			except Exception as e:                              # noqa: BLE001
+				print(f"   ⚠️  analyzer failed ({e}) — experiment.json stands")
+
+			# Step 4d — hand off to a downstream model, when the backend
+			# declares one and the plan asks for it. Non-fatal: this study
+			# stands on its own.
+			if self.COUPLES_TO:
+				try:
+					self._couple(experiment_plan, config)
+				except Exception as e:                          # noqa: BLE001
+					print(f"   ⚠️  {self.COUPLES_TO} coupling failed ({e}) — "
+						  f"the {self.MODEL} run stands")
+
+			print("\n📦 STEP 5: Packaging LLM Input")
+			print("-" * 40)
+			self._save_llm_input(experiment_plan, analyzer)
+
+			end_time    = datetime.now()
+			run_summary = self._create_run_summary(
+				experiment_plan, experiments, results, start_time, end_time)
+			self._save_run_summary(run_summary)
+
+			n_ok  = run_summary['experiments_success']
+			n_tot = run_summary['experiments_total']
+			rt    = run_summary['total_runtime_seconds']
+			print(f"\n{'=' * 60}")
+			print(f"{model} COMPLETE: {n_ok}/{n_tot} | {rt:.1f}s")
+			print(f"Output: {self.run_dir}")
+			print(f"{'=' * 60}\n")
+			return run_summary
+
+		except Exception as e:
+			self._save_error(e, start_time)
+			raise
+
+	# Stages a backend must supply. Raising by default rather than no-op'ing:
+	# a manager missing its compute stage should fail loudly at the first call,
+	# not report an empty successful run.
+	def _build(self, plan, config):
+		raise NotImplementedError(f"{type(self).__name__} must implement _build")
+
+	def _prepare(self, experiments):
+		raise NotImplementedError(
+			f"{type(self).__name__} declares NEEDS_PREPARE but has no _prepare")
+
+	def _run(self, experiments, config):
+		raise NotImplementedError(f"{type(self).__name__} must implement _run")
+
+	def _extract(self, experiments, plan=None, config=None):
+		raise NotImplementedError(f"{type(self).__name__} must implement _extract")
+
+	def _couple(self, plan, config):
+		raise NotImplementedError(
+			f"{type(self).__name__} declares COUPLES_TO={self.COUPLES_TO} "
+			f"but has no _couple")
+
+
 	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
 		"""Backend edits to the sampled columns, before they are persisted.
 
