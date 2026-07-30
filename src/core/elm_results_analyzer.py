@@ -79,6 +79,67 @@ def _sigfig(x: float, n: int = 4) -> float:
     return round(x, -int(floor(log10(abs(x)))) + (n - 1))
 
 
+# ─────────────────────────────────────────────────────────────────────
+# WARM-START RELAXATION
+# ─────────────────────────────────────────────────────────────────────
+# A warm start inherits storage from the CONUS spin-up, and that state is not
+# in equilibrium with THIS domain's forcing. The column drains hard for the
+# first days of the run while it settles, and the transient is enormous:
+# measured on the 2019 Upper Gunnison run, column-mean QOVER+QDRAI was
+#
+#     day 1   45.82 mm/day     256x the Feb-Jun baseline of 0.179
+#     day 2    2.90            16x
+#     day 6    0.79           4.4x
+#     day 14   0.34           1.9x
+#
+# One day held ~75% of January's total flux. Any annual metric or hydrograph
+# built over the whole record is dominated by model settling rather than by
+# hydrology, and a monthly plot of it is unreadable.
+#
+# 14 DAYS, because that is where the decay reaches ~2x the baseline. It is a
+# judgement call on a smooth exponential tail with no natural knee — shorter
+# leaves a visible transient (day 2 is still 16x), longer costs real record on
+# a one-year run. It is one constant, set it to 0 to keep everything.
+#
+# NOT SILENT. What was dropped is recorded on the analyzer and travels into the
+# package, because a run whose first fortnight is missing must say so — a
+# reader comparing this to a gauge record needs to know the series does not
+# start where the simulation did.
+SPINUP_DAYS = 14
+
+
+def _drop_spinup(ds, days: int):
+    """Trim the first `days` of the record. Returns (ds, dropped_or_None).
+
+    Applied here, before any statistic is computed, so the annual metrics and
+    the daily series agree about what period they cover. Doing it in _daily()
+    alone would leave annual_runoff_mm_yr carrying the transient while the
+    hydrograph beside it did not.
+    """
+    if not days or ds is None or "time" not in getattr(ds, "dims", ()):
+        return ds, None
+    try:
+        import numpy as _np
+        t = _np.asarray(ds["time"].values)
+        if t.size == 0:
+            return ds, None
+        start = _np.datetime64(str(t[0])[:10]) + _np.timedelta64(int(days), "D")
+        keep = _np.asarray([_np.datetime64(str(x)[:10]) >= start for x in t])
+        if not keep.any():          # a record shorter than the window: keep it
+            return ds, None         # all rather than return nothing at all
+        out = ds.isel(time=keep)
+        return out, {"days": int(days),
+                     "from": str(t[0])[:10],
+                     "to": str(_np.asarray(out["time"].values)[0])[:10],
+                     "timesteps_dropped": int((~keep).sum()),
+                     "reason": "warm-start relaxation; storage inherited from "
+                               "the CONUS spin-up is not in equilibrium with "
+                               "this domain's forcing"}
+    except Exception:
+        return ds, None
+
+
+
 class ELMResultsAnalyzer:
     """
     Reads ELM NetCDF history files.
@@ -94,7 +155,8 @@ class ELMResultsAnalyzer:
     def __init__(self,
                  experiments:  List[Dict[str, Any]],
                  analysis_dir: str,
-                 last_year_only: bool = False):
+                 last_year_only: bool = False,
+                 spinup_days: int = SPINUP_DAYS):
         if not XARRAY_AVAILABLE:
             raise RuntimeError(
                 "xarray and netCDF4 required.\n"
@@ -106,6 +168,12 @@ class ELMResultsAnalyzer:
         # spin-up runs: analyze only the final full simulated year, so the
         # science year is not averaged together with the equilibration years
         self.last_year_only = last_year_only
+        # days of warm-start relaxation trimmed off the front of the record.
+        # 0 keeps everything. What was actually dropped lands in
+        # spinup_dropped and travels into hydro_summary.json — a series that
+        # does not start where the simulation did must say so.
+        self.spinup_days = spinup_days
+        self.spinup_dropped: Dict[str, Any] = {}
         # extra top-level fields merged into hydro_summary.json at save time
         # (e.g. the assumptions ledger + limitations honesty payload)
         self.extra_summary: Dict[str, Any] = {}
@@ -222,6 +290,13 @@ class ELMResultsAnalyzer:
                 ds = ds.isel(time=(years == yr))
                 print(f"   (last-year analysis: {yr}, "
                       f"{int(ds.sizes['time'])} timesteps)")
+
+            ds, dropped = _drop_spinup(ds, self.spinup_days)
+            if dropped:
+                self.spinup_dropped = dropped
+                print(f"   (dropped {dropped['days']} d of warm-start "
+                      f"relaxation: {dropped['from']} -> {dropped['to']})")
+
             variables = {}
 
             for var in TARGET_VARIABLES:
@@ -745,6 +820,10 @@ class ELMResultsAnalyzer:
             json.dump(
                 {
                     'experiments':      list(self.results.values()),
+                    # What the record does NOT cover. A reader lining this up
+                    # against a gauge series has to know the model series
+                    # starts later than the simulation did.
+                    'spinup_dropped':   self.spinup_dropped or None,
                     # comparisons and soil_attribution are NOT here either,
                     # for the same reason as the correlations: both are
                     # derived claims, and both filtered on row['soil'], which

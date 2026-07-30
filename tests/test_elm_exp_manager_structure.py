@@ -1205,3 +1205,66 @@ class TestCoordinatesSurviveTheJoin:
         r = pkg["columns"][0]
         assert r["elevation_m"] == 2430.16
         assert r["lat"] == 38.46 and r["lon"] == -107.36
+
+
+class TestWarmStartRelaxationIsTrimmed:
+    """A warm start inherits storage that is not in equilibrium with THIS
+    domain's forcing, so the column drains hard while it settles. Measured on
+    the 2019 Upper Gunnison run, column-mean QOVER+QDRAI was 45.82 mm/day on
+    day 1 against a Feb-Jun baseline of 0.179 — 256x — and ONE DAY held ~75% of
+    January's total flux. Annual metrics and hydrographs built over the whole
+    record measure model settling, not hydrology.
+    """
+
+    def _ds(self, days=60):
+        np = pytest.importorskip("numpy")
+        xr = pytest.importorskip("xarray")
+        t = np.arange("2019-01-01", f"2019-01-01",
+                      dtype="datetime64[h]")
+        t = (np.arange("2019-01-01",
+                       np.datetime64("2019-01-01") + np.timedelta64(days, "D"),
+                       dtype="datetime64[h]")[::3])
+        return xr.Dataset({"QOVER": ("time", np.arange(len(t), dtype=float))},
+                          coords={"time": t})
+
+    def test_the_first_days_are_removed(self):
+        from core.elm_results_analyzer import _drop_spinup
+        ds = self._ds()
+        out, rec = _drop_spinup(ds, 14)
+        assert out.sizes["time"] < ds.sizes["time"]
+        assert rec["days"] == 14 and rec["from"] == "2019-01-01"
+        assert rec["to"] == "2019-01-15"
+
+    def test_zero_is_a_no_op_and_records_nothing(self):
+        """Set the constant to 0 to keep the whole record."""
+        from core.elm_results_analyzer import _drop_spinup
+        ds = self._ds()
+        out, rec = _drop_spinup(ds, 0)
+        assert out.sizes["time"] == ds.sizes["time"] and rec is None
+
+    def test_a_record_shorter_than_the_window_is_kept_whole(self):
+        """Returning nothing would turn a short run into a silent empty
+        extraction — the soil_attribution failure in a new costume."""
+        from core.elm_results_analyzer import _drop_spinup
+        ds = self._ds(days=3)
+        out, rec = _drop_spinup(ds, 14)
+        assert out.sizes["time"] == ds.sizes["time"] and rec is None
+
+    def test_what_was_dropped_is_recorded_not_silent(self):
+        """A model series that starts later than the simulation must say so, or
+        a reader lining it up against a gauge record is misled."""
+        from core.elm_results_analyzer import _drop_spinup
+        _out, rec = _drop_spinup(self._ds(), 14)
+        assert rec["timesteps_dropped"] > 0
+        assert "warm-start relaxation" in rec["reason"]
+
+    def test_the_trim_happens_before_any_statistic(self):
+        """In _extract_one, so the annual metrics and the daily series agree
+        about what period they cover. Trimming inside _daily() alone would
+        leave annual_runoff_mm_yr carrying the transient while the hydrograph
+        beside it did not."""
+        import inspect
+        from core.elm_results_analyzer import ELMResultsAnalyzer
+        src = inspect.getsource(ELMResultsAnalyzer._extract_one)
+        assert "_drop_spinup" in src
+        assert src.index("_drop_spinup") < src.index("self._summarize")
