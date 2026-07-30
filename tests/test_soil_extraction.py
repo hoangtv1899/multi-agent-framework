@@ -206,9 +206,23 @@ class TestWarmStartIsTheDefault:
     column. The subset costs ~2 s per column, so cold is now an opt-out."""
 
     def test_no_initialization_still_warm_starts(self):
-        src = (ROOT / "workflow.py").read_text()
-        assert "get('mode') != 'cold'" in src
-        assert "get('mode') == 'warm'" not in src
+        """Asserts the BEHAVIOUR, not the text of one file.
+
+        This used to grep workflow.py for `get('mode') != 'cold'`, which
+        passed for the right reason until the per-model config moved to
+        core/backends.py — then it failed while the behaviour it names was
+        still correct. A test that breaks when code moves rather than when it
+        changes is a test of where the code lives.
+        """
+        sys.path.insert(0, str(ROOT / "src"))
+        from core import backends
+        base = {"brief": {}, "reception": {}, "strategy": {}, "mcp_clients": {}}
+
+        assert backends.config_for("elm", base)["warm_start"]["source"] == "conus"
+        assert backends.config_for("elm", base, initialization={})[
+            "warm_start"]["source"] == "conus"
+        assert "warm_start" not in backends.config_for(
+            "elm", base, initialization={"mode": "cold"})
 
     def test_the_prompt_agrees_with_the_code(self):
         """If the prompt still said 'otherwise cold', reception would report a

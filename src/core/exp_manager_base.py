@@ -215,10 +215,29 @@ class ExperimentManagerBase:
 			print("-" * 40)
 			self._save_llm_input(experiment_plan, analyzer)
 
-			end_time    = datetime.now()
-			run_summary = self._create_run_summary(
-				experiment_plan, experiments, results, start_time, end_time)
-			self._save_run_summary(run_summary)
+			# NON-FATAL, like every stage since _package — and this one was
+			# not, which is the one place the rule was written down and not
+			# followed. A shape mismatch here raised AFTER the compute, after
+			# experiment.json, and after the whole Analyzer had run: everything
+			# of value was already on disk and the run still ended in a
+			# traceback, with the caller getting an exception instead of the
+			# summary of a study that had in fact succeeded.
+			end_time = datetime.now()
+			try:
+				run_summary = self._create_run_summary(
+					experiment_plan, experiments, results, start_time, end_time)
+				self._save_run_summary(run_summary)
+			except Exception as e:                              # noqa: BLE001
+				print(f"   ⚠️  RUN_SUMMARY.json failed ({e}) — the ensemble and "
+					  f"experiment.json stand")
+				run_summary = {
+					'run_directory':         str(self.run_dir),
+					'model_type':            self.MODEL,
+					'experiments_total':     len(experiments),
+					'experiments_success':   len(self._outcome_map(results)),
+					'total_runtime_seconds': (end_time - start_time).total_seconds(),
+					'summary_error':         str(e),
+				}
 
 			n_ok  = run_summary['experiments_success']
 			n_tot = run_summary['experiments_total']
@@ -766,31 +785,64 @@ class ExperimentManagerBase:
 	# ─────────────────────────────────────────────────────────
 	# RUN SUMMARY
 	# ─────────────────────────────────────────────────────────
+	@staticmethod
+	def _outcome_map(results: Any) -> Dict[str, bool]:
+		"""{case name -> did it succeed}, from either shape a backend returns.
+
+		ELM's _run returns {case_name: bool}. PFLOTRAN's returns a LIST of
+		per-case dicts, which carries more (runtime, return code, reason) and
+		is the better shape. This function used to assume the dict and called
+		.values() on it, so a PFLOTRAN run raised AttributeError at the very
+		last stage — after the compute, after experiment.json, after the whole
+		Analyzer had run. Everything of value was already on disk and the run
+		still ended in a traceback with no RUN_SUMMARY.json.
+		"""
+		if isinstance(results, dict):
+			return {str(k): bool(v) for k, v in results.items()}
+		out: Dict[str, bool] = {}
+		for r in (results or []):
+			if isinstance(r, dict):
+				name = r.get('case_name') or r.get('id')
+				if name:
+					out[str(name)] = (r.get('status') == 'completed'
+									  if 'status' in r else True)
+		return out
+
 	def _create_run_summary(self,
 							plan:        Dict[str, Any],
 							experiments: List[Dict],
-							results:     Dict[str, bool],
+							results:     Any,
 							start_time:  datetime,
 							end_time:    datetime
 							) -> Dict[str, Any]:
 		n_total   = len(experiments)
-		n_success = sum(results.values())
+		ok        = self._outcome_map(results)
+		n_success = sum(1 for v in ok.values() if v)
 
 		# .get(), not [], deliberately. This is the LAST step: the ensemble is
 		# already computed and experiment.json already written, so a missing
 		# key here would throw away a finished run over a summary field.
 		exp_details = [
 			{
-				'name':              e.get('scenario_name') or e.get('case_name'),
-				'case_name':         e.get('case_name'),
+				'name':              e.get('scenario_name') or e.get('case_name')
+									 or e.get('id'),
+				# `id` as well as `case_name`: PFLOTRAN's experiments are keyed
+				# by id, so keying only on case_name marked every one of them
+				# failed in a summary written after they had all succeeded.
+				'case_name':         e.get('case_name') or e.get('id'),
 				'status':            'completed'
-									 if results.get(e.get('case_name'))
+									 if ok.get(str(e.get('case_name')
+													or e.get('id')))
 									 else 'failed',
 				'forcing_period':    e.get('forcing_period'),
 				'forcing_start':     e.get('forcing_start'),
 				'forcing_end':       e.get('forcing_end'),
 				'model_type':        self.MODEL,
-				'runtime_seconds':   0,
+				# The measured time when the backend recorded one. Hardcoding 0
+				# made step 4 report a per-column runtime of zero for every
+				# column of every run — a number that looked measured and was
+				# not.
+				'runtime_seconds':   e.get('runtime_seconds') or 0,
 				'timesteps':         0,
 				'newton_iterations': 0,
 			}

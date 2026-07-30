@@ -28,9 +28,24 @@ so the Experiment Manager only ever READS its inputs, and a failure inside it
 leaves reception.json and strategy.json intact.
 
 ```
-python workflow.py --interactive           # normal use; Reception may ask you
-python workflow.py --interactive --no-ask  # it resolves gaps itself instead
+python workflow.py --interactive                     # normal use; Reception may ask you
+python workflow.py --interactive --no-ask            # it resolves gaps itself instead
+python workflow.py --interactive --model pflotran    # standalone subsurface flow
 ```
+
+`--model` picks the Experiment Manager, and the choice is the CLASS: the
+backends differ in the stages they have, not only in the code inside them.
+`src/core/backends.py` is the one table every caller resolves a name through.
+
+| model | stages | initial condition | run directory |
+|---|---|---|---|
+| `elm` (default) | materialize → build → **prepare** → run (**SLURM**) → extract | warm start from the CONUS 1 km restarts | `elm_run_*` |
+| `pflotran` | materialize → build → run (direct, ~0.3 s/column) → extract | hydrostatic at the Fan 2013 water table | `pflotran_run_*` |
+
+Both write the same `experiment.json` and are read by the same Analyzer.
+PFLOTRAN adds a `profiles` block (depth × output time); it has no daily series,
+so `step0_context.series()` returns None for it and `profiles()` carries the
+data instead.
 
 ---
 

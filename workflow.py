@@ -25,14 +25,28 @@ from core.mcp_manager             import MCPManager
 class WorkflowCoordinator:
 	"""Wires Reception → Planner → Experiment Manager → Analyzer."""
 
+	# WHICH MODEL, as a class attribute so it has a value even on an instance
+	# built without __init__ — the test harness does exactly that, and so does
+	# anything that reconstructs a coordinator to inspect it. __init__ replaces
+	# it with the validated name.
+	model = "elm"
+
 	def __init__(self,
 				 reception_model:      str = "claude-opus-4-8-project",
 				 planner_model:        str = "claude-opus-4-8-project",
 				 analyzer_model:       str = "claude-opus-4-8-project",
 				 default_output_dir:   str = "./workflow_outputs",
 				 mcp_config_file:      str = "mcp_config.json",
-				 interactive_reception: bool = False):
-	
+				 interactive_reception: bool = False,
+				 model:                str = None):
+
+		# WHICH MODEL THIS SESSION RUNS. Validated here, at construction,
+		# rather than at _execute — that is minutes of reception and planning
+		# later, and a typo'd name should not cost an LLM call to discover.
+		from core import backends
+		self.model = (model or backends.DEFAULT).strip().lower()
+		backends.get(self.model)          # raises on an unknown name
+
 		# ── MCP Manager ───────────────────────────────────────
 		print("\n" + "=" * 70)
 		print("Initializing MCP Tools")
@@ -245,7 +259,12 @@ class WorkflowCoordinator:
 			# only ever produce, and the Experiment Manager only ever reads —
 			# which also means a failure downstream leaves both intact.
 			from datetime import datetime as _dt
-			run_dir = Path(output_dir) / f"elm_run_{_dt.now():%Y%m%d_%H%M%S}"
+			# NAMED FOR THE MODEL THAT RAN. Every run directory used to be
+			# elm_run_*, which was accurate while ELM was the only backend and
+			# becomes a mislabel the moment it is not — the directory name is
+			# the first thing anyone reads, and archived PFLOTRAN studies would
+			# all claim to be ELM.
+			run_dir = Path(output_dir) / f"{self.model}_run_{_dt.now():%Y%m%d_%H%M%S}"
 			run_dir.mkdir(parents=True, exist_ok=True)
 			(run_dir / "reception.json").write_text(
 				json.dumps({k: v for k, v in result.items()
@@ -359,37 +378,29 @@ class WorkflowCoordinator:
 		either as a free variable is how this method came to reference two
 		names that only existed in its caller.
 		"""
-		from core.elm_exp_manager import ELMExpManager
-		executor = ELMExpManager(base_output_dir=output_dir, run_dir=str(run_dir))
-		# brief + mcp_clients feed the manager's materialize stage, which
-		# turns the planner's sampling_strategy into CONDITIONS_COUPLERS.
-		cfg = {
-			'brief':       brief or {},
-			'reception':   reception,
-			'strategy':    plan,
-			'mcp_clients': self.mcp_clients,
-			# Warm start edits a completed run's restart files, so the carrier
-			# is whatever this session ran last. That makes "now warm-start it"
-			# work as a plain follow-up, with no paths for the user to supply.
-			'last_run_dir': self.conversation_context.get('last_run_dir'),
-		}
-		# WARM IS THE DEFAULT. A cold single-column year starts from ELM's
-		# generic state and spends the run relaxing out of it -- measured on
-		# this framework, recharge came out -0.18 mm/yr cold against 309 warm
-		# on the SAME column. Subsetting the CONUS restart costs ~2 s per
-		# column, so there is no reason to pay that price by default. Cold is
-		# now an explicit opt-out, not what you get by saying nothing.
-		if (initialization or {}).get('mode') != 'cold':
-			cfg['warm_start'] = {
-				'source': ((initialization or {}).get('source') or 'conus'),
-			}
-		# Honour the period reception resolved, instead of silently
-		# defaulting to 1995 inside the manager.
-		if period:
-			if period.get('yr_start'):
-				cfg['yr_start'] = int(period['yr_start'])
-			cfg['yr_end'] = int(period.get('yr_end')
-								or period.get('yr_start') or 1995)
+		# WHICH MODEL, resolved through the one table every caller shares. The
+		# class is the choice: the backends differ in the STAGES they have, and
+		# the base's execute_plan reads those declarations off the class.
+		from core import backends
+		Manager = backends.get(self.model)
+		executor = Manager(base_output_dir=output_dir, run_dir=str(run_dir))
+		# brief + mcp_clients feed the manager's materialize stage, which turns
+		# the planner's sampling_strategy into the backend's own run plan.
+		cfg = backends.config_for(
+			self.model,
+			{
+				'brief':       brief or {},
+				'reception':   reception,
+				'strategy':    plan,
+				'mcp_clients': self.mcp_clients,
+				# Warm start edits a completed run's restart files, so the
+				# carrier is whatever this session ran last. That makes "now
+				# warm-start it" work as a plain follow-up, with no paths for
+				# the user to supply.
+				'last_run_dir': self.conversation_context.get('last_run_dir'),
+			},
+			period=period,
+			initialization=initialization)
 		return executor.execute_plan(plan, cfg)
 	
 	# ═════════════════════════════════════════════════════════
@@ -494,6 +505,16 @@ def main():
         default = 'mcp_config.json',
         help    = 'MCP configuration file'
     )
+    from core import backends
+    parser.add_argument(
+        '--model',
+        choices = backends.names(),
+        default = backends.DEFAULT,
+        help    = f'which model to run (default: {backends.DEFAULT}). '
+                  f'elm: land-surface columns, warm-started from the CONUS '
+                  f'restarts. pflotran: standalone 1-D subsurface flow, '
+                  f'initialised at the Fan 2013 water table.'
+    )
     parser.add_argument(
         '--no-ask',
         action = 'store_true',
@@ -518,6 +539,7 @@ def main():
         default_output_dir    = args.output_dir,
         mcp_config_file       = args.mcp_config,
         interactive_reception = (args.interactive or args.ask) and not args.no_ask,
+        model                 = args.model,
     )
 
     if args.interactive:
@@ -527,6 +549,7 @@ def main():
         print("Run with --interactive for interactive mode")
         print("\nExamples:")
         print("  python workflow.py --interactive")
+        print("  python workflow.py --interactive --model pflotran")
         print("  python workflow.py --interactive --ask")
         print("=" * 70 + "\n")
 

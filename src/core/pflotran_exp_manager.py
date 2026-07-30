@@ -175,6 +175,16 @@ class PFLOTRANExpManager(ExperimentManagerBase):
             {"key": "domain_depth_cap_m", "value": depth_cap,
              "why": f"{n_capped} of {len(cases)} columns have a Fan water "
                     f"table below the cap and run fully unsaturated"},
+            # experiment.json's `period` is the period the USER asked about,
+            # written by the base for every backend. It is not what this model
+            # simulated, and the two being different is easy to miss: a reader
+            # sees period 2019-2019 beside a 20-year relaxation and has no
+            # reason to suspect they are different quantities unless it is
+            # stated here.
+            {"key": "simulated_duration_y", "value": years,
+             "why": "a relaxation from the Fan initial condition, NOT a "
+                    "simulation of the requested period — experiment.json's "
+                    "`period` records what was asked about, not what was run"},
         ]
         if not flux_from:
             ledger.append({
