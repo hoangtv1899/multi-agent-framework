@@ -330,3 +330,31 @@ class TestNoTightBbox:
             Figure.savefig = real
         assert seen
         assert all(kw.get("bbox_inches") is None for kw in seen), seen
+
+
+class TestSymlogKeepsZeros:
+    """Moved here from the streamflow suite, which asserted it against
+    plot_two_maps. A linear scale was unreadable — one column's 5.2 mm/day
+    flattened all seven gauges into one colour. But plain LogNorm cannot take a
+    zero, and 15 of 19 columns produced EXACTLY zero, which is a different
+    result from "very small"."""
+
+    def test_a_log_row_containing_an_exact_zero_still_renders_it(self, tmp_path):
+        flow = {"gauges": [{"id": "G", "lat": 38.5, "lon": -107.6,
+                            "mean_mm_day": 1.2,
+                            "drainage_area_km2": 100.0}],
+                "columns": [{"id": "c1", "lat": 38.5, "lon": -107.5,
+                             "mean_mm_day": 0.0},
+                            {"id": "c2", "lat": 38.2, "lon": -107.2,
+                             "mean_mm_day": 5.2}]}
+        rows = maps.build_rows(_ctx(), streamflow=flow)
+        assert rows[0]["log"] is True
+        vals = [q[2] for p in rows[0]["panels"] for q in p["points"]]
+        assert 0.0 in vals, "an exact zero must survive into the figure"
+
+        clims = _clims(lambda: maps.create_validation_spatial_map(
+            _ctx(), tmp_path / "z.png", streamflow=flow, basemap=False))
+        assert clims, "nothing was drawn"
+        # SymLogNorm is anchored at zero so a zero-flow column is a colour, not
+        # a dropped point or a divide-by-zero.
+        assert all(c[0] == 0.0 for c in clims), clims

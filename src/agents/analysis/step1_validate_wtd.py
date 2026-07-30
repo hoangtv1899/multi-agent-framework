@@ -5,9 +5,8 @@ src/agents/analysis/step1_validate_wtd.py
 
     in   ctx (model ZWT daily, Fan 2013 per column, USGS wells)
     out  {wells, fan, model, caveats}
-         plot_maps          2 or 3 map panels, by well availability
-         plot_distribution  depth histograms + depth series, wells included
-                            in both when any lie inside the basin
+         map_points      feeds the combined validation spatial map
+         plot_timeseries modelled depth over the run, wells overlaid
 
 THREE SOURCES, AND ONLY TWO OF THEM ARE USUALLY AVAILABLE.
 
@@ -46,13 +45,7 @@ the interesting behaviour is.
 from typing import Any, Dict, List, Optional
 
 from agents.analysis.step1_geo import (        # noqa: E402
-    split_by_basin, plot_panels, _num)
-
-# ELM's hydrologically active soil column. A water table below this cannot
-# exchange water with the soil the model actually solves, which is why it is
-# drawn on both panels rather than left to the caption.
-SOIL_COLUMN_M = 3.8
-
+    split_by_basin, _num)
 
 def _zwt_daily(row: Dict[str, Any]) -> Dict[str, Any]:
     return ((row.get("variables") or {}).get("ZWT") or {}).get("daily") or {}
@@ -160,26 +153,6 @@ def map_points(result: Dict[str, Any], ctx=None):
         pts(result.get("model") or []), sizes
 
 
-def plot_maps(result: Dict[str, Any], ctx, out_path, **kw) -> str:
-    """Two panels when no well lies in the basin, three when one does.
-
-    An empty third axis would read as "measured nothing" rather than "nothing
-    to measure", so the panel count follows the data. Wells are sized by their
-    observation count; see map_points.
-    """
-    wells, fan, model, sizes = map_points(result, ctx)
-
-    panels = []
-    if wells:
-        panels.append(("USGS wells", wells, sizes))
-    panels.append(("Fan 2013", fan, None))
-    panels.append(("ELM", model, None))
-
-    kw.setdefault("log", True)
-    return plot_panels(panels, ctx.data.get("boundary") or [], out_path,
-                       label="water-table depth (m below surface)", **kw)
-
-
 def _well_series(well: Dict[str, Any]):
     """A well's readings as [(date, depth_m)].
 
@@ -224,36 +197,28 @@ def _series_yscale(result: Dict[str, Any]) -> str:
     return "linear"
 
 
-def plot_distribution(result: Dict[str, Any], out_path) -> str:
-    """Two panels: the depth DISTRIBUTIONS, then the depth SERIES.
+def plot_timeseries(result: Dict[str, Any], out_path) -> str:
+    """Modelled water-table depth over the run, with measured wells on top.
 
-    The maps show where each depth is; these show what the fields are made of.
-    Fan spans 0 to 251 m across nineteen columns while ELM occupies a much
-    narrower band, and the histogram is where that compression is visible
-    rather than inferred from colours.
+    MEASURED WELLS ARE DRAWN WHEN THERE ARE ANY, as marked points rather than
+    lines. Wells are read a handful of times a year, and a line joining two
+    readings months apart asserts a trajectory that was never measured. They
+    are the only actual measurement of this quantity, so a figure that omitted
+    them when they existed would be showing the model alone and calling it
+    validation. On the 2019 Upper Gunnison run all ten lie outside the
+    watershed and none is drawn — the honest result for that basin rather than
+    a missing feature.
 
-    MEASURED WELLS ARE DRAWN WHEN THERE ARE ANY. Both panels take USGS as a
-    third field: a histogram alongside Fan and ELM, and its readings as marked
-    points over the modelled series. Wells are the only actual measurement of
-    this quantity, so a figure that omitted them when they existed would be
-    comparing two models and calling it validation. On the 2019 Upper Gunnison
-    run all ten wells lie outside the watershed and nothing is drawn — the
-    panels degrade to the two modelled fields, which is the honest result for
-    that basin rather than a missing feature.
+    FAN 2013 IS ABSENT HERE BY CONSTRUCTION, not by omission: it is a static
+    equilibrium field with no time dimension. It appears in the combined
+    validation spatial map, which is where the Fan-vs-ELM comparison lives.
 
-    LOG x on the histogram, with logarithmically spaced bins. Depths run over
-    three orders of magnitude and linear bins would put sixteen columns in the
-    first bucket. Zeros are counted separately and stated: a water table AT the
-    surface is a distinct state, not a small number, and cannot sit on a log
-    axis.
-
-    LOG y on the series panel ONLY when the fields it draws span more than a
-    decade and a half. Wells at 5 m beside ELM at 70 m would compress the
-    measurements into a flat line against the axis on a linear scale, which
-    hides the one series a reader most wants to see. When everything drawn sits
-    within one scale the axis stays linear, because a log axis on a narrow
-    range exaggerates noise — the same reason the streamflow hydrographs are
-    linear. Depth increases downward either way.
+    LOG y ONLY when the fields drawn span more than SERIES_LOG_SPAN. Wells at
+    5 m beside ELM at 70 m would compress the measurements into a flat line
+    against the axis on a linear scale, hiding the one series a reader most
+    wants to see; a log axis over a narrow range exaggerates noise instead,
+    the same reason the streamflow hydrographs are linear. Depth increases
+    downward either way.
 
     No soil-column reference line. It was drawn to say "below this the water
     table cannot reach the soil", which is true — SOILLIQ is flat at
@@ -266,60 +231,11 @@ def plot_distribution(result: Dict[str, Any], out_path) -> str:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import numpy as np
+    import datetime as _dt
 
-    fan = [v for v in (_num(f.get("wtd_m")) for f in (result.get("fan") or []))
-           if v is not None]
-    mod = [v for v in (_num(m.get("wtd_m")) for m in (result.get("model") or []))
-           if v is not None]
     wells = result.get("wells") or []
-    obs = [v for v in (_num(w.get("wtd_m")) for w in wells) if v is not None]
 
-    fig, axes = plt.subplots(1, 2, figsize=(17.0, 6.4))
-
-    # ── (1) distributions ────────────────────────────────────────────────
-    ax = axes[0]
-    fields = [(fan, "#e6550d", "Fan 2013"), (mod, "#2c7fb8", "ELM")]
-    if obs:
-        fields.append((obs, "#31a354", "USGS wells"))
-    pos = [v for vals, _c, _n in fields for v in vals if v > 0]
-    if pos:
-        lo, hi = min(pos), max(pos)
-        bins = np.logspace(np.log10(lo * 0.8), np.log10(hi * 1.25), 14)
-        for vals, colour, name in fields:
-            p = [v for v in vals if v > 0]
-            if not p:
-                continue
-            if name == "USGS wells":
-                # An OUTLINE, drawn last, not a translucent fill. A handful of
-                # wells against nineteen columns loses every shared bin: at
-                # alpha 0.6 two green bars of height 1 vanished completely
-                # behind the models while still appearing in the legend, which
-                # is worse than omitting them. The one measured field must not
-                # be the one the overlap hides.
-                ax.hist(p, bins=bins, histtype="step", color=colour,
-                        label=name, linewidth=3.2, zorder=6)
-            else:
-                ax.hist(p, bins=bins, alpha=0.6, color=colour, label=name,
-                        edgecolor="#222", linewidth=0.8)
-        ax.set_xscale("log")
-        zeros = [(n, sum(1 for v in vals if v <= 0)) for vals, _c, n in fields]
-        zeros = [(n, z) for n, z in zeros if z]
-        if zeros:
-            ax.text(0.02, 0.97,
-                    "at surface (0 m):   "
-                    + "   ".join(f"{n} {z}" for n, z in zeros),
-                    transform=ax.transAxes, va="top", fontsize=13,
-                    bbox=dict(boxstyle="round,pad=0.35", fc="white",
-                              ec="#bbb", alpha=0.92))
-    ax.set_xlabel("water-table depth (m below surface)", fontsize=18)
-    ax.set_ylabel("count", fontsize=18)
-    ax.tick_params(labelsize=13)
-    ax.legend(fontsize=15)
-    ax.grid(alpha=0.25)
-
-    # ── (2) series ───────────────────────────────────────────────────────
-    ax = axes[1]
+    fig, ax = plt.subplots(figsize=(11.5, 6.4))
     handles, labels = [], []
 
     drawn = 0
@@ -330,12 +246,11 @@ def plot_distribution(result: Dict[str, Any], out_path) -> str:
             if v is None:
                 continue
             try:
-                import datetime as _dt
                 pts.append((_dt.date.fromisoformat(str(d)[:10]), v))
             except Exception:
                 pass
         if pts:
-            ln, = ax.plot([p[0] for p in pts], [p[1] for p in pts],
+            ln, = ax.plot([q[0] for q in pts], [q[1] for q in pts],
                           lw=1.6, alpha=0.85, color="#2c7fb8")
             drawn += 1
             if drawn == 1:
@@ -346,10 +261,7 @@ def plot_distribution(result: Dict[str, Any], out_path) -> str:
         pts = _well_series(w)
         if not pts:
             continue
-        # Markers, not a line. Wells are read a handful of times a year and a
-        # connecting line between two readings months apart asserts a
-        # trajectory that was never measured.
-        h = ax.plot([p[0] for p in pts], [p[1] for p in pts],
+        h = ax.plot([q[0] for q in pts], [q[1] for q in pts],
                     linestyle="none", marker="o", markersize=9,
                     markerfacecolor="#31a354", markeredgecolor="#111",
                     markeredgewidth=1.4, zorder=5)[0]
@@ -366,9 +278,9 @@ def plot_distribution(result: Dict[str, Any], out_path) -> str:
 
     ax.set_yscale(_series_yscale(result))   # see _series_yscale
     ax.invert_yaxis()          # depth increases downward
-    ax.set_xlabel("date", fontsize=18)
-    ax.set_ylabel("water-table depth (m)", fontsize=18)
-    ax.tick_params(labelsize=13)
+    ax.set_xlabel("date", fontsize=19)
+    ax.set_ylabel("water-table depth (m)", fontsize=19)
+    ax.tick_params(labelsize=14)
     ax.grid(alpha=0.25)
     for lb in ax.get_xticklabels():
         lb.set_rotation(30); lb.set_ha("right")

@@ -142,22 +142,10 @@ class TestCompare:
         assert r["columns"][0]["mean_mm_day"] == pytest.approx(0.3)
 
 
-class TestMaps:
-    def test_it_renders_without_a_basemap(self, tmp_path):
-        pytest.importorskip("matplotlib")
-        ctx = _ctx()
-        out = tmp_path / "sf.png"
-        sf.plot_maps(sf.compare(ctx), ctx, out, basemap=False)
-        assert out.exists() and out.stat().st_size > 5000
-
-    def test_the_scale_is_symlog_so_zeros_survive(self):
-        """A linear scale was unreadable — one column's 5.2 mm/day flattened
-        all seven gauges into one colour. But plain LogNorm cannot take a zero,
-        and 15 of 19 columns produced EXACTLY zero, which is a different
-        result from "very small"."""
-        import inspect
-        src = inspect.getsource(geo.plot_two_maps)
-        assert "SymLogNorm" in src and "vmin=0.0" in src
+class TestMapPoints:
+    """The standalone streamflow map is gone — the combined validation spatial
+    map is the only map now. What survives here is the point/size derivation it
+    feeds, which is this validator's knowledge and not the layout module's."""
 
     def test_gauges_are_sized_by_drainage_area(self):
         """They span 173 to 10,285 km2 on the Gunnison run. Drawn at one size
@@ -188,14 +176,6 @@ class TestMaps:
                   "columns": []}
         assert sf.map_points(result)[2] is None
 
-    def test_the_label_says_runoff_not_discharge(self):
-        """Discharge is a volume rate (m3/s); this is a depth rate over an
-        area. Calling it discharge is what made the unit look wrong."""
-        import inspect
-        src = inspect.getsource(sf.plot_maps)
-        assert 'label="mean runoff (mm/day)"' in src
-
-
 class TestSeriesFigure:
     """Two panels side by side, not overlaid.
 
@@ -209,7 +189,7 @@ class TestSeriesFigure:
     def test_it_renders(self, tmp_path):
         pytest.importorskip("matplotlib")
         out = tmp_path / "sfs.png"
-        sf.plot_series(sf.compare(_ctx()), out)
+        sf.plot_timeseries(sf.compare(_ctx()), out)
         assert out.exists() and out.stat().st_size > 5000
 
     def test_the_y_axis_is_shared(self):
@@ -217,7 +197,7 @@ class TestSeriesFigure:
         pulse and the other does not. Independent axes would scale both to
         fill their panel and destroy exactly that."""
         import inspect
-        src = inspect.getsource(sf.plot_series)
+        src = inspect.getsource(sf.plot_timeseries)
         assert "sharey=True" in src
         # the limit comes from the OBSERVED range, so the model's warm-start
         # spike cannot compress the gauges into a flat line
@@ -230,13 +210,13 @@ class TestSeriesFigure:
         a linear axis col_19 peaks within a day of the gauge cluster at the
         same magnitude. An axis that hides data must say so."""
         import inspect
-        src = inspect.getsource(sf.plot_series)
+        src = inspect.getsource(sf.plot_timeseries)
         assert "log: bool = False" in src
         assert "value(s) above axis" in src
 
     def test_symlog_is_still_available(self):
         import inspect
-        assert 'ax.set_yscale("symlog"' in inspect.getsource(sf.plot_series)
+        assert 'ax.set_yscale("symlog"' in inspect.getsource(sf.plot_timeseries)
 
     def test_zeros_are_gaps_not_strokes(self):
         """On a symlog axis a zero-flow day between two positive days draws two
@@ -244,11 +224,11 @@ class TestSeriesFigure:
         the panel became a hatch pattern."""
         import inspect
         assert "if (y is not None and y > 0) else None" in \
-            inspect.getsource(sf.plot_series)
+            inspect.getsource(sf.plot_timeseries)
 
     def test_a_run_with_no_series_still_renders(self, tmp_path):
         pytest.importorskip("matplotlib")
         ctx = _Ctx([{"case_name": "c", "variables": {}}], [])
         out = tmp_path / "none.png"
-        sf.plot_series(sf.compare(ctx), out)
+        sf.plot_timeseries(sf.compare(ctx), out)
         assert out.exists()

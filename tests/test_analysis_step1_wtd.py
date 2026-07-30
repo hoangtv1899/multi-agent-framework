@@ -91,72 +91,15 @@ class TestStaticWaterTable:
         assert "recharge" in c["applies_to"]
 
 
-class TestMaps:
-    """The panel COUNT follows the data. An empty third axis reads as
-    "measured nothing" rather than "nothing to measure"."""
-
-    def test_two_panels_without_wells(self, tmp_path):
-        pytest.importorskip("matplotlib")
-        from agents.analysis import step1_geo as geo
-        seen = {}
-        real = geo.plot_panels
-
-        def spy(panels, *a, **k):
-            seen["titles"] = [p[0] for p in panels if p[1]]
-            return real(panels, *a, **k)
-
-        geo.plot_panels = wtd.plot_panels = spy
-        try:
-            ctx = _ctx()
-            wtd.plot_maps(wtd.compare(ctx), ctx, tmp_path / "w.png",
-                          basemap=False)
-        finally:
-            geo.plot_panels = wtd.plot_panels = real
-        assert seen["titles"] == ["Fan 2013", "ELM"]
-
-    def test_three_panels_with_an_in_basin_well(self, tmp_path):
-        pytest.importorskip("matplotlib")
-        from agents.analysis import step1_geo as geo
-        seen = {}
-        real = geo.plot_panels
-
-        def spy(panels, *a, **k):
-            seen["titles"] = [p[0] for p in panels if p[1]]
-            return real(panels, *a, **k)
-
-        geo.plot_panels = wtd.plot_panels = spy
-        try:
-            ctx = _ctx(wells=[{"id": "in", "lat": 38.5, "lon": -107.5,
-                               "wtd_m": 5.0, "n_obs": 11}])
-            wtd.plot_maps(wtd.compare(ctx), ctx, tmp_path / "w3.png",
-                          basemap=False)
-        finally:
-            geo.plot_panels = wtd.plot_panels = real
-        assert seen["titles"] == ["USGS wells", "Fan 2013", "ELM"]
-
-    def test_it_renders(self, tmp_path):
-        pytest.importorskip("matplotlib")
-        ctx = _ctx()
-        out = tmp_path / "wtd.png"
-        wtd.plot_maps(wtd.compare(ctx), ctx, out, basemap=False)
-        assert out.exists() and out.stat().st_size > 5000
-
-    def test_the_scale_is_log(self):
-        """Depths span 0.0 to 251 m across the columns and the Fan grid reaches
-        859 m in this window. Linear would collapse everything shallower than
-        ~50 m into one colour, and shallow is where the behaviour is."""
-        import inspect
-        assert 'kw.setdefault("log", True)' in inspect.getsource(wtd.plot_maps)
-
-
-class TestDistributionFigure:
-    """The maps show WHERE each depth is; this shows what the two fields are
-    made of, and where the 3.8 m soil column cuts across them."""
+class TestTimeseriesFigure:
+    """Modelled depth over the run, with measured wells on top. Fan 2013 is
+    absent by construction — it is a static equilibrium field with no time
+    dimension, and it appears in the combined validation spatial map."""
 
     def test_it_renders(self, tmp_path):
         pytest.importorskip("matplotlib")
         out = tmp_path / "d.png"
-        wtd.plot_distribution(wtd.compare(_ctx()), out)
+        wtd.plot_timeseries(wtd.compare(_ctx()), out)
         assert out.exists() and out.stat().st_size > 5000
 
     def test_no_soil_column_reference_line(self):
@@ -166,28 +109,20 @@ class TestDistributionFigure:
         implying they are water tables at an awkward depth reads as
         reassurance."""
         import inspect
-        src = inspect.getsource(wtd.plot_distribution)
+        src = inspect.getsource(wtd.plot_timeseries)
         assert "axvline" not in src and "axhline" not in src
-
-    def test_zeros_are_counted_not_plotted(self):
-        """A log axis cannot take a zero, and a water table AT the surface is a
-        distinct state rather than a small depth."""
-        import inspect
-        src = inspect.getsource(wtd.plot_distribution)
-        assert "at surface (0 m)" in src
-        assert 'ax.set_xscale("log")' in src
 
     def test_depth_increases_downward(self):
         """A depth axis that runs upward reads as height."""
         import inspect
-        assert "ax.invert_yaxis()" in inspect.getsource(wtd.plot_distribution)
+        assert "ax.invert_yaxis()" in inspect.getsource(wtd.plot_timeseries)
 
     def test_it_renders_with_no_model_series(self, tmp_path):
         pytest.importorskip("matplotlib")
         ctx = _Ctx([{"case_name": "c", "lat": 38.5, "lon": -107.5,
                      "fan_wtd_m": 20.0, "variables": {}}], [])
         out = tmp_path / "d2.png"
-        wtd.plot_distribution(wtd.compare(ctx), out)
+        wtd.plot_timeseries(wtd.compare(ctx), out)
         assert out.exists()
 
 
@@ -215,7 +150,7 @@ class TestWellSeriesNormalisation:
         assert wtd._well_series({}) == []
 
 
-class TestDistributionUsesWells:
+class TestTimeseriesUsesWells:
     """The wells are the only MEASUREMENT of this quantity. A figure that drew
     Fan and ELM alone when wells existed would compare two models and call it
     validation."""
@@ -240,7 +175,7 @@ class TestDistributionUsesWells:
                            "series": [{"date": "2019-05-15", "wtd_m": 6.0},
                                       {"date": "2019-09-15", "wtd_m": 6.4}]}])
         out = tmp_path / "d.png"
-        assert Path(wtd.plot_distribution(r, out)).exists()
+        assert Path(wtd.plot_timeseries(r, out)).exists()
         assert out.stat().st_size > 5000
 
     def test_degrades_to_two_fields_with_no_wells(self, tmp_path):
@@ -248,7 +183,7 @@ class TestDistributionUsesWells:
         import matplotlib
         matplotlib.use("Agg")
         out = tmp_path / "d0.png"
-        assert Path(wtd.plot_distribution(self._result([]), out)).exists()
+        assert Path(wtd.plot_timeseries(self._result([]), out)).exists()
 
     def test_series_panel_goes_log_only_when_scales_diverge(self):
         """Wells at 5 m beside ELM at 70 m compress to a flat line on a linear

@@ -36,7 +36,7 @@ making them.
 from typing import Any, Dict, List, Optional, Tuple
 
 from agents.analysis.step1_geo import (        # noqa: E402
-    in_polygon, split_by_basin, plot_two_maps, plot_panels, _num)
+    in_polygon, split_by_basin, _num)
 
 # QOVER is surface runoff; QDRAI is subsurface drainage. A stream gauge sees
 # both. Comparing QOVER alone understates the column by however much leaves
@@ -249,22 +249,7 @@ def map_points(result, ctx=None):
     return obs, mod, sizes
 
 
-def plot_maps(result: Dict[str, Any], ctx, out_path, **kw) -> str:
-    """Two maps of mean specific discharge — USGS left, ELM right.
-
-    Gauges are sized by drainage area. On the Gunnison run those span 173 to
-    10,285 km2, a factor of sixty; drawn at one size a headwater gauge and a
-    basin-integrating one look like equivalent evidence, which is the single
-    most misleading thing this figure could do.
-    """
-    obs, mod, sizes = map_points(result, ctx)
-    kw.setdefault("log", True)
-    return plot_panels([("USGS", obs, sizes), ("ELM", mod, None)],
-                       ctx.data.get("boundary") or [], out_path,
-                       label="mean runoff (mm/day)", **kw)
-
-
-def plot_series(result: Dict[str, Any], out_path,
+def plot_timeseries(result: Dict[str, Any], out_path,
                 log: bool = False) -> str:
     """Two panels side by side: every in-basin gauge, every ELM column.
 

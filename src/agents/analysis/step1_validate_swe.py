@@ -44,7 +44,7 @@ rather than computed, because a first-snow date taken from a warm-started
 """
 from typing import Any, Dict, List, Optional, Tuple
 
-from agents.analysis.step1_geo import plot_panels   # noqa: E402
+from agents.analysis.step1_geo import in_polygon    # noqa: E402
 
 SWE_THRESHOLD_MM = 25.0      # ~1 inch SWE; see the module docstring
 
@@ -254,35 +254,6 @@ def compare(ctx, threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
 
 
 # ── geography ───────────────────────────────────────────────────────────
-def in_polygon(lat: float, lon: float, rings) -> bool:
-    """Ray casting against the watershed rings.
-
-    Reception fetches SNOTEL by BBOX, and a bbox is the rectangle around a
-    basin — so sites in its corners are outside the watershed. The DEM grid
-    was clipped to the boundary (68 of 120 points survived); the stations
-    never were. On the 2019 Upper Gunnison run that left 3 of 5 stations
-    outside the basin, two of them 20 km beyond a divide, and the pairing
-    then dropped an IN-basin station in favour of an out-of-basin one on a
-    15 m elevation difference.
-    """
-    for ring in (rings or []):
-        try:
-            n, hit = len(ring), False
-            for i in range(n):
-                x1, y1 = ring[i][0], ring[i][1]
-                x2, y2 = ring[(i + 1) % n][0], ring[(i + 1) % n][1]
-                if (y1 > lat) != (y2 > lat):
-                    xi = x1 + (lat - y1) * (x2 - x1) / ((y2 - y1) or 1e-12)
-                    if lon < xi:
-                        hit = not hit
-            if hit:
-                return True
-        except Exception:
-            continue
-    return False
-
-
-# ── pairing ─────────────────────────────────────────────────────────────
 MAX_PAIR_DELTA_M = 200.0     # see pair_by_elevation
 
 
@@ -382,7 +353,7 @@ def _stats(xs, ys):
     return {"n": n, "bias": round(bias, 1), "rmse": round(rmse, 1)}
 
 
-def plot(result: Dict[str, Any], out_path) -> str:
+def plot_scatter(result: Dict[str, Any], out_path) -> str:
     """Three 1:1 panels: x = SNOTEL observed, y = ELM simulated.
 
     One point per PAIR, each pair one station and one column matched on
@@ -493,7 +464,7 @@ def plot(result: Dict[str, Any], out_path) -> str:
     return str(out_path)
 
 
-def plot_series(result: Dict[str, Any], out_path) -> str:
+def plot_timeseries(result: Dict[str, Any], out_path) -> str:
     """One panel per pair: daily SWE, observed and simulated on one axis.
 
     The scatter answers "how big"; this answers "what shape". A pack that is
@@ -605,26 +576,3 @@ def map_points(result, ctx):
         return out
 
     return pts(stations, by_st), pts(columns, by_col)
-
-
-def plot_maps(result: Dict[str, Any], ctx, out_path,
-              basemap: bool = True, zoom: int = 9) -> str:
-    """Two maps of mean SWE — SNOTEL on the left, every ELM column on the right.
-
-    Where the two networks sample, not just what they measured. Two SNOTEL
-    sites in one corner of a 6,245 km2 basin is a different claim from two
-    spread across it, and no scatter or hydrograph can show that. This figure
-    is also what caught three of the five stations sitting outside the
-    watershed entirely.
-
-    ONE SHARED COLOUR SCALE across both panels, and OSM underneath at reduced
-    alpha — terrain is why SNOTEL sites sit where they do, so it is context
-    rather than decoration, but a full-strength basemap competes with the data
-    for the eye. Both behaviours live in plot_panels, which this now delegates
-    to; it was a hand-rolled copy of that function and the two had already
-    started to drift.
-    """
-    obs, mod = map_points(result, ctx)
-    return plot_panels([("SNOTEL", obs, None), ("ELM", mod, None)],
-                       ctx.data.get("boundary") or [], out_path,
-                       label="mean SWE (mm)", basemap=basemap, zoom=zoom)
