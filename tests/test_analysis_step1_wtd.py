@@ -147,3 +147,45 @@ class TestMaps:
         ~50 m into one colour, and shallow is where the behaviour is."""
         import inspect
         assert 'kw.setdefault("log", True)' in inspect.getsource(wtd.plot_maps)
+
+
+class TestDistributionFigure:
+    """The maps show WHERE each depth is; this shows what the two fields are
+    made of, and where the 3.8 m soil column cuts across them."""
+
+    def test_it_renders(self, tmp_path):
+        pytest.importorskip("matplotlib")
+        out = tmp_path / "d.png"
+        wtd.plot_distribution(wtd.compare(_ctx()), out)
+        assert out.exists() and out.stat().st_size > 5000
+
+    def test_no_soil_column_reference_line(self):
+        """It was drawn to say "below this the water table cannot reach the
+        soil" — true, but it framed the deep values as a depth-scale mismatch
+        when they are a diagnostic of NEGATIVE aquifer storage. A line
+        implying they are water tables at an awkward depth reads as
+        reassurance."""
+        import inspect
+        src = inspect.getsource(wtd.plot_distribution)
+        assert "axvline" not in src and "axhline" not in src
+
+    def test_zeros_are_counted_not_plotted(self):
+        """A log axis cannot take a zero, and a water table AT the surface is a
+        distinct state rather than a small depth."""
+        import inspect
+        src = inspect.getsource(wtd.plot_distribution)
+        assert "at surface (0 m)" in src
+        assert 'ax.set_xscale("log")' in src
+
+    def test_depth_increases_downward(self):
+        """A depth axis that runs upward reads as height."""
+        import inspect
+        assert "ax.invert_yaxis()" in inspect.getsource(wtd.plot_distribution)
+
+    def test_it_renders_with_no_model_series(self, tmp_path):
+        pytest.importorskip("matplotlib")
+        ctx = _Ctx([{"case_name": "c", "lat": 38.5, "lon": -107.5,
+                     "fan_wtd_m": 20.0, "variables": {}}], [])
+        out = tmp_path / "d2.png"
+        wtd.plot_distribution(wtd.compare(ctx), out)
+        assert out.exists()

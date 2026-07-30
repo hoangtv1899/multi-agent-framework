@@ -45,6 +45,11 @@ from typing import Any, Dict, List, Optional
 from agents.analysis.step1_geo import (        # noqa: E402
     split_by_basin, plot_panels, _num)
 
+# ELM's hydrologically active soil column. A water table below this cannot
+# exchange water with the soil the model actually solves, which is why it is
+# drawn on both panels rather than left to the caption.
+SOIL_COLUMN_M = 3.8
+
 
 def _zwt_daily(row: Dict[str, Any]) -> Dict[str, Any]:
     return ((row.get("variables") or {}).get("ZWT") or {}).get("daily") or {}
@@ -154,3 +159,104 @@ def plot_maps(result: Dict[str, Any], ctx, out_path, **kw) -> str:
     kw.setdefault("log", True)
     return plot_panels(panels, ctx.data.get("boundary") or [], out_path,
                        label="water-table depth (m below surface)", **kw)
+
+
+def plot_distribution(result: Dict[str, Any], out_path) -> str:
+    """Two panels: the depth DISTRIBUTIONS, then the modelled series.
+
+    The maps show where each depth is; these show what the two fields are
+    made of. Fan spans 0 to 251 m across nineteen columns while ELM occupies a
+    much narrower band, and the histogram is where that compression is visible
+    rather than inferred from colours.
+
+    LOG x on the histogram, with bins spaced logarithmically. Depths run over
+    three orders of magnitude and linear bins would put sixteen columns in the
+    first bucket. Zeros are drawn as their own leftmost bar because a water
+    table AT the surface is a distinct state, not a small number.
+
+    The series panel has no observed counterpart to draw: on this basin every
+    USGS well lies outside it, so it shows the model alone.
+
+    No soil-column reference line. It was drawn to say "below this the water
+    table cannot reach the soil", which is true — SOILLIQ is flat at
+    0.020 kg/m2 in every layer below 3.8 m — but it framed the deep values as
+    a depth-scale mismatch when they are something else entirely: a diagnostic
+    of NEGATIVE aquifer storage. A line implying the numbers are water tables
+    at an awkward depth reads as reassurance, and the figure looking plausible
+    was the actual danger here.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import datetime as _dt
+    import numpy as np
+
+    fan = [_num(f.get("wtd_m")) for f in (result.get("fan") or [])]
+    mod = [_num(m.get("wtd_m")) for m in (result.get("model") or [])]
+    fan = [v for v in fan if v is not None]
+    mod = [v for v in mod if v is not None]
+
+    fig, axes = plt.subplots(1, 2, figsize=(17.0, 6.4))
+
+    # ── (1) distributions ────────────────────────────────────────────────
+    ax = axes[0]
+    pos = [v for v in fan + mod if v > 0]
+    if pos:
+        lo, hi = min(pos), max(pos)
+        bins = np.logspace(np.log10(lo * 0.8), np.log10(hi * 1.25), 14)
+        for vals, colour, name in ((fan, "#e6550d", "Fan 2013"),
+                                   (mod, "#2c7fb8", "ELM")):
+            p = [v for v in vals if v > 0]
+            if p:
+                ax.hist(p, bins=bins, alpha=0.6, color=colour, label=name,
+                        edgecolor="#222", linewidth=0.8)
+        ax.set_xscale("log")
+        # Zeros cannot sit on a log axis, and a water table at the surface is
+        # a state of its own rather than a small depth. Counted separately.
+        zf, zm = sum(1 for v in fan if v <= 0), sum(1 for v in mod if v <= 0)
+        if zf or zm:
+            ax.text(0.02, 0.97,
+                    f"at surface (0 m):  Fan {zf}   ELM {zm}",
+                    transform=ax.transAxes, va="top", fontsize=13,
+                    bbox=dict(boxstyle="round,pad=0.35", fc="white",
+                              ec="#bbb", alpha=0.92))
+    ax.set_xlabel("water-table depth (m below surface)", fontsize=18)
+    ax.set_ylabel("columns", fontsize=18)
+    ax.tick_params(labelsize=13)
+    ax.legend(fontsize=15)
+    ax.grid(alpha=0.25)
+
+    # ── (2) modelled series ─────────────────────────────────────────────
+    ax = axes[1]
+    drawn = 0
+    for m in (result.get("model") or []):
+        ser = m.get("series") or {}
+        ds, vs = ser.get("dates") or [], ser.get("values") or []
+        pts = []
+        for d, v in zip(ds, vs):
+            if v is None:
+                continue
+            try:
+                pts.append((_dt.date.fromisoformat(str(d)[:10]), v))
+            except Exception:
+                pass
+        if pts:
+            ax.plot([p[0] for p in pts], [p[1] for p in pts], lw=1.6,
+                    alpha=0.85)
+            drawn += 1
+    ax.invert_yaxis()          # depth increases downward
+    ax.set_xlabel("date", fontsize=18)
+    ax.set_ylabel("ELM water-table depth (m)", fontsize=18)
+    ax.tick_params(labelsize=13)
+    ax.grid(alpha=0.25)
+    for lb in ax.get_xticklabels():
+        lb.set_rotation(30); lb.set_ha("right")
+    ax.text(0.5, 0.04, f"ELM   (n={drawn})", transform=ax.transAxes,
+            ha="center", va="bottom", fontsize=22, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="#333",
+                      alpha=0.92))
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=135)
+    plt.close(fig)
+    return str(out_path)
