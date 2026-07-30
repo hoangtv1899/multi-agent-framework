@@ -158,7 +158,13 @@ def run(code: str, ctx, out_path, script_path=None,
     turns each into a caveat, and a step that crashed on one bad script would
     lose the four good ones alongside it.
     """
-    out_path = Path(out_path)
+    # ABSOLUTE, because the script runs with cwd=tmp. A relative out_path or
+    # script_path silently stops resolving the moment the working directory
+    # changes: every figure in the first real Analyzer run failed with "can't
+    # open file", and every earlier test passed only because it happened to
+    # hand in absolute scratchpad paths. The entry point that matters passes a
+    # relative run_dir.
+    out_path = Path(out_path).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     payload = _payload(ctx)
@@ -176,7 +182,8 @@ def run(code: str, ctx, out_path, script_path=None,
         full = (_PREAMBLE.format(payload=str(pkl), out_path=str(out_path))
                 + textwrap.dedent(code).rstrip() + "\n"
                 + _POSTAMBLE.format(result_path=str(res)))
-        script_path = Path(script_path) if script_path else tmp / "script.py"
+        script_path = (Path(script_path).resolve() if script_path
+                       else tmp / "script.py")
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(full)
 

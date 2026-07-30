@@ -231,3 +231,23 @@ class TestTheCeilingIsNotAQuota:
             def ask(self, messages, system_message=None):
                 return '```json\n{"notes": "n", "figures": []}\n```'
         assert step2.propose(_Ctx(), client=_Client())["figures"] == []
+
+
+class TestPathsSurviveTheSubprocessCwd:
+    """The script runs with cwd set to a temp dir, so a relative out_path or
+    script_path stops resolving the moment it starts. Every figure in the first
+    real Analyzer run failed with "can't open file" — and every test before it
+    passed only because it handed in absolute scratchpad paths. The entry point
+    that matters passes a relative run_dir."""
+
+    def test_a_relative_out_path_still_produces_a_figure(self, tmp_path, monkeypatch):
+        pytest.importorskip("pandas")
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "out").mkdir()
+        r = runner.run('fig, ax = plt.subplots(figsize=(5,4))\n'
+                       'ax.plot([1,2,3]); fig.savefig(out_path, dpi=120)\n'
+                       'result = {"n": 9}',
+                       _Ctx(), "out/f.png", script_path="out/f.py")
+        assert r["ok"] is True, r["error"]
+        assert (tmp_path / "out" / "f.png").exists()
+        assert (tmp_path / "out" / "f.py").exists()

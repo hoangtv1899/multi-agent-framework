@@ -298,8 +298,12 @@ if step 2 could plausibly do better with the same data.
 
 Return ONLY JSON:
 {{"claims": [
-    {{"claim": "<one sentence, every number traceable to the finding>",
+    {{"claim": "<one sentence>",
       "finding_id": "<the finding it rests on>",
+      "values": [<every MEASURED number this claim asserts, copied exactly from
+                  the finding's result. NOT counts you made by reading a table,
+                  NOT band or column labels, NOT thresholds you chose. Use []
+                  if the claim asserts no measurement.>],
       "caveats": ["<ids of any blocking caveat this claim falls under>"]}}
   ],
   "answer": "<2-4 sentences answering the user's question, or saying plainly "
