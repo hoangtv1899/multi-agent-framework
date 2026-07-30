@@ -86,6 +86,11 @@ class PFLOTRANExpManager(ExperimentManagerBase):
     # empty PFLOTRAN runs before the managers were split.
     PLAN_KEY = "PFLOTRAN_CASES"
 
+    # Per-column wall limit. Generous for flow, which takes ~1 s; it exists for
+    # the reactive subclass, where a deep unsaturated profile can drive the
+    # timestep to machine epsilon and grind indefinitely at t≈1 y.
+    RUN_TIMEOUT_S = 900
+
     # What this backend's metrics MEAN, for the Analyzer and for the LLM step
     # 2 hands them to. Every entry is a quantity _extract actually computes;
     # nothing here is inherited. Two of them carry the caveats that a reader
@@ -269,9 +274,28 @@ class PFLOTRANExpManager(ExperimentManagerBase):
                                 "reason": "no .in deck in the case dir"})
                 continue
             t0 = time.time()
-            proc = subprocess.run([exe, "-pflotranin", deck.name],
-                                  cwd=str(case_dir), capture_output=True,
-                                  text=True, timeout=config.get("timeout_s", 900))
+            limit = config.get("timeout_s", self.RUN_TIMEOUT_S)
+            try:
+                proc = subprocess.run([exe, "-pflotranin", deck.name],
+                                      cwd=str(case_dir), capture_output=True,
+                                      text=True, timeout=limit)
+            except subprocess.TimeoutExpired:
+                # ONE COLUMN, NOT THE ENSEMBLE. subprocess.run RAISES on
+                # timeout, and uncaught that discarded every column already
+                # computed along with every one still queued. A column whose
+                # timestep collapses — the reactive decks do this on deep
+                # unsaturated profiles — is a failed column with a reason, and
+                # the run continues.
+                outcome = {"status": "failed",
+                           "runtime_seconds": round(time.time() - t0, 2),
+                           "returncode": None, "n_output_files":
+                               len(list(case_dir.glob("*.tec"))),
+                           "reason": f"exceeded {limit}s — timestep collapse "
+                                     f"or a non-converging solve"}
+                e.update(outcome)
+                results.append({**e, **outcome})
+                print(f"  ✗ {e.get('id')}: TIMEOUT after {limit}s")
+                continue
             ok = proc.returncode == 0 and any(case_dir.glob("*.tec"))
             outcome = {"status": "completed" if ok else "failed",
                        "runtime_seconds": round(time.time() - t0, 2),
@@ -322,6 +346,23 @@ class PFLOTRANExpManager(ExperimentManagerBase):
         for e in experiments or []:
             cid = e.get("id") or e.get("case_name")
             case_dir = Path(e.get("case_dir") or "")
+
+            # A COLUMN _run REJECTED STAYS REJECTED. A timed-out or crashed
+            # column still leaves the .tec snapshots it managed to write, and
+            # reading those produced a row marked "ok" carrying metrics from a
+            # simulation that never reached its final time — while _run's own
+            # record said "failed". The partial output is real but it is not
+            # the experiment that was asked for, and the ensemble must not
+            # average it in as though it were.
+            if e.get("status") == "failed":
+                rows.append({"case_name": cid, "scenario_name": cid,
+                             "status": "failed",
+                             "runtime_seconds": e.get("runtime_seconds"),
+                             "reason": e.get("reason") or "the run failed",
+                             "partial_output_files": len(
+                                 list(case_dir.glob("*.tec")))})
+                continue
+
             tecs = sorted(case_dir.glob("*.tec"))
             if not tecs:
                 rows.append({"case_name": cid, "scenario_name": cid,

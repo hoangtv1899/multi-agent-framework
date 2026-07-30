@@ -286,3 +286,21 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
         d.mkdir()
         row = self._extract([{"id": "col_09", "case_dir": d}])
         assert row["status"] == "failed" and row["reason"]
+
+    def test_a_run_that_failed_is_not_resurrected_by_partial_output(
+            self, tmp_path):
+        """A timed-out column still leaves the snapshots it managed to write.
+
+        Reading those produced a row marked 'ok', carrying metrics from a
+        simulation that never reached its final time, while _run's own record
+        said 'failed'. The partial output is real, but it is not the
+        experiment that was asked for.
+        """
+        exps = self._case(tmp_path, "1.0E+00")
+        exps[0].update(status="failed", reason="exceeded 300s — timestep "
+                                               "collapse", runtime_seconds=300)
+        row = self._extract(exps)
+        assert row["status"] == "failed"
+        assert "timestep collapse" in row["reason"]
+        assert row["partial_output_files"] == 1, "say what was left behind"
+        assert "metrics" not in row, "no metrics from an unfinished run"

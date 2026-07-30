@@ -512,8 +512,12 @@ def main():
         default = backends.DEFAULT,
         help    = f'which model to run (default: {backends.DEFAULT}). '
                   f'elm: land-surface columns, warm-started from the CONUS '
-                  f'restarts. pflotran: standalone 1-D subsurface flow, '
-                  f'initialised at the Fan 2013 water table.'
+                  f'restarts. pflotran: standalone 1-D subsurface flow over '
+                  f'20 y, initialised at the Fan 2013 water table. '
+                  f'lambda-pflotran: the same flow plus the LAMBDA '
+                  f'organic-matter reaction sandbox, capped at 5 y (the deck '
+                  f'NaNs at 9.31 y) — a demonstration of reactive transport, '
+                  f'not a calibration.'
     )
     parser.add_argument(
         '--no-ask',

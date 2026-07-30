@@ -25,8 +25,18 @@ from typing import Any, Dict, List, Tuple
 
 # name -> (module path, class name). Lazy on purpose; see the docstring.
 _BACKENDS: Dict[str, Tuple[str, str]] = {
-    "elm":      ("core.elm_exp_manager",      "ELMExpManager"),
-    "pflotran": ("core.pflotran_exp_manager", "PFLOTRANExpManager"),
+    "elm":             ("core.elm_exp_manager",      "ELMExpManager"),
+    "pflotran":        ("core.pflotran_exp_manager", "PFLOTRANExpManager"),
+    "lambda-pflotran": ("core.lambda_pflotran_exp_manager",
+                        "LambdaPFLOTRANExpManager"),
+}
+
+# Spellings that mean the same backend. Only for names a person would
+# reasonably type for a model that EXISTS — never a near-miss of one that does
+# not, which must still raise.
+_ALIASES: Dict[str, str] = {
+    "lambda_pflotran": "lambda-pflotran",
+    "lambda":          "lambda-pflotran",
 }
 
 DEFAULT = "elm"
@@ -46,6 +56,7 @@ def get(name: str):
     agree with the wrong answer.
     """
     key = (name or "").strip().lower()
+    key = _ALIASES.get(key, key)
     if key not in _BACKENDS:
         raise ValueError(
             f"unknown model {name!r} — known models: {', '.join(names())}")
@@ -92,11 +103,16 @@ def config_for(name: str,
             cfg["warm_start"] = {
                 "source": ((initialization or {}).get("source") or "conus")}
 
-    elif key == "pflotran":
+    elif key in ("pflotran", "lambda-pflotran"):
         # Defaults matching the standalone tool, so a deck built through the
         # workflow and one built from the command line are the same deck.
         cfg.setdefault("bottom", "fan")
         cfg.setdefault("years", 20.0)
         cfg.setdefault("depth_cap", 50.0)
+        if key == "lambda-pflotran":
+            # NOT a default: the LAMBDA deck NaNs at t=9.31 y, so 20 y is not a
+            # duration this model can run. The manager clamps it and records
+            # the clamp, which is why the ceiling is not silently applied here.
+            cfg.setdefault("n_bins", 3)
 
     return cfg

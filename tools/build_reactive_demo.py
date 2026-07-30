@@ -69,10 +69,7 @@ CHEMISTRY
     O2(aq)
     BIOMASS
     A(aq)
-    C47-DONOR
-    C31-DONOR
-    C22-DONOR
-  /
+{donor_species}  /
   SECONDARY_SPECIES
     OH-
     CO3--
@@ -118,10 +115,7 @@ CONSTRAINT column
     O2(aq)     4.06d-4 T
     BIOMASS    1.d-6   T
     A(aq)      1.d-10  T
-    C47-DONOR  1.d-4   T
-    C31-DONOR  1.d-4   T
-    C22-DONOR  1.d-4   T
-  /
+{donor_column}  /
   IMMOBILE
     Carbon_Consumption 1.d-10
   /
@@ -141,10 +135,7 @@ CONSTRAINT inlet
     O2(aq)     4.06d-4 T
     BIOMASS    1.d-10  T
     A(aq)      1.d-10  T
-    C47-DONOR  1.d-10  T
-    C31-DONOR  1.d-10  T
-    C22-DONOR  1.d-10  T
-  /
+{donor_inlet}  /
   IMMOBILE
     Carbon_Consumption 1.d-10
   /
@@ -177,7 +168,57 @@ END
 """
 
 
-def build(src_deck, dst_dir, col, recharge_mm_yr, network, years=20.0):
+# The donors of the build's own verified regression network. The DEFAULT, so
+# every existing caller keeps producing the identical deck.
+DEFAULT_DONORS = ["C47-DONOR", "C31-DONOR", "C22-DONOR"]
+
+
+def chemistry_block(network, donors=None, db=None):
+    """The CHEMISTRY block, with the donor species written in three places.
+
+    A generated reaction network names its donors after the mean carbon number
+    of each bin — C28/C21/C17 for one binning of SPS_0001, against the
+    regression network's C47/C31/C22 — so the donor list cannot be a constant.
+    It appears in PRIMARY_SPECIES and in BOTH constraints, and a deck that
+    declares one set and constrains another is rejected by PFLOTRAN.
+
+    Kept here rather than in the Experiment Manager so the three deck traps
+    from the port (PASSIVE_GAS_SPECIES, the sandbox nested inside CHEMISTRY,
+    absolute paths) stay in one place.
+    """
+    donors = list(donors or DEFAULT_DONORS)
+    return CHEMISTRY.format(
+        db=(db or DB),
+        sandbox=SANDBOX.format(network=network),
+        donor_species="".join(f"    {d}\n" for d in donors),
+        donor_column="".join(f"    {d:<10s} 1.d-4   T\n" for d in donors),
+        donor_inlet="".join(f"    {d:<10s} 1.d-10  T\n" for d in donors))
+
+
+def merge_donor_database(donor_lines, out_path, base_db=None):
+    """The build's lambda.dat with ITS donor rows swapped for these.
+
+    PFLOTRAN needs every primary species in the database, so a generated
+    network whose donors are not in lambda.dat fails at read time. The
+    generated database file carries ONLY the donor rows; everything else —
+    H2O, HCO3-, the secondary species, the A(s) mineral, and the `null`
+    section separators PFLOTRAN's parser depends on — has to come from the
+    build's own file.
+    """
+    from pathlib import Path as _P
+    base = _P(base_db or DB).read_text().splitlines()
+    keep = [ln for ln in base if not re.match(r"\s*'C\d+-DONOR'", ln)]
+    # Back where the originals were: after BIOMASS, before the first 'null'.
+    at = next((i for i, ln in enumerate(keep)
+               if ln.strip().startswith("'null'")), len(keep))
+    merged = keep[:at] + list(donor_lines) + keep[at:]
+    out_path = _P(out_path)
+    out_path.write_text("\n".join(merged) + "\n")
+    return out_path
+
+
+def build(src_deck, dst_dir, col, recharge_mm_yr, network, years=20.0,
+          donors=None, db=None):
     dst_dir.mkdir(parents=True, exist_ok=True)
     text = src_deck.read_text()
 
@@ -196,7 +237,7 @@ def build(src_deck, dst_dir, col, recharge_mm_yr, network, years=20.0):
         "#=========================== discretization ", 1)
 
     # 3. chemistry (with the sandbox nested inside it) before the flow conditions
-    chem = CHEMISTRY.format(db=DB, sandbox=SANDBOX.format(network=network))
+    chem = chemistry_block(network, donors=donors, db=db)
     anchor = "FLOW_CONDITION initial"
     text = text.replace(anchor, chem + anchor, 1)
 
