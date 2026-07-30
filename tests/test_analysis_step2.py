@@ -38,35 +38,48 @@ class _Ctx:
         return self._c
 
     def series(self):
+        """Mirrors the real frame, INCLUDING the mismatch that caused the bug.
+
+        `variable_units` above says QOVER is mm/s — the raw ELM variable. The
+        frame says mm/day, because _daily() converted and labelled it. Both are
+        right about their own subject, and a fixture that made them agree would
+        test nothing.
+        """
         pd = pytest.importorskip("pandas")
         return pd.DataFrame({
             "date": ["2019-01-01", "2019-01-02"] * 2,
             "entity": ["col_01"] * 2 + ["col_02"] * 2,
             "variable": ["QOVER"] * 2 + ["H2OSNO"] * 2,
-            "value": [1e-5, 2e-5, 100.0, 110.0],
-            "units": ["mm/s"] * 2 + ["mm"] * 2,
+            "value": [0.864, 1.728, 100.0, 110.0],
+            "units": ["mm/day"] * 2 + ["mm"] * 2,
             "source": ["model"] * 4})
 
 
-class TestUnitsAreFixedAtTheBoundary:
-    """variable_units MISLABELS the daily series, and the label is the bug.
+class TestTheBriefQuotesTheFrameNotTheRawMap:
+    """The data was never wrong. The BRIEF was.
 
-    It says `mm/s` because that is the raw ELM variable's unit — but the series
-    it labels went through the extractor's _daily(), which already resampled
-    3-hourly output and converted fluxes to mm/day. The values are per-day; the
-    label says per-second.
+    experiment.json carries two units records, and both are correct about their
+    own subject: data["variable_units"] describes the RAW ELM variable (QOVER
+    in mm/s), while variables[v]["daily"]["units"] describes the series that
+    _daily() actually produced (mm/day). step0.series() already carries the
+    second into the frame.
 
-    A generated script read the label, multiplied a year of already-correct
-    values by 86400, and plotted 1.1e6 mm/yr of runoff. So the fix is a
-    RELABEL, not a conversion: touching the values would double the error, and
-    doing exactly that is how the mislabel was finally found.
+    Step 2's brief printed the first under a heading about `df`. The model
+    believed the brief over the frame, multiplied a year of already-per-day
+    values by 86400, and plotted 1.1e6 mm/yr of runoff. I then read that as a
+    missing conversion and added one in the runner — which doubled the error,
+    and is what finally located the real fault.
     """
 
-    def test_per_second_fluxes_are_relabelled_not_rescaled(self):
+    def test_the_runner_never_rescales_the_frame(self):
+        """An earlier version multiplied fluxes by 86400 on the strength of
+        data["variable_units"] — turning correct per-day values into 1e6 mm/yr.
+        The frame is authoritative about itself; the runner passes it through.
+        """
         pytest.importorskip("pandas")
         payload = runner._payload(_Ctx())
         q = payload["df"][payload["df"]["variable"] == "QOVER"]
-        assert list(q["value"]) == [1e-5, 2e-5], "values must not be touched"
+        assert list(q["value"]) == [0.864, 1.728], "values must pass through"
         assert set(q["units"]) == {"mm/day"}
 
     def test_non_flux_variables_are_untouched(self):
@@ -77,16 +90,19 @@ class TestUnitsAreFixedAtTheBoundary:
         assert list(s["value"]) == [100.0, 110.0]
         assert set(s["units"]) == {"mm"}
 
-    def test_the_conversion_is_reported(self):
-        pytest.importorskip("pandas")
-        assert runner._payload(_Ctx())["converted_to_daily"] == ["QOVER"]
+    def test_the_brief_reports_the_frame_units_not_the_raw_map(self):
+        """The whole bug in one assertion.
 
-    def test_the_brief_does_not_ask_for_a_second_conversion(self):
-        """The runner converts, so a brief still saying 'multiply by 86400'
-        would produce a double conversion. These two must not drift."""
-        brief = step2.context_brief(_Ctx())
-        assert "Do NOT" in brief and "86400" in brief
-        assert "Multiply by 86400" not in brief
+        ctx.data["variable_units"] says mm/s (the RAW ELM variable); the frame
+        says mm/day (what _daily() actually produced and labelled). The brief
+        must print the frame's, or the model rescales correct values.
+        """
+        ctx = _Ctx()
+        assert ctx.data["variable_units"]["QOVER"] == "mm/s"
+        assert step2._frame_units(ctx)["QOVER"] == "mm/day"
+        brief = step2.context_brief(ctx)
+        assert "QOVER      mm/day" in brief
+        assert "86400" not in brief, "the brief must not ask for a rescale"
 
 
 class TestTheRunnerRefusesRatherThanShrugs:

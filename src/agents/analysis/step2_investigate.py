@@ -62,8 +62,32 @@ DEFAULT_MODEL = "claude-opus-5-project"
 # ─────────────────────────────────────────────────────────────────────
 # THE BRIEF — deterministic, so it can be asserted on without an API call
 # ─────────────────────────────────────────────────────────────────────
+def _frame_units(ctx) -> Dict[str, str]:
+    """Units as they appear in `df` — the thing the script actually reads.
+
+    NOT ctx.data["variable_units"]. That map describes the RAW ELM variable
+    (QOVER in mm/s) and its own docstring says so. The daily series are not
+    raw: _daily() resampled 3-hourly output, converted fluxes to mm/day, and
+    wrote "mm/day" alongside each series — which step0.series() carries into
+    the frame's `units` column.
+
+    Both maps are correct about their own subject. Printing the RAW one under a
+    heading about `df` is what broke: the model believed the brief over the
+    frame, multiplied a year of already-per-day values by 86400, and plotted
+    1.1e6 mm/yr of runoff. The frame had said mm/day the whole time, and so had
+    the per-series block it came from. There was never a bug in the data.
+    """
+    df = ctx.series()
+    if df is None or "variable" not in getattr(df, "columns", []):
+        return dict(ctx.data.get("variable_units") or {})
+    out: Dict[str, str] = {}
+    for v, u in df[["variable", "units"]].drop_duplicates().values:
+        out.setdefault(str(v), str(u))
+    return out
+
+
 def _variable_catalog(ctx) -> List[str]:
-    """Raw ELM variables, then the derived metrics and what they come FROM.
+    """Frame variables, then the derived metrics and what they come FROM.
 
     field_semantics is keyed by DERIVED METRIC (annual_recharge_mm_yr), not by
     raw variable, and each entry records its `from` list. That mapping is the
@@ -72,19 +96,13 @@ def _variable_catalog(ctx) -> List[str]:
     it is QOVER/(QCHARGE+QOVER). Showing the derivation, not just the name,
     stops the model repeating that.
     """
-    units = (ctx.data.get("variable_units") or {})
+    units = _frame_units(ctx)
     sem = (ctx.data.get("field_semantics") or {})
 
-    out = ["  raw ELM variables (in `df`, one row per day):"]
+    out = ["  variables in `df` (one row per day; units exactly as the frame's",
+           "  `units` column reports them — already daily, do not rescale):"]
     for v in sorted(units):
         out.append(f"    {v:10s} {units[v]}")
-    if any(str(u).endswith("/s") for u in units.values()):
-        out.append("")
-        out.append("    NOTE: ELM writes these fluxes in mm/s, but the runner has")
-        out.append("    ALREADY converted `df` to per-day — one row per day, so")
-        out.append("    summing a year of rows gives mm/yr directly. Do NOT")
-        out.append("    multiply by 86400; the `units` column reflects this.")
-        out.append("")
 
     if sem:
         out.append("")
