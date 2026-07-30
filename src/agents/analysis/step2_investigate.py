@@ -268,7 +268,22 @@ def _parse(reply: str) -> Dict[str, Any]:
     i, j = text.find("{"), text.rfind("}")
     if i < 0 or j < 0:
         raise ValueError("no JSON object in the reply")
-    return json.loads(text[i:j + 1])
+    blob = text[i:j + 1]
+    try:
+        return json.loads(blob)
+    except json.JSONDecodeError:
+        # The `code` field carries generated Python — raw newlines inside
+        # string literals, echoed comments, trailing commas — which naive
+        # json.loads rejects. A live run died here on a reply that was
+        # otherwise fine. llm_agent already solved this for the planner, so
+        # reuse its DETERMINISTIC repairs rather than write a third parser.
+        # Not parse_json_resilient: that adds an LLM self-repair round, and a
+        # step that silently spends another call to fix its own output is a
+        # step whose cost accounting lies.
+        from agents.llm_agent import LLMAgent
+        repaired = LLMAgent._escape_raw_newlines(
+            LLMAgent._strip_json_comments(blob))
+        return json.loads(repaired)
 
 
 def propose(ctx, step1=None, model: str = DEFAULT_MODEL,

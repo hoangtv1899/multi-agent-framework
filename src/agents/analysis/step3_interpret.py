@@ -53,17 +53,9 @@ MAX_ROUNDS = 2
 
 DEFAULT_MODEL = "claude-opus-5-project"
 
-# Numbers below this are structural (indices, counts, years) rather than
-# measurements, and demanding provenance for "2019" or "19 columns" would
-# make the no-new-numbers audit fire constantly on prose that is fine.
+# A declared value that is a year is a date, not a measurement.
 _YEARLIKE = re.compile(r"^(19|20)\d{2}$")
 
-# A number only counts as a MEASUREMENT when it stands on its own. The lookbehind
-# excludes digits embedded in an identifier: a live run struck a correct claim
-# for "stating 01, 04, 05, 07" — which were col_01, col_04, col_05 and col_07,
-# the names of the columns it was describing. Demanding provenance for the
-# digits inside a name is the same false positive as demanding it for a year,
-# and both silence claims that are fine.
 _NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d+(?:\.\d+)?")
 
 
@@ -93,6 +85,61 @@ def _flatten_numbers(obj) -> set:
         out.add(str(int(obj)) if float(obj).is_integer() else str(obj))
     elif isinstance(obj, str):
         out |= set(_numbers(obj))
+    return out
+
+
+# Words too generic to identify a caveat's subject. "any", "claim", "at" and
+# friends appear in most scopes and would match most sentences.
+_STOP = {"any", "the", "and", "or", "of", "to", "at", "in", "on", "for", "a",
+         "claim", "claims", "these", "this", "that", "it", "its", "with",
+         "without", "not", "no", "is", "are", "be", "been", "validation",
+         "partitioning", "stations", "onset", "first", "measured", "modelled"}
+
+
+def _scope_terms(caveat: Dict[str, Any]):
+    """(variables, words) a caveat's `applies_to` is about.
+
+    Variables are the uppercase tokens (QOVER, ZWT, SWE) and are matched
+    case-sensitively, because SNOW the variable is not "snow" the word.
+    Words are the rest, lowercased, minus the ones too generic to identify a
+    subject.
+    """
+    scope = str(caveat.get("applies_to") or "")
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9_]*", scope)
+    variables = {t for t in tokens if t.isupper() and len(t) > 2}
+    words = {t.lower() for t in tokens
+             if t not in variables and len(t) > 2 and t.lower() not in _STOP}
+    return variables, words
+
+
+def required_caveats(claim_text: str, candidates: List[str],
+                     caveats: List[Dict[str, Any]]) -> List[str]:
+    """Which of a finding's candidate caveats this CLAIM actually falls under.
+
+    THE FIX FOR THE AUDIT'S WORST FALSE POSITIVE. _blocked_by tags a finding
+    with every caveat scoped to any variable that figure used, so a
+    five-variable figure inherits five caveats. Enforcing all of them on every
+    claim citing it struck "no observational validation of the water table is
+    possible" for not carrying limitation_structural_1 — scoped to RUNOFF. The
+    claim was correct and the caveat was irrelevant to it.
+
+    So the figure bounds what is POSSIBLE and the claim decides what APPLIES: a
+    caveat is required only if the claim's own text is about its subject. A
+    claim that never mentions runoff does not owe the runoff caveat, however
+    many variables its figure happened to plot.
+    """
+    text = str(claim_text or "")
+    lower = text.lower()
+    by_id = {c.get("id"): c for c in (caveats or [])}
+    out = []
+    for cid in (candidates or []):
+        c = by_id.get(cid)
+        if not c:
+            continue
+        variables, words = _scope_terms(c)
+        if any(re.search(rf"\b{re.escape(v)}\b", text) for v in variables) \
+           or any(re.search(rf"\b{re.escape(w)}\b", lower) for w in words):
+            out.append(cid)
     return out
 
 
@@ -150,26 +197,42 @@ def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
                 f"claim with no evidence behind it cannot be checked.")))
             continue
 
+        # THE CLAIM DECLARES ITS MEASUREMENTS; prose numbers are not audited.
+        #
+        # This replaces a scan of the sentence. That scan needed six exemptions
+        # in a row — years, identifiers, labels, approximations, run facts,
+        # subset counts — each added after it struck a correct claim, because
+        # there is no reliable way to tell "31.4 mm/yr" from "16 of 19 columns"
+        # or "band 2" by looking at the text. Six patches on one rule is the
+        # rule being wrong.
+        #
+        # So the contract moved: `values` is what the claim ASSERTS as measured,
+        # and only those are checked. A reviewer that quotes a number it did not
+        # take from the finding still fails; one that counts rows in a table it
+        # was shown, or names a band, no longer does. It also makes the check
+        # honest about what it can enforce — nothing here can stop a false
+        # sentence, only a fabricated measurement.
         have = _flatten_numbers(by_id[fid].get("result"))
-        invented = [n for n in _numbers(text)
-                    if n not in have and n not in allowed
-                    and not _YEARLIKE.match(n)]
+        declared = [str(v) for v in (c.get("values") or [])]
+        invented = [v for v in declared
+                    if v not in have and v not in allowed
+                    and not _YEARLIKE.match(v)]
         if invented:
             struck.append(dict(c, struck_because=(
-                f"states {', '.join(invented[:4])}, which does not appear in "
-                f"finding {fid}. Step 3 may not produce numbers — a rounded or "
-                f"restated figure cannot be traced back to the data.")))
+                f"declares {', '.join(invented[:4])} as measured, but "
+                f"finding {fid} does not contain it. A value that cannot be "
+                f"traced to the data it came from is not a measurement.")))
             continue
 
         cited = set(c.get("caveats") or [])
-        missing = [cid for cid in blocking
-                   if cid in (by_id[fid].get("blocked_by") or [])
-                   and cid not in cited]
+        missing = [cid for cid in required_caveats(
+                       text, by_id[fid].get("blocked_by"), caveats)
+                   if cid in blocking and cid not in cited]
         if missing:
             struck.append(dict(c, struck_because=(
-                f"falls inside blocking caveat(s) {', '.join(missing)} without "
-                f"carrying them. An unrespected caveat looks exactly like a "
-                f"respected one, which is why they are records.")))
+                f"is about {', '.join(missing)}'s subject but does not carry "
+                f"it. An unrespected caveat looks exactly like a respected "
+                f"one, which is why they are records.")))
             continue
 
         kept.append(c)
@@ -218,10 +281,11 @@ You are reviewing this analysis. The figures are attached as images — look at
 them, not only at the numbers: an unreadable scale or a plot whose shape
 contradicts its stated question is exactly what this review is for.
 
-You may NOT produce a number of your own. Every figure you state must appear in
-the cited finding's `result`, exactly as it appears there — do not round, do
-not restate, do not convert. A number that cannot be traced back to a finding
-is struck automatically.
+List in `values` every MEASURED quantity your claim asserts, copied exactly
+from the cited finding's result — do not round, restate or convert. Counts you
+made by reading a table, band or column labels, and thresholds you chose to
+describe a pattern are NOT measurements and do not belong there. A declared
+value absent from the finding is struck automatically.
 
 Judge whether the findings answer what the user asked. Decide:
   "sufficient"    the question is answered as well as this experiment allows
@@ -253,7 +317,22 @@ def _parse(reply: str) -> Dict[str, Any]:
     i, j = text.find("{"), text.rfind("}")
     if i < 0 or j < 0:
         raise ValueError("no JSON object in the reply")
-    return json.loads(text[i:j + 1])
+    blob = text[i:j + 1]
+    try:
+        return json.loads(blob)
+    except json.JSONDecodeError:
+        # The `code` field carries generated Python — raw newlines inside
+        # string literals, echoed comments, trailing commas — which naive
+        # json.loads rejects. A live run died here on a reply that was
+        # otherwise fine. llm_agent already solved this for the planner, so
+        # reuse its DETERMINISTIC repairs rather than write a third parser.
+        # Not parse_json_resilient: that adds an LLM self-repair round, and a
+        # step that silently spends another call to fix its own output is a
+        # step whose cost accounting lies.
+        from agents.llm_agent import LLMAgent
+        repaired = LLMAgent._escape_raw_newlines(
+            LLMAgent._strip_json_comments(blob))
+        return json.loads(repaired)
 
 
 def _content(brief: str, figures: List[str], with_images: bool):
