@@ -368,15 +368,14 @@ class ELMExperimentBuilder:
             # gridcell's own, at 1 km. Re-extracting it from the 0.5 degree
             # global file would overwrite it with a coarser mixture and break
             # the finidat/fsurdat weight agreement ELM checks.
-            veg_source = 'template' if surface_template else 'conus'
-            # A CONUS-subset template means this run is WARM-started, and the
-            # restart's moisture is equilibrated against that gridcell's soil.
-            # Overwriting it with SSURGO makes the inherited state inconsistent
-            # with its own hydraulics and spends year one relaxing. Same
-            # condition, same reason as veg_source above.
-            soil_source = 'conus' if surface_template else 'ssurgo'
-            surface_gen = (ELMSurfaceGenerator(template_path=surface_template)
-                           if surface_template else ELMSurfaceGenerator())
+            # Warm start is required, so a CONUS-subset template is always
+            # present. Its moisture is equilibrated against that gridcell's own
+            # soil and vegetation; overwriting either makes the inherited state
+            # inconsistent with its own hydraulics and spends year one
+            # relaxing. On a 14-column Naches run that produced five columns
+            # draining MORE than their annual precipitation, one at 2.98x.
+            veg_source, soil_source = 'template', 'conus'
+            surface_gen = ELMSurfaceGenerator(template_path=surface_template)
 
             # native ALWAYS goes through the generator, even with no MCP soil
             # (it then writes template soils but CORRECTED lat/lon). Falling

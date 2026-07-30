@@ -946,6 +946,13 @@ class TestBandCountComesFromThePlan:
                 return "x.png"
 
         monkeypatch.setattr(B, "_load_tool", lambda n: FakeExp)
+        # These tests are about the band count reaching the sampler, which
+        # happens before refinement. Warm start is now REQUIRED and raises when
+        # the CONUS restarts are unreachable, so the backend hook is stubbed
+        # out — they used to pass only because a failed warm start silently
+        # cold started, which is exactly the behaviour that was removed.
+        monkeypatch.setattr(ELMExpManager, "_refine_columns",
+                            lambda self, columns, config: {"finidat_map": {}})
         mgr = ELMExpManager(base_output_dir=str(tmp_path))
         brief = dict(config.get("brief") or {})
         brief.setdefault("run_settings", {})["resolved_period"] = {

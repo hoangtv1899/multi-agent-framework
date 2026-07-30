@@ -349,7 +349,7 @@ class ELMSurfaceGenerator:
                           mcp_data:   Dict[str, Any],
                           substrate:   str  = 'template',
                           veg_source:  str  = 'template',
-                          soil_source: str  = 'ssurgo',
+                          soil_source: str  = 'profile',
                           force:       bool = False) -> str:
         """
         Generate surface file with depth-mapped soil from MCP horizons,
@@ -364,7 +364,7 @@ class ELMSurfaceGenerator:
                          with a logged warning if that file is unavailable
 
         soil_source controls PCT_SAND/PCT_CLAY/ORGANIC/PCT_GRVL:
-            'ssurgo' → map the MCP horizons onto ELM's levels (default)
+            'profile' → map the supplied horizons onto ELM's levels
             'conus'  → leave the template's own soil untouched
 
         Why 'conus' exists, and when it is right. A warm start hands ELM the
@@ -379,8 +379,11 @@ class ELMSurfaceGenerator:
         This costs no spatial resolution — CONUS 1 km soil varies column to
         column (37-68 % sand, 40-95 kg/m3 organic across those same 14) — it
         trades SSURGO's survey fidelity for a self-consistent initial state.
-        Use 'ssurgo' when soil is the experimental axis, or when cold-starting,
-        where there is no inherited state to be consistent with.
+        Use 'profile' when soil is the experimental axis — a controlled sweep
+        that varies clay and sand at one site, which is what tools/
+        make_soil_sweep.py does. It was called 'ssurgo' because a survey query
+        was its usual input, and that name made a general capability look like
+        one dataset's plumbing.
         """
         if substrate not in SUBSTRATE_OPTIONS:
             raise ValueError(
@@ -391,9 +394,9 @@ class ELMSurfaceGenerator:
             raise ValueError(
                 f"Unknown veg_source '{veg_source}'. Choose: template, conus"
             )
-        if soil_source not in ('ssurgo', 'conus'):
+        if soil_source not in ('profile', 'conus'):
             raise ValueError(
-                f"Unknown soil_source '{soil_source}'. Choose: ssurgo, conus"
+                f"Unknown soil_source '{soil_source}'. Choose: profile, conus"
             )
 
         # soil signature differentiates DIFFERENT soils at the SAME (lat,lon)
@@ -402,9 +405,10 @@ class ELMSurfaceGenerator:
             json.dumps(mcp_data, sort_keys=True, default=str).encode()
         ).hexdigest()[:6]
         veg_tag = '' if veg_source == 'template' else f'_veg-{veg_source}'
-        # in the filename so a ssurgo-soil and a conus-soil surface for the
-        # same column never collide in the cache
-        soil_tag = '' if soil_source == 'ssurgo' else f'_soil-{soil_source}'
+        # in the filename so a swept-soil and a donor-soil surface for the same
+        # column never collide in the cache. 'profile' keeps the empty tag it
+        # had under its old name, so existing cached files stay valid.
+        soil_tag = '' if soil_source == 'profile' else f'_soil-{soil_source}'
         output_path = (
             self.output_dir /
             f"Surfacedata_{lat:.4f}_{lon:.4f}_native_{substrate}"

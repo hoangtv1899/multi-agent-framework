@@ -141,10 +141,9 @@ def _clip_to_polygon(pts, rings):
     return inside or pts          # never drop everything on a bad clip
 
 
-def expand(clients, bbox, n_total, n_bands, grid_n=120, do_soil=True, boundary=None):
+def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None):
     terr = clients["terrain"]
     fan = clients.get("fan_wtd")
-    geo = clients.get("geology")
 
     grid = terr.call_tool_json("sample_elevation_grid", {**bbox, "n": grid_n}) or {}
     pts = [p for p in grid.get("points", []) if p.get("elevation_m") is not None]
@@ -186,17 +185,14 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, do_soil=True, boundary=N
             col["fan_wtd_m"] = (entry or {}).get("depth_to_water_m")
         for col in columns[len(pts_out):]:
             col["fan_wtd_m"] = None
-    if geo and do_soil and columns:
-        sr = geo.call_tool_json("get_soil_profiles",
-                                {"lats": lats, "lons": lons}) or {}
-        profs = sr.get("profiles") or []
-        for col, sp in zip(columns, profs):
-            layers = (sp or {}).get("layers") or []
-            col["soil_top_texture"] = layers[0].get("texture_class") if layers else None
-            col["soil_layers"] = (sp or {}).get("num_layers")
-            col["soil_profile"] = sp if layers else None
-        for col in columns[len(profs):]:
-            col["soil_top_texture"] = col["soil_layers"] = col["soil_profile"] = None
+    # NO SOIL IS GATHERED HERE, deliberately. The run is warm-started from the
+    # CONUS 1 km restarts, which carry the donor gridcell's own surfdata — so
+    # the soil ELM runs on is decided by the donor, not by anything queried at
+    # sampling time. Fetching a second profile here produced a field in
+    # columns.json that the model never saw, and the only defence against
+    # analysing it was that nobody happened to. `_attach_donor_soil` fills
+    # soil_profile from the donor after the warm start, and that is the only
+    # soil the run has.
 
     return {"bbox": bbox, "n_requested": n_total, "n_columns": len(columns),
             "bands": [{"band": i + 1, "elev_lo_m": round(bands[i][0]),
@@ -242,33 +238,6 @@ def _nldas_month_file(year, mm):
     raise FileNotFoundError(
         f"no NLDAS precip file for {year}-{mm:02d}; looked in "
         f"{NLDAS_PRECIP} and {NLDAS_CLM_DIR}")
-
-
-def _soil_cov(c):
-    """(clay_max %, second_metric, axis_label) for the soil-coverage panel.
-
-    The second axis is whichever discriminator the profile in use actually
-    carries. SSURGO reports saturated conductivity; the CONUS 1 km surface
-    dataset does not (ELM derives Ksat internally from sand and organic), but
-    it does carry organic matter, which plays the same role of separating
-    soils that differ hydraulically at similar clay content. Reporting the one
-    that exists beats an empty panel labelled with the one that does not.
-    """
-    layers = (c.get("soil_profile") or {}).get("layers") or []
-    comp = layers[0].get("component") if layers else None
-    hz = [l for l in layers if l.get("component") == comp]
-    def num(x):
-        try: return float(x)
-        except (TypeError, ValueError): return None
-    clays = [v for v in (num(l.get("clay_pct")) for l in hz) if v is not None]
-    ks = [v for v in (num(l.get("ksat_ums")) for l in hz) if v is not None]
-    clay_max = max(clays) if clays else None
-    if ks:
-        return clay_max, min(ks), "min Ksat (um/s, log)"
-    org = [v for v in (num(l.get("organic_kg_m3")) for l in hz) if v is not None]
-    if org:
-        return clay_max, max(org), "max organic (kg/m3)"
-    return clay_max, None, None
 
 
 def _nldas_month_slab(args):
@@ -458,27 +427,22 @@ def plot_columns(res, out_path, forcing_year=None):
     a.set_title("Elevation distribution + bands (ticks = columns)")
     a.set_xlabel("elevation (m)"); a.set_ylabel("DEM grid count")
 
-    # P3 — elevation vs Fan WTD, marker = soil texture
+    # P3 — elevation vs Fan WTD
+    #
+    # The marker used to encode top soil texture. Soil is no longer known at
+    # sampling time — it comes from the warm-start donor gridcell — so encoding
+    # it here would have meant drawing a dataset the run does not use.
     a = ax[1, 0]
-    textures = sorted({c.get("soil_top_texture") for c in cols
-                       if c.get("soil_top_texture")})
-    marks = ["o", "^", "s", "D", "v", "P", "X", "*"]
-    tmark = {t: marks[i % len(marks)] for i, t in enumerate(textures)}
     plotted = False
     for c in cols:
         y = c.get("fan_wtd_m")
         if y is None:
             continue
         a.scatter(c["elevation_m"], y, color=bcolor(c["band"]),
-                  marker=tmark.get(c.get("soil_top_texture"), "x"),
-                  s=85, edgecolor="k", linewidth=0.4)
+                  marker="o", s=85, edgecolor="k", linewidth=0.4)
         plotted = True
     a.set_title("Fan water-table depth vs elevation")
     a.set_xlabel("elevation (m)"); a.set_ylabel("Fan WTD (m below surface)")
-    if textures:
-        a.legend(handles=[plt.Line2D([], [], marker=tmark[t], ls="", color="0.4",
-                                     label=t) for t in textures],
-                 fontsize=8, title="top soil", loc="best")
     if not plotted:
         a.text(0.5, 0.5, "no Fan WTD values", transform=a.transAxes, ha="center")
 
@@ -493,36 +457,15 @@ def plot_columns(res, out_path, forcing_year=None):
     a.set_xticks(range(nb)); a.set_xticklabels(labels, rotation=20, fontsize=8)
     a.set_ylabel("columns allocated"); a.set_title("Columns per elevation band")
 
-    # P5 — soil configuration coverage: clay vs Ksat actually sampled
+    # P5 — forcing coverage: NLDAS annual precip vs elevation (12 km cells)
+    #
+    # This took the soil-coverage panel's slot. That panel plotted clay against
+    # Ksat or organic for the profile gathered at sampling time — a profile the
+    # warm-started run never used. Soil is not a sampling variable and never
+    # was: selection stratifies on elevation and spreads within band. A soil
+    # panel in a sampling-design figure was describing something the design
+    # does not choose.
     a = ax[0, 2]
-    plotted, xlabel, logx = False, None, True
-    for c in cols:
-        clay, second, lab = _soil_cov(c)
-        if clay is None or second is None:
-            continue
-        xlabel = xlabel or lab
-        logx = "Ksat" in (lab or "")
-        a.scatter(max(second, 0.05), clay, color=bcolor(c["band"]),
-                  marker=tmark.get(c.get("soil_top_texture"), "x"),
-                  s=85, edgecolor="k", linewidth=0.4)
-        plotted = True
-    if logx:
-        a.set_xscale("log")
-    a.set_xlabel(xlabel or "min Ksat (µm/s, log)")
-    a.set_ylabel("max clay (%)")
-    # Name the dataset the RUN uses, not the one that happened to be gathered:
-    # a warm start keeps the donor gridcell's soil, and a panel captioned
-    # SSURGO would then describe a profile the model never saw.
-    srcs = {c.get("soil_source") for c in cols if c.get("soil_source")}
-    src_name = ("CONUS 1 km" if srcs == {"conus"} else
-                "SSURGO" if not srcs or srcs == {"ssurgo"} else
-                "/".join(sorted(srcs)))
-    a.set_title(f"Soil configurations sampled ({src_name})")
-    if not plotted:
-        a.text(0.5, 0.5, "no soil profiles", transform=a.transAxes, ha="center")
-
-    # P6 — forcing coverage: NLDAS annual precip vs elevation (12 km cells)
-    a = ax[1, 2]
     if forcing_year:
         try:
             pr = nldas_annual_precip(cols, forcing_year)
@@ -539,6 +482,11 @@ def plot_columns(res, out_path, forcing_year=None):
         a.text(0.5, 0.5, "pass --forcing-year to preview\nthe NLDAS precip gradient",
                transform=a.transAxes, ha="center", fontsize=9, color="0.4")
         a.set_title("Forcing sampled (NLDAS)")
+
+    # Five panels in a 2x3 grid since the soil panel went. An empty axis reads
+    # as "this was measured and came back blank" rather than "there is nothing
+    # here to draw".
+    ax[1, 2].set_visible(False)
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(out_path, dpi=300)
@@ -602,7 +550,6 @@ def main():
     ap.add_argument("--n", type=int, help="number of columns (overrides plan)")
     ap.add_argument("--bands", type=int, default=0, help="number of elevation bands")
     ap.add_argument("--grid-n", type=int, default=120, help="DEM sample density")
-    ap.add_argument("--no-soil", action="store_true", help="skip soil enrichment (faster)")
     ap.add_argument("--plot", action="store_true",
                     help="render sampling_design.png (domain map, hypsometry, WTD vs elev, allocation)")
     ap.add_argument("--forcing-year", type=int, default=None,
@@ -655,7 +602,7 @@ def main():
                 "get_watershed_boundary", {"huc": huc, "huc_level": len(huc)}) or {}
             boundary = b.get("rings")
         res = expand(clients, bbox, n_total, n_bands, grid_n=args.grid_n,
-                     do_soil=not args.no_soil, boundary=boundary)
+                     boundary=boundary)
         if "error" in res:
             sys.exit(res["error"])
         if boundary:

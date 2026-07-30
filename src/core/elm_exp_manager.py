@@ -258,23 +258,26 @@ class ELMExpManager(ExperimentManagerBase):
 		figure and columns.json must show the dataset the experiment actually
 		uses, or the plan on the page and the run on the machine disagree.
 
-		SSURGO is not discarded — it moves to `ssurgo_profile`, so the two can
-		still be compared and nothing that was measured is lost.
+		This is the ONLY soil the run has. Sampling no longer gathers a second
+		profile, so there is no other dataset to confuse it with and nothing in
+		experiment.json that ELM did not actually see.
 		"""
-		if not finidat_map:
-			return                              # cold start: SSURGO is what runs
 		fs = _load_tool("make_finidat_subset")
 		n = 0
 		for c in columns:
 			entry = finidat_map.get(c.get("id")) or {}
 			sd = entry.get("surface_template")
 			if not sd or not Path(sd).exists():
-				continue
+				raise RuntimeError(
+					f"{c.get('id')}: warm start reported a donor but its "
+					f"surface template is missing ({sd}). Skipping would leave "
+					f"this column with no soil while its siblings have the "
+					f"donor's.")
 			prof = fs.donor_soil_profile(sd)
 			if not prof:
-				continue
-			if c.get("soil_profile"):
-				c["ssurgo_profile"] = c["soil_profile"]      # kept for comparison
+				raise RuntimeError(
+					f"{c.get('id')}: no soil profile readable from the donor "
+					f"surface template {sd}.")
 			c["soil_profile"] = prof
 			c["soil_layers"] = prof["num_layers"]
 			c["soil_top_texture"] = prof["layers"][0]["texture_class"]
@@ -305,12 +308,16 @@ class ELMExpManager(ExperimentManagerBase):
 		    on top of it by the surface generator — the per-column soil science is
 		    unchanged; only the vegetation source improves, 0.5 degree -> 1 km.
 
-		Non-fatal: any failure returns None and the ensemble cold starts, which
-		the ledger then records honestly.
+		FATAL on failure. This used to return None and let the ensemble cold
+		start, which sounds forgiving and is not: the start type is decided PER
+		COLUMN downstream, so a partial failure produced a mixed ensemble —
+		some columns warm on the donor's CONUS soil, others cold on a different
+		soil dataset — inside one run, signalled by nothing but a "(cold)" in a
+		print. Every cross-column comparison then spans two experiments. A run
+		that cannot warm start is a different experiment from the one that was
+		planned, so it stops here instead of quietly becoming one.
 		"""
-		ws = config.get("warm_start")
-		if not ws:
-			return None
+		ws = config.get("warm_start", True)
 		if isinstance(ws, str):
 			ws = {"source": ws}
 		elif ws is True:
@@ -326,8 +333,17 @@ class ELMExpManager(ExperimentManagerBase):
 			print("-" * 40)
 			manifest = fs.build_finidats(columns, self.run_dir / "warmstart", bands)
 			if not manifest:
-				print("   ⚠️  no finidat produced — cold starting.")
-				return None
+				raise RuntimeError(
+					"warm start produced no finidat for any column. The CONUS "
+					"restart source is unreadable or the domain lies outside "
+					"its coverage.")
+			missing = [c.get("id") for c in columns if c.get("id") not in manifest]
+			if missing:
+				raise RuntimeError(
+					f"warm start covered {len(manifest)}/{len(columns)} columns; "
+					f"no donor for {', '.join(missing)}. A partial warm start "
+					f"would put columns with different initial states and "
+					f"different soil datasets in one ensemble.")
 
 			# Snap to the donor cell so domain/surfdata/finidat agree exactly.
 			for c in columns:
@@ -342,8 +358,7 @@ class ELMExpManager(ExperimentManagerBase):
 				  f"CONUS (snapped <= {snap} km) → warmstart/warmstart.json")
 			return manifest
 		except Exception as e:
-			print(f"   ⚠️  warm start failed ({e}) — cold starting.")
-			return None
+			raise RuntimeError(f"warm start failed: {e}") from e
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 1 — BUILD (writes to 01_inputs/)
@@ -680,8 +695,8 @@ class ELMExpManager(ExperimentManagerBase):
 					warm_source   = ((cfg.get("warm_start") or {}).get("source")
 									 if isinstance(cfg.get("warm_start"), dict)
 									 else cfg.get("warm_start")) or "conus",
-					soil_source   = ("conus" if couplers[0].get("SURFACE_TEMPLATE")
-									 else "ssurgo"),
+					soil_source   = "conus",   # warm start is required; the
+					# donor's surfdata is always what ELM runs on
 				),
 				"assumptions_ledger": (
 					json.loads((self.run_dir / "assumptions.json").read_text())

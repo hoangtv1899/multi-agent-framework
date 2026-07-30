@@ -114,36 +114,29 @@ def test_allocation_sums_to_n_total_and_column_shape():
         assert lo <= col["elevation_m"] <= hi + 1          # within its band (rounded)
 
 
-def test_enriches_fan_wtd_and_full_soil_profile():
-    res = exp.expand(_clients(fan=_fan(depth=7.5), geo=_geo()), BBOX, n_total=6, n_bands=3)
-    for col in res["columns"]:
-        assert col["fan_wtd_m"] == 7.5
-        assert col["soil_top_texture"] == "loam"
-        assert col["soil_layers"] == 3
-        assert col["soil_profile"] is not None             # full profile carried
-        assert col["soil_profile"]["source"] == "SSURGO"
+def test_enriches_fan_wtd():
+    res = exp.expand(_clients(fan=_fan(depth=7.5)), BBOX, n_total=4, n_bands=2,
+                     grid_n=24)
+    assert all(c["fan_wtd_m"] == 7.5 for c in res["columns"])
 
 
-def test_soil_profile_none_when_no_ssurgo_layers():
-    res = exp.expand(_clients(geo=_geo(layers=())), BBOX, n_total=6, n_bands=3)
-    for col in res["columns"]:
-        assert col["soil_profile"] is None                 # None, not {}
-        assert col["soil_top_texture"] is None
+def test_no_soil_is_gathered_at_sampling_time():
+    """Sampling used to query a soil profile per column.
 
-
-def test_runs_without_optional_servers():
-    res = exp.expand(_clients(), BBOX, n_total=5, n_bands=3)   # terrain only
-    assert res["n_columns"] == 5
-    for col in res["columns"]:
-        assert "fan_wtd_m" not in col and "soil_profile" not in col
-
-
-def test_do_soil_false_skips_soil_but_keeps_fan():
-    res = exp.expand(_clients(fan=_fan(), geo=_geo()), BBOX, n_total=6, n_bands=3,
-                     do_soil=False)
-    for col in res["columns"]:
-        assert col["fan_wtd_m"] is not None
-        assert "soil_profile" not in col
+    The run is warm-started from the CONUS 1 km restarts, which carry the donor
+    gridcell's own surfdata — so the soil ELM runs on is decided by the donor,
+    not by anything queried here. The fetched profile became a field in
+    columns.json that the model never saw, and the only thing preventing it
+    from being analysed was that nobody happened to. _attach_donor_soil fills
+    soil_profile after the warm start, and that is the only soil the run has.
+    """
+    geo = _geo()
+    res = exp.expand(_clients(geo=geo), BBOX, n_total=4, n_bands=2, grid_n=24)
+    assert not [c for c in geo.calls if "soil" in c[0]], \
+        "sampling queried soil; the donor decides it"
+    for c in res["columns"]:
+        assert "soil_profile" not in c
+        assert "soil_top_texture" not in c
 
 
 def test_empty_grid_returns_error():
@@ -182,28 +175,19 @@ class TestBatchedEnrichment:
     def test_one_fan_call_serves_every_column(self):
         fan = _fan(depth=7.5)
         res = exp.expand(_clients(fan=fan), BBOX, n_total=6, n_bands=3,
-                         grid_n=24, do_soil=False)
+                         grid_n=24)
         fan_calls = [c for c in fan.calls if "fan" in c[0]]
         assert len(fan_calls) == 1, f"expected 1 batched call, got {fan_calls}"
         assert fan_calls[0][0] == "get_fan_wtd_points"
         assert len(fan_calls[0][1]["lats"]) == len(res["columns"])
         assert all(c["fan_wtd_m"] == 7.5 for c in res["columns"])
 
-    def test_one_soil_call_serves_every_column(self):
-        geo = _geo()
-        res = exp.expand(_clients(geo=geo), BBOX, n_total=6, n_bands=3,
-                         grid_n=24, do_soil=True)
-        soil_calls = [c for c in geo.calls if "soil" in c[0]]
-        assert len(soil_calls) == 1
-        assert soil_calls[0][0] == "get_soil_profiles"
-        assert all(c["soil_top_texture"] == "loam" for c in res["columns"])
-
     def test_points_are_sent_in_column_order(self):
         """Results are zipped back positionally — a reordering here would give
         every column its neighbour's water table, silently and plausibly."""
         fan = _fan()
         res = exp.expand(_clients(fan=fan), BBOX, n_total=5, n_bands=2,
-                         grid_n=24, do_soil=False)
+                         grid_n=24)
         sent = [c for c in fan.calls if c[0] == "get_fan_wtd_points"][0][1]
         assert sent["lats"] == [c["lat"] for c in res["columns"]]
         assert sent["lons"] == [c["lon"] for c in res["columns"]]
@@ -214,7 +198,7 @@ class TestBatchedEnrichment:
         short = _Fake(lambda tool, args: {"n_points": 1, "points":
                                           [{"depth_to_water_m": 3.3}]})
         res = exp.expand(_clients(fan=short), BBOX, n_total=5, n_bands=2,
-                         grid_n=24, do_soil=False)
+                         grid_n=24)
         vals = [c["fan_wtd_m"] for c in res["columns"]]
         assert vals[0] == 3.3
         assert all(v is None for v in vals[1:])

@@ -96,8 +96,8 @@ def build_one(lat:              float,
 
     # See the module docstring: a donor template carries the gridcell's own
     # 1 km vegetation and the soil the restart is equilibrated against.
-    veg_source  = "template" if surface_template else "conus"
-    soil_source = "conus"    if surface_template else "ssurgo"
+    veg_source  = "template"
+    soil_source = "conus"    # warm start is required; see elm_experiment_builder
     gen = (ELMSurfaceGenerator(template_path=surface_template)
            if surface_template else ELMSurfaceGenerator())
 

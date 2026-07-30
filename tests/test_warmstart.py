@@ -216,31 +216,47 @@ class TestManagerWarmstartStep:
         from core.elm_exp_manager import ELMExpManager
         return ELMExpManager(base_output_dir=str(tmp_path))
 
-    def test_no_request_means_no_warm_start(self, tmp_path):
-        assert self._mgr(tmp_path)._warmstart(COLS, {}) is None
+    def test_a_missing_request_still_warm_starts(self, tmp_path):
+        """Warm start is no longer opt-in.
 
-    def test_unreadable_conus_source_cold_starts(self, tmp_path, capsys):
-        """Never fail the whole ensemble because warm start could not run."""
-        got = self._mgr(tmp_path)._warmstart(
-            COLS, {"warm_start": {"conus_restart": str(tmp_path / "missing.txt")}})
-        assert got is None
-        assert "cold starting" in capsys.readouterr().out
+        It used to return None when the config said nothing, so a caller that
+        simply forgot the flag got a silently different experiment. Now the
+        only two outcomes are a manifest or an exception — never a quiet None,
+        which is the one result that let a cold ensemble pass for a warm one.
+        """
+        try:
+            got = self._mgr(tmp_path)._warmstart(COLS, {})
+        except Exception:
+            return                      # attempted and failed loudly: correct
+        assert got, "returned a falsy manifest instead of warm starting or raising"
 
-    def test_band_with_no_real_file_cold_starts(self, tmp_path, capsys):
+    def test_an_unreadable_conus_source_raises(self, tmp_path):
+        """It used to cold start and print a warning.
+
+        That reads as forgiving and is not. The start type is decided PER
+        COLUMN downstream, so this path produced ensembles where some columns
+        were warm on the donor's CONUS soil and others cold on a different soil
+        dataset, inside one run, signalled only by a "(cold)" in a print. Every
+        cross-column comparison then spanned two experiments.
+        """
+        with pytest.raises(RuntimeError, match="warm start failed"):
+            self._mgr(tmp_path)._warmstart(
+                COLS, {"warm_start": {"conus_restart": str(tmp_path / "missing.txt")}})
+
+    def test_a_band_naming_a_nonexistent_restart_raises(self, tmp_path):
         """Manifest parses, but the restart it names does not exist."""
         man = tmp_path / "MANIFEST.txt"
         man.write_text(MANIFEST)
-        got = self._mgr(tmp_path)._warmstart(
-            COLS, {"warm_start": {"conus_restart": str(man)}})
-        assert got is None
-        assert "cold starting" in capsys.readouterr().out
+        with pytest.raises(RuntimeError):
+            self._mgr(tmp_path)._warmstart(
+                COLS, {"warm_start": {"conus_restart": str(man)}})
 
-    def test_true_shorthand_is_accepted(self, tmp_path, capsys):
-        """config['warm_start'] = True behaves like {}."""
-        got = self._mgr(tmp_path)._warmstart(
-            COLS, {"warm_start": True, "conus_restart": None})
-        # no real CONUS access in tests -> cold start, but it must not raise
-        assert got is None or isinstance(got, dict)
+    def test_the_failure_names_what_went_wrong(self, tmp_path):
+        """A hard stop is only an improvement if it says why it stopped."""
+        with pytest.raises(RuntimeError) as e:
+            self._mgr(tmp_path)._warmstart(
+                COLS, {"warm_start": {"conus_restart": str(tmp_path / "nope.txt")}})
+        assert "warm start" in str(e.value).lower()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

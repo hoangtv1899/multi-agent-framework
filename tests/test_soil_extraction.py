@@ -152,21 +152,36 @@ class TestSoilSource:
     water inconsistent with its own hydraulics: five of fourteen Naches columns
     drained more than their annual precipitation, one at 2.98x."""
 
-    def test_both_values_are_accepted_and_others_refused(self, gen):
+    def test_the_write_a_profile_path_is_not_named_after_one_dataset(self, gen):
+        """It was called 'ssurgo' because a survey query was its usual input.
+
+        The capability is "write the supplied horizons into surfdata", which is
+        what tools/make_soil_sweep.py needs to vary clay and sand at one site.
+        Naming a general capability after one dataset made it look like that
+        dataset's plumbing, and therefore deletable along with it.
+        """
         import inspect
         sig = inspect.signature(gen.generate_from_mcp)
-        assert sig.parameters["soil_source"].default == "ssurgo"
+        assert sig.parameters["soil_source"].default == "profile"
 
-    def test_the_builder_keeps_donor_soil_when_warm_started(self):
-        """Same condition as veg_source: a CONUS-subset template IS the warm
-        start, so the two decisions cannot drift apart."""
+    def test_unknown_soil_sources_are_refused(self, gen):
+        src = (ROOT / "src" / "core" / "elm_surface_generator.py").read_text()
+        assert "if soil_source not in ('profile', 'conus')" in src
+
+    def test_the_builder_always_keeps_donor_soil(self):
+        """Warm start is required, so a CONUS-subset template is always present
+        and there is no second branch for the two decisions to drift between."""
         src = (ROOT / "src" / "core" / "elm_experiment_builder.py").read_text()
-        assert "soil_source = 'conus' if surface_template else 'ssurgo'" in src
-        assert "soil_source = soil_source" in src
+        assert "veg_source, soil_source = 'template', 'conus'" in src
+        assert "else 'ssurgo'" not in src
 
     def test_the_cache_key_separates_the_two_soils(self):
-        """Without this a column's ssurgo-soil and conus-soil surfaces would
-        share a filename, and the second run would silently reuse the first."""
+        """Without this a column's swept-soil and donor-soil surfaces would
+        share a filename, and the second run would silently reuse the first.
+
+        'profile' keeps the empty tag its old name had, so every surface file
+        cached under the previous naming stays valid.
+        """
         src = (ROOT / "src" / "core" / "elm_surface_generator.py").read_text()
         assert "soil_tag" in src and "_soil-" in src
 
@@ -245,32 +260,25 @@ class TestDonorSoilProfile:
         assert all(b > a for a, b in zip(tops, tops[1:]))
 
 
-class TestSoilPanelFollowsTheData:
-    """A warm start keeps the donor's soil, so a panel captioned SSURGO would
-    describe a profile the model never saw."""
+class TestTheSamplingFigureDoesNotDrawSoil:
+    """The soil-coverage panel plotted clay against Ksat or organic for the
+    profile gathered at sampling time — a profile the warm-started run never
+    used. Its own comment admitted the hazard: "a panel captioned SSURGO would
+    describe a profile the model never saw". Soil is not a sampling variable
+    and never was; selection stratifies on elevation and spreads within band.
+    """
 
-    def test_ksat_is_used_when_present(self):
+    def test_the_soil_coverage_helper_is_gone(self):
         exp = _tool("expand_sampling")
-        clay, second, lab = exp._soil_cov({"soil_profile": {"layers": [
-            {"component": "A", "clay_pct": 12.0, "ksat_ums": 9.0}]}})
-        assert (clay, second) == (12.0, 9.0)
-        assert "Ksat" in lab
+        assert not hasattr(exp, "_soil_cov")
 
-    def test_organic_substitutes_when_ksat_is_absent(self):
-        """CONUS carries no Ksat — ELM derives it internally — so the panel
-        falls back to the discriminator that does exist rather than blanking."""
-        exp = _tool("expand_sampling")
-        clay, second, lab = exp._soil_cov({"soil_profile": {"layers": [
-            {"component": "CONUS 1km", "clay_pct": 17.0, "organic_kg_m3": 57.4}]}})
-        assert (clay, second) == (17.0, 57.4)
-        assert "organic" in lab
+    def test_the_figure_leaves_no_empty_axis_behind(self):
+        src = (ROOT / "tools" / "expand_sampling.py").read_text()
+        assert "ax[1, 2].set_visible(False)" in src
 
-    def test_neither_present_reports_nothing_plottable(self):
-        exp = _tool("expand_sampling")
-        clay, second, lab = exp._soil_cov({"soil_profile": {"layers": [
-            {"component": "A", "clay_pct": 5.0}]}})
-        assert second is None and lab is None
-
+    def test_sampling_no_longer_reads_a_soil_source(self):
+        src = (ROOT / "tools" / "expand_sampling.py").read_text()
+        assert "soil_source" not in src
 
 class TestGridDensityAdaptsToShape:
     """A grid is requested over the BOUNDING BOX and used inside the BASIN, so
