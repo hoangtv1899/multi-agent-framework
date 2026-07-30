@@ -406,10 +406,22 @@ class ExperimentManagerBase:
 		# reception_brief.json (domain bbox) and interpret_run.interpret()
 		# needs plan.json (goals + feasibility verdict). Writing them here
 		# means an integrated run is consumable by every existing tool.
-		# reception.json itself is the coordinator's to write.
 		if not (self.run_dir / "reception_brief.json").exists():
 			(self.run_dir / "reception_brief.json").write_text(
 				json.dumps(brief, indent=2))
+
+		# reception.json is normally the coordinator's to write, and when it
+		# already exists that copy wins. But a manager driven directly — by a
+		# tool, a test, or a single-model run — has no coordinator, and
+		# step0_context takes the USER'S QUESTION from this file and nowhere
+		# else. Without it the Analyzer ran the entire box against
+		# `question: None`: it still chose figures and still reported success,
+		# so nothing failed and nothing recorded that the one input step 2
+		# exists to serve had gone missing.
+		recep = config.get("reception")
+		if recep and not (self.run_dir / "reception.json").exists():
+			(self.run_dir / "reception.json").write_text(
+				json.dumps(recep, indent=2))
 		(self.run_dir / "plan.json").write_text(json.dumps(plan, indent=2))
 		print(f"✓ {len(columns)} column(s) materialized ({yr_start}-{yr_end})")
 		return merged
@@ -429,45 +441,18 @@ class ExperimentManagerBase:
 	# bug, not a structural one, and no schema check could have caught it.
 	# Naming the source variables next to the number is what makes the next
 	# one visible.
-	FIELD_SEMANTICS = {
-		"precip_mm_yr":            {"units": "mm/yr", "from": ["RAIN", "SNOW"],
-									"note": "TOTAL precipitation: rain + snow"},
-		"rainfall_mm_yr":          {"units": "mm/yr", "from": ["RAIN"]},
-		"snowfall_mm_yr":          {"units": "mm/yr", "from": ["SNOW"]},
-		"annual_runoff_mm_yr":     {"units": "mm/yr", "from": ["QOVER"],
-									"note": "SURFACE runoff only. QDRAI "
-											"(subsurface drainage) is NOT "
-											"included, so this is not the "
-											"streamflow-comparable total"},
-		"annual_recharge_mm_yr":   {"units": "mm/yr", "from": ["QCHARGE"]},
-		# NOT fractions of precipitation. Both denominators are
-		# (QCHARGE + QOVER): these say how the drainage SPLITS between
-		# recharge and runoff, and they sum to 1 by construction even when
-		# both terms are ~0. Reading them as runoff/P is wrong by a factor
-		# of P/(QCHARGE+QOVER) — on the 2019 Gunnison run that made columns
-		# draining ~0 mm/yr report recharge_fraction = 1.00.
-		"runoff_fraction":         {"units": "1",
-									"from": ["QOVER", "QCHARGE"],
-									"note": "QOVER / (QCHARGE + QOVER) — the "
-											"recharge-vs-runoff SPLIT, not a "
-											"fraction of precipitation"},
-		"recharge_fraction":       {"units": "1",
-									"from": ["QCHARGE", "QOVER"],
-									"note": "QCHARGE / (QCHARGE + QOVER) — the "
-											"recharge-vs-runoff SPLIT, not a "
-											"fraction of precipitation"},
-		"recharge_to_runoff_ratio": {"units": "1", "from": ["QCHARGE", "QOVER"]},
-		"precip_total_mm_yr":      {"units": "mm/yr", "from": ["RAIN", "SNOW"],
-									"note": "water-budget total; "
-											"precip_mm_yr is the same sum"},
-		"water_budget":            {"units": "mm/yr", "from": ["RAIN", "SNOW",
-															   "QOVER", "QDRAI",
-															   "QCHARGE", "TWS"]},
-		"water_table_depth_m":     {"units": "m", "from": ["ZWT"],
-									"note": "positive downward from the surface"},
-		"peak_swe_mm":             {"units": "mm", "from": ["H2OSNO"]},
-		"tws_seasonal_range_mm":   {"units": "mm", "from": ["TWS"]},
-	}
+	#
+	# EMPTY HERE, AND DECLARED PER BACKEND. This dict used to hold ELM's
+	# metrics, which meant PFLOTRAN inherited them: its experiment.json
+	# described QOVER-derived runoff fractions and a RAIN+SNOW precipitation
+	# total for a run that computes none of those. That is worse than saying
+	# nothing, because step 2 hands field_semantics to an LLM as the
+	# authority on what the run's numbers mean — a saturation study came
+	# annotated with a surface water budget it never had.
+	#
+	# The base cannot supply a default, because the failure mode of a wrong
+	# default is exactly the one this dict exists to prevent.
+	FIELD_SEMANTICS: Dict[str, Any] = {}
 
 	def _variable_units(self, results: Any) -> Dict[str, str]:
 		"""Units for the raw model variables, wherever the backend keeps them.

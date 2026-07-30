@@ -151,6 +151,50 @@ class ELMExpManager(ExperimentManagerBase):
 	NEEDS_SCHEDULER = True          # sbatch + wait
 	COUPLES_TO      = "pflotran"    # one-way QINFL handoff, when asked for
 
+	# What ELM's derived metrics MEAN. Lives here, not on the base, because
+	# every entry names an ELM history variable: on the base it was silently
+	# inherited by PFLOTRAN, whose experiment.json then advertised a surface
+	# water budget it never computed. See ExperimentManagerBase.FIELD_SEMANTICS.
+	FIELD_SEMANTICS = {
+		"precip_mm_yr":            {"units": "mm/yr", "from": ["RAIN", "SNOW"],
+									"note": "TOTAL precipitation: rain + snow"},
+		"rainfall_mm_yr":          {"units": "mm/yr", "from": ["RAIN"]},
+		"snowfall_mm_yr":          {"units": "mm/yr", "from": ["SNOW"]},
+		"annual_runoff_mm_yr":     {"units": "mm/yr", "from": ["QOVER"],
+									"note": "SURFACE runoff only. QDRAI "
+											"(subsurface drainage) is NOT "
+											"included, so this is not the "
+											"streamflow-comparable total"},
+		"annual_recharge_mm_yr":   {"units": "mm/yr", "from": ["QCHARGE"]},
+		# NOT fractions of precipitation. Both denominators are
+		# (QCHARGE + QOVER): these say how the drainage SPLITS between
+		# recharge and runoff, and they sum to 1 by construction even when
+		# both terms are ~0. Reading them as runoff/P is wrong by a factor
+		# of P/(QCHARGE+QOVER) — on the 2019 Gunnison run that made columns
+		# draining ~0 mm/yr report recharge_fraction = 1.00.
+		"runoff_fraction":         {"units": "1",
+									"from": ["QOVER", "QCHARGE"],
+									"note": "QOVER / (QCHARGE + QOVER) — the "
+											"recharge-vs-runoff SPLIT, not a "
+											"fraction of precipitation"},
+		"recharge_fraction":       {"units": "1",
+									"from": ["QCHARGE", "QOVER"],
+									"note": "QCHARGE / (QCHARGE + QOVER) — the "
+											"recharge-vs-runoff SPLIT, not a "
+											"fraction of precipitation"},
+		"recharge_to_runoff_ratio": {"units": "1", "from": ["QCHARGE", "QOVER"]},
+		"precip_total_mm_yr":      {"units": "mm/yr", "from": ["RAIN", "SNOW"],
+									"note": "water-budget total; "
+											"precip_mm_yr is the same sum"},
+		"water_budget":            {"units": "mm/yr", "from": ["RAIN", "SNOW",
+															   "QOVER", "QDRAI",
+															   "QCHARGE", "TWS"]},
+		"water_table_depth_m":     {"units": "m", "from": ["ZWT"],
+									"note": "positive downward from the surface"},
+		"peak_swe_mm":             {"units": "mm", "from": ["H2OSNO"]},
+		"tws_seasonal_range_mm":   {"units": "mm", "from": ["TWS"]},
+	}
+
 	def _couple(self, plan, config):
 		"""Base calls this when COUPLES_TO is set; delegate to the existing
 		implementation so the coupling code has one home."""

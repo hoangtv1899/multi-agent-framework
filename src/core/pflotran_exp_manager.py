@@ -58,6 +58,18 @@ def _load_tool(name: str):
     return mod
 
 
+class _PFLOTRANResults:
+    """The results object _package consumes: `.results` rows plus `.units`.
+
+    Mirrors ELMResultsAnalyzer's surface so the base needs no backend test.
+    """
+
+    def __init__(self, rows, units):
+        self.results = rows
+        self.units = dict(units)
+        self.summary = {"units": dict(units)}
+
+
 class PFLOTRANExpManager(ExperimentManagerBase):
     """steps 0-5 for standalone subsurface flow over sampled columns."""
 
@@ -73,6 +85,42 @@ class PFLOTRANExpManager(ExperimentManagerBase):
     # experiments without raising — the exact silent mis-dispatch that produced
     # empty PFLOTRAN runs before the managers were split.
     PLAN_KEY = "PFLOTRAN_CASES"
+
+    # What this backend's metrics MEAN, for the Analyzer and for the LLM step
+    # 2 hands them to. Every entry is a quantity _extract actually computes;
+    # nothing here is inherited. Two of them carry the caveats that a reader
+    # comparing PFLOTRAN against ELM most needs and would not otherwise see.
+    FIELD_SEMANTICS = {
+        "final_water_table_depth_m": {
+            "units": "m", "from": ["LIQUID_SATURATION"],
+            "note": "positive downward from the surface, at the LAST output "
+                    "time. null means NO water table was found in the domain "
+                    "— the column never reaches saturation — which is NOT the "
+                    "same as a water table at the domain bottom, and must not "
+                    "be filled in with domain_depth_m"},
+        "water_table_in_domain": {
+            "units": "bool", "from": ["LIQUID_SATURATION"],
+            "note": "false for columns whose Fan water table lies below the "
+                    "domain depth cap; those columns run fully unsaturated "
+                    "and their saturation metrics describe drainage, not a "
+                    "water table"},
+        "saturation_top": {"units": "1", "from": ["LIQUID_SATURATION"],
+                           "note": "shallowest cell, last output time"},
+        "saturation_bottom": {"units": "1", "from": ["LIQUID_SATURATION"],
+                              "note": "deepest cell, last output time"},
+        "saturation_mean": {"units": "1", "from": ["LIQUID_SATURATION"],
+                            "note": "depth-mean over the column, last output "
+                                    "time. UNWEIGHTED by cell thickness"},
+        "fan_wtd_m": {
+            "units": "m", "from": [],
+            "note": "the Fan 2013 water table this column was INITIALISED "
+                    "with, not a result. Comparing it to "
+                    "final_water_table_depth_m measures drift away from the "
+                    "initial condition, not agreement with an observation"},
+        "domain_depth_m": {"units": "m", "from": [],
+                           "note": "column length, capped by depth_cap"},
+        "n_cells": {"units": "1", "from": [], "note": "vertical cells"},
+    }
 
     def _already_executable(self, plan: Dict[str, Any]) -> bool:
         return bool(plan.get(self.PLAN_KEY))
@@ -168,8 +216,32 @@ class PFLOTRANExpManager(ExperimentManagerBase):
             years=settings.get("years", 20.0),
             depth_cap=settings.get("depth_cap", 50.0),
             spin_years=settings.get("spin_years", 10.0))
-        print(f"✓ {len(built) if built else 0} deck(s) → {out}")
-        return built or []
+
+        # build_ensemble returns {"scenario": ..., "cases": [...]}, NOT a list.
+        # Returning it whole made _build report "2 deck(s)" for 19 columns —
+        # it was counting the dict's two keys — and handed _run a dict, which
+        # iterates as its key STRINGS: 'str' object has no attribute 'get'.
+        # Every stage-level test passed because they built `experiments` by
+        # hand; only running the stages in sequence reached it.
+        self.scenario = (built or {}).get("scenario") or {}
+        cases = (built or {}).get("cases") or []
+
+        # A column that build_ensemble skipped is a column the ensemble does
+        # not have. Silent shrinkage is how an ensemble comes back smaller than
+        # the strategy asked for with nothing on record saying so — and the
+        # skip path here (`no ELM flux — skipped`) is reachable whenever
+        # flux_from is set.
+        if len(cases) != len(plan.get(self.PLAN_KEY) or []):
+            print(f"   ⚠️  {len(plan[self.PLAN_KEY]) - len(cases)} of "
+                  f"{len(plan[self.PLAN_KEY])} planned column(s) produced no "
+                  f"deck and are absent from the ensemble")
+        if not cases:
+            raise RuntimeError(
+                f"build_ensemble produced no decks from "
+                f"{len(plan.get(self.PLAN_KEY) or [])} planned case(s)")
+
+        print(f"✓ {len(cases)} deck(s) → {out}")
+        return cases
 
     def _run(self, experiments: List[Dict], config: Dict[str, Any]) -> List[Dict]:
         """Execute the decks directly. No scheduler — see NEEDS_SCHEDULER."""
@@ -191,36 +263,151 @@ class PFLOTRANExpManager(ExperimentManagerBase):
                                   cwd=str(case_dir), capture_output=True,
                                   text=True, timeout=config.get("timeout_s", 900))
             ok = proc.returncode == 0 and any(case_dir.glob("*.tec"))
-            results.append({**e,
-                            "status": "completed" if ok else "failed",
-                            "runtime_seconds": round(time.time() - t0, 2),
-                            "returncode": proc.returncode,
-                            "n_output_files": len(list(case_dir.glob("*.tec"))),
-                            "reason": None if ok else
-                                      (proc.stderr or "").strip()[-200:]})
+            outcome = {"status": "completed" if ok else "failed",
+                       "runtime_seconds": round(time.time() - t0, 2),
+                       "returncode": proc.returncode,
+                       "n_output_files": len(list(case_dir.glob("*.tec"))),
+                       "reason": None if ok else
+                                 (proc.stderr or "").strip()[-200:]}
+            # Written back onto the experiment too, not only into the returned
+            # copy. execute_plan hands _extract the EXPERIMENTS list, never
+            # _run's return value, so a timing that lives only in the copy
+            # never reaches experiment.json — every column came out with
+            # runtime_seconds: null and step 4 reported no compute at all.
+            e.update(outcome)
+            results.append({**e, **outcome})
             print(f"  {'✓' if ok else '✗'} {e.get('id')}: "
                   f"{results[-1]['runtime_seconds']}s, "
                   f"{results[-1]['n_output_files']} tec")
         return results
 
     def _extract(self, experiments, plan=None, config=None):
-        """NOT YET IMPLEMENTED — deliberately raises.
+        """.tec depth profiles -> the SAME per-column row shape ELM produces.
 
-        PFLOTRAN's output is a DEPTH PROFILE per column at a few output times
-        (z, pressure, saturation). The Analyzer's context is built on a tidy
-        frame keyed date|entity|variable|value — a time series per column, with
-        no depth axis. Writing an extractor before that schema question is
-        settled would either flatten the profiles into something lossy or bolt
-        a second shape onto experiment.json by accident.
+        experiment.json is one contract for every backend, so this emits rows
+        _package already understands: case_name, status, metrics, variables.
+        Nothing downstream needs a PFLOTRAN special case.
 
-        Returning an empty results object instead would be worse: the base
-        would package it, the Analyzer would run on nothing, and the run would
-        report success with no data. That is the failure this codebase keeps
-        rediscovering, so this raises until the shape is decided.
+        WHAT MAPS CLEANLY AND WHAT DOES NOT. ELM's rows carry per-variable
+        DAILY SERIES; PFLOTRAN's native output is a DEPTH PROFILE at a handful
+        of output times (here 0, 1, 5, 10, 20 y). Those are different shapes
+        and pretending otherwise would be the dishonest move — five yearly
+        snapshots are not a daily series, and writing them under a `daily` key
+        with invented dates would make step 0 build a frame that looks like a
+        hydrograph and is not.
+
+        So:
+            metrics    scalars, exactly as ELM does — final water table,
+                       saturation at top and bottom, storage. This is what a
+                       cross-model comparison can actually use.
+            variables  per-variable summary stats, no `daily` block.
+            profiles   NEW, and PFLOTRAN-specific: depth, times, and the
+                       saturation/pressure fields. Additive, so no existing
+                       consumer changes.
         """
-        raise NotImplementedError(
-            "PFLOTRAN _extract is pending the profiles-vs-depth-axis decision; "
-            "the decks run and their .tec output is on disk under 01_inputs/")
+        rows, units = [], {"LIQUID_SATURATION": "-",
+                           "LIQUID_PRESSURE": "Pa",
+                           "WATER_TABLE_DEPTH": "m"}
+
+        for e in experiments or []:
+            cid = e.get("id") or e.get("case_name")
+            case_dir = Path(e.get("case_dir") or "")
+            tecs = sorted(case_dir.glob("*.tec"))
+            if not tecs:
+                rows.append({"case_name": cid, "scenario_name": cid,
+                             "status": "failed",
+                             "reason": "no .tec output written"})
+                continue
+
+            times, profiles = [], []
+            for t in tecs:
+                tm, z, sat, pres = self._read_tec(t)
+                if z:
+                    times.append(tm)
+                    profiles.append({"z_m": z, "saturation": sat,
+                                     "liquid_pressure_pa": pres})
+
+            if not profiles:
+                rows.append({"case_name": cid, "scenario_name": cid,
+                             "status": "failed",
+                             "reason": ".tec files held no data rows"})
+                continue
+
+            final = profiles[-1]
+            H = max(final["z_m"])
+            depth = [round(H - z, 4) for z in final["z_m"]]
+            sat = final["saturation"]
+            # Water table = shallowest depth reaching full saturation. None
+            # when the column never saturates, which on the 2019 sample was 10
+            # of 19 columns — reported as None rather than as the domain
+            # bottom, because "no water table in the domain" and "water table
+            # at 50 m" are different statements.
+            wt = min((d for d, sv in zip(depth, sat) if sv >= 0.999), default=None)
+
+            rows.append({
+                "case_name": cid, "scenario_name": cid, "status": "ok",
+                "lat": e.get("lat"), "lon": e.get("lon"),
+                "runtime_seconds": e.get("runtime_seconds"),
+                "metrics": {
+                    "final_water_table_depth_m": wt,
+                    "water_table_in_domain": wt is not None,
+                    "domain_depth_m": round(H, 3),
+                    "n_cells": len(sat),
+                    "saturation_top": round(sat[-1], 5),
+                    "saturation_bottom": round(sat[0], 5),
+                    "saturation_mean": round(sum(sat) / len(sat), 5),
+                    "fan_wtd_m": e.get("fan_wtd_m"),
+                },
+                "variables": {
+                    "LIQUID_SATURATION": {
+                        "units": "-", "min": round(min(sat), 5),
+                        "max": round(max(sat), 5),
+                        "mean": round(sum(sat) / len(sat), 5)},
+                    "LIQUID_PRESSURE": {
+                        "units": "Pa",
+                        "min": round(min(final["liquid_pressure_pa"]), 1),
+                        "max": round(max(final["liquid_pressure_pa"]), 1)},
+                },
+                # The depth data, kept whole. Step 2's generated scripts read
+                # this; the tidy frame has no depth axis and inventing one for
+                # ELM's sake would change a shape every existing step relies on.
+                "profiles": {
+                    "times_y": times,
+                    "depth_m": depth,
+                    "saturation": [p["saturation"] for p in profiles],
+                    "liquid_pressure_pa": [p["liquid_pressure_pa"] for p in profiles],
+                },
+            })
+
+        n_ok = sum(1 for r in rows if r.get("status") == "ok")
+        print(f"✓ extracted {n_ok}/{len(rows)} column(s)")
+        return _PFLOTRANResults(rows, units)
+
+    @staticmethod
+    def _read_tec(path: Path):
+        """(time_y, z, saturation, pressure) from one Tecplot POINT file.
+
+        Columns are X, Y, Z, Liquid Pressure, Liquid Saturation, Material ID;
+        the title line carries the output time.
+        """
+        z, sat, pres = [], [], []
+        lines = path.read_text().splitlines()
+        tm = None
+        if lines and "TITLE" in lines[0]:
+            try:
+                tm = float(lines[0].split('"')[1].split("[")[0])
+            except (IndexError, ValueError):
+                tm = None
+        for line in lines[3:]:
+            f = line.split()
+            if len(f) >= 5:
+                try:
+                    z.append(float(f[2]))
+                    pres.append(float(f[3]))
+                    sat.append(float(f[4]))
+                except ValueError:
+                    continue
+        return tm, z, sat, pres
 
     # ─────────────────────────────────────────────────────────
     def _columns_from_disk(self) -> List[Dict[str, Any]]:

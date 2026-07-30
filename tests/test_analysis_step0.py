@@ -167,6 +167,54 @@ class TestSeries:
         assert load(rd).series() is None
 
 
+class TestProfiles:
+    """The depth frame, for backends whose output has a vertical axis.
+
+    A SECOND frame rather than more columns on series(): the two have
+    different axes and nothing joins them. Forcing PFLOTRAN's five yearly
+    snapshots into series() would mean inventing dates or leaving `date` null
+    on most rows — and a null-date row silently drops out of every resample
+    and groupby the existing analysis code already does.
+    """
+
+    PROF = {"columns": [{
+        "case_name": "col_01",
+        "profiles": {"times_y": [0.0, 20.0],
+                     "depth_m": [8.0, 4.0, 0.0],
+                     "saturation": [[1.0, 0.6, 0.4], [1.0, 0.7, 0.45]]}}],
+        "variable_units": {"LIQUID_SATURATION": "-"}}
+
+    def test_tidy_depth_frame(self, tmp_path):
+        pytest.importorskip("pandas")
+        p = load(_run(tmp_path, experiment=self.PROF)).profiles()
+        assert list(p.columns) == ["entity", "time_y", "depth_m", "variable",
+                                   "value", "units", "source"]
+        assert len(p) == 6                      # 2 times x 3 depths
+        assert sorted(p["time_y"].unique()) == [0.0, 20.0]
+
+    def test_values_are_numeric_not_object(self, tmp_path):
+        """A generated script that plots an object-dtype column dies inside
+        matplotlib with a ufunc casting error, which reads as a bug in the
+        script rather than in the frame it was handed."""
+        pytest.importorskip("pandas")
+        p = load(_run(tmp_path, experiment=self.PROF)).profiles()
+        assert str(p["value"].dtype).startswith("float")
+        assert str(p["depth_m"].dtype).startswith("float")
+
+    def test_a_run_without_profiles_returns_none(self, tmp_path):
+        """ELM has no depth axis. None says so; an empty frame would read as
+        'measured nothing at depth'."""
+        assert load(_run(tmp_path)).profiles() is None
+
+    def test_the_axis_keys_are_not_mistaken_for_variables(self, tmp_path):
+        """times_y and depth_m are the AXES of the profiles block, not fields
+        measured on it — emitting them as `variable` rows would put the depth
+        grid into every groupby over variables."""
+        pytest.importorskip("pandas")
+        p = load(_run(tmp_path, experiment=self.PROF)).profiles()
+        assert set(p["variable"]) == {"saturation"}
+
+
 class TestPlannedVsActual:
     def test_it_catches_a_design_that_was_not_delivered(self, tmp_path):
         rd = _run(tmp_path,

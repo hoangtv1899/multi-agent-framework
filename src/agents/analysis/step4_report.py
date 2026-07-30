@@ -63,10 +63,21 @@ def _llm_accounting() -> Dict[str, Any]:
 
 
 def _compute_accounting(run_dir) -> Dict[str, Any]:
-    """The ELM ensemble's runtime, from the manager's own run summary.
+    """The ensemble's runtime, from the manager's own records.
 
     Not recomputed here: the manager timed the runs and wrote the numbers down.
     Reading them back is the whole contract.
+
+    TWO SOURCES, AND THE ORDER MATTERS. RUN_SUMMARY.json is the fuller record
+    but it DOES NOT EXIST YET during a live run: execute_plan writes it last,
+    after the Analyzer it is meant to describe. Reading only that file made
+    every live run report `compute: null` — including ELM's — and the numbers
+    appeared only when the Analyzer was re-run by hand against a finished
+    directory. The report claimed to account for compute and silently did not.
+
+    experiment.json is written at stage 4b, which the base guarantees runs
+    BEFORE the Analyzer, so the fallback is always available when the primary
+    is not.
     """
     for name in ("RUN_SUMMARY.json", "run_summary.json"):
         p = Path(run_dir) / name
@@ -91,6 +102,30 @@ def _compute_accounting(run_dir) -> Dict[str, Any]:
                     "median": (round(sorted(per)[len(per) // 2], 1)
                                if per else None),
                     "max": round(max(per), 1) if per else None} if per else None}
+
+    # Fallback: the packaged results, written before this step by construction.
+    p = Path(run_dir) / "experiment.json"
+    if p.exists():
+        try:
+            d = json.loads(p.read_text())
+        except Exception:
+            return {}
+        per = [c.get("runtime_seconds") for c in (d.get("columns") or [])
+               if isinstance(c, dict)
+               and isinstance(c.get("runtime_seconds"), (int, float))]
+        return {"source": "experiment.json (run summary not yet written)",
+                "total_runtime_seconds": round(sum(per), 1) if per else None,
+                "columns_total": d.get("columns_total"),
+                "columns_succeeded": d.get("columns_succeeded"),
+                "columns_failed": (
+                    (d.get("columns_total") - d.get("columns_succeeded"))
+                    if isinstance(d.get("columns_total"), int)
+                    and isinstance(d.get("columns_succeeded"), int) else None),
+                "per_column_runtime_seconds": {
+                    "n": len(per),
+                    "total": round(sum(per), 1),
+                    "median": round(sorted(per)[len(per) // 2], 1),
+                    "max": round(max(per), 1)} if per else None}
     return {}
 
 

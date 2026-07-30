@@ -19,7 +19,12 @@ from agents.analysis import step2_investigate as step2     # noqa: E402
 
 
 class _Ctx:
-    def __init__(self, cols=None, units=None, caveats=(), plan=None, sem=None):
+    def __init__(self, cols=None, units=None, caveats=(), plan=None, sem=None,
+                 prof=None):
+        # `prof` mirrors AnalysisContext.profiles(): None for a backend with no
+        # depth axis (ELM), a frame for one that has it (PFLOTRAN). Defaulting
+        # to None keeps every existing case an ELM-shaped run.
+        self._prof = prof
         self._c = cols if cols is not None else [
             {"case_name": "col_01", "elevation_m": 2400.0, "band": 1,
              "soil": None, "soil_profile": {"layers": []}},
@@ -53,6 +58,9 @@ class _Ctx:
             "value": [0.864, 1.728, 100.0, 110.0],
             "units": ["mm/day"] * 2 + ["mm"] * 2,
             "source": ["model"] * 4})
+
+    def profiles(self):
+        return self._prof
 
 
 class TestTheBriefQuotesTheFrameNotTheRawMap:

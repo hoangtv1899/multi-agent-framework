@@ -106,6 +106,40 @@ class TestCostIsPartOfTheRecord:
     def test_a_missing_run_summary_is_empty_not_an_error(self, tmp_path):
         assert step4.build(_Ctx(), {}, INV, INTERP, tmp_path)["cost"]["compute"] == {}
 
+    def test_compute_falls_back_to_experiment_json_during_a_live_run(
+            self, tmp_path):
+        """RUN_SUMMARY.json DOES NOT EXIST YET while the Analyzer is running.
+
+        execute_plan writes it last, after the Analyzer it describes, so
+        reading only that file made every live run report `compute: null` —
+        ELM's included. The numbers appeared only when the Analyzer was re-run
+        by hand against a finished directory, so the report claimed to account
+        for compute and silently did not. experiment.json is written at stage
+        4b, which the base guarantees runs BEFORE the Analyzer.
+        """
+        (tmp_path / "experiment.json").write_text(json.dumps({
+            "columns_total": 19, "columns_succeeded": 19,
+            "columns": [{"runtime_seconds": 0.3}, {"runtime_seconds": 0.5},
+                        {"runtime_seconds": 0.4}]}))
+        c = step4.build(_Ctx(), {}, INV, INTERP, tmp_path)["cost"]["compute"]
+        assert c["columns_total"] == 19 and c["columns_succeeded"] == 19
+        assert c["total_runtime_seconds"] == 1.2
+        assert c["per_column_runtime_seconds"]["max"] == 0.5
+        assert "experiment.json" in c["source"], "say which record it came from"
+
+    def test_the_run_summary_still_wins_when_it_exists(self, tmp_path):
+        """The fallback is for the live path only; a finished run has the
+        fuller record and it must not be shadowed."""
+        (tmp_path / "experiment.json").write_text(json.dumps({
+            "columns_total": 3, "columns_succeeded": 3,
+            "columns": [{"runtime_seconds": 0.3}]}))
+        (tmp_path / "RUN_SUMMARY.json").write_text(json.dumps({
+            "total_runtime_seconds": 1873.4, "experiments_total": 19,
+            "experiments_success": 19, "experiments": []}))
+        c = step4.build(_Ctx(), {}, INV, INTERP, tmp_path)["cost"]["compute"]
+        assert c["total_runtime_seconds"] == 1873.4
+        assert c["columns_total"] == 19
+
     def test_the_spinup_that_was_dropped_is_reported(self, tmp_path):
         """A series that does not start where the simulation did must say so."""
         p = _report(tmp_path)["provenance"]["spinup_dropped"]

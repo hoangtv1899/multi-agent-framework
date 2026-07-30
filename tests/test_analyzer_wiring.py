@@ -189,12 +189,100 @@ class TestTheStageSequenceIsSharedNotCopied:
         assert elm._already_executable(elm_plan) and not pf._already_executable(elm_plan)
         assert pf._already_executable(pf_plan) and not elm._already_executable(pf_plan)
 
-    def test_pflotran_extract_refuses_rather_than_returning_nothing(self):
-        """Pending the profiles-vs-depth-axis decision. Returning an empty
-        results object would let the base package it and the Analyzer run on
-        nothing — success reported over no data."""
+    def test_each_backend_declares_its_own_field_semantics(self):
+        """Inherited semantics describe the WRONG run.
+
+        FIELD_SEMANTICS sat on the base holding ELM's metrics, so a PFLOTRAN
+        experiment.json advertised precip_mm_yr and QOVER-derived runoff
+        fractions for a run that computes neither — and step 2 hands this map
+        to an LLM as the authority on what the numbers mean.
+        """
+        from core.exp_manager_base import ExperimentManagerBase as B
+        from core.elm_exp_manager import ELMExpManager
         from core.pflotran_exp_manager import PFLOTRANExpManager
-        import pytest as _pt
+
+        assert B.FIELD_SEMANTICS == {}, "the base must not supply a default"
+
+        elm_from = {v for e in ELMExpManager.FIELD_SEMANTICS.values()
+                    for v in (e.get("from") or [])}
+        pf_from = {v for e in PFLOTRANExpManager.FIELD_SEMANTICS.values()
+                   for v in (e.get("from") or [])}
+        assert "QOVER" in elm_from and "QOVER" not in pf_from
+        assert "LIQUID_SATURATION" in pf_from
+        # Every PFLOTRAN entry names a metric _extract actually emits.
+        assert "final_water_table_depth_m" in PFLOTRANExpManager.FIELD_SEMANTICS
+
+
+class TestPFLOTRANExtractSpeaksTheSharedRowShape:
+    """experiment.json is ONE contract for every backend.
+
+    These pin the parts that a passing stage-level test would not: the row
+    shape _package consumes, and the two places where a convenient-looking
+    value would be a false statement about the subsurface.
+    """
+
+    TEC = ('TITLE = "  2.00000E+01 [y]"\n'
+           'VARIABLES="X [m]","Y [m]","Z [m]","Liquid Pressure [Pa]",'
+           '"Liquid Saturation","Material ID"\n'
+           'ZONE T="2.00000E+01", STRANDID=1, SOLUTIONTIME=2.00000E+01, '
+           'I=1, J=1, K=3, DATAPACKING=POINT\n'
+           ' 5.0E-01  5.0E-01  1.0E+00  2.0E+05  {b}  1 \n'
+           ' 5.0E-01  5.0E-01  5.0E+00  1.5E+05  5.0E-01  2 \n'
+           ' 5.0E-01  5.0E-01  9.0E+00  1.0E+05  4.0E-01  3 \n')
+
+    def _case(self, tmp_path, bottom_sat):
+        d = tmp_path / "col_01"
+        d.mkdir(parents=True)
+        (d / "col_01-004.tec").write_text(self.TEC.format(b=bottom_sat))
+        return [{"id": "col_01", "case_dir": d, "fan_wtd_m": 3.5,
+                 "runtime_seconds": 0.3}]
+
+    def _extract(self, exps):
+        from core.pflotran_exp_manager import PFLOTRANExpManager
         m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
-        with _pt.raises(NotImplementedError, match="depth-axis"):
-            m._extract([])
+        return m._extract(exps).results[0]
+
+    def test_the_row_carries_what_package_consumes(self, tmp_path):
+        row = self._extract(self._case(tmp_path, "1.0E+00"))
+        for key in ("case_name", "status", "metrics", "variables"):
+            assert key in row, f"_package reads {key}"
+        assert row["status"] == "ok"
+        assert row["runtime_seconds"] == 0.3, \
+            "_run's timing must survive into experiment.json"
+
+    def test_no_water_table_is_null_not_the_domain_bottom(self, tmp_path):
+        """'No water table in the domain' and 'a water table at 9 m' are
+        different statements. On the 2019 Gunnison sample 10 of 19 columns
+        never saturate, and filling those in with domain_depth_m would put a
+        fabricated water table into every depth-vs-elevation comparison."""
+        row = self._extract(self._case(tmp_path, "6.0E-01"))
+        assert row["metrics"]["final_water_table_depth_m"] is None
+        assert row["metrics"]["water_table_in_domain"] is False
+        assert row["metrics"]["domain_depth_m"] == 9.0
+
+        wet = self._extract(self._case(tmp_path / "wet", "1.0E+00"))
+        assert wet["metrics"]["final_water_table_depth_m"] == 8.0
+        assert wet["metrics"]["water_table_in_domain"] is True
+
+    def test_there_is_no_fake_daily_block(self, tmp_path):
+        """Five yearly snapshots are not a daily series. Writing them under
+        `daily` with invented dates would make step0.series() build a frame
+        that looks like a hydrograph."""
+        row = self._extract(self._case(tmp_path, "1.0E+00"))
+        for blk in row["variables"].values():
+            assert "daily" not in blk
+
+    def test_profiles_carry_times_and_depths(self, tmp_path):
+        row = self._extract(self._case(tmp_path, "1.0E+00"))
+        p = row["profiles"]
+        assert p["times_y"] == [20.0], "the time comes from the TITLE line"
+        assert p["depth_m"] == [8.0, 4.0, 0.0], "positive DOWN from the surface"
+        assert len(p["saturation"]) == len(p["times_y"])
+        assert len(p["saturation"][0]) == len(p["depth_m"])
+
+    def test_a_case_with_no_output_is_failed_not_absent(self, tmp_path):
+        """A column that vanishes from the ensemble is a column nobody counts."""
+        d = tmp_path / "empty"
+        d.mkdir()
+        row = self._extract([{"id": "col_09", "case_dir": d}])
+        assert row["status"] == "failed" and row["reason"]

@@ -24,9 +24,16 @@ WHAT THE SCRIPT SEES. A namespace assembled here, and nothing else it did not
 import itself:
 
     df        the tidy long frame: date | entity | variable | value | units | source
+              None when the run has no daily series (standalone PFLOTRAN)
+    prof      the tidy DEPTH frame, for backends with a vertical axis:
+              entity | time_y | depth_m | variable | value | units | source
+              None when the run has no profiles (ELM)
     columns   per-column metadata (lat, lon, elevation_m, band, soil_profile, ...)
     caveats   the constraint records — so a script can read what it must respect
     out_path  where to save the figure
+
+A run supplies one of df/prof or the other; a script must check which before
+using it. Both being None is refused below rather than passed through.
 
 WHAT IT MUST RETURN. A dict named `result`, carrying at minimum an `n`: how many
 data points the claim rests on. That requirement is the whole reason this file
@@ -67,6 +74,7 @@ import pandas as pd
 with open({payload!r}, "rb") as _f:
     _ctx = pickle.load(_f)
 df       = _ctx["df"]
+prof     = _ctx["prof"]
 columns  = _ctx["columns"]
 caveats  = _ctx["caveats"]
 out_path = {out_path!r}
@@ -131,6 +139,14 @@ def _payload(ctx) -> Dict[str, Any]:
     df, converted = _to_daily_rates(ctx.series(),
                                     (ctx.data or {}).get("variable_units"))
 
+    # The depth frame, for backends whose output has a vertical axis rather
+    # than a daily one. `prof` is None for an ELM run and `df` is None for a
+    # standalone PFLOTRAN run; a script gets whichever the run actually has.
+    try:
+        prof = ctx.profiles()
+    except Exception:
+        prof = None
+
     # THE RAW `variables` BLOB IS WITHHELD, and this is the second half of the
     # unit fix rather than a size optimisation. Each column carries its daily
     # series twice: once here in mm/s, and once in `df` — which _to_daily_rates
@@ -144,6 +160,7 @@ def _payload(ctx) -> Dict[str, Any]:
     cols = [{k: v for k, v in c.items() if k != "variables"} for c in ctx.columns]
 
     return {"df": df,
+            "prof": prof,
             "columns": cols,
             "caveats": list(getattr(ctx, "caveats", []) or []),
             "converted_to_daily": converted}
@@ -168,8 +185,11 @@ def run(code: str, ctx, out_path, script_path=None,
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     payload = _payload(ctx)
-    if payload["df"] is None:
-        return {"ok": False, "error": "pandas unavailable; no tidy frame to run against",
+    if payload["df"] is None and payload["prof"] is None:
+        return {"ok": False,
+                "error": "no tidy frame to run against — the run has neither a "
+                         "daily series nor depth profiles (or pandas is "
+                         "unavailable)",
                 "result": None, "figure": None, "script": code}
 
     tmp = Path(tempfile.mkdtemp(prefix="step2_"))

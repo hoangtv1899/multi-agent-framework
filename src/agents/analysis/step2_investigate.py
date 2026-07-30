@@ -101,10 +101,41 @@ def _variable_catalog(ctx) -> List[str]:
     units = _frame_units(ctx)
     sem = (ctx.data.get("field_semantics") or {})
 
-    out = ["  variables in `df` (one row per day; units exactly as the frame's",
-           "  `units` column reports them — already daily, do not rescale):"]
-    for v in sorted(units):
-        out.append(f"    {v:10s} {units[v]}")
+    # WHICH FRAME THIS RUN ACTUALLY HAS. A backend without a daily series gets
+    # `df = None`, and describing `df` anyway would send the model to write
+    # scripts against it — the failure would surface as an AttributeError on
+    # None inside generated code rather than as anything a reader could act on.
+    out: List[str] = []
+    if ctx.series() is not None:
+        out += ["  variables in `df` (one row per day; units exactly as the "
+                "frame's",
+                "  `units` column reports them — already daily, do not "
+                "rescale):"]
+        for v in sorted(units):
+            out.append(f"    {v:10s} {units[v]}")
+    else:
+        out.append("  `df` is None for this run — it has NO daily series. Do "
+                   "not use df.")
+
+    # getattr, because `profiles` is newer than this function's other callers:
+    # a context object without it has no depth data by definition, which is
+    # the same answer as a context whose profiles() returns None.
+    prof = getattr(ctx, "profiles", lambda: None)()
+    if prof is not None:
+        times = sorted(prof["time_y"].dropna().unique().tolist())
+        out += ["",
+                "  `prof` — the DEPTH frame for this run:",
+                "    entity | time_y | depth_m | variable | value | units | "
+                "source",
+                f"    output times (years): {times}",
+                f"    depth_m is positive DOWNWARD from the surface, "
+                f"{prof['depth_m'].max():.1f} m at the deepest",
+                "    variables: " + ", ".join(
+                    sorted(str(v) for v in prof["variable"].unique())),
+                "    Each column has its OWN depth grid — column depth is "
+                "capped per column, so",
+                "    do not assume a shared depth axis across entities; group "
+                "by entity first."]
 
     if sem:
         out.append("")
@@ -239,6 +270,10 @@ Rules:
 Each figure's `code` is a Python snippet run with these already bound:
     df        tidy long frame: columns date | entity | variable | value | units | source
               `entity` is the column case_name for model rows.
+              None when this run has no daily series — the catalog above says
+              which frames exist. Use only the ones it lists.
+    prof      tidy DEPTH frame: entity | time_y | depth_m | variable | value |
+              units | source. None when this run has no depth output.
     columns   list of per-column metadata dicts (keys listed above)
     caveats   the caveat records
     plt, np, pd, out_path
@@ -252,7 +287,7 @@ Return ONLY JSON:
     {{"id": "snake_case_name",
       "question": "<the question this figure answers>",
       "scale": "overall" | "places",
-      "variables": ["ELM variable names used"],
+      "variables": ["model variable names used"],
       "code": "<python>"}}
   ]}}
 """

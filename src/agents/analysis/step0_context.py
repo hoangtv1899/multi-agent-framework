@@ -126,6 +126,49 @@ class AnalysisContext:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         return df
 
+    def profiles(self):
+        """Depth profiles as a TIDY long frame, or None when the run has none.
+
+            entity | time_y | depth_m | variable | value | units | source
+
+        A SECOND frame rather than more columns on series(), because the two
+        have different axes and nothing joins them: series() is one value per
+        date, profiles() is one value per (output time, depth). Forcing
+        PFLOTRAN's five yearly snapshots into series() would have meant either
+        inventing dates for them or leaving `date` null on most of the frame —
+        and a null-date row silently drops out of every resample and groupby
+        the existing analysis code already does.
+
+        Only PFLOTRAN writes `profiles` today. ELM runs return None here, so a
+        caller must handle both being absent — which is the honest state for a
+        run whose extraction produced neither.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            return None
+        recs = []
+        for row in self.columns:
+            cid  = row.get("case_name")
+            prof = row.get("profiles") or {}
+            times = prof.get("times_y") or []
+            depth = prof.get("depth_m") or []
+            for var, grids in prof.items():
+                if var in ("times_y", "depth_m") or not isinstance(grids, list):
+                    continue
+                units = (self.data.get("variable_units") or {}).get(
+                    var.upper(), (self.data.get("variable_units") or {}).get(var))
+                for t, layer in zip(times, grids):
+                    if not isinstance(layer, list):
+                        continue
+                    for z, v in zip(depth, layer):
+                        recs.append((cid, t, z, var, v, units, "model"))
+        if not recs:
+            return None
+        return pd.DataFrame(recs, columns=["entity", "time_y", "depth_m",
+                                           "variable", "value", "units",
+                                           "source"])
+
     def planned_vs_actual(self) -> List[Dict[str, Any]]:
         """Did the run do what was asked? One record per checked claim.
 
