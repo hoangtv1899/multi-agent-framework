@@ -8,9 +8,15 @@ IDEAS workflow coordinator — the four agents of the framework, in order.
       → Experiment Manager run     (materialize → build → prepare → run)
       → Analyzer           report  (metrics → validation → interpretation)
 
-PFLOTRAN is not driven from here. The legacy in-process PFLOTRAN manager was
-removed; reactive-transport runs go through tools/build_pflotran_cases.py and
-are documented in docs/PFLOTRAN_PLAN.md.
+WHICH MODEL runs is `--model`, resolved through core/backends.py: `elm`,
+`pflotran`, or `lambda-pflotran`. The choice is the Experiment Manager CLASS,
+because the backends differ in the stages they have, not only in the code
+inside them. All three write the same experiment.json and are read by the same
+Analyzer.
+
+(This file used to say PFLOTRAN was not driven from here. It is, since the
+backend table landed — the standalone tools/build_pflotran_cases.py still
+works and builds byte-identical decks.)
 """
 import sys
 import traceback
@@ -515,9 +521,9 @@ def main():
                   f'restarts. pflotran: standalone 1-D subsurface flow over '
                   f'20 y, initialised at the Fan 2013 water table. '
                   f'lambda-pflotran: the same flow plus the LAMBDA '
-                  f'organic-matter reaction sandbox, capped at 5 y (the deck '
-                  f'NaNs at 9.31 y) — a demonstration of reactive transport, '
-                  f'not a calibration.'
+                  f'organic-matter reaction sandbox, capped at 1 y (the timestep '
+                  f'collapses above 1 y on sampled columns) — a demonstration of '
+                  f'reactive transport, not a calibration.'
     )
     parser.add_argument(
         '--no-ask',

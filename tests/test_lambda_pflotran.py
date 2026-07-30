@@ -130,6 +130,58 @@ class TestTheSpeciesListFollowsTheNetwork:
         assert block.index("REACTION_SANDBOX") < block.index("END")
 
 
+class TestANetworkThatCannotMakeACorrectDeckIsRejected:
+    """Donor names are NOT guaranteed unique.
+
+    Each bin is named for its mean carbon number, ROUNDED, so two bins whose
+    means round to the same integer get the same species name. Observed from
+    the reaction MCP's `cumulative` binning of SPS_0001 at n_bins=3:
+    C21-DONOR, C24-DONOR, C21-DONOR — with molar masses 438.9 and 464.9 for
+    the two C21 rows.
+
+    Unguarded this is silently wrong rather than loudly broken: the deck
+    declares the DEDUPLICATED list, so PFLOTRAN gets two species for three
+    reactions and the database two rows under one key. Two physically distinct
+    organic-matter pools merge into one and the run still produces plausible
+    chemistry.
+    """
+
+    GOOD = ("# header\n"
+            "<=> -0.06 C28-DONOR + 0.82 HCO3- + 1.0 BIOMASS \n"
+            "<=> -0.09 C21-DONOR + 0.96 HCO3- + 1.0 BIOMASS \n"
+            "<=> -0.12 C17-DONOR + 1.12 HCO3- + 1.0 BIOMASS \n")
+    COLLIDED = ("# header\n"
+                "<=> -0.09 C21-DONOR + 0.96 HCO3- + 1.0 BIOMASS \n"
+                "<=> -0.08 C24-DONOR + 0.90 HCO3- + 1.0 BIOMASS \n"
+                "<=> -0.09 C21-DONOR + 0.96 HCO3- + 1.0 BIOMASS \n")
+
+    def test_a_clean_network_passes(self, tmp_path):
+        p = tmp_path / "net.txt"
+        p.write_text(self.GOOD)
+        assert L._validate_network(p, L._donors_in(p)) is None
+
+    def test_a_duplicate_donor_is_caught(self, tmp_path):
+        p = tmp_path / "net.txt"
+        p.write_text(self.COLLIDED)
+        why = L._validate_network(p, L._donors_in(p))
+        assert why and "duplicate donor" in why
+        assert "C21-DONOR" in why
+
+    def test_more_reactions_than_species_is_caught(self, tmp_path):
+        """The count check is the backstop for a collision the name scan
+        cannot see — a pool named something other than C<n>-DONOR."""
+        p = tmp_path / "net.txt"
+        p.write_text(self.GOOD + "<=> -0.04 SOMETHING-ELSE + 1.0 BIOMASS \n")
+        why = L._validate_network(p, L._donors_in(p))
+        assert why and "reaction" in why
+
+    def test_comments_are_not_counted_as_reactions(self, tmp_path):
+        """The generated network carries a five-line provenance header."""
+        p = tmp_path / "net.txt"
+        p.write_text("# a\n# b\n# c\n" + self.GOOD)
+        assert L._validate_network(p, L._donors_in(p)) is None
+
+
 class TestTheDatabaseGetsTheGeneratedDonors:
     """PFLOTRAN needs every primary species in the thermodynamic database. The
     generated database carries ONLY the donor rows; everything else, including
