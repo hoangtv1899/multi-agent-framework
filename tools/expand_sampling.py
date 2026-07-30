@@ -240,6 +240,27 @@ def _nldas_month_file(year, mm):
         f"{NLDAS_PRECIP} and {NLDAS_CLM_DIR}")
 
 
+def _soil_cov(c):
+    """(clay_max %, max organic kg/m3) for the soil-coverage panel.
+
+    Reads the DONOR profile, which _attach_donor_soil writes onto the columns
+    before this figure is drawn — the soil ELM actually runs on. The old
+    version also handled SSURGO's saturated conductivity; the CONUS 1 km
+    surface dataset does not carry Ksat (ELM derives it internally from sand
+    and organic) but does carry organic matter, which plays the same role of
+    separating soils that differ hydraulically at similar clay content.
+    """
+    layers = (c.get("soil_profile") or {}).get("layers") or []
+    comp = layers[0].get("component") if layers else None
+    hz = [l for l in layers if l.get("component") == comp]
+    def num(x):
+        try: return float(x)
+        except (TypeError, ValueError): return None
+    clays = [v for v in (num(l.get("clay_pct")) for l in hz) if v is not None]
+    org = [v for v in (num(l.get("organic_kg_m3")) for l in hz) if v is not None]
+    return (max(clays) if clays else None), (max(org) if org else None)
+
+
 def _nldas_month_slab(args):
     """(slab, mm_per_step) for one month's lat/lon box, or (None, 0) if absent.
 
@@ -457,15 +478,28 @@ def plot_columns(res, out_path, forcing_year=None):
     a.set_xticks(range(nb)); a.set_xticklabels(labels, rotation=20, fontsize=8)
     a.set_ylabel("columns allocated"); a.set_title("Columns per elevation band")
 
-    # P5 — forcing coverage: NLDAS annual precip vs elevation (12 km cells)
+    # P5 — soil coverage: clay vs organic for the soil the run actually uses
     #
-    # This took the soil-coverage panel's slot. That panel plotted clay against
-    # Ksat or organic for the profile gathered at sampling time — a profile the
-    # warm-started run never used. Soil is not a sampling variable and never
-    # was: selection stratifies on elevation and spreads within band. A soil
-    # panel in a sampling-design figure was describing something the design
-    # does not choose.
+    # Drawn from the DONOR profile. _refine_columns runs before this figure, so
+    # by now soil_profile holds the warm-start donor's own soil rather than
+    # anything queried at sampling time — which is what the panel always wanted
+    # to show and, before the SSURGO fetch was removed, could not guarantee.
     a = ax[0, 2]
+    plotted = False
+    for c in cols:
+        clay, org = _soil_cov(c)
+        if clay is None or org is None:
+            continue
+        a.scatter(org, clay, color=bcolor(c["band"]),
+                  marker="o", s=85, edgecolor="k", linewidth=0.4)
+        plotted = True
+    a.set_xlabel("max organic (kg/m3)"); a.set_ylabel("max clay (%)")
+    a.set_title("Soil sampled (CONUS 1 km donor)")
+    if not plotted:
+        a.text(0.5, 0.5, "no soil profiles", transform=a.transAxes, ha="center")
+
+    # P6 — forcing coverage: NLDAS annual precip vs elevation (12 km cells)
+    a = ax[1, 2]
     if forcing_year:
         try:
             pr = nldas_annual_precip(cols, forcing_year)
@@ -482,11 +516,6 @@ def plot_columns(res, out_path, forcing_year=None):
         a.text(0.5, 0.5, "pass --forcing-year to preview\nthe NLDAS precip gradient",
                transform=a.transAxes, ha="center", fontsize=9, color="0.4")
         a.set_title("Forcing sampled (NLDAS)")
-
-    # Five panels in a 2x3 grid since the soil panel went. An empty axis reads
-    # as "this was measured and came back blank" rather than "there is nothing
-    # here to draw".
-    ax[1, 2].set_visible(False)
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(out_path, dpi=300)
