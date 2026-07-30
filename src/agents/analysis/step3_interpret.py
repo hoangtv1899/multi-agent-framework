@@ -96,8 +96,33 @@ def _flatten_numbers(obj) -> set:
     return out
 
 
+def run_facts(ctx) -> set:
+    """Numbers that describe the RUN rather than any one finding.
+
+    The column count and the simulated years are facts of record in ctx, and a
+    claim is entitled to state them. A live run struck a correct sentence —
+    "across the 19 sampled columns, precipitation ranges..." — because 19 was
+    not in the cited finding's result, only in ctx. The check consulted the
+    finding alone, so run-level facts had nowhere to be true.
+
+    Every finding's own `n` is included for the same reason: a claim saying how
+    many points it rests on is quoting the record, not inventing.
+    """
+    out = set()
+    try:
+        out.add(str(len(ctx.columns)))
+        p = (ctx.plan or {}).get("period") or {}
+        for k in ("yr_start", "yr_end"):
+            if p.get(k) is not None:
+                out.add(str(p[k]))
+    except Exception:
+        pass
+    return out
+
+
 def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
-          caveats: List[Dict[str, Any]]) -> Dict[str, Any]:
+          caveats: List[Dict[str, Any]], facts: Optional[set] = None
+          ) -> Dict[str, Any]:
     """Check each claim against the evidence it cites. Pure function.
 
     Returns {kept, struck} where every struck claim carries its reason. Testable
@@ -105,6 +130,10 @@ def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
     depend on a model behaving well.
     """
     by_id = {f["id"]: f for f in (investigation.get("findings") or [])}
+    allowed = set(facts or set())
+    for f in (investigation.get("findings") or []):
+        if f.get("n") is not None:
+            allowed.add(str(f["n"]))
     blocking = {c.get("id"): c for c in (caveats or [])
                 if c.get("severity") == "blocking"}
 
@@ -123,7 +152,8 @@ def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
 
         have = _flatten_numbers(by_id[fid].get("result"))
         invented = [n for n in _numbers(text)
-                    if n not in have and not _YEARLIKE.match(n)]
+                    if n not in have and n not in allowed
+                    and not _YEARLIKE.match(n)]
         if invented:
             struck.append(dict(c, struck_because=(
                 f"states {', '.join(invented[:4])}, which does not appear in "
@@ -259,7 +289,8 @@ def interpret(ctx, comparison, investigation, out_dir,
     spec = _parse(client.ask([{"role": "user", "content": content}]))
 
     caveats = list(ctx.caveats or []) + list((comparison or {}).get("caveats") or [])
-    result = audit(spec.get("claims") or [], investigation, caveats)
+    result = audit(spec.get("claims") or [], investigation, caveats,
+                   facts=run_facts(ctx))
 
     verdict = spec.get("verdict")
     if verdict not in ("sufficient", "insufficient"):

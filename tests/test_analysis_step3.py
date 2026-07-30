@@ -183,3 +183,36 @@ class TestIdentifiersAreNotMeasurements:
         r = step3.audit([{"claim": "col_01 shows 99.9", "finding_id": "f1",
                           "caveats": ["no_routing"]}], INV, CAV)
         assert r["kept"] == [] and "99.9" in r["struck"][0]["struck_because"]
+
+
+class TestRunLevelFactsAreQuotable:
+    """A live run struck "across the 19 sampled columns, precipitation ranges
+    ..." because 19 was in ctx, not in the cited finding. The check consulted
+    the finding alone, so facts about the run had nowhere to be true."""
+
+    def test_the_column_count_may_be_stated(self):
+        r = step3.audit([{"claim": "Across 2 sampled columns, mean is 31.4",
+                          "finding_id": "f1", "caveats": ["no_routing"]}],
+                        INV, CAV, facts=step3.run_facts(_ctx_with_columns()))
+        assert len(r["kept"]) == 1, r["struck"]
+
+    def test_a_findings_own_n_may_be_stated(self):
+        r = step3.audit([{"claim": "Over 19 points the mean is 31.4",
+                          "finding_id": "f1", "caveats": ["no_routing"]}],
+                        INV, CAV)
+        assert len(r["kept"]) == 1, r["struck"]
+
+    def test_an_invented_number_is_still_struck(self):
+        r = step3.audit([{"claim": "Across 2 columns the mean is 77.7",
+                          "finding_id": "f1", "caveats": ["no_routing"]}],
+                        INV, CAV, facts=step3.run_facts(_ctx_with_columns()))
+        assert r["kept"] == [] and "77.7" in r["struck"][0]["struck_because"]
+
+
+def _ctx_with_columns():
+    class C:
+        columns = [{"case_name": "col_01"}, {"case_name": "col_02"}]
+        plan = {"period": {"yr_start": 2019, "yr_end": 2019}}
+        caveats: list = []
+        data: dict = {}
+    return C()
