@@ -131,7 +131,7 @@ class AnalysisContext:
 
         strategy_check asks this BEFORE compute, where it can still stop the
         run. Asking again afterwards closes the loop, and it is the claim that
-        was wrong before: a validation reporting success while comparing
+        was wrong before: a comparison reporting success while comparing
         against nothing.
 
         Each claim names the file it was planned in, because the two upstream
@@ -329,7 +329,7 @@ def load(run_dir: str) -> AnalysisContext:
         # Observations come from RECEPTION, which fetched them once the period
         # was fixed. The Analyzer does not re-fetch: a second fetch can
         # disagree with the first, and then the run's own record is not what
-        # was validated against.
+        # was compared against.
         "observations":      reception.get("observations") or {},
     }
 

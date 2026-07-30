@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Shared geography for the step 1 validators
+Shared geography for the step 1 comparisons
 src/agents/analysis/step1_geo.py
 
 Two things every observable needs and none of them should own:
 
     in_polygon / split_by_basin   is this station inside the watershed?
-    plot_grid                     the combined validation spatial map
+    plot_grid                     the combined comparison spatial map
 
 The first exists because reception fetches observations by BBOX, and a bbox is
 the rectangle around a basin — so stations in its corners are outside the

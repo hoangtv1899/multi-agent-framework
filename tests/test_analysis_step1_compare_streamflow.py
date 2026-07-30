@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agents.analysis import step1_geo as geo                    # noqa: E402
-from agents.analysis import step1_validate_streamflow as sf     # noqa: E402
+from agents.analysis import step1_compare_streamflow as sf     # noqa: E402
 
 SQUARE = [[[-108.0, 38.0], [-107.0, 38.0], [-107.0, 39.0],
            [-108.0, 39.0], [-108.0, 38.0]]]
@@ -143,9 +143,9 @@ class TestCompare:
 
 
 class TestMapPoints:
-    """The standalone streamflow map is gone — the combined validation spatial
+    """The standalone streamflow map is gone — the combined comparison spatial
     map is the only map now. What survives here is the point/size derivation it
-    feeds, which is this validator's knowledge and not the layout module's."""
+    feeds, which is this module's knowledge and not the layout module's."""
 
     def test_gauges_are_sized_by_drainage_area(self):
         """They span 173 to 10,285 km2 on the Gunnison run. Drawn at one size

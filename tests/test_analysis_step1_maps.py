@@ -2,10 +2,10 @@
 """Analyzer step 1d — the combined spatial figure.
 
 The point of this module is that it decides LAYOUT and nothing else: every
-point it draws comes from a validator's own map_points(). So the tests that
-matter are the parity ones — the combined figure and the standalone map must
-draw the same points, or a reader comparing the two figures is comparing two
-different answers to the same question.
+point it draws comes from a comparison module's own map_points(). So the tests
+that matter are the pass-through ones: build_rows must hand those points to the
+figure untransformed, because the moment it adjusts one the figure stops
+agreeing with the record it was built from.
 
 The rest guard the two properties that are easy to get wrong and invisible in a
 rendered PNG: a colour scale per ROW rather than per figure, and rows/overlays
@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agents.analysis import step1_maps as maps                  # noqa: E402
-from agents.analysis import step1_validate_swe as swe_mod       # noqa: E402
-from agents.analysis import step1_validate_streamflow as f_mod  # noqa: E402
-from agents.analysis import step1_validate_wtd as w_mod         # noqa: E402
+from agents.analysis import step1_compare_swe as swe_mod       # noqa: E402
+from agents.analysis import step1_compare_streamflow as f_mod  # noqa: E402
+from agents.analysis import step1_compare_wtd as w_mod         # noqa: E402
 
 SQUARE = [[[-108.0, 38.0], [-107.0, 38.0], [-107.0, 39.0],
            [-108.0, 39.0], [-108.0, 38.0]]]
@@ -162,12 +162,12 @@ class TestSizing:
         assert all(p.get("sizes") is None for p in rows[0]["panels"])
 
 
-class TestParityWithStandaloneMaps:
-    """If the combined figure and a standalone figure disagree about where a
-    station is or what it measured, the bug is in the validator they share.
-    These pin that they cannot drift apart."""
+class TestPointsPassThroughUntransformed:
+    """build_rows decides layout, never content. If a point in the figure is not
+    exactly the point map_points returned, the figure has started asserting
+    something the comparison record does not."""
 
-    def test_swe_points_match_the_validators_own(self):
+    def test_swe_points_match_the_modules_own(self):
         ctx = _ctx()
         obs, mod = swe_mod.map_points(SWE, ctx)
         rows = maps.build_rows(ctx, swe=SWE)
@@ -205,7 +205,7 @@ class TestRendering:
         out = tmp_path / "combined.png"
         # basemap off: a figure must not depend on a third-party raster being
         # reachable, and the test must not depend on the network.
-        p = maps.create_validation_spatial_map(_ctx(), out, swe=SWE, streamflow=FLOW,
+        p = maps.create_comparison_spatial_map(_ctx(), out, swe=SWE, streamflow=FLOW,
                           wtd=WTD_WELLS, basemap=False)
         assert Path(p).exists() and Path(p).stat().st_size > 5000
 
@@ -280,7 +280,7 @@ class TestRenderedScales:
     def test_within_a_row_the_panels_share_and_across_rows_they_differ(
             self, tmp_path):
         out = tmp_path / "g.png"
-        clims = _clims(lambda: maps.create_validation_spatial_map(
+        clims = _clims(lambda: maps.create_comparison_spatial_map(
             _ctx(), out, swe=SWE, streamflow=FLOW, wtd=WTD_NO_WELLS,
             basemap=False))
         assert len(clims) == 6, clims
@@ -294,7 +294,7 @@ class TestRenderedScales:
         """SWE runs 33-410 in the model and 190-210 observed. A scale fitted to
         one panel would clip the other."""
         out = tmp_path / "g2.png"
-        clims = _clims(lambda: maps.create_validation_spatial_map(_ctx(), out, swe=SWE,
+        clims = _clims(lambda: maps.create_comparison_spatial_map(_ctx(), out, swe=SWE,
                                              basemap=False))
         vmin, vmax = clims[0]
         assert vmin <= 33.0 and vmax >= 410.0, clims
@@ -302,7 +302,7 @@ class TestRenderedScales:
     def test_the_well_overlay_is_drawn_on_the_rows_scale(self, tmp_path):
         """A 6 m well and a 6 m column must be the same colour."""
         out = tmp_path / "g3.png"
-        clims = _clims(lambda: maps.create_validation_spatial_map(_ctx(), out, wtd=WTD_WELLS,
+        clims = _clims(lambda: maps.create_comparison_spatial_map(_ctx(), out, wtd=WTD_WELLS,
                                              basemap=False))
         # Fan panel, then its overlay, then ELM — all one scale.
         assert len(clims) == 3, clims
@@ -324,7 +324,7 @@ class TestNoTightBbox:
 
         Figure.savefig = spy
         try:
-            maps.create_validation_spatial_map(_ctx(), tmp_path / "g.png", swe=SWE,
+            maps.create_comparison_spatial_map(_ctx(), tmp_path / "g.png", swe=SWE,
                           streamflow=FLOW, wtd=WTD_WELLS, basemap=False)
         finally:
             Figure.savefig = real
@@ -352,7 +352,7 @@ class TestSymlogKeepsZeros:
         vals = [q[2] for p in rows[0]["panels"] for q in p["points"]]
         assert 0.0 in vals, "an exact zero must survive into the figure"
 
-        clims = _clims(lambda: maps.create_validation_spatial_map(
+        clims = _clims(lambda: maps.create_comparison_spatial_map(
             _ctx(), tmp_path / "z.png", streamflow=flow, basemap=False))
         assert clims, "nothing was drawn"
         # SymLogNorm is anchored at zero so a zero-flow column is a colour, not

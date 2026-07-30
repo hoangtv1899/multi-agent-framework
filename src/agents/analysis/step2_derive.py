@@ -9,7 +9,7 @@ src/agents/analysis/step2_derive.py
 Every one of these is a CLAIM about the ensemble, which is why they are a
 step of the Analyzer and not part of extraction.
 
-AFTER validation, not before. The two do not consume each other — both need
+AFTER the comparison, not before. The two do not consume each other — both need
 only the context — so the order is a choice, and this is the safer one: a
 correlation across columns the gauges say are wrong is a correlation of
 nonsense. Validation's verdicts and the caveats it raises are available here,

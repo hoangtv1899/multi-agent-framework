@@ -15,7 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from agents.analysis import step1_validate_swe as swe   # noqa: E402
+from agents.analysis import step1_compare_swe as swe   # noqa: E402
 
 
 def _series(vals, start="2019-01-01"):
@@ -266,11 +266,11 @@ class TestOutOfBasinStations:
 
 
 class TestMapPoints:
-    """The standalone SWE map is gone — the combined validation spatial map is
+    """The standalone SWE map is gone — the combined comparison spatial map is
     the only map now. map_points survives because the coordinate join is this
-    validator's knowledge: compare() keys on entity name, so lat/lon have to
-    come back from reception's station list, and the layout module must not
-    know that."""
+    module's knowledge: compare() keys on entity name, so lat/lon have to come
+    back from reception's station list, and the layout module must not know
+    that."""
 
     @staticmethod
     def _ctx():

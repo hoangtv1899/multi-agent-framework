@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from agents.analysis import step1_validate_wtd as wtd    # noqa: E402
+from agents.analysis import step1_compare_wtd as wtd    # noqa: E402
 
 SQUARE = [[[-108.0, 38.0], [-107.0, 38.0], [-107.0, 39.0],
            [-108.0, 39.0], [-108.0, 38.0]]]
@@ -92,9 +92,8 @@ class TestStaticWaterTable:
 
 
 class TestTimeseriesFigure:
-    """Modelled depth over the run, with measured wells on top. Fan 2013 is
-    absent by construction — it is a static equilibrium field with no time
-    dimension, and it appears in the combined validation spatial map."""
+    """Two panels: the depth distributions, then the depth series. Named for
+    the panel that carries time, consistent with the other step-1 figures."""
 
     def test_it_renders(self, tmp_path):
         pytest.importorskip("matplotlib")
@@ -111,6 +110,31 @@ class TestTimeseriesFigure:
         import inspect
         src = inspect.getsource(wtd.plot_timeseries)
         assert "axvline" not in src and "axhline" not in src
+
+    def test_zeros_are_counted_not_plotted(self):
+        """A log axis cannot take a zero, and a water table AT the surface is a
+        distinct state rather than a small depth."""
+        import inspect
+        src = inspect.getsource(wtd.plot_timeseries)
+        assert "at surface (0 m)" in src
+        assert 'ax.set_xscale("log")' in src
+
+    def test_the_wells_histogram_is_an_outline_drawn_last(self):
+        """Two wells against nineteen columns lose every shared bin. At alpha
+        0.6 the green bars vanished behind the models while still appearing in
+        the legend — worse than omitting them."""
+        import inspect
+        src = inspect.getsource(wtd.plot_timeseries)
+        assert 'histtype="step"' in src
+
+    def test_both_panels_are_drawn(self):
+        """It is called wtd_timeseries for consistency with the other figures,
+        but it carries the distribution too — the histogram is the only place
+        the Fan-vs-ELM depth compression is visible rather than inferred."""
+        import inspect
+        src = inspect.getsource(wtd.plot_timeseries)
+        assert "subplots(1, 2" in src
+        assert "ax.hist(" in src
 
     def test_depth_increases_downward(self):
         """A depth axis that runs upward reads as height."""
@@ -152,8 +176,8 @@ class TestWellSeriesNormalisation:
 
 class TestTimeseriesUsesWells:
     """The wells are the only MEASUREMENT of this quantity. A figure that drew
-    Fan and ELM alone when wells existed would compare two models and call it
-    validation."""
+    Fan and ELM alone when wells existed would be showing two models and
+    hiding the one measurement there is."""
 
     def _result(self, wells):
         return {"fan": [{"id": "c1", "wtd_m": 25.0}, {"id": "c2", "wtd_m": 4.4}],

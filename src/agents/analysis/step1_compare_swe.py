@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Analyzer step 1a — snow water equivalent against SNOTEL
-src/agents/analysis/step1_validate_swe.py
+src/agents/analysis/step1_compare_swe.py
 
     in   ctx (model H2OSNO daily series + SNOTEL daily series)
     out  {metrics, comparable, caveats}  and a five-panel figure
@@ -163,7 +163,7 @@ def compare(ctx, threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
                           f"({m_span[0]} to {m_span[1]}). Metrics are taken "
                           f"over the shared window {win[0]} to {win[1]} only."),
             "applies_to": "every SWE comparison",
-            "source": "step1_validate_swe"})
+            "source": "step1_compare_swe"})
 
     def clip(dates, values):
         if not win:
@@ -212,7 +212,7 @@ def compare(ctx, threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
                           "modelled at the same elevation is expected from "
                           "siting alone and is not by itself a model bias."),
             "applies_to": "any SWE magnitude claim",
-            "source": "step1_validate_swe"})
+            "source": "step1_compare_swe"})
 
     censored = [m for m in model if m.get("first_snow_censored")]
     if censored:
@@ -224,7 +224,7 @@ def compare(ctx, threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
                           f"An onset date taken from a warm-started 1 January "
                           f"reports when the run began, not when snow arrived."),
             "applies_to": "first-snow / accumulation-onset claims",
-            "source": "step1_validate_swe"})
+            "source": "step1_compare_swe"})
 
     if outside:
         caveats.append({
@@ -233,7 +233,7 @@ def compare(ctx, threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
                           f"lying outside the watershed: {', '.join(outside)}. "
                           f"Reception fetches by bounding box, which includes "
                           f"the basin's corners."),
-            "applies_to": "SWE coverage", "source": "step1_validate_swe"})
+            "applies_to": "SWE coverage", "source": "step1_compare_swe"})
 
     pairs, unpaired = pair_by_elevation(model, obs)
     for u in unpaired:
@@ -241,7 +241,7 @@ def compare(ctx, threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
             "id": f"swe_unpaired_{str(u.get('entity','?'))[:20].replace(' ','_')}",
             "severity": "context",
             "statement": f"{u.get('entity')} was not paired: {u.get('unpaired_reason')}",
-            "applies_to": "SWE coverage", "source": "step1_validate_swe"})
+            "applies_to": "SWE coverage", "source": "step1_compare_swe"})
 
     return {"threshold_mm": threshold, "window": win,
             "stations_excluded_outside_basin": outside,

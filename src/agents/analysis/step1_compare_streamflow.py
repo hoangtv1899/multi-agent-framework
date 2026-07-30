@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Analyzer step 1b — streamflow against USGS gauges
-src/agents/analysis/step1_validate_streamflow.py
+src/agents/analysis/step1_compare_streamflow.py
 
     in   ctx (model QOVER + QDRAI daily + USGS gauge daily specific discharge)
     out  {gauges, columns, caveats}  and the two spatial maps
@@ -126,7 +126,7 @@ def compare(ctx) -> Dict[str, Any]:
                           f"basins: {', '.join(outside[:6])}"
                           + ("…" if len(outside) > 6 else "")),
             "applies_to": "streamflow coverage",
-            "source": "step1_validate_streamflow"})
+            "source": "step1_compare_streamflow"})
 
     # window: the overlap between the model record and the gauge records
     m_spans = [s for s in (model_runoff(r) for r in ctx.columns) if s.get("dates")]
@@ -173,7 +173,7 @@ def compare(ctx) -> Dict[str, Any]:
                           f"their flow includes water never modelled. A bias "
                           f"against them is not attributable to the model."),
             "applies_to": "any skill claim against these gauges",
-            "source": "step1_validate_streamflow"})
+            "source": "step1_compare_streamflow"})
 
     columns = []
     for r in ctx.columns:
@@ -196,7 +196,7 @@ def compare(ctx) -> Dict[str, Any]:
                       "discharge. Timing especially cannot be compared "
                       "without routing."),
         "applies_to": "any hydrograph or timing claim",
-        "source": "step1_validate_streamflow"})
+        "source": "step1_compare_streamflow"})
 
     return {"window": window, "basin_area_km2": round(basin_km2, 1) if basin_km2 else None,
             "gauges": gauges, "columns": columns,
