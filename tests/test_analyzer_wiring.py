@@ -317,6 +317,18 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
                         None):
             assert m._run_via_mcp(exps, _Client(payload), 60, 1) is None
 
+        # ...and _run RAISES on them rather than quietly running locally. A
+        # degradation that is merely recorded lets a study be months old
+        # before anyone notices the server stopped being used.
+        import pytest as _pt
+        with _pt.raises(RuntimeError, match="attributed to columns"):
+            m._run(exps, {"mcp_clients": {"reaction": _Client(None)}})
+
+        # the documented escape hatch still works
+        out = m._run(exps, {"mcp_clients": {"reaction": _Client(None)},
+                            "run_via_mcp": False})
+        assert out and out[0]["run_via"] == "local"
+
         # and the shape it CAN attribute is used
         good = {"results_by_input": {str(d / "col_01.in"): {
             "exit_codes": [0], "validation_status": "success",

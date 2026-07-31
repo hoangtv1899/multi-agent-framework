@@ -300,12 +300,32 @@ class PFLOTRANExpManager(ExperimentManagerBase):
         width = max(1, int(config.get("max_parallel", self.MAX_PARALLEL)))
         width = min(width, len(experiments) or 1)
 
+        # WHEN A CLIENT IS PRESENT, THE MCP RUNS THE COLUMNS. Full stop — no
+        # quiet demotion to the local runner. A degradation that is merely
+        # RECORDED still means a study can be months old before anyone notices
+        # the server stopped being used, and this repository has been bitten by
+        # that shape often enough (soil_attribution returning {},
+        # validate_pflotran_input reporting success on a deck PFLOTRAN
+        # refuses). If the MCP is wired in and cannot answer, that is a fault
+        # to fix, not a slower path to take.
+        #
+        # The local runner below is NOT the other half of that choice. It is
+        # what runs when there is no client at all — the test suite, the
+        # standalone tools, any direct manager call — where nothing is being
+        # bypassed because nothing was configured.
         client = (config.get("mcp_clients") or {}).get("reaction")
         if client is not None and config.get("run_via_mcp", True):
             out = self._run_via_mcp(experiments, client, limit, width)
-            if out is not None:
-                return out
-            print("   ⚠️  MCP run unusable — falling back to the local runner")
+            if out is None:
+                raise RuntimeError(
+                    "the reaction MCP could not run this ensemble in a form "
+                    "that can be attributed to columns (no results_by_input). "
+                    "The most likely cause is that the server's patches were "
+                    "lost — that tree is not under version control, so a "
+                    "re-unzip reverts them; see "
+                    "docs/mcp_contribution/. Re-apply them, or pass "
+                    "config['run_via_mcp']=False to run locally instead.")
+            return out
 
         if width > 1:
             print(f"   running {len(experiments)} column(s), "
