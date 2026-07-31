@@ -287,6 +287,37 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
         row = self._extract([{"id": "col_09", "case_dir": d}])
         assert row["status"] == "failed" and row["reason"]
 
+    def test_results_stay_in_experiment_order_not_completion_order(
+            self, tmp_path):
+        """Columns run concurrently, so completion order is a race.
+
+        The run record gets compared against columns.json by position often
+        enough that rows shuffled by whichever column finished first would be
+        a needless difference between two identical runs.
+        """
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        import os
+        m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
+
+        exps = []
+        for i in range(6):
+            d = tmp_path / f"col_{i:02d}"
+            d.mkdir()
+            (d / f"col_{i:02d}.in").write_text("x")
+            exps.append({"id": f"col_{i:02d}", "case_dir": d})
+
+        # Later columns finish FIRST, so completion order reverses input order.
+        def fake_one(e, exe, limit):
+            import time
+            time.sleep(0.05 * (6 - int(e["id"][-2:])))
+            e.update(status="completed", runtime_seconds=0.0)
+            return {**e}
+
+        m._run_one = fake_one
+        os.environ.setdefault("PFLOTRAN_EXECUTABLE", "/bin/true")
+        out = m._run(exps, {"max_parallel": 6})
+        assert [r["id"] for r in out] == [e["id"] for e in exps]
+
     def test_a_run_that_failed_is_not_resurrected_by_partial_output(
             self, tmp_path):
         """A timed-out column still leaves the snapshots it managed to write.

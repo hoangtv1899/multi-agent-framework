@@ -258,62 +258,97 @@ class PFLOTRANExpManager(ExperimentManagerBase):
         print(f"✓ {len(cases)} deck(s) → {out}")
         return cases
 
+    # Columns run CONCURRENTLY, up to this many. Threads, not processes:
+    # each worker only waits on subprocess.run, which releases the GIL, so
+    # there is nothing for extra interpreters to do.
+    #
+    # WHY NOT ProcessPoolExecutor, which is what the reaction MCP's own
+    # ensemble_parallel uses: it defaults to fork on Linux, and forking a
+    # process that has threads holding locks deadlocks the child before it
+    # does any work. Measured — that tool hangs for its full 300 s timeout on
+    # three decks that take 1.8 s here, spawning no PFLOTRAN at all, while the
+    # same function called outside the server works fine.
+    #
+    # FOUR, not os.cpu_count(). These run on whatever node the workflow is on,
+    # often a shared login node, and a 19-column ensemble at full width is
+    # antisocial. Raise it with config['max_parallel'] on a compute node.
+    MAX_PARALLEL = 4
+
     def _run(self, experiments: List[Dict], config: Dict[str, Any]) -> List[Dict]:
         """Execute the decks directly. No scheduler — see NEEDS_SCHEDULER."""
-        import subprocess, os, time
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+
         exe = os.environ.get("PFLOTRAN_EXECUTABLE")
         if not exe:
             raise RuntimeError("PFLOTRAN_EXECUTABLE is not set; "
                                "source env_compy.sh")
-        results = []
-        for e in experiments:
-            case_dir = Path(e.get("case_dir") or "")
-            deck = next(case_dir.glob("*.in"), None)
-            if deck is None:
-                results.append({**e, "status": "failed",
-                                "reason": "no .in deck in the case dir"})
-                continue
-            t0 = time.time()
-            limit = config.get("timeout_s", self.RUN_TIMEOUT_S)
-            try:
-                proc = subprocess.run([exe, "-pflotranin", deck.name],
-                                      cwd=str(case_dir), capture_output=True,
-                                      text=True, timeout=limit)
-            except subprocess.TimeoutExpired:
-                # ONE COLUMN, NOT THE ENSEMBLE. subprocess.run RAISES on
-                # timeout, and uncaught that discarded every column already
-                # computed along with every one still queued. A column whose
-                # timestep collapses — the reactive decks do this on deep
-                # unsaturated profiles — is a failed column with a reason, and
-                # the run continues.
-                outcome = {"status": "failed",
-                           "runtime_seconds": round(time.time() - t0, 2),
-                           "returncode": None, "n_output_files":
-                               len(list(case_dir.glob("*.tec"))),
-                           "reason": f"exceeded {limit}s — timestep collapse "
-                                     f"or a non-converging solve"}
-                e.update(outcome)
-                results.append({**e, **outcome})
-                print(f"  ✗ {e.get('id')}: TIMEOUT after {limit}s")
-                continue
-            ok = proc.returncode == 0 and any(case_dir.glob("*.tec"))
-            outcome = {"status": "completed" if ok else "failed",
-                       "runtime_seconds": round(time.time() - t0, 2),
-                       "returncode": proc.returncode,
-                       "n_output_files": len(list(case_dir.glob("*.tec"))),
-                       "reason": None if ok else
-                                 (proc.stderr or "").strip()[-200:]}
-            # Written back onto the experiment too, not only into the returned
-            # copy. execute_plan hands _extract the EXPERIMENTS list, never
-            # _run's return value, so a timing that lives only in the copy
-            # never reaches experiment.json — every column came out with
-            # runtime_seconds: null and step 4 reported no compute at all.
-            e.update(outcome)
-            results.append({**e, **outcome})
-            print(f"  {'✓' if ok else '✗'} {e.get('id')}: "
-                  f"{results[-1]['runtime_seconds']}s, "
-                  f"{results[-1]['n_output_files']} tec")
+
+        limit = config.get("timeout_s", self.RUN_TIMEOUT_S)
+        width = max(1, int(config.get("max_parallel", self.MAX_PARALLEL)))
+        width = min(width, len(experiments) or 1)
+        if width > 1:
+            print(f"   running {len(experiments)} column(s), "
+                  f"{width} at a time")
+
+        # Results stay in EXPERIMENT ORDER, not completion order: the run
+        # record is compared against columns.json by position often enough
+        # that a set of rows shuffled by which column happened to finish
+        # first would be a needless difference between two identical runs.
+        with ThreadPoolExecutor(max_workers=width) as pool:
+            results = list(pool.map(
+                lambda e: self._run_one(e, exe, limit), experiments))
         return results
+
+    def _run_one(self, e: Dict[str, Any], exe: str, limit: float) -> Dict[str, Any]:
+        """One column. Returns its outcome and writes it back onto `e`."""
+        import subprocess, time
+        case_dir = Path(e.get("case_dir") or "")
+        deck = next(case_dir.glob("*.in"), None)
+        if deck is None:
+            outcome = {"status": "failed",
+                       "reason": "no .in deck in the case dir"}
+            e.update(outcome)
+            return {**e, **outcome}
+        t0 = time.time()
+        try:
+            proc = subprocess.run([exe, "-pflotranin", deck.name],
+                                  cwd=str(case_dir), capture_output=True,
+                                  text=True, timeout=limit)
+        except subprocess.TimeoutExpired:
+            # ONE COLUMN, NOT THE ENSEMBLE. subprocess.run RAISES on
+            # timeout, and uncaught that discarded every column already
+            # computed along with every one still queued. A column whose
+            # timestep collapses — the reactive decks do this on deep
+            # unsaturated profiles — is a failed column with a reason, and
+            # the run continues.
+            outcome = {"status": "failed",
+                       "runtime_seconds": round(time.time() - t0, 2),
+                       "returncode": None,
+                       "n_output_files": len(list(case_dir.glob("*.tec"))),
+                       "reason": f"exceeded {limit}s — timestep collapse "
+                                 f"or a non-converging solve"}
+            e.update(outcome)
+            print(f"  ✗ {e.get('id')}: TIMEOUT after {limit}s")
+            return {**e, **outcome}
+
+        ok = proc.returncode == 0 and any(case_dir.glob("*.tec"))
+        outcome = {"status": "completed" if ok else "failed",
+                   "runtime_seconds": round(time.time() - t0, 2),
+                   "returncode": proc.returncode,
+                   "n_output_files": len(list(case_dir.glob("*.tec"))),
+                   "reason": None if ok else
+                             (proc.stderr or "").strip()[-200:]}
+        # Written back onto the experiment too, not only into the returned
+        # copy. execute_plan hands _extract the EXPERIMENTS list, never
+        # _run's return value, so a timing that lives only in the copy
+        # never reaches experiment.json — every column came out with
+        # runtime_seconds: null and step 4 reported no compute at all.
+        e.update(outcome)
+        print(f"  {'✓' if ok else '✗'} {e.get('id')}: "
+              f"{outcome['runtime_seconds']}s, "
+              f"{outcome['n_output_files']} tec")
+        return {**e, **outcome}
 
     def _extract(self, experiments, plan=None, config=None):
         """.tec depth profiles -> the SAME per-column row shape ELM produces.
