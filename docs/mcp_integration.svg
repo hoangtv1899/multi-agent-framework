@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 880" width="1280" height="880" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2b6cb0"/>
+    </marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a8f98"/>
+    </marker>
+    <style>
+      .h  { font-size: 22px; font-weight: 700; fill: #1a202c; }
+      .b  { font-size: 15px; font-weight: 700; fill: #1a202c; }
+      .t  { font-size: 13.5px; fill: #2d3748; }
+      .s  { font-size: 12px; fill: #4a5568; }
+      .m  { font-size: 12.5px; font-family: "SF Mono", Menlo, Consolas, monospace; fill: #2b6cb0; }
+      .mg { font-size: 12px; font-family: "SF Mono", Menlo, Consolas, monospace; fill: #718096; }
+      .lbl{ font-size: 11.5px; font-family: "SF Mono", Menlo, Consolas, monospace; fill: #2b6cb0; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="880" fill="#ffffff"/>
+  <text x="34" y="42" class="h">How the MCP is wired into the framework</text>
+  <text x="34" y="64" class="s">Verified against the source at commit d61eaed. Only call sites that exist are drawn.</text>
+
+  <!-- ================= framework column ================= -->
+  <rect x="34" y="88" width="450" height="620" rx="8" fill="#f7fafc" stroke="#cbd5e0"/>
+  <text x="52" y="114" class="b">multi-agent-framework</text>
+  <text x="52" y="133" class="mg">workflow.py --model {elm | pflotran | lambda-pflotran}</text>
+
+  <!-- Reception -->
+  <rect x="52" y="148" width="414" height="88" rx="6" fill="#ffffff" stroke="#a0aec0"/>
+  <text x="68" y="171" class="b">1 · Reception</text>
+  <text x="68" y="192" class="t">LLM tool loop — allowlist of <tspan font-weight="700">2</tspan> tools, not 39</text>
+  <text x="68" y="211" class="t">+ deterministic observation fetches</text>
+  <text x="68" y="228" class="s">the only agent that CHOOSES which tool to call</text>
+
+  <!-- Planner -->
+  <rect x="52" y="250" width="414" height="48" rx="6" fill="#ffffff" stroke="#cbd5e0"/>
+  <text x="68" y="272" class="b">2 · Planner</text>
+  <text x="68" y="290" class="s">no MCP — never receives mcp_clients</text>
+
+  <!-- Experiment Manager -->
+  <rect x="52" y="312" width="414" height="248" rx="6" fill="#ffffff" stroke="#2b6cb0" stroke-width="2"/>
+  <text x="68" y="335" class="b">3 · Experiment Manager</text>
+
+  <text x="68" y="362" class="m">_materialize</text>
+  <text x="212" y="362" class="t">sampling → columns</text>
+  <text x="68" y="394" class="m">_build</text>
+  <text x="212" y="394" class="t">decks — stays local</text>
+  <text x="68" y="426" class="m">_run</text>
+  <text x="212" y="426" class="t">execute the ensemble</text>
+  <text x="68" y="458" class="m">_binned_network</text>
+  <text x="212" y="458" class="t">lambda-pflotran only</text>
+  <text x="68" y="490" class="m">_extract  _package</text>
+  <text x="212" y="490" class="t">→ experiment.json</text>
+
+  <text x="68" y="520" class="s">MCP calls here are deterministic code —</text>
+  <text x="68" y="538" class="s">no LLM chooses these tools.</text>
+
+  <!-- Analyzer -->
+  <rect x="52" y="572" width="414" height="112" rx="6" fill="#ffffff" stroke="#cbd5e0"/>
+  <text x="68" y="595" class="b">4 · Analyzer</text>
+  <text x="68" y="616" class="t">step 0 context · 1 compare · 4 report</text>
+  <text x="68" y="635" class="t">step 2 investigate · 3 interpret</text>
+  <text x="68" y="656" class="s">no MCP. Step 2 writes Python that runs in</text>
+  <text x="68" y="673" class="s">the script_runner subprocess sandbox.</text>
+
+  <!-- ================= servers column ================= -->
+  <rect x="770" y="88" width="476" height="620" rx="8" fill="#f7fafc" stroke="#cbd5e0"/>
+  <text x="788" y="114" class="b">mcp_config.json — 6 servers over stdio</text>
+  <text x="788" y="133" class="s">launched by MCPManager; a fresh session per call</text>
+
+  <rect x="788" y="150" width="440" height="66" rx="6" fill="#ffffff" stroke="#2b6cb0"/>
+  <text x="804" y="172" class="b">terrain</text>
+  <text x="804" y="191" class="mg">sample_elevation_grid · get_elevation</text>
+  <text x="804" y="208" class="mg">get_watershed_boundary · resolve_watershed</text>
+
+  <rect x="788" y="226" width="440" height="48" rx="6" fill="#ffffff" stroke="#2b6cb0"/>
+  <text x="804" y="248" class="b">fan_wtd</text>
+  <text x="804" y="265" class="mg">get_fan_wtd_points</text>
+
+  <rect x="788" y="284" width="440" height="48" rx="6" fill="#ffffff" stroke="#2b6cb0"/>
+  <text x="804" y="306" class="b">usgs_water</text>
+  <text x="804" y="323" class="mg">get_streamflow · get_water_table</text>
+
+  <rect x="788" y="342" width="440" height="48" rx="6" fill="#ffffff" stroke="#2b6cb0"/>
+  <text x="804" y="364" class="b">snotel</text>
+  <text x="804" y="381" class="mg">get_swe</text>
+
+  <rect x="788" y="400" width="440" height="126" rx="6" fill="#ffffff" stroke="#2b6cb0" stroke-width="2.5"/>
+  <text x="804" y="423" class="b">reaction</text>
+  <text x="876" y="423" class="s">reaction_sandbox_mcp — 40 tools</text>
+  <text x="804" y="446" class="mg">run_pflotran_simulation</text>
+  <text x="804" y="465" class="mg">run_lambda_binning</text>
+  <text x="804" y="484" class="mg">create_column_deck</text>
+  <text x="972" y="484" class="s">← added by us</text>
+  <text x="804" y="508" class="s">36 others: DART · ESMDA · KIM · particle tracking</text>
+
+  <rect x="788" y="536" width="440" height="48" rx="6" fill="#ffffff" stroke="#cbd5e0" stroke-dasharray="4 3"/>
+  <text x="804" y="558" class="b" fill="#718096">geology</text>
+  <text x="804" y="575" class="s">registered, but no call site exists</text>
+
+  <!-- ================= arrows =================
+       Reception's calls run in the OUTER lane (x≈700), the Experiment
+       Manager's in the INNER lane (x≈560), so the two sets do not tangle. -->
+
+  <!-- Reception -> terrain -->
+  <path d="M466,180 C640,180 700,178 788,178" fill="none" stroke="#2b6cb0" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="506" y="172" class="lbl">2 tools only</text>
+
+  <!-- Reception -> usgs_water / snotel -->
+  <path d="M466,206 C700,206 700,300 788,300" fill="none" stroke="#2b6cb0" stroke-width="1.6" marker-end="url(#a)"/>
+  <path d="M466,218 C714,218 714,360 788,360" fill="none" stroke="#2b6cb0" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="506" y="240" class="lbl">observations</text>
+
+  <!-- _materialize -> terrain / fan_wtd (inner lane, up) -->
+  <path d="M466,356 C560,356 600,196 788,196" fill="none" stroke="#2b6cb0" stroke-width="1.8" marker-end="url(#a)"/>
+  <path d="M466,366 C570,366 620,252 788,252" fill="none" stroke="#2b6cb0" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="500" y="310" class="lbl">grid · boundary</text>
+  <text x="500" y="326" class="lbl">water table</text>
+
+  <!-- _build stays local -->
+  <path d="M466,394 C520,394 550,394 606,394" fill="none" stroke="#8a8f98" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ag)"/>
+  <text x="614" y="398" class="lbl" fill="#718096">local — see note</text>
+
+  <!-- _run -> reaction (the thick one) -->
+  <path d="M466,426 C600,426 660,442 788,442" fill="none" stroke="#2b6cb0" stroke-width="3" marker-end="url(#a)"/>
+  <text x="506" y="418" class="lbl">run_pflotran_simulation</text>
+
+  <!-- _binned_network -> reaction -->
+  <path d="M466,458 C600,458 660,466 788,466" fill="none" stroke="#2b6cb0" stroke-width="2.2" marker-end="url(#a)"/>
+  <text x="506" y="480" class="lbl">run_lambda_binning</text>
+
+  <!-- ================= contract panel ================= -->
+  <rect x="34" y="722" width="1212" height="130" rx="8" fill="#fffaf0" stroke="#dd9d54"/>
+  <text x="52" y="746" class="b">The contract on the reaction path</text>
+
+  <text x="52" y="770" class="t"><tspan font-weight="700">Configured means used.</tspan> If a reaction client is present and cannot answer attributably, <tspan class="m">_run</tspan> raises — it does not quietly run locally.</text>
+  <text x="52" y="791" class="t"><tspan font-weight="700">Attribution or nothing.</tspan> Aggregate <tspan class="m">exit_codes</tspan> come back in completion order; only <tspan class="m">results_by_input</tspan> maps an outcome to its column.</text>
+  <text x="52" y="812" class="t"><tspan font-weight="700">Two timeouts.</tspan> <tspan class="m">timeout</tspan> bounds each column inside the server; the client's per-call budget is resized to the ensemble, then restored.</text>
+  <text x="52" y="832" class="s">The local runner still serves callers with no client at all — tests, tools/, direct manager calls.</text>
+  <text x="52" y="847" class="s">_build stays local because create_column_deck is per column, while _build needs ensemble-level skip counting and the assumptions ledger. The chemistry graft stays local too: configure_reaction_sandbox is a no-op upstream.</text>
+</svg>
