@@ -275,7 +275,19 @@ class PFLOTRANExpManager(ExperimentManagerBase):
     MAX_PARALLEL = 4
 
     def _run(self, experiments: List[Dict], config: Dict[str, Any]) -> List[Dict]:
-        """Execute the decks directly. No scheduler — see NEEDS_SCHEDULER."""
+        """Execute the decks. No scheduler — see NEEDS_SCHEDULER.
+
+        THROUGH THE REACTION MCP WHEN ONE IS AVAILABLE, locally otherwise. The
+        server's run_pflotran_simulation does the same work — it shells out to
+        the same binary — so this is not a capability the framework lacks; it
+        is the framework using the registered tool rather than reaching past
+        it, which is the same reason _binned_network prefers the MCP.
+
+        The local path is NOT a legacy leftover. It is what runs when no client
+        is passed (tests, tools, a direct manager call), and it is the fallback
+        when the server answers in a shape this cannot attribute — see
+        _run_via_mcp.
+        """
         import os
         from concurrent.futures import ThreadPoolExecutor
 
@@ -287,6 +299,14 @@ class PFLOTRANExpManager(ExperimentManagerBase):
         limit = config.get("timeout_s", self.RUN_TIMEOUT_S)
         width = max(1, int(config.get("max_parallel", self.MAX_PARALLEL)))
         width = min(width, len(experiments) or 1)
+
+        client = (config.get("mcp_clients") or {}).get("reaction")
+        if client is not None and config.get("run_via_mcp", True):
+            out = self._run_via_mcp(experiments, client, limit, width)
+            if out is not None:
+                return out
+            print("   ⚠️  MCP run unusable — falling back to the local runner")
+
         if width > 1:
             print(f"   running {len(experiments)} column(s), "
                   f"{width} at a time")
@@ -300,6 +320,73 @@ class PFLOTRANExpManager(ExperimentManagerBase):
                 lambda e: self._run_one(e, exe, limit), experiments))
         return results
 
+    def _run_via_mcp(self, experiments: List[Dict], client, limit: float,
+                     width: int):
+        """The whole ensemble in one MCP call, or None to fall back.
+
+        RETURNS None RATHER THAN GUESSING. The server's aggregate `exit_codes`
+        are in COMPLETION order — as_completed yields whichever job finished
+        first — so exit_codes[i] does not belong to decks[i]. Only
+        `results_by_input` maps an outcome to the deck that produced it. A
+        server that does not send that map still ran the columns, but nothing
+        here could say WHICH column failed or how long any took, and a row in
+        experiment.json attributed to the wrong column is worse than a slower
+        run. So: no map, no result — fall back and run them locally.
+        """
+        decks, by_deck = [], {}
+        for e in experiments:
+            d = next(Path(e.get("case_dir") or "").glob("*.in"), None)
+            if d is not None:
+                decks.append(str(d))
+                by_deck[str(d)] = e
+        if not decks:
+            return None
+
+        print(f"   running {len(decks)} column(s) via the reaction MCP, "
+              f"{width} at a time")
+        r = client.call_tool_json("run_pflotran_simulation", {
+            "input_file": decks, "mode": "ensemble_parallel",
+            "max_parallel": width, "num_cores": 1,
+            "timeout": limit}) or {}
+
+        # None on an MCP timeout; {} or a bare error on a server-side failure.
+        rbi = r.get("results_by_input")
+        if not isinstance(rbi, dict) or not rbi:
+            print(f"   ⚠️  MCP returned no per-column results "
+                  f"({r.get('error') or r.get('validation_status') or 'no answer'})")
+            return None
+
+        results = []
+        for e in experiments:                       # EXPERIMENT order, always
+            case_dir = Path(e.get("case_dir") or "")
+            deck = next(case_dir.glob("*.in"), None)
+            one = rbi.get(str(deck)) if deck is not None else None
+            if one is None:
+                outcome = {"status": "failed", "runtime_seconds": None,
+                           "returncode": None, "n_output_files": 0,
+                           "reason": "no .in deck in the case dir"
+                                     if deck is None else
+                                     "the MCP reported no result for this deck",
+                           "run_via": "mcp"}
+            else:
+                codes = one.get("exit_codes") or [None]
+                ok = (one.get("validation_status") == "success"
+                      and any(case_dir.glob("*.tec")))
+                outcome = {
+                    "status": "completed" if ok else "failed",
+                    "runtime_seconds": one.get("execution_time"),
+                    "returncode": codes[0] if codes else None,
+                    "n_output_files": len(list(case_dir.glob("*.tec"))),
+                    "reason": None if ok else (one.get("error")
+                                               or "run failed"),
+                    "run_via": "mcp"}
+            e.update(outcome)
+            results.append({**e, **outcome})
+            print(f"  {'✓' if outcome['status'] == 'completed' else '✗'} "
+                  f"{e.get('id')}: {outcome['runtime_seconds']}s, "
+                  f"{outcome['n_output_files']} tec")
+        return results
+
     def _run_one(self, e: Dict[str, Any], exe: str, limit: float) -> Dict[str, Any]:
         """One column. Returns its outcome and writes it back onto `e`."""
         import subprocess, time
@@ -307,7 +394,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
         deck = next(case_dir.glob("*.in"), None)
         if deck is None:
             outcome = {"status": "failed",
-                       "reason": "no .in deck in the case dir"}
+                       "reason": "no .in deck in the case dir",
+                       "run_via": "local"}
             e.update(outcome)
             return {**e, **outcome}
         t0 = time.time()
@@ -327,7 +415,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
                        "returncode": None,
                        "n_output_files": len(list(case_dir.glob("*.tec"))),
                        "reason": f"exceeded {limit}s — timestep collapse "
-                                 f"or a non-converging solve"}
+                                 f"or a non-converging solve",
+                       "run_via": "local"}
             e.update(outcome)
             print(f"  ✗ {e.get('id')}: TIMEOUT after {limit}s")
             return {**e, **outcome}
@@ -338,7 +427,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
                    "returncode": proc.returncode,
                    "n_output_files": len(list(case_dir.glob("*.tec"))),
                    "reason": None if ok else
-                             (proc.stderr or "").strip()[-200:]}
+                             (proc.stderr or "").strip()[-200:],
+                   "run_via": "local"}
         # Written back onto the experiment too, not only into the returned
         # copy. execute_plan hands _extract the EXPERIMENTS list, never
         # _run's return value, so a timing that lives only in the copy

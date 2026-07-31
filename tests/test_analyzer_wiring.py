@@ -287,6 +287,47 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
         row = self._extract([{"id": "col_09", "case_dir": d}])
         assert row["status"] == "failed" and row["reason"]
 
+    def test_an_unattributable_mcp_answer_falls_back_instead_of_guessing(
+            self, tmp_path):
+        """The server's aggregate exit_codes are in COMPLETION order.
+
+        as_completed yields whichever job finished first, so exit_codes[i] does
+        not belong to decks[i]; only results_by_input maps an outcome to the
+        deck that produced it. A server that omits that map still ran the
+        columns, but nothing could say WHICH failed — and a row in
+        experiment.json attributed to the wrong column is worse than a slower
+        run. So an answer without the map must be refused, not interpreted.
+        """
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
+        d = tmp_path / "col_01"
+        d.mkdir()
+        (d / "col_01.in").write_text("x")
+        exps = [{"id": "col_01", "case_dir": d}]
+
+        class _Client:
+            def __init__(self, payload):
+                self.payload = payload
+            def call_tool_json(self, *a, **k):
+                return self.payload
+
+        # the lossy shapes: no map, empty map, an outright timeout (None)
+        for payload in ({"exit_codes": [0], "validation_status": "success"},
+                        {"results_by_input": {}},
+                        None):
+            assert m._run_via_mcp(exps, _Client(payload), 60, 1) is None
+
+        # and the shape it CAN attribute is used
+        good = {"results_by_input": {str(d / "col_01.in"): {
+            "exit_codes": [0], "validation_status": "success",
+            "execution_time": 1.25, "output_files": []}}}
+        (d / "col_01-000.tec").write_text("x")
+        out = m._run_via_mcp(exps, _Client(good), 60, 1)
+        assert out is not None
+        assert out[0]["status"] == "completed"
+        assert out[0]["runtime_seconds"] == 1.25
+        assert out[0]["run_via"] == "mcp"
+
     def test_results_stay_in_experiment_order_not_completion_order(
             self, tmp_path):
         """Columns run concurrently, so completion order is a race.

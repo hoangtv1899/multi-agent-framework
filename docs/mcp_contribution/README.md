@@ -71,6 +71,27 @@ Before, that call returned `None` after 300 s with nothing.
 Default is `None` (no limit), so existing behaviour is unchanged unless asked
 for.
 
+### 2b. Ensemble results could not be attributed
+
+`_run_ensemble_parallel` collected via `as_completed`, so the aggregate
+`exit_codes` come back in **completion order** — `exit_codes[i]` does not
+belong to `input_files[i]`. A caller could count failures but could not say
+which realization failed, how long any took, or where one realization's
+output went.
+
+**Fix:** every run is now timed (`execution_time` on each `_run_single`
+return), and `_run_ensemble_parallel` returns `results_by_input` — a map from
+each input file to its own result. The aggregate lists are unchanged, so
+nothing existing breaks.
+
+```
+results_by_input: 4 entries
+   col_02_r100.in   exit=[0]     success  1.727s   4 out
+   col_03_r100.in   exit=[0]     success  1.627s   4 out
+   col_06_r100.in   exit=[0]     success  1.926s   4 out
+   col_HANG.in      exit=[None]  failed  20.016s   3 out  exceeded 20.0s
+```
+
 ## 3. New tool — `create_column_deck`
 
 `create_pflotran_input` writes the skeleton of a deck: simulation type, grid,

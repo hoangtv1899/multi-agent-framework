@@ -1,5 +1,5 @@
---- tools/simulation.py.orig	2026-07-31 07:06:44.754225197 -0700
-+++ tools/simulation.py	2026-07-31 07:29:37.598163338 -0700
+--- /qfs/people/tran289/IDEAS/reaction_sandbox_mcp-main/tools/simulation.py.orig	2026-07-31 07:06:44.754225197 -0700
++++ /qfs/people/tran289/IDEAS/reaction_sandbox_mcp-main/tools/simulation.py	2026-07-31 07:44:23.944384360 -0700
 @@ -17,7 +17,7 @@
  import re
  from pathlib import Path
@@ -49,7 +49,7 @@
          )
      else:
          return {
-@@ -203,8 +211,17 @@
+@@ -203,8 +211,18 @@
      executable: str,
      num_cores: int,
      mpi_command: str,
@@ -65,10 +65,11 @@
 +    already finished, and the caller gets nothing back. Bounded here instead,
 +    a stuck column fails alone and its siblings return normally.
 +    """
++    run_t0 = time.time()
      input_path = Path(input_file)
      base_name = input_path.stem
      work_dir = input_path.parent
-@@ -222,14 +239,29 @@
+@@ -222,14 +240,30 @@
      # Execute
      try:
          with open(stdout_path, 'w') as stdout_f, open(stderr_path, 'w') as stderr_f:
@@ -100,13 +101,22 @@
 +                    "stderr_paths": [str(stderr_path)],
 +                    "output_files": _find_output_files(work_dir, base_name),
 +                    "validation_status": "failed",
++                    "execution_time": round(time.time() - run_t0, 3),
 +                    "error": f"exceeded {timeout}s — non-converging solve or "
 +                             f"a collapsed timestep",
 +                }
  
          # Find output files
          output_files = _find_output_files(work_dir, base_name)
-@@ -321,8 +353,14 @@
+@@ -240,6 +274,7 @@
+             "stderr_paths": [str(stderr_path)],
+             "output_files": output_files,
+             "validation_status": "success" if process.returncode == 0 else "failed",
++            "execution_time": round(time.time() - run_t0, 3),
+         }
+ 
+     except Exception as e:
+@@ -321,8 +356,14 @@
      num_cores: int,
      mpi_command: str,
      max_parallel: Optional[int] = None,
@@ -122,12 +132,20 @@
      if max_parallel is None:
          max_parallel = min(len(input_files), os.cpu_count() or 4)
  
-@@ -332,13 +370,24 @@
+@@ -331,14 +372,31 @@
+     stderr_paths = []
      output_files = []
      failed_runs = []
- 
+-
 -    # Use ProcessPoolExecutor for parallel execution
 -    with ProcessPoolExecutor(max_workers=max_parallel) as executor:
++    # PER INPUT FILE, because the aggregate lists below are in COMPLETION
++    # order — as_completed yields whichever job finished first — so
++    # exit_codes[i] does not belong to input_files[i]. Without this map a
++    # caller can count failures but cannot say WHICH realization failed,
++    # how long any of them took, or where one realization's output went.
++    results_by_input = {}
++
 +    # THREADS, NOT PROCESSES. This was ProcessPoolExecutor, which defaults to
 +    # fork on Linux. When this module is imported by the MCP stdio server —
 +    # which runs anyio reader/writer threads — the forked child inherits a
@@ -150,3 +168,29 @@
              )
              future_to_input[future] = input_file
  
+@@ -347,6 +405,7 @@
+             input_file = future_to_input[future]
+             try:
+                 result = future.result()
++                results_by_input[input_file] = result
+                 if result.get("validation_status") == "success":
+                     exit_codes.extend(result["exit_codes"])
+                     stdout_paths.extend(result["stdout_paths"])
+@@ -357,6 +416,9 @@
+                     exit_codes.append(-1)
+             except Exception as e:
+                 print(f"Error running {input_file}: {e}", file=sys.stderr)
++                results_by_input[input_file] = {
++                    "exit_codes": [-1], "validation_status": "failed",
++                    "error": str(e), "output_files": []}
+                 failed_runs.append(input_file)
+                 exit_codes.append(-1)
+ 
+@@ -370,6 +432,7 @@
+         "stdout_paths": stdout_paths,
+         "stderr_paths": stderr_paths,
+         "output_files": output_files,
++        "results_by_input": results_by_input,
+         "num_successful": len(input_files) - len(failed_runs),
+         "num_failed": len(failed_runs),
+         "validation_status": validation_status,
