@@ -1,0 +1,32 @@
+--- tools/simulation.py.orig	2026-07-31 07:06:44.754225197 -0700
++++ tools/simulation.py	2026-07-31 07:07:02.251725698 -0700
+@@ -17,7 +17,7 @@
+ import re
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Union
+-from concurrent.futures import ProcessPoolExecutor, as_completed
++from concurrent.futures import ThreadPoolExecutor, as_completed
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -332,8 +332,18 @@
+     output_files = []
+     failed_runs = []
+ 
+-    # Use ProcessPoolExecutor for parallel execution
+-    with ProcessPoolExecutor(max_workers=max_parallel) as executor:
++    # THREADS, NOT PROCESSES. This was ProcessPoolExecutor, which defaults to
++    # fork on Linux. When this module is imported by the MCP stdio server —
++    # which runs anyio reader/writer threads — the forked child inherits a
++    # lock that may be held at fork time and deadlocks before doing any work.
++    # Measured: three decks that finish in 1.8 s when this function is called
++    # outside the server ran for the full 300 s MCP timeout, spawned no
++    # PFLOTRAN process at all, and returned nothing.
++    #
++    # Threads are also simply the right tool: _run_single does nothing but
++    # wait on subprocess.run, which is I/O-bound and releases the GIL, so a
++    # separate interpreter per job bought nothing even when it worked.
++    with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+         # Submit all jobs
+         future_to_input = {}
+         for input_file in input_files:

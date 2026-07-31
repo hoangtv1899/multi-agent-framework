@@ -94,3 +94,58 @@ held by the sandbox EQUILIBRATE block (an open re-aerating system by
 design), so O2 is not a free diagnostic here; and the nitrogen source is
 prescribed inlet chemistry, not ELM-derived, because no solute coupler
 exists yet.
+
+---
+
+## LOCAL MODIFICATION to upstream — `tools/simulation.py` (2026-07-31)
+
+**Upstream is no longer pristine.** Everything else in this port was done from
+outside the upstream tree precisely so it stayed pullable; this one is not.
+A re-clone, a re-unzip, or a `git pull` WILL silently drop it and
+`ensemble_parallel` will go back to hanging. Backup of the original is at
+`tools/simulation.py.orig`.
+
+### What changed
+
+`_run_ensemble_parallel` used `ProcessPoolExecutor`; it now uses
+`ThreadPoolExecutor`. Two lines: the import at the top of the file, and the
+`with` statement inside the function.
+
+### Why
+
+`ProcessPoolExecutor` defaults to **fork** on Linux. The MCP stdio server runs
+anyio reader/writer threads, so the forked child inherits a lock that may be
+held at fork time and deadlocks before doing any work.
+
+Measured, in the order that isolates each variable:
+
+| what was run | result |
+|---|---|
+| `_run_ensemble_parallel`, 3 decks, OUTSIDE the server | 1.8 s, 12 `.tec`, exit 0 |
+| the same through `run_pflotran_simulation` | **300 s MCP timeout, no PFLOTRAN spawned, no output** |
+| `ProcessPoolExecutor` in a single-threaded asyncio loop | fine, 0.0 s |
+| the same with background threads holding a lock | **deadlock, killed by timeout** |
+
+Threads are also simply correct here: `_run_single` does nothing but wait on
+`subprocess.run`, which is I/O-bound and releases the GIL, so a separate
+interpreter per job bought nothing even when it worked.
+
+### After the fix
+
+Same call that previously hung: **3.1 s**, exit codes `[0, 0, 0]`, 12 `.tec`
+files on disk.
+
+### THE UPSTREAM TREE IS NOT UNDER VERSION CONTROL
+
+`reaction_sandbox_mcp-main` was unzipped, not cloned, so this edit is not
+tracked anywhere by git. A recoverable copy lives in THIS repo at
+`docs/reaction_mcp_ensemble_parallel.patch` — apply it with
+
+```bash
+cd $REACTION_MCP_DIR && patch -p0 < .../docs/reaction_mcp_ensemble_parallel.patch
+```
+
+### If you re-pull upstream
+
+Re-apply both lines, or `cp tools/simulation.py.orig tools/simulation.py` and
+redo them. Worth sending upstream — it is a two-line fix with a reproducer.
