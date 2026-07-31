@@ -1,0 +1,152 @@
+--- tools/simulation.py.orig	2026-07-31 07:06:44.754225197 -0700
++++ tools/simulation.py	2026-07-31 07:29:37.598163338 -0700
+@@ -17,7 +17,7 @@
+ import re
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Union
+-from concurrent.futures import ProcessPoolExecutor, as_completed
++from concurrent.futures import ThreadPoolExecutor, as_completed
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -76,6 +76,7 @@
+     cores_per_realization: int = 1,
+     max_parallel: Optional[int] = None,
+     output_dir: Optional[str] = None,
++    timeout: Optional[float] = None,
+ ) -> Dict[str, Any]:
+     """
+     Execute PFLOTRAN simulation with MPI support.
+@@ -99,6 +100,11 @@
+                                num_groups will be calculated as: num_cores / cores_per_realization
+         max_parallel: For ensemble_parallel mode (max concurrent jobs)
+         output_dir: Move outputs here after completion (optional)
++        timeout: Per-simulation wall limit in seconds. Bounds EACH run
++                 independently, so in an ensemble one non-converging
++                 column fails alone instead of stalling the whole call
++                 until the client abandons the session. None = no limit
++                 (the previous behaviour).
+ 
+     Returns:
+         Dictionary with:
+@@ -156,7 +162,8 @@
+ 
+     # Execute based on mode
+     if mode == "single":
+-        result = _run_single(input_files[0], executable, num_cores, mpi_command)
++        result = _run_single(input_files[0], executable, num_cores,
++                             mpi_command, timeout)
+     elif mode == "stochastic":
+         if num_realizations is None:
+             return {
+@@ -181,7 +188,8 @@
+         )
+     elif mode == "ensemble_parallel":
+         result = _run_ensemble_parallel(
+-            input_files, executable, num_cores, mpi_command, max_parallel
++            input_files, executable, num_cores, mpi_command, max_parallel,
++            timeout
+         )
+     else:
+         return {
+@@ -203,8 +211,17 @@
+     executable: str,
+     num_cores: int,
+     mpi_command: str,
++    timeout: Optional[float] = None,
+ ) -> Dict[str, Any]:
+-    """Run single PFLOTRAN simulation."""
++    """Run single PFLOTRAN simulation.
++
++    `timeout` bounds THIS run, in seconds. Without it the only thing that can
++    stop a non-converging solve is the MCP client abandoning the session, which
++    kills the whole call — so in an ensemble, one column whose timestep
++    collapses takes down every other column with it, including the ones that
++    already finished, and the caller gets nothing back. Bounded here instead,
++    a stuck column fails alone and its siblings return normally.
++    """
+     input_path = Path(input_file)
+     base_name = input_path.stem
+     work_dir = input_path.parent
+@@ -222,14 +239,29 @@
+     # Execute
+     try:
+         with open(stdout_path, 'w') as stdout_f, open(stderr_path, 'w') as stderr_f:
+-            process = subprocess.run(
+-                cmd,
+-                cwd=work_dir,
+-                stdout=stdout_f,
+-                stderr=stderr_f,
+-                env=_build_pflotran_env(),
+-                check=False
+-            )
++            try:
++                process = subprocess.run(
++                    cmd,
++                    cwd=work_dir,
++                    stdout=stdout_f,
++                    stderr=stderr_f,
++                    env=_build_pflotran_env(),
++                    check=False,
++                    timeout=timeout
++                )
++            except subprocess.TimeoutExpired:
++                # A FAILED RUN, NOT A RAISED EXCEPTION. Whatever the solve
++                # managed to write is still listed, but exit_codes is [None]
++                # so no caller mistakes a truncated run for a finished one.
++                return {
++                    "exit_codes": [None],
++                    "stdout_paths": [str(stdout_path)],
++                    "stderr_paths": [str(stderr_path)],
++                    "output_files": _find_output_files(work_dir, base_name),
++                    "validation_status": "failed",
++                    "error": f"exceeded {timeout}s — non-converging solve or "
++                             f"a collapsed timestep",
++                }
+ 
+         # Find output files
+         output_files = _find_output_files(work_dir, base_name)
+@@ -321,8 +353,14 @@
+     num_cores: int,
+     mpi_command: str,
+     max_parallel: Optional[int] = None,
++    timeout: Optional[float] = None,
+ ) -> Dict[str, Any]:
+-    """Run multiple PFLOTRAN simulations in parallel."""
++    """Run multiple PFLOTRAN simulations in parallel.
++
++    `timeout` bounds EACH simulation independently, so one column whose
++    timestep collapses fails on its own and the rest of the ensemble still
++    returns.
++    """
+     if max_parallel is None:
+         max_parallel = min(len(input_files), os.cpu_count() or 4)
+ 
+@@ -332,13 +370,24 @@
+     output_files = []
+     failed_runs = []
+ 
+-    # Use ProcessPoolExecutor for parallel execution
+-    with ProcessPoolExecutor(max_workers=max_parallel) as executor:
++    # THREADS, NOT PROCESSES. This was ProcessPoolExecutor, which defaults to
++    # fork on Linux. When this module is imported by the MCP stdio server —
++    # which runs anyio reader/writer threads — the forked child inherits a
++    # lock that may be held at fork time and deadlocks before doing any work.
++    # Measured: three decks that finish in 1.8 s when this function is called
++    # outside the server ran for the full 300 s MCP timeout, spawned no
++    # PFLOTRAN process at all, and returned nothing.
++    #
++    # Threads are also simply the right tool: _run_single does nothing but
++    # wait on subprocess.run, which is I/O-bound and releases the GIL, so a
++    # separate interpreter per job bought nothing even when it worked.
++    with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+         # Submit all jobs
+         future_to_input = {}
+         for input_file in input_files:
+             future = executor.submit(
+-                _run_single, input_file, executable, num_cores, mpi_command
++                _run_single, input_file, executable, num_cores, mpi_command,
++                timeout
+             )
+             future_to_input[future] = input_file
+ 

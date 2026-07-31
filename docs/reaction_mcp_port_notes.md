@@ -139,7 +139,10 @@ files on disk.
 
 `reaction_sandbox_mcp-main` was unzipped, not cloned, so this edit is not
 tracked anywhere by git. A recoverable copy lives in THIS repo at
-`docs/reaction_mcp_ensemble_parallel.patch` — apply it with
+`docs/mcp_contribution/` — the full bundle (both patches plus the two new
+modules), with its own README. The older single-file patch
+`docs/reaction_mcp_ensemble_parallel.patch` covers only the first fix;
+prefer the bundle. Apply the single-file one with
 
 ```bash
 cd $REACTION_MCP_DIR && patch -p0 < .../docs/reaction_mcp_ensemble_parallel.patch
@@ -149,3 +152,29 @@ cd $REACTION_MCP_DIR && patch -p0 < .../docs/reaction_mcp_ensemble_parallel.patc
 
 Re-apply both lines, or `cp tools/simulation.py.orig tools/simulation.py` and
 redo them. Worth sending upstream — it is a two-line fix with a reproducer.
+
+
+---
+
+## SECOND AND THIRD LOCAL MODIFICATIONS (2026-07-31)
+
+Beyond the ThreadPoolExecutor fix above, upstream now also carries:
+
+  * a `timeout` parameter through `run_pflotran_simulation` → `run_simulation`
+    → `_run_single`, so one non-converging column fails alone instead of
+    stalling an entire ensemble call until the client gives up. Default None,
+    so nothing changes unless asked for.
+  * a new tool `create_column_deck`, plus `tools/column_builder.py` and
+    `tools/pflotran_input_agent.py`. Builds a RUNNABLE 1-D column —
+    `create_pflotran_input` only writes a skeleton PFLOTRAN rejects. Its output
+    is byte-identical to `tools/build_pflotran_cases.py` for the same site
+    (879/879 lines), verified, and PFLOTRAN runs it.
+
+`server.py` HAD NO PRISTINE BACKUP when it was first edited — `server.py.orig`
+was reconstructed afterwards by reversing the two known edits, and verified by
+tool count (39 vs 40) and by re-applying the patches to it. It is correct, but
+it is a reconstruction rather than an untouched original.
+
+Everything needed to reproduce all three changes on a clean checkout is in
+`docs/mcp_contribution/`, which was tested by applying it to pristine copies:
+all four files come out byte-identical to the live tree.

@@ -1,0 +1,101 @@
+--- server.py.orig	2026-07-31 07:34:50.822614799 -0700
++++ server.py	2026-07-31 07:33:08.525916070 -0700
+@@ -159,6 +159,71 @@
+ 
+ 
+ @mcp.tool()
++def create_column_deck(
++    column: Dict[str, Any],
++    out_dir: str,
++    water_table_m: Optional[float] = None,
++    recharge_mm_yr: float = 100.0,
++    recharge_series: Optional[List[List[float]]] = None,
++    years: float = 20.0,
++    depth_cap: float = 50.0,
++    bottom: Literal["water_table", "none"] = "water_table",
++    spin_years: float = 10.0,
++) -> Dict[str, Any]:
++    """
++    Build a RUNNABLE 1-D variably-saturated soil column deck for one site.
++
++    Complements create_pflotran_input, which writes the skeleton of a deck —
++    simulation type, grid, time, output — and stops there. That skeleton has no
++    material properties, no regions, no strata and no flow conditions, so
++    PFLOTRAN rejects it at read time. This tool writes the physics for the case
++    the LAMBDA workflow needs: soil horizons as cells, a hydrostatic initial
++    condition pinned at the site's water table, and a recharge flux on top.
++
++    Args:
++        column: site description. Uses `id`, `soil_profile` (a dict with a
++            `layers` list carrying depth_top_cm, depth_bot_cm and
++            van_genuchten parameters), and `fan_wtd_m` for the water table.
++        out_dir: parent directory; the case gets its own subdirectory.
++        water_table_m: water-table depth below ground in metres, positive
++            down. Overrides column['fan_wtd_m'].
++        recharge_mm_yr: steady top flux, when recharge_series is not given.
++        recharge_series: transient top flux, [[time_y, flux_m_per_y], ...].
++            The deck runs spin_years steady at the series mean first, so the
++            column is not still relaxing out of its initial condition when the
++            signal of interest arrives. Model-agnostic on purpose — supply it
++            from a land-surface model, a measured record, or anywhere else.
++        years: simulated duration for a steady flux.
++        depth_cap: maximum domain depth. A site whose water table is deeper
++            runs fully unsaturated and is reported wt_in_domain=False rather
++            than silently deepened.
++        bottom: "water_table" for hydrostatic at the water table, or "none"
++            for no-flow.
++        spin_years: steady spin-up before a transient series.
++
++    Returns:
++        case_dir, input_file, n_cells, depth_m, water_table_m, wt_in_domain,
++        soil_horizons, recharge_mm_yr, transient, validation_status.
++
++    Example:
++        >>> create_column_deck(
++        ...     column={"id": "col_01", "fan_wtd_m": 21.6,
++        ...             "soil_profile": {"layers": [...]}},
++        ...     out_dir="/scratch/study", years=20.0)
++    """
++    from tools.column_builder import build_column_deck
++    try:
++        return build_column_deck(
++            column=column, out_dir=out_dir, water_table_m=water_table_m,
++            recharge_mm_yr=recharge_mm_yr, recharge_series=recharge_series,
++            years=years, depth_cap=depth_cap, bottom=bottom,
++            spin_years=spin_years)
++    except Exception as e:
++        return {"error": f"Column deck build failed: {e}",
++                "validation_status": "failed"}
++
++
++@mcp.tool()
+ def configure_reaction_sandbox(
+     input_file: str,
+     sandbox_type: Literal["lambda", "cybernetic", "microbial", "clm-cn", "bioparticle", "simple"],
+@@ -206,6 +271,7 @@
+     cores_per_realization: Optional[int] = None,
+     max_parallel: Optional[int] = None,
+     output_dir: Optional[str] = None,
++    timeout: Optional[float] = None,
+ ) -> Dict[str, Any]:
+     """
+     Execute PFLOTRAN simulation with MPI support.
+@@ -225,6 +291,10 @@
+         cores_per_realization: CPUs per realization (for num_groups calculation)
+         max_parallel: For ensemble_parallel mode (max concurrent jobs)
+         output_dir: Move outputs here after completion (optional)
++        timeout: Per-simulation wall limit in seconds. Strongly recommended
++            for ensembles: without it a single non-converging column stalls
++            the entire call until the MCP client gives up, which discards
++            every other column including the ones that already finished.
+ 
+     Returns:
+         Dictionary with 'exit_codes', 'stdout_paths', 'stderr_paths', 'output_files'
+@@ -294,6 +364,7 @@
+         cores_per_realization=cores_per_realization,
+         max_parallel=max_parallel,
+         output_dir=output_dir,
++        timeout=timeout,
+     )
+ 
+ 
