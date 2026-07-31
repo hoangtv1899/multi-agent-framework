@@ -58,6 +58,34 @@ sys.path.insert(0, "src")
 DEFAULT_BANDS = 4
 
 
+class Pending:
+	"""What _run returns when it SUBMITTED the ensemble instead of finishing it.
+
+	A backend that queues work has two honest things it can do at the end of
+	_run: block until the scheduler is done, or say "here is the job id". The
+	first is what ELM did, and it is why a 40-minute queue wait held a Python
+	process — and a session — hostage. This is the second.
+
+	It is a distinct TYPE rather than a dict with a status key because _run's
+	success shapes are already loose (ELM returns {case: bool}, PFLOTRAN a list
+	of dicts), and a dict carrying "status": "pending" would be indistinguishable
+	from a backend that happened to key its results that way. isinstance is not
+	guessable.
+
+	  job_id   what the scheduler called it — the one thing a later session
+	           needs, and what gets written into the ledger
+	  detail   anything else the backend wants back when it is polled; it is
+	           stored verbatim in the ledger entry and handed to _poll
+	"""
+
+	def __init__(self, job_id: Any, **detail: Any):
+		self.job_id = str(job_id)
+		self.detail = detail
+
+	def __repr__(self) -> str:                                  # pragma: no cover
+		return f"Pending(job_id={self.job_id!r}, {self.detail!r})"
+
+
 class ExperimentManagerBase:
 	"""Sampling, the strategy gate, and packaging — no model in sight."""
 
@@ -226,6 +254,20 @@ class ExperimentManagerBase:
 		d = json.loads(p.read_text())
 		return d if isinstance(d, list) else None
 
+	def _rehydrate_handles(self, experiments: List[Dict],
+						   plan: Dict[str, Any], config: Dict[str, Any]) -> None:
+		"""Restore the live objects a rehydrated build is missing.
+
+		The manifest is JSON, so anything in an experiment dict that was an
+		OBJECT comes back as its repr — truthy, attribute-free, and happy to be
+		passed around until something calls a method on it. A backend that put
+		a model handle in there gets a hook to fix that up (or to drop it) here,
+		before any stage can mistake the string for the thing.
+
+		Default: nothing to restore. PFLOTRAN's experiments are pure data.
+		"""
+		return None
+
 	def _rehydrate_extract(self):
 		"""_extract's rows, from experiment.json — which _package already
 		writes and which carries the rows and their units verbatim."""
@@ -299,6 +341,7 @@ class ExperimentManagerBase:
 			if experiments is not None:
 				_reuse("build", f"{len(experiments)} experiment(s) from "
 							   f"{self.BUILD_MANIFEST}")
+				self._rehydrate_handles(experiments, experiment_plan, config)
 			else:
 				experiments = self._build(experiment_plan, config)
 				self._save_build(experiments)
@@ -316,13 +359,45 @@ class ExperimentManagerBase:
 
 			print(f"\n🌿 STEP 3: Running Simulations")
 			print("-" * 40)
+			# Three ways to arrive here: nothing has run; the ensemble already
+			# ran; or an earlier session SUBMITTED it and left. The third is the
+			# whole point of the ledger.
+			record = (state["stages"].get("run") or {}) if resume else {}
 			if _done("run"):
 				_reuse("run", "the completed ensemble")
 				results = experiments
+			elif record.get("status") == "pending":
+				print(f"↻ run: job {record.get('job_id')} was submitted "
+					  f"{record.get('at', '?')} — checking whether it landed")
+				results = self._poll(record, experiments, config)
+				if results is None:
+					return self._pending_summary(
+						experiment_plan, experiments, record, start_time)
+				self._mark("run", n_results=self._n_results(results),
+						   job_id=record.get("job_id"))
 			else:
 				results = self._run(experiments, config)
-				self._mark("run", n_results=len(results or []) if hasattr(
-					results, "__len__") else None)
+				if isinstance(results, Pending):
+					# Submitted, not finished. Everything below this line needs
+					# results that do not exist yet, so the run stops here and
+					# says so — rather than extracting an empty ensemble and
+					# reporting 0/19 as though the science had failed.
+					#
+					# Warn, do not raise: the job is ALREADY in the queue by the
+					# time we get here, so refusing to continue would throw away
+					# the one thing that makes it recoverable — its id.
+					if type(self)._poll is ExperimentManagerBase._poll:
+						print(f"   ⚠️  {type(self).__name__} submits but has no "
+							  f"_poll — job {results.job_id} is recorded in "
+							  f"{self.STATE_FILE} and will have to be collected "
+							  f"by hand")
+					self._mark("run", status="pending", job_id=results.job_id,
+							   **results.detail)
+					return self._pending_summary(
+						experiment_plan, experiments,
+						{"job_id": results.job_id, **results.detail},
+						start_time)
+				self._mark("run", n_results=self._n_results(results))
 
 			# Reading the model's own output format is the backend's job;
 			# saying what the numbers MEAN is not, and everything past this
@@ -423,6 +498,69 @@ class ExperimentManagerBase:
 
 	def _run(self, experiments, config):
 		raise NotImplementedError(f"{type(self).__name__} must implement _run")
+
+	def _poll(self, record: Dict[str, Any], experiments, config):
+		"""Has the job in `record` finished?
+
+		Return what _run would have returned had it waited, or None if the job
+		is still queued or running. `record` is the ledger's run entry, so it
+		carries job_id and whatever the Pending marker's detail held.
+
+		Only a backend whose _run can return Pending needs this — hence raising
+		rather than returning None, which would read as "still running, forever".
+		"""
+		raise NotImplementedError(
+			f"{type(self).__name__}._run returned Pending (job "
+			f"{record.get('job_id')}) but the class has no _poll to ask whether "
+			f"that job has finished")
+
+	# States in which SLURM still owns the job. Anything else — COMPLETED,
+	# FAILED, TIMEOUT, CANCELLED, NODE_FAIL — means the scheduler is finished
+	# with it, whatever it did, and the backend should go look at the output.
+	ACTIVE_JOB_STATES = {
+		"PENDING", "RUNNING", "CONFIGURING", "COMPLETING", "SUSPENDED",
+		"RESIZING", "REQUEUED", "REQUEUE_HOLD", "REQUEUE_FED", "SIGNALING",
+		"STAGE_OUT", "RESV_DEL_HOLD", "STOPPED",
+	}
+
+	@staticmethod
+	def _slurm_state(job_id: Any) -> Optional[str]:
+		"""SLURM's word for what job_id is doing, or None if it will not say.
+
+		squeue first — it is cheap and it is the only one that sees a job that
+		has not started. Then sacct, which is the only one that remembers a job
+		that has already left the queue.
+
+		None means NO ANSWER, not "finished". A squeue that times out or a
+		cluster without sacct must not be read as a completed ensemble; the
+		caller decides what other evidence it trusts.
+		"""
+		import shutil, subprocess
+		jid = str(job_id).split("_")[0].split(".")[0]
+		if not jid.isdigit():
+			return None
+
+		def _run(cmd) -> Optional[str]:
+			if not shutil.which(cmd[0]):
+				return None
+			try:
+				out = subprocess.run(cmd, capture_output=True, text=True,
+									 timeout=60)
+			except Exception:                                   # noqa: BLE001
+				return None
+			line = (out.stdout or "").strip().splitlines()
+			return line[0].strip() if line and line[0].strip() else None
+
+		st = _run(["squeue", "-h", "-j", jid, "-o", "%T"])
+		if st:
+			return st.upper()
+		# -X so a job's steps do not shadow the job itself; the step lines come
+		# back first and a step can read COMPLETED while the job is still going.
+		st = _run(["sacct", "-n", "-X", "-j", jid, "-o", "State"])
+		if st:
+			# sacct spells cancellation "CANCELLED by 12345"
+			return st.split()[0].upper()
+		return None
 
 	def _extract(self, experiments, plan=None, config=None):
 		raise NotImplementedError(f"{type(self).__name__} must implement _extract")
@@ -967,12 +1105,56 @@ class ExperimentManagerBase:
 									  if 'status' in r else True)
 		return out
 
+	@staticmethod
+	def _n_results(results: Any) -> Optional[int]:
+		"""How many results a backend returned, for the ledger. None when the
+		shape has no length — a count is bookkeeping, not worth a raise."""
+		return len(results) if hasattr(results, "__len__") else None
+
+	def _pending_summary(self,
+						 plan:        Dict[str, Any],
+						 experiments: List[Dict],
+						 record:      Dict[str, Any],
+						 start_time:  datetime) -> Dict[str, Any]:
+		"""The run summary for an ensemble that is still in a queue.
+
+		THE SAME SHAPE as a finished run's, with status="pending" and the job
+		id added. Deliberately not a smaller dict: every existing caller reads
+		experiments_success and experiments_total off this, and handing them a
+		different shape would turn "your job is queued" into an AttributeError
+		three call frames away.
+		"""
+		end_time = datetime.now()
+		summary  = self._create_run_summary(plan, experiments, {},
+											start_time, end_time, pending=True)
+		summary.update({
+			'status':          'pending',
+			'job_id':          record.get('job_id'),
+			'submitted_at':    record.get('at') or start_time.isoformat(),
+			'resume_command':  f"python workflow.py --resume {self.run_dir}",
+		})
+		try:
+			self._save_run_summary(summary)
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   ⚠️  RUN_SUMMARY.json failed ({e}) — the job is still "
+				  f"recorded in {self.STATE_FILE}")
+
+		n = summary['experiments_pending']
+		print(f"\n{'=' * 60}")
+		print(f"{self.MODEL.upper()} SUBMITTED: {n} experiment(s) queued as job "
+			  f"{record.get('job_id')}")
+		print(f"Output: {self.run_dir}")
+		print(f"Resume: {summary['resume_command']}")
+		print(f"{'=' * 60}\n")
+		return summary
+
 	def _create_run_summary(self,
 							plan:        Dict[str, Any],
 							experiments: List[Dict],
 							results:     Any,
 							start_time:  datetime,
-							end_time:    datetime
+							end_time:    datetime,
+							pending:     bool = False
 							) -> Dict[str, Any]:
 		n_total   = len(experiments)
 		ok        = self._outcome_map(results)
@@ -989,10 +1171,13 @@ class ExperimentManagerBase:
 				# by id, so keying only on case_name marked every one of them
 				# failed in a summary written after they had all succeeded.
 				'case_name':         e.get('case_name') or e.get('id'),
+				# A queued column has not failed — it has not been asked yet.
+				# Calling it 'failed' would put 19 failures in the summary of a
+				# run whose job is sitting healthily in the queue.
 				'status':            'completed'
 									 if ok.get(str(e.get('case_name')
 													or e.get('id')))
-									 else 'failed',
+									 else ('pending' if pending else 'failed'),
 				'forcing_period':    e.get('forcing_period'),
 				'forcing_start':     e.get('forcing_start'),
 				'forcing_end':       e.get('forcing_end'),
@@ -1017,7 +1202,11 @@ class ExperimentManagerBase:
 			).total_seconds(),
 			'experiments_total':     n_total,
 			'experiments_success':   n_success,
-			'experiments_failed':    n_total - n_success,
+			# Unfinished ≠ failed. Both keys are always present so a consumer
+			# can add them up without knowing which kind of run it is reading.
+			'experiments_failed':    0 if pending else n_total - n_success,
+			'experiments_pending':   n_total - n_success if pending else 0,
+			'status':                'pending' if pending else 'completed',
 			'experiments':           exp_details,
 			'convergence_warnings':  [],
 			'output_files': {

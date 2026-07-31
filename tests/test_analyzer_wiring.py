@@ -556,3 +556,206 @@ class TestResumeSkipsWhatIsAlreadyDone:
         assert (m._load_state()["stages"]["build"]["status"]) == "done"
         assert m._rehydrate_build() is None, \
             "no manifest on disk means the stage must run again"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 3 — a run that SUBMITS instead of finishing
+# ─────────────────────────────────────────────────────────────────────
+from core.exp_manager_base import ExperimentManagerBase, Pending   # noqa: E402
+
+
+class _Submits(ExperimentManagerBase):
+    """A backend whose _run queues work rather than doing it.
+
+    Stands in for ELM, whose real _run is 40 minutes of SLURM. Everything
+    under test here is control flow in the base, so the compute is a stub.
+    """
+    MODEL = "fake"
+    NEEDS_PREPARE = False
+
+    def __init__(self, *a, **kw):
+        self.calls = []
+        self.polls = []
+        self.poll_returns = None          # None == the job is still running
+        super().__init__(*a, **kw)
+
+    def _materialize(self, plan, config):
+        self.calls.append("materialize")
+        return plan
+
+    def _build(self, plan, config):
+        self.calls.append("build")
+        return [{"case_name": "col_01"}, {"case_name": "col_02"}]
+
+    def _run(self, experiments, config):
+        self.calls.append("run")
+        if config.get("submit"):
+            return Pending("770595", n_cases=len(experiments), queue="short")
+        return {e["case_name"]: True for e in experiments}
+
+    def _poll(self, record, experiments, config):
+        self.calls.append("poll")
+        self.polls.append(record)
+        return self.poll_returns
+
+    def _extract(self, experiments, plan=None, config=None):
+        self.calls.append("extract")
+        import types
+        return types.SimpleNamespace(results=[], units={}, summary={})
+
+    def _package(self, plan, analyzer, config):
+        self.calls.append("package")
+
+    def _save_llm_input(self, plan, analyzer):
+        self.calls.append("llm_input")
+
+
+class _SubmitsButCannotPoll(_Submits):
+    """Submits and has no way to ask whether the job finished."""
+    _poll = ExperimentManagerBase._poll
+
+
+class TestASubmittedEnsembleStopsAndSaysSo:
+    """Phase 3. _run may return a job id instead of results.
+
+    The point of the whole ledger: a 40-minute ELM ensemble should not need a
+    process sitting on a login node for the duration. _run submits, execute_plan
+    records the id and returns, and a later session picks the study back up.
+    """
+
+    def _mgr(self, tmp_path, **kw):
+        return _Submits(base_output_dir=str(tmp_path), **kw)
+
+    def test_it_stops_before_extract(self, tmp_path):
+        """There are no results yet. Extracting anyway would package an empty
+        ensemble and report 0/2 — a queued run described as a failed one."""
+        m = self._mgr(tmp_path)
+        m.execute_plan({}, {"submit": True})
+        assert m.calls == ["materialize", "build", "run"]
+        assert "extract" not in m.calls
+        assert "package" not in m.calls
+
+    def test_the_summary_is_the_same_shape_a_finished_run_returns(self, tmp_path):
+        """Callers read experiments_success/experiments_total off this dict.
+        Handing them a different shape turns 'your job is queued' into an
+        AttributeError three frames away."""
+        m = self._mgr(tmp_path)
+        s = m.execute_plan({}, {"submit": True})
+        for k in ("run_directory", "experiments_total", "experiments_success",
+                  "experiments_failed", "experiments", "model_type",
+                  "total_runtime_seconds", "output_files"):
+            assert k in s, f"pending summary is missing {k}"
+        assert s["status"] == "pending"
+        assert s["job_id"] == "770595"
+        assert "--resume" in s["resume_command"]
+
+    def test_a_queued_column_is_not_a_failed_column(self, tmp_path):
+        """Nothing has been asked of these columns yet. Calling them failed
+        would put 2 failures in the summary of a healthy job."""
+        m = self._mgr(tmp_path)
+        s = m.execute_plan({}, {"submit": True})
+        assert s["experiments_failed"] == 0
+        assert s["experiments_pending"] == 2
+        assert s["experiments_success"] == 0
+        assert [e["status"] for e in s["experiments"]] == ["pending", "pending"]
+
+    def test_a_finished_run_still_reports_failures_as_failures(self, tmp_path):
+        """The pending flag must not soften an ordinary run's accounting."""
+        m = self._mgr(tmp_path)
+        s = m.execute_plan({}, {})
+        assert s["status"] == "completed"
+        assert s["experiments_pending"] == 0
+        assert s["experiments_success"] == 2
+
+    def test_the_ledger_carries_the_job_id(self, tmp_path):
+        """The id is the only thing that makes the run recoverable."""
+        m = self._mgr(tmp_path)
+        m.execute_plan({}, {"submit": True})
+        run = m._load_state()["stages"]["run"]
+        assert run["status"] == "pending"
+        assert run["job_id"] == "770595"
+        assert run["n_cases"] == 2, "Pending detail is kept for _poll"
+
+    def test_resume_polls_instead_of_resubmitting(self, tmp_path):
+        """Re-entering a submitted run must not queue a second ensemble."""
+        m1 = self._mgr(tmp_path)
+        m1.execute_plan({}, {"submit": True})
+
+        m2 = _Submits(base_output_dir=str(tmp_path), run_dir=str(m1.run_dir))
+        s = m2.execute_plan({}, {"submit": True, "resume": True})
+        assert "poll" in m2.calls
+        assert "run" not in m2.calls, "the job was already submitted"
+        assert s["status"] == "pending", "_poll said it is still running"
+        assert m2.polls[0]["job_id"] == "770595"
+
+    def test_resume_carries_on_when_the_job_landed(self, tmp_path):
+        """_poll returns what _run would have returned had it waited, and the
+        pipeline continues from there."""
+        m1 = self._mgr(tmp_path)
+        m1.execute_plan({}, {"submit": True})
+
+        m2 = _Submits(base_output_dir=str(tmp_path), run_dir=str(m1.run_dir))
+        m2.poll_returns = {"col_01": True, "col_02": True}
+        s = m2.execute_plan({}, {"submit": True, "resume": True})
+        assert "extract" in m2.calls and "package" in m2.calls
+        assert s["status"] == "completed"
+        assert s["experiments_success"] == 2
+        assert m2._load_state()["stages"]["run"]["status"] == "done"
+
+    def test_build_is_not_redone_on_the_way_back(self, tmp_path):
+        """The manifest is what stops a resume from paying for the build
+        twice — the same property Phase 2 established, over a job."""
+        m1 = self._mgr(tmp_path)
+        m1.execute_plan({}, {"submit": True})
+        m2 = _Submits(base_output_dir=str(tmp_path), run_dir=str(m1.run_dir))
+        m2.poll_returns = {"col_01": True, "col_02": True}
+        m2.execute_plan({}, {"submit": True, "resume": True})
+        assert "build" not in m2.calls
+
+    def test_a_backend_that_cannot_poll_still_records_the_id(self, tmp_path):
+        """The job is in the queue by then. Raising would discard the one
+        thing that makes it recoverable, so it warns and records."""
+        m = _SubmitsButCannotPoll(base_output_dir=str(tmp_path))
+        s = m.execute_plan({}, {"submit": True})
+        assert s["job_id"] == "770595"
+        assert m._load_state()["stages"]["run"]["job_id"] == "770595"
+
+    def test_and_then_fails_loudly_on_resume(self, tmp_path):
+        """Not silently forever-pending: a missing _poll is a bug in the
+        backend, and it should read as one."""
+        m1 = _SubmitsButCannotPoll(base_output_dir=str(tmp_path))
+        m1.execute_plan({}, {"submit": True})
+        m2 = _SubmitsButCannotPoll(base_output_dir=str(tmp_path),
+                                   run_dir=str(m1.run_dir))
+        with pytest.raises(NotImplementedError, match="770595"):
+            m2.execute_plan({}, {"submit": True, "resume": True})
+
+    def test_pending_is_a_type_not_a_status_key(self, tmp_path):
+        """_run's success shapes are already loose — {case: bool} and a list of
+        dicts. A dict with status='pending' would be indistinguishable from a
+        backend that happened to key its results that way."""
+        m = self._mgr(tmp_path)
+        m.calls = []
+        s = m.execute_plan({}, {})       # _run returns a plain dict
+        assert s["status"] == "completed"
+        assert "extract" in m.calls
+
+
+class TestTheSchedulerIsAskedProperly:
+    """_slurm_state is what _poll leans on, so what it does when SLURM will
+    not answer matters more than what it does when SLURM will."""
+
+    def test_no_answer_is_not_finished(self):
+        """A squeue timeout or a purged sacct must never read as a completed
+        ensemble — the caller decides what other evidence it trusts."""
+        assert ExperimentManagerBase._slurm_state("99999999") is None
+
+    def test_a_non_numeric_id_is_refused_without_shelling_out(self):
+        assert ExperimentManagerBase._slurm_state("not-a-job") is None
+
+    def test_running_states_are_the_ones_that_keep_waiting(self):
+        active = ExperimentManagerBase.ACTIVE_JOB_STATES
+        for s in ("PENDING", "RUNNING", "COMPLETING", "CONFIGURING"):
+            assert s in active
+        for s in ("COMPLETED", "FAILED", "TIMEOUT", "CANCELLED", "NODE_FAIL"):
+            assert s not in active, f"{s} means SLURM is done with the job"

@@ -38,7 +38,9 @@ Output directory structure:
 ELM cases live at: $PSCRATCH/E3SMv3/1D_ELM.*/
 """
 import csv
+import glob
 import json
+import re
 import sys
 from pathlib  import Path
 from datetime import datetime
@@ -47,7 +49,7 @@ from typing   import Dict, Any, List
 sys.path.insert(0, "src")
 
 from agents.analyzer          import Analyzer
-from core.exp_manager_base       import ExperimentManagerBase
+from core.exp_manager_base       import ExperimentManagerBase, Pending
 from core.elm_experiment_builder import ELMExperimentBuilder
 from core.elm_results_analyzer   import ELMResultsAnalyzer
 from core.columns_to_plan        import columns_to_elm_plan
@@ -415,6 +417,15 @@ class ELMExpManager(ExperimentManagerBase):
 		~12 min.
 		"""
 		builder = getattr(self, "_builder", None)
+		if builder is None and getattr(self, "_resume_plan", None) is not None:
+			# Resumed past _build, and _prepare turns out to be needed after
+			# all. The builder is reconstructible from the plan — that is the
+			# whole reason the plan is persisted — so rebuild it here, where
+			# the cost is actually incurred, rather than on every resume.
+			print("   ↻ rebuilding the case builder from the persisted plan")
+			builder = ELMExperimentBuilder(self._resume_plan)
+			builder.build_experiments()
+			self._builder = builder
 		if builder is not None:
 			case_dirs = builder.prepare_cases(output_dir=str(self.run_dir))
 			for exp, cd in zip(experiments, case_dirs):
@@ -439,23 +450,46 @@ class ELMExpManager(ExperimentManagerBase):
 	# ─────────────────────────────────────────────────────────
 	def _run(self,
 			 experiments: List[Dict],
-			 config:      Dict[str, Any]) -> Dict[str, bool]:
+			 config:      Dict[str, Any]):
 		"""
-		Run all simulations via srun (blocking; requires interactive node).
-		After runs complete, write execution_report.txt and
-		results_summary.csv to 03_results/.
+		Run all simulations. Returns {case_name: bool} when it waited, or a
+		Pending marker when config['detach'] asked it to submit and return.
+
+		Detached is the interesting mode: a 19-column ELM ensemble is ~40
+		minutes of queue plus wall clock, and waiting for it holds a Python
+		process — and whatever session started it — for the duration. Submitting
+		and recording the job id lets the study be picked up later, from
+		anywhere, by re-entering with resume=True.
 		"""
-		results = self._run_batch(experiments, config)
+		detach  = bool(config.get("detach"))
+		results = self._run_batch(experiments, config, wait=not detach)
+		if isinstance(results, Pending):
+			return results
 		if results is None:
 			# Fallback: bare srun, serially. Requires an interactive node.
+			# There is no job id to hand back here, so detach cannot apply.
+			if detach:
+				print("   ⚠️  detach requested but batch submission is not "
+					  "usable — running serially instead")
 			results = {}
 			for exp in experiments:
 				results[exp['case_name']] = exp['elm_agent'].run_simulation()
 
+		return self._collect(experiments, results)
+
+	def _collect(self,
+				 experiments: List[Dict],
+				 results:     Dict[str, bool]) -> Dict[str, bool]:
+		"""Everything that happens once the columns have stopped running.
+
+		Split out of _run because a detached ensemble reaches this point from
+		_poll instead, in a later session — and the reports it writes are the
+		same reports either way.
+		"""
 		for exp in experiments:
 			try:
-				exp['run_summary'] = exp['elm_agent'].get_run_summary()
-			except Exception as e:
+				exp['run_summary'] = self._run_summary_for(exp)
+			except Exception as e:                              # noqa: BLE001
 				print(f"   ⚠️  run summary failed for {exp['case_name']}: {e}")
 
 		n_ok   = sum(1 for v in results.values() if v)
@@ -468,18 +502,99 @@ class ELMExpManager(ExperimentManagerBase):
 
 		return results
 
+	@staticmethod
+	def _run_summary_for(exp: Dict) -> Dict[str, Any]:
+		"""The case's run summary, from its live agent when there is one.
+
+		A resumed run has no live agent — the build manifest is JSON — so the
+		one field anything downstream reads (history_files) is taken off disk
+		instead. Asking the string repr of an ELMAgent for a summary is how
+		this reported zero history files for cases that had plenty.
+		"""
+		agent = exp.get('elm_agent')
+		if hasattr(agent, "get_run_summary"):
+			return agent.get_run_summary()
+		cd = exp.get('case_dir')
+		return {'history_files': sorted(glob.glob(f"{cd}/run/*.elm.h0.*.nc"))
+								 if cd else []}
+
+	def _outcomes_from_disk(self, experiments: List[Dict]) -> Dict[str, bool]:
+		"""Which columns produced output. The definition of success used by
+		both the waiting and the detached path: a column succeeded if ELM
+		wrote it a history file."""
+		return {e['case_name']: bool(e.get('case_dir') and
+									 glob.glob(f"{e['case_dir']}/run/*.elm.h0.*.nc"))
+				for e in experiments}
+
+	def _poll(self, record: Dict[str, Any], experiments, config):
+		"""Has the detached ensemble finished? Results if so, None if not.
+
+		Two sources, in order:
+
+		  1. SLURM. While it still owns the job, nothing else matters — a
+		     half-written history file from a running column would otherwise
+		     read as success.
+		  2. run.log's ALL_DONE. Used only when SLURM will not answer (sacct
+		     purged, squeue unreachable), because the alternative is to call an
+		     ensemble finished on no evidence at all.
+
+		Note what is NOT here: a column whose job COMPLETED but which wrote no
+		history file is a failure, not a reason to keep waiting. The scheduler
+		being done is what ends the wait; the files decide the outcome.
+		"""
+		jid   = record.get("job_id")
+		state = self._slurm_state(jid)
+		if state in self.ACTIVE_JOB_STATES:
+			print(f"   job {jid} is {state} — nothing to collect yet")
+			return None
+		if state is None:
+			log = self.run_dir / "run.log"
+			done = log.exists() and "ALL_DONE" in log.read_text(errors="replace")
+			if not done:
+				print(f"   ⚠️  SLURM will not say what job {jid} is doing and "
+					  f"run.log has no ALL_DONE — treating it as still running")
+				return None
+			print(f"   job {jid} is gone from SLURM but run.log says ALL_DONE")
+		else:
+			print(f"   job {jid} finished ({state}) — collecting")
+
+		return self._collect(experiments, self._outcomes_from_disk(experiments))
+
+	def _rehydrate_handles(self, experiments, plan, config) -> None:
+		"""A rehydrated ELM build has no ELMAgents and no builder.
+
+		Both are objects; the manifest is JSON. The agents come back as string
+		reprs, which are truthy and have no methods — so they are dropped here
+		rather than left to fail at the call site. The builder is not
+		reconstructed eagerly: rebuilding it re-runs per-column file generation,
+		which a resume that only needs to collect finished output should not
+		pay for. _prepare rebuilds it on demand from this plan.
+		"""
+		self._resume_plan = plan
+		stale = [e for e in experiments if isinstance(e.get('elm_agent'), str)]
+		for e in stale:
+			e.pop('elm_agent', None)
+		if stale:
+			print(f"   ↻ {len(stale)} case handle(s) are not JSON — resuming "
+				  f"from the case directories on disk")
+
 	def _run_batch(self,
 				   experiments: List[Dict],
-				   config:      Dict[str, Any]):
+				   config:      Dict[str, Any],
+				   wait:        bool = True):
 		"""
-		Run every column as ONE sbatch job via tools/submit_cases.sh --wait.
+		Run every column as ONE sbatch job via tools/submit_cases.sh.
 
 		Works from a login node (the bare-srun path needs a pre-held
-		allocation) and runs the columns concurrently on one node. Returns
-		{case_name: bool} or None if batch submission isn't usable, in which
-		case the caller falls back to serial srun.
+		allocation) and runs the columns concurrently on one node.
+
+		wait=True  → --wait, blocks, returns {case_name: bool}
+		wait=False → submits and returns Pending(job_id)
+
+		Either way returns None if batch submission isn't usable, in which case
+		the caller falls back to serial srun.
 		"""
-		import shutil, subprocess, glob
+		import shutil, subprocess
 		if config.get("no_batch") or not shutil.which("sbatch"):
 			return None
 
@@ -502,26 +617,43 @@ class ELMExpManager(ExperimentManagerBase):
 			str(Path(exeroot) / "e3sm.exe") + "\n")
 
 		cmd = ["bash", str(_ROOT / "tools" / "submit_cases.sh"),
-			   str(self.run_dir), "--wait",
+			   str(self.run_dir),
 			   "-q", str(config.get("queue", "short")),
 			   "-t", str(config.get("walltime", "00:40:00"))]
+		if wait:
+			cmd.append("--wait")
 		if config.get("email"):
 			cmd += ["-m", str(config["email"])]
 		print(f"   submitting {len(cases)} column(s) as one batch job "
-			  f"(queue={config.get('queue', 'short')}) ...")
+			  f"(queue={config.get('queue', 'short')}"
+			  f"{'' if wait else ', detached'}) ...")
 		try:
-			subprocess.run(cmd, cwd=str(_ROOT), check=False)
+			# Detached: capture stdout to read the job id back out of it. The
+			# waiting path keeps streaming to the terminal, where the per-column
+			# summary the script prints is the point.
+			proc = subprocess.run(cmd, cwd=str(_ROOT), check=False,
+								  capture_output=not wait, text=True)
 		except Exception as e:
 			print(f"   ⚠️  batch submission failed ({e}) — serial fallback")
 			return None
 
+		if not wait:
+			out = (proc.stdout or "") + (proc.stderr or "")
+			print(out.rstrip())
+			m = re.search(r"submitted job (\d+)", out)
+			if not m:
+				# No job id means nothing to resume with. Say so and fall back
+				# rather than returning a Pending nobody can ever poll.
+				print("   ⚠️  submitted but no job id in the output — cannot "
+					  "detach; falling back")
+				return None
+			return Pending(m.group(1), n_cases=len(cases),
+						   queue=str(config.get("queue", "short")),
+						   walltime=str(config.get("walltime", "00:40:00")),
+						   log=str(self.run_dir / "run.log"))
+
 		# Success == the column actually produced history files.
-		results = {}
-		for exp in experiments:
-			cd = exp.get('case_dir')
-			results[exp['case_name']] = bool(
-				cd and glob.glob(f"{cd}/run/*.elm.h0.*.nc"))
-		return results
+		return self._outcomes_from_disk(experiments)
 
 	def _write_execution_report(self,
 								experiments: List[Dict],
