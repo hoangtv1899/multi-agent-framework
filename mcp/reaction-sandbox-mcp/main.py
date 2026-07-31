@@ -22,8 +22,24 @@ SERVER_DIR = Path(os.getenv(
 SHIM_DIR = Path(__file__).resolve().parent / "_shim"
 PFLOTRAN = ("/qfs/people/tran289/pflotran/src/pflotran/pflotran")
 
+# EVERY PATH THIS SERVER NEEDS IS SET HERE, WITH A DEFAULT, because an MCP
+# client does not pass the environment through. mcp.client.stdio's
+# get_default_environment() forwards only HOME, LOGNAME, PATH, SHELL and USER
+# — so a var exported in env_compy.sh reaches this process only when the
+# launching client happens to forward the full environment, which our
+# MCPManager does and a standard client does not.
+#
+# LAMBDA_PFLOTRAN_DIR was the one that got missed. Upstream's
+# tools/lambda_pipeline.py reads it to put the Lambda package on sys.path and
+# otherwise falls back to its author's home directory, so under any ordinary
+# MCP client every lambda tool returned
+#     "Lambda-PFLOTRAN not available: No module named 'preprocessing'"
+# while the same call through the framework succeeded. Same server, same
+# machine, different launcher.
 os.environ.setdefault("PFLOTRAN_EXECUTABLE", PFLOTRAN)
 os.environ.setdefault("MPI_COMMAND", "mpirun")
+os.environ.setdefault("LAMBDA_PFLOTRAN_DIR",
+                      str(SERVER_DIR / "lambda_pflotran_refactor"))
 
 if not SERVER_DIR.is_dir():
     sys.exit(f"reaction MCP: server dir not found: {SERVER_DIR}")
