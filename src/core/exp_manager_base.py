@@ -136,6 +136,63 @@ class ExperimentManagerBase:
 	NEEDS_SCHEDULER = True    # ELM submits to SLURM; PFLOTRAN runs in 0.3 s
 	COUPLES_TO      = None    # backend name this one hands its output to
 
+	# ─────────────────────────────────────────────────────────
+	# THE STAGE LEDGER — what has already been done, on disk
+	# ─────────────────────────────────────────────────────────
+	#
+	# run_state.json records each stage as it finishes, with the artifacts it
+	# left behind. Written for one reason: an ELM ensemble is ~40 minutes in a
+	# queue, and a process that has to sit and block for it is a process that
+	# cannot be interrupted, resumed, or moved between sessions. The ledger is
+	# what lets a later invocation know that materialize and build are already
+	# done and the only thing outstanding is a job id.
+	#
+	# PHASE 1 WRITES IT AND NOTHING READS IT. That is deliberate: the file can
+	# be checked against runs that already exist before any control flow
+	# depends on it, so a bug in the ledger cannot break a working pipeline.
+	STATE_FILE = "run_state.json"
+
+	def _state_path(self) -> Path:
+		return self.run_dir / self.STATE_FILE
+
+	def _load_state(self) -> Dict[str, Any]:
+		"""The ledger, or an empty one. Never raises — a corrupt or absent
+		ledger must degrade to "nothing is known to be done", which is the
+		same as a fresh run, rather than taking the run down."""
+		p = self._state_path()
+		if not p.exists():
+			return {"model": self.MODEL, "run_dir": str(self.run_dir),
+					"stages": {}}
+		try:
+			d = json.loads(p.read_text())
+			if isinstance(d, dict) and isinstance(d.get("stages"), dict):
+				return d
+		except Exception:                                       # noqa: BLE001
+			pass
+		print(f"   ⚠️  {self.STATE_FILE} unreadable — treating this run as fresh")
+		return {"model": self.MODEL, "run_dir": str(self.run_dir), "stages": {}}
+
+	def _mark(self, stage: str, status: str = "done", **fields) -> None:
+		"""Record one stage. Never raises: the ledger is bookkeeping, and a
+		failure to write it must not lose a stage that actually completed."""
+		try:
+			st = self._load_state()
+			st["model"] = self.MODEL
+			st["run_dir"] = str(self.run_dir)
+			entry = dict(st["stages"].get(stage) or {})
+			entry.update(status=status, at=datetime.now().isoformat(), **fields)
+			st["stages"][stage] = entry
+			st["updated"] = entry["at"]
+			self._state_path().write_text(json.dumps(st, indent=2, default=str))
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   ⚠️  could not record stage '{stage}' ({e})")
+
+	def _artifacts(self, *names: str) -> List[str]:
+		"""Of the named files, the ones that actually exist. Recording a file
+		that was never written would make the ledger a claim rather than a
+		record, and a later resume would trust it."""
+		return [n for n in names if (self.run_dir / n).exists()]
+
 	def execute_plan(self,
 					 experiment_plan: Dict[str, Any],
 					 config:          Dict[str, Any]
@@ -163,19 +220,27 @@ class ExperimentManagerBase:
 		try:
 			# Step 0 — strategy → concrete columns → executable plan.
 			experiment_plan = self._materialize(experiment_plan, config)
+			self._mark("materialize", artifacts=self._artifacts(
+				"columns.json", "run_plan.json", "plan.json",
+				"assumptions.json", "reception.json", "reception_brief.json"))
 
 			print(f"📋 STEP 1: Building Experiments")
 			print("-" * 40)
 			experiments = self._build(experiment_plan, config)
+			self._mark("build", n_experiments=len(experiments or []),
+					   artifacts=self._artifacts("cases.json", "cases_all.json"))
 
 			if self.NEEDS_PREPARE:
 				print("\n⚙️  STEP 2: Preparing Cases")
 				print("-" * 40)
 				self._prepare(experiments)
+				self._mark("prepare", n_experiments=len(experiments or []))
 
 			print(f"\n🌿 STEP 3: Running Simulations")
 			print("-" * 40)
 			results = self._run(experiments, config)
+			self._mark("run", n_results=len(results or []) if hasattr(
+				results, "__len__") else None)
 
 			# Reading the model's own output format is the backend's job;
 			# saying what the numbers MEAN is not, and everything past this
@@ -184,22 +249,28 @@ class ExperimentManagerBase:
 			print("-" * 40)
 			analyzer = self._extract(
 				experiments, plan=experiment_plan, config=config)
+			self._mark("extract", n_rows=len(getattr(analyzer, "results", []) or []))
 
 			print("\n📦 STEP 4b: Packaging Results")
 			print("-" * 40)
 			try:
 				self._package(experiment_plan, analyzer, config)
+				self._mark("package",
+						   artifacts=self._artifacts("experiment.json"))
 			except Exception as e:                              # noqa: BLE001
 				print(f"   ✗ PACKAGING FAILED ({e}) — the results are still "
 					  f"in 04_analysis/")
+				self._mark("package", status="failed", error=str(e)[:200])
 
 			print("\n🔭 STEP 4c: Analyzer")
 			print("-" * 40)
 			try:
 				from agents.analyzer import Analyzer
 				Analyzer(str(self.run_dir)).run(results=analyzer, config=config)
+				self._mark("analyze")
 			except Exception as e:                              # noqa: BLE001
 				print(f"   ⚠️  analyzer failed ({e}) — experiment.json stands")
+				self._mark("analyze", status="failed", error=str(e)[:200])
 
 			# Step 4d — hand off to a downstream model, when the backend
 			# declares one and the plan asks for it. Non-fatal: this study

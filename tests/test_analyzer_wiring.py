@@ -429,3 +429,61 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
         assert "timestep collapse" in row["reason"]
         assert row["partial_output_files"] == 1, "say what was left behind"
         assert "metrics" not in row, "no metrics from an unfinished run"
+
+
+class TestTheStageLedgerIsARecordNotAClaim:
+    """run_state.json exists so a later invocation can know what is already
+    done — an ELM ensemble is ~40 minutes in a queue, and a process that must
+    block for it cannot be interrupted or resumed.
+
+    Everything here is about the ledger being SAFE to add: it is bookkeeping,
+    so no failure of it may take down a run that actually succeeded.
+    """
+
+    def _mgr(self, tmp_path):
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        return PFLOTRANExpManager(base_output_dir=str(tmp_path))
+
+    def test_a_stage_is_recorded_with_its_status_and_time(self, tmp_path):
+        m = self._mgr(tmp_path)
+        m._mark("build", n_experiments=19)
+        st = m._load_state()
+        assert st["stages"]["build"]["status"] == "done"
+        assert st["stages"]["build"]["n_experiments"] == 19
+        assert st["stages"]["build"]["at"]
+        assert st["model"] == "pflotran"
+
+    def test_artifacts_lists_only_files_that_exist(self, tmp_path):
+        """Recording a file that was never written would make the ledger a
+        claim rather than a record, and a resume would trust it."""
+        m = self._mgr(tmp_path)
+        (m.run_dir / "columns.json").write_text("{}")
+        assert m._artifacts("columns.json", "never_written.json") == \
+            ["columns.json"]
+
+    def test_marking_twice_updates_rather_than_duplicates(self, tmp_path):
+        m = self._mgr(tmp_path)
+        m._mark("run", status="pending", job_id="770595")
+        m._mark("run", status="done", n_results=19)
+        e = m._load_state()["stages"]["run"]
+        assert e["status"] == "done" and e["n_results"] == 19
+        assert e["job_id"] == "770595", "earlier fields must survive"
+
+    def test_a_corrupt_ledger_degrades_to_a_fresh_run(self, tmp_path):
+        """Not an exception. An unreadable ledger means 'nothing is known to
+        be done', which is exactly a fresh run — the safe reading."""
+        m = self._mgr(tmp_path)
+        m._state_path().write_text("{ this is not json")
+        st = m._load_state()
+        assert st["stages"] == {}
+
+    def test_a_ledger_of_the_wrong_shape_is_also_survivable(self, tmp_path):
+        m = self._mgr(tmp_path)
+        m._state_path().write_text('["a", "list", "not", "an", "object"]')
+        assert m._load_state()["stages"] == {}
+
+    def test_marking_never_raises_even_when_it_cannot_write(self, tmp_path):
+        """The ledger must never be the reason a completed stage is lost."""
+        m = self._mgr(tmp_path)
+        m._state_path().mkdir()          # a directory where the file should be
+        m._mark("build")                 # must not raise
