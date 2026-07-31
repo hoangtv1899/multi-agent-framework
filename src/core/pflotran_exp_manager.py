@@ -342,12 +342,38 @@ class PFLOTRANExpManager(ExperimentManagerBase):
         if not decks:
             return None
 
+        # TWO TIMEOUTS LIVE ON THIS PATH, and only one of them is per column.
+        # `limit` bounds each column inside the server. The MCP CLIENT has its
+        # own ceiling on the whole call, defaulted in mcp_config.json to 300 s
+        # — a figure sized for the binning tools, which answer in seconds.
+        #
+        # An ensemble is not that. Nineteen columns four-wide, each allowed
+        # 900 s, is 4500 s in the worst case: fifteen times the client's
+        # budget. Left alone, a PERFECTLY HEALTHY but slow ensemble would be
+        # abandoned at 300 s, and the fallback would then re-run every column
+        # locally — paying for the whole ensemble twice to produce the result
+        # the server was about to return.
+        #
+        # So the budget is sized to the work, and put back afterwards: this is
+        # a shared client, and a raised timeout leaking into the next binning
+        # call would hide a hang there.
+        import math
+        need = limit * math.ceil(len(decks) / max(1, width)) + 60
+        prev = getattr(client, "timeout", None)
         print(f"   running {len(decks)} column(s) via the reaction MCP, "
               f"{width} at a time")
-        r = client.call_tool_json("run_pflotran_simulation", {
-            "input_file": decks, "mode": "ensemble_parallel",
-            "max_parallel": width, "num_cores": 1,
-            "timeout": limit}) or {}
+        try:
+            if prev is not None and prev < need:
+                print(f"   raising this call's MCP budget {prev:.0f}s → "
+                      f"{need:.0f}s to cover the ensemble")
+                client.timeout = need
+            r = client.call_tool_json("run_pflotran_simulation", {
+                "input_file": decks, "mode": "ensemble_parallel",
+                "max_parallel": width, "num_cores": 1,
+                "timeout": limit}) or {}
+        finally:
+            if prev is not None:
+                client.timeout = prev
 
         # None on an MCP timeout; {} or a bare error on a server-side failure.
         rbi = r.get("results_by_input")

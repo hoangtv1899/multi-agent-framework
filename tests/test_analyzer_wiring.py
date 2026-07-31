@@ -328,6 +328,47 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
         assert out[0]["runtime_seconds"] == 1.25
         assert out[0]["run_via"] == "mcp"
 
+    def test_the_call_budget_is_sized_to_the_ensemble_and_then_restored(
+            self, tmp_path):
+        """The client's ceiling is per CALL; `limit` is per column.
+
+        mcp_config defaults the client to 300 s, a figure sized for the
+        binning tools. Nineteen columns four-wide at 900 s each is 4500 s, so
+        a perfectly healthy ensemble would be abandoned at 300 s and then
+        re-run locally — paying for it twice. And because the client is
+        shared, a raised timeout must not leak into the next binning call,
+        where it would hide a hang.
+        """
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
+        exps = []
+        for i in range(8):
+            d = tmp_path / f"col_{i:02d}"
+            d.mkdir()
+            (d / f"col_{i:02d}.in").write_text("x")
+            (d / f"col_{i:02d}-000.tec").write_text("x")
+            exps.append({"id": f"col_{i:02d}", "case_dir": d})
+
+        seen = {}
+
+        class _Client:
+            timeout = 300.0
+            def call_tool_json(self, name, args):
+                seen["timeout_during_call"] = self.timeout
+                return {"results_by_input": {
+                    str(next(pathlib.Path(e["case_dir"]).glob("*.in"))): {
+                        "exit_codes": [0], "validation_status": "success",
+                        "execution_time": 1.0, "output_files": []}
+                    for e in exps}}
+
+        import pathlib
+        c = _Client()
+        out = m._run_via_mcp(exps, c, limit=900, width=4)
+        assert out is not None and len(out) == 8
+        # 8 columns / 4 wide = 2 waves x 900 s (+ headroom) — well past 300
+        assert seen["timeout_during_call"] >= 1800
+        assert c.timeout == 300.0, "the shared client's budget must be restored"
+
     def test_results_stay_in_experiment_order_not_completion_order(
             self, tmp_path):
         """Columns run concurrently, so completion order is a race.
