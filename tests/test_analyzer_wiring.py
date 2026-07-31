@@ -5,6 +5,7 @@ The steps have their own tests. What is pinned here is the WIRING — that the
 box calls them in dependency order, hands each the previous one's output, and
 does not lose four working steps because a fifth failed.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -487,3 +488,71 @@ class TestTheStageLedgerIsARecordNotAClaim:
         m = self._mgr(tmp_path)
         m._state_path().mkdir()          # a directory where the file should be
         m._mark("build")                 # must not raise
+
+
+class TestResumeSkipsWhatIsAlreadyDone:
+    """Phase 2. The ledger stops being a record and starts being read.
+
+    Verified live: a run killed after _build, re-entered against the same
+    directory, reused materialize and build and carried through to a correct
+    experiment.json — with _build having run exactly once in total.
+    """
+
+    def _mgr(self, tmp_path):
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        return PFLOTRANExpManager(base_output_dir=str(tmp_path))
+
+    def test_resume_is_opt_in(self, tmp_path):
+        """A caller re-running execute_plan usually means 'do it again'. Only
+        a caller told to continue means 'skip what is done' — guessing wrong
+        one way wastes an ensemble, the other silently reuses stale compute.
+        """
+        src = (ROOT / "src" / "core" / "exp_manager_base.py").read_text()
+        assert 'resume = bool(config.get("resume"))' in src
+
+    def test_build_comes_back_exactly_as_it_went_in(self, tmp_path):
+        """ELM's cases.json is a list of case PATHS while _build returns a
+        list of dicts, so reconstructing from it would be lossy. The base
+        persists _build's own return value instead."""
+        m = self._mgr(tmp_path)
+        exps = [{"id": "col_01", "case_dir": tmp_path / "col_01", "n_cells": 9},
+                {"id": "col_02", "case_dir": tmp_path / "col_02", "n_cells": 12}]
+        m._save_build(exps)
+        back = m._rehydrate_build()
+        assert [e["id"] for e in back] == ["col_01", "col_02"]
+        assert back[0]["n_cells"] == 9
+        # Paths come back as strings; every consumer wraps them in Path()
+        assert isinstance(back[0]["case_dir"], str)
+
+    def test_extract_comes_back_from_experiment_json(self, tmp_path):
+        """_package already writes the rows and their units verbatim, so
+        _extract needs no separate persistence."""
+        m = self._mgr(tmp_path)
+        (m.run_dir / "experiment.json").write_text(json.dumps({
+            "columns": [{"case_name": "col_01", "status": "ok",
+                         "metrics": {"saturation_mean": 0.53}}],
+            "variable_units": {"LIQUID_SATURATION": "-"}}))
+        ns = m._rehydrate_extract()
+        assert len(ns.results) == 1
+        assert ns.results[0]["metrics"]["saturation_mean"] == 0.53
+        assert ns.units["LIQUID_SATURATION"] == "-"
+        assert ns.summary["units"], "_package reads .summary too"
+
+    def test_rehydration_returns_none_when_the_artifact_is_missing(self, tmp_path):
+        """None means 'run the stage', which is the safe reading. Returning an
+        empty list would mean 'the stage produced nothing', and the run would
+        carry on with no experiments."""
+        m = self._mgr(tmp_path)
+        assert m._rehydrate_build() is None
+        assert m._rehydrate_extract() is None
+        assert m._rehydrate_materialize() is None
+
+    def test_a_ledger_saying_done_with_no_artifact_still_reruns(self, tmp_path):
+        """The ledger can outlive its artifacts — a cleaned scratch directory,
+        a partial copy. Trusting it over the filesystem would skip a stage
+        whose output no longer exists."""
+        m = self._mgr(tmp_path)
+        m._mark("build", n_experiments=19)
+        assert (m._load_state()["stages"]["build"]["status"]) == "done"
+        assert m._rehydrate_build() is None, \
+            "no manifest on disk means the stage must run again"

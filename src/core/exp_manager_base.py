@@ -193,6 +193,55 @@ class ExperimentManagerBase:
 		record, and a later resume would trust it."""
 		return [n for n in names if (self.run_dir / n).exists()]
 
+	# ─────────────────────────────────────────────────────────
+	# REHYDRATION — a finished stage's output, read back off disk
+	# ─────────────────────────────────────────────────────────
+	#
+	# Written HERE and not per backend. ELM's cases.json is a list of case
+	# DIRECTORY PATHS while _build returns a list of dicts, so reconstructing
+	# from it would be lossy and backend-specific; the base already holds
+	# _build's return value, so persisting that is both uniform and exact.
+	BUILD_MANIFEST = "build_manifest.json"
+
+	def _save_build(self, experiments: List[Dict]) -> None:
+		try:
+			(self.input_dir / self.BUILD_MANIFEST).write_text(
+				json.dumps(experiments, indent=2, default=str))
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   ⚠️  could not persist the build manifest ({e}) — this "
+				  f"run cannot be resumed past _build")
+
+	def _rehydrate_materialize(self) -> Optional[Dict[str, Any]]:
+		"""The executable plan _materialize produced (run_plan.json)."""
+		p = self.run_dir / "run_plan.json"
+		return json.loads(p.read_text()) if p.exists() else None
+
+	def _rehydrate_build(self) -> Optional[List[Dict]]:
+		"""_build's experiments. Paths come back as STRINGS, which every
+		consumer already tolerates — _run and _extract both wrap them in
+		Path() rather than assuming the type."""
+		p = self.input_dir / self.BUILD_MANIFEST
+		if not p.exists():
+			return None
+		d = json.loads(p.read_text())
+		return d if isinstance(d, list) else None
+
+	def _rehydrate_extract(self):
+		"""_extract's rows, from experiment.json — which _package already
+		writes and which carries the rows and their units verbatim."""
+		p = self.run_dir / "experiment.json"
+		if not p.exists():
+			return None
+		d = json.loads(p.read_text())
+		rows = d.get("columns")
+		if not isinstance(rows, list):
+			return None
+		import types
+		units = d.get("variable_units") or {}
+		ns = types.SimpleNamespace(results=rows, units=dict(units),
+								   summary={"units": dict(units)})
+		return ns
+
 	def execute_plan(self,
 					 experiment_plan: Dict[str, Any],
 					 config:          Dict[str, Any]
@@ -217,39 +266,78 @@ class ExperimentManagerBase:
 		start_time = datetime.now()
 		model = self.MODEL.upper()
 
+		# RESUME IS OPT-IN. A caller re-running execute_plan against a
+		# directory usually means "do it again"; only a caller that has been
+		# told to continue an interrupted run means "skip what is done". The
+		# cost of guessing wrong in one direction is a wasted ensemble, and in
+		# the other a study that silently reuses stale compute — so it is
+		# asked for explicitly rather than inferred from the directory.
+		resume = bool(config.get("resume"))
+		state = self._load_state() if resume else {"stages": {}}
+
+		def _done(stage: str) -> bool:
+			return (state["stages"].get(stage) or {}).get("status") == "done"
+
+		def _reuse(stage: str, what: str) -> None:
+			print(f"↻ {stage}: already done — reusing {what}")
+
 		try:
 			# Step 0 — strategy → concrete columns → executable plan.
-			experiment_plan = self._materialize(experiment_plan, config)
+			rehydrated = self._rehydrate_materialize() if _done("materialize") else None
+			if rehydrated is not None:
+				_reuse("materialize", "run_plan.json")
+				experiment_plan = rehydrated
+			else:
+				experiment_plan = self._materialize(experiment_plan, config)
 			self._mark("materialize", artifacts=self._artifacts(
 				"columns.json", "run_plan.json", "plan.json",
 				"assumptions.json", "reception.json", "reception_brief.json"))
 
 			print(f"📋 STEP 1: Building Experiments")
 			print("-" * 40)
-			experiments = self._build(experiment_plan, config)
+			experiments = self._rehydrate_build() if _done("build") else None
+			if experiments is not None:
+				_reuse("build", f"{len(experiments)} experiment(s) from "
+							   f"{self.BUILD_MANIFEST}")
+			else:
+				experiments = self._build(experiment_plan, config)
+				self._save_build(experiments)
 			self._mark("build", n_experiments=len(experiments or []),
 					   artifacts=self._artifacts("cases.json", "cases_all.json"))
 
 			if self.NEEDS_PREPARE:
 				print("\n⚙️  STEP 2: Preparing Cases")
 				print("-" * 40)
-				self._prepare(experiments)
-				self._mark("prepare", n_experiments=len(experiments or []))
+				if _done("prepare"):
+					_reuse("prepare", "the cases already on disk")
+				else:
+					self._prepare(experiments)
+					self._mark("prepare", n_experiments=len(experiments or []))
 
 			print(f"\n🌿 STEP 3: Running Simulations")
 			print("-" * 40)
-			results = self._run(experiments, config)
-			self._mark("run", n_results=len(results or []) if hasattr(
-				results, "__len__") else None)
+			if _done("run"):
+				_reuse("run", "the completed ensemble")
+				results = experiments
+			else:
+				results = self._run(experiments, config)
+				self._mark("run", n_results=len(results or []) if hasattr(
+					results, "__len__") else None)
 
 			# Reading the model's own output format is the backend's job;
 			# saying what the numbers MEAN is not, and everything past this
 			# line belongs to the Analyzer.
 			print("\n📊 STEP 4: Extracting Results")
 			print("-" * 40)
-			analyzer = self._extract(
-				experiments, plan=experiment_plan, config=config)
-			self._mark("extract", n_rows=len(getattr(analyzer, "results", []) or []))
+			analyzer = self._rehydrate_extract() if _done("extract") else None
+			if analyzer is not None:
+				_reuse("extract", f"{len(analyzer.results)} row(s) from "
+								  f"experiment.json")
+			else:
+				analyzer = self._extract(
+					experiments, plan=experiment_plan, config=config)
+			self._mark("extract",
+					   n_rows=len(getattr(analyzer, "results", []) or []))
 
 			print("\n📦 STEP 4b: Packaging Results")
 			print("-" * 40)
