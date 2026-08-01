@@ -87,6 +87,17 @@ def _compute_accounting(run_dir) -> Dict[str, Any]:
             d = json.loads(p.read_text())
         except Exception:
             continue
+        # A PENDING summary describes a SUBMISSION, not a run. Since Phase 3 a
+        # detached run writes one of these and returns, so on resume this file
+        # is still the old one — execute_plan overwrites it with the real
+        # summary only at the very end, after the Analyzer.
+        #
+        # Reading it accounted for the wrong thing entirely: a 2/2 ensemble
+        # that took 9 minutes was reported as "2.9 s over 0/2 columns", which
+        # is the three seconds the submitting call took. experiment.json is
+        # written at stage 4b and describes the actual run, so fall through.
+        if d.get("status") == "pending":
+            continue
         exps = d.get("experiments") or []
         per = [e.get("runtime_seconds") for e in exps
                if isinstance(e, dict) and isinstance(e.get("runtime_seconds"),

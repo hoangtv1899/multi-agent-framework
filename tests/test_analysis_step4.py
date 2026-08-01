@@ -162,3 +162,61 @@ class TestItIsTheBoundaryFile:
     def test_the_summary_names_the_cost(self, tmp_path):
         s = step4.summary(_report(tmp_path))
         assert "llm" in s and "compute" in s and "verdict" in s
+
+
+class TestAPendingSummaryIsNotAnAccounting:
+    """Since Phase 3 a detached run writes RUN_SUMMARY.json and RETURNS. On
+    resume that file is still the old one — execute_plan overwrites it with
+    the real summary only at the very end, after the Analyzer has run.
+
+    Caught end-to-end on job 770696: a 2/2 ensemble that took 9 minutes was
+    reported as "2.9 s over 0/2 columns", which was the three seconds the
+    submitting call took.
+    """
+
+    def _pending(self, d):
+        return {"status": "pending", "job_id": "770696",
+                "total_runtime_seconds": 2.9,
+                "start_time": "2026-08-01T14:39:35",
+                "end_time": "2026-08-01T14:39:38",
+                "experiments_total": 2, "experiments_success": 0,
+                "experiments_failed": 0, "experiments_pending": 2,
+                "experiments": [{"case_name": "c1", "runtime_seconds": 0},
+                                {"case_name": "c2", "runtime_seconds": 0}]}
+
+    def test_it_falls_through_to_experiment_json(self, tmp_path):
+        from agents.analysis.step4_report import _compute_accounting
+        (tmp_path / "RUN_SUMMARY.json").write_text(
+            json.dumps(self._pending(tmp_path)))
+        (tmp_path / "experiment.json").write_text(json.dumps({
+            "columns_total": 2, "columns_succeeded": 2,
+            "columns": [{"case_name": "c1", "runtime_seconds": 270.0},
+                        {"case_name": "c2", "runtime_seconds": 275.0}]}))
+        acc = _compute_accounting(tmp_path)
+        assert acc["columns_succeeded"] == 2, \
+            "a submitted-but-not-finished summary must not be the accounting"
+        assert acc["total_runtime_seconds"] == 545.0
+
+    def test_a_completed_summary_is_still_preferred(self, tmp_path):
+        from agents.analysis.step4_report import _compute_accounting
+        (tmp_path / "RUN_SUMMARY.json").write_text(json.dumps({
+            "status": "completed", "total_runtime_seconds": 600.0,
+            "experiments_total": 2, "experiments_success": 2,
+            "experiments_failed": 0,
+            "experiments": [{"case_name": "c1", "runtime_seconds": 300.0}]}))
+        (tmp_path / "experiment.json").write_text(json.dumps({
+            "columns_total": 2, "columns_succeeded": 1, "columns": []}))
+        acc = _compute_accounting(tmp_path)
+        assert acc["total_runtime_seconds"] == 600.0
+        assert acc["columns_succeeded"] == 2
+
+    def test_a_summary_with_no_status_is_still_read(self, tmp_path):
+        """Every run written before Phase 3 has no status key, and those are
+        the fuller record — skipping them would be a regression."""
+        from agents.analysis.step4_report import _compute_accounting
+        (tmp_path / "RUN_SUMMARY.json").write_text(json.dumps({
+            "total_runtime_seconds": 2406.0, "experiments_total": 19,
+            "experiments_success": 19, "experiments_failed": 0,
+            "experiments": []}))
+        acc = _compute_accounting(tmp_path)
+        assert acc["columns_succeeded"] == 19
