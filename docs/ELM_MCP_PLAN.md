@@ -1,9 +1,11 @@
-# Packaging ELM as an MCP server — design, before any code
+# Packaging ELM as an MCP server
 
-Status: **proposal, not built.** Phase 4 of the resumability work.
-Phases 1–3 (`b49f9b9`, `0fe9c3c`, `51878a9`) and the discovery/CLI layer
-(`f7fe3da`) are in and live-tested; this document is what should be agreed
-before Phase 4 starts.
+Status: **BUILT** (`ef15874`, `ca5e9a6`). Phase 4 of the resumability work.
+Everything below is the design as agreed; §12 records where the build differed
+from it and what the parity checks found.
+
+Phases 1–3b (`b49f9b9`, `0fe9c3c`, `51878a9`, `11e4bea`) and the discovery/CLI
+layer (`f7fe3da`) are in and live-tested.
 
 ---
 
@@ -342,3 +344,64 @@ attribution, not correctness.
   clearly owned.
 * **A killed `prepare` leaving half-built cases.** Real today too. Worth a
   `--clean` or an idempotent rebuild, but not in the first cut.
+
+---
+
+## 12. What was actually built (2026-08-01)
+
+### Seven tools, not six
+
+`collect_prepared_cases` was not in the design, and D1 is why. The design had
+`prepare_elm_cases` blocking, so it could return its case directories. Once it
+became job-shaped it hands back a job id instead — and a stage that hands back
+a job id needs somewhere to hand back its **answer**. The alternative was the
+framework reading the server's `prepared_cases.json` directly, which is not a
+boundary.
+
+### The parity checks, and what they found
+
+Both agreed exactly, which is the result worth having *because* it was checked
+rather than assumed:
+
+| check | result |
+|---|---|
+| `build_elm_cases` vs local `_build` | identical field for field, including all 13 `runtime_config` keys |
+| `collect_elm_results` vs local `_extract` | 52 metric values identical across 4 columns, same statuses, same history-file counts |
+
+The manifest was also asserted to contain no `ELMAgentAdapter` repr — the exact
+Phase 3 failure, checked for rather than hoped against.
+
+### D1 on real hardware
+
+Job **770694** ran a CIME case build inside a SLURM job and wrote
+`PREPARE_DONE 2/2` in **10:14**, both cases on `/compyfs`. This was the riskiest
+item in the plan: building cases in a non-interactive batch child had never been
+done here, and it is the one thing no amount of local testing could establish.
+
+### The payload argument is now a measurement
+
+§4 argued that `collect` must return a path. For **four** columns the extraction
+is **1320 KB** against a **0.8 KB** response. Nineteen columns would be ~6 MB
+inline over stdio.
+
+### Two things the wiring forced that the design did not anticipate
+
+**`_prepare` now takes `config`.** It needs to see `mcp_clients` the same way
+`_build` and `_run` do, and the base was calling it with `experiments` alone.
+Defaulted, so a caller that predates the change still works.
+
+**`_mcp_call` raises on `error` only when the payload has no `ok` key.** A tool
+returning `ok` is reporting an *outcome* — a build that failed, an ensemble with
+no results — and the caller has more to say about it, including the job's log.
+Raising on both made those richer messages dead code. Found by a test that was
+asserting on a message which could never actually be produced.
+
+### Still open
+
+* **Warm start** (§3, "Undecided") remains in the framework. Nothing changed.
+* **`describe_elm_capabilities` is the contract.** It reports `available` vs
+  `planned` per tool and checks every requirement against the filesystem; keep
+  it truthful when adding tools, or it becomes the thing it was written to
+  prevent.
+* **A killed `prepare` still leaves half-built cases** (§11). Real before this
+  change and real after it.
