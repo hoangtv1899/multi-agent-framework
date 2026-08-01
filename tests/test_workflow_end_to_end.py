@@ -125,7 +125,7 @@ def stubbed(tmp_path, monkeypatch):
                  "forcing_period": "1988-1988",
                  "forcing_start": 1988, "forcing_end": 1988} for c in cols]
 
-    def fake_prepare(self, experiments):
+    def fake_prepare(self, experiments, config=None):
         calls.append("prepare")
 
     def fake_run(self, experiments, config):

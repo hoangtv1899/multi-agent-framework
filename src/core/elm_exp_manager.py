@@ -44,7 +44,7 @@ import re
 import sys
 from pathlib  import Path
 from datetime import datetime
-from typing   import Dict, Any, List
+from typing   import Dict, Any, List, Optional
 
 sys.path.insert(0, "src")
 
@@ -57,6 +57,32 @@ from core.columns_to_plan        import columns_to_elm_plan
 
 # Repo root — this file is <root>/src/core/elm_exp_manager.py
 _ROOT = Path(__file__).resolve().parents[2]
+
+
+class _MCPExtraction:
+	"""What _extract returns when the server did the reading.
+
+	Stands in for an ELMResultsAnalyzer, exposing only the three things the
+	stages after it actually touch: `.results` for _package, units for
+	_variable_units, and get_llm_analysis_input() for _save_llm_input.
+
+	Built from the payload the server wrote to disk rather than from an MCP
+	response, because the response deliberately carries a PATH: the extraction
+	for four columns is already 1.3 MB, and nineteen would not survive stdio.
+	"""
+
+	def __init__(self, payload: Dict[str, Any]):
+		self._payload = payload or {}
+		self.results = self._payload.get("experiments") or []
+		self.units = self._payload.get("units") or {}
+		self.summary = {"units": dict(self.units)}
+		# The Analyzer reads this when present; the server does not compute
+		# limitations, so it is empty rather than absent — an attribute that
+		# sometimes exists is worse than one that is sometimes empty.
+		self.extra_summary: Dict[str, Any] = {}
+
+	def get_llm_analysis_input(self) -> Dict[str, Any]:
+		return self._payload
 
 
 def _load_tool(name: str):
@@ -355,10 +381,155 @@ class ELMExpManager(ExperimentManagerBase):
 				  f"builder will generate them per column instead")
 			return {}
 
+	# ─────────────────────────────────────────────────────────
+	# THE MCP PATH — Phase 4
+	# ─────────────────────────────────────────────────────────
+	# D5: the MCP is the DEFAULT when an `elm` client is registered. With no
+	# client in mcp_config.json the local path still runs — the choice is made
+	# by what is configured, not by a failure, so this is not the silent
+	# demotion commit d61eaed forbade. Set run_via_mcp=False to force local.
+	MCP_NAME = "elm"
+
+	def _mcp(self, config: Dict[str, Any]):
+		"""The elm MCP client, or None to run locally."""
+		if not (config or {}).get("run_via_mcp", True):
+			return None
+		return ((config or {}).get("mcp_clients") or {}).get(self.MCP_NAME)
+
+	@staticmethod
+	def _mcp_call(client, tool: str, args: Dict[str, Any],
+				  budget: Optional[float] = None) -> Dict[str, Any]:
+		"""One MCP call, with the client's timeout raised for its duration.
+
+		The per-server timeout is sized for the quick tools. build_elm_cases
+		generates per-column surfaces and collect_elm_results reads NetCDF, and
+		neither is quick for 19 columns — a client ceiling that was 15x too
+		small is exactly how the reaction MCP failed before commit 19fffc3.
+		"""
+		prev = getattr(client, "timeout", None)
+		try:
+			if budget and prev is not None and prev < budget:
+				client.timeout = budget
+			out = client.call_tool_json(tool, args)
+		finally:
+			if prev is not None:
+				client.timeout = prev
+		if out is None:
+			raise RuntimeError(
+				f"the elm MCP did not answer {tool} within its timeout")
+		# `error` means the CALL could not be made. A payload carrying `ok` is
+		# reporting an OUTCOME — a build that failed, an ensemble with no
+		# results — and the caller has more to say about that than this does,
+		# including the job's log. Raising here would make those messages dead
+		# code and replace them with a one-liner.
+		if isinstance(out, dict) and out.get("error") and "ok" not in out:
+			raise RuntimeError(f"elm MCP {tool}: {out['error']}")
+		return out
+
+	def _build_via_mcp(self, plan, config, client) -> List[Dict]:
+		"""Cases built by the server. Returns the SAME shape _build does,
+		minus the live adapters — which is why _prepare must also go through
+		the MCP once this path is taken."""
+		print("   via the elm MCP")
+		out = self._mcp_call(client, "build_elm_cases", {
+			"run_dir":     str(self.run_dir),
+			"run_plan":    plan,
+			"soil_config": config.get("soil_config", "native"),
+			"substrate":   config.get("substrate", "extrapolate"),
+		}, budget=1800)
+		cases = out.get("cases") or []
+		failed = out.get("inputs_failed") or {}
+		for cid, why in failed.items():
+			print(f"   ⚠️  {cid}: {why}")
+		print(f"✓ {len(cases)} experiment(s) built "
+			  f"({out.get('inputs_built', 0)} column inputs"
+			  + (", warm" if out.get("warm_started") else "") + ")")
+		return cases
+
+	def _prepare_via_mcp(self, experiments, config, client):
+		"""D1: the CIME build is a JOB. Returns a Pending, not case dirs."""
+		print("   via the elm MCP — the case build is sbatch'd (D1)")
+		out = self._mcp_call(client, "prepare_elm_cases", {
+			"run_dir":  str(self.run_dir),
+			"queue":    str(config.get("queue", "")),
+			"walltime": str(config.get("prepare_walltime", "02:00:00")),
+		}, budget=600)
+		return Pending(out["job_id"], n_cases=len(experiments or []),
+					   log=out.get("log_path"), via="mcp")
+
+	def _submit_via_mcp(self, experiments, config, client):
+		"""The ensemble as one batch job. Returns a Pending."""
+		cases = [e.get("case_dir") for e in experiments if e.get("case_dir")]
+		if not cases:
+			raise RuntimeError(
+				"no case directories — prepare must run before the ensemble")
+		out = self._mcp_call(client, "submit_elm_ensemble", {
+			"run_dir":   str(self.run_dir),
+			"case_dirs": cases,
+			"queue":     str(config.get("queue", "")),
+			"walltime":  str(config.get("walltime", "00:40:00")),
+			"email":     str(config.get("email", "")),
+		}, budget=600)
+		print(f"   submitted {out.get('n_cases')} column(s) as job "
+			  f"{out['job_id']} via the elm MCP")
+		return Pending(out["job_id"], n_cases=out.get("n_cases"),
+					   log=out.get("log_path"), via="mcp")
+
+	def _poll_via_mcp(self, record, experiments, config, client):
+		"""Ask the server whether this stage's job has landed.
+
+		Dispatches on record['stage'], which Phase 3b added for exactly this:
+		a finished CIME build hands back case directories and a finished
+		ensemble hands back outcomes, and a job id does not say which.
+		"""
+		stage = record.get("stage")
+		st = self._mcp_call(client, "check_elm_job",
+							{"job_id": str(record.get("job_id")),
+							 "run_dir": str(self.run_dir)})
+		if st.get("active", True):
+			print(f"   job {record.get('job_id')} is "
+				  f"{st.get('state') or 'unanswered'} — nothing to collect yet")
+			return None
+
+		if stage == "prepare":
+			got = self._mcp_call(client, "collect_prepared_cases",
+								 {"run_dir": str(self.run_dir)})
+			if not got.get("ok"):
+				raise RuntimeError(
+					f"the case build failed: {got.get('error')}"
+					+ (f"\n{got.get('log_tail')}" if got.get("log_tail") else ""))
+			by_name = {c.get("case_name"): c.get("case_dir")
+					   for c in (got.get("cases") or [])}
+			for e in experiments:
+				if by_name.get(e.get("case_name")):
+					e["case_dir"] = by_name[e["case_name"]]
+			print(f"   ✓ {got.get('n_ok')}/{got.get('n_total')} case(s) built")
+			return experiments
+
+		# stage == "run": the scheduler is done, so the FILES decide.
+		print(f"   job {record.get('job_id')} finished "
+			  f"({st.get('state')}) — collecting")
+		return self._collect(experiments, self._outcomes_from_disk(experiments))
+
+	def _extract_via_mcp(self, experiments, config, client):
+		"""Rows read by the server. Comes back as a PATH — see the tool."""
+		out = self._mcp_call(client, "collect_elm_results", {
+			"run_dir": str(self.run_dir),
+			"last_year_only": bool(config.get("last_year_only", False)),
+		}, budget=1800)
+		path = out.get("results_path")
+		payload = json.loads(Path(path).read_text()) if path else {}
+		print(f"✓ {out.get('n_ok')}/{out.get('n_total')} column(s) extracted "
+			  f"via the elm MCP")
+		return _MCPExtraction(payload)
+
 	def _build(self,
 			   plan:   Dict[str, Any],
 			   config: Dict[str, Any]) -> List[Dict]:
 		"""Build the ELMAgentAdapter list from the plan (per-column surfaces)."""
+		client = self._mcp(config)
+		if client is not None:
+			return self._build_via_mcp(plan, config, client)
 		self._build_inputs(config)
 
 		builder     = ELMExperimentBuilder(plan)
@@ -404,7 +575,7 @@ class ELMExpManager(ExperimentManagerBase):
 	# ─────────────────────────────────────────────────────────
 	# STEP 2 — PREPARE (cases live at $PSCRATCH)
 	# ─────────────────────────────────────────────────────────
-	def _prepare(self, experiments: List[Dict]) -> None:
+	def _prepare(self, experiments: List[Dict], config: Dict[str, Any] = None):
 		"""
 		Prepare (build) all ELM cases.
 
@@ -416,6 +587,10 @@ class ELMExpManager(ExperimentManagerBase):
 		compile for EVERY column — ~2 h for a 14-column watershed instead of
 		~12 min.
 		"""
+		client = self._mcp(config or {})
+		if client is not None:
+			return self._prepare_via_mcp(experiments, config or {}, client)
+
 		builder = getattr(self, "_builder", None)
 		if builder is None and getattr(self, "_resume_plan", None) is not None:
 			# Resumed past _build, and _prepare turns out to be needed after
@@ -461,6 +636,10 @@ class ELMExpManager(ExperimentManagerBase):
 		and recording the job id lets the study be picked up later, from
 		anywhere, by re-entering with resume=True.
 		"""
+		client = self._mcp(config)
+		if client is not None:
+			return self._submit_via_mcp(experiments, config, client)
+
 		detach  = bool(config.get("detach"))
 		results = self._run_batch(experiments, config, wait=not detach)
 		if isinstance(results, Pending):
@@ -542,6 +721,10 @@ class ELMExpManager(ExperimentManagerBase):
 		history file is a failure, not a reason to keep waiting. The scheduler
 		being done is what ends the wait; the files decide the outcome.
 		"""
+		client = self._mcp(config or {})
+		if client is not None:
+			return self._poll_via_mcp(record, experiments, config or {}, client)
+
 		jid   = record.get("job_id")
 		state = self._slurm_state(jid)
 		if state in self.ACTIVE_JOB_STATES:
@@ -752,6 +935,10 @@ class ELMExpManager(ExperimentManagerBase):
 		tools/analyze_run.py used to add `extra_summary`, so runs driven
 		through this manager silently lost the caveats.
 		"""
+		client = self._mcp(config or {})
+		if client is not None:
+			return self._extract_via_mcp(experiments, config or {}, client)
+
 		analyzer = ELMResultsAnalyzer(
 			experiments  = experiments,
 			analysis_dir = str(self.analysis_dir),

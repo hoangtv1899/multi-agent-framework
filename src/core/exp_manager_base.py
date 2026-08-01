@@ -370,7 +370,7 @@ class ExperimentManagerBase:
 					# sbatch'd rather than run on a login node, so _prepare may
 					# hand back a job id exactly as _run does.
 					out = self._advance(
-						"prepare", lambda: self._prepare(experiments),
+						"prepare", lambda: self._prepare(experiments, config),
 						state=state, resume=resume,
 						experiments=experiments, config=config,
 						n_experiments=len(experiments or []))
@@ -518,7 +518,9 @@ class ExperimentManagerBase:
 	def _build(self, plan, config):
 		raise NotImplementedError(f"{type(self).__name__} must implement _build")
 
-	def _prepare(self, experiments):
+	def _prepare(self, experiments, config=None):
+		"""config is passed so a backend can see mcp_clients here, the same as
+		_build and _run do. Defaulted so a caller that predates it still works."""
 		raise NotImplementedError(
 			f"{type(self).__name__} declares NEEDS_PREPARE but has no _prepare")
 

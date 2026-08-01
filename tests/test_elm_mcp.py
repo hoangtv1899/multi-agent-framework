@@ -129,3 +129,168 @@ class TestItIsRegistered:
         for 19 columns."""
         cfg = json.loads((ROOT / "mcp_config.json").read_text())
         assert cfg["mcp_servers"]["elm"].get("timeout", 0) >= 300
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Step 6 — the framework driving the server
+# ─────────────────────────────────────────────────────────────────────
+class _FakeClient:
+    """Stands in for an MCP client. Records what was asked and replies."""
+
+    def __init__(self, **replies):
+        self.timeout = 30.0
+        self.calls = []
+        self.replies = replies
+
+    def call_tool_json(self, tool, args):
+        self.calls.append((tool, args))
+        r = self.replies.get(tool)
+        return r(args) if callable(r) else r
+
+
+def _mgr(tmp_path):
+    from core.elm_exp_manager import ELMExpManager
+    return ELMExpManager(base_output_dir=str(tmp_path))
+
+
+class TestTheMCPIsTheDefaultForELM:
+    """D5. The MCP path runs whenever an `elm` client is registered."""
+
+    def test_registered_means_used(self, tmp_path):
+        m = _mgr(tmp_path)
+        c = _FakeClient()
+        assert m._mcp({"mcp_clients": {"elm": c}}) is c
+
+    def test_no_client_still_runs_locally(self, tmp_path):
+        """Not a silent demotion (d61eaed): the choice is made by what is
+        CONFIGURED, not by a failure."""
+        m = _mgr(tmp_path)
+        assert m._mcp({"mcp_clients": {}}) is None
+        assert m._mcp({}) is None
+
+    def test_it_can_be_turned_off(self, tmp_path):
+        m = _mgr(tmp_path)
+        c = _FakeClient()
+        assert m._mcp({"mcp_clients": {"elm": c},
+                       "run_via_mcp": False}) is None
+
+    def test_a_timeout_is_an_error_not_an_empty_result(self, tmp_path):
+        """call_tool_json returns None on timeout. Reading that as 'no cases'
+        would report a healthy ensemble as zero columns."""
+        m = _mgr(tmp_path)
+        c = _FakeClient(build_elm_cases=None)
+        with pytest.raises(RuntimeError, match="did not answer"):
+            m._mcp_call(c, "build_elm_cases", {})
+
+    def test_a_server_side_error_is_raised(self, tmp_path):
+        m = _mgr(tmp_path)
+        c = _FakeClient(build_elm_cases={"error": "no run_plan.json"})
+        with pytest.raises(RuntimeError, match="no run_plan.json"):
+            m._mcp_call(c, "build_elm_cases", {})
+
+    def test_the_call_budget_is_raised_then_restored(self, tmp_path):
+        """A client ceiling 15x too small is how the reaction MCP failed
+        before 19fffc3 — and it must not stay raised afterwards."""
+        m = _mgr(tmp_path)
+        seen = {}
+        c = _FakeClient()
+        c.replies["x"] = lambda a: seen.setdefault("timeout", c.timeout) or {}
+        m._mcp_call(c, "x", {}, budget=1800)
+        assert seen["timeout"] == 1800
+        assert c.timeout == 30.0, "the raise must be scoped to the one call"
+
+
+class TestEachStageGoesThroughTheServer:
+
+    def test_prepare_hands_back_a_job_not_case_dirs(self, tmp_path):
+        """D1: the CIME build is sbatch'd, so _prepare returns a Pending."""
+        from core.exp_manager_base import Pending
+        m = _mgr(tmp_path)
+        c = _FakeClient(prepare_elm_cases={"job_id": "880001",
+                                           "log_path": "/x/prepare.log"})
+        out = m._prepare([{"case_name": "col_01"}],
+                         {"mcp_clients": {"elm": c}})
+        assert isinstance(out, Pending)
+        assert out.job_id == "880001"
+
+    def test_run_hands_back_a_job(self, tmp_path):
+        from core.exp_manager_base import Pending
+        m = _mgr(tmp_path)
+        c = _FakeClient(submit_elm_ensemble={"job_id": "770693", "n_cases": 2})
+        out = m._run([{"case_name": "c1", "case_dir": str(tmp_path)}],
+                     {"mcp_clients": {"elm": c}})
+        assert isinstance(out, Pending) and out.job_id == "770693"
+
+    def test_submitting_without_cases_is_refused(self, tmp_path):
+        """An ensemble cannot run before its cases are built, and submitting
+        an empty job list would queue a job that does nothing and report it
+        as progress."""
+        m = _mgr(tmp_path)
+        c = _FakeClient(submit_elm_ensemble={"job_id": "1"})
+        with pytest.raises(RuntimeError, match="prepare must run"):
+            m._run([{"case_name": "c1"}], {"mcp_clients": {"elm": c}})
+
+    def test_poll_dispatches_on_the_stage(self, tmp_path):
+        """Phase 3b added `stage` to the record for exactly this: a finished
+        CIME build hands back case dirs, a finished ensemble hands back
+        outcomes, and a job id does not say which."""
+        m = _mgr(tmp_path)
+        c = _FakeClient(
+            check_elm_job={"active": False, "state": "COMPLETED"},
+            collect_prepared_cases={"ok": True, "n_ok": 1, "n_total": 1,
+                                    "cases": [{"case_name": "col_01",
+                                               "case_dir": "/scratch/col_01"}]})
+        exps = [{"case_name": "col_01"}]
+        out = m._poll({"stage": "prepare", "job_id": "880001"}, exps,
+                      {"mcp_clients": {"elm": c}})
+        assert out is exps
+        assert exps[0]["case_dir"] == "/scratch/col_01"
+        assert "collect_prepared_cases" in [t for t, _ in c.calls]
+
+    def test_an_active_job_collects_nothing(self, tmp_path):
+        m = _mgr(tmp_path)
+        c = _FakeClient(check_elm_job={"active": True, "state": "RUNNING"})
+        assert m._poll({"stage": "run", "job_id": "770693"}, [],
+                       {"mcp_clients": {"elm": c}}) is None
+        assert "collect_prepared_cases" not in [t for t, _ in c.calls]
+
+    def test_a_failed_build_raises_rather_than_running_short(self, tmp_path):
+        """A case that did not compile is a failure to report, not an ensemble
+        to run one column short."""
+        m = _mgr(tmp_path)
+        c = _FakeClient(check_elm_job={"active": False, "state": "FAILED"},
+                        collect_prepared_cases={"ok": False,
+                                                "error": "CIME build failed",
+                                                "log_tail": "..."})
+        with pytest.raises(RuntimeError, match="case build failed"):
+            m._poll({"stage": "prepare", "job_id": "880001"},
+                    [{"case_name": "c1"}], {"mcp_clients": {"elm": c}})
+
+
+class TestTheExtractionAdapter:
+    """_extract must return something _package and _save_llm_input can use,
+    built from the payload on disk rather than from the MCP response."""
+
+    def test_it_exposes_what_the_later_stages_touch(self):
+        from core.elm_exp_manager import _MCPExtraction
+        payload = {"experiments": [{"case_name": "c1", "metrics": {"a": 1.0}}],
+                   "units": {"QCHARGE": "mm/s"}}
+        x = _MCPExtraction(payload)
+        assert x.results == payload["experiments"]
+        assert x.units["QCHARGE"] == "mm/s"
+        assert x.summary["units"], "_package reads .summary too"
+        assert x.get_llm_analysis_input() is payload
+        assert x.extra_summary == {}, \
+            "an attribute that sometimes exists is worse than one that is " \
+            "sometimes empty"
+
+    def test_package_accepts_it(self, tmp_path):
+        from core.elm_exp_manager import _MCPExtraction
+        m = _mgr(tmp_path)
+        x = _MCPExtraction({"experiments": [
+            {"case_name": "c1", "status": "ok", "metrics": {"a": 1.0}},
+            {"case_name": "c2", "status": "failed", "metrics": {}}]})
+        m._package({}, x, {})
+        pkg = json.loads((m.run_dir / "experiment.json").read_text())
+        assert pkg["columns_total"] == 2
+        assert pkg["columns_succeeded"] == 1

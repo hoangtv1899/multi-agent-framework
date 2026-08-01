@@ -159,7 +159,7 @@ class TestTheStageSequenceIsTheBackendsNotAGuess:
             MODEL = "fake"
             def _materialize(self, p, c):  return p
             def _build(self, p, c):        return [{"case_name": "c1"}]
-            def _prepare(self, e):         return None
+            def _prepare(self, e, c=None): return None
             def _run(self, e, c):          return {"c1": True}
             def _extract(self, e, plan=None, config=None):
                 return types.SimpleNamespace(results=[], units={}, summary={})

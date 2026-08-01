@@ -815,7 +815,7 @@ class _SubmitsPrepare(_Submits):
     """
     NEEDS_PREPARE = True
 
-    def _prepare(self, experiments):
+    def _prepare(self, experiments, config=None):
         self.calls.append("prepare")
         if getattr(self, "prepare_submits", True):
             return Pending("880001", n_cases=len(experiments))
