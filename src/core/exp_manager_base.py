@@ -180,6 +180,18 @@ class ExperimentManagerBase:
 	# depends on it, so a bug in the ledger cannot break a working pipeline.
 	STATE_FILE = "run_state.json"
 
+	# The stage sequence, in order, as execute_plan runs it. Named here so the
+	# ledger's reader and its writer cannot disagree about what a stage is
+	# called or which one comes next — a scan that thought "extract" preceded
+	# "run" would report the wrong thing as outstanding.
+	STAGES = ("materialize", "build", "prepare", "run",
+			  "extract", "package", "analyze")
+
+	# The stage that means "this study produced its product". _package writes
+	# experiment.json, which is what the Analyzer reads and what the run is
+	# for; analyze is non-fatal and a run whose report failed is still finished.
+	TERMINAL_STAGE = "package"
+
 	def _state_path(self) -> Path:
 		return self.run_dir / self.STATE_FILE
 

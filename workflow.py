@@ -369,6 +369,83 @@ class WorkflowCoordinator:
 			return (f"❌ Pipeline failed: {e}\n\n"
 					f"{traceback.format_exc()}")
 	
+	# ═════════════════════════════════════════════════════════
+	# RESUME — continue a run that was interrupted or submitted
+	# ═════════════════════════════════════════════════════════
+	def resume_run(self, run_dir: str) -> str:
+		"""Re-enter an existing run directory and carry on from its ledger.
+
+		Everything needed is already ON DISK, written by the stage that
+		produced it: run_state.json says what is done and which model ran,
+		reception.json and strategy.json are the inputs, run_plan.json is the
+		materialized plan. Nothing is reconstructed from conversation, which is
+		what makes this work across sessions — and across machines.
+
+		THE MODEL COMES FROM THE LEDGER, not from --model. Resuming an ELM run
+		with the default backend would build PFLOTRAN decks in an ELM
+		directory; the run itself is the authority on what it is.
+		"""
+		from core import backends
+		# _read_json rather than json.loads: these files were written by an
+		# earlier session and a half-written one must degrade to "no reception
+		# package", not take the resume down.
+		from core.resumable import inspect_run, describe, _read_json
+
+		rd = Path(run_dir)
+		if not rd.is_dir():
+			return f"❌ No such run directory: {rd}"
+
+		rec = inspect_run(rd, check_jobs=True)
+		print("\n" + "=" * 70)
+		print("RESUMING")
+		print("=" * 70)
+		print(describe(rec))
+
+		if not rec["resumable"]:
+			return (f"❌ {rd.name} cannot be resumed: {rec['why']}\n"
+					f"   Run `python workflow.py --resume` to see what can.")
+
+		model = rec.get("model") or self.model
+		try:
+			backends.get(model)
+		except Exception as e:                                  # noqa: BLE001
+			return (f"❌ The ledger says this run used model '{model}', which "
+					f"this build does not have ({e})")
+		if model != self.model:
+			print(f"   model: {model} (from the ledger, not --model)")
+			self.model = model
+
+		reception = _read_json(rd / "reception.json") or {}
+		strategy  = _read_json(rd / "strategy.json")  or {}
+		brief     = reception.get("brief") or {}
+		settings  = brief.get("run_settings") or {}
+
+		try:
+			summary = self._execute(
+				plan           = strategy,
+				output_dir     = str(rd.parent),
+				run_dir        = rd,
+				reception      = reception,
+				brief          = brief,
+				period         = settings.get("resolved_period"),
+				initialization = settings.get("initialization"),
+				resume         = True,
+			)
+		except Exception as e:                                  # noqa: BLE001
+			return f"❌ Resume failed: {e}\n\n{traceback.format_exc()}"
+
+		self.conversation_context['last_run_dir'] = summary['run_directory']
+
+		# Still queued is a NORMAL outcome, not a failure — that is the whole
+		# point of the pending state, and it must not read as a broken run.
+		if summary.get("status") == "pending":
+			return (f"⏳ Job {summary.get('job_id')} is still running — "
+					f"{summary['experiments_pending']} column(s) queued.\n"
+					f"   Check again: {summary['resume_command']}")
+		return (f"✅ Resumed: {summary['experiments_success']}"
+				f"/{summary['experiments_total']} columns → "
+				f"{summary['run_directory']}")
+
 	def _execute(self,
 				 plan:           dict,
 				 output_dir:     str,
@@ -376,7 +453,8 @@ class WorkflowCoordinator:
 				 reception:      dict,
 				 brief:          dict = None,
 				 period:         dict = None,
-				 initialization: dict = None) -> dict:
+				 initialization: dict = None,
+				 resume:         bool = False) -> dict:
 		"""Hand the plan to the Experiment Manager.
 
 		run_dir and reception are PASSED IN, not rediscovered. The coordinator
@@ -407,6 +485,11 @@ class WorkflowCoordinator:
 			},
 			period=period,
 			initialization=initialization)
+		# Opt-in, and only ever set by resume_run. A fresh run must not inherit
+		# it: re-entering a directory usually means "do it again", and guessing
+		# wrong that way silently reuses stale compute.
+		if resume:
+			cfg['resume'] = True
 		return executor.execute_plan(plan, cfg)
 	
 	# ═════════════════════════════════════════════════════════
@@ -526,6 +609,16 @@ def main():
                   f'reactive transport, not a calibration.'
     )
     parser.add_argument(
+        '--resume',
+        nargs   = '?',
+        const   = '',            # bare --resume: list what can be resumed
+        default = None,          # absent: not a resume at all
+        metavar = 'RUN_DIR',
+        help    = 'continue an interrupted or submitted run. With a run '
+                  'directory, resumes that one; on its own, lists the runs '
+                  'that can be resumed and why, and asks which.'
+    )
+    parser.add_argument(
         '--no-ask',
         action = 'store_true',
         help   = 'do NOT let reception ask clarifying questions — it resolves '
@@ -539,6 +632,53 @@ def main():
                                          # existing commands keep working
     )
     args = parser.parse_args()
+
+    # ── --resume, before anything expensive ──────────────────────────
+    # Listing is a filesystem scan and needs no LLM, no MCP servers and no
+    # reception. Building the coordinator first would spend all three to print
+    # a directory listing — and would fail outright if the gateway were down,
+    # which is precisely a moment someone might be trying to recover a run.
+    if args.resume is not None:
+        from core.resumable import find_resumable, print_listing
+        target = args.resume
+        if not target:
+            rows = find_resumable(args.output_dir, check_jobs=True,
+                                  include_all=True)
+            print_listing(rows, args.output_dir)
+            live = [r for r in rows if r.get("resumable")]
+            if not live:
+                return
+            if sys.stdin.isatty():
+                # THE CHOICE IS THE USER'S, including when there is only one.
+                # Auto-resuming a lone candidate looks helpful and is not: a
+                # bare --resume is often someone asking what is outstanding,
+                # and answering it by starting work is not what was asked.
+                # Enter means "I was only looking".
+                try:
+                    pick = input(f"Which one? [1-{len(live)}, or Enter to "
+                                 f"quit] ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    return
+                if not pick.isdigit() or not 1 <= int(pick) <= len(live):
+                    print("Nothing resumed.")
+                    return
+                target = live[int(pick) - 1]["run_dir"]
+            else:
+                # No TTY: print the commands rather than guessing.
+                print("Pick one and pass it explicitly:")
+                for r in live:
+                    print(f"    python workflow.py --resume {r['run_dir']}")
+                return
+
+        coordinator = WorkflowCoordinator(
+            default_output_dir    = args.output_dir,
+            mcp_config_file       = args.mcp_config,
+            interactive_reception = False,
+            model                 = args.model,
+        )
+        print(coordinator.resume_run(target))
+        return
 
     # --interactive means the user is sitting at a TTY answering prompts, so
     # reception may ask them things. Requiring a second --ask flag to enable

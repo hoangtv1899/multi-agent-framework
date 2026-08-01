@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Finding the runs that can be continued — and saying why the rest cannot.
+
+The scan is deliberately plain code, not an agent: "is job 770680 finished" is
+a question squeue answers exactly. What is pinned here is that it stays honest
+about the two things a caller acts on — whether a run can be resumed, and which
+run it is.
+"""
+import json
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from core.resumable import (                                    # noqa: E402
+    find_resumable, inspect_run, describe, _next_stage, _stages_for,
+)
+
+
+def _run(tmp_path, name="elm_run_20260801_120000", *, stages=None,
+         model="elm", request=None, experiment=False, ledger=True):
+    d = tmp_path / name
+    d.mkdir(parents=True, exist_ok=True)
+    if ledger:
+        (d / "run_state.json").write_text(json.dumps({
+            "model": model, "run_dir": str(d),
+            "updated": datetime.now().isoformat(),
+            "stages": stages or {}}))
+    if request is not None:
+        (d / "reception.json").write_text(json.dumps(
+            {"user_request": request}))
+    if experiment:
+        (d / "experiment.json").write_text('{"columns": []}')
+    return d
+
+
+def _done(*names):
+    return {n: {"status": "done", "at": datetime.now().isoformat()}
+            for n in names}
+
+
+class TestWhatCountsAsResumable:
+
+    def test_a_submitted_job_is(self, tmp_path):
+        d = _run(tmp_path, stages={**_done("materialize", "build", "prepare"),
+                                   "run": {"status": "pending",
+                                           "job_id": "770680"}})
+        r = inspect_run(d)
+        assert r["resumable"]
+        assert r["job_id"] == "770680"
+        assert "770680" in r["why"]
+
+    def test_a_run_stopped_partway_is(self, tmp_path):
+        d = _run(tmp_path, stages=_done("materialize", "build"))
+        r = inspect_run(d)
+        assert r["resumable"]
+        assert r["next"] == "prepare"       # ELM has one
+        assert "build" in r["why"]
+
+    def test_a_finished_run_is_not(self, tmp_path):
+        """_package wrote experiment.json, which is what the run is FOR. A
+        failed analyze leaves a finished study with no report, and re-running
+        the pipeline is not how to get one."""
+        d = _run(tmp_path, stages={**_done("materialize", "build", "prepare",
+                                           "run", "extract", "package"),
+                                   "analyze": {"status": "failed"}})
+        r = inspect_run(d)
+        assert not r["resumable"]
+        assert "complete" in r["why"]
+
+    def test_a_run_with_no_ledger_is_not(self, tmp_path):
+        """Re-entering one would find an empty ledger and redo everything,
+        which is not resuming — so it is not offered as such."""
+        d = _run(tmp_path, ledger=False, request="something")
+        r = inspect_run(d)
+        assert not r["resumable"]
+        assert "ledger" in r["why"]
+
+    def test_and_says_whether_it_at_least_finished(self, tmp_path):
+        """Most of what is on disk predates the ledger. Someone choosing
+        between those still needs to know which ones produced a result."""
+        done = _run(tmp_path, "a_run_1", ledger=False, experiment=True)
+        part = _run(tmp_path, "a_run_2", ledger=False)
+        assert "complete" in inspect_run(done)["why"]
+        assert "re-run" in inspect_run(part)["why"]
+
+
+class TestItSaysWhichRunItIs:
+    """Run dirs are named elm_run_20260801_132630 — timestamps, not topics.
+    Two studies of the same watershed an hour apart are indistinguishable by
+    name, so the scan carries what the run was ASKED to do."""
+
+    def test_the_request_text_comes_along(self, tmp_path):
+        d = _run(tmp_path, stages=_done("materialize"),
+                 request="Quantify recharge in the Upper Gunnison")
+        assert "Gunnison" in inspect_run(d)["request"]
+
+    def test_a_missing_reception_is_not_fatal(self, tmp_path):
+        d = _run(tmp_path, stages=_done("materialize"))
+        r = inspect_run(d)
+        assert r["request"] is None and r["resumable"]
+
+    def test_corrupt_json_is_not_fatal(self, tmp_path):
+        """These files were written by an earlier session, possibly one that
+        was killed mid-write."""
+        d = _run(tmp_path, stages=_done("materialize"))
+        (d / "reception.json").write_text("{ this is not json")
+        assert inspect_run(d)["request"] is None
+        (d / "run_state.json").write_text("}{")
+        r = inspect_run(d)
+        assert not r["resumable"] and "ledger" in r["why"]
+
+    def test_the_model_comes_off_the_ledger(self, tmp_path):
+        """Resuming an ELM run with the default backend would build PFLOTRAN
+        decks in an ELM directory."""
+        d = _run(tmp_path, stages=_done("materialize"), model="pflotran")
+        assert inspect_run(d)["model"] == "pflotran"
+
+    def test_a_ledgerless_run_falls_back_to_its_name(self, tmp_path):
+        d = _run(tmp_path, "pflotran_run_20260801_120000", ledger=False)
+        assert inspect_run(d)["model"] == "pflotran"
+
+
+class TestTheStageSequenceIsTheBackendsNotAGuess:
+
+    def test_pflotran_has_no_prepare_stage(self, tmp_path):
+        """NEEDS_PREPARE = False — deck generation IS its build. Reading the
+        ledger without asking the backend reports 'prepare' as the outstanding
+        stage of every interrupted PFLOTRAN study, forever."""
+        assert "prepare" not in _stages_for("pflotran")
+        assert "prepare" in _stages_for("elm")
+
+    def test_so_a_pflotran_run_past_build_is_waiting_on_run(self, tmp_path):
+        d = _run(tmp_path, model="pflotran",
+                 stages=_done("materialize", "build"))
+        assert inspect_run(d)["next"] == "run"
+
+    def test_an_unknown_backend_assumes_every_stage(self, tmp_path):
+        """Not a crash and not an empty sequence: an unrecognised model name
+        should degrade to the fullest reading, which over-reports rather than
+        silently declaring a run finished."""
+        assert _stages_for("no-such-model") == _stages_for(None)
+
+    def test_the_order_matches_the_manager(self):
+        """The scan and execute_plan must not disagree about what comes next."""
+        from core.exp_manager_base import ExperimentManagerBase
+        src = (ROOT / "src" / "core" / "exp_manager_base.py").read_text()
+        for s in ExperimentManagerBase.STAGES:
+            assert f'self._mark("{s}"' in src, \
+                f"execute_plan never records the stage '{s}'"
+
+
+class TestTheScan:
+
+    def test_newest_first(self, tmp_path):
+        for n in ("elm_run_20260101_000000", "elm_run_20260801_000000",
+                  "elm_run_20260401_000000"):
+            _run(tmp_path, n, stages=_done("materialize"))
+        names = [r["name"] for r in find_resumable(str(tmp_path))]
+        assert names == sorted(names, reverse=True)
+
+    def test_non_runs_are_skipped(self, tmp_path):
+        """workflow_outputs also holds eval outputs, probe scripts and
+        scratch dirs that are not runs."""
+        _run(tmp_path, stages=_done("materialize"))
+        (tmp_path / "planner_eval").mkdir()
+        (tmp_path / "notes.txt").write_text("hello")
+        assert len(find_resumable(str(tmp_path))) == 1
+
+    def test_include_all_carries_the_reasons(self, tmp_path):
+        """'3 runs, all complete' is a different answer from 'no runs at all',
+        and a caller that shows an empty list can say neither."""
+        _run(tmp_path, "elm_run_20260801_000001", stages=_done("materialize"))
+        _run(tmp_path, "elm_run_20260801_000002", ledger=False,
+             experiment=True)
+        assert len(find_resumable(str(tmp_path))) == 1
+        every = find_resumable(str(tmp_path), include_all=True)
+        assert len(every) == 2
+        assert all(r["why"] for r in every)
+
+    def test_a_missing_output_dir_is_empty_not_an_error(self, tmp_path):
+        assert find_resumable(str(tmp_path / "nope")) == []
+
+    def test_describe_does_not_say_the_job_twice(self, tmp_path):
+        """It read 'job 770680 RUNNING; job 770680 is RUNNING'."""
+        d = _run(tmp_path, stages={"run": {"status": "pending",
+                                           "job_id": "770680"}})
+        r = inspect_run(d)
+        r["job_state"] = "RUNNING"
+        assert describe(r).count("770680") == 1
+
+
+class TestResumeIsWiredIntoTheCLI:
+
+    def test_bare_resume_lists_and_does_not_run(self):
+        """A bare --resume is often someone asking what is outstanding.
+        Answering it by starting work is not what was asked."""
+        src = (ROOT / "workflow.py").read_text()
+        assert "print_listing" in src
+        assert "'--resume'" in src or '"--resume"' in src
+
+    def test_listing_needs_no_llm_and_no_mcp(self):
+        """A scan is a filesystem read. Building the coordinator first would
+        spend an LLM and six MCP servers to print a directory listing — and
+        would fail outright if the gateway were down, which is exactly when
+        someone is trying to recover a run."""
+        src = (ROOT / "workflow.py").read_text()
+        i_scan = src.index("from core.resumable import find_resumable")
+        i_coord = src.index("coordinator = WorkflowCoordinator", i_scan)
+        assert i_scan < i_coord
+
+    def test_the_model_is_taken_from_the_ledger_not_the_flag(self):
+        src = (ROOT / "workflow.py").read_text()
+        assert 'model = rec.get("model") or self.model' in src
+
+    def test_resume_is_not_set_for_a_fresh_run(self):
+        """execute_plan's resume is opt-in, and _execute must not leak it into
+        an ordinary run — that would silently reuse stale compute."""
+        src = (ROOT / "workflow.py").read_text()
+        assert "if resume:\n\t\t\tcfg['resume'] = True" in src
