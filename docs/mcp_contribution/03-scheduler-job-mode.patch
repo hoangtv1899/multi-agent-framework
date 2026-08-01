@@ -1,0 +1,117 @@
+--- server_v2.py	2026-08-01 16:10:18.804050612 -0700
++++ /qfs/people/tran289/IDEAS/reaction_sandbox_mcp-main/server.py	2026-08-01 16:07:49.121535204 -0700
+@@ -368,6 +368,114 @@
+     )
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────
++# THE SAME ENSEMBLE, AS A SCHEDULER JOB
++# ─────────────────────────────────────────────────────────────────────
++# An ADDITION, not a replacement. run_pflotran_simulation stays the right tool
++# for the many-small case that is most of this server's work: a framework
++# column solves in ~0.3 s and a job would spend longer queued than solving.
++#
++# These three are for when the inline path is the wrong shape — see
++# tools/job_runner.py for the argument in full. Briefly: inline simulations run
++# in the SERVER'S process tree, which on a cluster is a login node, and an MCP
++# client kills that tree when its session ends. Long or wide runs need to
++# outlive the call that started them.
++
++@mcp.tool()
++def submit_pflotran_ensemble(
++    input_file: Union[str, List[str]],
++    output_dir: str,
++    executable: Optional[str] = None,
++    num_cores: int = 1,
++    mpi_command: Optional[str] = None,
++    max_parallel: Optional[int] = None,
++    timeout: Optional[float] = None,
++    queue: Optional[str] = None,
++    walltime: str = "01:00:00",
++    account: Optional[str] = None,
++    nodes: int = 1,
++) -> Dict[str, Any]:
++    """Submit an ensemble to the scheduler and return a job id IMMEDIATELY.
++
++    Use this instead of run_pflotran_simulation when the run is long, wide, or
++    when the server should not be spending the CPU itself — inline simulations
++    execute in this server's own process tree, and an MCP client tears that
++    tree down when its session ends.
++
++    For a handful of fast decks, prefer run_pflotran_simulation: the queue wait
++    would exceed the solve.
++
++    Poll with check_pflotran_job, then collect_pflotran_results once it is no
++    longer active. The collected result has the same shape run_pflotran_
++    simulation returns, including results_by_input.
++
++    Args:
++        input_file: one deck or a list of them
++        output_dir: where the job's bookkeeping and outputs go
++        timeout: per-deck wall limit, as for the inline path. Strongly
++            recommended: without it one non-converging column can consume the
++            whole job's walltime and take the finished columns down with it.
++        queue/walltime/account/nodes: scheduler parameters. Walltime must cover
++            the WHOLE ensemble, not one deck.
++    """
++    from tools.job_runner import submit as _submit
++
++    decks = [input_file] if isinstance(input_file, str) else list(input_file)
++    return _submit(
++        input_files=decks,
++        output_dir=output_dir,
++        executable=executable or PFLOTRAN_EXECUTABLE,
++        num_cores=num_cores,
++        mpi_command=mpi_command or os.getenv("MPI_COMMAND", "mpirun"),
++        max_parallel=max_parallel,
++        timeout=timeout,
++        queue=queue,
++        walltime=walltime,
++        account=account,
++        nodes=nodes,
++    )
++
++
++@mcp.tool()
++def check_pflotran_job(job_id: str, output_dir: str = "") -> Dict[str, Any]:
++    """Is the scheduler still busy with a submitted ensemble?
++
++    Branch on `active`. It is TRUE when the scheduler will not answer, because
++    "no answer" is not "finished" — collecting on a squeue timeout would read
++    an ensemble still in flight as a completed one.
++
++    With output_dir given, also reports whether the result file exists, which
++    is the only evidence available once the scheduler has purged the job.
++    """
++    from tools.job_runner import check as _check
++    return _check(job_id, output_dir)
++
++
++@mcp.tool()
++def collect_pflotran_results(output_dir: str,
++                             wait_s: float = 30.0) -> Dict[str, Any]:
++    """What a submitted ensemble produced. Call once its job is inactive.
++
++    Returns THE SAME SHAPE run_pflotran_simulation returns, so a caller can
++    switch between the inline and submitted paths without parsing two formats.
++    That includes results_by_input, which maps each deck to its own outcome —
++    the aggregate exit_codes list is in completion order, so exit_codes[i] does
++    not belong to input_file[i], and without the map an ensemble can be counted
++    but not attributed.
++
++    Waits up to wait_s for the result file to appear. "The scheduler has
++    finished" and "the result is readable from here" are different instants:
++    the job writes from a compute node and the submitting host's view of the
++    filesystem lags. Job 770699 wrote its result 0.96 s into the same second
++    its job ended, and a collect fired on the scheduler's word alone reported
++    three successful columns as no results at all.
++
++    status="incomplete" means the job has not written its result yet.
++    """
++    from tools.job_runner import collect as _collect
++    return _collect(output_dir, wait_s=wait_s)
++
++
+ @mcp.tool()
+ def check_simulation_status(
+     output_dir: str,

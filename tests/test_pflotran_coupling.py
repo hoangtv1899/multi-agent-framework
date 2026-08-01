@@ -157,3 +157,112 @@ class TestBuildEnsembleWiring:
         res = bpc.build_ensemble(cols, tmp_path / "out", run=False, quiet=True)
         dirs = [m["case_dir"] for m in res["cases"]]
         assert len(set(dirs)) == 3
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 5 — the ensemble as a scheduler job
+# ─────────────────────────────────────────────────────────────────────
+class _RxClient:
+    def __init__(self, **replies):
+        self.timeout = 300.0
+        self.calls = []
+        self.replies = replies
+
+    def call_tool_json(self, tool, args):
+        self.calls.append((tool, args))
+        return self.replies.get(tool)
+
+
+class TestSubmittingIsOptInForPFLOTRAN:
+    """Unlike ELM (D5), the submitted path is NOT the default here. A framework
+    column solves in ~0.3 s — it is why NEEDS_SCHEDULER is False — so a queue
+    slot costs more than the solve for the ordinary ensemble."""
+
+    def _mgr(self, tmp_path):
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        return PFLOTRANExpManager(base_output_dir=str(tmp_path))
+
+    def test_the_inline_path_is_still_the_default(self, tmp_path):
+        src = (ROOT / "src" / "core" / "pflotran_exp_manager.py").read_text()
+        i = src.index("def _run(")
+        body = src[i:i + 2500]
+        assert 'config.get("submit")' in body, \
+            "submitting must be asked for, not assumed"
+
+    def test_submitting_returns_a_pending(self, tmp_path):
+        from core.exp_manager_base import Pending
+        m = self._mgr(tmp_path)
+        case = tmp_path / "col_01"
+        case.mkdir()
+        (case / "col_01.in").write_text("SIMULATION\nEND\n")
+        c = _RxClient(submit_pflotran_ensemble={"job_id": "770699",
+                                                "n_decks": 1})
+        out = m._submit_via_mcp([{"id": "col_01", "case_dir": str(case)}],
+                                c, 300.0, 4, {})
+        assert isinstance(out, Pending) and out.job_id == "770699"
+
+    def test_a_submission_with_no_job_id_raises(self, tmp_path):
+        """A Pending nobody can poll is worse than a failure."""
+        m = self._mgr(tmp_path)
+        case = tmp_path / "col_01"
+        case.mkdir()
+        (case / "col_01.in").write_text("x")
+        c = _RxClient(submit_pflotran_ensemble={"error": "sbatch missing"})
+        with pytest.raises(RuntimeError, match="could not submit"):
+            m._submit_via_mcp([{"id": "col_01", "case_dir": str(case)}],
+                              c, 300.0, 4, {})
+
+    def test_poll_waits_while_the_job_is_active(self, tmp_path):
+        m = self._mgr(tmp_path)
+        c = _RxClient(check_pflotran_job={"active": True, "state": "RUNNING"})
+        assert m._poll({"job_id": "770699", "stage": "run"}, [],
+                       {"mcp_clients": {"reaction": c}}) is None
+        assert "collect_pflotran_results" not in [t for t, _ in c.calls]
+
+    def test_poll_collects_and_attributes(self, tmp_path):
+        m = self._mgr(tmp_path)
+        case = tmp_path / "col_01"
+        (case).mkdir()
+        (case / "col_01.in").write_text("x")
+        (case / "col_01.tec").write_text("x")
+        c = _RxClient(
+            check_pflotran_job={"active": False, "state": "COMPLETED"},
+            collect_pflotran_results={
+                "status": "completed",
+                "results_by_input": {
+                    str(case / "col_01.in"): {"validation_status": "success",
+                                              "exit_codes": [0],
+                                              "execution_time": 0.31}}})
+        rows = m._poll({"job_id": "770699", "stage": "run"},
+                       [{"id": "col_01", "case_dir": str(case)}],
+                       {"mcp_clients": {"reaction": c}})
+        assert len(rows) == 1
+        assert rows[0]["status"] == "completed"
+        assert rows[0]["runtime_seconds"] == 0.31
+        assert rows[0]["run_via"] == "mcp"
+
+    def test_a_finished_job_with_nothing_attributable_raises(self, tmp_path):
+        """The scheduler being done is not a reason to keep waiting, and it is
+        not a reason to invent rows either."""
+        m = self._mgr(tmp_path)
+        c = _RxClient(
+            check_pflotran_job={"active": False, "state": "COMPLETED"},
+            collect_pflotran_results={"status": "incomplete",
+                                      "error": "no result file"})
+        with pytest.raises(RuntimeError, match="no attributable results"):
+            m._poll({"job_id": "770699", "stage": "run"}, [],
+                    {"mcp_clients": {"reaction": c}})
+
+    def test_polling_without_a_client_raises(self, tmp_path):
+        """The job was submitted through the server; only the server can
+        collect it."""
+        m = self._mgr(tmp_path)
+        with pytest.raises(RuntimeError, match="no reaction client"):
+            m._poll({"job_id": "770699", "stage": "run"}, [], {})
+
+    def test_both_paths_share_one_attribution(self):
+        """The inline and submitted paths return the same shape by design; a
+        second copy of the mapping is a second place for it to drift."""
+        src = (ROOT / "src" / "core" / "pflotran_exp_manager.py").read_text()
+        assert src.count("def _rows_from_mcp") == 1
+        assert src.count("self._rows_from_mcp(") == 2

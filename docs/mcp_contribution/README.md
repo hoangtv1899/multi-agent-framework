@@ -131,3 +131,68 @@ deck, a primary species absent from the database, a species missing from a
 constraint, and the skeleton described above. It checks which blocks are
 present, not whether the deck is runnable. Not addressed here, but worth
 knowing before trusting it as a gate.
+
+---
+
+## 03 — scheduler job mode (`03-scheduler-job-mode.patch`, + two modules)
+
+**Problem.** `run_pflotran_simulation` runs the solver inside the MCP call.
+Two consequences that no timeout setting can fix:
+
+* the simulations execute in the **server's own process tree**, which on a
+  cluster is a login node — `max_parallel` concurrent `mpirun` processes are
+  login-node load;
+* an MCP client opens a fresh stdio session per call and tearing it down kills
+  the server **and its children**, so every inline second is a second the whole
+  ensemble can be destroyed in. A multi-hour reactive-transport run cannot be
+  attempted this way at all.
+
+**Not a replacement.** `run_pflotran_simulation` remains the right tool for the
+many-small case that is most of this server's work: a 1-D column solves in
+~0.3 s, and a queue slot would cost more than the solve. This adds a second
+mode and lets the caller choose.
+
+    submit_pflotran_ensemble(...)  -> a job id, immediately
+    check_pflotran_job(...)        -> is the scheduler still busy?
+    collect_pflotran_results(...)  -> the SAME dict run_simulation returns
+
+**Files**
+
+| file | role |
+|---|---|
+| `tools_job_runner.py` → `tools/job_runner.py` | submit / check / collect; SLURM |
+| `tools_pflotran_job_payload.py` → `tools/pflotran_job_payload.py` | what the job runs |
+| `03-scheduler-job-mode.patch` | the three tools in `server.py` |
+
+**The payload calls `run_simulation`** — the same function the inline path
+calls — so the two modes cannot produce different numbers. Verified: three real
+decks run both ways gave identical `validation_status` and `exit_codes`, deck
+for deck.
+
+### Two things worth keeping if this is adapted
+
+**`results_by_input` is carried through.** The aggregate `exit_codes` list is in
+*completion* order, so `exit_codes[i]` does not belong to `input_files[i]`. A
+batch path that dropped the map would run the ensemble correctly and make it
+impossible to attribute, which is worse than not running it — the numbers look
+fine.
+
+**`collect()` waits briefly for the result file.** "The scheduler has finished"
+and "the result is readable from the submitting host" are different instants:
+the job writes to a parallel filesystem from a compute node. Measured — job
+770699 ran three decks correctly, logged `ENSEMBLE_DONE 3/3`, and wrote
+`result.json` at 16:06:28.961 against a job end time of 16:06:28. A collect
+fired the moment `sacct` said COMPLETED found nothing and reported three
+successful columns as no results at all. `check()` therefore reports `ready`
+separately from `active`, and `collect()` polls for up to 30 s before giving up.
+
+### Applying
+
+    patch -p0 < 01-simulation-timeout-and-threads.patch
+    patch -p0 < 02-server-timeout-and-create_column_deck.patch
+    patch -p0 < 03-scheduler-job-mode.patch
+    cp tools_job_runner.py           tools/job_runner.py
+    cp tools_pflotran_job_payload.py tools/pflotran_job_payload.py
+
+Verified: applying 01→02→03 in sequence to the pristine `server.py` reproduces
+the working file byte for byte.

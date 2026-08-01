@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, "src")
 
-from core.exp_manager_base import ExperimentManagerBase   # noqa: E402
+from core.exp_manager_base import ExperimentManagerBase, Pending   # noqa: E402
 
 
 def _load_tool(name: str):
@@ -315,6 +315,10 @@ class PFLOTRANExpManager(ExperimentManagerBase):
         # bypassed because nothing was configured.
         client = (config.get("mcp_clients") or {}).get("reaction")
         if client is not None and config.get("run_via_mcp", True):
+            # Opt-in: hand it to the scheduler instead of running it here.
+            if config.get("submit"):
+                return self._submit_via_mcp(experiments, client, limit, width,
+                                            config)
             out = self._run_via_mcp(experiments, client, limit, width)
             if out is None:
                 raise RuntimeError(
@@ -402,6 +406,15 @@ class PFLOTRANExpManager(ExperimentManagerBase):
                   f"({r.get('error') or r.get('validation_status') or 'no answer'})")
             return None
 
+        return self._rows_from_mcp(experiments, rbi)
+
+    def _rows_from_mcp(self, experiments, rbi):
+        """results_by_input -> per-column rows, in EXPERIMENT order.
+
+        Shared by the inline and the submitted paths, because the two return
+        the same shape by design; a second copy of this mapping is a second
+        place for attribution to drift.
+        """
         results = []
         for e in experiments:                       # EXPERIMENT order, always
             case_dir = Path(e.get("case_dir") or "")
@@ -432,6 +445,79 @@ class PFLOTRANExpManager(ExperimentManagerBase):
                   f"{e.get('id')}: {outcome['runtime_seconds']}s, "
                   f"{outcome['n_output_files']} tec")
         return results
+
+    # ─────────────────────────────────────────────────────────
+    # THE SUBMITTED PATH — Phase 5, and OPT-IN
+    # ─────────────────────────────────────────────────────────
+    # NOT the default, unlike ELM. A framework column solves in ~0.3 s
+    # (measured; it is why NEEDS_SCHEDULER is False), so for the ordinary
+    # ensemble a queue slot costs more than the solve. Set config["submit"]
+    # when the run is long, wide, or when the server should not be spending
+    # login-node CPU on it.
+    def _submit_via_mcp(self, experiments, client, limit, width, config):
+        """Hand the ensemble to the scheduler. Returns a Pending."""
+        decks = []
+        for e in experiments:
+            d = next(Path(e.get("case_dir") or "").glob("*.in"), None)
+            if d is not None:
+                decks.append(str(d))
+        if not decks:
+            raise RuntimeError("no decks to submit")
+
+        out = client.call_tool_json("submit_pflotran_ensemble", {
+            "input_file": decks,
+            "output_dir":  str(self.run_dir),
+            "num_cores":   1,
+            "max_parallel": width,
+            "timeout":     limit,
+            "queue":       str(config.get("queue", "")),
+            "walltime":    str(config.get("walltime", "01:00:00")),
+        }) or {}
+        if out.get("error") or not out.get("job_id"):
+            raise RuntimeError(
+                f"the reaction MCP could not submit this ensemble: "
+                f"{out.get('error') or 'no job id returned'}")
+        print(f"   submitted {out.get('n_decks')} deck(s) as job "
+              f"{out['job_id']} via the reaction MCP")
+        return Pending(out["job_id"], n_decks=out.get("n_decks"),
+                       log=out.get("log_path"), via="mcp")
+
+    def _poll(self, record, experiments, config):
+        """Has the submitted ensemble landed?
+
+        Waits on `ready`, not on `active` alone. The scheduler finishing and
+        the result becoming readable here are different instants — job 770699
+        wrote its result 0.96 s into the same second its job ended, and a
+        collect fired on the scheduler's word alone reported three successful
+        columns as no results at all.
+        """
+        client = (config.get("mcp_clients") or {}).get("reaction")
+        if client is None:
+            raise RuntimeError(
+                f"job {record.get('job_id')} was submitted through the reaction "
+                f"MCP, but no reaction client is configured to collect it")
+
+        st = client.call_tool_json("check_pflotran_job", {
+            "job_id": str(record.get("job_id")),
+            "output_dir": str(self.run_dir)}) or {}
+        if st.get("active", True):
+            print(f"   job {record.get('job_id')} is "
+                  f"{st.get('state') or 'unanswered'} — nothing to collect yet")
+            return None
+
+        got = client.call_tool_json("collect_pflotran_results", {
+            "output_dir": str(self.run_dir)}) or {}
+        rbi = got.get("results_by_input")
+        if got.get("status") == "incomplete" or not isinstance(rbi, dict) or not rbi:
+            # The scheduler is done and there is still nothing attributable.
+            # Not a reason to keep waiting and not a reason to invent rows.
+            raise RuntimeError(
+                f"job {record.get('job_id')} finished ({st.get('state')}) but "
+                f"produced no attributable results: "
+                f"{got.get('error') or 'results_by_input was empty'}")
+        print(f"   job {record.get('job_id')} finished ({st.get('state')}) — "
+              f"collecting {len(rbi)} deck(s)")
+        return self._rows_from_mcp(experiments, rbi)
 
     def _run_one(self, e: Dict[str, Any], exe: str, limit: float) -> Dict[str, Any]:
         """One column. Returns its outcome and writes it back onto `e`."""
