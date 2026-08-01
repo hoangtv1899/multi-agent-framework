@@ -759,3 +759,49 @@ class TestTheSchedulerIsAskedProperly:
             assert s in active
         for s in ("COMPLETED", "FAILED", "TIMEOUT", "CANCELLED", "NODE_FAIL"):
             assert s not in active, f"{s} means SLURM is done with the job"
+
+
+class TestAnEmptyEnsembleIsNotInterpreted:
+    """The Analyzer is four LLM calls. On a 0/2 ensemble it spent 140 s and
+    ~22 k tokens to conclude, correctly, that it had no data — steps 2 and 3
+    are built to withhold claims when the evidence is absent, so they withheld,
+    at full price. A cancelled or timed-out job now lands here routinely."""
+
+    class _Empty(_Submits):
+        def _run(self, experiments, config):
+            self.calls.append("run")
+            return {e["case_name"]: config.get("ok", False) for e in experiments}
+
+    def test_skipped_when_nothing_succeeded(self, tmp_path):
+        m = self._Empty(base_output_dir=str(tmp_path))
+        s = m.execute_plan({}, {"ok": False})
+        assert s["experiments_success"] == 0
+        st = m._load_state()["stages"]["analyze"]
+        assert st["status"] == "skipped"
+        assert st["reason"] == "no successful columns"
+
+    def test_still_run_when_something_did(self, tmp_path):
+        m = self._Empty(base_output_dir=str(tmp_path))
+        m.execute_plan({}, {"ok": True})
+        assert m._load_state()["stages"]["analyze"]["status"] in ("done", "failed")
+
+    def test_packaging_is_not_skipped(self, tmp_path):
+        """experiment.json is the record that the run FAILED. Skipping it
+        would lose the only account of what happened."""
+        m = self._Empty(base_output_dir=str(tmp_path))
+        m.execute_plan({}, {"ok": False})
+        assert "package" in m.calls
+        assert m._load_state()["stages"]["package"]["status"] == "done"
+
+    def test_skipped_is_not_failed(self, tmp_path):
+        """A reader of the ledger must not think the Analyzer crashed."""
+        m = self._Empty(base_output_dir=str(tmp_path))
+        m.execute_plan({}, {"ok": False})
+        assert m._load_state()["stages"]["analyze"]["status"] != "failed"
+
+    def test_the_written_report_is_skipped_too(self):
+        """workflow.py's report agent is a second LLM call over the same
+        nothing."""
+        src = (ROOT / "workflow.py").read_text()
+        assert "_NothingToReportOn" in src
+        assert "if not run_summary.get('experiments_success')" in src

@@ -24,6 +24,16 @@ import json
 from pathlib import Path
 from typing  import Optional
 sys.path.insert(0, "src")
+
+class _NothingToReportOn(Exception):
+	"""Not a failure: the run finished and produced nothing to interpret.
+
+	Its own type so the skip reads as a skip. Folded into the generic handler
+	it would print "written report failed", which describes a broken reporter
+	rather than an empty ensemble.
+	"""
+
+
 from agents.planner               import Planner
 from agents.analysis_report_agent import AnalysisReportAgent
 from core.mcp_manager             import MCPManager
@@ -336,6 +346,14 @@ class WorkflowCoordinator:
 			# pipeline. It reads as though the run was lost, and it was not.
 			analysis = None
 			try:
+				# Nothing succeeded — same reasoning as the Analyzer skip in
+				# execute_plan. A written report over zero columns costs an LLM
+				# call to say it has no data, which RUN_SUMMARY.json already
+				# says for free.
+				if not run_summary.get('experiments_success'):
+					raise _NothingToReportOn(
+						f"0/{run_summary['experiments_total']} columns produced "
+						f"output")
 				if not llm_input_file.exists():
 					raise FileNotFoundError(
 						f"{llm_input_file.name} was not written; "
@@ -351,6 +369,8 @@ class WorkflowCoordinator:
 				)
 				print("✓ Analysis complete\n")
 				self.conversation_context['last_analysis'] = analysis
+			except _NothingToReportOn as e:
+				print(f"   ⏭  report skipped — {e}\n")
 			except Exception as e:                              # noqa: BLE001
 				print(f"   ⚠️  written report failed ({e}) — the run and its "
 					  f"results are intact\n")

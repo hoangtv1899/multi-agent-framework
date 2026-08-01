@@ -439,13 +439,33 @@ class ExperimentManagerBase:
 
 			print("\n🔭 STEP 4c: Analyzer")
 			print("-" * 40)
-			try:
-				from agents.analyzer import Analyzer
-				Analyzer(str(self.run_dir)).run(results=analyzer, config=config)
-				self._mark("analyze")
-			except Exception as e:                              # noqa: BLE001
-				print(f"   ⚠️  analyzer failed ({e}) — experiment.json stands")
-				self._mark("analyze", status="failed", error=str(e)[:200])
+			# NOTHING SUCCEEDED — there is nothing to interpret.
+			#
+			# The Analyzer is four LLM calls; on a 0/2 ensemble it spent 140 s
+			# and ~22 k tokens to conclude, correctly, that it had no data. It
+			# was doing its job: steps 2 and 3 are built to withhold claims when
+			# the evidence is absent, so they withhold, at full price.
+			#
+			# _package still runs (above): experiment.json is the record that
+			# the run failed, and skipping THAT would lose the only account of
+			# what happened. Only the interpretation is skipped, and the ledger
+			# says why so a reader does not think the Analyzer crashed.
+			n_ok = sum(1 for v in self._outcome_map(results).values() if v)
+			if experiments and not n_ok:
+				print(f"   ⏭  skipped — 0/{len(experiments)} columns produced "
+					  f"output, so there is nothing to interpret")
+				self._mark("analyze", status="skipped",
+						   reason="no successful columns")
+			else:
+				try:
+					from agents.analyzer import Analyzer
+					Analyzer(str(self.run_dir)).run(results=analyzer,
+													config=config)
+					self._mark("analyze")
+				except Exception as e:                          # noqa: BLE001
+					print(f"   ⚠️  analyzer failed ({e}) — experiment.json "
+						  f"stands")
+					self._mark("analyze", status="failed", error=str(e)[:200])
 
 			# Step 4d — hand off to a downstream model, when the backend
 			# declares one and the plan asks for it. Non-fatal: this study
