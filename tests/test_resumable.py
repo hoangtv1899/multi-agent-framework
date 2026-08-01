@@ -279,3 +279,74 @@ class TestAPendingPrepareIsFoundToo:
                          "prepare": {"status": "pending", "job_id": "880001"}})
         r = inspect_run(d)
         assert r["stage"] != "prepare"
+
+
+class TestReceptionMayChooseButNotInvent:
+    """Option A: deterministic discovery, LLM routing.
+
+    A run directory reception PRODUCED rather than SELECTED would either crash
+    or — worse — resume a different study and report it as the one that was
+    asked about. Run dirs are named by timestamp, so a model working from the
+    name alone cannot tell two same-day studies apart.
+    """
+
+    def test_resume_is_a_route(self):
+        src = (ROOT / "src" / "agents" / "reception_llm.py").read_text()
+        assert '"resume": "resume"' in src
+        prompt = (ROOT / "src" / "agents" / "prompts"
+                  / "reception_agentic.txt").read_text()
+        assert '"intent": "resume"' in prompt
+
+    def test_the_prompt_forbids_inventing_a_run_dir(self):
+        prompt = (ROOT / "src" / "agents" / "prompts"
+                  / "reception_agentic.txt").read_text()
+        assert "Do not construct one" in prompt
+        assert "verbatim" in prompt
+
+    def test_the_coordinator_checks_the_choice_against_the_scan(self):
+        """The prompt asks; the allowlist enforces. A prompt alone is a
+        request, not a constraint."""
+        src = (ROOT / "workflow.py").read_text()
+        i = src.index("def _workflow_resume")
+        body = src[i:i + 3000]
+        assert "find_resumable" in body
+        assert "allowed" in body and "allowed.get(asked)" in body
+
+    def test_an_off_list_choice_does_not_get_resumed(self, tmp_path, capsys,
+                                                     monkeypatch):
+        import workflow as wf
+        c = wf.WorkflowCoordinator.__new__(wf.WorkflowCoordinator)
+        c.default_output_dir = str(tmp_path)
+        c.conversation_context = {}
+        resumed = []
+        c.resume_run = lambda rd: resumed.append(rd) or "ok"
+
+        _run(tmp_path, "elm_run_20260801_000001",
+             stages={**_done("materialize"), })
+        _run(tmp_path, "elm_run_20260801_000002", stages=_done("materialize"))
+
+        out = c._workflow_resume(
+            {"route": {"prior_run_dir": "/invented/elm_run_19990101_000000"}})
+        assert not resumed, "a fabricated run directory must not be resumed"
+        assert "Which one" in out
+        assert "not resumable" in capsys.readouterr().out
+
+    def test_the_scan_is_offered_to_reception(self):
+        """Reception cannot pick from a list it never sees."""
+        src = (ROOT / "workflow.py").read_text()
+        i = src.index("def _reception_context")
+        body = src[i:i + 3000]
+        assert "resumable_runs" in body
+        assert "'request'" in body, \
+            "without the request text the list is a column of timestamps"
+
+    def test_a_broken_scan_does_not_break_asking_a_question(self, tmp_path):
+        """Someone asking about hydrology should not be stopped by a resume
+        scan that failed."""
+        import workflow as wf
+        c = wf.WorkflowCoordinator.__new__(wf.WorkflowCoordinator)
+        c.default_output_dir = "/no/such/dir"
+        c.conversation_context = {"last_focus": "recharge"}
+        ctx = c._reception_context()
+        assert ctx["prior_focus"] == "recharge"
+        assert "resumable_runs" not in ctx

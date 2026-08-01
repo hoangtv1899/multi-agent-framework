@@ -145,6 +145,32 @@ class WorkflowCoordinator:
 				ctx['prior_n_columns'] = samp['n_columns']
 			if plan.get('archetype'):
 				ctx['prior_archetype'] = plan['archetype']
+
+		# WHAT COULD BE RESUMED — the list reception is allowed to pick from,
+		# and nothing else. Discovery is a filesystem scan plus one squeue, so
+		# it is deterministic and cheap; the model's job is to choose, not to
+		# work out whether a job has finished.
+		#
+		# The REQUEST TEXT is what makes the list usable: run dirs are named by
+		# timestamp, so "resume my Gunnison run" matches no directory name at
+		# all. Truncated because this goes into every prompt.
+		try:
+			from core.resumable import find_resumable
+			rows = find_resumable(self.default_output_dir, check_jobs=True)
+			if rows:
+				ctx['resumable_runs'] = [{
+					'run_dir': r['run_dir'],
+					'model':   r.get('model'),
+					'stage':   r.get('stage'),
+					'status':  r.get('why'),
+					'age':     r.get('age'),
+					'request': (r.get('request') or '')[:160],
+				} for r in rows[:10]]
+		except Exception as e:                                  # noqa: BLE001
+			# Never fatal: a broken scan must not stop someone asking a
+			# question that has nothing to do with resuming.
+			print(f"   ⚠️  could not scan for resumable runs ({e})")
+
 		return ctx or None
 
 	def process_request(self,
@@ -176,6 +202,8 @@ class WorkflowCoordinator:
 			return self._workflow_clarification(result)
 		elif action == 'analyze_existing':
 			return self._workflow_analyze_existing(result)
+		elif action == 'resume':
+			return self._workflow_resume(result)
 		elif action == 'design':
 			return self._workflow_design_and_run(
 				result     = result,
@@ -389,6 +417,55 @@ class WorkflowCoordinator:
 			return (f"❌ Pipeline failed: {e}\n\n"
 					f"{traceback.format_exc()}")
 	
+	def _workflow_resume(self, result) -> str:
+		"""Reception asked to continue a run. It may CHOOSE; it may not INVENT.
+
+		Deterministic discovery, LLM routing. The scan finds what is resumable
+		— a mechanical question that squeue answers exactly — and reception's
+		only job is to pick one of those, because "which of my runs did you
+		mean" is genuinely conversational and "is job 770696 finished" is not.
+
+		The allowlist below is the whole point of the split. A run directory
+		reception produced rather than selected would either crash or, worse,
+		resume a different study and report it as the one that was asked about.
+		Run dirs are named by timestamp, so two studies of the same watershed
+		an hour apart are indistinguishable to a model working from the name.
+
+		Same discipline as the strategy gate and the 2-tool allowlist: the
+		model chooses among real options rather than manufacturing one.
+		"""
+		from core.resumable import find_resumable, describe
+
+		rows = find_resumable(self.default_output_dir, check_jobs=True)
+		if not rows:
+			return ("Nothing is waiting to be resumed. "
+					"`python workflow.py --resume` lists every run and says "
+					"why each one cannot be continued.")
+
+		asked = (result.get("route") or {}).get("prior_run_dir")
+		allowed = {r["run_dir"]: r for r in rows}
+		chosen = allowed.get(asked) if asked else None
+
+		if asked and chosen is None:
+			# Reception named something that is not on the list. Say so rather
+			# than guess: this is the failure the allowlist exists to catch.
+			print(f"   ⚠️  reception named a run that is not resumable: {asked}")
+
+		if chosen is None:
+			if len(rows) == 1:
+				chosen = rows[0]
+				print(f"   only one run is resumable — {chosen['name']}")
+			else:
+				listing = "\n".join(f"  [{i}] {describe(r)}"
+									for i, r in enumerate(rows, 1))
+				return (f"{len(rows)} runs could be continued. Which one?\n\n"
+						f"{listing}\n"
+						f"Or run it directly:\n"
+						f"    python workflow.py --resume <run_dir>")
+
+		print(f"\n{describe(chosen)}")
+		return self.resume_run(chosen["run_dir"])
+
 	# ═════════════════════════════════════════════════════════
 	# RESUME — continue a run that was interrupted or submitted
 	# ═════════════════════════════════════════════════════════

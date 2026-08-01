@@ -188,6 +188,21 @@ analyze_existing:
   {"intent": "analyze_existing", "run_dir": "<if the user named one, else null>",
    "note": "…"}
 
+resume  — the user is asking about a run that is still in progress, or asking
+to continue one ("is my Gunnison run done?", "check on that job", "carry on
+with the run from this morning"):
+  {"intent": "resume", "run_dir": "<EXACTLY one run_dir string copied from
+   RESUMABLE RUNS in the context, or null if none of them matches>",
+   "note": "…"}
+
+  You may ONLY name a run_dir that appears verbatim in the RESUMABLE RUNS list.
+  Do not construct one, do not complete a partial name, and do not reuse a
+  directory from earlier in the conversation unless it is in that list. If two
+  runs could match, or none does, return run_dir: null and ask which — a wrong
+  pick resumes somebody else's study and reports it as the one that was asked
+  about. Run directories are named by TIMESTAMP, so the request text in the
+  list is what actually tells them apart.
+
 design (the brief):
 {
   "intent": "design",

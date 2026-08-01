@@ -136,7 +136,8 @@ class LLMReceptionAgent:
         """
         raw = brief.get("intent", "parse_error")
         action = {"design": "design",
-                  "analyze_existing": "analyze_existing"}.get(raw, "clarify")
+                  "analyze_existing": "analyze_existing",
+                  "resume": "resume"}.get(raw, "clarify")
         return {"action": action,
                 "questions": list(brief.get("questions") or []),
                 "prior_run_dir": brief.get("run_dir"),
