@@ -366,50 +366,44 @@ class ExperimentManagerBase:
 				if _done("prepare"):
 					_reuse("prepare", "the cases already on disk")
 				else:
-					self._prepare(experiments)
-					self._mark("prepare", n_experiments=len(experiments or []))
+					# Job-shaped too, since D1: an 8-10 minute CIME build is
+					# sbatch'd rather than run on a login node, so _prepare may
+					# hand back a job id exactly as _run does.
+					out = self._advance(
+						"prepare", lambda: self._prepare(experiments),
+						state=state, resume=resume,
+						experiments=experiments, config=config,
+						n_experiments=len(experiments or []))
+					if out is self.STOP:
+						return self._pending_summary(
+							experiment_plan, experiments,
+							self._load_state()["stages"]["prepare"], start_time,
+							stage="prepare")
+					# _prepare mutates `experiments` in place (it sets case_dir),
+					# so its return value is not the carrier — but a POLLED
+					# prepare came back from a different session and has to
+					# re-attach the case dirs it found.
+					if isinstance(out, list) and out:
+						experiments = out
+						self._save_build(experiments)
 
 			print(f"\n🌿 STEP 3: Running Simulations")
 			print("-" * 40)
 			# Three ways to arrive here: nothing has run; the ensemble already
 			# ran; or an earlier session SUBMITTED it and left. The third is the
 			# whole point of the ledger.
-			record = (state["stages"].get("run") or {}) if resume else {}
 			if _done("run"):
 				_reuse("run", "the completed ensemble")
 				results = experiments
-			elif record.get("status") == "pending":
-				print(f"↻ run: job {record.get('job_id')} was submitted "
-					  f"{record.get('at', '?')} — checking whether it landed")
-				results = self._poll(record, experiments, config)
-				if results is None:
-					return self._pending_summary(
-						experiment_plan, experiments, record, start_time)
-				self._mark("run", n_results=self._n_results(results),
-						   job_id=record.get("job_id"))
 			else:
-				results = self._run(experiments, config)
-				if isinstance(results, Pending):
-					# Submitted, not finished. Everything below this line needs
-					# results that do not exist yet, so the run stops here and
-					# says so — rather than extracting an empty ensemble and
-					# reporting 0/19 as though the science had failed.
-					#
-					# Warn, do not raise: the job is ALREADY in the queue by the
-					# time we get here, so refusing to continue would throw away
-					# the one thing that makes it recoverable — its id.
-					if type(self)._poll is ExperimentManagerBase._poll:
-						print(f"   ⚠️  {type(self).__name__} submits but has no "
-							  f"_poll — job {results.job_id} is recorded in "
-							  f"{self.STATE_FILE} and will have to be collected "
-							  f"by hand")
-					self._mark("run", status="pending", job_id=results.job_id,
-							   **results.detail)
+				results = self._advance(
+					"run", lambda: self._run(experiments, config),
+					state=state, resume=resume,
+					experiments=experiments, config=config)
+				if results is self.STOP:
 					return self._pending_summary(
 						experiment_plan, experiments,
-						{"job_id": results.job_id, **results.detail},
-						start_time)
-				self._mark("run", n_results=self._n_results(results))
+						self._load_state()["stages"]["run"], start_time)
 
 			# Reading the model's own output format is the backend's job;
 			# saying what the numbers MEAN is not, and everything past this
@@ -534,17 +528,74 @@ class ExperimentManagerBase:
 	def _poll(self, record: Dict[str, Any], experiments, config):
 		"""Has the job in `record` finished?
 
-		Return what _run would have returned had it waited, or None if the job
-		is still queued or running. `record` is the ledger's run entry, so it
-		carries job_id and whatever the Pending marker's detail held.
+		Return what the stage would have returned had it waited, or None if the
+		job is still queued or running. `record` is the ledger's entry for that
+		stage, so it carries job_id, whatever the Pending marker's detail held,
+		and — since prepare became job-shaped too — **which stage it is**, under
+		the key `stage`. A backend answers differently for a CIME build than for
+		an ensemble, and it cannot tell them apart from a job id.
 
-		Only a backend whose _run can return Pending needs this — hence raising
-		rather than returning None, which would read as "still running, forever".
+		Only a backend whose stages can return Pending needs this — hence
+		raising rather than returning None, which would read as "still running,
+		forever".
 		"""
 		raise NotImplementedError(
-			f"{type(self).__name__}._run returned Pending (job "
-			f"{record.get('job_id')}) but the class has no _poll to ask whether "
-			f"that job has finished")
+			f"{type(self).__name__}.{record.get('stage', 'a stage')} returned "
+			f"Pending (job {record.get('job_id')}) but the class has no _poll "
+			f"to ask whether that job has finished")
+
+	# Returned by _advance when the run cannot continue in this session because
+	# the stage's work is in a queue. A sentinel rather than None: None is a
+	# legitimate return from _prepare, and conflating the two would end every
+	# ELM run at the prepare stage.
+	STOP = object()
+
+	def _advance(self, stage: str, fn, *, state: Dict[str, Any], resume: bool,
+				 experiments, config, **done_fields):
+		"""Run one stage that may hand back a job id instead of finishing.
+
+		Three paths, and the ledger is what tells them apart:
+
+		  * an earlier session submitted this stage and left → poll it. Still
+		    running, and the run stops again (STOP); finished, and its result
+		    is returned as though the stage had just run.
+		  * the stage runs and returns a Pending → record the id and STOP.
+		  * the stage runs and returns a result → record it and carry on.
+
+		Written once and used by both prepare and run. The two differ in what
+		they return and in nothing else that matters here, which is the whole
+		reason this is a method rather than the same fifteen lines twice.
+		"""
+		record = (state["stages"].get(stage) or {}) if resume else {}
+
+		if record.get("status") == "pending":
+			print(f"↻ {stage}: job {record.get('job_id')} was submitted "
+				  f"{record.get('at', '?')} — checking whether it landed")
+			out = self._poll({**record, "stage": stage}, experiments, config)
+			if out is None:
+				return self.STOP
+			self._mark(stage, n_results=self._n_results(out),
+					   job_id=record.get("job_id"), **done_fields)
+			return out
+
+		out = fn()
+		if isinstance(out, Pending):
+			# Submitted, not finished. Everything downstream needs results that
+			# do not exist yet, so the run stops here and says so — rather than
+			# carrying on and reporting 0/19 as though the science had failed.
+			#
+			# Warn, do not raise: the job is ALREADY in the queue by the time we
+			# get here, so refusing to continue would throw away the one thing
+			# that makes it recoverable — its id.
+			if type(self)._poll is ExperimentManagerBase._poll:
+				print(f"   ⚠️  {type(self).__name__} submits but has no _poll — "
+					  f"job {out.job_id} is recorded in {self.STATE_FILE} and "
+					  f"will have to be collected by hand")
+			self._mark(stage, status="pending", job_id=out.job_id, **out.detail)
+			return self.STOP
+
+		self._mark(stage, n_results=self._n_results(out), **done_fields)
+		return out
 
 	# States in which SLURM still owns the job. Anything else — COMPLETED,
 	# FAILED, TIMEOUT, CANCELLED, NODE_FAIL — means the scheduler is finished
@@ -1147,7 +1198,8 @@ class ExperimentManagerBase:
 						 plan:        Dict[str, Any],
 						 experiments: List[Dict],
 						 record:      Dict[str, Any],
-						 start_time:  datetime) -> Dict[str, Any]:
+						 start_time:  datetime,
+						 stage:       str = "run") -> Dict[str, Any]:
 		"""The run summary for an ensemble that is still in a queue.
 
 		THE SAME SHAPE as a finished run's, with status="pending" and the job
@@ -1162,6 +1214,11 @@ class ExperimentManagerBase:
 		summary.update({
 			'status':          'pending',
 			'job_id':          record.get('job_id'),
+			# WHICH stage is waiting. With prepare job-shaped as well as run,
+			# "job 770603 is queued" no longer says whether the cases are being
+			# built or the ensemble is being simulated — and those are hours
+			# apart in what happens next.
+			'pending_stage':   record.get('stage') or stage,
 			'submitted_at':    record.get('at') or start_time.isoformat(),
 			'resume_command':  f"python workflow.py --resume {self.run_dir}",
 		})

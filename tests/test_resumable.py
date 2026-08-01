@@ -145,13 +145,34 @@ class TestTheStageSequenceIsTheBackendsNotAGuess:
         silently declaring a run finished."""
         assert _stages_for("no-such-model") == _stages_for(None)
 
-    def test_the_order_matches_the_manager(self):
-        """The scan and execute_plan must not disagree about what comes next."""
+    def test_every_stage_the_scan_knows_about_is_actually_recorded(self, tmp_path):
+        """The scan and execute_plan must not disagree about what comes next.
+
+        Checked by RUNNING the pipeline, not by grepping for _mark calls: the
+        stages are marked from inside _advance now, and a source grep passed
+        for the wrong reason before and failed for the wrong reason after.
+        """
+        import types
         from core.exp_manager_base import ExperimentManagerBase
-        src = (ROOT / "src" / "core" / "exp_manager_base.py").read_text()
-        for s in ExperimentManagerBase.STAGES:
-            assert f'self._mark("{s}"' in src, \
-                f"execute_plan never records the stage '{s}'"
+
+        class _Full(ExperimentManagerBase):
+            MODEL = "fake"
+            def _materialize(self, p, c):  return p
+            def _build(self, p, c):        return [{"case_name": "c1"}]
+            def _prepare(self, e):         return None
+            def _run(self, e, c):          return {"c1": True}
+            def _extract(self, e, plan=None, config=None):
+                return types.SimpleNamespace(results=[], units={}, summary={})
+            def _package(self, p, a, c):
+                (self.run_dir / "experiment.json").write_text("{}")
+            def _save_llm_input(self, p, a):  pass
+
+        m = _Full(base_output_dir=str(tmp_path))
+        m.execute_plan({}, {})
+        recorded = set(m._load_state()["stages"])
+        assert set(ExperimentManagerBase.STAGES) <= recorded, (
+            f"the scan reasons about stages execute_plan never records: "
+            f"{set(ExperimentManagerBase.STAGES) - recorded}")
 
 
 class TestTheScan:
@@ -222,3 +243,39 @@ class TestResumeIsWiredIntoTheCLI:
         an ordinary run — that would silently reuse stale compute."""
         src = (ROOT / "workflow.py").read_text()
         assert "if resume:\n\t\t\tcfg['resume'] = True" in src
+
+
+class TestAPendingPrepareIsFoundToo:
+    """Since D1 the CIME case build is sbatch'd, so a study can be parked at
+    `prepare` as easily as at `run`."""
+
+    def test_found_and_named(self, tmp_path):
+        d = _run(tmp_path, stages={**_done("materialize", "build"),
+                                   "prepare": {"status": "pending",
+                                               "job_id": "880001"}})
+        r = inspect_run(d)
+        assert r["resumable"]
+        assert r["stage"] == "prepare"
+        assert r["job_id"] == "880001"
+        assert "prepare" in r["why"], \
+            "'your cases are being built' and 'your ensemble is simulating' " \
+            "are hours apart in what happens next"
+
+    def test_the_earliest_pending_stage_wins(self, tmp_path):
+        """A ledger cannot honestly have two stages in flight — the run stops
+        at the first. If one somehow does, report the earlier."""
+        d = _run(tmp_path, stages={**_done("materialize", "build"),
+                                   "prepare": {"status": "pending",
+                                               "job_id": "880001"},
+                                   "run": {"status": "pending",
+                                           "job_id": "770595"}})
+        assert inspect_run(d)["stage"] == "prepare"
+
+    def test_a_pflotran_run_never_reports_a_pending_prepare(self, tmp_path):
+        """PFLOTRAN has no prepare stage at all, so a stray entry for one is
+        not something to wait on."""
+        d = _run(tmp_path, model="pflotran",
+                 stages={**_done("materialize", "build"),
+                         "prepare": {"status": "pending", "job_id": "880001"}})
+        r = inspect_run(d)
+        assert r["stage"] != "prepare"

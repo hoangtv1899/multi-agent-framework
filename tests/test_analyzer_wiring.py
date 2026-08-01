@@ -805,3 +805,102 @@ class TestAnEmptyEnsembleIsNotInterpreted:
         src = (ROOT / "workflow.py").read_text()
         assert "_NothingToReportOn" in src
         assert "if not run_summary.get('experiments_success')" in src
+
+
+class _SubmitsPrepare(_Submits):
+    """A backend whose CASE BUILD is the thing in the queue, not the ensemble.
+
+    D1: an 8-10 minute CIME build is sbatch'd rather than run on a login node,
+    so _prepare hands back a job id exactly as _run does.
+    """
+    NEEDS_PREPARE = True
+
+    def _prepare(self, experiments):
+        self.calls.append("prepare")
+        if getattr(self, "prepare_submits", True):
+            return Pending("880001", n_cases=len(experiments))
+        return None
+
+    def _poll(self, record, experiments, config):
+        self.calls.append(f"poll:{record.get('stage')}")
+        self.polls.append(record)
+        if record.get("stage") == "prepare":
+            return self.prepare_poll_returns
+        return self.poll_returns
+
+
+class TestAnyStageMayHandBackAJobId:
+    """Phase 3b. Phase 3 made the RUN stage job-shaped; D1 made prepare one
+    too, which is a change to the base rather than to any backend."""
+
+    def _mgr(self, tmp_path, **kw):
+        m = _SubmitsPrepare(base_output_dir=str(tmp_path), **kw)
+        m.prepare_poll_returns = None
+        return m
+
+    def test_a_queued_prepare_stops_the_run(self, tmp_path):
+        m = self._mgr(tmp_path)
+        s = m.execute_plan({}, {})
+        assert s["status"] == "pending"
+        assert s["job_id"] == "880001"
+        assert "run" not in m.calls, "nothing may be submitted before the cases exist"
+        assert "extract" not in m.calls
+
+    def test_the_summary_says_WHICH_stage_is_waiting(self, tmp_path):
+        """'job 880001 is queued' does not say whether the cases are being
+        built or the ensemble is being simulated, and those are hours apart in
+        what happens next."""
+        m = self._mgr(tmp_path)
+        s = m.execute_plan({}, {})
+        assert s["pending_stage"] == "prepare"
+
+    def test_poll_is_told_which_stage_it_is_polling(self, tmp_path):
+        """A backend answers differently for a CIME build than for an
+        ensemble, and it cannot tell them apart from a job id."""
+        m1 = self._mgr(tmp_path)
+        m1.execute_plan({}, {})
+        m2 = self._mgr(tmp_path, run_dir=str(m1.run_dir))
+        m2.execute_plan({}, {"resume": True})
+        assert m2.polls[0]["stage"] == "prepare"
+        assert "poll:prepare" in m2.calls
+
+    def test_resume_carries_on_when_the_build_landed(self, tmp_path):
+        """A polled prepare returning case dirs must re-attach them, then the
+        run proceeds to submit the ensemble."""
+        m1 = self._mgr(tmp_path)
+        m1.execute_plan({}, {})
+
+        m2 = self._mgr(tmp_path, run_dir=str(m1.run_dir))
+        m2.prepare_poll_returns = [{"case_name": "col_01", "case_dir": "/x/1"},
+                                   {"case_name": "col_02", "case_dir": "/x/2"}]
+        s = m2.execute_plan({}, {"resume": True})
+        assert m2._load_state()["stages"]["prepare"]["status"] == "done"
+        assert "run" in m2.calls, "with the cases built, the ensemble may go"
+        assert s["status"] == "completed"
+
+    def test_prepare_returning_none_is_not_a_stop(self, tmp_path):
+        """None is a legitimate return from _prepare. Conflating it with the
+        STOP sentinel would end every ELM run at the prepare stage."""
+        m = self._mgr(tmp_path)
+        m.prepare_submits = False
+        s = m.execute_plan({}, {})
+        assert s["status"] == "completed"
+        assert m._load_state()["stages"]["prepare"]["status"] == "done"
+
+    def test_both_stages_can_queue_in_turn(self, tmp_path):
+        """prepare queues, resume collects it, run queues, resume collects
+        that — two sessions' worth of waiting in one study."""
+        m1 = self._mgr(tmp_path)
+        assert m1.execute_plan({}, {})["pending_stage"] == "prepare"
+
+        m2 = self._mgr(tmp_path, run_dir=str(m1.run_dir))
+        m2.prepare_poll_returns = [{"case_name": "col_01"}]
+        s2 = m2.execute_plan({}, {"submit": True, "resume": True})
+        assert s2["pending_stage"] == "run" and s2["job_id"] == "770595"
+
+        m3 = self._mgr(tmp_path, run_dir=str(m1.run_dir))
+        m3.poll_returns = {"col_01": True, "col_02": True}
+        s3 = m3.execute_plan({}, {"submit": True, "resume": True})
+        assert s3["status"] == "completed"
+        assert m3.calls.count("poll:run") == 1
+        assert "prepare" not in m3.calls, "a finished build is not rebuilt"

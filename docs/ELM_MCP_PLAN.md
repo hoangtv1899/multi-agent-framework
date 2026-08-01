@@ -253,15 +253,50 @@ Two honest caveats, so this is not oversold:
 
 ---
 
-## 9. Open decisions
+## 9. Decisions — SETTLED 2026-08-01
 
-| | question | recommendation |
+| | question | decision |
 |---|---|---|
-| **D1** | Blocking `prepare_elm_cases` (~10 min) or sbatch it? | Blocking now; Phase 2 makes a killed prepare cheap |
-| **D2** | One `build_elm_cases` taking columns *or* a plan, or two tools? | One |
-| **D3** | Shim sources `env_compy.sh` or uses `setdefault`? | `setdefault` |
-| **D4** | New repo/directory, or `mcp/elm-mcp/` alongside the others? | `mcp/elm-mcp/` — ours, not a port, so no upstream to track |
-| **D5** | Does the MCP path become the default for ELM, or opt-in? | **Opt-in first** (`run_via_mcp` off by default for ELM) until it has run a real watershed; the local path is proven and there is no reason to stake a 40-minute ensemble on a first cut |
+| **D1** | Blocking `prepare_elm_cases` (~10 min) or sbatch it? | **sbatch it — job-shaped.** (Overrides the recommendation; see §9a.) |
+| **D2** | One `build_elm_cases` taking columns *or* a plan, or two tools? | **One tool, both shapes** |
+| **D3** | Shim sources `env_compy.sh` or uses `setdefault`? | **`os.environ.setdefault`** |
+| **D4** | New repo, or `mcp/elm-mcp/` alongside the others? | **`mcp/elm-mcp/`** |
+| **D5** | MCP path default for ELM, or opt-in? | **Default.** (Overrides the recommendation; see §9b.) |
+
+### 9a. What D1 costs — and it is not in the server
+
+Phase 3 made **`run`** job-shaped. It did not make *stages* job-shaped: the
+Pending/poll logic is inlined in `execute_plan` for the `run` stage alone.
+
+Making `prepare` job-shaped therefore changes the base before it changes
+anything about ELM:
+
+* any stage must be able to return `Pending`;
+* `execute_plan` must record it, stop, and return the pending summary from
+  *that* stage;
+* a resume must poll the right stage — so `_poll` has to be told **which**
+  stage it is polling, since a backend will answer differently for a CIME
+  build than for an ensemble.
+
+This is foundational, has nothing to do with MCP, and is testable on its own.
+It is built first, as **Phase 3b**, before any server code.
+
+The upside of D1 beyond uniformity: case building moves off the login node,
+where an 8–10 minute CIME compile is currently a login-node citizen, and a
+dropped session stops costing a rebuild.
+
+### 9b. What D5 costs
+
+"Default" means `run_via_mcp` defaults to **True when an `elm` client is
+registered**. With no client in `mcp_config.json` the local path still runs —
+the same semantics PFLOTRAN already has, and not a silent demotion, because
+the choice is made by what is configured rather than by a failure.
+
+The risk taken here is that a 40-minute ensemble is the first real exercise of
+new code. It is mitigated by build order, not by hedging the decision: the
+parity checks in §10 (steps 2 and 5) compare the server's manifest and rows
+against the local path **before** step 6 wires it in. The default goes live
+only after those agree.
 
 ---
 

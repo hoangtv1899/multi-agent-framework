@@ -180,21 +180,26 @@ def inspect_run(run_dir: Path, check_jobs: bool = False) -> Dict[str, Any]:
 	rec["updated"] = state.get("updated")
 	rec["age"]     = _age(state.get("updated"))
 
-	run = stages.get("run") or {}
-	if run.get("status") == "pending":
-		rec.update(stage="run", status="pending", job_id=run.get("job_id"),
-				   resumable=True)
-		rec["why"] = (f"job {run.get('job_id')} was submitted and has not been "
-					  f"collected")
-		if check_jobs and run.get("job_id"):
-			st = ExperimentManagerBase._slurm_state(run["job_id"])
+	# ANY stage may be waiting on a job, not just `run`. Since D1 the CIME case
+	# build is sbatch'd too, and a study parked at `prepare` looks identical in
+	# the ledger — but "your cases are being built" and "your ensemble is
+	# simulating" are hours apart in what happens next, so the stage is named.
+	for name in _stages_for(rec["model"]):
+		entry = stages.get(name) or {}
+		if entry.get("status") != "pending":
+			continue
+		jid = entry.get("job_id")
+		rec.update(stage=name, status="pending", job_id=jid, resumable=True)
+		rec["why"] = f"{name}: job {jid} was submitted and has not been collected"
+		if check_jobs and jid:
+			st = ExperimentManagerBase._slurm_state(jid)
 			rec["job_state"] = st
 			if st is None:
 				rec["why"] += " (the scheduler will not say what it is doing)"
 			elif st in ExperimentManagerBase.ACTIVE_JOB_STATES:
-				rec["why"] = f"job {run['job_id']} is {st}"
+				rec["why"] = f"{name}: job {jid} is {st}"
 			else:
-				rec["why"] = (f"job {run['job_id']} finished ({st}) — ready to "
+				rec["why"] = (f"{name}: job {jid} finished ({st}) — ready to "
 							  f"collect")
 		return rec
 
