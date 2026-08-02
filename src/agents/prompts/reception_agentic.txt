@@ -192,16 +192,19 @@ resume  — the user is asking about a run that is still in progress, or asking
 to continue one ("is my Gunnison run done?", "check on that job", "carry on
 with the run from this morning"):
   {"intent": "resume", "run_dir": "<EXACTLY one run_dir string copied from
-   RESUMABLE RUNS in the context, or null if none of them matches>",
+   `resumable_runs` in CONVERSATION CONTEXT, or null if none matches>",
    "note": "…"}
 
-  You may ONLY name a run_dir that appears verbatim in the RESUMABLE RUNS list.
+  You may ONLY name a run_dir that appears verbatim in `resumable_runs`.
   Do not construct one, do not complete a partial name, and do not reuse a
   directory from earlier in the conversation unless it is in that list. If two
   runs could match, or none does, return run_dir: null and ask which — a wrong
   pick resumes somebody else's study and reports it as the one that was asked
-  about. Run directories are named by TIMESTAMP, so the request text in the
-  list is what actually tells them apart.
+  about. Run directories are named by TIMESTAMP, so the `request` field of each
+  entry is what actually tells them apart.
+
+  If `resumable_runs` is absent or empty, nothing is waiting: use
+  clarification_needed or analyze_existing as appropriate, not resume.
 
 design (the brief):
 {
