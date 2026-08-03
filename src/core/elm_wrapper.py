@@ -392,7 +392,7 @@ class GeneratedELMAgent:
         Order:
             1. Fixed settings (skip for clones — inherited from reference)
             2. EXEROOT (skip for clones — must point at reference's build)
-            3. RUNDIR (always — local to each case)
+            3. RUNDIR (always — symbolic, so a clone inherits its OWN)
             4. Runtime config LAST → always wins
 
         Args:
@@ -406,10 +406,35 @@ class GeneratedELMAgent:
                     self._xmlchange(key, value)
 
             # Step 2 — EXEROOT (fresh build only)
+            # Deliberately an ABSOLUTE literal, and the asymmetry with RUNDIR
+            # below is the whole point: --keepexe works precisely BECAUSE the
+            # clone inherits this path unresolved-per-case and keeps pointing
+            # at the reference's build. Make this symbolic and every clone
+            # looks for an e3sm.exe it never compiled.
             self._xmlchange('EXEROOT', str(self.case_dir / "build"))
 
-        # Step 3 — RUNDIR (always, local to this case)
-        self._xmlchange('RUNDIR', str(self.case_dir / "run"))
+        # Step 3 — RUNDIR (always). SYMBOLIC, not an absolute literal.
+        #
+        # create_clone copies env_run.xml verbatim and generates the clone's
+        # namelists ITSELF, before prepare_case() ever reaches this line. With
+        # an absolute literal here the clone spends that window pointing at the
+        # REFERENCE's run directory, and writes its drv_in/lnd_in/datm_in on
+        # top of the reference's — stamped with the clone's case_name. The
+        # reference then runs under a sibling's identity: history files named
+        # for another column and a `case` attribute to match, sitting in the
+        # right directory with the right data inside.
+        #
+        # It survived unnoticed from 2026-07-25 to 2026-08-03 because the
+        # clobbered lnd_in is generated from the clone's user_nl_elm while that
+        # is still a byte copy of the reference's — so the physics came out
+        # correct by INHERITANCE, not by design. Customize a clone any earlier
+        # and the reference silently runs a sibling's forcing with no
+        # mismatched name left to notice it by.
+        #
+        # $CASEROOT is per-case and create_clone rewrites it, so the inherited
+        # value already points at the clone. Resolves to the same path this
+        # always used ($case_dir/run) — nothing on disk moves.
+        self._xmlchange('RUNDIR', '$CASEROOT/run')
 
         # Step 4 — runtime LAST (wins over fixed)
         for key in XML_RUNTIME_KEYS:
