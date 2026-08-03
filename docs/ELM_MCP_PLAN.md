@@ -405,3 +405,79 @@ asserting on a message which could never actually be produced.
   prevent.
 * **A killed `prepare` still leaves half-built cases** (§11). Real before this
   change and real after it.
+
+
+---
+
+## 13. The boundary moved (2026-08-01, after review)
+
+§3 put input generation and result extraction inside the server. Both came back
+out. The rule is now one sentence:
+
+> **The server compiles and runs the model. The framework decides what to run
+> and reads what came out.**
+
+    FRAMEWORK   materialize → build inputs → [ MCP ] → extract → package → analyze
+    MCP                        case list → build CIME cases → run
+
+**Four tools**, down from seven:
+
+    describe_elm_capabilities   what it does, needs, and does NOT do
+    build_elm_cases             a JOB ID; CIME cases from 01_inputs/case_inputs.json
+    submit_elm_ensemble         a JOB ID; the ensemble as one batch job
+    check_elm_job               state — and, for a build job, the case directories
+
+### Why input generation had to leave
+
+Not tidiness. A column's surface data and its `FINIDAT` are **products of the
+warm start**: the framework subsets the CONUS restart, snaps the column to its
+donor gridcell and takes that cell's soil (`elm_exp_manager.py:254`). Those are
+the two inputs that make a column credible, and they are decisions about the
+science, not compilation.
+
+The old `build_elm_cases(columns=[...])` entry point therefore offered a path
+that produced a **cold, template-soil column at a coordinate** — runnable, and
+quietly worse science. That is a worse failure than not offering it, because
+the run looks fine. §8's "an agent can drive this directly" was an overstatement
+and is withdrawn.
+
+Everything the warm start decided now crosses as data, in each case's
+`runtime_config`: `FSURDAT`, `FINIDAT`, `LND_DOMAIN_*`, `ATM_DOMAIN_*`,
+`STOP_N`, `RUN_STARTDATE`, `DATM_CLMNCEP_YR_*`, `REST_*`.
+
+### Why extraction left too
+
+Reading history files needs no scheduler, no long wait and no login-node CPU —
+none of the reasons this boundary exists. PFLOTRAN's `_extract` never left, so
+the two backends now match:
+
+| stage | ELM | PFLOTRAN |
+|---|---|---|
+| materialize | framework | framework — *the same code* |
+| build inputs | framework | framework |
+| build cases | **MCP** | n/a — `NEEDS_PREPARE = False` |
+| run | **MCP** | **MCP** |
+| extract | framework | framework |
+
+### What it cost, and what it bought
+
+The server's requirements lost both **data** dependencies — no CONUS surfdata,
+no ELM input-file templates. What remains is code and a scheduler: E3SM/CIME,
+`$PSCRATCH`, `sbatch`/`squeue`/`sacct`. It is now a thing that could be handed
+to someone else.
+
+`collect_prepared_cases` disappeared into `check_elm_job`: a few case-directory
+strings ride back with the status. Results never could, which is the same
+reason reading them stayed on the framework side.
+
+### The bug this found
+
+`_save_build` JSON-dumps the experiments, and ELM keeps its whole
+`runtime_config` **inside** the adapter object. The deleted
+`build_elm_cases` tool had been extracting it; removing the tool took the
+extraction with it. The case list was written with **no FSURDAT, no FINIDAT and
+no domain paths** — a file that existed, looked plausible, and named nothing the
+build needs. A job was submitted against it before this was noticed.
+
+Fixed with `_serialise_build`, the mirror of `_rehydrate_handles`: one drops
+dead reprs on the way in, the other stops them being written on the way out.

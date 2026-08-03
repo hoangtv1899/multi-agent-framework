@@ -72,18 +72,24 @@ class TestItStartsInAStrangersEnvironment:
 
 class TestItDoesNotClaimWhatItCannotDo:
 
-    def test_available_now_matches_the_registered_tools(self, srv):
-        """A capabilities tool that lists planned work as available is worse
-        than none — the reaction MCP has 40 tools and it cost real time to
-        find which were usable."""
+    def test_every_advertised_tool_exists(self, srv):
+        """A capabilities tool that lists work it cannot do is worse than none
+        — the reaction MCP has 40 tools and it cost real time to find which
+        were usable."""
         d = json.loads(srv.describe_elm_capabilities())
-        planned = {s["tool"] for s in d["workflow"]
-                   if s["status"] != "available"}
-        assert not (set(d["available_now"]) & planned), \
-            "a tool is listed as both available and planned"
-        for name in d["available_now"]:
-            assert callable(getattr(srv, name, None)), \
-                f"{name} is advertised but not defined"
+        assert d["workflow"], "no workflow advertised"
+        for step in d["workflow"]:
+            assert callable(getattr(srv, step["tool"], None)), \
+                f"{step['tool']} is advertised but not defined"
+
+    def test_the_surface_is_only_compile_and_run(self, srv):
+        """The rule the whole design follows: this server compiles and runs
+        the model, and the caller decides what to run and reads what came
+        out. A tool that generated inputs or read results would break it."""
+        d = json.loads(srv.describe_elm_capabilities())
+        advertised = {step["tool"] for step in d["workflow"]}
+        assert advertised == {"build_elm_cases", "submit_elm_ensemble",
+                              "check_elm_job"}, advertised
 
     def test_requirements_are_checked_not_asserted(self, srv):
         """A list of assumptions is worth nothing on a machine where one is
@@ -103,7 +109,8 @@ class TestItDoesNotClaimWhatItCannotDo:
         gets no sampling design, no strategy gate and no experiment.json."""
         d = json.loads(srv.describe_elm_capabilities())
         joined = " ".join(d["does_not"]).lower()
-        for missing in ("sampling", "strategy", "caveat", "experiment.json"):
+        for missing in ("sampling", "warm-start", "surface", "history files",
+                        "caveat", "experiment.json"):
             assert missing in joined, f"does_not never mentions {missing}"
 
     def test_ready_is_false_when_something_is_missing(self, srv, monkeypatch):
@@ -202,16 +209,26 @@ class TestTheMCPIsTheDefaultForELM:
 
 class TestEachStageGoesThroughTheServer:
 
-    def test_prepare_hands_back_a_job_not_case_dirs(self, tmp_path):
+    def test_the_case_build_hands_back_a_job_not_case_dirs(self, tmp_path):
         """D1: the CIME build is sbatch'd, so _prepare returns a Pending."""
         from core.exp_manager_base import Pending
         m = _mgr(tmp_path)
-        c = _FakeClient(prepare_elm_cases={"job_id": "880001",
-                                           "log_path": "/x/prepare.log"})
+        (m.input_dir / m.CASE_INPUTS).write_text(json.dumps(
+            [{"case_name": "col_01", "runtime_config": {"FSURDAT": "/x.nc"}}]))
+        c = _FakeClient(build_elm_cases={"job_id": "880001",
+                                         "log_path": "/x/build.log"})
         out = m._prepare([{"case_name": "col_01"}],
                          {"mcp_clients": {"elm": c}})
         assert isinstance(out, Pending)
         assert out.job_id == "880001"
+
+    def test_the_case_build_refuses_without_inputs(self, tmp_path):
+        """The server does not generate inputs. Submitting a build job with
+        nothing for it to read would burn a queue slot to fail."""
+        m = _mgr(tmp_path)
+        c = _FakeClient(build_elm_cases={"job_id": "880001"})
+        with pytest.raises(RuntimeError, match="case_inputs.json"):
+            m._prepare([{"case_name": "col_01"}], {"mcp_clients": {"elm": c}})
 
     def test_run_hands_back_a_job(self, tmp_path):
         from core.exp_manager_base import Pending
@@ -233,19 +250,23 @@ class TestEachStageGoesThroughTheServer:
     def test_poll_dispatches_on_the_stage(self, tmp_path):
         """Phase 3b added `stage` to the record for exactly this: a finished
         CIME build hands back case dirs, a finished ensemble hands back
-        outcomes, and a job id does not say which."""
+        outcomes, and a job id does not say which.
+
+        The case dirs come back from check_elm_job itself — a few short
+        strings travel inline, which is why there is no separate collect tool
+        for the build."""
         m = _mgr(tmp_path)
-        c = _FakeClient(
-            check_elm_job={"active": False, "state": "COMPLETED"},
-            collect_prepared_cases={"ok": True, "n_ok": 1, "n_total": 1,
-                                    "cases": [{"case_name": "col_01",
-                                               "case_dir": "/scratch/col_01"}]})
+        c = _FakeClient(check_elm_job={
+            "active": False, "state": "COMPLETED", "ok": True,
+            "n_ok": 1, "n_total": 1,
+            "cases": [{"case_name": "col_01", "case_dir": "/scratch/col_01"}]})
         exps = [{"case_name": "col_01"}]
         out = m._poll({"stage": "prepare", "job_id": "880001"}, exps,
                       {"mcp_clients": {"elm": c}})
         assert out is exps
         assert exps[0]["case_dir"] == "/scratch/col_01"
-        assert "collect_prepared_cases" in [t for t, _ in c.calls]
+        assert [t for t, _ in c.calls] == ["check_elm_job"], \
+            "one call: the answer rides back with the status"
 
     def test_an_active_job_collects_nothing(self, tmp_path):
         m = _mgr(tmp_path)
@@ -258,39 +279,85 @@ class TestEachStageGoesThroughTheServer:
         """A case that did not compile is a failure to report, not an ensemble
         to run one column short."""
         m = _mgr(tmp_path)
-        c = _FakeClient(check_elm_job={"active": False, "state": "FAILED"},
-                        collect_prepared_cases={"ok": False,
-                                                "error": "CIME build failed",
-                                                "log_tail": "..."})
+        c = _FakeClient(check_elm_job={"active": False, "state": "FAILED",
+                                       "ok": False,
+                                       "error": "CIME build failed",
+                                       "log_tail": "..."})
         with pytest.raises(RuntimeError, match="case build failed"):
             m._poll({"stage": "prepare", "job_id": "880001"},
                     [{"case_name": "c1"}], {"mcp_clients": {"elm": c}})
 
 
-class TestTheExtractionAdapter:
-    """_extract must return something _package and _save_llm_input can use,
-    built from the payload on disk rather than from the MCP response."""
 
-    def test_it_exposes_what_the_later_stages_touch(self):
-        from core.elm_exp_manager import _MCPExtraction
-        payload = {"experiments": [{"case_name": "c1", "metrics": {"a": 1.0}}],
-                   "units": {"QCHARGE": "mm/s"}}
-        x = _MCPExtraction(payload)
-        assert x.results == payload["experiments"]
-        assert x.units["QCHARGE"] == "mm/s"
-        assert x.summary["units"], "_package reads .summary too"
-        assert x.get_llm_analysis_input() is payload
-        assert x.extra_summary == {}, \
-            "an attribute that sometimes exists is worse than one that is " \
-            "sometimes empty"
+class TestExtractionStaysWithTheCaller:
+    """_extract went back to the framework: reading history files needs no
+    scheduler, no long wait and no login-node CPU — none of the reasons the
+    boundary exists. PFLOTRAN's never left, and now the two match."""
 
-    def test_package_accepts_it(self, tmp_path):
-        from core.elm_exp_manager import _MCPExtraction
+    def test_the_manager_does_not_route_extract_through_the_server(self):
+        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        i = src.index("def _extract(")
+        body = src[i:i + 1500]
+        assert "_mcp(" not in body, "extract must not reach for a client"
+        assert "ELMResultsAnalyzer" in body
+
+    def test_the_server_advertises_no_result_reading(self, srv):
+        d = json.loads(srv.describe_elm_capabilities())
+        assert not any("collect" in t["tool"] for t in d["workflow"])
+
+
+class TestTheCaseListCarriesWhatTheBuildNeeds:
+    """The whole split rests on this file. The server never opens a surfdata
+    file, so anything the warm start decided has to cross as data."""
+
+    def test_the_adapter_is_replaced_by_what_built_it(self, tmp_path):
+        from core.elm_input_agent import ELMAgentAdapter
         m = _mgr(tmp_path)
-        x = _MCPExtraction({"experiments": [
-            {"case_name": "c1", "status": "ok", "metrics": {"a": 1.0}},
-            {"case_name": "c2", "status": "failed", "metrics": {}}]})
-        m._package({}, x, {})
-        pkg = json.loads((m.run_dir / "experiment.json").read_text())
-        assert pkg["columns_total"] == 2
-        assert pkg["columns_succeeded"] == 1
+        a = ELMAgentAdapter(case_name="col_01",
+                            runtime_config={"FSURDAT": "/s.nc",
+                                            "FINIDAT": "/w.nc",
+                                            "STOP_N": "1"})
+        row = m._serialise_build([{"case_name": "col_01", "lat": 38.6,
+                                   "elm_agent": a}])[0]
+        assert row["runtime_config"]["FSURDAT"] == "/s.nc"
+        assert row["runtime_config"]["FINIDAT"] == "/w.nc"
+        assert "elm_agent" not in row
+
+    def test_no_object_is_written_as_its_repr(self, tmp_path):
+        """json.dumps(default=str) turns an adapter into a string that is
+        truthy, attribute-free and useless — the Phase 3 failure, one layer
+        further out."""
+        from core.elm_input_agent import ELMAgentAdapter
+        m = _mgr(tmp_path)
+        m._save_build([{"case_name": "col_01",
+                        "elm_agent": ELMAgentAdapter(
+                            case_name="col_01",
+                            runtime_config={"STOP_N": "1"})}])
+        raw = (m.input_dir / m.CASE_INPUTS).read_text()
+        assert "ELMAgentAdapter" not in raw and "object at 0x" not in raw
+
+    def test_the_default_serialiser_is_a_no_op(self, tmp_path):
+        """PFLOTRAN's experiments are pure data — it must not need a hook."""
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        m = PFLOTRANExpManager(base_output_dir=str(tmp_path))
+        exps = [{"id": "col_01", "n_cells": 9}]
+        assert m._serialise_build(exps) == exps
+
+    def test_a_case_list_with_no_runtime_config_is_caught_before_a_queue_slot(
+            self, tmp_path):
+        """It happened: the case list was written without runtime_config, the
+        file looked plausible, and it named nothing the build needs. A job was
+        submitted against it before anyone noticed."""
+        m = _mgr(tmp_path)
+        (m.input_dir / m.CASE_INPUTS).write_text(
+            json.dumps([{"case_name": "col_01"}]))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "bcj", ROOT / "mcp" / "elm-mcp" / "build_cases_job.py")
+        job = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(job)
+        rc = job.main(str(m.run_dir))
+        assert rc == 1
+        out = json.loads((m.input_dir / "built_cases.json").read_text())
+        assert out["ok"] is False
+        assert "runtime_config" in out["error"]

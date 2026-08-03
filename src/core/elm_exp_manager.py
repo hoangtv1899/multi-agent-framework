@@ -59,31 +59,6 @@ from core.columns_to_plan        import columns_to_elm_plan
 _ROOT = Path(__file__).resolve().parents[2]
 
 
-class _MCPExtraction:
-	"""What _extract returns when the server did the reading.
-
-	Stands in for an ELMResultsAnalyzer, exposing only the three things the
-	stages after it actually touch: `.results` for _package, units for
-	_variable_units, and get_llm_analysis_input() for _save_llm_input.
-
-	Built from the payload the server wrote to disk rather than from an MCP
-	response, because the response deliberately carries a PATH: the extraction
-	for four columns is already 1.3 MB, and nineteen would not survive stdio.
-	"""
-
-	def __init__(self, payload: Dict[str, Any]):
-		self._payload = payload or {}
-		self.results = self._payload.get("experiments") or []
-		self.units = self._payload.get("units") or {}
-		self.summary = {"units": dict(self.units)}
-		# The Analyzer reads this when present; the server does not compute
-		# limitations, so it is empty rather than absent — an attribute that
-		# sometimes exists is worse than one that is sometimes empty.
-		self.extra_summary: Dict[str, Any] = {}
-
-	def get_llm_analysis_input(self) -> Dict[str, Any]:
-		return self._payload
-
 
 def _load_tool(name: str):
 	"""Import tools/<name>.py by path — tools/ is a script dir, not a package.
@@ -426,30 +401,23 @@ class ELMExpManager(ExperimentManagerBase):
 			raise RuntimeError(f"elm MCP {tool}: {out['error']}")
 		return out
 
-	def _build_via_mcp(self, plan, config, client) -> List[Dict]:
-		"""Cases built by the server. Returns the SAME shape _build does,
-		minus the live adapters — which is why _prepare must also go through
-		the MCP once this path is taken."""
-		print("   via the elm MCP")
-		out = self._mcp_call(client, "build_elm_cases", {
-			"run_dir":     str(self.run_dir),
-			"run_plan":    plan,
-			"soil_config": config.get("soil_config", "native"),
-			"substrate":   config.get("substrate", "extrapolate"),
-		}, budget=1800)
-		cases = out.get("cases") or []
-		failed = out.get("inputs_failed") or {}
-		for cid, why in failed.items():
-			print(f"   ⚠️  {cid}: {why}")
-		print(f"✓ {len(cases)} experiment(s) built "
-			  f"({out.get('inputs_built', 0)} column inputs"
-			  + (", warm" if out.get("warm_started") else "") + ")")
-		return cases
 
 	def _prepare_via_mcp(self, experiments, config, client):
-		"""D1: the CIME build is a JOB. Returns a Pending, not case dirs."""
+		"""D1: the CIME build is a JOB. Returns a Pending, not case dirs.
+
+		The server reads 01_inputs/case_inputs.json and nothing else — it does
+		not generate inputs and does not open a surfdata file. _save_build has
+		already written that file with each case's runtime_config, which is
+		where FSURDAT and FINIDAT (the warm start's two products) cross the
+		boundary as data.
+		"""
+		src = self.input_dir / self.CASE_INPUTS
+		if not src.is_file():
+			raise RuntimeError(
+				f"{src} is missing — the framework builds the inputs and the "
+				f"elm MCP only compiles cases against them")
 		print("   via the elm MCP — the case build is sbatch'd (D1)")
-		out = self._mcp_call(client, "prepare_elm_cases", {
+		out = self._mcp_call(client, "build_elm_cases", {
 			"run_dir":  str(self.run_dir),
 			"queue":    str(config.get("queue", "")),
 			"walltime": str(config.get("prepare_walltime", "02:00:00")),
@@ -492,12 +460,15 @@ class ELMExpManager(ExperimentManagerBase):
 			return None
 
 		if stage == "prepare":
-			got = self._mcp_call(client, "collect_prepared_cases",
-								 {"run_dir": str(self.run_dir)})
-			if not got.get("ok"):
+			# The case directories come back from check_elm_job itself. A stage
+			# that hands back a job id needs somewhere to hand back its ANSWER,
+			# and a few short strings can travel inline — unlike results, which
+			# is why reading those stayed on this side.
+			if not st.get("ok"):
 				raise RuntimeError(
-					f"the case build failed: {got.get('error')}"
-					+ (f"\n{got.get('log_tail')}" if got.get("log_tail") else ""))
+					f"the case build failed: {st.get('error')}"
+					+ (f"\n{st.get('log_tail')}" if st.get("log_tail") else ""))
+			got = st
 			by_name = {c.get("case_name"): c.get("case_dir")
 					   for c in (got.get("cases") or [])}
 			for e in experiments:
@@ -511,25 +482,11 @@ class ELMExpManager(ExperimentManagerBase):
 			  f"({st.get('state')}) — collecting")
 		return self._collect(experiments, self._outcomes_from_disk(experiments))
 
-	def _extract_via_mcp(self, experiments, config, client):
-		"""Rows read by the server. Comes back as a PATH — see the tool."""
-		out = self._mcp_call(client, "collect_elm_results", {
-			"run_dir": str(self.run_dir),
-			"last_year_only": bool(config.get("last_year_only", False)),
-		}, budget=1800)
-		path = out.get("results_path")
-		payload = json.loads(Path(path).read_text()) if path else {}
-		print(f"✓ {out.get('n_ok')}/{out.get('n_total')} column(s) extracted "
-			  f"via the elm MCP")
-		return _MCPExtraction(payload)
 
 	def _build(self,
 			   plan:   Dict[str, Any],
 			   config: Dict[str, Any]) -> List[Dict]:
 		"""Build the ELMAgentAdapter list from the plan (per-column surfaces)."""
-		client = self._mcp(config)
-		if client is not None:
-			return self._build_via_mcp(plan, config, client)
 		self._build_inputs(config)
 
 		builder     = ELMExperimentBuilder(plan)
@@ -743,6 +700,36 @@ class ELMExpManager(ExperimentManagerBase):
 
 		return self._collect(experiments, self._outcomes_from_disk(experiments))
 
+	# Keys of an experiment that are plain data and mean something downstream.
+	# LISTED, not "everything except elm_agent": a new object added upstream
+	# would otherwise silently become a repr in the case-inputs file.
+	CASE_KEYS = (
+		"scenario_index", "scenario_name", "case_name", "forcing_period",
+		"soil_config", "substrate", "forcing_start", "forcing_end", "stop_n",
+		"start_date", "description", "lat", "lon", "elevation_m", "band",
+		"case_dir",
+	)
+
+	def _serialise_build(self, experiments):
+		"""Each case as data, with the adapter replaced by what BUILT it.
+
+		runtime_config is the adapter's whole input — FSURDAT, FINIDAT, the
+		domain paths, STOP_N, the forcing years — so the elm MCP can construct
+		an identical adapter without the object ever crossing. That config is
+		also where the warm start's two products (the subset restart and the
+		donor-soil surface) leave this side as plain paths.
+		"""
+		out = []
+		for e in experiments:
+			row = {k: e.get(k) for k in self.CASE_KEYS if k in e}
+			rc = getattr(e.get("elm_agent"), "runtime_config", None)
+			if isinstance(rc, dict):
+				row["runtime_config"] = dict(rc)
+			elif isinstance(e.get("runtime_config"), dict):
+				row["runtime_config"] = dict(e["runtime_config"])
+			out.append(row)
+		return out
+
 	def _rehydrate_handles(self, experiments, plan, config) -> None:
 		"""A rehydrated ELM build has no ELMAgents and no builder.
 
@@ -935,10 +922,6 @@ class ELMExpManager(ExperimentManagerBase):
 		tools/analyze_run.py used to add `extra_summary`, so runs driven
 		through this manager silently lost the caveats.
 		"""
-		client = self._mcp(config or {})
-		if client is not None:
-			return self._extract_via_mcp(experiments, config or {}, client)
-
 		analyzer = ELMResultsAnalyzer(
 			experiments  = experiments,
 			analysis_dir = str(self.analysis_dir),

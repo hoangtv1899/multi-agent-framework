@@ -241,14 +241,31 @@ class ExperimentManagerBase:
 	# DIRECTORY PATHS while _build returns a list of dicts, so reconstructing
 	# from it would be lossy and backend-specific; the base already holds
 	# _build's return value, so persisting that is both uniform and exact.
-	BUILD_MANIFEST = "build_manifest.json"
+	CASE_INPUTS = "case_inputs.json"
+
+	def _serialise_build(self, experiments: List[Dict]) -> List[Dict]:
+		"""The experiments as PLAIN DATA, for the case-inputs file.
+
+		The mirror of _rehydrate_handles: that drops the dead reprs on the way
+		back in, and this stops them being written on the way out. A backend
+		whose experiments hold a live object must override, or json.dumps'
+		default=str turns it into its repr — truthy, attribute-free, and
+		useless to anything that reads the file.
+
+		Not academic: ELM keeps its whole runtime_config inside an adapter
+		object, so the default here wrote a case list with no FSURDAT, no
+		FINIDAT and no domain paths. The file existed, looked plausible, and
+		named nothing the case build needs.
+		"""
+		return experiments
 
 	def _save_build(self, experiments: List[Dict]) -> None:
 		try:
-			(self.input_dir / self.BUILD_MANIFEST).write_text(
-				json.dumps(experiments, indent=2, default=str))
+			(self.input_dir / self.CASE_INPUTS).write_text(
+				json.dumps(self._serialise_build(experiments),
+						   indent=2, default=str))
 		except Exception as e:                                  # noqa: BLE001
-			print(f"   ⚠️  could not persist the build manifest ({e}) — this "
+			print(f"   ⚠️  could not persist the case inputs ({e}) — this "
 				  f"run cannot be resumed past _build")
 
 	def _rehydrate_materialize(self) -> Optional[Dict[str, Any]]:
@@ -260,7 +277,7 @@ class ExperimentManagerBase:
 		"""_build's experiments. Paths come back as STRINGS, which every
 		consumer already tolerates — _run and _extract both wrap them in
 		Path() rather than assuming the type."""
-		p = self.input_dir / self.BUILD_MANIFEST
+		p = self.input_dir / self.CASE_INPUTS
 		if not p.exists():
 			return None
 		d = json.loads(p.read_text())
@@ -352,7 +369,7 @@ class ExperimentManagerBase:
 			experiments = self._rehydrate_build() if _done("build") else None
 			if experiments is not None:
 				_reuse("build", f"{len(experiments)} experiment(s) from "
-							   f"{self.BUILD_MANIFEST}")
+							   f"{self.CASE_INPUTS}")
 				self._rehydrate_handles(experiments, experiment_plan, config)
 			else:
 				experiments = self._build(experiment_plan, config)
