@@ -8,7 +8,7 @@ Verifies:
        (01_inputs, 02_setup_plots, 03_results, 04_analysis)
        matching PFLOTRAN's layout exactly.
     2. Each pipeline step writes its outputs to the correct subdir:
-         _build()    → 01_inputs/experiment_summary.json
+         _build_case_inputs()    → 01_inputs/experiment_summary.json
          _run()      → 03_results/execution_report.txt
                      → 03_results/results_summary.csv
          _extract()  → 04_analysis/ (via ELMResultsAnalyzer)
@@ -137,7 +137,7 @@ class TestSubdirStructure:
 # ═════════════════════════════════════════════════════════════════════
 
 class TestBuildStepOutputs:
-    """_build() writes experiment_summary.json to 01_inputs/."""
+    """_build_case_inputs() writes experiment_summary.json to 01_inputs/."""
 
     def test_experiment_summary_lands_in_01_inputs(
             self, tmp_path, fake_builder_summary):
@@ -152,7 +152,7 @@ class TestBuildStepOutputs:
 
         with patch("core.elm_exp_manager.ELMExperimentBuilder",
                    mock_class):
-            mgr._build({}, {})
+            mgr._build_case_inputs({}, {})
 
         assert (mgr.input_dir / "experiment_summary.json").exists()
 
@@ -168,7 +168,7 @@ class TestBuildStepOutputs:
         )
         with patch("core.elm_exp_manager.ELMExperimentBuilder",
                    MagicMock(return_value=mock_builder)):
-            mgr._build({}, {})
+            mgr._build_case_inputs({}, {})
 
         # Old location should NOT be present
         assert not (mgr.run_dir / "experiment_summary.json").exists()
@@ -184,7 +184,7 @@ class TestBuildStepOutputs:
         )
         with patch("core.elm_exp_manager.ELMExperimentBuilder",
                    MagicMock(return_value=mock_builder)):
-            mgr._build({}, {})
+            mgr._build_case_inputs({}, {})
 
         with open(mgr.input_dir / "experiment_summary.json") as f:
             data = json.load(f)
@@ -648,7 +648,7 @@ class TestInputPreBuild:
 
     def test_it_runs_before_the_builder(self):
         import inspect
-        src = inspect.getsource(ELMExpManager._build)
+        src = inspect.getsource(ELMExpManager._build_case_inputs)
         assert src.index("_build_inputs") < src.index("ELMExperimentBuilder"), \
             "inputs must be built BEFORE the builder, or the early warning " \
             "is worth nothing"

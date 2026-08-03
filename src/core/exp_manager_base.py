@@ -43,7 +43,7 @@ Subclasses implement:
                                                _to_run_plan. Default: no-op.
     _to_run_plan(plan, columns, config, refine) -> Dict   columns → the
                                                backend's executable plan.
-    _build / _prepare / _run / _extract        the compute stages.
+    _build_case_inputs / _build_cases / _run / _extract        the compute stages.
 """
 import json
 import sys
@@ -157,10 +157,10 @@ class ExperimentManagerBase:
 	# THE STAGE SEQUENCE — one implementation, all backends
 	# ─────────────────────────────────────────────────────────
 	# Backends declare what they need rather than stubbing stages they do not
-	# have. A no-op _prepare() reads as "prepared nothing, successfully", which
+	# have. A no-op _build_cases() reads as "built no cases, successfully", which
 	# is the silent-success pattern this codebase keeps rediscovering; a
 	# declaration reads as "this model has no such stage".
-	NEEDS_PREPARE   = True    # ELM compiles CIME cases; PFLOTRAN writes decks
+	NEEDS_CASE_BUILD   = True    # ELM compiles CIME cases; PFLOTRAN writes decks
 	NEEDS_SCHEDULER = True    # ELM submits to SLURM; PFLOTRAN runs in 0.3 s
 	COUPLES_TO      = None    # backend name this one hands its output to
 
@@ -184,7 +184,7 @@ class ExperimentManagerBase:
 	# ledger's reader and its writer cannot disagree about what a stage is
 	# called or which one comes next — a scan that thought "extract" preceded
 	# "run" would report the wrong thing as outstanding.
-	STAGES = ("materialize", "build", "prepare", "run",
+	STAGES = ("materialize", "build_case_inputs", "build_cases", "run",
 			  "extract", "package", "analyze")
 
 	# The stage that means "this study produced its product". _package writes
@@ -238,12 +238,12 @@ class ExperimentManagerBase:
 	# ─────────────────────────────────────────────────────────
 	#
 	# Written HERE and not per backend. ELM's cases.json is a list of case
-	# DIRECTORY PATHS while _build returns a list of dicts, so reconstructing
+	# DIRECTORY PATHS while _build_case_inputs returns a list of dicts, so reconstructing
 	# from it would be lossy and backend-specific; the base already holds
-	# _build's return value, so persisting that is both uniform and exact.
+	# _build_case_inputs's return value, so persisting that is both uniform and exact.
 	CASE_INPUTS = "case_inputs.json"
 
-	def _serialise_build(self, experiments: List[Dict]) -> List[Dict]:
+	def _serialise_case_inputs(self, experiments: List[Dict]) -> List[Dict]:
 		"""The experiments as PLAIN DATA, for the case-inputs file.
 
 		The mirror of _rehydrate_handles: that drops the dead reprs on the way
@@ -259,22 +259,22 @@ class ExperimentManagerBase:
 		"""
 		return experiments
 
-	def _save_build(self, experiments: List[Dict]) -> None:
+	def _save_case_inputs(self, experiments: List[Dict]) -> None:
 		try:
 			(self.input_dir / self.CASE_INPUTS).write_text(
-				json.dumps(self._serialise_build(experiments),
+				json.dumps(self._serialise_case_inputs(experiments),
 						   indent=2, default=str))
 		except Exception as e:                                  # noqa: BLE001
 			print(f"   ⚠️  could not persist the case inputs ({e}) — this "
-				  f"run cannot be resumed past _build")
+				  f"run cannot be resumed past _build_case_inputs")
 
 	def _rehydrate_materialize(self) -> Optional[Dict[str, Any]]:
 		"""The executable plan _materialize produced (run_plan.json)."""
 		p = self.run_dir / "run_plan.json"
 		return json.loads(p.read_text()) if p.exists() else None
 
-	def _rehydrate_build(self) -> Optional[List[Dict]]:
-		"""_build's experiments. Paths come back as STRINGS, which every
+	def _rehydrate_case_inputs(self) -> Optional[List[Dict]]:
+		"""_build_case_inputs's experiments. Paths come back as STRINGS, which every
 		consumer already tolerates — _run and _extract both wrap them in
 		Path() rather than assuming the type."""
 		p = self.input_dir / self.CASE_INPUTS
@@ -317,7 +317,7 @@ class ExperimentManagerBase:
 					 experiment_plan: Dict[str, Any],
 					 config:          Dict[str, Any]
 					 ) -> Dict[str, Any]:
-		"""materialize → build → [prepare] → run → extract → package → analyze.
+		"""materialize → build_case_inputs → [build_cases] → run → extract → package → analyze.
 
 		Lifted out of ELMExpManager so a second backend cannot re-implement it.
 		Two orderings here are structural and the reason this is a template
@@ -331,7 +331,7 @@ class ExperimentManagerBase:
 		    has succeeded and _extract has written its summary; a reporting bug
 		    must not discard an ensemble that cost a queue slot and an hour.
 
-		Backends supply _build/_run/_extract, and _prepare only if they have
+		Backends supply _build_case_inputs/_run/_extract, and _build_cases only if they have
 		one. Nothing below knows what model is running.
 		"""
 		start_time = datetime.now()
@@ -364,45 +364,45 @@ class ExperimentManagerBase:
 				"columns.json", "run_plan.json", "plan.json",
 				"assumptions.json", "reception.json", "reception_brief.json"))
 
-			print(f"📋 STEP 1: Building Experiments")
+			print(f"📋 STEP 1: Building Case Inputs")
 			print("-" * 40)
-			experiments = self._rehydrate_build() if _done("build") else None
+			experiments = self._rehydrate_case_inputs() if _done("build_case_inputs") else None
 			if experiments is not None:
-				_reuse("build", f"{len(experiments)} experiment(s) from "
+				_reuse("build_case_inputs", f"{len(experiments)} experiment(s) from "
 							   f"{self.CASE_INPUTS}")
 				self._rehydrate_handles(experiments, experiment_plan, config)
 			else:
-				experiments = self._build(experiment_plan, config)
-				self._save_build(experiments)
-			self._mark("build", n_experiments=len(experiments or []),
+				experiments = self._build_case_inputs(experiment_plan, config)
+				self._save_case_inputs(experiments)
+			self._mark("build_case_inputs", n_experiments=len(experiments or []),
 					   artifacts=self._artifacts("cases.json", "cases_all.json"))
 
-			if self.NEEDS_PREPARE:
-				print("\n⚙️  STEP 2: Preparing Cases")
+			if self.NEEDS_CASE_BUILD:
+				print("\n⚙️  STEP 2: Building Cases")
 				print("-" * 40)
-				if _done("prepare"):
-					_reuse("prepare", "the cases already on disk")
+				if _done("build_cases"):
+					_reuse("build_cases", "the cases already on disk")
 				else:
 					# Job-shaped too, since D1: an 8-10 minute CIME build is
-					# sbatch'd rather than run on a login node, so _prepare may
+					# sbatch'd rather than run on a login node, so _build_cases may
 					# hand back a job id exactly as _run does.
 					out = self._advance(
-						"prepare", lambda: self._prepare(experiments, config),
+						"build_cases", lambda: self._build_cases(experiments, config),
 						state=state, resume=resume,
 						experiments=experiments, config=config,
 						n_experiments=len(experiments or []))
 					if out is self.STOP:
 						return self._pending_summary(
 							experiment_plan, experiments,
-							self._load_state()["stages"]["prepare"], start_time,
-							stage="prepare")
-					# _prepare mutates `experiments` in place (it sets case_dir),
+							self._load_state()["stages"]["build_cases"], start_time,
+							stage="build_cases")
+					# _build_cases mutates `experiments` in place (it sets case_dir),
 					# so its return value is not the carrier — but a POLLED
-					# prepare came back from a different session and has to
+					# build_cases came back from a different session and has to
 					# re-attach the case dirs it found.
 					if isinstance(out, list) and out:
 						experiments = out
-						self._save_build(experiments)
+						self._save_case_inputs(experiments)
 
 			print(f"\n🌿 STEP 3: Running Simulations")
 			print("-" * 40)
@@ -532,14 +532,14 @@ class ExperimentManagerBase:
 	# Stages a backend must supply. Raising by default rather than no-op'ing:
 	# a manager missing its compute stage should fail loudly at the first call,
 	# not report an empty successful run.
-	def _build(self, plan, config):
-		raise NotImplementedError(f"{type(self).__name__} must implement _build")
+	def _build_case_inputs(self, plan, config):
+		raise NotImplementedError(f"{type(self).__name__} must implement _build_case_inputs")
 
-	def _prepare(self, experiments, config=None):
+	def _build_cases(self, experiments, config=None):
 		"""config is passed so a backend can see mcp_clients here, the same as
-		_build and _run do. Defaulted so a caller that predates it still works."""
+		_build_case_inputs and _run do. Defaulted so a caller that predates it still works."""
 		raise NotImplementedError(
-			f"{type(self).__name__} declares NEEDS_PREPARE but has no _prepare")
+			f"{type(self).__name__} declares NEEDS_CASE_BUILD but has no _build_cases")
 
 	def _run(self, experiments, config):
 		raise NotImplementedError(f"{type(self).__name__} must implement _run")
@@ -550,7 +550,7 @@ class ExperimentManagerBase:
 		Return what the stage would have returned had it waited, or None if the
 		job is still queued or running. `record` is the ledger's entry for that
 		stage, so it carries job_id, whatever the Pending marker's detail held,
-		and — since prepare became job-shaped too — **which stage it is**, under
+		and — since build_cases became job-shaped too — **which stage it is**, under
 		the key `stage`. A backend answers differently for a CIME build than for
 		an ensemble, and it cannot tell them apart from a job id.
 
@@ -565,8 +565,8 @@ class ExperimentManagerBase:
 
 	# Returned by _advance when the run cannot continue in this session because
 	# the stage's work is in a queue. A sentinel rather than None: None is a
-	# legitimate return from _prepare, and conflating the two would end every
-	# ELM run at the prepare stage.
+	# legitimate return from _build_cases, and conflating the two would end every
+	# ELM run at the build_cases stage.
 	STOP = object()
 
 	def _advance(self, stage: str, fn, *, state: Dict[str, Any], resume: bool,
@@ -581,7 +581,7 @@ class ExperimentManagerBase:
 		  * the stage runs and returns a Pending → record the id and STOP.
 		  * the stage runs and returns a result → record it and carry on.
 
-		Written once and used by both prepare and run. The two differ in what
+		Written once and used by both build_cases and run. The two differ in what
 		they return and in nothing else that matters here, which is the whole
 		reason this is a method rather than the same fifteen lines twice.
 		"""
@@ -1233,7 +1233,7 @@ class ExperimentManagerBase:
 		summary.update({
 			'status':          'pending',
 			'job_id':          record.get('job_id'),
-			# WHICH stage is waiting. With prepare job-shaped as well as run,
+			# WHICH stage is waiting. With build_cases job-shaped as well as run,
 			# "job 770603 is queued" no longer says whether the cases are being
 			# built or the ensemble is being simulated — and those are hours
 			# apart in what happens next.

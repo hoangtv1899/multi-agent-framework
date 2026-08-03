@@ -86,7 +86,7 @@ class ELMExpManager(ExperimentManagerBase):
 	"""
 	Executes ELM experiment plans.
 
-	Stages: materialize -> warm start -> build -> prepare -> run -> extract
+	Stages: materialize -> warm start -> build_case_inputs -> build_cases -> run -> extract
 	-> couple -> package. Steps 0, 0b, 4 and 4d delegate to the tools/ CLIs
 	via _load_tool(), so both entry points share one implementation.
 
@@ -150,7 +150,7 @@ class ELMExpManager(ExperimentManagerBase):
 	# execute_plan now lives in ExperimentManagerBase. ELM keeps the stages
 	# and the declarations; the sequence and its ordering guarantees are the
 	# base's, so a second backend cannot re-implement them differently.
-	NEEDS_PREPARE   = True          # CIME case build, ~8 min for the first
+	NEEDS_CASE_BUILD   = True          # CIME case build, ~8 min for the first
 	NEEDS_SCHEDULER = True          # sbatch + wait
 	COUPLES_TO      = "pflotran"    # one-way QINFL handoff, when asked for
 
@@ -402,11 +402,11 @@ class ELMExpManager(ExperimentManagerBase):
 		return out
 
 
-	def _prepare_via_mcp(self, experiments, config, client):
+	def _build_cases_via_mcp(self, experiments, config, client):
 		"""D1: the CIME build is a JOB. Returns a Pending, not case dirs.
 
 		The server reads 01_inputs/case_inputs.json and nothing else — it does
-		not generate inputs and does not open a surfdata file. _save_build has
+		not generate inputs and does not open a surfdata file. _save_case_inputs has
 		already written that file with each case's runtime_config, which is
 		where FSURDAT and FINIDAT (the warm start's two products) cross the
 		boundary as data.
@@ -430,7 +430,7 @@ class ELMExpManager(ExperimentManagerBase):
 		cases = [e.get("case_dir") for e in experiments if e.get("case_dir")]
 		if not cases:
 			raise RuntimeError(
-				"no case directories — prepare must run before the ensemble")
+				"no case directories — build_cases must run before the ensemble")
 		out = self._mcp_call(client, "submit_elm_ensemble", {
 			"run_dir":   str(self.run_dir),
 			"case_dirs": cases,
@@ -459,7 +459,7 @@ class ELMExpManager(ExperimentManagerBase):
 				  f"{st.get('state') or 'unanswered'} — nothing to collect yet")
 			return None
 
-		if stage == "prepare":
+		if stage == "build_cases":
 			# The case directories come back from check_elm_job itself. A stage
 			# that hands back a job id needs somewhere to hand back its ANSWER,
 			# and a few short strings can travel inline — unlike results, which
@@ -483,14 +483,14 @@ class ELMExpManager(ExperimentManagerBase):
 		return self._collect(experiments, self._outcomes_from_disk(experiments))
 
 
-	def _build(self,
+	def _build_case_inputs(self,
 			   plan:   Dict[str, Any],
 			   config: Dict[str, Any]) -> List[Dict]:
 		"""Build the ELMAgentAdapter list from the plan (per-column surfaces)."""
 		self._build_inputs(config)
 
 		builder     = ELMExperimentBuilder(plan)
-		self._builder = builder          # reused by _prepare for the fast path
+		self._builder = builder          # reused by _build_cases for the fast path
 		experiments = builder.build_experiments()
 
 		# Save experiment_summary.json to 01_inputs/
@@ -507,7 +507,7 @@ class ELMExpManager(ExperimentManagerBase):
 	def _plot_setups(self, cases: List[str]) -> None:
 		"""02_setup_plots/column_surfaces.png — the soil each column ACTUALLY got.
 
-		Runs after _prepare, because it reads every case's generated FSURDAT via
+		Runs after _build_cases, because it reads every case's generated FSURDAT via
 		its `run/lnd_in`; that is the only way to see what ELM will really use.
 		It also cross-checks each surface's lat/lon against the case's domain
 		file and shouts if they disagree — that mismatch aborts ELM at init.
@@ -530,13 +530,13 @@ class ELMExpManager(ExperimentManagerBase):
 			print(f"   ⚠️  surface plot failed: {e}")
 
 	# ─────────────────────────────────────────────────────────
-	# STEP 2 — PREPARE (cases live at $PSCRATCH)
+	# STEP 2 — BUILD CASES (cases live at $PSCRATCH)
 	# ─────────────────────────────────────────────────────────
-	def _prepare(self, experiments: List[Dict], config: Dict[str, Any] = None):
+	def _build_cases(self, experiments: List[Dict], config: Dict[str, Any] = None):
 		"""
-		Prepare (build) all ELM cases.
+		Build all ELM cases.
 
-		Uses ELMExperimentBuilder.prepare_cases(): builds the FIRST case from
+		Uses ELMExperimentBuilder.build_cases(): builds the FIRST case from
 		scratch (~8-10 min CIME compile) and clones the rest with
 		--keepexe (~30 s each, in parallel, with a serial retry pass for the
 		known parallel-filesystem race). The previous implementation called
@@ -546,11 +546,11 @@ class ELMExpManager(ExperimentManagerBase):
 		"""
 		client = self._mcp(config or {})
 		if client is not None:
-			return self._prepare_via_mcp(experiments, config or {}, client)
+			return self._build_cases_via_mcp(experiments, config or {}, client)
 
 		builder = getattr(self, "_builder", None)
 		if builder is None and getattr(self, "_resume_plan", None) is not None:
-			# Resumed past _build, and _prepare turns out to be needed after
+			# Resumed past _build_case_inputs, and _build_cases turns out to be needed after
 			# all. The builder is reconstructible from the plan — that is the
 			# whole reason the plan is persisted — so rebuild it here, where
 			# the cost is actually incurred, rather than on every resume.
@@ -559,16 +559,16 @@ class ELMExpManager(ExperimentManagerBase):
 			builder.build_experiments()
 			self._builder = builder
 		if builder is not None:
-			case_dirs = builder.prepare_cases(output_dir=str(self.run_dir))
+			case_dirs = builder.build_cases(output_dir=str(self.run_dir))
 			for exp, cd in zip(experiments, case_dirs):
 				exp['case_dir'] = cd
 			n_ok = sum(1 for c in case_dirs if c)
 			if not n_ok:
-				raise RuntimeError("No ELM cases could be prepared.")
+				raise RuntimeError("No ELM cases could be built.")
 			if n_ok != len(case_dirs):
-				print(f"   ⚠️  {len(case_dirs) - n_ok} case(s) failed to prepare")
+				print(f"   ⚠️  {len(case_dirs) - n_ok} case(s) failed to build")
 		else:
-			# Fallback: no builder handle (e.g. a caller that bypassed _build)
+			# Fallback: no builder handle (e.g. a caller that bypassed _build_case_inputs)
 			for exp in experiments:
 				exp['case_dir'] = exp['elm_agent'].prepare_case(
 					output_dir = str(self.run_dir)
@@ -710,7 +710,7 @@ class ELMExpManager(ExperimentManagerBase):
 		"case_dir",
 	)
 
-	def _serialise_build(self, experiments):
+	def _serialise_case_inputs(self, experiments):
 		"""Each case as data, with the adapter replaced by what BUILT it.
 
 		runtime_config is the adapter's whole input — FSURDAT, FINIDAT, the
@@ -738,7 +738,7 @@ class ELMExpManager(ExperimentManagerBase):
 		rather than left to fail at the call site. The builder is not
 		reconstructed eagerly: rebuilding it re-runs per-column file generation,
 		which a resume that only needs to collect finished output should not
-		pay for. _prepare rebuilds it on demand from this plan.
+		pay for. _build_cases rebuilds it on demand from this plan.
 		"""
 		self._resume_plan = plan
 		stale = [e for e in experiments if isinstance(e.get('elm_agent'), str)]

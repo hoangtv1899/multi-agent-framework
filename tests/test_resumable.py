@@ -46,7 +46,7 @@ def _done(*names):
 class TestWhatCountsAsResumable:
 
     def test_a_submitted_job_is(self, tmp_path):
-        d = _run(tmp_path, stages={**_done("materialize", "build", "prepare"),
+        d = _run(tmp_path, stages={**_done("materialize", "build_case_inputs", "build_cases"),
                                    "run": {"status": "pending",
                                            "job_id": "770680"}})
         r = inspect_run(d)
@@ -55,17 +55,17 @@ class TestWhatCountsAsResumable:
         assert "770680" in r["why"]
 
     def test_a_run_stopped_partway_is(self, tmp_path):
-        d = _run(tmp_path, stages=_done("materialize", "build"))
+        d = _run(tmp_path, stages=_done("materialize", "build_case_inputs"))
         r = inspect_run(d)
         assert r["resumable"]
-        assert r["next"] == "prepare"       # ELM has one
-        assert "build" in r["why"]
+        assert r["next"] == "build_cases"       # ELM has one
+        assert "build_case_inputs" in r["why"]
 
     def test_a_finished_run_is_not(self, tmp_path):
         """_package wrote experiment.json, which is what the run is FOR. A
         failed analyze leaves a finished study with no report, and re-running
         the pipeline is not how to get one."""
-        d = _run(tmp_path, stages={**_done("materialize", "build", "prepare",
+        d = _run(tmp_path, stages={**_done("materialize", "build_case_inputs", "build_cases",
                                            "run", "extract", "package"),
                                    "analyze": {"status": "failed"}})
         r = inspect_run(d)
@@ -127,16 +127,16 @@ class TestItSaysWhichRunItIs:
 
 class TestTheStageSequenceIsTheBackendsNotAGuess:
 
-    def test_pflotran_has_no_prepare_stage(self, tmp_path):
-        """NEEDS_PREPARE = False — deck generation IS its build. Reading the
-        ledger without asking the backend reports 'prepare' as the outstanding
+    def test_pflotran_has_no_case_build_stage(self, tmp_path):
+        """NEEDS_CASE_BUILD = False — deck generation IS its build. Reading the
+        ledger without asking the backend reports 'build_cases' as the outstanding
         stage of every interrupted PFLOTRAN study, forever."""
-        assert "prepare" not in _stages_for("pflotran")
-        assert "prepare" in _stages_for("elm")
+        assert "build_cases" not in _stages_for("pflotran")
+        assert "build_cases" in _stages_for("elm")
 
     def test_so_a_pflotran_run_past_build_is_waiting_on_run(self, tmp_path):
         d = _run(tmp_path, model="pflotran",
-                 stages=_done("materialize", "build"))
+                 stages=_done("materialize", "build_case_inputs"))
         assert inspect_run(d)["next"] == "run"
 
     def test_an_unknown_backend_assumes_every_stage(self, tmp_path):
@@ -158,8 +158,8 @@ class TestTheStageSequenceIsTheBackendsNotAGuess:
         class _Full(ExperimentManagerBase):
             MODEL = "fake"
             def _materialize(self, p, c):  return p
-            def _build(self, p, c):        return [{"case_name": "c1"}]
-            def _prepare(self, e, c=None): return None
+            def _build_case_inputs(self, p, c):        return [{"case_name": "c1"}]
+            def _build_cases(self, e, c=None): return None
             def _run(self, e, c):          return {"c1": True}
             def _extract(self, e, plan=None, config=None):
                 return types.SimpleNamespace(results=[], units={}, summary={})
@@ -245,40 +245,40 @@ class TestResumeIsWiredIntoTheCLI:
         assert "if resume:\n\t\t\tcfg['resume'] = True" in src
 
 
-class TestAPendingPrepareIsFoundToo:
+class TestAPendingCaseBuildIsFoundToo:
     """Since D1 the CIME case build is sbatch'd, so a study can be parked at
     `prepare` as easily as at `run`."""
 
     def test_found_and_named(self, tmp_path):
-        d = _run(tmp_path, stages={**_done("materialize", "build"),
-                                   "prepare": {"status": "pending",
+        d = _run(tmp_path, stages={**_done("materialize", "build_case_inputs"),
+                                   "build_cases": {"status": "pending",
                                                "job_id": "880001"}})
         r = inspect_run(d)
         assert r["resumable"]
-        assert r["stage"] == "prepare"
+        assert r["stage"] == "build_cases"
         assert r["job_id"] == "880001"
-        assert "prepare" in r["why"], \
+        assert "build_cases" in r["why"], \
             "'your cases are being built' and 'your ensemble is simulating' " \
             "are hours apart in what happens next"
 
     def test_the_earliest_pending_stage_wins(self, tmp_path):
         """A ledger cannot honestly have two stages in flight — the run stops
         at the first. If one somehow does, report the earlier."""
-        d = _run(tmp_path, stages={**_done("materialize", "build"),
-                                   "prepare": {"status": "pending",
+        d = _run(tmp_path, stages={**_done("materialize", "build_case_inputs"),
+                                   "build_cases": {"status": "pending",
                                                "job_id": "880001"},
                                    "run": {"status": "pending",
                                            "job_id": "770595"}})
-        assert inspect_run(d)["stage"] == "prepare"
+        assert inspect_run(d)["stage"] == "build_cases"
 
-    def test_a_pflotran_run_never_reports_a_pending_prepare(self, tmp_path):
+    def test_a_pflotran_run_never_reports_a_pending_case_build(self, tmp_path):
         """PFLOTRAN has no prepare stage at all, so a stray entry for one is
         not something to wait on."""
         d = _run(tmp_path, model="pflotran",
-                 stages={**_done("materialize", "build"),
-                         "prepare": {"status": "pending", "job_id": "880001"}})
+                 stages={**_done("materialize", "build_case_inputs"),
+                         "build_cases": {"status": "pending", "job_id": "880001"}})
         r = inspect_run(d)
-        assert r["stage"] != "prepare"
+        assert r["stage"] != "build_cases"
 
 
 class TestReceptionMayChooseButNotInvent:

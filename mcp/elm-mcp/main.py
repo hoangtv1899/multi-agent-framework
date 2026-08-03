@@ -310,7 +310,7 @@ echo "building {n_cases} case(s) for {rd} on $(hostname)"
     return json.dumps({
         "job_id":   jid.split(";")[0],
         "n_cases":  n_cases,
-        "stage":    "build",
+        "stage":    "build_cases",
         "queue":    q,
         "walltime": walltime,
         "log_path": str(rd / "build_cases.log"),
@@ -446,7 +446,7 @@ def check_elm_job(job_id: str, run_dir: str = "") -> str:
     if built.is_file():
         try:
             d = json.loads(built.read_text())
-            out["stage"] = "build"
+            out["stage"] = "build_cases"
             out["ready"] = True
             out["ok"] = d.get("ok")
             out["cases"] = d.get("cases") or []

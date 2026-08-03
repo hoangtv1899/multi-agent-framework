@@ -17,11 +17,11 @@ split.
 
 WHERE IT DIFFERS, DECLARED RATHER THAN STUBBED:
 
-    NEEDS_PREPARE = False     ELM compiles CIME cases (~8 min for the first,
+    NEEDS_CASE_BUILD = False     ELM compiles CIME cases (~8 min for the first,
                               clones after). PFLOTRAN writes a text deck; deck
                               generation IS the build, so there is no separate
                               prepare stage. Declaring that is honest; a no-op
-                              _prepare() would report "prepared nothing,
+                              _build_cases() would report "prepared nothing,
                               successfully".
     NEEDS_SCHEDULER = False   ELM's 19 columns took 2406 s through SLURM.
                               PFLOTRAN's took 0.3 s each on the login node,
@@ -35,7 +35,7 @@ it. A second deck generator would drift from the one that has been tested.
 _to_run_plan EMITS A SPEC, NOT DECKS. The base writes columns.json only after
 `_refine_columns`, and the design figure after that — decks written during
 materialization would describe a plan that had not been finalised. So the plan
-carries what to build and `_build` builds it.
+carries what to build and `_build_case_inputs` builds it.
 """
 import json
 import sys
@@ -75,7 +75,7 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 
     MODEL = "pflotran"
 
-    NEEDS_PREPARE = False       # deck generation is the build; see docstring
+    NEEDS_CASE_BUILD = False       # deck generation is the build; see docstring
     NEEDS_SCHEDULER = False     # 0.3 s per column, measured
     COUPLES_TO = None           # nothing downstream of it yet
 
@@ -207,7 +207,7 @@ class PFLOTRANExpManager(ExperimentManagerBase):
     # ─────────────────────────────────────────────────────────
     # STAGES
     # ─────────────────────────────────────────────────────────
-    def _build(self, plan: Dict[str, Any], config: Dict[str, Any]) -> List[Dict]:
+    def _build_case_inputs(self, plan: Dict[str, Any], config: Dict[str, Any]) -> List[Dict]:
         """Generate the decks by calling the verified standalone tool."""
         cases = plan.get(self.PLAN_KEY) or []
         if not cases:
@@ -223,7 +223,7 @@ class PFLOTRANExpManager(ExperimentManagerBase):
         # build_ensemble is the tool's own importable core — the same function
         # its CLI calls — so a run launched from here and one launched from
         # the command line produce byte-identical decks. `run=False`: executing
-        # is _run's stage, not _build's.
+        # is _run's stage, not _build_case_inputs's.
         built = bp.build_ensemble(
             columns=columns, out_dir=str(out), run=False, quiet=False,
             flux_from=settings.get("flux_from"),
@@ -233,7 +233,7 @@ class PFLOTRANExpManager(ExperimentManagerBase):
             spin_years=settings.get("spin_years", 10.0))
 
         # build_ensemble returns {"scenario": ..., "cases": [...]}, NOT a list.
-        # Returning it whole made _build report "2 deck(s)" for 19 columns —
+        # Returning it whole made _build_case_inputs report "2 deck(s)" for 19 columns —
         # it was counting the dict's two keys — and handed _run a dict, which
         # iterates as its key STRINGS: 'str' object has no attribute 'get'.
         # Every stage-level test passed because they built `experiments` by

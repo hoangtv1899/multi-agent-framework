@@ -99,7 +99,7 @@ class ELMExperimentBuilder:
         logger.info(f"{len(self.experiments)} experiments built")
         return self.experiments
 
-    def prepare_cases(self, output_dir: str) -> List[str]:
+    def build_cases(self, output_dir: str) -> List[str]:
         """
         Call prepare_case() on each adapter.
         First case builds the executable from scratch (~8 min).
@@ -114,7 +114,7 @@ class ELMExperimentBuilder:
             raise RuntimeError("Call build_experiments() first.")
 
         logger.info("=" * 60)
-        logger.info("PREPARING ELM CASES")
+        logger.info("BUILDING ELM CASES")
         logger.info("=" * 60)
 
         # ── First case: full build (the reference) ──
@@ -129,7 +129,7 @@ class ELMExperimentBuilder:
         # ── Remaining cases: clone in parallel ──
         remaining = self.experiments[1:]
         if not remaining:
-            logger.info(f"1 case prepared")
+            logger.info(f"1 case built")
             return [ref_case_dir]
 
         logger.info(
@@ -212,7 +212,7 @@ class ELMExperimentBuilder:
         # Return in original experiment order
         case_dirs = [exp.get('case_dir') for exp in self.experiments]
         n_ok = sum(1 for c in case_dirs if c)
-        logger.info(f"{n_ok}/{len(self.experiments)} cases prepared")
+        logger.info(f"{n_ok}/{len(self.experiments)} cases built")
         return case_dirs
 
     def get_experiment_summary(self) -> Dict[str, Any]:

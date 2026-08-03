@@ -87,7 +87,7 @@ def main(run_dir: str) -> int:
         print(f"building {len(builder.experiments)} case(s) from "
               f"{CASE_INPUTS}", flush=True)
 
-        case_dirs = builder.prepare_cases(output_dir=str(rd))
+        case_dirs = builder.build_cases(output_dir=str(rd))
 
         rows = [{"case_name": e["case_name"], "case_dir": cd}
                 for e, cd in zip(builder.experiments, case_dirs)]

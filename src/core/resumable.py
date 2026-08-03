@@ -106,9 +106,9 @@ def _request_text(run_dir: Path) -> Optional[str]:
 def _stages_for(model: Optional[str]) -> tuple:
 	"""The stages this backend actually runs.
 
-	PFLOTRAN declares NEEDS_PREPARE = False — deck generation IS its build — so
-	`prepare` is never recorded for a PFLOTRAN run and is not missing when it
-	is absent. Reading the ledger without asking the backend reports `prepare`
+	PFLOTRAN declares NEEDS_CASE_BUILD = False — deck generation IS its build — so
+	`build_cases` is never recorded for a PFLOTRAN run and is not missing when it
+	is absent. Reading the ledger without asking the backend reports `build_cases`
 	as the outstanding stage of every interrupted PFLOTRAN study, forever.
 	"""
 	if not model:
@@ -119,7 +119,7 @@ def _stages_for(model: Optional[str]) -> tuple:
 	except Exception:                                           # noqa: BLE001
 		return STAGES                                # unknown backend: assume all
 	return tuple(s for s in STAGES
-				 if s != "prepare" or getattr(cls, "NEEDS_PREPARE", True))
+				 if s != "build_cases" or getattr(cls, "NEEDS_CASE_BUILD", True))
 
 
 def _next_stage(stages: Dict[str, Any], model: Optional[str] = None
@@ -181,7 +181,7 @@ def inspect_run(run_dir: Path, check_jobs: bool = False) -> Dict[str, Any]:
 	rec["age"]     = _age(state.get("updated"))
 
 	# ANY stage may be waiting on a job, not just `run`. Since D1 the CIME case
-	# build is sbatch'd too, and a study parked at `prepare` looks identical in
+	# build is sbatch'd too, and a study parked at `build_cases` looks identical in
 	# the ledger — but "your cases are being built" and "your ensemble is
 	# simulating" are hours apart in what happens next, so the stage is named.
 	for name in _stages_for(rec["model"]):

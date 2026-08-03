@@ -44,8 +44,8 @@ That is fine for a terrain query and fatal for ELM, whose two slowest stages are
 
 | stage | cost | source |
 |---|---|---|
-| first CIME case build | ~8–10 min | `_prepare` docstring |
-| each subsequent clone (`--keepexe`) | ~30 s, parallel | `_prepare` docstring |
+| first CIME case build | ~8–10 min | `_build_cases` docstring |
+| each subsequent clone (`--keepexe`) | ~30 s, parallel | `_build_cases` docstring |
 | 19-column ensemble through SLURM | 2406 s | measured |
 
 A 10-minute `prepare` under a 300 s timeout is not a slow call — it is a CIME
@@ -80,8 +80,8 @@ design hangs on. Two ways to satisfy it, and this proposal uses both:
 
 | stage | why it crosses the boundary cleanly |
 |---|---|
-| `_build` | Produces per-column surface/domain files and an experiment manifest. Both are files and JSON. |
-| `_prepare` | Pure side effect on disk; returns case directory paths. |
+| `_build_case_inputs` | Produces per-column surface/domain files and an experiment manifest. Both are files and JSON. |
+| `_build_cases` | Pure side effect on disk; returns case directory paths. |
 | `_run` | Already reduced to "submit, return a job id" in Phase 3. |
 | `_extract` | `ELMResultsAnalyzer(experiments, analysis_dir)` needs only `case_dir` paths — verified: `elm_results_analyzer.py:155`. |
 
@@ -239,7 +239,7 @@ wait.
 
 ## 8. What an agent can do with it
 
-Once the six tools exist, the loop `build → prepare → submit → check → collect`
+Once the six tools exist, the loop `build_case_inputs → build_cases → submit → check → collect`
 is drivable by an LLM with no exp manager at all. That makes ELM available to
 Claude Code sessions and to the framework's own agents.
 
@@ -311,7 +311,7 @@ first.
    environment is complete, and `MCPManager` can see it. Costs nothing to
    throw away if the shape is wrong.
 2. **`build_elm_cases`.** Compare its manifest against the manifest the local
-   `_build` produces for the same plan — they must agree column for column.
+   `_build_case_inputs` produces for the same plan — they must agree column for column.
 3. **`submit_elm_ensemble` + `check_elm_job`.** Test against a *sleep* job
    first, as Phase 3 did — a real scheduler, no ELM, nothing destructible.
 4. **`prepare_elm_cases`.** The slowest and riskiest; by now the boundary is
@@ -365,7 +365,7 @@ rather than assumed:
 
 | check | result |
 |---|---|
-| `build_elm_cases` vs local `_build` | identical field for field, including all 13 `runtime_config` keys |
+| `build_elm_cases` vs local `_build_case_inputs` | identical field for field, including all 13 `runtime_config` keys |
 | `collect_elm_results` vs local `_extract` | 52 metric values identical across 4 columns, same statuses, same history-file counts |
 
 The manifest was also asserted to contain no `ELMAgentAdapter` repr — the exact
@@ -386,8 +386,8 @@ inline over stdio.
 
 ### Two things the wiring forced that the design did not anticipate
 
-**`_prepare` now takes `config`.** It needs to see `mcp_clients` the same way
-`_build` and `_run` do, and the base was calling it with `experiments` alone.
+**`_build_cases` now takes `config`.** It needs to see `mcp_clients` the same way
+`_build_case_inputs` and `_run` do, and the base was calling it with `experiments` alone.
 Defaulted, so a caller that predates the change still works.
 
 **`_mcp_call` raises on `error` only when the payload has no `ok` key.** A tool
@@ -455,7 +455,7 @@ the two backends now match:
 |---|---|---|
 | materialize | framework | framework — *the same code* |
 | build inputs | framework | framework |
-| build cases | **MCP** | n/a — `NEEDS_PREPARE = False` |
+| build cases | **MCP** | n/a — `NEEDS_CASE_BUILD = False` |
 | run | **MCP** | **MCP** |
 | extract | framework | framework |
 
@@ -472,12 +472,12 @@ reason reading them stayed on the framework side.
 
 ### The bug this found
 
-`_save_build` JSON-dumps the experiments, and ELM keeps its whole
+`_save_case_inputs` JSON-dumps the experiments, and ELM keeps its whole
 `runtime_config` **inside** the adapter object. The deleted
 `build_elm_cases` tool had been extracting it; removing the tool took the
 extraction with it. The case list was written with **no FSURDAT, no FINIDAT and
 no domain paths** — a file that existed, looked plausible, and named nothing the
 build needs. A job was submitted against it before this was noticed.
 
-Fixed with `_serialise_build`, the mirror of `_rehydrate_handles`: one drops
+Fixed with `_serialise_case_inputs`, the mirror of `_rehydrate_handles`: one drops
 dead reprs on the way in, the other stops them being written on the way out.

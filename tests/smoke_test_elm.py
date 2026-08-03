@@ -161,9 +161,9 @@ def main() -> int:
     banner("Step 2: Prepare case — create_newcase → xmlchange → build")
     print("  This is the slow part (~10 min). Watch the log for progress.")
     try:
-        case_dirs = builder.prepare_cases(output_dir="/tmp/elm_smoke_test")
+        case_dirs = builder.build_cases(output_dir="/tmp/elm_smoke_test")
     except Exception as e:
-        return fail(f"prepare_cases raised: {e}")
+        return fail(f"build_cases raised: {e}")
 
     case_dir = Path(case_dirs[0])
     print(f"✓ Case prepared: {case_dir}")

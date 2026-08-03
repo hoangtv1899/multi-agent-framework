@@ -85,7 +85,7 @@ _RESUMABLE = [
      "request": "Quantify how precipitation partitions into runoff and "
                 "recharge across the Upper Gunnison watershed in Colorado "
                 "(HUC8 14020002) for 2020"},
-    {"run_dir": NACHES, "model": "elm", "stage": "prepare",
+    {"run_dir": NACHES, "model": "elm", "stage": "build_cases",
      "status": "prepare: job 880014 is PENDING", "age": "1 d",
      "request": "Explore recharge vs runoff partitioning in the Naches "
                 "sub-watershed (HUC8 17030002)"},

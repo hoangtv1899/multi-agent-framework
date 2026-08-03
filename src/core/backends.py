@@ -16,9 +16,9 @@ builder. Importing the table should not require every backend's dependencies to
 be installed, or a PFLOTRAN-only environment could not run a PFLOTRAN study.
 
 WHY NOT A `model` FLAG ON ONE MANAGER. The two backends differ in the stages
-they have, not only in the code inside them: PFLOTRAN has no prepare step and
+they have, not only in the code inside them: PFLOTRAN has no case-build step and
 no scheduler, ELM has both. Those are declarations on the class
-(NEEDS_PREPARE, NEEDS_SCHEDULER, COUPLES_TO) that the base's execute_plan
+(NEEDS_CASE_BUILD, NEEDS_SCHEDULER, COUPLES_TO) that the base's execute_plan
 reads, so the choice of model IS the choice of class.
 """
 from typing import Any, Dict, List, Tuple

@@ -178,7 +178,7 @@ class TestTheCoordinatorActuallyDispatches:
             return types.SimpleNamespace(results=rows, units={}, summary={})
 
         monkeypatch.setattr(PFLOTRANExpManager, "_materialize", fake_materialize)
-        monkeypatch.setattr(PFLOTRANExpManager, "_build", fake_build)
+        monkeypatch.setattr(PFLOTRANExpManager, "_build_case_inputs", fake_build)
         monkeypatch.setattr(PFLOTRANExpManager, "_run", fake_run)
         monkeypatch.setattr(PFLOTRANExpManager, "_extract", fake_extract)
 

@@ -447,7 +447,7 @@ class LambdaPFLOTRANExpManager(PFLOTRANExpManager):
     # ─────────────────────────────────────────────────────────
     # BUILD — flow decks from the parent, then the graft
     # ─────────────────────────────────────────────────────────
-    def _build(self, plan: Dict[str, Any], config: Dict[str, Any]) -> List[Dict]:
+    def _build_case_inputs(self, plan: Dict[str, Any], config: Dict[str, Any]) -> List[Dict]:
         """Flow decks, then a reactive deck grafted onto each.
 
         The reactive decks go in their own directory rather than beside the
@@ -455,7 +455,7 @@ class LambdaPFLOTRANExpManager(PFLOTRANExpManager):
         two decks in one directory and it would execute whichever the glob
         returned first.
         """
-        flow = super()._build(plan, config)
+        flow = super()._build_case_inputs(plan, config)
 
         brd = _load_tool("build_reactive_demo")
         settings = plan.get("pflotran_settings") or {}

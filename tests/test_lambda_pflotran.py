@@ -26,7 +26,7 @@ class TestItIsTheFlowBackendPlusChemistry:
         """The reactive deck IS the flow deck with a graft, so materialize,
         run, and the flow half of extract must not be reimplemented."""
         assert issubclass(L, P)
-        assert L.NEEDS_PREPARE is False and L.NEEDS_SCHEDULER is False
+        assert L.NEEDS_CASE_BUILD is False and L.NEEDS_SCHEDULER is False
 
     def test_it_cannot_claim_the_flow_backends_plan(self):
         """Sharing a plan key would make a PFLOTRAN plan look already

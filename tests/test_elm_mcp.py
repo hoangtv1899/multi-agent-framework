@@ -210,14 +210,14 @@ class TestTheMCPIsTheDefaultForELM:
 class TestEachStageGoesThroughTheServer:
 
     def test_the_case_build_hands_back_a_job_not_case_dirs(self, tmp_path):
-        """D1: the CIME build is sbatch'd, so _prepare returns a Pending."""
+        """D1: the CIME build is sbatch'd, so _build_cases returns a Pending."""
         from core.exp_manager_base import Pending
         m = _mgr(tmp_path)
         (m.input_dir / m.CASE_INPUTS).write_text(json.dumps(
             [{"case_name": "col_01", "runtime_config": {"FSURDAT": "/x.nc"}}]))
         c = _FakeClient(build_elm_cases={"job_id": "880001",
                                          "log_path": "/x/build.log"})
-        out = m._prepare([{"case_name": "col_01"}],
+        out = m._build_cases([{"case_name": "col_01"}],
                          {"mcp_clients": {"elm": c}})
         assert isinstance(out, Pending)
         assert out.job_id == "880001"
@@ -228,7 +228,7 @@ class TestEachStageGoesThroughTheServer:
         m = _mgr(tmp_path)
         c = _FakeClient(build_elm_cases={"job_id": "880001"})
         with pytest.raises(RuntimeError, match="case_inputs.json"):
-            m._prepare([{"case_name": "col_01"}], {"mcp_clients": {"elm": c}})
+            m._build_cases([{"case_name": "col_01"}], {"mcp_clients": {"elm": c}})
 
     def test_run_hands_back_a_job(self, tmp_path):
         from core.exp_manager_base import Pending
@@ -244,7 +244,7 @@ class TestEachStageGoesThroughTheServer:
         as progress."""
         m = _mgr(tmp_path)
         c = _FakeClient(submit_elm_ensemble={"job_id": "1"})
-        with pytest.raises(RuntimeError, match="prepare must run"):
+        with pytest.raises(RuntimeError, match="build_cases must run"):
             m._run([{"case_name": "c1"}], {"mcp_clients": {"elm": c}})
 
     def test_poll_dispatches_on_the_stage(self, tmp_path):
@@ -261,7 +261,7 @@ class TestEachStageGoesThroughTheServer:
             "n_ok": 1, "n_total": 1,
             "cases": [{"case_name": "col_01", "case_dir": "/scratch/col_01"}]})
         exps = [{"case_name": "col_01"}]
-        out = m._poll({"stage": "prepare", "job_id": "880001"}, exps,
+        out = m._poll({"stage": "build_cases", "job_id": "880001"}, exps,
                       {"mcp_clients": {"elm": c}})
         assert out is exps
         assert exps[0]["case_dir"] == "/scratch/col_01"
@@ -284,7 +284,7 @@ class TestEachStageGoesThroughTheServer:
                                        "error": "CIME build failed",
                                        "log_tail": "..."})
         with pytest.raises(RuntimeError, match="case build failed"):
-            m._poll({"stage": "prepare", "job_id": "880001"},
+            m._poll({"stage": "build_cases", "job_id": "880001"},
                     [{"case_name": "c1"}], {"mcp_clients": {"elm": c}})
 
 
@@ -317,7 +317,7 @@ class TestTheCaseListCarriesWhatTheBuildNeeds:
                             runtime_config={"FSURDAT": "/s.nc",
                                             "FINIDAT": "/w.nc",
                                             "STOP_N": "1"})
-        row = m._serialise_build([{"case_name": "col_01", "lat": 38.6,
+        row = m._serialise_case_inputs([{"case_name": "col_01", "lat": 38.6,
                                    "elm_agent": a}])[0]
         assert row["runtime_config"]["FSURDAT"] == "/s.nc"
         assert row["runtime_config"]["FINIDAT"] == "/w.nc"
@@ -329,7 +329,7 @@ class TestTheCaseListCarriesWhatTheBuildNeeds:
         further out."""
         from core.elm_input_agent import ELMAgentAdapter
         m = _mgr(tmp_path)
-        m._save_build([{"case_name": "col_01",
+        m._save_case_inputs([{"case_name": "col_01",
                         "elm_agent": ELMAgentAdapter(
                             case_name="col_01",
                             runtime_config={"STOP_N": "1"})}])
@@ -341,7 +341,7 @@ class TestTheCaseListCarriesWhatTheBuildNeeds:
         from core.pflotran_exp_manager import PFLOTRANExpManager
         m = PFLOTRANExpManager(base_output_dir=str(tmp_path))
         exps = [{"id": "col_01", "n_cells": 9}]
-        assert m._serialise_build(exps) == exps
+        assert m._serialise_case_inputs(exps) == exps
 
     def test_a_case_list_with_no_runtime_config_is_caught_before_a_queue_slot(
             self, tmp_path):

@@ -160,11 +160,11 @@ class TestTheStageSequenceIsSharedNotCopied:
             assert M.execute_plan is B.execute_plan, M.__name__
 
     def test_backends_declare_their_stages_rather_than_stubbing(self):
-        """A no-op _prepare() reports "prepared nothing, successfully"."""
+        """A no-op _build_cases() reports "prepared nothing, successfully"."""
         from core.elm_exp_manager import ELMExpManager
         from core.pflotran_exp_manager import PFLOTRANExpManager
-        assert ELMExpManager.NEEDS_PREPARE and ELMExpManager.NEEDS_SCHEDULER
-        assert not PFLOTRANExpManager.NEEDS_PREPARE
+        assert ELMExpManager.NEEDS_CASE_BUILD and ELMExpManager.NEEDS_SCHEDULER
+        assert not PFLOTRANExpManager.NEEDS_CASE_BUILD
         assert not PFLOTRANExpManager.NEEDS_SCHEDULER
 
     def test_a_missing_stage_raises_rather_than_returning_empty(self):
@@ -173,7 +173,7 @@ class TestTheStageSequenceIsSharedNotCopied:
         from core.exp_manager_base import ExperimentManagerBase as B
         import pytest as _pt
         m = B.__new__(B)
-        for stage, args in (("_build", ({}, {})), ("_run", ([], {})),
+        for stage, args in (("_build_case_inputs", ({}, {})), ("_run", ([], {})),
                             ("_extract", ([],))):
             with _pt.raises(NotImplementedError):
                 getattr(m, stage)(*args)
@@ -447,11 +447,11 @@ class TestTheStageLedgerIsARecordNotAClaim:
 
     def test_a_stage_is_recorded_with_its_status_and_time(self, tmp_path):
         m = self._mgr(tmp_path)
-        m._mark("build", n_experiments=19)
+        m._mark("build_case_inputs", n_experiments=19)
         st = m._load_state()
-        assert st["stages"]["build"]["status"] == "done"
-        assert st["stages"]["build"]["n_experiments"] == 19
-        assert st["stages"]["build"]["at"]
+        assert st["stages"]["build_case_inputs"]["status"] == "done"
+        assert st["stages"]["build_case_inputs"]["n_experiments"] == 19
+        assert st["stages"]["build_case_inputs"]["at"]
         assert st["model"] == "pflotran"
 
     def test_artifacts_lists_only_files_that_exist(self, tmp_path):
@@ -487,15 +487,15 @@ class TestTheStageLedgerIsARecordNotAClaim:
         """The ledger must never be the reason a completed stage is lost."""
         m = self._mgr(tmp_path)
         m._state_path().mkdir()          # a directory where the file should be
-        m._mark("build")                 # must not raise
+        m._mark("build_case_inputs")                 # must not raise
 
 
 class TestResumeSkipsWhatIsAlreadyDone:
     """Phase 2. The ledger stops being a record and starts being read.
 
-    Verified live: a run killed after _build, re-entered against the same
+    Verified live: a run killed after _build_case_inputs, re-entered against the same
     directory, reused materialize and build and carried through to a correct
-    experiment.json — with _build having run exactly once in total.
+    experiment.json — with _build_case_inputs having run exactly once in total.
     """
 
     def _mgr(self, tmp_path):
@@ -511,14 +511,14 @@ class TestResumeSkipsWhatIsAlreadyDone:
         assert 'resume = bool(config.get("resume"))' in src
 
     def test_build_comes_back_exactly_as_it_went_in(self, tmp_path):
-        """ELM's cases.json is a list of case PATHS while _build returns a
+        """ELM's cases.json is a list of case PATHS while _build_case_inputs returns a
         list of dicts, so reconstructing from it would be lossy. The base
-        persists _build's own return value instead."""
+        persists _build_case_inputs's own return value instead."""
         m = self._mgr(tmp_path)
         exps = [{"id": "col_01", "case_dir": tmp_path / "col_01", "n_cells": 9},
                 {"id": "col_02", "case_dir": tmp_path / "col_02", "n_cells": 12}]
-        m._save_build(exps)
-        back = m._rehydrate_build()
+        m._save_case_inputs(exps)
+        back = m._rehydrate_case_inputs()
         assert [e["id"] for e in back] == ["col_01", "col_02"]
         assert back[0]["n_cells"] == 9
         # Paths come back as strings; every consumer wraps them in Path()
@@ -543,7 +543,7 @@ class TestResumeSkipsWhatIsAlreadyDone:
         empty list would mean 'the stage produced nothing', and the run would
         carry on with no experiments."""
         m = self._mgr(tmp_path)
-        assert m._rehydrate_build() is None
+        assert m._rehydrate_case_inputs() is None
         assert m._rehydrate_extract() is None
         assert m._rehydrate_materialize() is None
 
@@ -552,9 +552,9 @@ class TestResumeSkipsWhatIsAlreadyDone:
         a partial copy. Trusting it over the filesystem would skip a stage
         whose output no longer exists."""
         m = self._mgr(tmp_path)
-        m._mark("build", n_experiments=19)
-        assert (m._load_state()["stages"]["build"]["status"]) == "done"
-        assert m._rehydrate_build() is None, \
+        m._mark("build_case_inputs", n_experiments=19)
+        assert (m._load_state()["stages"]["build_case_inputs"]["status"]) == "done"
+        assert m._rehydrate_case_inputs() is None, \
             "no manifest on disk means the stage must run again"
 
 
@@ -571,7 +571,7 @@ class _Submits(ExperimentManagerBase):
     under test here is control flow in the base, so the compute is a stub.
     """
     MODEL = "fake"
-    NEEDS_PREPARE = False
+    NEEDS_CASE_BUILD = False
 
     def __init__(self, *a, **kw):
         self.calls = []
@@ -583,8 +583,8 @@ class _Submits(ExperimentManagerBase):
         self.calls.append("materialize")
         return plan
 
-    def _build(self, plan, config):
-        self.calls.append("build")
+    def _build_case_inputs(self, plan, config):
+        self.calls.append("build_case_inputs")
         return [{"case_name": "col_01"}, {"case_name": "col_02"}]
 
     def _run(self, experiments, config):
@@ -631,7 +631,7 @@ class TestASubmittedEnsembleStopsAndSaysSo:
         ensemble and report 0/2 — a queued run described as a failed one."""
         m = self._mgr(tmp_path)
         m.execute_plan({}, {"submit": True})
-        assert m.calls == ["materialize", "build", "run"]
+        assert m.calls == ["materialize", "build_case_inputs", "run"]
         assert "extract" not in m.calls
         assert "package" not in m.calls
 
@@ -710,7 +710,7 @@ class TestASubmittedEnsembleStopsAndSaysSo:
         m2 = _Submits(base_output_dir=str(tmp_path), run_dir=str(m1.run_dir))
         m2.poll_returns = {"col_01": True, "col_02": True}
         m2.execute_plan({}, {"submit": True, "resume": True})
-        assert "build" not in m2.calls
+        assert "build_case_inputs" not in m2.calls
 
     def test_a_backend_that_cannot_poll_still_records_the_id(self, tmp_path):
         """The job is in the queue by then. Raising would discard the one
@@ -811,12 +811,12 @@ class _SubmitsPrepare(_Submits):
     """A backend whose CASE BUILD is the thing in the queue, not the ensemble.
 
     D1: an 8-10 minute CIME build is sbatch'd rather than run on a login node,
-    so _prepare hands back a job id exactly as _run does.
+    so _build_cases hands back a job id exactly as _run does.
     """
-    NEEDS_PREPARE = True
+    NEEDS_CASE_BUILD = True
 
-    def _prepare(self, experiments, config=None):
-        self.calls.append("prepare")
+    def _build_cases(self, experiments, config=None):
+        self.calls.append("build_cases")
         if getattr(self, "prepare_submits", True):
             return Pending("880001", n_cases=len(experiments))
         return None
@@ -824,7 +824,7 @@ class _SubmitsPrepare(_Submits):
     def _poll(self, record, experiments, config):
         self.calls.append(f"poll:{record.get('stage')}")
         self.polls.append(record)
-        if record.get("stage") == "prepare":
+        if record.get("stage") == "build_cases":
             return self.prepare_poll_returns
         return self.poll_returns
 
@@ -838,7 +838,7 @@ class TestAnyStageMayHandBackAJobId:
         m.prepare_poll_returns = None
         return m
 
-    def test_a_queued_prepare_stops_the_run(self, tmp_path):
+    def test_a_queued_case_build_stops_the_run(self, tmp_path):
         m = self._mgr(tmp_path)
         s = m.execute_plan({}, {})
         assert s["status"] == "pending"
@@ -852,7 +852,7 @@ class TestAnyStageMayHandBackAJobId:
         what happens next."""
         m = self._mgr(tmp_path)
         s = m.execute_plan({}, {})
-        assert s["pending_stage"] == "prepare"
+        assert s["pending_stage"] == "build_cases"
 
     def test_poll_is_told_which_stage_it_is_polling(self, tmp_path):
         """A backend answers differently for a CIME build than for an
@@ -861,8 +861,8 @@ class TestAnyStageMayHandBackAJobId:
         m1.execute_plan({}, {})
         m2 = self._mgr(tmp_path, run_dir=str(m1.run_dir))
         m2.execute_plan({}, {"resume": True})
-        assert m2.polls[0]["stage"] == "prepare"
-        assert "poll:prepare" in m2.calls
+        assert m2.polls[0]["stage"] == "build_cases"
+        assert "poll:build_cases" in m2.calls
 
     def test_resume_carries_on_when_the_build_landed(self, tmp_path):
         """A polled prepare returning case dirs must re-attach them, then the
@@ -874,24 +874,24 @@ class TestAnyStageMayHandBackAJobId:
         m2.prepare_poll_returns = [{"case_name": "col_01", "case_dir": "/x/1"},
                                    {"case_name": "col_02", "case_dir": "/x/2"}]
         s = m2.execute_plan({}, {"resume": True})
-        assert m2._load_state()["stages"]["prepare"]["status"] == "done"
+        assert m2._load_state()["stages"]["build_cases"]["status"] == "done"
         assert "run" in m2.calls, "with the cases built, the ensemble may go"
         assert s["status"] == "completed"
 
-    def test_prepare_returning_none_is_not_a_stop(self, tmp_path):
-        """None is a legitimate return from _prepare. Conflating it with the
+    def test_build_cases_returning_none_is_not_a_stop(self, tmp_path):
+        """None is a legitimate return from _build_cases. Conflating it with the
         STOP sentinel would end every ELM run at the prepare stage."""
         m = self._mgr(tmp_path)
         m.prepare_submits = False
         s = m.execute_plan({}, {})
         assert s["status"] == "completed"
-        assert m._load_state()["stages"]["prepare"]["status"] == "done"
+        assert m._load_state()["stages"]["build_cases"]["status"] == "done"
 
     def test_both_stages_can_queue_in_turn(self, tmp_path):
         """prepare queues, resume collects it, run queues, resume collects
         that — two sessions' worth of waiting in one study."""
         m1 = self._mgr(tmp_path)
-        assert m1.execute_plan({}, {})["pending_stage"] == "prepare"
+        assert m1.execute_plan({}, {})["pending_stage"] == "build_cases"
 
         m2 = self._mgr(tmp_path, run_dir=str(m1.run_dir))
         m2.prepare_poll_returns = [{"case_name": "col_01"}]
@@ -903,4 +903,4 @@ class TestAnyStageMayHandBackAJobId:
         s3 = m3.execute_plan({}, {"submit": True, "resume": True})
         assert s3["status"] == "completed"
         assert m3.calls.count("poll:run") == 1
-        assert "prepare" not in m3.calls, "a finished build is not rebuilt"
+        assert "build_cases" not in m3.calls, "a finished build is not rebuilt"

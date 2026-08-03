@@ -118,7 +118,7 @@ def stubbed(tmp_path, monkeypatch):
         return merged
 
     def fake_build(self, plan, config):
-        calls.append("build")
+        calls.append("build_case_inputs")
         # the same keys src/core/elm_experiment_builder.py really returns
         return [{"case_name": c["id"], "scenario_name": c["id"],
                  "case_dir": f"/scratch/{c['id']}",
@@ -126,7 +126,7 @@ def stubbed(tmp_path, monkeypatch):
                  "forcing_start": 1988, "forcing_end": 1988} for c in cols]
 
     def fake_prepare(self, experiments, config=None):
-        calls.append("prepare")
+        calls.append("build_cases")
 
     def fake_run(self, experiments, config):
         calls.append("run")
@@ -162,8 +162,8 @@ def stubbed(tmp_path, monkeypatch):
         calls.append("couple")
 
     with patch.object(ELMExpManager, "_materialize", fake_materialize), \
-         patch.object(ELMExpManager, "_build",   fake_build),   \
-         patch.object(ELMExpManager, "_prepare", fake_prepare), \
+         patch.object(ELMExpManager, "_build_case_inputs",   fake_build),   \
+         patch.object(ELMExpManager, "_build_cases", fake_prepare), \
          patch.object(ELMExpManager, "_run",     fake_run),     \
          patch.object(ELMExpManager, "_extract", fake_extract), \
          patch.object(ELMExpManager, "_couple_pflotran", fake_couple):
@@ -188,7 +188,7 @@ class TestCoordinatorEndToEnd:
         out = co._workflow_design_and_run(_reception(), str(tmp_path))
         assert "❌" not in out, out
         # every stage was actually reached, in order
-        assert stubbed == ["materialize", "build", "prepare", "run",
+        assert stubbed == ["materialize", "build_case_inputs", "build_cases", "run",
                            "extract", "couple"]
 
     def test_the_four_files_land_in_one_run_dir(self, tmp_path, stubbed):
