@@ -316,7 +316,7 @@ class ELMExpManager(ExperimentManagerBase):
 	# ─────────────────────────────────────────────────────────
 	# STEP 1 — BUILD (writes to 01_inputs/)
 	# ─────────────────────────────────────────────────────────
-	def _build_inputs(self, config: Dict[str, Any]) -> Dict[str, Any]:
+	def _build_column_inputs(self, config: Dict[str, Any]) -> Dict[str, Any]:
 		"""domain.nc + surface.nc per column, before any CIME work.
 
 		The builder generates these itself, per coupler, deep inside
@@ -487,7 +487,7 @@ class ELMExpManager(ExperimentManagerBase):
 			   plan:   Dict[str, Any],
 			   config: Dict[str, Any]) -> List[Dict]:
 		"""Build the ELMAgentAdapter list from the plan (per-column surfaces)."""
-		self._build_inputs(config)
+		self._build_column_inputs(config)
 
 		builder     = ELMExperimentBuilder(plan)
 		self._builder = builder          # reused by _build_cases for the fast path

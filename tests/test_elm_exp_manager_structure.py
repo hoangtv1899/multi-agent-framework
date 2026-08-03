@@ -635,8 +635,8 @@ class TestPackage:
         assert as_list["columns_succeeded"] == as_dict["columns_succeeded"] == 2
 
 
-class TestInputPreBuild:
-    """_build_inputs() runs before any CIME work.
+class TestColumnInputPreBuild:
+    """_build_column_inputs() runs before any CIME work.
 
     It changes nothing about WHAT ELM receives — the generators key on
     coordinates plus a content hash, so the builder's own calls become cache
@@ -649,7 +649,7 @@ class TestInputPreBuild:
     def test_it_runs_before_the_builder(self):
         import inspect
         src = inspect.getsource(ELMExpManager._build_case_inputs)
-        assert src.index("_build_inputs") < src.index("ELMExperimentBuilder"), \
+        assert src.index("_build_column_inputs") < src.index("ELMExperimentBuilder"), \
             "inputs must be built BEFORE the builder, or the early warning " \
             "is worth nothing"
 
@@ -657,7 +657,7 @@ class TestInputPreBuild:
         """The builder keeps its own generation path, so a failure here costs
         the early warning and the manifest — not the run."""
         mgr = ELMExpManager(base_output_dir=str(tmp_path))
-        assert mgr._build_inputs({}) == {}      # no columns.json, no raise
+        assert mgr._build_column_inputs({}) == {}      # no columns.json, no raise
 
     def test_it_forwards_the_soil_settings(self, tmp_path, monkeypatch):
         """soil_config and substrate are part of the surface file's identity;
@@ -669,7 +669,7 @@ class TestInputPreBuild:
             lambda rd, **kw: seen.update(kw) or {"built": {}, "failed": {}})})
         monkeypatch.setattr(M, "_load_tool", lambda name: fake)
         mgr = ELMExpManager(base_output_dir=str(tmp_path))
-        mgr._build_inputs({"soil_config": "sandy", "substrate": "template"})
+        mgr._build_column_inputs({"soil_config": "sandy", "substrate": "template"})
         assert seen["soil_config"] == "sandy"
         assert seen["substrate"] == "template"
 
@@ -679,7 +679,7 @@ class TestInputPreBuild:
         fake = type("m", (), {"build_all": staticmethod(
             lambda rd, **kw: seen.update(kw) or {"built": {}, "failed": {}})})
         monkeypatch.setattr(M, "_load_tool", lambda name: fake)
-        ELMExpManager(base_output_dir=str(tmp_path))._build_inputs({})
+        ELMExpManager(base_output_dir=str(tmp_path))._build_column_inputs({})
         assert seen["soil_config"] == "native"
         assert seen["substrate"] == "extrapolate"
 
