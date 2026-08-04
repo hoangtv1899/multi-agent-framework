@@ -93,6 +93,7 @@ from mcp.server.fastmcp import FastMCP                          # noqa: E402
 mcp = FastMCP("elm")
 
 SUBMIT_SCRIPT = FRAMEWORK / "tools" / "submit_cases.sh"
+STUDY_SCRIPT  = FRAMEWORK / "tools" / "run_study.sh"
 BUILD_JOB     = Path(__file__).resolve().parent / "build_cases_job.py"
 
 # What the framework writes, and what this server reads.
@@ -399,6 +400,86 @@ def submit_elm_ensemble(run_dir:   str,
         "walltime": walltime,
         "log_path": str(rd / "run.log"),
         "next":     "check_elm_job",
+    }, indent=2)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# THE WHOLE STUDY  (one job)
+# ─────────────────────────────────────────────────────────────────────
+@mcp.tool()
+def run_elm_study(run_dir:  str,
+                  queue:    str = "",
+                  walltime: str = "02:00:00",
+                  email:    str = "") -> str:
+    """Build the cases, run every column, and analyze — as ONE job.
+
+    Use this instead of build_elm_cases + submit_elm_ensemble when you want
+    the study to finish unattended. Those two are still the right tools when
+    you want to inspect the cases between building and running, or to run an
+    ensemble whose cases already exist.
+
+    The difference is what the caller has to do. Split, a study costs three
+    separate invocations, each one waiting on a queue: submit the build, come
+    back and submit the run, come back and analyze. This costs one — the job
+    builds, runs, and then invokes the framework's own tail on the same
+    allocation, so by the time Slurm sends its END mail the analysis is
+    already written to 04_analysis/.
+
+    Reads <run_dir>/01_inputs/case_inputs.json, like build_elm_cases; this
+    server still generates no inputs.
+
+    email: an address for Slurm's END,FAIL notification. Without it the job
+    runs identically and nobody is told when it lands.
+
+    Walltime must cover build + run + analysis, not just the run: ~8-10 min
+    for a cold compile, then the columns, then ~1-2 min of Analyzer. The
+    default two hours is the `short` partition's limit and fits a 19-column
+    study (measured: 2406 s of run time). Pass -q slurm and a longer walltime
+    for anything bigger.
+    """
+    rd = Path(run_dir).resolve()
+    src = rd / "01_inputs" / CASE_INPUTS
+    if not src.is_file():
+        return json.dumps({
+            "error": f"no {CASE_INPUTS} in {rd / '01_inputs'} — this server "
+                     f"does not generate inputs; the caller writes them"})
+    if not STUDY_SCRIPT.is_file():
+        return json.dumps({"error": f"missing {STUDY_SCRIPT}"})
+    try:
+        n_cases = len(json.loads(src.read_text()))
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"error": f"unreadable {CASE_INPUTS}: {e}"})
+    if not n_cases:
+        return json.dumps({"error": f"{CASE_INPUTS} is empty"})
+
+    cmd = ["bash", str(STUDY_SCRIPT), str(rd),
+           "-q", queue or os.environ["IDEAS_SLURM_QUEUE"],
+           "-t", walltime]
+    if email:
+        cmd += ["-m", email]
+
+    try:
+        proc = subprocess.run(cmd, cwd=str(FRAMEWORK), check=False,
+                              capture_output=True, text=True, timeout=300)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"error": f"submission failed: {e}"})
+
+    out = (proc.stdout or "") + (proc.stderr or "")
+    m = re.search(r"submitted job (\d+)", out)
+    if not m:
+        return json.dumps({"error": "submitted but no job id in the output",
+                           "output": out[-2000:]})
+
+    return json.dumps({
+        "job_id":   m.group(1),
+        "n_cases":  n_cases,
+        "stage":    "study",
+        "queue":    queue or os.environ["IDEAS_SLURM_QUEUE"],
+        "walltime": walltime,
+        "email":    email or None,
+        "log_path": str(rd / "study.log"),
+        "produces": "04_analysis/ — the analysis is written INSIDE this job",
+        "next":     "check_elm_job (optional — the email is the signal)",
     }, indent=2)
 
 

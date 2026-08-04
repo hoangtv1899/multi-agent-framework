@@ -616,6 +616,34 @@ class ExperimentManagerBase:
 		self._mark(stage, n_results=self._n_results(out), **done_fields)
 		return out
 
+	def adopt_completed_run(self) -> Dict[str, Any]:
+		"""Record the job-shaped stages as done from what is ON DISK.
+
+		For the in-job finalize: one batch job builds the cases, runs the
+		ensemble, and then runs the pipeline tail itself. At that last step the
+		normal resume path cannot be used as-is, because it would poll the
+		SLURM job that produced the output — and that job is US. `squeue` says
+		RUNNING, `_poll` returns None, and the run stops one line before the
+		analysis it was submitted to produce.
+
+		So the evidence is taken from the filesystem instead of the scheduler:
+		the output either exists or it does not, which is the same question
+		_poll was asking and the only one that actually matters here.
+
+		Returns {stage: n} for what it adopted. The base adopts `run` only;
+		a backend with its own artifacts (ELM's built case dirs) extends it.
+		"""
+		adopted: Dict[str, Any] = {}
+		experiments = self._rehydrate_case_inputs() or []
+		if not hasattr(self, "_outcomes_from_disk"):
+			return adopted
+		outcomes = self._outcomes_from_disk(experiments)
+		self._mark("run", n_results=len(outcomes),
+				   n_ok=sum(1 for v in outcomes.values() if v),
+				   adopted_from="disk")
+		adopted["run"] = len(outcomes)
+		return adopted
+
 	# States in which SLURM still owns the job. Anything else — COMPLETED,
 	# FAILED, TIMEOUT, CANCELLED, NODE_FAIL — means the scheduler is finished
 	# with it, whatever it did, and the backend should go look at the output.

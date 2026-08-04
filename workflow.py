@@ -469,6 +469,58 @@ class WorkflowCoordinator:
 	# ═════════════════════════════════════════════════════════
 	# RESUME — continue a run that was interrupted or submitted
 	# ═════════════════════════════════════════════════════════
+	def finalize_run(self, run_dir: str) -> str:
+		"""Run the pipeline tail from inside the batch job that produced the output.
+
+		Called as the last line of the combined study job, after the cases are
+		built and the columns have stopped. It differs from resume_run in one
+		respect, and that respect is the whole reason it exists: it must NOT
+		poll the scheduler. The job that produced this output is the job
+		running this code, so `squeue` reports it RUNNING, `_poll` returns
+		None, and the run stops one line short of the analysis it was
+		submitted to produce.
+
+		So the finished stages are adopted from the filesystem first — the
+		output exists or it does not — and the ordinary resume then carries on
+		from extract. Everything after that is the same code that runs on a
+		login node; the only thing that changed is which machine it runs on.
+		"""
+		from core import backends
+		from core.resumable import inspect_run
+
+		rd = Path(run_dir)
+		if not rd.is_dir():
+			return f"❌ No such run directory: {rd}"
+
+		rec = inspect_run(rd, check_jobs=False)
+		model = rec.get("model") or self.model
+		try:
+			Manager = backends.get(model)
+		except Exception as e:                                  # noqa: BLE001
+			return (f"❌ The ledger says this run used model '{model}', which "
+					f"this build does not have ({e})")
+		self.model = model
+
+		print("\n" + "=" * 70)
+		print(f"FINALIZING IN PLACE — {rd.name}")
+		print("=" * 70)
+		mgr = Manager(base_output_dir=str(rd.parent), run_dir=str(rd))
+		try:
+			adopted = mgr.adopt_completed_run()
+		except Exception as e:                                  # noqa: BLE001
+			return (f"❌ could not adopt the finished stages ({e}) — the "
+					f"output is on disk; finish with "
+					f"`python workflow.py --resume {rd}`")
+		for stage, n in (adopted or {}).items():
+			print(f"   ✓ adopted {stage} from disk ({n})")
+		if not adopted:
+			print("   ⚠️  nothing adopted — resuming will poll the scheduler")
+
+		# From here it is the ordinary resume, which now finds run done and
+		# starts at extract. Kept as a delegation rather than a copy so the
+		# tail cannot drift between the two entry points.
+		return self.resume_run(str(rd))
+
 	def resume_run(self, run_dir: str) -> str:
 		"""Re-enter an existing run directory and carry on from its ledger.
 
@@ -716,6 +768,17 @@ def main():
                   'that can be resumed and why, and asks which.'
     )
     parser.add_argument(
+        '--finalize',
+        metavar = 'RUN_DIR',
+        default = None,
+        help    = 'run the pipeline tail (extract, package, analyze) against a '
+                  'run directory whose output is already on disk, WITHOUT '
+                  'polling the scheduler. This is the last line of the '
+                  'combined study job — the job that produced the output is '
+                  'the one running this, so polling would find itself active '
+                  'and stop. Use --resume from a login node instead.'
+    )
+    parser.add_argument(
         '--no-ask',
         action = 'store_true',
         help   = 'do NOT let reception ask clarifying questions — it resolves '
@@ -729,6 +792,21 @@ def main():
                                          # existing commands keep working
     )
     args = parser.parse_args()
+
+    # ── --finalize, before anything expensive ────────────────────────
+    # Runs on a COMPUTE NODE as the tail of the study job, so it must not
+    # depend on a TTY and must not poll the scheduler. Placed ahead of
+    # --resume because it delegates there once the finished stages are
+    # adopted, and the two flags must not both fire.
+    if args.finalize:
+        coordinator = WorkflowCoordinator(
+            default_output_dir    = args.output_dir,
+            mcp_config_file       = args.mcp_config,
+            interactive_reception = False,
+            model                 = args.model,
+        )
+        print(coordinator.finalize_run(args.finalize))
+        return
 
     # ── --resume, before anything expensive ──────────────────────────
     # Listing is a filesystem scan and needs no LLM, no MCP servers and no

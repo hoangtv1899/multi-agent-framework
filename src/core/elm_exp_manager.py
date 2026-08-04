@@ -39,6 +39,7 @@ ELM cases live at: $PSCRATCH/E3SMv3/1D_ELM.*/
 """
 import csv
 import glob
+import os
 import json
 import re
 import sys
@@ -416,6 +417,17 @@ class ELMExpManager(ExperimentManagerBase):
 			raise RuntimeError(
 				f"{src} is missing — the framework builds the inputs and the "
 				f"elm MCP only compiles cases against them")
+		# UNATTENDED: one job for the whole study — build, run, and the
+		# framework's own tail. The split flow costs three invocations, each
+		# waiting on a queue; this costs one, and Slurm's END mail arrives
+		# after the analysis is written rather than before it starts.
+		#
+		# Still the default-off switch rather than the default, because it
+		# gives up the chance to look at the cases between building and
+		# running — which is exactly what you want while something is wrong.
+		if self._unattended(config):
+			return self._run_study_via_mcp(experiments, config, client)
+
 		print("   via the elm MCP — the case build is sbatch'd (D1)")
 		out = self._mcp_call(client, "build_elm_cases", {
 			"run_dir":  str(self.run_dir),
@@ -424,6 +436,60 @@ class ELMExpManager(ExperimentManagerBase):
 		}, budget=600)
 		return Pending(out["job_id"], n_cases=len(experiments or []),
 					   log=out.get("log_path"), via="mcp")
+
+	@staticmethod
+	def _unattended(config: Dict[str, Any]) -> bool:
+		"""Should the whole study go as ONE job?
+
+		Config wins over the environment so a single run can opt out of a
+		machine-wide default.
+		"""
+		cfg = (config or {})
+		if "unattended" in cfg:
+			return bool(cfg["unattended"])
+		return os.environ.get("IDEAS_UNATTENDED", "").strip().lower() in (
+			"1", "true", "yes", "on")
+
+	@staticmethod
+	def _notify_email(config: Dict[str, Any]) -> str:
+		"""Where Slurm should send the END,FAIL mail. Empty = do not ask for one.
+
+		Never guessed from the username: a wrong address means the one signal
+		the unattended flow depends on goes silently nowhere.
+		"""
+		return str((config or {}).get("notify_email")
+				   or os.environ.get("IDEAS_NOTIFY_EMAIL", "")).strip()
+
+	def _run_study_via_mcp(self, experiments, config, client):
+		"""The entire study as one job: build, run, extract, package, analyze.
+
+		Returns a Pending like the split path does, so the ledger and the
+		resume machinery are unchanged — but the job itself finishes the run,
+		so a resume is never actually needed. Anyone who does resume finds
+		every stage already marked done, written by the job's own --finalize.
+		"""
+		src = self.input_dir / self.CASE_INPUTS
+		if not src.is_file():
+			raise RuntimeError(
+				f"{src} is missing — the framework builds the inputs and the "
+				f"elm MCP only compiles cases against them")
+		email = self._notify_email(config)
+		print("   via the elm MCP — the WHOLE study is one job "
+			  "(build → run → analyze)")
+		if not email:
+			print("   ⚠️  no notify_email/IDEAS_NOTIFY_EMAIL — the study will "
+				  "run unattended but nothing will tell you when it lands")
+		out = self._mcp_call(client, "run_elm_study", {
+			"run_dir":  str(self.run_dir),
+			"queue":    str(config.get("queue", "")),
+			"walltime": str(config.get("study_walltime", "02:00:00")),
+			"email":    email,
+		}, budget=600)
+		if email:
+			print(f"   ✉  {email} will be mailed when it finishes")
+		return Pending(out["job_id"], n_cases=len(experiments or []),
+					   log=out.get("log_path"), via="mcp", scope="study",
+					   notify=email or None)
 
 	def _submit_via_mcp(self, experiments, config, client):
 		"""The ensemble as one batch job. Returns a Pending."""
@@ -576,6 +642,41 @@ class ELMExpManager(ExperimentManagerBase):
 
 		# Now that each case has a run/lnd_in, plot the soil it actually got.
 		self._plot_setups([e['case_dir'] for e in experiments if e.get('case_dir')])
+
+	BUILT_CASES = "built_cases.json"
+
+	def adopt_completed_run(self) -> Dict[str, Any]:
+		"""ELM also adopts the case build, and re-attaches where each landed.
+
+		built_cases.json is the one thing the finalize cannot work out for
+		itself: case directories carry a creation timestamp, so they cannot be
+		derived from the case names. Without re-attaching them, _extract globs
+		`{case_dir}/run/*.elm.h0.*.nc` against a case_dir of None and every
+		column reports zero history files — a finished ensemble read as a
+		total failure.
+		"""
+		experiments = self._rehydrate_case_inputs() or []
+		src = self.input_dir / self.BUILT_CASES
+		adopted: Dict[str, Any] = {}
+		if src.is_file() and experiments:
+			try:
+				built = json.loads(src.read_text())
+				by_name = {c.get("case_name"): c.get("case_dir")
+						   for c in (built.get("cases") or [])}
+				n = 0
+				for e in experiments:
+					if by_name.get(e.get("case_name")):
+						e["case_dir"] = by_name[e["case_name"]]
+						n += 1
+				self._save_case_inputs(experiments)
+				self._mark("build_cases", n_experiments=len(experiments),
+						   n_ok=n, adopted_from=self.BUILT_CASES)
+				adopted["build_cases"] = n
+			except Exception as e:                              # noqa: BLE001
+				print(f"   ⚠️  could not adopt {self.BUILT_CASES} ({e}) — "
+					  f"the case directories will be missing")
+		adopted.update(super().adopt_completed_run())
+		return adopted
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 3 — RUN (writes to 03_results/)
