@@ -19,6 +19,10 @@
 # already reports success, so a job killed at the wall time can be resubmitted
 # without paying for the ~8-10 min compile a second time.
 #
+# -m <email> uses Slurm's own mail rather than sendmail on the node, so it
+# does not depend on a compute node having a working MTA. Confirmed
+# delivering to @pnnl.gov from Compy on 2026-08-03 (job 770794).
+#
 # Compare tools/submit_cases.sh, which runs the columns only and is still the
 # right tool when the cases are already built and you want nothing else.
 set -euo pipefail
