@@ -53,9 +53,10 @@ PY="${IDEAS_PYTHON:-/qfs/people/tran289/.conda/envs/ideas/bin/python3}"
 [ -x "$PY" ] || PY=$(command -v python3)
 SB="$ABS_RD/run_study.sbatch"
 
-MAILLINES=""
+MAILLINES=""; MAILOPT=""
+[ -n "$MAIL" ] && MAILOPT="--mail $MAIL"
 [ -n "$MAIL" ] && MAILLINES="#SBATCH --mail-user=$MAIL
-#SBATCH --mail-type=END,FAIL"
+#SBATCH --mail-type=FAIL"
 
 cat > "$SB" <<SBATCH
 #!/bin/bash
@@ -120,8 +121,19 @@ echo "-- finalize (extract, package, analyze) --"
 source /qfs/people/tran289/IDEAS/env_compy.sh 2>/dev/null || true
 cd $ROOT
 $PY workflow.py --finalize $ABS_RD \\
-  || echo "finalize failed -- the model output stands; finish with: python workflow.py --resume $ABS_RD"
-echo "STUDY_DONE in \$(( (SECONDS - T0) / 60 ))min"
+  || echo "finalize returned nonzero -- the model output stands"
+
+# -- 4. tell the user what actually happened -------------------------
+# Slurm's mail is a SUBJECT and nothing else, and its ExitCode describes the
+# SCRIPT. For job 770816 it said "COMPLETED, ExitCode 0" about a study whose
+# package stage had failed and which had produced no analysis: every word
+# true of the script, none of it true of the study. So the study reports
+# itself, with a body, and exits with ITS status rather than the script's.
+BODY=\$($PY $ROOT/tools/notify_study.py $ABS_RD $MAILOPT 2>&1); STUDY_RC=\$?
+echo "\$BODY"
+
+echo "STUDY_DONE in \$(( (SECONDS - T0) / 60 ))min (study rc=\$STUDY_RC)"
+exit \$STUDY_RC
 SBATCH
 
 echo "wrote $SB  ($N columns, queue=$QUEUE, t=$TLIMIT)"

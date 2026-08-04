@@ -185,13 +185,49 @@ class TestTheGeneratedJob:
 
     def test_the_interpreter_is_named_not_looked_up(self, tmp_path):
         """The job gets a login shell with no conda env, where `python3` is a
-        system interpreter that cannot import the framework."""
+        system interpreter that cannot import the framework.
+
+        EVERY python invocation, not just one. The first version of this
+        asserted the conda path merely appeared somewhere in the script — and
+        passed while the finalize and notify lines were calling a literal
+        `$PY`, a variable that exists only in the generating shell and is
+        empty inside the job.
+        """
         sb = self._generate(tmp_path)
         assert "/.conda/envs/ideas/bin/python3" in sb
+        offenders = [ln.strip() for ln in sb.splitlines()
+                     if ".py" in ln and not ln.strip().startswith("#")
+                     and "/.conda/envs/" not in ln]
+        assert not offenders, (
+            "these run a .py with an interpreter that is not resolved at "
+            "generation time: " + "; ".join(offenders))
 
     def test_mail_lines_only_when_an_address_was_given(self, tmp_path):
         assert "--mail-user=who@example.gov" in self._generate(tmp_path)
         assert "--mail-user" not in self._generate(tmp_path, email=None, tag="b")
+
+    def test_the_notifier_gets_the_address_when_one_was_given(self, tmp_path):
+        """The --mail flag reached the job only if $MAILOPT expanded at
+        generation time. An earlier patch to add it silently no-opped (its
+        search string lacked the heredoc's backslashes), and nothing failed —
+        the job simply never mailed anyone."""
+        sb = self._generate(tmp_path, email="who@example.gov")
+        assert "notify_study.py" in sb
+        line = [l for l in sb.splitlines() if "notify_study.py" in l][0]
+        assert "--mail who@example.gov" in line
+        assert "$MAILOPT" not in line and "MAILARG" not in line
+
+    def test_no_address_means_no_mail_flag(self, tmp_path):
+        line = [l for l in self._generate(tmp_path, email=None, tag="c").splitlines()
+                if "notify_study.py" in l][0]
+        assert "--mail" not in line
+
+    def test_the_job_exits_with_the_studys_status_not_the_scripts(self, tmp_path):
+        """Slurm reported job 770816 as COMPLETED/ExitCode 0 for a study whose
+        package stage had failed. The subject line is the only signal in the
+        unattended flow, so the exit code has to mean something."""
+        sb = self._generate(tmp_path)
+        assert "exit $STUDY_RC" in sb
 
     def test_a_failed_column_does_not_abort_before_the_analysis(self, tmp_path):
         """set -e would lose a 17/19 result over the two that failed."""
