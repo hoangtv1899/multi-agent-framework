@@ -470,9 +470,24 @@ class ExperimentManagerBase:
 			else:
 				try:
 					from agents.analyzer import Analyzer
-					Analyzer(str(self.run_dir)).run(results=analyzer,
-													config=config)
-					self._mark("analyze")
+					# THE RETURN VALUE IS THE ANSWER. Analyzer.run() reports a
+					# failed step by RETURNING {"error": ...}, not by raising —
+					# so discarding it marked a run "analyze: done" whose
+					# 04_analysis held one partial file and whose step 0 had
+					# printed "❌ context failed" to a console nobody was
+					# watching. Harmless while a human sat at the terminal; not
+					# harmless once the unattended flow mails "your analysis is
+					# ready" off the back of this ledger entry.
+					st = Analyzer(str(self.run_dir)).run(results=analyzer,
+														 config=config) or {}
+					steps = st.get("steps") if isinstance(st, dict) else None
+					if isinstance(st, dict) and st.get("error"):
+						print(f"   ⚠️  analyzer stopped: {st['error']} — "
+							  f"experiment.json stands")
+						self._mark("analyze", status="failed",
+								   error=str(st["error"])[:200], steps=steps)
+					else:
+						self._mark("analyze", steps=steps)
 				except Exception as e:                          # noqa: BLE001
 					print(f"   ⚠️  analyzer failed ({e}) — experiment.json "
 						  f"stands")

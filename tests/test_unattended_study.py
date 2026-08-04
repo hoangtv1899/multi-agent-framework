@@ -199,3 +199,59 @@ class TestTheGeneratedJob:
         lines = [ln.strip() for ln in sb.splitlines()]
         assert "set -e" not in lines and "set -euo pipefail" not in lines
         assert "set -u" in lines
+
+
+# ─────────────────────────────────────────────────────────────────────
+# THE ANALYZER'S VERDICT REACHES THE LEDGER
+# ─────────────────────────────────────────────────────────────────────
+class TestAFailedAnalysisIsNotRecordedAsDone:
+    """Analyzer.run() reports a failed step by RETURNING {"error": ...} rather
+    than raising, so the manager's try/except never saw it and marked the
+    stage done regardless.
+
+    Found live on 2026-08-03 (job 770816): step 0 printed "context failed",
+    04_analysis held one partial file, and the ledger said analyze: done.
+    Harmless while a human watched the console. Not harmless once the
+    unattended flow mails "your analysis is ready" off that same entry.
+    """
+
+    def _run_analyze_block(self, tmp_path, monkeypatch, verdict):
+        from core import exp_manager_base as B
+
+        class M(B.ExperimentManagerBase):
+            MODEL = "elm"
+            NEEDS_CASE_BUILD = False
+            # the plan already carries its payload, so materialize is a no-op
+            def _already_executable(self, plan):        return True
+            def _build_case_inputs(self, plan, config): return [{"case_name": "c1"}]
+            def _run(self, experiments, config):        return {"c1": True}
+            def _extract(self, experiments, **kw):      return type("R", (), {"results": [1]})()
+            def _package(self, plan, analyzer, config): pass
+            def _save_llm_input(self, plan, analyzer):  pass
+
+        fake = type("A", (), {"__init__": lambda s, rd: None,
+                              "run": lambda s, **kw: verdict})
+        mod = type(sys)("agents.analyzer"); mod.Analyzer = fake
+        monkeypatch.setitem(sys.modules, "agents.analyzer", mod)
+
+        m = M(base_output_dir=str(tmp_path), run_dir=str(tmp_path / "r"))
+        m.execute_plan({"x": 1}, {})
+        return m._load_state()["stages"]["analyze"]
+
+    def test_an_error_verdict_is_recorded_as_failed(self, tmp_path, monkeypatch):
+        st = self._run_analyze_block(
+            tmp_path, monkeypatch,
+            {"error": "no experiment.json", "steps": {"context": False}})
+        assert st["status"] == "failed"
+        assert "no experiment.json" in st["error"]
+
+    def test_a_clean_verdict_is_still_done(self, tmp_path, monkeypatch):
+        st = self._run_analyze_block(
+            tmp_path, monkeypatch, {"steps": {"context": True, "report": True}})
+        assert st["status"] == "done"
+
+    def test_a_backend_returning_nothing_does_not_crash(self, tmp_path, monkeypatch):
+        """Older Analyzers returned None; that must read as success, not as a
+        TypeError at the last stage of a finished run."""
+        st = self._run_analyze_block(tmp_path, monkeypatch, None)
+        assert st["status"] == "done"
