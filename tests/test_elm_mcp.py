@@ -210,17 +210,24 @@ class TestTheMCPIsTheDefaultForELM:
 class TestEachStageGoesThroughTheServer:
 
     def test_the_case_build_hands_back_a_job_not_case_dirs(self, tmp_path):
-        """D1: the CIME build is sbatch'd, so _build_cases returns a Pending."""
+        """D1: the CIME build is sbatch'd, so _build_cases returns a Pending.
+
+        The tool it reaches for is run_elm_study, not build_elm_cases: ELM no
+        longer splits build from run, because doing so made the user the
+        scheduler across three invocations of a 25-40 minute study.
+        """
         from core.exp_manager_base import Pending
         m = _mgr(tmp_path)
         (m.input_dir / m.CASE_INPUTS).write_text(json.dumps(
             [{"case_name": "col_01", "runtime_config": {"FSURDAT": "/x.nc"}}]))
-        c = _FakeClient(build_elm_cases={"job_id": "880001",
-                                         "log_path": "/x/build.log"})
+        c = _FakeClient(run_elm_study={"job_id": "880001",
+                                       "log_path": "/x/study.log"})
         out = m._build_cases([{"case_name": "col_01"}],
-                         {"mcp_clients": {"elm": c}})
+                         {"mcp_clients": {"elm": c},
+                          "notify_email": "t@x.gov"})
         assert isinstance(out, Pending)
         assert out.job_id == "880001"
+        assert out.detail.get("scope") == "study"
 
     def test_the_case_build_refuses_without_inputs(self, tmp_path):
         """The server does not generate inputs. Submitting a build job with

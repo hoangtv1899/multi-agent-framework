@@ -417,38 +417,18 @@ class ELMExpManager(ExperimentManagerBase):
 			raise RuntimeError(
 				f"{src} is missing — the framework builds the inputs and the "
 				f"elm MCP only compiles cases against them")
-		# UNATTENDED: one job for the whole study — build, run, and the
-		# framework's own tail. The split flow costs three invocations, each
-		# waiting on a queue; this costs one, and Slurm's END mail arrives
-		# after the analysis is written rather than before it starts.
+		# ONE JOB, ALWAYS. There is no split flow for ELM any more.
 		#
-		# Still the default-off switch rather than the default, because it
-		# gives up the chance to look at the cases between building and
-		# running — which is exactly what you want while something is wrong.
-		if self._unattended(config):
-			return self._run_study_via_mcp(experiments, config, client)
-
-		print("   via the elm MCP — the case build is sbatch'd (D1)")
-		out = self._mcp_call(client, "build_elm_cases", {
-			"run_dir":  str(self.run_dir),
-			"queue":    str(config.get("queue", "")),
-			"walltime": str(config.get("prepare_walltime", "02:00:00")),
-		}, budget=600)
-		return Pending(out["job_id"], n_cases=len(experiments or []),
-					   log=out.get("log_path"), via="mcp")
-
-	@staticmethod
-	def _unattended(config: Dict[str, Any]) -> bool:
-		"""Should the whole study go as ONE job?
-
-		Config wins over the environment so a single run can opt out of a
-		machine-wide default.
-		"""
-		cfg = (config or {})
-		if "unattended" in cfg:
-			return bool(cfg["unattended"])
-		return os.environ.get("IDEAS_UNATTENDED", "").strip().lower() in (
-			"1", "true", "yes", "on")
+		# Splitting build from run cost the user three invocations for a study
+		# that takes 25-40 minutes — submit the build, come back and submit the
+		# run, come back and analyze — which made the person the scheduler. The
+		# debugging value of stopping between stages did not pay for that.
+		#
+		# The MCP still publishes build_elm_cases and submit_elm_ensemble: an
+		# agent driving ELM without this framework may well want them, and
+		# _submit_via_mcp below still uses the latter to recover a study whose
+		# job died after building but before running.
+		return self._run_study_via_mcp(experiments, config, client)
 
 	@staticmethod
 	def _notify_email(config: Dict[str, Any]) -> str:
@@ -457,8 +437,67 @@ class ELMExpManager(ExperimentManagerBase):
 		Never guessed from the username: a wrong address means the one signal
 		the unattended flow depends on goes silently nowhere.
 		"""
+		from core.notify_prefs import remembered_email
 		return str((config or {}).get("notify_email")
-				   or os.environ.get("IDEAS_NOTIFY_EMAIL", "")).strip()
+				   or os.environ.get("IDEAS_NOTIFY_EMAIL", "")
+				   or remembered_email() or "").strip()
+
+	def _announce(self, experiments, config) -> str:
+		"""Say what is about to happen, and offer to mail the result.
+
+		Placed here, immediately before the study is submitted: the run
+		directory exists so the location is real rather than predicted, the
+		column count is known, and nothing expensive has started yet.
+
+		THE PROMPT IS TTY-ONLY. This same code path runs from scripts and from
+		--resume, where a blocking input() would hang a job nobody is watching
+		— the same reason `--resume` guards its own prompt (workflow.py). With
+		no terminal it announces and moves on, using whatever address config,
+		the environment, or the remembered preference already supplies.
+		"""
+		from core.notify_prefs import remember_email
+		n = len(experiments or [])
+		email = self._notify_email(config)
+
+		print()
+		print(f"⚙️  This ELM study runs unattended.")
+		print(f"    {n} column(s) · build + run + analysis, ~25-40 min in the queue.")
+		print(f"    Nothing to watch. Results will appear in:")
+		print(f"      {self.analysis_dir}")
+		print()
+
+		explicit = bool((config or {}).get("notify_email"))
+		if explicit or not (sys.stdin and sys.stdin.isatty()):
+			print(f"    ✉  {email}" if email else
+				  "    (no notification address — set IDEAS_NOTIFY_EMAIL or "
+				  "answer the prompt on an interactive run)")
+			return email
+
+		prompt = (f"    Email when it's done?  [{email}]\n"
+				  f"    (Enter to accept · type an address · '-' for none) "
+				  if email else
+				  "    Email when it's done? (address, or Enter for none) ")
+		try:
+			reply = input(prompt).strip()
+		except (EOFError, KeyboardInterrupt):
+			print()
+			reply = ""
+
+		if reply == "-":
+			email = ""
+		elif reply:
+			email = reply
+		# else: keep the remembered/env address
+
+		if reply:                       # only rewrite when they actually chose
+			try:
+				remember_email(email or None)
+				print(f"    remembered — change it any time in "
+					  f"~/.ideas/notify.json")
+			except Exception as e:                              # noqa: BLE001
+				print(f"    (could not remember the address: {e})")
+		print(f"    ✉  {email}" if email else "    (no email — results on disk only)")
+		return email
 
 	def _run_study_via_mcp(self, experiments, config, client):
 		"""The entire study as one job: build, run, extract, package, analyze.
@@ -473,12 +512,7 @@ class ELMExpManager(ExperimentManagerBase):
 			raise RuntimeError(
 				f"{src} is missing — the framework builds the inputs and the "
 				f"elm MCP only compiles cases against them")
-		email = self._notify_email(config)
-		print("   via the elm MCP — the WHOLE study is one job "
-			  "(build → run → analyze)")
-		if not email:
-			print("   ⚠️  no notify_email/IDEAS_NOTIFY_EMAIL — the study will "
-				  "run unattended but nothing will tell you when it lands")
+		email = self._announce(experiments, config)
 		out = self._mcp_call(client, "run_elm_study", {
 			"run_dir":  str(self.run_dir),
 			"queue":    str(config.get("queue", "")),

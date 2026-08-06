@@ -27,48 +27,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 # ─────────────────────────────────────────────────────────────────────
-# WHICH MODE
-# ─────────────────────────────────────────────────────────────────────
-class TestChoosingUnattended:
-
-    def test_off_unless_asked(self, monkeypatch):
-        """Unattended gives up the chance to inspect the cases between
-        building and running — which is exactly what you want while something
-        is wrong. So it is opt-in."""
-        monkeypatch.delenv("IDEAS_UNATTENDED", raising=False)
-        assert ELMExpManager._unattended({}) is False
-
-    def test_env_turns_it_on(self, monkeypatch):
-        monkeypatch.setenv("IDEAS_UNATTENDED", "1")
-        assert ELMExpManager._unattended({}) is True
-
-    def test_config_overrides_the_environment(self, monkeypatch):
-        """One run must be able to opt out of a machine-wide default."""
-        monkeypatch.setenv("IDEAS_UNATTENDED", "1")
-        assert ELMExpManager._unattended({"unattended": False}) is False
-
-
-class TestTheNotificationAddress:
-
-    def test_never_guessed(self, monkeypatch):
-        """A wrong address sends the one signal the unattended flow depends on
-        silently nowhere. Absent is better than invented."""
-        monkeypatch.delenv("IDEAS_NOTIFY_EMAIL", raising=False)
-        assert ELMExpManager._notify_email({}) == ""
-
-    def test_config_beats_environment(self, monkeypatch):
-        monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", "env@x.gov")
-        assert ELMExpManager._notify_email({"notify_email": "cfg@x.gov"}) == "cfg@x.gov"
-
-
-# ─────────────────────────────────────────────────────────────────────
 # ROUTING
 # ─────────────────────────────────────────────────────────────────────
 def _mgr(tmp_path):
     m = ELMExpManager.__new__(ELMExpManager)
     m.run_dir = tmp_path
     m.input_dir = tmp_path / "01_inputs"
-    m.input_dir.mkdir(parents=True, exist_ok=True)
+    m.analysis_dir = tmp_path / "04_analysis"
+    for d in (m.input_dir, m.analysis_dir):
+        d.mkdir(parents=True, exist_ok=True)
     return m
 
 
@@ -83,13 +50,15 @@ class TestRouting:
             return {"job_id": "9001"}
         monkeypatch.setattr(ELMExpManager, "_mcp_call", staticmethod(_stub))
         out = m._build_cases_via_mcp([{"case_name": "c1"}],
-                                     {"unattended": True,
-                                      "notify_email": "a@b.gov"}, object())
+                                     {"notify_email": "a@b.gov"}, object())
         assert called["tool"] == "run_elm_study"
         assert isinstance(out, Pending) and out.job_id == "9001"
         assert out.detail.get("scope") == "study"
 
-    def test_split_mode_still_calls_build_elm_cases(self, tmp_path, monkeypatch):
+    def test_there_is_no_split_flow_to_fall_back_to(self, tmp_path, monkeypatch):
+        """Even asked for explicitly. Splitting build from run made the user
+        the scheduler for a 25-40 minute study; the debugging value of
+        stopping between stages did not pay for three round trips."""
         m = _mgr(tmp_path)
         (m.input_dir / m.CASE_INPUTS).write_text(json.dumps([{"case_name": "c1"}]))
         called = {}
@@ -97,10 +66,19 @@ class TestRouting:
             called["tool"] = tool
             return {"job_id": "9002"}
         monkeypatch.setattr(ELMExpManager, "_mcp_call", staticmethod(_stub))
-        out = m._build_cases_via_mcp([{"case_name": "c1"}],
-                                     {"unattended": False}, object())
-        assert called["tool"] == "build_elm_cases"
-        assert out.detail.get("scope") is None
+        for cfg in ({}, {"unattended": False}, {"split": True}):
+            called.clear()
+            m._build_cases_via_mcp([{"case_name": "c1"}], cfg, object())
+            assert called["tool"] == "run_elm_study", f"config {cfg} found a split"
+
+    def test_the_mcp_still_publishes_the_split_tools(self):
+        """Removed from the FRAMEWORK's path, not from the server: an agent
+        driving ELM without this framework may still want them, and
+        _submit_via_mcp uses submit_elm_ensemble to recover a study whose job
+        died after building but before running."""
+        src = (ROOT / "mcp" / "elm-mcp" / "main.py").read_text()
+        assert "def build_elm_cases(" in src
+        assert "def submit_elm_ensemble(" in src
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -291,3 +269,72 @@ class TestAFailedAnalysisIsNotRecordedAsDone:
         TypeError at the last stage of a finished run."""
         st = self._run_analyze_block(tmp_path, monkeypatch, None)
         assert st["status"] == "done"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TELLING THE USER WHAT IS ABOUT TO HAPPEN
+# ─────────────────────────────────────────────────────────────────────
+class TestTheAnnouncement:
+    """ELM has no split flow, so the user must be told the run is unattended,
+    where the results will land, and be offered a way to be notified."""
+
+    def _announce(self, tmp_path, monkeypatch, cfg=None, tty=False,
+                  reply="", env=None, prefs=None):
+        monkeypatch.setenv("IDEAS_PREFS_DIR", str(tmp_path / "prefs"))
+        monkeypatch.delenv("IDEAS_NOTIFY_EMAIL", raising=False)
+        if env:
+            monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", env)
+        if prefs:
+            import core.notify_prefs as P
+            monkeypatch.setattr(P, "PREFS_DIR", tmp_path / "prefs")
+            monkeypatch.setattr(P, "PREFS_FILE", tmp_path / "prefs" / "notify.json")
+            P.remember_email(prefs)
+        m = _mgr(tmp_path)
+        monkeypatch.setattr("sys.stdin", type("S", (), {"isatty": lambda s: tty})())
+        monkeypatch.setattr("builtins.input", lambda _p="": reply)
+        return m._announce([1, 2], cfg or {})
+
+    def test_it_names_where_the_results_will_be(self, tmp_path, monkeypatch, capsys):
+        self._announce(tmp_path, monkeypatch)
+        out = capsys.readouterr().out
+        assert "unattended" in out
+        assert "04_analysis" in out
+
+    def test_no_tty_never_blocks(self, tmp_path, monkeypatch):
+        """This path also runs from scripts and from --resume. A blocking
+        input() there would hang a job nobody is watching."""
+        called = []
+        monkeypatch.setattr("builtins.input",
+                            lambda _p="": called.append(1) or "")
+        got = self._announce(tmp_path, monkeypatch, tty=False,
+                             env="env@x.gov")
+        assert got == "env@x.gov"
+        assert not called, "prompted without a terminal"
+
+    def test_at_a_tty_a_typed_address_wins_and_is_remembered(self, tmp_path, monkeypatch):
+        got = self._announce(tmp_path, monkeypatch, tty=True,
+                             reply="typed@x.gov", prefs="old@x.gov")
+        assert got == "typed@x.gov"
+        import core.notify_prefs as P
+        assert P.remembered_email() == "typed@x.gov"
+
+    def test_enter_keeps_the_remembered_address(self, tmp_path, monkeypatch):
+        got = self._announce(tmp_path, monkeypatch, tty=True, reply="",
+                             prefs="kept@x.gov")
+        assert got == "kept@x.gov"
+
+    def test_dash_means_no_email(self, tmp_path, monkeypatch):
+        got = self._announce(tmp_path, monkeypatch, tty=True, reply="-",
+                             prefs="kept@x.gov")
+        assert got == ""
+        import core.notify_prefs as P
+        assert P.remembered_email() is None
+
+    def test_an_explicit_config_address_is_not_second_guessed(self, tmp_path, monkeypatch):
+        """A caller that passed an address programmatically has already
+        decided; prompting over the top would hang an automated run."""
+        called = []
+        monkeypatch.setattr("builtins.input", lambda _p="": called.append(1) or "x")
+        got = self._announce(tmp_path, monkeypatch, tty=True,
+                             cfg={"notify_email": "cfg@x.gov"})
+        assert got == "cfg@x.gov" and not called
