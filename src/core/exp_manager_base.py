@@ -46,6 +46,7 @@ Subclasses implement:
     _build_case_inputs / _build_cases / _run / _extract        the compute stages.
 """
 import json
+import os
 import sys
 from pathlib  import Path
 from datetime import datetime
@@ -650,6 +651,65 @@ class ExperimentManagerBase:
 	# legitimate return from _build_cases, and conflating the two would end every
 	# ELM run at the build_cases stage.
 	STOP = object()
+
+	# ─────────────────────────────────────────────────────────
+	# TALKING TO A MODEL SERVER
+	# ─────────────────────────────────────────────────────────
+	# Plumbing, not model knowledge: which client, how to call it, where to
+	# mail the result. It lived on ELMExpManager because that is where the
+	# first MCP call was written, and PFLOTRAN then grew its own way of doing
+	# the same job — two backends, two conventions, and a third would have
+	# invented a third. None of it knows what a column is.
+	MCP_NAME: Optional[str] = None      # the server this backend drives
+	def _mcp(self, config: Dict[str, Any]):
+		"""The elm MCP client, or None to run locally."""
+		if not (config or {}).get("run_via_mcp", True):
+			return None
+		return ((config or {}).get("mcp_clients") or {}).get(self.MCP_NAME)
+
+	@staticmethod
+	def _mcp_call(client, tool: str, args: Dict[str, Any],
+				  budget: Optional[float] = None) -> Dict[str, Any]:
+		"""One MCP call, with the client's timeout raised for its duration.
+
+		The per-server timeout is sized for the quick tools. build_elm_cases
+		generates per-column surfaces and collect_elm_results reads NetCDF, and
+		neither is quick for 19 columns — a client ceiling that was 15x too
+		small is exactly how the reaction MCP failed before commit 19fffc3.
+		"""
+		prev = getattr(client, "timeout", None)
+		try:
+			if budget and prev is not None and prev < budget:
+				client.timeout = budget
+			out = client.call_tool_json(tool, args)
+		finally:
+			if prev is not None:
+				client.timeout = prev
+		if out is None:
+			raise RuntimeError(
+				f"the elm MCP did not answer {tool} within its timeout")
+		# `error` means the CALL could not be made. A payload carrying `ok` is
+		# reporting an OUTCOME — a build that failed, an ensemble with no
+		# results — and the caller has more to say about that than this does,
+		# including the job's log. Raising here would make those messages dead
+		# code and replace them with a one-liner.
+		if isinstance(out, dict) and out.get("error") and "ok" not in out:
+			raise RuntimeError(f"elm MCP {tool}: {out['error']}")
+		return out
+
+
+	@staticmethod
+	def _notify_email(config: Dict[str, Any]) -> str:
+		"""Where Slurm should send the END,FAIL mail. Empty = do not ask for one.
+
+		Never guessed from the username: a wrong address means the one signal
+		the unattended flow depends on goes silently nowhere.
+		"""
+		from core.notify_prefs import remembered_email
+		return str((config or {}).get("notify_email")
+				   or os.environ.get("IDEAS_NOTIFY_EMAIL", "")
+				   or remembered_email() or "").strip()
+
 
 	def _advance(self, stage: str, fn, *, state: Dict[str, Any], resume: bool,
 				 experiments, config, **done_fields):

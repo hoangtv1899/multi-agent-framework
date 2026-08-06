@@ -366,43 +366,6 @@ class ELMExpManager(ExperimentManagerBase):
 	# demotion commit d61eaed forbade. Set run_via_mcp=False to force local.
 	MCP_NAME = "elm"
 
-	def _mcp(self, config: Dict[str, Any]):
-		"""The elm MCP client, or None to run locally."""
-		if not (config or {}).get("run_via_mcp", True):
-			return None
-		return ((config or {}).get("mcp_clients") or {}).get(self.MCP_NAME)
-
-	@staticmethod
-	def _mcp_call(client, tool: str, args: Dict[str, Any],
-				  budget: Optional[float] = None) -> Dict[str, Any]:
-		"""One MCP call, with the client's timeout raised for its duration.
-
-		The per-server timeout is sized for the quick tools. build_elm_cases
-		generates per-column surfaces and collect_elm_results reads NetCDF, and
-		neither is quick for 19 columns — a client ceiling that was 15x too
-		small is exactly how the reaction MCP failed before commit 19fffc3.
-		"""
-		prev = getattr(client, "timeout", None)
-		try:
-			if budget and prev is not None and prev < budget:
-				client.timeout = budget
-			out = client.call_tool_json(tool, args)
-		finally:
-			if prev is not None:
-				client.timeout = prev
-		if out is None:
-			raise RuntimeError(
-				f"the elm MCP did not answer {tool} within its timeout")
-		# `error` means the CALL could not be made. A payload carrying `ok` is
-		# reporting an OUTCOME — a build that failed, an ensemble with no
-		# results — and the caller has more to say about that than this does,
-		# including the job's log. Raising here would make those messages dead
-		# code and replace them with a one-liner.
-		if isinstance(out, dict) and out.get("error") and "ok" not in out:
-			raise RuntimeError(f"elm MCP {tool}: {out['error']}")
-		return out
-
-
 	def _build_cases_via_mcp(self, experiments, config, client):
 		"""D1: the CIME build is a JOB. Returns a Pending, not case dirs.
 
@@ -429,18 +392,6 @@ class ELMExpManager(ExperimentManagerBase):
 		# _submit_via_mcp below still uses the latter to recover a study whose
 		# job died after building but before running.
 		return self._run_study_via_mcp(experiments, config, client)
-
-	@staticmethod
-	def _notify_email(config: Dict[str, Any]) -> str:
-		"""Where Slurm should send the END,FAIL mail. Empty = do not ask for one.
-
-		Never guessed from the username: a wrong address means the one signal
-		the unattended flow depends on goes silently nowhere.
-		"""
-		from core.notify_prefs import remembered_email
-		return str((config or {}).get("notify_email")
-				   or os.environ.get("IDEAS_NOTIFY_EMAIL", "")
-				   or remembered_email() or "").strip()
 
 	def _announce(self, experiments, config) -> str:
 		"""Say what is about to happen. PRINTS ONLY — it never asks.
