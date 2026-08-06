@@ -84,6 +84,30 @@ os.environ.setdefault("LANG",   "en_US.utf8")
 os.environ.setdefault("IDEAS_SLURM_ACCOUNT", "e3sm")
 os.environ.setdefault("IDEAS_SLURM_QUEUE",   "short")
 
+# A WORKING python3 ON PATH, which is not the same thing as an interpreter.
+# CIME's create_newcase is `#!/usr/bin/env python3` and tools/submit_cases.sh
+# parses its case list with one, so both take whatever PATH offers. A client
+# forwards PATH but not LD_LIBRARY_PATH (see the header), and the first python3
+# on a stock PATH here is a module build that cannot load libpython3.11.so
+# without it — so the build died 60 s in with a shared-library error inside
+# create_newcase, which reads as anything but "the launcher dropped a variable"
+# (job 770824). This interpreter is self-contained; put its directory first.
+os.environ["PATH"] = (str(Path(sys.executable).parent) + os.pathsep
+                      + os.environ.get("PATH", ""))
+
+# THE MODULE SYSTEM, for the same reason. CIME's env_mach_specific runs
+# `modulecmd python load cmake gcc intel intelmpi netcdf pnetcdf mkl` to build
+# the case, and modulecmd finds nothing without MODULEPATH — a variable the
+# login shell sets and no MCP client forwards. Symptom, on job 770825: "ERROR:
+# No module path defined", ~30 s into a build that had already passed
+# create_newcase. Compy's five module trees; export MODULEPATH before starting
+# the server on any other machine.
+os.environ.setdefault("MODULESHOME", "/share/apps/modules")
+os.environ.setdefault("MODULEPATH", ":".join(
+    f"/share/apps/modules/modulefiles/{d}" for d in (
+        "environment", "development/mpi", "development/mlib",
+        "development/compilers", "development/tools")))
+
 # The framework's own modules. This server is a thin front for them rather than
 # a reimplementation — the case build is ELMExperimentBuilder either way.
 sys.path.insert(0, str(FRAMEWORK / "src"))
@@ -297,6 +321,11 @@ export IDEAS_FRAMEWORK_DIR={FRAMEWORK}
 export PSCRATCH={os.environ['PSCRATCH']}
 export LC_ALL=en_US.utf8
 export LANG=en_US.utf8
+# Written out rather than inherited: sbatch propagates this server's PATH
+# today, but a site that defaults to --export=NONE, or anyone re-running this
+# script by hand, would otherwise get the python3 that create_newcase cannot
+# load (see the PATH note at the top of this server).
+export PATH={Path(sys.executable).parent}:$PATH
 cd {FRAMEWORK}
 echo "building {n_cases} case(s) for {rd} on $(hostname)"
 {sys.executable} {BUILD_JOB} {rd}
