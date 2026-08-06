@@ -549,11 +549,25 @@ class ExperimentManagerBase:
 					st = Analyzer(str(self.run_dir)).run(results=analyzer,
 														 config=config) or {}
 					steps = st.get("steps") if isinstance(st, dict) else None
-					if isinstance(st, dict) and st.get("error"):
-						print(f"   ⚠️  analyzer stopped: {st['error']} — "
+					# A STEP THAT FAILED IS A FAILURE, even when the run
+					# carried on. Reading only status["error"] was not enough:
+					# steps 2-3 report their own collapse by setting
+					# steps["investigate"]=False and nothing else, so job
+					# 770905 lost its entire interpretation to a 503 from the
+					# gateway — 0 LLM calls, verdict None — and was recorded
+					# "analyze: done", mailed to the user as "OK — the analysis
+					# is written". Exactly the failure the error check was
+					# added to prevent, one level finer.
+					failed_steps = [k for k, v in (steps or {}).items()
+									if v is False]
+					if isinstance(st, dict) and (st.get("error") or failed_steps):
+						why = st.get("error") or \
+							("these steps failed: " + ", ".join(failed_steps))
+						print(f"   ⚠️  analyzer incomplete: {why} — "
 							  f"experiment.json stands")
 						self._mark("analyze", status="failed",
-								   error=str(st["error"])[:200], steps=steps)
+								   error=str(why)[:200], steps=steps,
+								   failed_steps=failed_steps or None)
 					else:
 						self._mark("analyze", steps=steps)
 				except Exception as e:                          # noqa: BLE001

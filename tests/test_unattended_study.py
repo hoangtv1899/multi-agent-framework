@@ -263,6 +263,20 @@ class TestAFailedAnalysisIsNotRecordedAsDone:
         assert st["status"] == "failed"
         assert "no experiment.json" in st["error"]
 
+    def test_a_failed_STEP_is_a_failure_even_without_an_error_key(self, tmp_path, monkeypatch):
+        """Job 770905: steps 2-3 died on a 503 from the gateway. The Analyzer
+        reports that by setting steps["investigate"]=False and nothing else —
+        status["error"] stays unset — so the run was recorded "analyze: done"
+        and mailed to the user as "OK, the analysis is written" with 0 LLM
+        calls and verdict None."""
+        st = self._run_analyze_block(
+            tmp_path, monkeypatch,
+            {"steps": {"context": True, "compare": True,
+                       "investigate": False, "interpret": False,
+                       "report": True}})
+        assert st["status"] == "failed"
+        assert set(st["failed_steps"]) == {"investigate", "interpret"}
+
     def test_a_clean_verdict_is_still_done(self, tmp_path, monkeypatch):
         st = self._run_analyze_block(
             tmp_path, monkeypatch, {"steps": {"context": True, "report": True}})
