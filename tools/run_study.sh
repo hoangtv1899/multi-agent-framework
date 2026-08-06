@@ -45,6 +45,8 @@ ABS_RD=$(readlink -f "$RD")
 [ -f "$ABS_RD/01_inputs/case_inputs.json" ] || {
     echo "need $ABS_RD/01_inputs/case_inputs.json — the framework writes it"; exit 1; }
 N=$(python3 -c "import json;print(len(json.load(open('$ABS_RD/01_inputs/case_inputs.json'))))")
+# The subject line is all Slurm gives you, so put the study in it.
+JOBNAME="elm_study.$(basename $(dirname $ABS_RD))"
 # The job gets a login shell with NO conda environment, so the interpreter
 # must be named explicitly — `command -v python3` there resolves to the
 # system Python, which cannot import the framework. This is the same
@@ -53,14 +55,13 @@ PY="${IDEAS_PYTHON:-/qfs/people/tran289/.conda/envs/ideas/bin/python3}"
 [ -x "$PY" ] || PY=$(command -v python3)
 SB="$ABS_RD/run_study.sbatch"
 
-MAILLINES=""; MAILOPT=""
-[ -n "$MAIL" ] && MAILOPT="--mail $MAIL"
+MAILLINES=""
 [ -n "$MAIL" ] && MAILLINES="#SBATCH --mail-user=$MAIL
-#SBATCH --mail-type=FAIL"
+#SBATCH --mail-type=END,FAIL"
 
 cat > "$SB" <<SBATCH
 #!/bin/bash
-#SBATCH -J elm_study
+#SBATCH -J $JOBNAME
 #SBATCH -N 1
 #SBATCH -p $QUEUE
 #SBATCH -A e3sm
@@ -129,7 +130,7 @@ $PY workflow.py --finalize $ABS_RD \\
 # package stage had failed and which had produced no analysis: every word
 # true of the script, none of it true of the study. So the study reports
 # itself, with a body, and exits with ITS status rather than the script's.
-BODY=\$($PY $ROOT/tools/notify_study.py $ABS_RD $MAILOPT 2>&1); STUDY_RC=\$?
+BODY=\$($PY $ROOT/tools/notify_study.py $ABS_RD 2>&1); STUDY_RC=\$?
 echo "\$BODY"
 
 echo "STUDY_DONE in \$(( (SECONDS - T0) / 60 ))min (study rc=\$STUDY_RC)"

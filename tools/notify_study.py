@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What actually happened in a study, as an email body — and as an exit code.
 
-    python tools/notify_study.py <run_dir> [--mail <addr>]
+    python tools/notify_study.py <run_dir>
     echo $?                                         # 0 = the study is usable
 
 Why this exists: Slurm's own mail carries a SUBJECT and nothing else —
@@ -83,33 +83,6 @@ def ExpectedOrder(stages):
 REPORT_NAME = "STUDY_REPORT.txt"
 
 
-def send(addr: str, subject: str, body: str) -> str:
-    """Mail the summary from a COMPUTE NODE.
-
-    Not via `mail`: that command is not installed on Compy's nodes (verified
-    2026-08-03, job 770819 — "NO mail on node"). What IS there is a local
-    Postfix on localhost:25 (job 770820: "220 n0002.local ESMTP Postfix") and
-    /usr/sbin/sendmail. Slurm's own notifications leave by the same route, and
-    those are known to arrive, so this is the path with evidence behind it
-    rather than the one that looks conventional.
-    """
-    import smtplib, socket, getpass
-    from email.message import EmailMessage
-    msg = EmailMessage()
-    msg["From"] = f"{getpass.getuser()}@{socket.getfqdn()}"
-    msg["To"] = addr
-    msg["Subject"] = subject
-    msg.set_content(body)
-    try:
-        with smtplib.SMTP("localhost", 25, timeout=30) as smtp:
-            smtp.send_message(msg)
-        return f"mailed {addr}"
-    except Exception as e:                                      # noqa: BLE001
-        # Never fatal: the report is on disk either way, and losing the run
-        # over a mail failure would be absurd.
-        return f"could NOT mail {addr} ({type(e).__name__}: {e})"
-
-
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit("usage: notify_study.py <run_dir> [--mail <addr>]")
@@ -123,8 +96,9 @@ if __name__ == "__main__":
         (Path(sys.argv[1]) / REPORT_NAME).write_text(body + "\n")
     except Exception as e:                                      # noqa: BLE001
         print(f"(could not write {REPORT_NAME}: {e})")
-    if "--mail" in sys.argv:
-        addr = sys.argv[sys.argv.index("--mail") + 1]
-        tag = "OK" if rc == 0 else "INCOMPLETE"
-        print(send(addr, f"[IDEAS] {tag}: {Path(sys.argv[1]).name}", body))
+    # NO mail from here. A compute node has no /bin/mail (job 770819) and its
+    # local Postfix ACCEPTS messages it cannot relay — smtplib returned success
+    # and nothing was ever delivered (jobs 770821, 770905). Delivery belongs to
+    # Slurm, whose MailProg runs on the controller and demonstrably works; this
+    # exit status is what makes its subject line meaningful.
     sys.exit(rc)

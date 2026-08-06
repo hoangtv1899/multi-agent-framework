@@ -441,7 +441,7 @@ class LambdaPFLOTRANExpManager(PFLOTRANExpManager):
 
     # Where the LAMBDA refactor package lives. Outside this repo, so it is a
     # class attribute a test or a different install can point elsewhere.
-    LAMBDA_REFACTOR = ("/qfs/people/tran289/IDEAS/reaction_sandbox_mcp-main/"
+    LAMBDA_REFACTOR = ("/qfs/people/tran289/IDEAS/reaction_sandbox_mcp-upstream/"
                        "lambda_pflotran_refactor")
 
     # ─────────────────────────────────────────────────────────

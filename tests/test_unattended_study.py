@@ -184,21 +184,25 @@ class TestTheGeneratedJob:
         assert "--mail-user=who@example.gov" in self._generate(tmp_path)
         assert "--mail-user" not in self._generate(tmp_path, email=None, tag="b")
 
-    def test_the_notifier_gets_the_address_when_one_was_given(self, tmp_path):
-        """The --mail flag reached the job only if $MAILOPT expanded at
-        generation time. An earlier patch to add it silently no-opped (its
-        search string lacked the heredoc's backslashes), and nothing failed —
-        the job simply never mailed anyone."""
+    def test_delivery_is_slurms_job_not_the_nodes(self, tmp_path):
+        """The compute node cannot mail. It has no /bin/mail (job 770819) and
+        its local Postfix ACCEPTS messages it cannot relay — smtplib returned
+        success and nothing was ever delivered (770821, 770905). Slurm's
+        MailProg runs on the controller and works, so delivery is its job and
+        the exit code is what makes its subject meaningful."""
         sb = self._generate(tmp_path, email="who@example.gov")
-        assert "notify_study.py" in sb
-        line = [l for l in sb.splitlines() if "notify_study.py" in l][0]
-        assert "--mail who@example.gov" in line
-        assert "$MAILOPT" not in line and "MAILARG" not in line
+        assert "--mail-type=END,FAIL" in sb
+        assert "--mail-user=who@example.gov" in sb
+        notify = [l for l in sb.splitlines() if "notify_study.py" in l][0]
+        assert "--mail" not in notify, "the node must not try to send mail"
 
-    def test_no_address_means_no_mail_flag(self, tmp_path):
-        line = [l for l in self._generate(tmp_path, email=None, tag="c").splitlines()
-                if "notify_study.py" in l][0]
-        assert "--mail" not in line
+    def test_the_job_is_named_after_the_study(self, tmp_path):
+        """Slurm gives you a subject line and nothing else, so it has to say
+        WHICH run finished."""
+        sb = self._generate(tmp_path)
+        jline = [l for l in sb.splitlines() if l.startswith("#SBATCH -J")][0]
+        assert jline.strip() != "#SBATCH -J elm_study", "the run is not identified"
+        assert "elm_study." in jline
 
     def test_the_job_exits_with_the_studys_status_not_the_scripts(self, tmp_path):
         """Slurm reported job 770816 as COMPLETED/ExitCode 0 for a study whose
