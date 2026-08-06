@@ -117,6 +117,20 @@ From the request, extract the SIMULATION PERIOD and resolve it:
     can later be checked against is recorded afterwards, as information.
 Never leave the period only in prose. It must appear in run_settings.
 
+If the user states HOW MANY COLUMNS, put the number in
+run_settings.requested_n_columns. Leave it null when they did not say.
+
+This is the same rule as the period and it exists for the same reason. A
+request for "3 columns" that survives only inside user_request is prose the
+planner is free to read past — on 2026-08-06 it did exactly that and designed
+19, which the strategy gate then approved because it only checks that a count
+FITS the basin, never that it matches what was asked. Six times the compute,
+from a number the user had stated outright. A quantity left in prose is a
+suggestion; in run_settings it is a constraint.
+
+Do NOT invent one. "A small study" is not a number — leave it null and let the
+planner design. Only a stated count goes here.
+
 Also extract the INITIALIZATION, into run_settings.initialization:
   • The framework can WARM START each column from a spun-up CONUS 1-km ELM
     restart (deep soil temperature, soil moisture and aquifer state), or from
@@ -240,6 +254,7 @@ design (the brief):
   },
   "run_settings": {           // REQUIRED — see STEP 5
     "requested_period": {"yr_start":…, "yr_end":…} | null,
+    "requested_n_columns": <int> | null,   // ONLY if the user stated a number
     "resolved_period":  {"yr_start":…, "yr_end":…,
                          "source": "user" | "user-clamped" | "default"},
     "initialization":   {"mode": "cold" | "warm",

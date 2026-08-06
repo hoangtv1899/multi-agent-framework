@@ -104,6 +104,26 @@ def check(reception: Dict[str, Any],
     if fixed_validation:
         strategy["validation"] = fixed_validation
 
+    # A STATED COLUMN COUNT IS A CONSTRAINT, not a hint.
+    #
+    # The checks above ask whether n_columns is PHYSICALLY possible — under
+    # MAX_COLUMNS, and no more columns than the basin has grid points. None of
+    # them asks whether it is what the user requested, so on 2026-08-06 a
+    # request for 3 columns produced a 19-column study and this gate reported
+    # "strategy agrees with reception". Six times the compute, approved.
+    #
+    # Corrected rather than STOPped, matching how the period is handled: the
+    # user's number is authoritative, the run continues, and the correction is
+    # recorded in the run so the change is visible afterwards.
+    want = (brief.get("run_settings") or {}).get("requested_n_columns")
+    if isinstance(want, int) and want > 0 and isinstance(n, int) and want != n:
+        corrections.append(
+            f"n_columns: the request asked for {want}, the strategy designed "
+            f"{n} — using the {want} that was asked for")
+        sampling["n_columns"] = want
+        strategy["sampling"] = sampling
+        n = want
+
     arche = strategy.get("archetype") or (brief.get("design_archetype"))
     if arche and brief.get("design_archetype") and arche != brief["design_archetype"]:
         corrections.append(f"archetype: strategy says {arche!r}, reception "
