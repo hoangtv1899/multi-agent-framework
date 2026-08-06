@@ -279,66 +279,55 @@ class TestAFailedAnalysisIsNotRecordedAsDone:
 # TELLING THE USER WHAT IS ABOUT TO HAPPEN
 # ─────────────────────────────────────────────────────────────────────
 class TestTheAnnouncement:
-    """ELM has no split flow, so the user must be told the run is unattended,
-    where the results will land, and be offered a way to be notified."""
+    """The backend PRINTS what is about to happen. It does not ask.
 
-    def _announce(self, tmp_path, monkeypatch, cfg=None, tty=False,
-                  reply="", env=None, prefs=None):
-        monkeypatch.setenv("IDEAS_PREFS_DIR", str(tmp_path / "prefs"))
-        monkeypatch.delenv("IDEAS_NOTIFY_EMAIL", raising=False)
-        if env:
-            monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", env)
-        if prefs:
-            import core.notify_prefs as P
-            monkeypatch.setattr(P, "PREFS_DIR", tmp_path / "prefs")
-            monkeypatch.setattr(P, "PREFS_FILE", tmp_path / "prefs" / "notify.json")
-            P.remember_email(prefs)
-        m = _mgr(tmp_path)
-        monkeypatch.setattr("sys.stdin", type("S", (), {"isatty": lambda s: tty})())
-        monkeypatch.setattr("builtins.input", lambda _p="": reply)
-        return m._announce([1, 2], cfg or {})
+    Asking moved to the coordinator, which already owns every other question
+    put to the user and the TTY guard that keeps them from hanging a scripted
+    run. A compute stage holding the terminal open was the wrong layer.
+    """
+
+    def test_the_backend_never_prompts(self):
+        """The property, checked against the source: no input() anywhere in a
+        backend, whatever the call path."""
+        import re
+        # A BARE input( call — not _save_llm_input( or get_llm_analysis_input().
+        # The first version of this matched the substring and flagged both.
+        call = re.compile(r"(?<![A-Za-z0-9_])input\s*\(")
+        for f in ("elm_exp_manager.py", "pflotran_exp_manager.py",
+                  "exp_manager_base.py"):
+            src = (ROOT / "src" / "core" / f).read_text()
+            code = [l.strip() for l in src.splitlines()
+                    if call.search(l) and not l.strip().startswith("#")
+                    and "called input()" not in l]
+            assert not code, f"{f} prompts the user: {code}"
 
     def test_it_names_where_the_results_will_be(self, tmp_path, monkeypatch, capsys):
-        self._announce(tmp_path, monkeypatch)
+        monkeypatch.setenv("IDEAS_PREFS_DIR", str(tmp_path / "prefs"))
+        monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", "who@x.gov")
+        m = _mgr(tmp_path)
+        got = m._announce([1, 2], {})
         out = capsys.readouterr().out
-        assert "unattended" in out
-        assert "04_analysis" in out
+        assert "unattended" in out and "04_analysis" in out
+        assert got == "who@x.gov"
 
-    def test_no_tty_never_blocks(self, tmp_path, monkeypatch):
-        """This path also runs from scripts and from --resume. A blocking
-        input() there would hang a job nobody is watching."""
+    def test_the_coordinator_asks_only_for_scheduler_backends(self, monkeypatch):
+        """PFLOTRAN finishes in seconds while you watch; offering to email
+        about it would be noise."""
+        import workflow
+        from core.elm_exp_manager import ELMExpManager
+        from core.pflotran_exp_manager import PFLOTRANExpManager
+        monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", "who@x.gov")
+        c = workflow.WorkflowCoordinator.__new__(workflow.WorkflowCoordinator)
+        assert c._ask_notify_email(ELMExpManager) == "who@x.gov"
+        assert c._ask_notify_email(PFLOTRANExpManager) == ""
+
+    def test_the_coordinator_does_not_block_without_a_tty(self, monkeypatch):
+        import workflow
+        from core.elm_exp_manager import ELMExpManager
         called = []
-        monkeypatch.setattr("builtins.input",
-                            lambda _p="": called.append(1) or "")
-        got = self._announce(tmp_path, monkeypatch, tty=False,
-                             env="env@x.gov")
-        assert got == "env@x.gov"
-        assert not called, "prompted without a terminal"
-
-    def test_at_a_tty_a_typed_address_wins_and_is_remembered(self, tmp_path, monkeypatch):
-        got = self._announce(tmp_path, monkeypatch, tty=True,
-                             reply="typed@x.gov", prefs="old@x.gov")
-        assert got == "typed@x.gov"
-        import core.notify_prefs as P
-        assert P.remembered_email() == "typed@x.gov"
-
-    def test_enter_keeps_the_remembered_address(self, tmp_path, monkeypatch):
-        got = self._announce(tmp_path, monkeypatch, tty=True, reply="",
-                             prefs="kept@x.gov")
-        assert got == "kept@x.gov"
-
-    def test_dash_means_no_email(self, tmp_path, monkeypatch):
-        got = self._announce(tmp_path, monkeypatch, tty=True, reply="-",
-                             prefs="kept@x.gov")
-        assert got == ""
-        import core.notify_prefs as P
-        assert P.remembered_email() is None
-
-    def test_an_explicit_config_address_is_not_second_guessed(self, tmp_path, monkeypatch):
-        """A caller that passed an address programmatically has already
-        decided; prompting over the top would hang an automated run."""
-        called = []
-        monkeypatch.setattr("builtins.input", lambda _p="": called.append(1) or "x")
-        got = self._announce(tmp_path, monkeypatch, tty=True,
-                             cfg={"notify_email": "cfg@x.gov"})
-        assert got == "cfg@x.gov" and not called
+        monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", "who@x.gov")
+        monkeypatch.setattr("builtins.input", lambda _p="": called.append(1) or "")
+        monkeypatch.setattr("sys.stdin", type("S", (), {"isatty": lambda s: False})())
+        c = workflow.WorkflowCoordinator.__new__(workflow.WorkflowCoordinator)
+        assert c._ask_notify_email(ELMExpManager) == "who@x.gov"
+        assert not called

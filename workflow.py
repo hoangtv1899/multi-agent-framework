@@ -18,6 +18,7 @@ Analyzer.
 backend table landed — the standalone tools/build_pflotran_cases.py still
 works and builds byte-identical decks.)
 """
+import os
 import sys
 import traceback
 import json
@@ -639,7 +640,56 @@ class WorkflowCoordinator:
 		# wrong that way silently reuses stale compute.
 		if resume:
 			cfg['resume'] = True
+		# ASKING IS THE COORDINATOR'S JOB. It already owns every other question
+		# put to the user, and the TTY guard that stops those from hanging a
+		# scripted run. A backend that prompted would be a compute stage
+		# holding the terminal open.
+		email = self._ask_notify_email(Manager)
+		if email:
+			cfg['notify_email'] = email
 		return executor.execute_plan(plan, cfg)
+
+	def _ask_notify_email(self, Manager) -> str:
+		"""Where to mail the result, for a backend whose runs outlive the session.
+
+		Only asked for a scheduler-backed model: PFLOTRAN finishes in seconds
+		while you watch, and offering to email you about it would be noise.
+
+		TTY-ONLY, like every other prompt here. With no terminal it returns
+		whatever the environment or the remembered preference already supplies,
+		so a scripted run is never blocked waiting on an answer nobody is there
+		to give.
+		"""
+		import sys as _sys
+		from core.notify_prefs import remembered_email, remember_email
+
+		if not getattr(Manager, 'NEEDS_SCHEDULER', False):
+			return ''
+		current = (os.environ.get('IDEAS_NOTIFY_EMAIL', '').strip()
+				   or remembered_email() or '')
+		if not (_sys.stdin and _sys.stdin.isatty()):
+			return current
+
+		prompt = (f"\n✉  Email when this study finishes?  [{current}]\n"
+				  f"   (Enter to accept · type an address · '-' for none) "
+				  if current else
+				  "\n✉  Email when this study finishes? "
+				  "(address, or Enter for none) ")
+		try:
+			reply = input(prompt).strip()
+		except (EOFError, KeyboardInterrupt):
+			print()
+			return current
+
+		if not reply:
+			return current
+		chosen = '' if reply == '-' else reply
+		try:
+			remember_email(chosen or None)
+			print(f"   remembered in ~/.ideas/notify.json")
+		except Exception as e:					# noqa: BLE001
+			print(f"   (could not remember it: {e})")
+		return chosen
 	
 	# ═════════════════════════════════════════════════════════
 	# UTILITIES

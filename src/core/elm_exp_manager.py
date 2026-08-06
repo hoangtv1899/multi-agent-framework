@@ -443,60 +443,28 @@ class ELMExpManager(ExperimentManagerBase):
 				   or remembered_email() or "").strip()
 
 	def _announce(self, experiments, config) -> str:
-		"""Say what is about to happen, and offer to mail the result.
+		"""Say what is about to happen. PRINTS ONLY — it never asks.
 
-		Placed here, immediately before the study is submitted: the run
-		directory exists so the location is real rather than predicted, the
-		column count is known, and nothing expensive has started yet.
+		Asking belongs to the coordinator: it owns every other question put to
+		the user (interactive_reception, the --resume prompt) and it owns the
+		TTY guard that keeps those from hanging a scripted run. A backend that
+		called input() here would be a compute stage holding the terminal open,
+		and it only ended up here because the run directory and the column
+		count happened to be in scope.
 
-		THE PROMPT IS TTY-ONLY. This same code path runs from scripts and from
-		--resume, where a blocking input() would hang a job nobody is watching
-		— the same reason `--resume` guards its own prompt (workflow.py). With
-		no terminal it announces and moves on, using whatever address config,
-		the environment, or the remembered preference already supplies.
+		The address is whatever the coordinator, the environment, or the
+		remembered preference already settled on.
 		"""
-		from core.notify_prefs import remember_email
 		n = len(experiments or [])
 		email = self._notify_email(config)
-
 		print()
 		print(f"⚙️  This ELM study runs unattended.")
 		print(f"    {n} column(s) · build + run + analysis, ~25-40 min in the queue.")
 		print(f"    Nothing to watch. Results will appear in:")
 		print(f"      {self.analysis_dir}")
+		print(f"    ✉  {email}" if email else
+			  "    (no notification address — nothing will tell you when it lands)")
 		print()
-
-		explicit = bool((config or {}).get("notify_email"))
-		if explicit or not (sys.stdin and sys.stdin.isatty()):
-			print(f"    ✉  {email}" if email else
-				  "    (no notification address — set IDEAS_NOTIFY_EMAIL or "
-				  "answer the prompt on an interactive run)")
-			return email
-
-		prompt = (f"    Email when it's done?  [{email}]\n"
-				  f"    (Enter to accept · type an address · '-' for none) "
-				  if email else
-				  "    Email when it's done? (address, or Enter for none) ")
-		try:
-			reply = input(prompt).strip()
-		except (EOFError, KeyboardInterrupt):
-			print()
-			reply = ""
-
-		if reply == "-":
-			email = ""
-		elif reply:
-			email = reply
-		# else: keep the remembered/env address
-
-		if reply:                       # only rewrite when they actually chose
-			try:
-				remember_email(email or None)
-				print(f"    remembered — change it any time in "
-					  f"~/.ideas/notify.json")
-			except Exception as e:                              # noqa: BLE001
-				print(f"    (could not remember the address: {e})")
-		print(f"    ✉  {email}" if email else "    (no email — results on disk only)")
 		return email
 
 	def _run_study_via_mcp(self, experiments, config, client):
