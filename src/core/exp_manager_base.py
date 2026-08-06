@@ -297,9 +297,78 @@ class ExperimentManagerBase:
 		"""
 		return None
 
+	# ─────────────────────────────────────────────────────────
+	# THE EXTRACT CONTRACT
+	# ─────────────────────────────────────────────────────────
+	# A stage's output is DATA, not a live object. This one was the last
+	# holdout: _extract handed back an ELMResultsAnalyzer and the base read it
+	# with getattr, which looks like coupling and mostly was not — the Analyzer
+	# ignores the object entirely (it reads experiment.json), and the resume
+	# path has always rebuilt a SimpleNamespace from that same file. A plain
+	# dict was already standing in every time a run was resumed.
+	#
+	# Saying so in one place makes the stage boundary crossable: a dict can go
+	# through a tool call, an object cannot.
+	EXTRACT_KEYS = ("rows", "units", "extra_summary", "llm_input")
+
+	@staticmethod
+	def _as_extract(obj: Any) -> Dict[str, Any]:
+		"""Whatever a backend built → the stage's JSON contract.
+
+		Accepts a dict already in the contract, or an analyzer-shaped object,
+		so a backend can be converted without its internals changing on the
+		same day the contract does.
+		"""
+		if isinstance(obj, dict) and "rows" in obj:
+			return {k: obj.get(k) for k in
+					ExperimentManagerBase.EXTRACT_KEYS} | {
+					k: v for k, v in obj.items()
+					if k not in ExperimentManagerBase.EXTRACT_KEYS}
+		units: Dict[str, Any] = {}
+		# ELMResultsAnalyzer puts units in summary['units']; a bare namespace
+		# exposes .units. Reading only the second gave an EMPTY units block on
+		# the 2019 Gunnison run — a package that states no units.
+		for src in (getattr(obj, "units", None),
+					(getattr(obj, "summary", None) or {}).get("units")):
+			if isinstance(src, dict) and src:
+				units = dict(src)
+				break
+		llm = None
+		if hasattr(obj, "get_llm_analysis_input"):
+			try:
+				llm = obj.get_llm_analysis_input()
+			except Exception:                                   # noqa: BLE001
+				llm = None                  # non-fatal, as it has always been
+		return {"rows": list(getattr(obj, "results", None) or []),
+				"units": units,
+				"extra_summary": getattr(obj, "extra_summary", None) or {},
+				"llm_input": llm}
+
+	@staticmethod
+	def _extract_rows(res: Any) -> List[Dict]:
+		"""The rows, from the contract or from a legacy object.
+
+		A backend may hand back rows as a LIST or as a dict keyed by case name
+		— _package has accepted both since PFLOTRAN landed. An earlier version
+		of this helper called list() on the dict, which yields the case NAMES
+		and reported a full ensemble as zero columns.
+		"""
+		raw = (res.get("rows") if isinstance(res, dict) and "rows" in res
+			   else res if isinstance(res, dict)
+			   else getattr(res, "results", None))
+		if isinstance(raw, dict):
+			raw = list(raw.values())
+		return list(raw or [])
+
 	def _rehydrate_extract(self):
-		"""_extract's rows, from experiment.json — which _package already
-		writes and which carries the rows and their units verbatim."""
+		"""_extract's contract, from experiment.json — which _package already
+		writes and which carries the rows and their units verbatim.
+
+		This used to build a SimpleNamespace to imitate the live analyzer. It
+		no longer has to imitate anything: a resumed run and a fresh one now
+		hand the same dict downstream, which is what made the object look like
+		a boundary when it never was one.
+		"""
 		p = self.run_dir / "experiment.json"
 		if not p.exists():
 			return None
@@ -307,11 +376,10 @@ class ExperimentManagerBase:
 		rows = d.get("columns")
 		if not isinstance(rows, list):
 			return None
-		import types
-		units = d.get("variable_units") or {}
-		ns = types.SimpleNamespace(results=rows, units=dict(units),
-								   summary={"units": dict(units)})
-		return ns
+		return {"rows": rows,
+				"units": dict(d.get("variable_units") or {}),
+				"extra_summary": d.get("extra_summary") or {},
+				"llm_input": None}
 
 	def execute_plan(self,
 					 experiment_plan: Dict[str, Any],
@@ -429,13 +497,12 @@ class ExperimentManagerBase:
 			print("-" * 40)
 			analyzer = self._rehydrate_extract() if _done("extract") else None
 			if analyzer is not None:
-				_reuse("extract", f"{len(analyzer.results)} row(s) from "
-								  f"experiment.json")
+				_reuse("extract", f"{len(self._extract_rows(analyzer))} row(s) "
+								  f"from experiment.json")
 			else:
-				analyzer = self._extract(
-					experiments, plan=experiment_plan, config=config)
-			self._mark("extract",
-					   n_rows=len(getattr(analyzer, "results", []) or []))
+				analyzer = self._as_extract(self._extract(
+					experiments, plan=experiment_plan, config=config))
+			self._mark("extract", n_rows=len(self._extract_rows(analyzer)))
 
 			print("\n📦 STEP 4b: Packaging Results")
 			print("-" * 40)
@@ -923,6 +990,11 @@ class ExperimentManagerBase:
 		the 2019 Gunnison run — a results package that states no units is
 		exactly the failure FIELD_SEMANTICS exists to prevent.
 		"""
+		# The contract states them outright; the fallbacks below exist for the
+		# analyzer-shaped objects that predate it.
+		if isinstance(results, dict) and isinstance(results.get("units"), dict) \
+				and results["units"]:
+			return dict(results["units"])
 		for src in (getattr(results, "units", None),
 					(getattr(results, "summary", None) or {}).get("units"),
 					(self.analysis_dir / "hydro_summary.json")):
@@ -1027,7 +1099,8 @@ class ExperimentManagerBase:
 		# assumed to make it runnable. It reached the written report but not
 		# the package, so an Analyzer reading only this file would have
 		# stated conclusions with none of the caveats attached.
-		extra = getattr(results, "extra_summary", None) or {}
+		extra = (results.get("extra_summary") if isinstance(results, dict)
+				 else getattr(results, "extra_summary", None)) or {}
 		for k in ("limitations", "assumptions_ledger"):
 			v = extra.get(k) or hs.get(k)
 			if v:
@@ -1080,7 +1153,7 @@ class ExperimentManagerBase:
 		compute.
 		"""
 		config = config or {}
-		rows   = getattr(results, "results", None) or []
+		rows   = self._extract_rows(results)
 		if isinstance(rows, dict):
 			rows = list(rows.values())
 		rows = [dict(r) for r in rows if isinstance(r, dict)]
@@ -1179,10 +1252,20 @@ class ExperimentManagerBase:
 		results object — a backend without it must still finish its run.
 		"""
 		try:
-			llm_input = analyzer.get_llm_analysis_input()
+			llm_input = (analyzer.get("llm_input") if isinstance(analyzer, dict)
+						 else analyzer.get_llm_analysis_input())
 		except Exception as e:
 			print(f"   ⚠️  LLM_ANALYSIS_INPUT.json skipped ({e}) — "
 				  f"experiment.json is unaffected")
+			return
+		# The contract carries llm_input: None for a backend that has no such
+		# payload, and for every RESUMED run (experiment.json does not store
+		# it). That used to arrive as a raised AttributeError and be caught
+		# above; as data it arrives as None and has to be checked, or the
+		# first assignment below dies at the last stage of a finished run.
+		if not isinstance(llm_input, dict):
+			print(f"   ⚠️  LLM_ANALYSIS_INPUT.json skipped — this run carries "
+				  f"no LLM payload; experiment.json is unaffected")
 			return
 		llm_input['experiment_plan'] = plan
 		llm_input['run_directory']   = str(self.run_dir)
@@ -1191,10 +1274,11 @@ class ExperimentManagerBase:
 		# and the observation verdicts never reached the report agent. Attach
 		# them here so the written report can be held to the same standard as
 		# 04_analysis/interpretation.md.
-		if getattr(analyzer, 'extra_summary', None):
-			llm_input['limitations'] = analyzer.extra_summary.get('limitations')
-			llm_input['assumptions_ledger'] = \
-				analyzer.extra_summary.get('assumptions_ledger')
+		_extra = (analyzer.get("extra_summary") if isinstance(analyzer, dict)
+				  else getattr(analyzer, 'extra_summary', None))
+		if _extra:
+			llm_input['limitations'] = _extra.get('limitations')
+			llm_input['assumptions_ledger'] = _extra.get('assumptions_ledger')
 		vp = self.analysis_dir / "validation.json"
 		if vp.exists():
 			try:

@@ -241,7 +241,7 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
     def _extract(self, exps):
         from core.pflotran_exp_manager import PFLOTRANExpManager
         m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
-        return m._extract(exps).results[0]
+        return m._extract(exps)["rows"][0]
 
     def test_the_row_carries_what_package_consumes(self, tmp_path):
         row = self._extract(self._case(tmp_path, "1.0E+00"))
@@ -533,10 +533,14 @@ class TestResumeSkipsWhatIsAlreadyDone:
                          "metrics": {"saturation_mean": 0.53}}],
             "variable_units": {"LIQUID_SATURATION": "-"}}))
         ns = m._rehydrate_extract()
-        assert len(ns.results) == 1
-        assert ns.results[0]["metrics"]["saturation_mean"] == 0.53
-        assert ns.units["LIQUID_SATURATION"] == "-"
-        assert ns.summary["units"], "_package reads .summary too"
+        assert len(ns["rows"]) == 1
+        assert ns["rows"][0]["metrics"]["saturation_mean"] == 0.53
+        assert ns["units"]["LIQUID_SATURATION"] == "-"
+        # was: assert ns.summary["units"] — the rehydrated namespace carried
+        # a second place to find units because _package looked in two. The
+        # contract has one, so assert what that guarded instead: the units
+        # survive the round trip and reach the packager.
+        assert m._variable_units(ns)["LIQUID_SATURATION"] == "-"
 
     def test_rehydration_returns_none_when_the_artifact_is_missing(self, tmp_path):
         """None means 'run the stage', which is the safe reading. Returning an

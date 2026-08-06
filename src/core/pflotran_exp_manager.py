@@ -689,7 +689,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 
         n_ok = sum(1 for r in rows if r.get("status") == "ok")
         print(f"✓ extracted {n_ok}/{len(rows)} column(s)")
-        return _PFLOTRANResults(rows, units)
+        # DATA, not an object — see ExperimentManagerBase.EXTRACT_KEYS.
+        return self._as_extract(_PFLOTRANResults(rows, units))
 
     @staticmethod
     def _read_tec(path: Path):

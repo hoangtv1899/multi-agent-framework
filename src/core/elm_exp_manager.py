@@ -1011,7 +1011,7 @@ class ELMExpManager(ExperimentManagerBase):
 	def _extract(self,
 				 experiments,
 				 plan:   Dict[str, Any] = None,
-				 config: Dict[str, Any] = None) -> ELMResultsAnalyzer:
+				 config: Dict[str, Any] = None) -> Dict[str, Any]:
 		"""Read the ELM history NetCDFs and pull the numbers out → 04_analysis/.
 
 		This is extraction, not analysis: it knows ELM's output format and
@@ -1062,7 +1062,9 @@ class ELMExpManager(ExperimentManagerBase):
 
 		analyzer.extract_all()
 
-		return analyzer
+		# The stage's output is DATA. ELMResultsAnalyzer stays as the thing
+		# that COMPUTES the rows; it just no longer crosses the boundary.
+		return self._as_extract(analyzer)
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 4d — ONE-WAY ELM → PFLOTRAN COUPLING
