@@ -468,6 +468,40 @@ the rule; it is the house style, defined once.
 every phase there is a working end-to-end path, made of new tools in front and
 existing tools behind.
 
+### How phases are proven — decided 2026-08-07
+
+**Not by the existing test suite.** It is not evidence, and this was measured
+rather than assumed:
+
+```
+963 collected · 894 pass · 69 skip
+   34 of the skips are tests/test_elm_integration.py
+   plus test_elm_e2e_minimal.py, the whole-pipeline test
+```
+
+The two files most capable of reproducing a real failure never run — they need a
+node, `$PSCRATCH` and an E3SM build. What does run is largely structural (855
+uses of `tmp_path`; `test_elm_exp_manager_structure.py` is 82 tests asserting
+that source code *says* things) and only 18 of 46 test files touch real data at
+all.
+
+The decisive evidence is the failures of 2026-08-06, every one of which shipped
+green: the RUNDIR clobber (live since 07-25), `_as_extract` packaging 19 clean
+columns as `columns_total: 0`, an analyzer failure recorded as done, a study
+reporting its script's exit code instead of its own, mail that was never
+delivered, and 19 columns when 3 were asked for. Each was found by running the
+real thing.
+
+`_as_extract` is the sharpest case: a test for that exact bug existed, was
+green, and was **structurally incapable** of catching it — written against
+PFLOTRAN, whose rows are a list, so it could never reach the dict branch. Green
+does not mean covered.
+
+So: **every phase below is proven by a real run**, and the suite is used only as
+an import check during relocation, which is the one thing it reliably detects.
+No new tests are added to it. A replacement suite is written from scratch at the
+end (phase 7).
+
 ### Why input generation goes first
 
 It is the **only phase that tests the rule itself.** `collect_elm_results`
@@ -622,7 +656,9 @@ from absence).
 `make_warmstart`, `make_finidat_subset`, `plot_columns` with them, keeping their
 `__main__` blocks.
 
-**Proof:** the full test suite passes unchanged. Nothing else in this step.
+**Proof:** the suite still imports everything (its one reliable use), *and* a
+real study runs end-to-end through the moved modules. A pure relocation that
+only satisfies the first has not been shown to work.
 
 #### 1c — build the tool
 
@@ -731,6 +767,31 @@ guards from §5. The CONUS-distribution check is optional and can follow.
 
 **Proof:** a conceptual ensemble runs end-to-end, and `experiment.json` carries
 `provenance: conceptual` and a blocking cold-start caveat.
+
+---
+
+---
+
+### Phase 7 — a test suite written from scratch
+
+Deferred deliberately to the end: the current suite's shape is a record of past
+bugs in code that is about to stop existing, so porting it would carry that
+shape forward.
+
+What the replacement has to do differently, taken from why the old one missed
+everything:
+
+* **Run the model.** The integration and end-to-end tests must actually execute,
+  which means running under `sbatch` rather than requiring an interactive node.
+  A suite whose most valuable third is skipped is a suite that reports on its
+  own least important part.
+* **Use real data as fixtures.** `workflow_outputs/elm_run_20260806_162707` —
+  19 columns, 19 case dirs, 17 history files each — is a better fixture than any
+  `tmp_path` tree, because the bugs live in the shapes real output takes.
+* **Verify each backend on its own data shape.** ELM's rows are a dict,
+  PFLOTRAN's a list; a check that passes on one proves nothing about the other.
+* **Assert on content, never on the absence of an exception.** The case list
+  written with no FSURDAT existed, parsed, and looked plausible.
 
 ---
 
