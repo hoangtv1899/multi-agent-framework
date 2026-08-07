@@ -520,6 +520,56 @@ environment variable will not be there.
 Minutes of work, and if the answer is no the rule is in trouble before anything
 has moved. **Do this first.**
 
+#### 1a RESULT — PASSED, 2026-08-07
+
+`mcp/elm-mcp/scripts/probe_conus_access.py`, run normally and with `--stripped`
+(which re-execs carrying only `HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`).
+**Identical output, all checks pass, in both.**
+
+```
+paths      manifest · conus_surfdata · input_files          all readable
+open       netCDF4 1.7.2 · manifest parses 12 bands
+           OPENS a restart   62840 gridcells, 237 variables
+           OPENS a surfdata  91 variables
+lookup     38.9N → band lat7 → grid1d_lat/lon argmin
+           → cell 1276906 at 38.8958N -107.0042E
+```
+
+The lookup is the real one, not an approximation: `make_finidat_subset.py:119`
+uses `grid1d_lat`/`grid1d_lon` with the same `>180 → -360` conversion and the
+same `argmin`, and returns the same cell.
+
+**Why it passes:** every data root is a hardcoded absolute path. The only
+environment variable anywhere in the warm-start chain is
+`IDEAS_WARMSTART_WORKERS`, a tuning knob with a default. Nothing resolves
+through the environment, so nothing is lost when the environment is stripped.
+
+**So Rule B's data dependency is viable.** The warm start can move.
+
+#### But the probe found a real fragility
+
+All 12 CONUS restart bands live in **another user's scratch directory**:
+
+```
+/compyfs/bish218/e3sm_scratch/conus_lat*/run/*.elm.r.2040-01-01-00000.nc
+   owner bish218 · world-readable · 3.5 GB each · ~43 GB total · dated May 17
+   /compyfs is 83% full (1.5P of 1.8P)
+```
+
+Readable today, and not ours to protect. Scratch is what gets purged when a
+filesystem fills, and the warm start is what makes every column credible — so
+this is a single point of failure for the scientific validity of every run, not
+just for a build step.
+
+Two consequences for phase 1c:
+
+* `_requirements()` must check the restart manifest **and** that at least one
+  band resolves, so a missing restart is diagnosed by
+  `describe_elm_capabilities` rather than eight minutes into a case build.
+* Owning a copy of these files is worth costing out separately. Not a blocker
+  for this rework; it is a standing risk that the rework makes the MCP's
+  problem rather than the framework's.
+
 #### 1b — move the modules, change no behaviour
 
 `elm_exp_manager`, `elm_results_analyzer`, `elm_surface_generator`,
@@ -665,6 +715,13 @@ guards from §5. The CONUS-distribution check is optional and can follow.
 * **Environment loss across the boundary.** MCP clients forward only `HOME`,
   `LOGNAME`, `PATH`, `SHELL`, `USER`. `LD_LIBRARY_PATH` and `MODULEPATH` vanish;
   every path the server needs must be set with a default in the launcher.
+  Measured clean for the warm-start chain (§9 phase 1a) — but that is a fact
+  about today's hardcoded paths, and any new `os.environ` read reintroduces it.
+* **The CONUS restarts sit in another user's scratch** (§9 phase 1a):
+  `/compyfs/bish218/e3sm_scratch/`, ~43 GB, on a filesystem at 83%. Readable,
+  not ours, and purgeable. The warm start is what makes a column credible, so
+  losing these does not break a build — it silently removes the basis for every
+  claim the ensemble supports.
 
 ---
 
