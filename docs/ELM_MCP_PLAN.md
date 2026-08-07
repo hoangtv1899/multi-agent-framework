@@ -685,9 +685,42 @@ absence of an exception.
 The framework calls it after `_sample_columns`. The existing `build_elm_cases`
 consumes the result untouched, so the pipeline runs end-to-end from here.
 
-**After this, `ELMExpManager` is deletable.** Rename `_materialize` →
-`_sample_columns`; either alias the old `run_state.json` key or accept that
-in-flight runs redo a cheap stage.
+**`ELMExpManager` is NOT deletable after this** — corrected 2026-08-07. It
+still owns 22 methods Phase 1 does not touch: `_run`, `_poll`, `_collect`,
+`_build_cases`, `_run_batch`, `_extract`, `_outcomes_from_disk`,
+`_run_summary_for`, `adopt_completed_run`, the two report writers,
+`_plot_setups` and `_couple_pflotran`. Those move in phases 2 and 4, so the
+class dies **after phase 4**, at ~923 lines until then.
+
+### The stage boundary — decided 2026-08-07
+
+The tool spans two existing stages: the warm start must run inside `materialize`
+(it MOVES the columns, so `columns.json` must be written after it), while
+`case_inputs.json` belongs to `build_case_inputs`. One tool call now does both,
+and a stage is a save point — the granularity `--resume` skips at.
+
+Measured, because a save point is worth what it protects: surfaces are
+content-hash cached and re-run near-free, the warm start is not (`build_finidats`
+has no `exists()` check, ~1-2 min for 19 columns). So the current split protects
+about a minute.
+
+**Chosen: merge, and put the boundary where the layers already divide.**
+
+```
+sample_columns    framework    where the columns go   (3 MCP calls, worth protecting)
+build_inputs      ELM MCP      what ELM sees there    (one tool call)
+```
+
+The save point becomes the layer boundary, so the ledger describes the
+architecture instead of cutting across it. `STAGES` entries are ledger keys, so
+`materialize → sample_columns` and `build_case_inputs → build_inputs` need an
+alias map or in-flight runs find neither.
+
+**Bigger than a rename.** `_materialize` currently returns plan + executable
+payload, and two things read `CONDITIONS_COUPLERS` downstream:
+`_already_executable` and `_extract` (for the limitations payload's forcing
+years). So `build_inputs` must return the run plan for merging, not only
+`case_inputs.json` — otherwise the caveats lose their years.
 
 ---
 
@@ -849,6 +882,34 @@ everything:
 ---
 
 ## 12. Open
+
+* **Fan WTD sits awkwardly in `sample_columns`, and moves when PFLOTRAN does.**
+  Sampling selects on elevation alone — `_farthest_point_select` over DEM grid
+  points within bands. Fan is queried *afterwards*, at the chosen coordinates,
+  and never influences placement. So it looks like decoration in a stage whose
+  job is selection.
+
+  It is not decoration. `pflotran_exp_manager` uses `fan_wtd_m` as an initial
+  condition and to set `wt_in_domain` — *"a column whose water table is below
+  the domain runs fully unsaturated, and on the 2019 Gunnison sample that was 10
+  of 19 columns"* — and its header states the reason the fetch is shared:
+  PFLOTRAN needs the same fields, so both models run on one column definition
+  rather than two samples of the same basin. Moving the fetch into the model
+  servers would mean two reads of one dataset, free to drift, and would weaken
+  exactly that comparability.
+
+  The honest boundary is therefore **shared vs model-specific**, not selection
+  vs enrichment — note that soil is deliberately NOT gathered at sampling time,
+  because ELM's soil comes from the warm-start donor and a second profile would
+  be a field the model never sees. Left as is; revisit when PFLOTRAN is
+  restructured, where a third stage (`sample_columns` → `enrich_columns` →
+  `build_inputs`) is the clean split if one is wanted.
+
+  Measured while checking this: Fan's grid is ~0.00834° ≈ 0.93 km, the warm
+  start snaps columns by ≤0.409 km, and displacing all 19 columns by 0.4 km
+  changes the Fan value for **0 of 19**. So `fan_wtd_m` describing the pre-snap
+  coordinate is a real inconsistency with no measured effect — worth knowing if
+  the snap distance ever grows.
 
 * **`_merge_column_metadata`** reads `columns.json` at package time to join band,
   priors and soil onto the rows (*"the row's own `soil` field comes back null
