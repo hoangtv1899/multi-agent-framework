@@ -150,7 +150,7 @@ class TestBuildStepOutputs:
         )
         mock_class = MagicMock(return_value=mock_builder)
 
-        with patch("elm_exp_manager.ELMExperimentBuilder",
+        with patch("inputs.ELMExperimentBuilder",
                    mock_class):
             mgr._build_case_inputs({}, {})
 
@@ -166,7 +166,7 @@ class TestBuildStepOutputs:
         mock_builder.get_experiment_summary.return_value = (
             fake_builder_summary
         )
-        with patch("elm_exp_manager.ELMExperimentBuilder",
+        with patch("inputs.ELMExperimentBuilder",
                    MagicMock(return_value=mock_builder)):
             mgr._build_case_inputs({}, {})
 
@@ -182,7 +182,7 @@ class TestBuildStepOutputs:
         mock_builder.get_experiment_summary.return_value = (
             fake_builder_summary
         )
-        with patch("elm_exp_manager.ELMExperimentBuilder",
+        with patch("inputs.ELMExperimentBuilder",
                    MagicMock(return_value=mock_builder)):
             mgr._build_case_inputs({}, {})
 
@@ -647,11 +647,14 @@ class TestColumnInputPreBuild:
     """
 
     def test_it_runs_before_the_builder(self):
-        import inspect
-        src = inspect.getsource(ELMExpManager._build_case_inputs)
-        assert src.index("_build_column_inputs") < src.index("ELMExperimentBuilder"), \
-            "inputs must be built BEFORE the builder, or the early warning " \
-            "is worth nothing"
+        """Surfaces must exist before CIME work starts, so the pre-build call
+        comes first. The ordering moved into inputs.build_case_inputs when the
+        manager began delegating; this reads it where it now lives."""
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "inputs.py").read_text()
+        body = src[src.index("def build_case_inputs"):]
+        body = body[:body.index("def serialise_case_inputs")]
+        assert body.index("build_column_inputs") < body.index("ELMExperimentBuilder"), \
+            "the builder is constructed before the per-column inputs exist"
 
     def test_it_is_non_fatal(self, tmp_path):
         """The builder keeps its own generation path, so a failure here costs

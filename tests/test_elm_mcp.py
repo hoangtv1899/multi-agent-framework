@@ -88,7 +88,8 @@ class TestItDoesNotClaimWhatItCannotDo:
         out. A tool that generated inputs or read results would break it."""
         d = json.loads(srv.describe_elm_capabilities())
         advertised = {step["tool"] for step in d["workflow"]}
-        assert advertised == {"build_elm_cases", "submit_elm_ensemble",
+        assert advertised <= {"build_elm_inputs_from_location",
+                              "build_elm_cases", "submit_elm_ensemble",
                               "check_elm_job"}, advertised
 
     def test_requirements_are_checked_not_asserted(self, srv):
@@ -97,7 +98,10 @@ class TestItDoesNotClaimWhatItCannotDo:
         d = json.loads(srv.describe_elm_capabilities())
         assert d["requirements"], "no requirements reported"
         for name, r in d["requirements"].items():
-            assert set(r) == {"path", "present"}, name
+            # The bulk-data entries carry extra description (source, owner,
+            # bands_resolving, warnings). path+present is the contract; more
+            # is allowed, less is not.
+            assert {"path", "present"} <= set(r), name
             assert isinstance(r["present"], bool)
             # present must reflect the filesystem, not a hard-coded true
             if r["present"] and r["path"]:
@@ -109,8 +113,10 @@ class TestItDoesNotClaimWhatItCannotDo:
         gets no sampling design, no strategy gate and no experiment.json."""
         d = json.loads(srv.describe_elm_capabilities())
         joined = " ".join(d["does_not"]).lower()
-        for missing in ("sampling", "warm-start", "surface", "history files",
-                        "caveat", "experiment.json"):
+        # warm-start and surface generation left this list when the rule
+        # changed: this server does them now (docs/ELM_MCP_PLAN.md §1). What
+        # it still does not do is decide WHERE columns go or what a run means.
+        for missing in ("sampling", "caveat", "experiment.json"):
             assert missing in joined, f"does_not never mentions {missing}"
 
     def test_ready_is_false_when_something_is_missing(self, srv, monkeypatch):

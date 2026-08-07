@@ -6,30 +6,30 @@ Phase 4 of the resumability work; design in docs/ELM_MCP_PLAN.md.
 
 ONE RULE, AND THE WHOLE SURFACE FOLLOWS FROM IT
 -----------------------------------------------
-**This server compiles and runs the model. The framework decides what to run
-and reads what came out.**
+**Anything that requires knowing what ELM is lives here.**
 
-So it does NOT generate inputs and does NOT extract results. It takes the case
-list the framework wrote — one entry per column, carrying that column's file
-paths and run settings — builds CIME cases against it, runs them, and reports
-what the scheduler is doing.
+The caller decides WHERE the columns go — that is watershed geometry, shared
+with PFLOTRAN so the two are comparable. Everything downstream of a coordinate
+is this server's: the warm start, the donor soil, the surfaces, the thirteen
+CIME keys, the build, the run, and reading what came out.
 
-That boundary is where it is because of what the inputs actually are. A
-column's surface data and its FINIDAT come from the WARM START: the framework
-subsets the CONUS restart, snaps the column to its donor gridcell and takes
-that cell's soil. Those are the two inputs that make a column credible, and
-they are decisions, not compilation. A server that generated inputs itself
-would offer a path that produces a cold, template-soil column at a coordinate
-— runnable, and quietly worse science.
+THE RULE THIS REPLACED, and why. The boundary used to be "does it need the
+scheduler?", which kept input generation on the framework side. That rule is
+coherent and it is also what forced a per-model manager class to exist: ELM
+knowledge barred from the server needs a home, and that home was
+ELMExpManager. Three attempts to delete that class failed until the rule moved.
 
-Everything the warm start decided therefore crosses as DATA, in each case's
-runtime_config: FSURDAT, FINIDAT, LND_DOMAIN_*, ATM_DOMAIN_*, STOP_N,
-RUN_STARTDATE, DATM_CLMNCEP_YR_*, REST_*. This side never opens a surfdata
-file.
+WHAT THE OLD RULE WAS RIGHT ABOUT. A tool taking bare coordinates and inventing
+the rest produces a cold, template-soil column — runnable, and quietly worse
+science. That is an argument about a SIGNATURE, not a location:
+build_elm_inputs_from_location reads the columns the caller sampled, requires
+the CONUS restarts, and is fatal when any column cannot be warm-started.
 
 EVERY TOOL RETURNS QUICKLY OR RETURNS A JOB ID
 -----------------------------------------------
-Not a style preference — a consequence of how MCP works. `MCPManager` opens a
+Input generation is fast and local and returns DATA. Building and running are
+slow and return an ID. That is the sharpest line in this server, and the second
+half is not a style preference — a consequence of how MCP works. `MCPManager` opens a
 fresh stdio session per call and tearing it down kills the server and its
 children. Against a CIME case build (~8-10 min, measured) under a 300 s timeout
 that does not produce a slow call, it produces a case directory killed halfway.
@@ -51,8 +51,9 @@ filesystem, and a UTF-8 locale CIME's python refuses to run without.
 Registered in mcp_config.json as `elm`.
 
 Tools:
-    describe_elm_capabilities()  -> what this does, needs, and does NOT do
-    build_elm_cases(...)         -> a JOB ID; CIME cases from the case list
+    describe_elm_capabilities()          -> what this does, needs, and does NOT do
+    build_elm_inputs_from_location(...)  -> DATA; snapped columns + case_inputs.json
+    build_elm_cases(...)                 -> a JOB ID; CIME cases from the case list
     submit_elm_ensemble(...)     -> a JOB ID; the ensemble as one batch job
     check_elm_job(...)           -> what SLURM is doing, and the built case
                                     directories once a build job has landed
@@ -140,9 +141,15 @@ def _requirements() -> dict:
     which is exactly the case it exists to diagnose, since a wrong path here
     surfaces eight minutes into a CIME build as an unrelated-looking error.
 
-    Short, because generating inputs is not this server's job: no CONUS
-    surfdata, no ELM input-file templates. Those belong to whoever decides
-    what the columns are.
+    IT INCLUDES THE BULK DATA NOW. This used to say "generating inputs is not
+    this server's job: no CONUS surfdata, no ELM input-file templates" — true
+    until build_elm_inputs_from_location landed. The warm start is what makes a
+    column credible, so a missing restart is not a degraded run, it is a
+    different experiment; it belongs where a missing E3SM tree already is.
+
+    The manifest EXISTING is not the restarts existing. paths.describe() checks
+    that at least one band resolves, because the file that lists them is a few
+    kilobytes and the data it points at is ~43 GB in somebody else's scratch.
     """
     def _dir(p):  return {"path": str(p), "present": Path(p).is_dir()}
     def _file(p): return {"path": str(p), "present": Path(p).is_file()}
@@ -158,6 +165,10 @@ def _requirements() -> dict:
     for name in ("sbatch", "squeue", "sacct"):
         reqs[name] = {"path": shutil.which(name) or "",
                       "present": bool(shutil.which(name))}
+    # Same shape as the rest, so `ready` and `missing_requirements` need no
+    # special case — plus the extra fields describe() adds (source, owner,
+    # bands_resolving, warnings), which callers may ignore.
+    reqs.update(paths.describe_all())
     return reqs
 
 
@@ -201,8 +212,9 @@ def describe_elm_capabilities() -> str:
         "broken_imports": broken,
 
         "rule": (
-            "This server compiles and runs the model. The caller decides what "
-            "to run and reads what came out."
+            "Anything that requires knowing what ELM is lives here. The caller "
+            "decides WHERE the columns go; this server decides what ELM sees "
+            "at those locations, compiles, and runs."
         ),
         "contract": (
             "Every tool returns quickly or returns a job id. No tool blocks on "
@@ -241,10 +253,6 @@ def describe_elm_capabilities() -> str:
         "does_not": [
             "choose where to put columns — the sampling design belongs to the "
             "caller, and is shared with PFLOTRAN so the two are comparable",
-            "warm-start anything. FINIDAT and the donor soil come from "
-            "subsetting the CONUS restart, which is a decision about the "
-            "science rather than a compilation step",
-            "generate surface or domain files",
             "read history files or compute any result",
             "decide whether a study is worth running, record caveats, or write "
             "experiment.json",
@@ -253,21 +261,14 @@ def describe_elm_capabilities() -> str:
         "requirements": reqs,
         "imports": imports,
 
-        # REPORTED, not yet REQUIRED. This server does not generate inputs
-        # today, so a missing CONUS restart cannot stop it and must not show up
-        # in `ready`. It is surfaced anyway because the warm start is what makes
-        # a column credible, and "the restarts are gone" should be answerable
-        # here rather than eight minutes into a build. When input generation
-        # lands these move into `requirements` and do gate readiness.
-        "data_paths": paths.describe_all(),
         "data_paths_note": (
-            "Not required yet — this server does not generate inputs. Each is "
-            "overridable three ways, in precedence order: a tool argument, its "
-            "environment variable, or a paths.json beside this server. Prefer "
-            "paths.json when a standard MCP client launches the server: it "
-            "forwards only HOME, LOGNAME, PATH, SHELL and USER, so an exported "
-            "variable reaches this process only under a client that copies the "
-            "whole environment."
+            "The CONUS entries in `requirements` are bulk data, not code. Each "
+            "is overridable three ways, in precedence order: a tool argument, "
+            "its environment variable, or a paths.json beside this server. "
+            "Prefer paths.json when a standard MCP client launches the server: "
+            "it forwards only HOME, LOGNAME, PATH, SHELL and USER, so an "
+            "exported variable reaches this process only under a client that "
+            "copies the whole environment."
         ),
 
         "environment": {k: os.environ.get(k) for k in (
@@ -280,6 +281,95 @@ def describe_elm_capabilities() -> str:
             "starts."
         ),
     }, indent=2)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# LOCATIONS → RUNNABLE INPUTS  (not a job — fast, local, returns DATA)
+# ─────────────────────────────────────────────────────────────────────
+@mcp.tool()
+def build_elm_inputs_from_location(run_dir:         str,
+                                   soil_config:     str = "native",
+                                   substrate:       str = "extrapolate",
+                                   yr_start:        int = 0,
+                                   yr_end:          int = 0,
+                                   conus_restart:   str = "",
+                                   ) -> str:
+    """Turn sampled column locations into everything ELM needs to run them.
+
+    Reads <run_dir>/01_inputs/columns.json — the locations the caller sampled —
+    and returns the SNAPPED columns plus a written case_inputs.json.
+
+    Not a job: no scheduler, no compile, seconds to minutes. It is the counterpart
+    of run_elm_ensemble, which is a job and returns an id instead of data.
+
+    WHAT IT DOES, and the order matters:
+
+      warm start          a finidat per column, subset from the CONUS restarts,
+                          SNAPPING each column to its donor gridcell (~250-400 m)
+      donor soil          that gridcell's own soil — the only soil the run has
+      surfaces + domains  domain.nc and surface.nc per column
+      runtime_config      the 13 CIME keys naming every file the build needs
+      case_inputs.json    written to <run_dir>/01_inputs/
+
+    THE RETURNED COLUMNS ARE NOT THE ONES YOU PASSED IN. The warm start moves
+    them, so persist what comes back: anything written from the pre-snap
+    coordinates describes a run that will not happen.
+
+    conus_restart overrides which restart source is used, for this call only.
+    Whatever is used is reported in data_provenance and written into the run,
+    because which restart a column warm-started from is a fact about the science
+    rather than a configuration detail.
+
+    FATAL if any column cannot be warm-started. A partial warm start puts columns
+    with different initial states and different soil datasets in one ensemble,
+    and every cross-column comparison then spans two experiments.
+    """
+    rd = Path(run_dir).resolve()
+    src = rd / "01_inputs" / "columns.json"
+    if not src.is_file():
+        # The legacy location, which older runs wrote before 01_inputs existed.
+        src = rd / "columns.json"
+    if not src.is_file():
+        return json.dumps({
+            "ok": False,
+            "error": f"no columns.json in {rd / '01_inputs'} or {rd} — this "
+                     f"server does not sample; the caller decides where the "
+                     f"columns go and writes them there"})
+
+    try:
+        doc = json.loads(src.read_text())
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"unreadable columns.json: {e}"})
+
+    columns = doc.get("columns") if isinstance(doc, dict) else doc
+    if not columns:
+        return json.dumps({"ok": False,
+                           "error": f"{src} carries no columns"})
+
+    cfg = {"soil_config": soil_config, "substrate": substrate}
+    if yr_start:
+        cfg["yr_start"] = yr_start
+        cfg["yr_end"] = yr_end or yr_start
+    if conus_restart:
+        cfg["warm_start"] = {"conus_restart": conus_restart}
+
+    try:
+        import inputs
+        out = inputs.build_from_location(rd, columns, cfg)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False,
+                           "error": f"{type(e).__name__}: {e}"})
+
+    # The snapped columns go back into the file they came from, so the caller's
+    # columns.json and the run agree. It is the caller's artifact — bands and
+    # priors are theirs, not ELM's — but the coordinates in it are now ours.
+    if isinstance(doc, dict):
+        doc["columns"] = out["columns"]
+        src.write_text(json.dumps(doc, indent=2, default=str))
+        out["columns_json"] = str(src)
+
+    out["next"] = "run_elm_ensemble"
+    return json.dumps(out, indent=2, default=str)
 
 
 # ─────────────────────────────────────────────────────────────────────

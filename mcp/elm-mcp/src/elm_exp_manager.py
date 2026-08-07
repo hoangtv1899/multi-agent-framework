@@ -130,23 +130,9 @@ class ELMExpManager(ExperimentManagerBase):
 		return {"finidat_map": finidat_map}
 
 	def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
-		"""Columns → CONDITIONS_COUPLERS.
-
-		FINIDAT is a per-coupler key the builder reads at build time, which is
-		why the warm start had to happen in _refine_columns rather than here.
-		"""
-		yr_start = int(config.get("yr_start", 1995))
-		yr_end   = int(config.get("yr_end",   yr_start))
-		return columns_to_elm_plan(
-			columns,
-			yr_start      = yr_start,
-			yr_end        = yr_end,
-			soil_config   = config.get("soil_config", "native"),
-			substrate     = config.get("substrate",   "extrapolate"),
-			finidat_map   = refine.get("finidat_map") or {},
-			period_source = (config.get("period_source")
-							 or ("reception" if config.get("yr_start") else "DEFAULT")),
-		)
+		"""Delegates to inputs.to_run_plan — see there for the reasoning."""
+		import inputs
+		return inputs.to_run_plan(columns, config, (refine or {}).get("finidat_map"))
 
 	# ─────────────────────────────────────────────────────────
 	# MAIN ENTRY POINT
@@ -208,157 +194,22 @@ class ELMExpManager(ExperimentManagerBase):
 		return self._couple_pflotran(plan, config)
 
 	def _attach_donor_soil(self, columns, finidat_map):
-		"""Replace each warm-started column's soil with the donor's own.
-
-		A warm start keeps the donor gridcell's surfdata, so the SSURGO profile
-		gathered in step 0 is characterisation, not what ELM runs on. The design
-		figure and columns.json must show the dataset the experiment actually
-		uses, or the plan on the page and the run on the machine disagree.
-
-		This is the ONLY soil the run has. Sampling no longer gathers a second
-		profile, so there is no other dataset to confuse it with and nothing in
-		experiment.json that ELM did not actually see.
-		"""
-		import make_finidat_subset as fs
-		n = 0
-		for c in columns:
-			entry = finidat_map.get(c.get("id")) or {}
-			sd = entry.get("surface_template")
-			if not sd or not Path(sd).exists():
-				raise RuntimeError(
-					f"{c.get('id')}: warm start reported a donor but its "
-					f"surface template is missing ({sd}). Skipping would leave "
-					f"this column with no soil while its siblings have the "
-					f"donor's.")
-			prof = fs.donor_soil_profile(sd)
-			if not prof:
-				raise RuntimeError(
-					f"{c.get('id')}: no soil profile readable from the donor "
-					f"surface template {sd}.")
-			c["soil_profile"] = prof
-			c["soil_layers"] = prof["num_layers"]
-			c["soil_top_texture"] = prof["layers"][0]["texture_class"]
-			c["soil_source"] = "conus"
-			n += 1
-		if n:
-			print(f"   soil for the design/figure taken from the CONUS donor "
-				  f"cells ({n} column(s)) — the dataset the run uses")
+		"""Delegates to inputs.attach_donor_soil — see there for the reasoning."""
+		import inputs
+		return inputs.attach_donor_soil(columns, finidat_map)
 
 	def _warmstart(self, columns, config: Dict[str, Any]):
-		"""Build a finidat per column straight from the CONUS 1-km restarts.
-
-		No carrier, no prior run, no template library: the CONUS restart already
-		holds every variable, so one gridcell is subset out into a standalone
-		single-column file. Works on a domain that has never been run.
-
-		config['warm_start'] = True | {'conus_restart': manifest|file|dir}
-
-		Two things this does that are easy to get wrong:
-
-		  * It SNAPS each column to its donor gridcell (~250-400 m). The domain,
-		    surfdata and finidat must agree on coordinates or ELM aborts at init
-		    on a surfdata/fatmgrid mismatch, so the donor's lat/lon wins and the
-		    shift is recorded in the assumptions ledger rather than left silent.
-		  * It also subsets the CONUS gridcell's own surfdata and passes it on as
-		    the surface TEMPLATE, so fsurdat and finidat describe the same
-		    gridcell (ELM's check_weights gate). SSURGO soil is still overwritten
-		    on top of it by the surface generator — the per-column soil science is
-		    unchanged; only the vegetation source improves, 0.5 degree -> 1 km.
-
-		FATAL on failure. This used to return None and let the ensemble cold
-		start, which sounds forgiving and is not: the start type is decided PER
-		COLUMN downstream, so a partial failure produced a mixed ensemble —
-		some columns warm on the donor's CONUS soil, others cold on a different
-		soil dataset — inside one run, signalled by nothing but a "(cold)" in a
-		print. Every cross-column comparison then spans two experiments. A run
-		that cannot warm start is a different experiment from the one that was
-		planned, so it stops here instead of quietly becoming one.
-		"""
-		ws = config.get("warm_start", True)
-		if isinstance(ws, str):
-			ws = {"source": ws}
-		elif ws is True:
-			ws = {}
-
-		try:
-			import make_finidat_subset as fs
-			import make_warmstart as mw
-			spec = ws.get("conus_restart") or mw.DEFAULT_CONUS_MANIFEST
-			bands = mw.ConusBandSet(mw.resolve_conus_sources(spec))
-
-			print("\n🌡️  STEP 0b: Warm Start (CONUS subset)")
-			print("-" * 40)
-			manifest = fs.build_finidats(columns, self.run_dir / "warmstart", bands)
-			if not manifest:
-				raise RuntimeError(
-					"warm start produced no finidat for any column. The CONUS "
-					"restart source is unreadable or the domain lies outside "
-					"its coverage.")
-			missing = [c.get("id") for c in columns if c.get("id") not in manifest]
-			if missing:
-				raise RuntimeError(
-					f"warm start covered {len(manifest)}/{len(columns)} columns; "
-					f"no donor for {', '.join(missing)}. A partial warm start "
-					f"would put columns with different initial states and "
-					f"different soil datasets in one ensemble.")
-
-			# Snap to the donor cell so domain/surfdata/finidat agree exactly.
-			for c in columns:
-				m = manifest.get(c.get("id"))
-				if m:
-					c["lat"], c["lon"] = m["donor_lat"], m["donor_lon"]
-
-			(self.run_dir / "warmstart" / "warmstart.json").write_text(
-				json.dumps(manifest, indent=2))
-			snap = max(m["dist_km"] for m in manifest.values())
-			print(f"✓ {len(manifest)}/{len(columns)} column(s) warm-started from "
-				  f"CONUS (snapped <= {snap} km) → warmstart/warmstart.json")
-			return manifest
-		except Exception as e:
-			raise RuntimeError(f"warm start failed: {e}") from e
+		"""Delegates to inputs.warm_start — see there for the reasoning."""
+		import inputs
+		return inputs.warm_start(self.run_dir, columns, config)
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 1 — BUILD (writes to 01_inputs/)
 	# ─────────────────────────────────────────────────────────
 	def _build_column_inputs(self, config: Dict[str, Any]) -> Dict[str, Any]:
-		"""domain.nc + surface.nc per column, before any CIME work.
-
-		The builder generates these itself, per coupler, deep inside
-		_build_one(). Doing it here first changes nothing about WHAT ELM
-		receives — the generators key their output on coordinates plus a
-		content hash, so the builder's calls become cache hits on the very
-		files written here. Verified against the 19-column 2019 Upper
-		Gunnison run: every filename matches what that run actually used.
-
-		What it changes is when you find out. Surface generation reads the
-		CONUS donor and can fail for a column; buried in _build_one that
-		surfaces partway through case creation, after CIME work has begun.
-		Here it fails before anything expensive starts, names the column, and
-		leaves 01_inputs/column_inputs.json saying which columns have inputs
-		and which do not.
-
-		Non-fatal by design: the builder retains its own generation path, so
-		a failure here costs the early warning and the manifest, not the run.
-		"""
-		try:
-			import build_column_inputs as bci
-			res = bci.build_all(
-				self.run_dir,
-				soil_config = config.get("soil_config", "native"),
-				substrate   = config.get("substrate",   "extrapolate"),
-				quiet       = True,
-			)
-			n_ok, n_bad = len(res.get("built") or {}), len(res.get("failed") or {})
-			print(f"✓ column inputs: {n_ok} built"
-				  + (f", {n_bad} FAILED" if n_bad else "")
-				  + ("  (warm)" if res.get("warm_started") else "  (cold)"))
-			for cid, why in (res.get("failed") or {}).items():
-				print(f"   ⚠️  {cid}: {why}")
-			return res
-		except Exception as e:                                  # noqa: BLE001
-			print(f"   ⚠️  pre-building column inputs failed ({e}) — the "
-				  f"builder will generate them per column instead")
-			return {}
+		"""Delegates to inputs.build_column_inputs — see there for the reasoning."""
+		import inputs
+		return inputs.build_column_inputs(self.run_dir, config)
 
 	# ─────────────────────────────────────────────────────────
 	# THE MCP PATH — Phase 4
@@ -508,22 +359,14 @@ class ELMExpManager(ExperimentManagerBase):
 	def _build_case_inputs(self,
 			   plan:   Dict[str, Any],
 			   config: Dict[str, Any]) -> List[Dict]:
-		"""Build the ELMAgentAdapter list from the plan (per-column surfaces)."""
-		self._build_column_inputs(config)
+		"""Delegates to inputs.build_case_inputs, keeping the builder handle.
 
-		builder     = ELMExperimentBuilder(plan)
-		self._builder = builder          # reused by _build_cases for the fast path
-		experiments = builder.build_experiments()
-
-		# Save experiment_summary.json to 01_inputs/
-		summary_file = self.input_dir / "experiment_summary.json"
-		with open(summary_file, 'w') as f:
-			json.dump(
-				builder.get_experiment_summary(),
-				f, indent=2, default=str
-			)
-
-		print(f"✓ {len(experiments)} experiment(s) built")
+		The handle is what _build_cases uses for the --keepexe fast path; the MCP
+		tool discards it, which is the only difference between the two callers.
+		"""
+		import inputs
+		experiments, self._builder = inputs.build_case_inputs(
+			self.run_dir, plan, config)
 		return experiments
 
 	def _plot_setups(self, cases: List[str]) -> None:
@@ -757,35 +600,19 @@ class ELMExpManager(ExperimentManagerBase):
 
 		return self._collect(experiments, self._outcomes_from_disk(experiments))
 
-	# Keys of an experiment that are plain data and mean something downstream.
-	# LISTED, not "everything except elm_agent": a new object added upstream
-	# would otherwise silently become a repr in the case-inputs file.
-	CASE_KEYS = (
-		"scenario_index", "scenario_name", "case_name", "forcing_period",
-		"soil_config", "substrate", "forcing_start", "forcing_end", "stop_n",
-		"start_date", "description", "lat", "lon", "elevation_m", "band",
-		"case_dir",
-	)
+	# ONE definition, in inputs.py, because two lists that must agree are two
+	# lists that will not. A key added there and forgotten here would drop a
+	# field from case_inputs.json silently — the file would exist, parse, and be
+	# missing something the build needs.
+	@property
+	def CASE_KEYS(self):                                    # noqa: N802
+		import inputs
+		return inputs.CASE_KEYS
 
 	def _serialise_case_inputs(self, experiments):
-		"""Each case as data, with the adapter replaced by what BUILT it.
-
-		runtime_config is the adapter's whole input — FSURDAT, FINIDAT, the
-		domain paths, STOP_N, the forcing years — so the elm MCP can construct
-		an identical adapter without the object ever crossing. That config is
-		also where the warm start's two products (the subset restart and the
-		donor-soil surface) leave this side as plain paths.
-		"""
-		out = []
-		for e in experiments:
-			row = {k: e.get(k) for k in self.CASE_KEYS if k in e}
-			rc = getattr(e.get("elm_agent"), "runtime_config", None)
-			if isinstance(rc, dict):
-				row["runtime_config"] = dict(rc)
-			elif isinstance(e.get("runtime_config"), dict):
-				row["runtime_config"] = dict(e["runtime_config"])
-			out.append(row)
-		return out
+		"""Delegates to inputs.serialise_case_inputs — see there."""
+		import inputs
+		return inputs.serialise_case_inputs(experiments)
 
 	def _rehydrate_handles(self, experiments, plan, config) -> None:
 		"""A rehydrated ELM build has no ELMAgents and no builder.
