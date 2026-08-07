@@ -979,8 +979,13 @@ class ExperimentManagerBase:
 				  f"config['boundary'] explicitly.")
 		boundary = config.get("boundary", boundary)
 
+		# Reception's grid, when we have it. It is the SAME grid this call would
+		# otherwise fetch (data_gather.GRID_N is expand_sampling's default), but
+		# reception retries at higher density when too few points land in the
+		# basin and this call does not — see expand() for what that cost.
+		rec_grid = ((reception.get("grid") or {}).get("points")) or None
 		res = exp.expand(clients, bbox, n_total, bands, boundary=boundary,
-						 per_band=per_band, pinned=pinned)
+						 per_band=per_band, pinned=pinned, grid=rec_grid)
 		if res.get("error"):
 			raise RuntimeError(f"Sampling expansion failed: {res['error']}")
 		columns = res.get("columns", [])

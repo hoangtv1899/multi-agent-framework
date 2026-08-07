@@ -381,7 +381,7 @@ def _clip_to_polygon(pts, rings):
 
 
 def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
-           per_band=None, pinned=None):
+           per_band=None, pinned=None, grid=None):
     """Strategy -> concrete columns.
 
     n_total   the column budget, after check() has reconciled the planner's
@@ -394,8 +394,24 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
     """
     terr = clients["terrain"]
 
-    grid = terr.call_tool_json("sample_elevation_grid", {**bbox, "n": grid_n}) or {}
-    pts = [p for p in grid.get("points", []) if p.get("elevation_m") is not None]
+    # PREFER A GRID THE CALLER ALREADY HAS. Reception fetches this exact grid --
+    # data_gather.GRID_N is expand_sampling's own default, and the constant says
+    # so -- and it RETRIES at higher density when fewer than MIN_IN_BASIN = 55
+    # points land inside the basin. Re-fetching here repeated the query without
+    # the retry, so the sampler could design on a fraction of the evidence
+    # reception had already paid for and written to disk. Measured on
+    # naches_2023 (2026-08-07): reception escalated to n=216 and kept 101 points
+    # in basin; this call, flat at n=120, got 29. Bands 1 and 5 held two points
+    # each against per_band=3, so the ensemble came out 17 columns instead of 19
+    # -- and worse than the count, the BAND EDGES were computed from that sparse
+    # sample, so the strata did not match the relief reception had characterised.
+    if grid:
+        pts = [p for p in grid if p.get("elevation_m") is not None]
+        print(f"  DEM grid: {len(pts)} points from reception (no re-fetch)")
+    else:
+        got = terr.call_tool_json("sample_elevation_grid",
+                                  {**bbox, "n": grid_n}) or {}
+        pts = [p for p in got.get("points", []) if p.get("elevation_m") is not None]
     if boundary:                  # clip the rectangular bbox sample to the real basin
         n0 = len(pts)
         pts = _clip_to_polygon(pts, boundary)

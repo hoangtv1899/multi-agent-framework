@@ -1031,6 +1031,96 @@ Two consequences:
 
 ---
 
+## 11c. The 13-case chain run — 2026-08-07
+
+reception -> planner -> sample_columns over `tests/reception_cases.py`, driven by
+`tests/chain_cases.py`. 35 min on the login node, no compute submitted. The two
+reception-level traps (naches_2025 must refuse, manitowoc_2224 must clamp) never
+reach a sampler and are excluded.
+
+```
+                 live run      after the fixes
+checks            104/113          121/126
+clean cases         7/13            10/13
+```
+
+Four bugs, three of them real, found by running basins the framework had never
+seen.
+
+### 1. A ruled-out variable still got columns
+
+`naches_1988`: the planner marked water_table `comparison: "unavailable"` —
+"observed WTDs of tens of metres lie below the ELM soil column" — and still
+listed two wells. The sampler pinned them, so **6 columns where the plan's own
+arithmetic said 4**, and both came out of the stratified budget: 13 stratified
+against 15 asked for, two bands one short.
+
+Not disobedience. `planner.txt` had a rule for "no stations exist" and none for
+"stations exist but cannot validate", so the planner improvised sensibly. Fixed
+in both places — the sampler skips `unavailable` entries, and the prompt now
+names three distinct reasons a comparison can be unavailable.
+
+### 2. The sampler designed on a quarter of the DEM it already had
+
+`naches_2023`, measured:
+
+```
+reception   n_requested 216   n_in_basin 101      (retried: MIN_IN_BASIN=55)
+sampler     n=120 flat        n_in_basin  29      (no retry)
+```
+
+Reception escalates grid density when too few points land in the basin. The
+sampler's own re-fetch does not, so it built the ensemble on 29 points where 101
+were already on disk — **17 columns instead of 19**, and worse than the count,
+the BAND EDGES came from that sparse sample, so the strata did not match the
+relief reception had characterised.
+
+`data_gather.py` had said so all along: *"The grid is fetched at the SAMPLER's
+resolution ... so Tier 2 never has to fetch anything. It reads this grid."* It
+never did. `expand()` now takes `grid=` and `_materialize` passes reception's.
+naches_2023 goes 17 -> 19 columns and 8/9 -> 10/10; smoky_2012 15 -> 16.
+
+### 3. A rate-limited fetch became a scientific finding
+
+`chattahoochee_2000`: streamflow and water_table both came back
+`ok: false, error: "429 Too Many Requests"`. The planner wrote *"observations_summary
+lists no streamflow gauges with records in the domain"* — an absence, for a basin
+thick with USGS gauges.
+
+`data_gather` records the error correctly; `summarise()` was passing `ok` to the
+planner but **dropping the error string**, and a bare `false` is easy to skim
+past. The error now travels with it, and `planner.txt` requires a failed fetch to
+be reported as a failed fetch. Caused by this very run hammering USGS 13 times in
+35 minutes — worth remembering before the next batch.
+
+### 4. My own check blamed the wrong box
+
+`plan.cites_stations` fired on Chattahoochee, scoring the planner for correctly
+citing nothing when there was nothing to cite. Now conditioned on reception
+having stations at all; when it has none the finding is
+`reception.fetched_any_station`, which points at the 429 instead.
+
+### What remains, and is not a bug
+
+* `centralcoast_1998` builds 15 of 16. Band 4 holds 2 DEM points against
+  per_band=3. An elongated coastal strip genuinely has little mid-elevation area
+  — `data_gather` names this exact basin as the motivation for its retry. The
+  sampler builds what exists and says how short it is.
+* `naches_2020` declares `n_validation: 4` and lists 5 stations, over its own
+  prompt's "pin at most 4". The sampler clamped to budget and warned. The prompt
+  now states that n_validation must equal the number listed. **Unverified** — it
+  needs a fresh planner run to confirm the wording takes.
+
+### Where the pinning stands
+
+10 of 13 basins built the planner's design exactly. Pinned columns sit on their
+stations to 5 decimal places in every case. Where a station reports its own
+elevation, 3DEP agrees within a few metres — Naches came in at +0.5, +15.9 and
+-4.1 m, Gunnison at +1.3 and -1.3 m — against the 846 m offsets that made
+step1_compare_swe give up on station pairing.
+
+---
+
 ## 12. Open
 
 * **Fan WTD sits awkwardly in `sample_columns`, and moves when PFLOTRAN does.**

@@ -72,7 +72,20 @@ def check_chain(plan, reception, res, pinned):
     entries = plan.get("validation") or []
     cited = [sid for e in entries if not _ruled_out(e)
              for sid in (e.get("stations") or [])]
-    add("plan.cites_stations", bool(cited), f"{len(cited)} pinnable: {cited}")
+
+    # Only meaningful when reception HAS stations to cite. Chattahoochee's
+    # streamflow and water-table fetches were rate-limited (HTTP 429), so the
+    # plan citing nothing was correct; scoring that as a planner failure would
+    # have blamed the wrong box for a data-collection failure.
+    import expand_sampling as _exp
+    available = len(_exp._station_index(reception))
+    if available:
+        add("plan.cites_stations", bool(cited),
+            f"{len(cited)} pinnable of {available} fetched: {cited}")
+    else:
+        add("reception.fetched_any_station", False,
+            "reception fetched NO stations — check ok/error, this may be a "
+            "failed fetch rather than an empty basin")
 
     # planner.txt: "If a variable has no stations in observations_summary, emit
     # it with `stations: []` and `comparison: 'unavailable'`." Half-obeying it —

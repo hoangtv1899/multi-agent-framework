@@ -278,21 +278,29 @@ def summarise(observations: Dict[str, Any]) -> Dict[str, Any]:
     q = observations.get("streamflow") or {}
     w = observations.get("water_table") or {}
     s = observations.get("swe") or {}
+    # THE ERROR TRAVELS WITH ok=False. Carrying the flag alone was not enough:
+    # on 2026-08-07 the Chattahoochee fetch was rate-limited (HTTP 429) and the
+    # planner, seeing {"ok": false, "stations": []}, wrote "observations_summary
+    # lists no streamflow gauges with records in the domain" -- reporting an
+    # absence for a basin thick with USGS gauges. "We could not look" and
+    # "there is nothing there" are different findings, and a bare false is too
+    # easy to skim past. The reason is now in front of whoever reads it.
     return {
         "streamflow": {
-            "ok": q.get("ok"), "n_in_bbox": q.get("n_in_bbox"),
+            "ok": q.get("ok"), "error": q.get("error"),
+            "n_in_bbox": q.get("n_in_bbox"),
             "n_with_records": q.get("n_with_records"),
             "stations": [{k: st.get(k) for k in
                           ("id", "name", "lat", "lon", "drainage_area_km2", "n_days")}
                          for st in (q.get("stations") or [])],
         },
         "water_table": {
-            "ok": w.get("ok"), "n_with_records": w.get("n_with_records"),
+            "ok": w.get("ok"), "error": w.get("error"), "n_with_records": w.get("n_with_records"),
             "wells": [{k: st.get(k) for k in ("id", "lat", "lon", "n_obs", "wtd_m")}
                       for st in (w.get("wells") or [])[:25]],
         },
         "swe": {
-            "ok": s.get("ok"), "n_stations": s.get("n_stations"),
+            "ok": s.get("ok"), "error": s.get("error"), "n_stations": s.get("n_stations"),
             "n_reporting": s.get("n_reporting"),
             "stations": [{k: st.get(k) for k in
                           ("triplet", "name", "lat", "lon", "elevation_m",

@@ -72,15 +72,38 @@ variable you intend to validate, name the SPECIFIC stations. The sampler will
 place a column at each pinned station, which is what makes the comparison
 co-located rather than a basin average against a point measurement.
 
+`n_validation` MUST equal the total number of stations you list across all
+entries. It is not an estimate — the column budget is computed from it
+(n_bands*per_band + n_validation), so declaring 4 and listing 5 asks for one
+more column than the budget you yourself derived, and the extra is taken out of
+the stratified design.
+
 Pin at most 4, and prefer:
   • a streamflow gauge whose drainage_area_km2 is closest to the basin area —
     a gauge draining 7% of the basin cannot validate a basin-wide ensemble, and
     saying so is more useful than pretending otherwise;
   • SNOTEL stations spanning the elevation range, not clustered.
 
-If a variable has no stations in observations_summary, emit it with
-`stations: []` and `comparison: "unavailable"`. That is a finding, not a gap to
-paper over.
+A variable you are not pinning gets `stations: []` and a `comparison` that
+starts with the word "unavailable". Never list stations alongside an
+"unavailable" verdict — the sampler pins whatever is listed, and a column spent
+on a comparison you have ruled out is taken straight out of the stratified
+design. Three reasons, and they are NOT the same finding:
+
+  • "unavailable — none in domain"   observations_summary lists no stations.
+  • "unavailable — <why>"            stations exist but cannot validate, e.g. a
+                                     well whose observed water table lies below
+                                     the ELM soil column.
+  • "unavailable — FETCH FAILED"     the block has `ok: false`. You do not know
+                                     whether stations exist. Say the fetch
+                                     failed and quote its `error`. Do NOT write
+                                     that there are none — "we could not look"
+                                     and "there is nothing there" are different
+                                     findings, and reporting the first as the
+                                     second invents an absence.
+
+The first two are findings worth stating. The third is a data-collection
+failure, and calling it a finding hides it.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT — this JSON, nothing else
