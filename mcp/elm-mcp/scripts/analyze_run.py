@@ -23,8 +23,11 @@ import warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore")          # quiet xarray/netCDF futurewarnings
-sys.path.insert(0, "src")
-from core.elm_results_analyzer import ELMResultsAnalyzer
+_HERE = Path(__file__).resolve().parent                    # scripts/
+_FRAMEWORK = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(_HERE.parent / "src"))              # ELM modules
+sys.path.insert(0, str(_FRAMEWORK / "src"))                # framework
+from elm_results_analyzer import ELMResultsAnalyzer
 from core.limitations import select_limitations
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from core.columns_to_plan import columns_to_elm_plan   # noqa: E402
+from columns_to_plan import columns_to_elm_plan   # noqa: E402
 
 COLS = [
     {"id": "col_01", "lat": 46.7, "lon": -120.7, "elevation_m": 447, "band": 1,

@@ -141,7 +141,7 @@ class TestTheManagersCallSiteStillBinds:
         to call it. Asserted against the base for that reason."""
         src = (ROOT / "src" / "core" / "exp_manager_base.py").read_text()
         assert "Analyzer(str(self.run_dir)).run(" in src
-        elm = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        elm = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_exp_manager.py").read_text()
         assert "def execute_plan" not in elm, \
             "ELM must not re-implement the stage sequence"
 
@@ -154,14 +154,14 @@ class TestTheStageSequenceIsSharedNotCopied:
 
     def test_every_backend_resolves_to_the_base(self):
         from core.exp_manager_base import ExperimentManagerBase as B
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
         from core.pflotran_exp_manager import PFLOTRANExpManager
         for M in (ELMExpManager, PFLOTRANExpManager):
             assert M.execute_plan is B.execute_plan, M.__name__
 
     def test_backends_declare_their_stages_rather_than_stubbing(self):
         """A no-op _build_cases() reports "prepared nothing, successfully"."""
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
         from core.pflotran_exp_manager import PFLOTRANExpManager
         assert ELMExpManager.NEEDS_CASE_BUILD and ELMExpManager.NEEDS_SCHEDULER
         assert not PFLOTRANExpManager.NEEDS_CASE_BUILD
@@ -181,7 +181,7 @@ class TestTheStageSequenceIsSharedNotCopied:
     def test_the_two_backends_cannot_claim_each_others_plans(self):
         """Sharing a plan key would make an ELM plan look already-materialized
         to PFLOTRAN, which builds zero experiments WITHOUT raising."""
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
         from core.pflotran_exp_manager import PFLOTRANExpManager
         elm, pf = ELMExpManager.__new__(ELMExpManager), \
                   PFLOTRANExpManager.__new__(PFLOTRANExpManager)
@@ -199,7 +199,7 @@ class TestTheStageSequenceIsSharedNotCopied:
         to an LLM as the authority on what the numbers mean.
         """
         from core.exp_manager_base import ExperimentManagerBase as B
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
         from core.pflotran_exp_manager import PFLOTRANExpManager
 
         assert B.FIELD_SEMANTICS == {}, "the base must not supply a default"

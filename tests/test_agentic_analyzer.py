@@ -28,7 +28,7 @@ def _load(name, relpath):
     return mod
 
 
-ag = _load("ag_mod", "tools/analyze_agentic.py")
+ag = _load("ag_mod", "mcp/elm-mcp/scripts/analyze_agentic.py")
 
 
 # ── the registry is the menu; nothing outside it exists ─────────────────────

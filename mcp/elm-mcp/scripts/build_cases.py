@@ -19,8 +19,11 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-sys.path.insert(0, "src")
-from core.elm_experiment_builder import ELMExperimentBuilder
+_HERE = Path(__file__).resolve().parent                    # scripts/
+_FRAMEWORK = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(_HERE.parent / "src"))              # ELM modules
+sys.path.insert(0, str(_FRAMEWORK / "src"))                # framework
+from elm_experiment_builder import ELMExperimentBuilder
 
 
 def main():

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/build_column_inputs.py — the per-column input builder.
+"""mcp/elm-mcp/src/build_column_inputs.py — the per-column input builder.
 
 The generators themselves are tested elsewhere; what is tested here is the
 thin layer around them, which is where the mistakes live: reading the donor
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _mod():
     spec = importlib.util.spec_from_file_location(
-        "build_column_inputs", ROOT / "tools" / "build_column_inputs.py")
+        "build_column_inputs", ROOT / "mcp" / "elm-mcp" / "src" / "build_column_inputs.py")
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m

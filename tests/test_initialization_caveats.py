@@ -18,7 +18,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from core.columns_to_plan import build_ledger          # noqa: E402
+from columns_to_plan import build_ledger          # noqa: E402
 from core.limitations import select_limitations        # noqa: E402
 
 
@@ -118,7 +118,7 @@ class TestColumnsJsonMatchesTheRun:
         write  = src.index('"columns.json").write_text')
         assert refine < write, "columns.json written before coordinates are snapped"
 
-        elm = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        elm = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_exp_manager.py").read_text()
         warm = elm.index("finidat_map = self._warmstart")
         soil = elm.index("self._attach_donor_soil")
         hook = elm.index("def _refine_columns")

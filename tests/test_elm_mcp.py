@@ -156,7 +156,7 @@ class _FakeClient:
 
 
 def _mgr(tmp_path):
-    from core.elm_exp_manager import ELMExpManager
+    from elm_exp_manager import ELMExpManager
     return ELMExpManager(base_output_dir=str(tmp_path))
 
 
@@ -302,7 +302,7 @@ class TestExtractionStaysWithTheCaller:
     boundary exists. PFLOTRAN's never left, and now the two match."""
 
     def test_the_manager_does_not_route_extract_through_the_server(self):
-        src = (ROOT / "src" / "core" / "elm_exp_manager.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_exp_manager.py").read_text()
         i = src.index("def _extract(")
         body = src[i:i + 1500]
         assert "_mcp(" not in body, "extract must not reach for a client"
@@ -318,7 +318,7 @@ class TestTheCaseListCarriesWhatTheBuildNeeds:
     file, so anything the warm start decided has to cross as data."""
 
     def test_the_adapter_is_replaced_by_what_built_it(self, tmp_path):
-        from core.elm_input_agent import ELMAgentAdapter
+        from elm_input_agent import ELMAgentAdapter
         m = _mgr(tmp_path)
         a = ELMAgentAdapter(case_name="col_01",
                             runtime_config={"FSURDAT": "/s.nc",
@@ -334,7 +334,7 @@ class TestTheCaseListCarriesWhatTheBuildNeeds:
         """json.dumps(default=str) turns an adapter into a string that is
         truthy, attribute-free and useless — the Phase 3 failure, one layer
         further out."""
-        from core.elm_input_agent import ELMAgentAdapter
+        from elm_input_agent import ELMAgentAdapter
         m = _mgr(tmp_path)
         m._save_case_inputs([{"case_name": "col_01",
                         "elm_agent": ELMAgentAdapter(

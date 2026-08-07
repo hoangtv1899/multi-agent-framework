@@ -90,7 +90,7 @@ def stubbed(tmp_path, monkeypatch):
     loop and hung on the gateway — an end-to-end test that spends API calls is
     not a test anyone will run.
     """
-    from core.elm_exp_manager import ELMExpManager
+    from elm_exp_manager import ELMExpManager
     from agents.analysis import step3_interpret as _s3
 
     monkeypatch.setattr(_s3, "investigate_and_interpret",
@@ -119,7 +119,7 @@ def stubbed(tmp_path, monkeypatch):
 
     def fake_build(self, plan, config):
         calls.append("build_case_inputs")
-        # the same keys src/core/elm_experiment_builder.py really returns
+        # the same keys mcp/elm-mcp/src/elm_experiment_builder.py really returns
         return [{"case_name": c["id"], "scenario_name": c["id"],
                  "case_dir": f"/scratch/{c['id']}",
                  "forcing_period": "1988-1988",
@@ -324,7 +324,7 @@ class TestPackageIsSelfSufficient:
 
     def test_package_is_written_before_the_analyzer_runs(self):
         import inspect
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
         src = inspect.getsource(ELMExpManager.execute_plan)
         assert src.index("self._package") < src.index("Analyzer("), \
             "the manager's product must be on disk before anything " \
@@ -350,7 +350,7 @@ class TestNothingPostComputeDiscardsTheRun:
 
     @pytest.mark.parametrize("stage", ["_package", "_couple_pflotran"])
     def test_a_post_compute_failure_is_survived(self, tmp_path, stubbed, stage):
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
 
         def boom(self, *a, **k):
             raise RuntimeError(f"{stage} exploded")
@@ -366,7 +366,7 @@ class TestNothingPostComputeDiscardsTheRun:
     def test_extraction_failure_is_still_fatal(self, tmp_path, stubbed):
         """Deliberately NOT guarded: no extraction means no numbers, and
         reporting success for a run with no results is worse than failing."""
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
 
         def boom(self, *a, **k):
             raise RuntimeError("extract exploded")

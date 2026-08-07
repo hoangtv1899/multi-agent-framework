@@ -909,7 +909,23 @@ class ExperimentManagerBase:
 				"Cannot materialize sampling: the 'terrain' MCP client is "
 				"required. Pass config['mcp_clients'].")
 
-		n_total = config.get("n_columns") or exp._n_from_plan(plan)
+		# CHECK FIRST, then read the counts. The order is the whole point.
+		#
+		# check() corrects strategy["sampling"]["n_columns"] when the request
+		# asked for a different number than the planner designed, and returns a
+		# config carrying the corrected strategy. Reading n_total before this
+		# call took the number from the UNCORRECTED plan, so the correction was
+		# computed, printed — "using the 2 that was asked for" — recorded in the
+		# run, and then ignored. Live from 5e0cfd5 until 2026-08-07, when a
+		# request for 2 columns built 17 and warm-started every one of them.
+		#
+		# 5e0cfd5 fixed the DETECTION. This is the enforcement.
+		config = self.check(plan, config)
+
+		# From the corrected strategy first, since that is what check() rewrote;
+		# `plan` remains the fallback for a caller that passes no strategy.
+		n_total = (config.get("n_columns")
+				   or exp._n_from_plan(config.get("strategy") or plan))
 		if not n_total:
 			raise ValueError(
 				"Cannot materialize sampling: no column count in the plan "
@@ -919,8 +935,6 @@ class ExperimentManagerBase:
 		bands = (config.get("n_bands")
 				 or exp._n_bands_from_plan(config.get("strategy") or plan)
 				 or DEFAULT_BANDS)
-
-		config = self.check(plan, config)
 
 		print("\n🗺️  STEP 0: Materializing Sampling")
 		print("-" * 40)

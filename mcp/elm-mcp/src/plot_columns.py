@@ -49,7 +49,7 @@ def plot_surfaces(cases, out_path):
     import matplotlib.pyplot as plt
     import numpy as np
     import xarray as xr
-    from core.elm_surface_generator import ELM_LEVEL_NODE_DEPTH_M
+    from elm_surface_generator import ELM_LEVEL_NODE_DEPTH_M
 
     depth = np.array(ELM_LEVEL_NODE_DEPTH_M)
     fig, ax = plt.subplots(1, 2, figsize=(9.5, 5.2))

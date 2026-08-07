@@ -19,7 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from core.columns_to_plan import build_ledger, columns_to_elm_plan  # noqa: E402
+from columns_to_plan import build_ledger, columns_to_elm_plan  # noqa: E402
 
 
 def _load(name, relpath):
@@ -30,8 +30,8 @@ def _load(name, relpath):
     return mod
 
 
-mw = _load("mw_mod", "tools/make_warmstart.py")
-fs = _load("fs_mod", "tools/make_finidat_subset.py")
+mw = _load("mw_mod", "mcp/elm-mcp/src/make_warmstart.py")
+fs = _load("fs_mod", "mcp/elm-mcp/src/make_finidat_subset.py")
 
 
 COLS = [{"id": f"col_{i:02d}", "lat": 46.0 + i * 0.4, "lon": -121.0,
@@ -213,7 +213,7 @@ class TestLedgerHonesty:
 # ── manager step 0b ─────────────────────────────────────────────────────────
 class TestManagerWarmstartStep:
     def _mgr(self, tmp_path):
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
         return ELMExpManager(base_output_dir=str(tmp_path))
 
     def test_a_missing_request_still_warm_starts(self, tmp_path):
@@ -369,7 +369,7 @@ class TestParallelSubset:
     def test_worker_count_comes_from_the_environment(self):
         """IDEAS_WARMSTART_WORKERS lets a busy login node dial this down
         without editing code."""
-        src = (ROOT / "tools" / "make_finidat_subset.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "make_finidat_subset.py").read_text()
         assert 'os.environ.get("IDEAS_WARMSTART_WORKERS"' in src
         assert fs.DEFAULT_WORKERS >= 1
 

@@ -5,7 +5,7 @@ import sys
 from unittest.mock import patch, MagicMock
 sys.path.insert(0, "src")
 
-from core.elm_wrapper import GeneratedELMAgent
+from elm_wrapper import GeneratedELMAgent
 
 def test_prepare_case_no_ref_calls_create():
     """Without ref_case_dir, prepare_case takes the fresh-build path."""

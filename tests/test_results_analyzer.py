@@ -15,7 +15,7 @@ pytest.importorskip("xarray")
 pytest.importorskip("netCDF4")
 
 sys.path.insert(0, "src")
-from core.elm_results_analyzer import ELMResultsAnalyzer   # noqa: E402
+from elm_results_analyzer import ELMResultsAnalyzer   # noqa: E402
 
 
 def _analyzer(tmp_path):

@@ -51,13 +51,16 @@ sys.path.insert(0, "src")
 
 from agents.analyzer          import Analyzer
 from core.exp_manager_base       import ExperimentManagerBase, Pending
-from core.elm_experiment_builder import ELMExperimentBuilder
-from core.elm_results_analyzer   import ELMResultsAnalyzer
-from core.columns_to_plan        import columns_to_elm_plan
+from elm_experiment_builder import ELMExperimentBuilder
+from elm_results_analyzer   import ELMResultsAnalyzer
+from columns_to_plan        import columns_to_elm_plan
 
 
 # Repo root — this file is <root>/src/core/elm_exp_manager.py
-_ROOT = Path(__file__).resolve().parents[2]
+# parents[3]: this file is mcp/elm-mcp/src/ now, not src/core/. _ROOT is
+# still the FRAMEWORK root — it locates tools/ and submit_cases.sh, which
+# did not move.
+_ROOT = Path(__file__).resolve().parents[3]
 
 
 
@@ -216,7 +219,7 @@ class ELMExpManager(ExperimentManagerBase):
 		profile, so there is no other dataset to confuse it with and nothing in
 		experiment.json that ELM did not actually see.
 		"""
-		fs = _load_tool("make_finidat_subset")
+		import make_finidat_subset as fs
 		n = 0
 		for c in columns:
 			entry = finidat_map.get(c.get("id")) or {}
@@ -278,8 +281,8 @@ class ELMExpManager(ExperimentManagerBase):
 			ws = {}
 
 		try:
-			fs = _load_tool("make_finidat_subset")
-			mw = _load_tool("make_warmstart")
+			import make_finidat_subset as fs
+			import make_warmstart as mw
 			spec = ws.get("conus_restart") or mw.DEFAULT_CONUS_MANIFEST
 			bands = mw.ConusBandSet(mw.resolve_conus_sources(spec))
 
@@ -338,7 +341,7 @@ class ELMExpManager(ExperimentManagerBase):
 		a failure here costs the early warning and the manifest, not the run.
 		"""
 		try:
-			bci = _load_tool("build_column_inputs")
+			import build_column_inputs as bci
 			res = bci.build_all(
 				self.run_dir,
 				soil_config = config.get("soil_config", "native"),
@@ -541,7 +544,7 @@ class ELMExpManager(ExperimentManagerBase):
 		if not cases:
 			return
 		try:
-			pc  = _load_tool("plot_columns")
+			import plot_columns as pc
 			out = self.setup_plots_dir / "column_surfaces.png"
 			pc.plot_surfaces(list(cases), str(out))
 			print(f"✓ setup plot → 02_setup_plots/{out.name}")

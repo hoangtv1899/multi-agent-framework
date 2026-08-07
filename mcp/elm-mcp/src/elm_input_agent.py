@@ -19,7 +19,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from core.model_agent_base import ModelAgentBase
-from core.elm_wrapper import GeneratedELMAgent
+from elm_wrapper import GeneratedELMAgent
 
 
 # Backward-compat shim for tests/legacy callers that import this flag.

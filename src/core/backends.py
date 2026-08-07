@@ -21,11 +21,31 @@ no scheduler, ELM has both. Those are declarations on the class
 (NEEDS_CASE_BUILD, NEEDS_SCHEDULER, COUPLES_TO) that the base's execute_plan
 reads, so the choice of model IS the choice of class.
 """
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
+
+# TEMPORARY, and it points the wrong way on purpose.
+#
+# ELM's code now lives in mcp/elm-mcp/src/ (docs/ELM_MCP_PLAN.md §9 phase 1b),
+# which is where it belongs under the rule that anything requiring knowledge of
+# ELM lives in ELM's server. But ELMExpManager is not deleted until phase 1e,
+# and until then the framework still instantiates it — so for exactly that long
+# the framework has to be able to import out of the server directory.
+#
+# This is the ONE edge from the framework into a model server, it exists only
+# because a class is mid-deletion, and it goes when that class does. It is here
+# rather than inside elm_exp_manager because this is the file that already knows
+# which backend lives where, and one visible line is easier to remove than a
+# hidden one.
+_ELM_MCP_SRC = Path(__file__).resolve().parents[2] / "mcp" / "elm-mcp" / "src"
+if _ELM_MCP_SRC.is_dir() and str(_ELM_MCP_SRC) not in sys.path:
+    sys.path.append(str(_ELM_MCP_SRC))      # append, not insert: the framework's
+                                            # own modules must still win a tie
 
 # name -> (module path, class name). Lazy on purpose; see the docstring.
 _BACKENDS: Dict[str, Tuple[str, str]] = {
-    "elm":             ("core.elm_exp_manager",      "ELMExpManager"),
+    "elm":             ("elm_exp_manager",           "ELMExpManager"),
     "pflotran":        ("core.pflotran_exp_manager", "PFLOTRANExpManager"),
     "lambda-pflotran": ("core.lambda_pflotran_exp_manager",
                         "LambdaPFLOTRANExpManager"),

@@ -41,6 +41,8 @@ from pathlib import Path
 FRAMEWORK = Path(os.getenv(
     "IDEAS_FRAMEWORK_DIR", str(Path(__file__).resolve().parents[3])))
 sys.path.insert(0, str(FRAMEWORK / "src"))
+# The ELM modules this job builds with live beside it now, not in the framework.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 os.environ.setdefault("LC_ALL", "en_US.utf8")
 os.environ.setdefault("LANG", "en_US.utf8")
@@ -64,8 +66,8 @@ def main(run_dir: str) -> int:
         return 1
 
     try:
-        from core.elm_input_agent import ELMAgentAdapter
-        from core.elm_experiment_builder import ELMExperimentBuilder
+        from elm_input_agent import ELMAgentAdapter
+        from elm_experiment_builder import ELMExperimentBuilder
 
         cases = json.loads(src.read_text())
         missing = [c.get("case_name") for c in cases

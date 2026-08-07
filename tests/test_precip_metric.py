@@ -18,7 +18,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from core.elm_results_analyzer import ELMResultsAnalyzer   # noqa: E402
+from elm_results_analyzer import ELMResultsAnalyzer   # noqa: E402
 
 
 def _metrics(rain=None, snow=None, **extra):
@@ -34,7 +34,7 @@ def _metrics(rain=None, snow=None, **extra):
 
 class TestPrecipIncludesSnow:
     def test_snow_is_counted(self):
-        src = (ROOT / "src" / "core" / "elm_results_analyzer.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_results_analyzer.py").read_text()
         i = src.index("metrics['precip_mm_yr']")
         window = src[max(0, i - 1200):i + 200]
         assert "variables.get('SNOW')" in window, \
@@ -43,14 +43,14 @@ class TestPrecipIncludesSnow:
 
     def test_rain_only_is_kept_under_its_own_name(self):
         """The rain total is still useful — it just is not 'precipitation'."""
-        src = (ROOT / "src" / "core" / "elm_results_analyzer.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_results_analyzer.py").read_text()
         assert "rainfall_mm_yr" in src
 
     def test_the_budget_and_the_metric_agree_by_construction(self):
         """The budget builds P as rain + snow a few lines below. If the two
         ever diverge again, every fraction in the dict divides by a different
         denominator than the closure does."""
-        src = (ROOT / "src" / "core" / "elm_results_analyzer.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_results_analyzer.py").read_text()
         assert "p = rain + snow" in src
         i = src.index("metrics['precip_mm_yr']")
         assert "(_r or 0.0) + (_s or 0.0)" in src[i:i + 120]

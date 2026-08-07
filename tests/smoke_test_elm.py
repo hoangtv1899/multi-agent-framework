@@ -117,8 +117,8 @@ def passed(case_dir: Path) -> int:
 # Main
 # ────────────────────────────────────────────────────────────────────
 def main() -> int:
-    from core.elm_experiment_builder import ELMExperimentBuilder
-    from core.elm_results_analyzer   import ELMResultsAnalyzer
+    from elm_experiment_builder import ELMExperimentBuilder
+    from elm_results_analyzer   import ELMResultsAnalyzer
 
     print()
     print("=" * 72)

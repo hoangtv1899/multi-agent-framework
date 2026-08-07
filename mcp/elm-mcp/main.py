@@ -166,7 +166,7 @@ def _imports() -> dict:
     pull in CIME's own tree, which can be missing in a differently-launched
     process."""
     out = {}
-    for mod in ("core.elm_experiment_builder", "core.elm_input_agent"):
+    for mod in ("elm_experiment_builder", "elm_input_agent"):
         try:
             __import__(mod)
             out[mod] = True

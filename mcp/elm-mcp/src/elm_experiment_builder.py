@@ -11,12 +11,12 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Any
 
-from core.elm_input_agent import ELMAgentAdapter, ELM_AVAILABLE
+from elm_input_agent import ELMAgentAdapter, ELM_AVAILABLE
 
 # Optional generators for per-experiment domain/surface files
 try:
-    from core.elm_domain_generator import ELMDomainGenerator
-    from core.elm_surface_generator import (
+    from elm_domain_generator import ELMDomainGenerator
+    from elm_surface_generator import (
         ELMSurfaceGenerator,
         SURFACE_TEMPLATE,
     )

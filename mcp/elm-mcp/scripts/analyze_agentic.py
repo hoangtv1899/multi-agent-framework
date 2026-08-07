@@ -19,7 +19,10 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "src")
+_HERE = Path(__file__).resolve().parent                    # scripts/
+_FRAMEWORK = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(_HERE.parent / "src"))              # ELM modules
+sys.path.insert(0, str(_FRAMEWORK / "src"))                # framework
 
 from agents.analysis import step2_derive as _drv
 
@@ -210,7 +213,7 @@ def main():
     # deterministic render context — the LLM never touches these objects
     az_soil = None
     try:
-        from core.elm_results_analyzer import ELMResultsAnalyzer
+        from elm_results_analyzer import ELMResultsAnalyzer
         exps = ar.build_experiments(rd, args.cases_file, "run_plan.json")
         _az = ELMResultsAnalyzer(exps, str(ana))
         _az.results = results

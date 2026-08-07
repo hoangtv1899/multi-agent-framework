@@ -44,7 +44,9 @@ import sys
 from pathlib import Path
 from typing  import Any, Dict, List, Optional
 
-_ROOT = Path(__file__).resolve().parents[1]
+_HERE = Path(__file__).resolve().parent               # mcp/elm-mcp/src
+_ROOT = Path(__file__).resolve().parents[3]           # the framework
+sys.path.insert(0, str(_HERE))
 sys.path.insert(0, str(_ROOT / "src"))
 
 
@@ -87,8 +89,8 @@ def build_one(lat:              float,
     Returns whichever half succeeded; a missing key means that generator
     failed and the caller must not build a case for this column.
     """
-    from core.elm_domain_generator  import ELMDomainGenerator
-    from core.elm_surface_generator import ELMSurfaceGenerator
+    from elm_domain_generator  import ELMDomainGenerator
+    from elm_surface_generator import ELMSurfaceGenerator
 
     out: Dict[str, str] = {}
 

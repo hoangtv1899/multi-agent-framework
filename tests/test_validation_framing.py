@@ -232,7 +232,7 @@ class TestRunoffRatioGuard:
 
 
 # ── analysis figures: partitioning + controls ────────────────────────────────
-ar = _load("ar_mod", "tools/analyze_run.py")
+ar = _load("ar_mod", "mcp/elm-mcp/scripts/analyze_run.py")
 
 
 def _col(name, P, runoff, et, drain, ds, elev, clay=None, rech=0.0):
@@ -252,7 +252,7 @@ class TestPartitioningFigure:
         """The defect this replaces: the old plot_budget did max(v, 0) on
         Δstorage, so a column DRAINING storage showed no storage term and its
         stack silently exceeded P (col_12: 3750 mm exported against 1870 mm)."""
-        src = (ROOT / "tools" / "analyze_run.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "scripts" / "analyze_run.py").read_text()
         assert "def plot_partitioning(" in src
         assert "def plot_budget(" not in src
         body = src[src.index("def plot_partitioning("):src.index("def plot_controls(")]
@@ -272,7 +272,7 @@ class TestPartitioningFigure:
 
 class TestControlsFigure:
     def test_it_replaces_the_absolute_flux_matrix(self):
-        src = (ROOT / "tools" / "analyze_run.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "scripts" / "analyze_run.py").read_text()
         assert "def plot_controls(" in src
         assert "def plot_relations(" not in src
         assert "def plot_gradient(" not in src

@@ -39,8 +39,8 @@ import pytest
 
 sys.path.insert(0, "src")
 
-from core.elm_exp_manager       import ELMExpManager
-from core.elm_results_analyzer  import ELMResultsAnalyzer
+from elm_exp_manager       import ELMExpManager
+from elm_results_analyzer  import ELMResultsAnalyzer
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -150,7 +150,7 @@ class TestBuildStepOutputs:
         )
         mock_class = MagicMock(return_value=mock_builder)
 
-        with patch("core.elm_exp_manager.ELMExperimentBuilder",
+        with patch("elm_exp_manager.ELMExperimentBuilder",
                    mock_class):
             mgr._build_case_inputs({}, {})
 
@@ -166,7 +166,7 @@ class TestBuildStepOutputs:
         mock_builder.get_experiment_summary.return_value = (
             fake_builder_summary
         )
-        with patch("core.elm_exp_manager.ELMExperimentBuilder",
+        with patch("elm_exp_manager.ELMExperimentBuilder",
                    MagicMock(return_value=mock_builder)):
             mgr._build_case_inputs({}, {})
 
@@ -182,7 +182,7 @@ class TestBuildStepOutputs:
         mock_builder.get_experiment_summary.return_value = (
             fake_builder_summary
         )
-        with patch("core.elm_exp_manager.ELMExperimentBuilder",
+        with patch("elm_exp_manager.ELMExperimentBuilder",
                    MagicMock(return_value=mock_builder)):
             mgr._build_case_inputs({}, {})
 
@@ -284,7 +284,7 @@ class TestAnalyzeStepOutputs:
         mock_analyzer = MagicMock()
         mock_class    = MagicMock(return_value=mock_analyzer)
 
-        with patch("core.elm_exp_manager.ELMResultsAnalyzer",
+        with patch("elm_exp_manager.ELMResultsAnalyzer",
                    mock_class):
             mgr._extract(fake_experiments)
 
@@ -663,22 +663,22 @@ class TestColumnInputPreBuild:
         """soil_config and substrate are part of the surface file's identity;
         dropping them would generate a different file than the builder asks
         for and defeat the cache-hit equivalence."""
-        import core.elm_exp_manager as M
+        import elm_exp_manager as M
         seen = {}
         fake = type("m", (), {"build_all": staticmethod(
             lambda rd, **kw: seen.update(kw) or {"built": {}, "failed": {}})})
-        monkeypatch.setattr(M, "_load_tool", lambda name: fake)
+        monkeypatch.setitem(sys.modules, "build_column_inputs", fake)
         mgr = ELMExpManager(base_output_dir=str(tmp_path))
         mgr._build_column_inputs({"soil_config": "sandy", "substrate": "template"})
         assert seen["soil_config"] == "sandy"
         assert seen["substrate"] == "template"
 
     def test_defaults_match_the_builders(self, tmp_path, monkeypatch):
-        import core.elm_exp_manager as M
+        import elm_exp_manager as M
         seen = {}
         fake = type("m", (), {"build_all": staticmethod(
             lambda rd, **kw: seen.update(kw) or {"built": {}, "failed": {}})})
-        monkeypatch.setattr(M, "_load_tool", lambda name: fake)
+        monkeypatch.setitem(sys.modules, "build_column_inputs", fake)
         ELMExpManager(base_output_dir=str(tmp_path))._build_column_inputs({})
         assert seen["soil_config"] == "native"
         assert seen["substrate"] == "extrapolate"
@@ -780,7 +780,7 @@ class TestDailySeries:
     def _summarize(self, values, var, with_time=True):
         pytest.importorskip("xarray")
         import numpy as np, xarray as xr
-        from core.elm_results_analyzer import ELMResultsAnalyzer
+        from elm_results_analyzer import ELMResultsAnalyzer
         n = len(values)
         coords, dims = {}, ("time",)
         if with_time:
@@ -1104,7 +1104,7 @@ class TestSoilAttribution:
         and strongest_predictor. The contract is the figure drawing."""
         import importlib.util as u
         from agents.analysis import step2_derive as drivers
-        spec = u.spec_from_file_location("ar", ROOT / "tools" / "analyze_run.py")
+        spec = u.spec_from_file_location("ar", ROOT / "mcp" / "elm-mcp" / "scripts" / "analyze_run.py")
         ar = u.module_from_spec(spec); spec.loader.exec_module(ar)
         sa = drivers.soil_attribution(
             self._rows([500, 500, 500, 500], [20, 30, 40, 50]))
@@ -1141,7 +1141,7 @@ class TestSeriesPrecisionAndSize:
     """
 
     def test_significant_figures_not_decimal_places(self):
-        from core.elm_results_analyzer import _sigfig
+        from elm_results_analyzer import _sigfig
         assert _sigfig(71.67472) == 71.67          # deep water table
         assert _sigfig(869.7123) == 869.7          # a melt-day flux
         assert _sigfig(0.0005432) == 0.0005432     # kept, not zeroed
@@ -1149,7 +1149,7 @@ class TestSeriesPrecisionAndSize:
 
     def test_small_values_survive(self):
         """The whole point: 3 decimals would make these zero."""
-        from core.elm_results_analyzer import _sigfig
+        from elm_results_analyzer import _sigfig
         for v in (2e-05, 0.0005432, 0.000123):
             assert _sigfig(v) != 0.0
 
@@ -1211,7 +1211,7 @@ class TestWarmStartRelaxationIsTrimmed:
                           coords={"time": t})
 
     def test_the_first_days_are_removed(self):
-        from core.elm_results_analyzer import _drop_spinup
+        from elm_results_analyzer import _drop_spinup
         ds = self._ds()
         out, rec = _drop_spinup(ds, 14)
         assert out.sizes["time"] < ds.sizes["time"]
@@ -1220,7 +1220,7 @@ class TestWarmStartRelaxationIsTrimmed:
 
     def test_zero_is_a_no_op_and_records_nothing(self):
         """Set the constant to 0 to keep the whole record."""
-        from core.elm_results_analyzer import _drop_spinup
+        from elm_results_analyzer import _drop_spinup
         ds = self._ds()
         out, rec = _drop_spinup(ds, 0)
         assert out.sizes["time"] == ds.sizes["time"] and rec is None
@@ -1228,7 +1228,7 @@ class TestWarmStartRelaxationIsTrimmed:
     def test_a_record_shorter_than_the_window_is_kept_whole(self):
         """Returning nothing would turn a short run into a silent empty
         extraction — the soil_attribution failure in a new costume."""
-        from core.elm_results_analyzer import _drop_spinup
+        from elm_results_analyzer import _drop_spinup
         ds = self._ds(days=3)
         out, rec = _drop_spinup(ds, 14)
         assert out.sizes["time"] == ds.sizes["time"] and rec is None
@@ -1236,7 +1236,7 @@ class TestWarmStartRelaxationIsTrimmed:
     def test_what_was_dropped_is_recorded_not_silent(self):
         """A model series that starts later than the simulation must say so, or
         a reader lining it up against a gauge record is misled."""
-        from core.elm_results_analyzer import _drop_spinup
+        from elm_results_analyzer import _drop_spinup
         _out, rec = _drop_spinup(self._ds(), 14)
         assert rec["timesteps_dropped"] > 0
         assert "warm-start relaxation" in rec["reason"]
@@ -1247,7 +1247,7 @@ class TestWarmStartRelaxationIsTrimmed:
         leave annual_runoff_mm_yr carrying the transient while the hydrograph
         beside it did not."""
         import inspect
-        from core.elm_results_analyzer import ELMResultsAnalyzer
+        from elm_results_analyzer import ELMResultsAnalyzer
         src = inspect.getsource(ELMResultsAnalyzer._extract_one)
         assert "_drop_spinup" in src
         assert src.index("_drop_spinup") < src.index("self._summarize")

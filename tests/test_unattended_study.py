@@ -20,7 +20,7 @@ import pytest
 
 sys.path.insert(0, "src")
 
-from core.elm_exp_manager import ELMExpManager
+from elm_exp_manager import ELMExpManager
 from core.exp_manager_base import Pending
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -307,13 +307,14 @@ class TestTheAnnouncement:
         # A BARE input( call — not _save_llm_input( or get_llm_analysis_input().
         # The first version of this matched the substring and flagged both.
         call = re.compile(r"(?<![A-Za-z0-9_])input\s*\(")
-        for f in ("elm_exp_manager.py", "pflotran_exp_manager.py",
-                  "exp_manager_base.py"):
-            src = (ROOT / "src" / "core" / f).read_text()
+        for f in (ROOT / "mcp" / "elm-mcp" / "src" / "elm_exp_manager.py",
+                  ROOT / "src" / "core" / "pflotran_exp_manager.py",
+                  ROOT / "src" / "core" / "exp_manager_base.py"):
+            src = f.read_text()
             code = [l.strip() for l in src.splitlines()
                     if call.search(l) and not l.strip().startswith("#")
                     and "called input()" not in l]
-            assert not code, f"{f} prompts the user: {code}"
+            assert not code, f"{f.name} prompts the user: {code}"
 
     def test_it_names_where_the_results_will_be(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("IDEAS_PREFS_DIR", str(tmp_path / "prefs"))
@@ -328,7 +329,7 @@ class TestTheAnnouncement:
         """PFLOTRAN finishes in seconds while you watch; offering to email
         about it would be noise."""
         import workflow
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
         from core.pflotran_exp_manager import PFLOTRANExpManager
         monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", "who@x.gov")
         c = workflow.WorkflowCoordinator.__new__(workflow.WorkflowCoordinator)
@@ -337,7 +338,7 @@ class TestTheAnnouncement:
 
     def test_the_coordinator_does_not_block_without_a_tty(self, monkeypatch):
         import workflow
-        from core.elm_exp_manager import ELMExpManager
+        from elm_exp_manager import ELMExpManager
         called = []
         monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", "who@x.gov")
         monkeypatch.setattr("builtins.input", lambda _p="": called.append(1) or "")

@@ -33,13 +33,13 @@ from datetime import datetime
 
 sys.path.insert(0, "src")
 
-from core.elm_input_agent        import ELMAgentAdapter, ELM_AVAILABLE
-from core.elm_experiment_builder import ELMExperimentBuilder
-from core.elm_results_analyzer   import (
+from elm_input_agent        import ELMAgentAdapter, ELM_AVAILABLE
+from elm_experiment_builder import ELMExperimentBuilder
+from elm_results_analyzer   import (
     ELMResultsAnalyzer,
     TARGET_VARIABLES,
 )
-from core.elm_exp_manager        import ELMExpManager
+from elm_exp_manager        import ELMExpManager
 from core.model_agent_base       import REQUIRED_SUMMARY_KEYS
 
 # ─────────────────────────────────────────────────────────────────────

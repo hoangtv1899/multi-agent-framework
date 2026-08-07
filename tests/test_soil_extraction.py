@@ -20,7 +20,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from core.elm_surface_generator import (ELMSurfaceGenerator,  # noqa: E402
+from elm_surface_generator import (ELMSurfaceGenerator,  # noqa: E402
                                         _FALLBACK_LAYER, _PCT_KEYS)
 
 
@@ -63,7 +63,7 @@ class TestParsedLayers:
     def test_measured_values_reach_elm(self, gen):
         """Percentages stay percentages (sand/clay/gravel); organic becomes a
         density, because that is the unit ELM reads it in."""
-        from core.elm_surface_generator import _NOMINAL_BULK_DENSITY_GCC as BD
+        from elm_surface_generator import _NOMINAL_BULK_DENSITY_GCC as BD
         prof = {"layers": [
             _layer(organic_matter_pct=5.0, gravel_pct=10.0),
             _layer(depth_top_cm=84.0, depth_bot_cm=152.0, sand_pct=47.1,
@@ -78,7 +78,7 @@ class TestParsedLayers:
 
     def test_fallback_is_per_field_not_per_layer(self, gen):
         """A layer missing gravel must keep its measured sand/clay/organic."""
-        from core.elm_surface_generator import _NOMINAL_BULK_DENSITY_GCC as BD
+        from elm_surface_generator import _NOMINAL_BULK_DENSITY_GCC as BD
         rows = gen._parse_mcp_layers({"layers": [
             _layer(organic_matter_pct=4.0)]})
         assert rows[0]["PCT_SAND"] == 80.9
@@ -127,7 +127,7 @@ class TestOrganicUnits:
         assert 10.0 < v < 130.0
 
     def test_missing_bulk_density_uses_a_nominal_one(self, gen):
-        from core.elm_surface_generator import _NOMINAL_BULK_DENSITY_GCC as BD
+        from elm_surface_generator import _NOMINAL_BULK_DENSITY_GCC as BD
         v = gen._organic_kg_m3({"organic_matter_pct": 2.0})
         assert v == pytest.approx(2.0 / 100 * BD * 1000)
 
@@ -156,7 +156,7 @@ class TestSoilSource:
         """It was called 'ssurgo' because a survey query was its usual input.
 
         The capability is "write the supplied horizons into surfdata", which is
-        what tools/make_soil_sweep.py needs to vary clay and sand at one site.
+        what mcp/elm-mcp/scripts/make_soil_sweep.py needs to vary clay and sand at one site.
         Naming a general capability after one dataset made it look like that
         dataset's plumbing, and therefore deletable along with it.
         """
@@ -165,13 +165,13 @@ class TestSoilSource:
         assert sig.parameters["soil_source"].default == "profile"
 
     def test_unknown_soil_sources_are_refused(self, gen):
-        src = (ROOT / "src" / "core" / "elm_surface_generator.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_surface_generator.py").read_text()
         assert "if soil_source not in ('profile', 'conus')" in src
 
     def test_the_builder_always_keeps_donor_soil(self):
         """Warm start is required, so a CONUS-subset template is always present
         and there is no second branch for the two decisions to drift between."""
-        src = (ROOT / "src" / "core" / "elm_experiment_builder.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_experiment_builder.py").read_text()
         assert "veg_source, soil_source = 'template', 'conus'" in src
         assert "else 'ssurgo'" not in src
 
@@ -182,7 +182,7 @@ class TestSoilSource:
         'profile' keeps the empty tag its old name had, so every surface file
         cached under the previous naming stays valid.
         """
-        src = (ROOT / "src" / "core" / "elm_surface_generator.py").read_text()
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_surface_generator.py").read_text()
         assert "soil_tag" in src and "_soil-" in src
 
 
@@ -193,7 +193,10 @@ import importlib.util  # noqa: E402
 
 
 def _tool(name):
-    spec = importlib.util.spec_from_file_location(name, str(ROOT / "tools" / f"{name}.py"))
+    _TOOL_DIRS = (ROOT / "mcp" / "elm-mcp" / "src", ROOT / "tools")
+    path = next((d / f"{name}.py" for d in _TOOL_DIRS
+                 if (d / f"{name}.py").is_file()), None)
+    spec = importlib.util.spec_from_file_location(name, str(path))
     m = importlib.util.module_from_spec(spec)
     sys.modules[name] = m
     spec.loader.exec_module(m)

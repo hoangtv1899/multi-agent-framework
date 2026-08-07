@@ -24,7 +24,7 @@ from datetime import datetime
 
 sys.path.insert(0, "src")
 
-from core.elm_exp_manager      import ELMExpManager
+from elm_exp_manager      import ELMExpManager
 from core.model_agent_base     import REQUIRED_SUMMARY_KEYS
 
 # ─────────────────────────────────────────────────────────────────────

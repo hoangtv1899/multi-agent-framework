@@ -24,14 +24,14 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, "src")
 
 from core.model_agent_base       import ModelAgentBase, REQUIRED_SUMMARY_KEYS
-from core.elm_input_agent        import ELMAgentAdapter, ELM_AVAILABLE
-from core.elm_experiment_builder import ELMExperimentBuilder
-from core.elm_results_analyzer   import (
+from elm_input_agent        import ELMAgentAdapter, ELM_AVAILABLE
+from elm_experiment_builder import ELMExperimentBuilder
+from elm_results_analyzer   import (
     ELMResultsAnalyzer,
     TARGET_VARIABLES,
     VARIABLE_UNITS,
 )
-from core.elm_exp_manager        import ELMExpManager
+from elm_exp_manager        import ELMExpManager
 
 # ─────────────────────────────────────────────────────────────────────
 # SHARED FIXTURES
@@ -285,7 +285,7 @@ class TestELMAdapterImport:
     def test_elm_adapter_has_model_type(self):
         """ELMAgentAdapter.model_type returns 'elm'."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             adapter = ELMAgentAdapter('test_case')
@@ -294,7 +294,7 @@ class TestELMAdapterImport:
     def test_elm_adapter_not_ready_before_prepare(self):
         """ELMAgentAdapter.is_ready() is False before prepare_case()."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             adapter = ELMAgentAdapter('test_case')
@@ -303,7 +303,7 @@ class TestELMAdapterImport:
     def test_elm_adapter_repr(self):
         """ELMAgentAdapter.__repr__() contains model type."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             adapter = ELMAgentAdapter('test_case')
@@ -314,7 +314,7 @@ class TestELMAdapterImport:
     def test_elm_adapter_forwards_runtime_config_to_wrapper(self):
         """ELMAgentAdapter forwards runtime_config to the wrapper unchanged."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             config = {
@@ -335,7 +335,7 @@ class TestELMAdapterImport:
     def test_elm_adapter_forwards_unknown_keys_to_wrapper(self):
         """Adapter forwards all keys; wrapper handles unknown-key validation."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             config = {
@@ -354,7 +354,7 @@ class TestELMAdapterImport:
     def test_elm_adapter_run_summary_structure(self):
         """get_run_summary() returns all required + ELM-specific keys."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_instance          = MagicMock()
             mock_instance.is_built = True
@@ -396,7 +396,7 @@ class TestELMExperimentBuilder:
     def test_builder_correct_experiment_count(self, minimal_plan):
         """Builder creates correct number of experiments."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(minimal_plan)
@@ -406,7 +406,7 @@ class TestELMExperimentBuilder:
     def test_builder_correct_experiment_names(self, minimal_plan):
         """Builder extracts correct experiment names."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(minimal_plan)
@@ -419,7 +419,7 @@ class TestELMExperimentBuilder:
     def test_builder_correct_forcing_years(self, minimal_plan):
         """Builder extracts correct forcing years per experiment."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(minimal_plan)
@@ -448,7 +448,7 @@ class TestELMExperimentBuilder:
     def test_builder_correct_stop_n(self, minimal_plan):
         """Builder extracts correct STOP_N per experiment."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(minimal_plan)
@@ -463,7 +463,7 @@ class TestELMExperimentBuilder:
     def test_builder_case_names_lowercase_no_spaces(self, minimal_plan):
         """Builder generates lowercase case names without spaces."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(minimal_plan)
@@ -477,7 +477,7 @@ class TestELMExperimentBuilder:
     def test_builder_experiment_has_elm_agent(self, minimal_plan):
         """Each experiment has an ELMAgentAdapter."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(minimal_plan)
@@ -490,7 +490,7 @@ class TestELMExperimentBuilder:
     def test_builder_scenario_index_is_zero_based(self, minimal_plan):
         """Scenario indices are zero-based."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(minimal_plan)
@@ -502,7 +502,7 @@ class TestELMExperimentBuilder:
     def test_builder_missing_couplers_raises(self, empty_plan):
         """Builder raises ValueError when CONDITIONS_COUPLERS is empty."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder = ELMExperimentBuilder(empty_plan)
@@ -513,7 +513,7 @@ class TestELMExperimentBuilder:
     def test_builder_summary_structure(self, minimal_plan):
         """get_experiment_summary() has correct structure."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder = ELMExperimentBuilder(minimal_plan)
@@ -529,7 +529,7 @@ class TestELMExperimentBuilder:
     def test_builder_single_experiment(self, single_experiment_plan):
         """Builder works correctly with a single experiment."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(single_experiment_plan)
@@ -540,7 +540,7 @@ class TestELMExperimentBuilder:
     def test_builder_elm_config_passed_to_overrides(self, minimal_plan):
         """ELM_CONFIG base settings appear in config overrides."""
         with patch(
-            'core.elm_input_agent.GeneratedELMAgent'
+            'elm_input_agent.GeneratedELMAgent'
         ) as mock_elm:
             mock_elm.return_value = MagicMock(is_built=False)
             builder     = ELMExperimentBuilder(minimal_plan)
