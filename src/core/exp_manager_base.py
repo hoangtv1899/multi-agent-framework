@@ -340,7 +340,13 @@ class ExperimentManagerBase:
 				llm = obj.get_llm_analysis_input()
 			except Exception:                                   # noqa: BLE001
 				llm = None                  # non-fatal, as it has always been
-		return {"rows": list(getattr(obj, "results", None) or []),
+		# ELMResultsAnalyzer.results is Dict[str, Dict] KEYED BY CASE NAME;
+		# PFLOTRAN's is a list. list() on the dict yields the case NAMES, and
+		# _package then drops every non-dict — job 770923 packaged
+		# columns_total: 0 from 19 clean columns, while the ledger recorded
+		# n_rows=19 because the COUNT was right. _extract_rows was fixed for
+		# exactly this and the fix was not carried to its sibling here.
+		return {"rows": ExperimentManagerBase._extract_rows(obj),
 				"units": units,
 				"extra_summary": getattr(obj, "extra_summary", None) or {},
 				"llm_input": llm}
