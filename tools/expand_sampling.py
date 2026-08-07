@@ -196,14 +196,44 @@ def _pinned_from_plan(plan, reception):
     the planner names is one it was shown, so each should resolve; a miss means
     the plan and the observations disagree, and that is raised rather than
     dropped. Silently skipping is how this whole class of bug happened.
+
+    A variable the planner itself ruled out gets no columns. planner.txt asks it
+    to pair `comparison: "unavailable"` with `stations: []`, and the 2026-08-07
+    chain run caught it emitting the verdict while keeping the list: naches_1988
+    declared water_table unavailable — "observed WTDs of tens of metres lie below
+    the ELM soil column" — and still named two wells. Pinning them spent two
+    columns on a comparison that cannot be made AND took both out of the
+    stratified budget, leaving 13 stratified columns where the plan said 15 and
+    two bands one short. The verdict is the planner's real intent; the list is
+    the slip, and its own n_validation=4 against 6 cited stations says so.
     """
-    wanted, seen = [], set()
+    wanted, seen, ruled_out = [], set(), []
     for entry in (plan or {}).get("validation") or []:
-        for sid in entry.get("stations") or []:
-            sid = str(sid)
+        stations = [str(s) for s in entry.get("stations") or []]
+        if str(entry.get("comparison") or "").strip().lower().startswith(
+                "unavailable"):
+            if stations:
+                ruled_out.append((entry.get("variable"), stations))
+            continue
+        for sid in stations:
             if sid not in seen:
                 seen.add(sid)
                 wanted.append(sid)
+
+    for var, sts in ruled_out:
+        print(f"   ⚠️  '{var}' is marked comparison='unavailable' but names "
+              f"{len(sts)} station(s) {sts} — NOT pinning them. The planner "
+              f"ruled the comparison out; a column there cannot be validated.")
+
+    # n_validation is DEFINED as the number of pinned columns, so a disagreement
+    # means the plan's own arithmetic (n_bands*per_band + n_validation) does not
+    # describe what it asked for.
+    n_val = ((plan or {}).get("sampling") or {}).get("n_validation")
+    if n_val is not None and len(wanted) != n_val:
+        print(f"   ⚠️  plan says n_validation={n_val} but {len(wanted)} station(s) "
+              f"remain after the 'unavailable' entries — the column budget was "
+              f"computed from {n_val}.")
+
     if not wanted:
         return []
 
@@ -221,7 +251,34 @@ def _pinned_from_plan(plan, reception):
     return [idx[s] for s in wanted]
 
 
-def _place_pinned(clients, pinned, bands, pts):
+def _outside_basin(lat, lon, rings):
+    """True when (lat, lon) falls outside the watershed polygon.
+
+    Only ever used to REPORT. A station the planner named is pinned wherever it
+    is — moving it would defeat the point — but a column outside the basin is
+    driven by forcing and soil from ground the study does not claim to model,
+    and the comparison it feeds is between a simulation of one place and an
+    observation of another. Returns None when the test cannot be made.
+    """
+    if not rings:
+        return None
+    try:
+        from shapely.geometry import Polygon, Point
+    except Exception:
+        return None
+    polys = []
+    for r in rings:
+        if len(r) >= 4:
+            try:
+                polys.append(Polygon(r))
+            except Exception:
+                pass
+    if not polys:
+        return None
+    return not max(polys, key=lambda p: p.area).contains(Point(lon, lat))
+
+
+def _place_pinned(clients, pinned, bands, pts, boundary=None):
     """One column at each station's own coordinates.
 
     Elevation comes from a point 3DEP query AT the station, not from the nearest
@@ -269,6 +326,19 @@ def _place_pinned(clients, pinned, bands, pts):
             print(f"   ⚠️  {st['station_id']} sits at {elev:.0f} m, outside the "
                   f"sampled range {bands[0][0]:.0f}-{bands[-1][1]:.0f} m — "
                   f"clamped into band {col['_band_idx'] + 1}.")
+
+        # Reception fetches observations for the BBOX, which is strictly larger
+        # than the basin, so a station the planner names can legitimately sit
+        # outside the watershed. Pin it anyway — it is what was asked for — but
+        # a column there is forced and soiled from ground the study does not
+        # model, so the comparison it feeds needs that caveat attached.
+        outside = _outside_basin(st["lat"], st["lon"], boundary)
+        if outside is not None:
+            col["outside_basin"] = outside
+            if outside:
+                print(f"   ⚠️  {st['station_id']} lies OUTSIDE the watershed "
+                      f"boundary. Pinned as asked, but this column is not part "
+                      f"of the basin the study describes.")
         out.append(col)
     return out
 
@@ -340,7 +410,7 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
     counts = [len(by_band[i]) for i in range(len(bands))]
 
     # ── PINNED FIRST: they are the validation design, and they consume budget ──
-    pin_cols = _place_pinned(clients, pinned or [], bands, pts)
+    pin_cols = _place_pinned(clients, pinned or [], bands, pts, boundary)
     if len(pin_cols) > n_total:
         dropped = pin_cols[n_total:]
         pin_cols = pin_cols[:n_total]

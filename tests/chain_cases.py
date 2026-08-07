@@ -62,15 +62,32 @@ def check_chain(plan, reception, res, pinned):
         add("plan.n_columns_arithmetic", nc == nb * pb + nv,
             f"{nb}*{pb}+{nv} = {nb * pb + nv}, plan says {nc}")
 
-    cited = [sid for e in (plan.get("validation") or [])
-             for sid in (e.get("stations") or [])]
-    add("plan.cites_stations", bool(cited), f"{len(cited)} cited: {cited}")
+    # A `comparison: "unavailable"` entry names stations the planner has already
+    # ruled out, so they are not candidates for a column. Counting them against
+    # n_validation misreads a self-consistent plan as a contradictory one.
+    def _ruled_out(e):
+        return str(e.get("comparison") or "").strip().lower().startswith(
+            "unavailable")
 
-    # n_validation is DEFINED as the number of pinned columns, so a plan whose
-    # station list is a different length has contradicted itself.
+    entries = plan.get("validation") or []
+    cited = [sid for e in entries if not _ruled_out(e)
+             for sid in (e.get("stations") or [])]
+    add("plan.cites_stations", bool(cited), f"{len(cited)} pinnable: {cited}")
+
+    # planner.txt: "If a variable has no stations in observations_summary, emit
+    # it with `stations: []` and `comparison: 'unavailable'`." Half-obeying it —
+    # the verdict without emptying the list — is what made naches_1988 pin two
+    # wells the planner had itself ruled out.
+    half = [(e.get("variable"), e.get("stations"))
+            for e in entries if _ruled_out(e) and (e.get("stations") or [])]
+    add("plan.unavailable_has_empty_stations", not half,
+        f"unavailable but still listing stations: {half}" if half
+        else "no unavailable entry carries stations")
+
+    # n_validation is DEFINED as the number of pinned columns.
     if nv is not None:
         add("plan.n_validation_matches_stations", nv == len(cited),
-            f"n_validation={nv}, stations cited={len(cited)}")
+            f"n_validation={nv}, pinnable stations={len(cited)}")
 
     if res is None:
         return out
@@ -152,6 +169,83 @@ def run_case(case, clients, models, verbose=False):
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+class _GridStub:
+    """The real terrain client with sample_elevation_grid served from disk.
+
+    Reception already fetched that grid — at the sampler's own resolution, and
+    clipped to the basin (data_gather.GRID_N = 120) — and every chain artifact
+    stores it. Replaying from it makes the sampler stage deterministic and cheap:
+    only the per-station 3DEP point queries go out, and they are the calls whose
+    accuracy is the point. Re-running reception and the planner instead would
+    change the plan under us, since both are LLM stages.
+    """
+
+    def __init__(self, terr, points):
+        self._terr, self._points = terr, points
+
+    def call_tool_json(self, tool, args):
+        if tool == "sample_elevation_grid":
+            return {"points": self._points}
+        return self._terr.call_tool_json(tool, args)
+
+
+def replay(d: Path, clients):
+    """Re-run ONLY the sampler stage over saved artifacts, and re-score."""
+    import json
+    import expand_sampling as exp
+
+    summary = []
+    for f in sorted(d.glob("*.json")):
+        if f.name in ("summary.json", "replay_summary.json") or ".replay." in f.name:
+            continue
+        art = json.loads(f.read_text())
+        plan, rec = art.get("plan") or {}, art.get("reception") or {}
+        cid = art["case"]["id"]
+        grid = (rec.get("grid") or {})
+        pts = grid.get("points") or []
+        if not plan or not pts:
+            print(f"  skip {cid} (no plan or no saved grid)")
+            continue
+
+        stub = {**clients, "terrain": _GridStub(clients["terrain"], pts)}
+        res, pinned, err = None, [], None
+        try:
+            pinned = exp._pinned_from_plan(plan, rec)
+            bbox = exp._bbox_from_brief(rec.get("brief") or {})
+            res = exp.expand(stub, bbox, exp._n_from_plan(plan),
+                             exp._n_bands_from_plan(plan) or 4,
+                             boundary=grid.get("boundary"),
+                             per_band=exp._per_band_from_plan(plan),
+                             pinned=pinned)
+            if res.get("error"):
+                err, res = res["error"], None
+        except Exception as e:                                 # noqa: BLE001
+            err = f"{type(e).__name__}: {e}"
+
+        checks = check_chain(plan, rec, res, pinned)
+        n_ok = sum(1 for x in checks if x["ok"])
+        bad = [x["check"] for x in checks if not x["ok"]]
+        (d / f"{cid}.replay.json").write_text(json.dumps(
+            {"case": art["case"], "sampling": res, "pinned_resolved": pinned,
+             "checks": checks, "error": err}, indent=2, default=str))
+
+        before = art.get("checks") or []
+        summary.append({"id": cid, "error": err,
+                        "n_checks": len(checks), "n_ok": n_ok, "failed": bad,
+                        "n_ok_before": sum(1 for x in before if x["ok"]),
+                        "n_checks_before": len(before),
+                        "n_columns": (res or {}).get("n_columns"),
+                        "design": (res or {}).get("sampling_design")})
+        (d / "replay_summary.json").write_text(
+            json.dumps(summary, indent=2, default=str))
+        mark = "FAIL" if (err or bad) else "ok  "
+        print(f"  {mark} {cid:<20} {n_ok}/{len(checks)} checks "
+              f"(was {summary[-1]['n_ok_before']}/{summary[-1]['n_checks_before']})"
+              + (f"  | {err[:60]}" if err else "")
+              + (f"  | {', '.join(bad[:2])}" if bad else ""), flush=True)
+    return summary
+
+
 def main():
     import argparse, json, time
     from datetime import datetime as _dt
@@ -161,10 +255,25 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--out", default="")
     ap.add_argument("--report", default="", help="summarise an existing run dir")
+    ap.add_argument("--replay", default="",
+                    help="re-run ONLY the sampler over a run dir's artifacts")
     ap.add_argument("--reception-model", default="claude-opus-4-8-project")
     ap.add_argument("--planner-model", default="claude-opus-4-8-project")
     a = ap.parse_args()
 
+    if a.replay:
+        from core.mcp_manager import MCPManager
+        clients = MCPManager("mcp_config.json").get_all_clients()
+        d = Path(a.replay)
+        print(f"\nreplaying the sampler over {d}\n" + "=" * 72)
+        s = replay(d, clients)
+        print("=" * 72)
+        gained = sum(r["n_ok"] for r in s) - sum(r["n_ok_before"] for r in s)
+        print(f"{len(s)} cases | checks passed "
+              f"{sum(r['n_ok'] for r in s)}/{sum(r['n_checks'] for r in s)} "
+              f"(was {sum(r['n_ok_before'] for r in s)}/"
+              f"{sum(r['n_checks_before'] for r in s)}, {gained:+d})")
+        return
     if a.report:
         _report(Path(a.report))
         return
