@@ -996,6 +996,39 @@ The new suite owes coverage of `_even_allocate`, pinning, and the band clamp.
 `columns.json`). The selection logic was verified offline against the real saved
 DEM grid; the 3DEP numbers above are real MCP calls. Only the wiring is untested.
 
+### The sampler re-fetches what reception already has — found 2026-08-07
+
+Reception's deterministic fetch (`core/data_gather.py`) already asks terrain for
+the DEM grid **at the sampler's own resolution** — the constant says so:
+
+```python
+GRID_N = 120          # sampler resolution; expand_sampling's own default
+```
+
+and reception.json carries the result, clipped, with the polygon and the water
+table attached:
+
+```
+grid: n_requested 120 · n_returned 120 · n_in_basin 68 · clipped_to_watershed True
+      boundary present · fan_wtd_m on 68/68 points
+```
+
+Then `_materialize` calls `get_watershed_boundary` again and `expand()` calls
+`sample_elevation_grid` again, same n=120 — so every run pays ~120 EPQS point
+queries and one WBD polygon fetch twice. The Gunnison `columns.json` grid and
+reception's grid are the same 68 points, identical to 5 decimal places.
+
+Two consequences:
+
+* **Phase 1e input.** `build_elm_inputs_from_location` should take the grid and
+  boundary from reception rather than re-fetching. The sampler keeps its own
+  fetch only as the fallback for a caller with no reception (the CLI's
+  `--bbox` path).
+* **The PFLOTRAN `wt_in_domain` gap is smaller than recorded below.**
+  `fan_wtd_m` is already on disk at every grid point, and stratified columns
+  ARE grid points — so only the PINNED columns, whose coordinates are stations
+  rather than grid points, need a Fan lookup at all.
+
 ---
 
 ## 12. Open
