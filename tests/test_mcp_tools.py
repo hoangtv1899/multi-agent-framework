@@ -307,18 +307,11 @@ class TestExpander:
         assert exp._assign_band(250, bands) == 2
         assert exp._assign_band(400, bands) == 3       # max -> last band (inclusive)
 
-    def test_allocate_sums_and_min_one(self):
-        alloc = exp._allocate([10, 20, 30, 40], 10)
-        assert sum(alloc) == 10
-        assert all(a >= 1 for a in alloc)              # every occupied band represented
-
-    def test_allocate_skips_empty_band(self):
-        alloc = exp._allocate([10, 0, 30], 8)
-        assert alloc[1] == 0 and sum(alloc) == 8
-
-    def test_allocate_fewer_columns_than_bands(self):
-        alloc = exp._allocate([5, 10, 15], 2)          # 2 columns, 3 occupied bands
-        assert sum(alloc) == 2 and alloc[0] == 0       # the two largest bands win
+    # The three _allocate tests that stood here were removed on 2026-08-07 with
+    # _allocate itself: the area-proportional rule was replaced by
+    # _even_allocate, so they tested a function that no longer exists rather
+    # than behaviour that changed. Coverage of _even_allocate and of station
+    # pinning belongs to the new suite, not to a patch of this one.
 
     def test_farthest_point_select(self):
         pts = [{"lat": 0, "lon": 0}, {"lat": 0, "lon": 1}, {"lat": 1, "lon": 0},

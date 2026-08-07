@@ -46,7 +46,19 @@ def _make_bands(elevs, n_bands):
 
 
 def _assign_band(e, bands):
-    """Index of the band containing elevation e (last band inclusive on hi)."""
+    """Index of the band containing elevation e (last band inclusive on hi).
+
+    Out-of-range elevations clamp to the NEAREST band. The fall-through used to
+    return the last band unconditionally, which is right for a value a hair
+    above the maximum but files anything BELOW the minimum with the alpine
+    columns. Harmless while every caller passed a grid point — the bands are
+    built from those very points, so nothing could fall outside — and wrong the
+    moment station pinning began passing elevations the grid never sampled: the
+    2019 Gunnison well sits at 1792 m against a 2031 m sampled minimum, and
+    landed in band 5 of 5.
+    """
+    if e <= bands[0][0]:
+        return 0
     for i, (lo, hi) in enumerate(bands):
         last = (i == len(bands) - 1)
         if (lo <= e <= hi) if last else (lo <= e < hi):
@@ -54,59 +66,211 @@ def _assign_band(e, bands):
     return len(bands) - 1
 
 
-def _allocate(counts, n_total):
-    """Distribute n_total columns across bands ~proportional to point counts,
-    with at least 1 per occupied band (unless n_total is smaller than the number
-    of occupied bands, in which case the largest bands win)."""
+def _even_allocate(counts, n_total):
+    """Equal columns per OCCUPIED band; any remainder to the bands holding the
+    most DEM points.
+
+    This replaced an area-proportional `_allocate` on 2026-08-07. That one gave
+    each band a share of the columns proportional to its share of grid points
+    and then applied a max(1, ...) floor, which is two biases pulling opposite
+    ways: the floor guarantees a column to a sliver band holding three DEM
+    points, while the proportional term hands most of the budget to whichever
+    band happens to cover the most ground. Neither is what stratification asks
+    for — the point of a stratum is equal effort inside it — and the
+    proportional term in particular fought the area weighting that
+    `_merge_column_metadata` applies downstream, weighting the same quantity
+    twice.
+
+    This runs only when the planner did not state `per_band`, or when a
+    requested column count forces a budget `per_band` cannot fill exactly.
+    """
     nonempty = [i for i, c in enumerate(counts) if c > 0]
     alloc = [0] * len(counts)
-    if not nonempty:
+    if not nonempty or n_total <= 0:
         return alloc
+    # Fewer columns than occupied bands: the most-populated bands win, so the
+    # sample still spans as much of the gradient as the budget allows.
+    by_size = sorted(nonempty, key=lambda i: (-counts[i], i))
     if n_total <= len(nonempty):
-        for i in sorted(nonempty, key=lambda i: counts[i], reverse=True)[:n_total]:
+        for i in by_size[:n_total]:
             alloc[i] = 1
         return alloc
-
-    total = sum(counts)
-    raw = [(n_total * counts[i] / total) if counts[i] > 0 else 0
-           for i in range(len(counts))]
+    base, rem = divmod(n_total, len(nonempty))
     for i in nonempty:
-        alloc[i] = max(1, round(raw[i]))
-    # reconcile to exactly n_total
-    while sum(alloc) > n_total:
-        cand = [i for i in nonempty if alloc[i] > 1]
-        if not cand:
-            break
-        alloc[max(cand, key=lambda i: alloc[i])] -= 1
-    while sum(alloc) < n_total:
-        alloc[max(nonempty, key=lambda i: raw[i] - alloc[i])] += 1
+        alloc[i] = base
+    for i in by_size[:rem]:
+        alloc[i] += 1
     return alloc
 
 
-def _farthest_point_select(pts, k):
+def _farthest_point_select(pts, k, seeds=None):
     """Greedy farthest-point sampling for spatial spread within a band.
 
     Array-wise: one running array of "distance to the nearest chosen point",
     updated with a single minimum against the newest pick. The scalar form
     recomputed every candidate against every chosen point on each step
     (O(k^2 n) dict lookups); this is O(k n) in numpy and gives identical picks.
+
+    `seeds` are points already placed in this band — the pinned station columns.
+    They are not returned; they only seed the distance array, so a stratified
+    column is never chosen on top of ground a station column already covers.
+    With no seeds the first pick is the band centroid, exactly as before.
     """
     import numpy as np
-    if k >= len(pts):
-        return list(pts)
     if k <= 0:
         return []
+    if k >= len(pts):
+        return list(pts)
     lat = np.fromiter((p["lat"] for p in pts), float, len(pts))
     lon = np.fromiter((p["lon"] for p in pts), float, len(pts))
 
-    first = int(np.argmin((lat - lat.mean()) ** 2 + (lon - lon.mean()) ** 2))
-    picks = [first]
-    d2 = (lat - lat[first]) ** 2 + (lon - lon[first]) ** 2
+    if seeds:
+        d2 = np.full(len(pts), np.inf)
+        for s in seeds:
+            np.minimum(d2, (lat - s["lat"]) ** 2 + (lon - s["lon"]) ** 2, out=d2)
+        picks = []
+    else:
+        first = int(np.argmin((lat - lat.mean()) ** 2 + (lon - lon.mean()) ** 2))
+        picks = [first]
+        d2 = (lat - lat[first]) ** 2 + (lon - lon[first]) ** 2
     while len(picks) < k:
         nxt = int(np.argmax(d2))
         picks.append(nxt)
         np.minimum(d2, (lat - lat[nxt]) ** 2 + (lon - lon[nxt]) ** 2, out=d2)
     return [pts[i] for i in picks]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STATION PINNING — the planner's validation design, obeyed
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Until 2026-08-07 this file read two fields of the planner's sampling block,
+# n_bands and n_columns, and nothing else. `per_band`, `n_validation` and the
+# words "pinned to observation stations" in `approach` appeared nowhere in it,
+# so a design of 15 stratified + 4 station-pinned columns became 19 stratified
+# columns and nothing at any station.
+#
+# That dropped instruction has a scar downstream. step1_compare_swe abandoned
+# station pairing because "five stations collapsed onto two columns with
+# elevation offsets up to 846 m -- any agreement that produced was arithmetic,
+# not skill". Pairing failed because no column was ever placed AT a station: the
+# comparison rebuilt itself around elevation gradients to work around a gap
+# nobody had noticed here.
+
+STATION_SOURCES = (("streamflow", "stations"),
+                   ("water_table", "wells"),
+                   ("swe", "stations"))
+
+
+def _station_index(reception):
+    """{station_id: record} across every observation reception fetched.
+
+    Three fetchers, three shapes: streamflow and water_table key their records
+    'id', SNOTEL keys its 'triplet', and only SNOTEL reports an elevation. The
+    planner cites whichever string the fetcher used, so both are accepted.
+    """
+    idx = {}
+    obs = (reception or {}).get("observations") or {}
+    for var, key in STATION_SOURCES:
+        for rec in ((obs.get(var) or {}).get(key) or []):
+            sid = rec.get("id") or rec.get("triplet")
+            if not sid or rec.get("lat") is None or rec.get("lon") is None:
+                continue
+            idx[str(sid)] = {"station_id": str(sid),
+                             "station_variable": var,
+                             "station_name": rec.get("name"),
+                             "lat": float(rec["lat"]),
+                             "lon": float(rec["lon"]),
+                             "station_elevation_m": rec.get("elevation_m")}
+    return idx
+
+
+def _pinned_from_plan(plan, reception):
+    """Stations the planner asked for a column at, resolved to coordinates.
+
+    Reads `plan["validation"]`, whose entries look like
+
+        {"variable": "swe", "stations": ["538:CO:SNTL", "762:CO:SNTL"], ...}
+
+    and resolves each id against what reception actually fetched. Every station
+    the planner names is one it was shown, so each should resolve; a miss means
+    the plan and the observations disagree, and that is raised rather than
+    dropped. Silently skipping is how this whole class of bug happened.
+    """
+    wanted, seen = [], set()
+    for entry in (plan or {}).get("validation") or []:
+        for sid in entry.get("stations") or []:
+            sid = str(sid)
+            if sid not in seen:
+                seen.add(sid)
+                wanted.append(sid)
+    if not wanted:
+        return []
+
+    idx = _station_index(reception)
+    missing = [s for s in wanted if s not in idx]
+    if missing:
+        raise ValueError(
+            f"Cannot pin columns: strategy.validation names station(s) "
+            f"{missing} that are not in reception's fetched set "
+            f"({len(idx)} available: {sorted(idx)[:8]}{' ...' if len(idx) > 8 else ''}). "
+            f"A column at the station is the only thing that lets the analyzer "
+            f"pair a simulation with an observation, so this is not degraded "
+            f"silently — fix reception's fetch, or drop the station from "
+            f"strategy.validation.")
+    return [idx[s] for s in wanted]
+
+
+def _place_pinned(clients, pinned, bands, pts):
+    """One column at each station's own coordinates.
+
+    Elevation comes from a point 3DEP query AT the station, not from the nearest
+    DEM grid point: at grid_n=120 over a basin this size the nearest grid point
+    sits up to ~1 km away, which in this relief is worth hundreds of metres and
+    would file the column under the wrong band. `dem_minus_station_m` is
+    recorded wherever the station reports its own elevation, so a comparison can
+    see how far the model surface sits from the instrument before trusting the
+    pairing — the quantity step1_compare_swe had to give up on.
+    """
+    terr = clients.get("terrain")
+    out = []
+    for st in pinned:
+        elev, src = None, None
+        if terr is not None:
+            try:
+                r = terr.call_tool_json("get_elevation",
+                                        {"lat": st["lat"], "lon": st["lon"]}) or {}
+                elev = r.get("elevation_m")
+                src = "3dep_point" if elev is not None else None
+            except Exception as e:
+                print(f"   ⚠️  elevation lookup failed for {st['station_id']}: {e}")
+        if elev is None and st.get("station_elevation_m") is not None:
+            elev, src = float(st["station_elevation_m"]), "station_reported"
+        if elev is None and pts:
+            near = min(pts, key=lambda p: (p["lat"] - st["lat"]) ** 2
+                                          + (p["lon"] - st["lon"]) ** 2)
+            elev, src = near["elevation_m"], "nearest_dem_grid_point"
+
+        col = dict(st)
+        col.update({"lat": round(st["lat"], 5), "lon": round(st["lon"], 5),
+                    "elevation_m": round(float(elev), 2) if elev is not None else None,
+                    "pinned": True,
+                    "elevation_source": src})
+        if elev is not None and st.get("station_elevation_m") is not None:
+            col["dem_minus_station_m"] = round(
+                float(elev) - float(st["station_elevation_m"]), 1)
+        col["_band_idx"] = (_assign_band(elev, bands) if elev is not None else 0)
+
+        # A station outside the DEM sample's elevation range is clamped to the
+        # nearest band, but say so: it means either the station sits outside the
+        # basin the bands were built from, or the DEM sample is too sparse to
+        # have reached that elevation. Both change what the pinned column means.
+        if elev is not None and not (bands[0][0] <= elev <= bands[-1][1]):
+            print(f"   ⚠️  {st['station_id']} sits at {elev:.0f} m, outside the "
+                  f"sampled range {bands[0][0]:.0f}-{bands[-1][1]:.0f} m — "
+                  f"clamped into band {col['_band_idx'] + 1}.")
+        out.append(col)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -146,7 +310,18 @@ def _clip_to_polygon(pts, rings):
     return inside or pts          # never drop everything on a bad clip
 
 
-def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None):
+def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
+           per_band=None, pinned=None):
+    """Strategy -> concrete columns.
+
+    n_total   the column budget, after check() has reconciled the planner's
+              n_columns against anything the request asked for. HARD: it is the
+              number of ELM cases that will be built, and the enforcement path
+              fixed in 22cecae depends on nothing here exceeding it.
+    per_band  the planner's stratified count per band, obeyed as stated.
+    pinned    station records from _pinned_from_plan; one column each, at the
+              station's own coordinates.
+    """
     terr = clients["terrain"]
 
     grid = terr.call_tool_json("sample_elevation_grid", {**bbox, "n": grid_n}) or {}
@@ -163,17 +338,76 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None):
     for p in pts:
         by_band[_assign_band(p["elevation_m"], bands)].append(p)
     counts = [len(by_band[i]) for i in range(len(bands))]
-    alloc = _allocate(counts, n_total)
 
+    # ── PINNED FIRST: they are the validation design, and they consume budget ──
+    pin_cols = _place_pinned(clients, pinned or [], bands, pts)
+    if len(pin_cols) > n_total:
+        dropped = pin_cols[n_total:]
+        pin_cols = pin_cols[:n_total]
+        print(f"   ⚠️  budget {n_total} is smaller than the {len(dropped) + n_total} "
+              f"stations the strategy pins. DROPPED: "
+              f"{[d['station_id'] for d in dropped]}")
+        print(f"   ⚠️  Those variables now have NO co-located column and cannot "
+              f"be validated at a station.")
+
+    banded_budget = max(0, n_total - len(pin_cols))
+
+    # ── BANDED: the planner's per_band, as stated ────────────────────────────
+    if per_band and per_band > 0:
+        alloc = [per_band if counts[i] > 0 else 0 for i in range(len(bands))]
+        if sum(alloc) == banded_budget:
+            alloc_rule = f"planner per_band={per_band}"
+        else:
+            # The budget was rewritten (check() reconciling n_columns against a
+            # request) or a band came back empty, so per_band cannot be met
+            # exactly. n_total wins — it is what the run will actually build —
+            # and the departure is stated rather than absorbed.
+            print(f"   ⚠️  per_band={per_band} over {sum(1 for c in counts if c > 0)} "
+                  f"occupied bands wants {sum(alloc)} stratified columns, but the "
+                  f"budget leaves {banded_budget} after {len(pin_cols)} pinned.")
+            print(f"   ⚠️  Using {banded_budget}, spread evenly across bands.")
+            alloc = _even_allocate(counts, banded_budget)
+            alloc_rule = f"reconciled to budget (planner asked per_band={per_band})"
+    else:
+        alloc = _even_allocate(counts, banded_budget)
+        alloc_rule = "even per band (plan stated no per_band)"
+
+    # ── ASSEMBLE: bands ascending, pinned before stratified within each ──────
     columns, cid = [], 1
+    short = []
+    pin_by_band = {i: [] for i in range(len(bands))}
+    for c in pin_cols:
+        pin_by_band[c.pop("_band_idx")].append(c)
     for i in range(len(bands)):
-        for p in _farthest_point_select(by_band[i], alloc[i]):
-            col = {"id": f"col_{cid:02d}",
-                   "lat": round(p["lat"], 5), "lon": round(p["lon"], 5),
-                   "elevation_m": p["elevation_m"], "band": i + 1,
-                   "band_range_m": [round(bands[i][0]), round(bands[i][1])]}
-            columns.append(col)
+        here = pin_by_band[i]
+        picks = _farthest_point_select(by_band[i], alloc[i], seeds=here)
+        if len(picks) < alloc[i]:
+            short.append((i + 1, alloc[i], len(picks)))
+        for c in here:
+            c.update({"id": f"col_{cid:02d}", "band": i + 1,
+                      "band_range_m": [round(bands[i][0]), round(bands[i][1])]})
+            columns.append(c)
             cid += 1
+        for p in picks:
+            columns.append({"id": f"col_{cid:02d}",
+                            "lat": round(p["lat"], 5), "lon": round(p["lon"], 5),
+                            "elevation_m": p["elevation_m"], "band": i + 1,
+                            "band_range_m": [round(bands[i][0]), round(bands[i][1])],
+                            "pinned": False})
+            cid += 1
+    for band, want, got in short:
+        print(f"   ⚠️  band {band} holds only {got} DEM points, {want} asked for "
+              f"— the ensemble is {want - got} column(s) short there.")
+
+    n_pin = sum(1 for c in columns if c.get("pinned"))
+    print(f"   sampled {len(columns)} columns: {n_pin} pinned at stations, "
+          f"{len(columns) - n_pin} stratified ({alloc_rule})")
+    for c in columns:
+        if c.get("pinned"):
+            d = c.get("dem_minus_station_m")
+            print(f"     {c['id']}  {c['station_id']:<22} {c['station_variable']:<11} "
+                  f"band {c['band']}  DEM {c['elevation_m']} m"
+                  + (f"  ({d:+.1f} m vs station)" if d is not None else ""))
 
     # NO WATER TABLE IS GATHERED HERE ANY MORE (2026-08-07). Sampling selects on
     # ELEVATION: a DEM grid, clipped to the basin, split into bands, then
@@ -212,7 +446,26 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None):
     return {"bbox": bbox, "n_requested": n_total, "n_columns": len(columns),
             "bands": [{"band": i + 1, "elev_lo_m": round(bands[i][0]),
                        "elev_hi_m": round(bands[i][1]), "grid_points": counts[i],
-                       "allocated": alloc[i]} for i in range(len(bands))],
+                       "allocated": alloc[i],
+                       "pinned": sum(1 for c in columns
+                                     if c.get("pinned") and c["band"] == i + 1)}
+                      for i in range(len(bands))],
+            # What the planner asked for, next to what was built. Whoever reads
+            # columns.json can now check the design was obeyed without holding
+            # plan.json open beside it — which is what nobody did for months.
+            "sampling_design": {
+                "n_columns_requested": n_total,
+                "per_band_requested": per_band,
+                "allocation_rule": alloc_rule,
+                "n_pinned": n_pin,
+                "n_stratified": len(columns) - n_pin,
+                "pinned_stations": [{"id": c["station_id"],
+                                     "variable": c["station_variable"],
+                                     "column": c["id"], "band": c["band"],
+                                     "dem_minus_station_m":
+                                         c.get("dem_minus_station_m")}
+                                    for c in columns if c.get("pinned")],
+            },
             "columns": columns,
             # full DEM sample kept for the hypsometry / map plot (not saved to columns.json)
             "grid": [{"lat": round(p["lat"], 5), "lon": round(p["lon"], 5),
@@ -572,19 +825,35 @@ def _n_bands_from_plan(plan):
             or (plan.get("sampling_strategy") or {}).get("n_bands"))
 
 
+def _per_band_from_plan(plan):
+    """The planner's stratified count per band. Read the same way n_bands is.
+
+    Ignored entirely until 2026-08-07, when the allocator computed its own
+    area-proportional counts instead. See _even_allocate.
+    """
+    return ((plan.get("sampling") or {}).get("per_band")
+            or (plan.get("sampling_strategy") or {}).get("per_band"))
+
+
 def _print_table(res):
     print("\nBANDS:")
     for b in res["bands"]:
+        pin = f" (+{b['pinned']} pinned)" if b.get("pinned") else ""
         print(f"  band {b['band']}: {b['elev_lo_m']:>5}-{b['elev_hi_m']:>5} m  "
-              f"| {b['grid_points']:>3} grid pts -> {b['allocated']} columns")
+              f"| {b['grid_points']:>3} grid pts -> {b['allocated']} columns{pin}")
+    d = res.get("sampling_design") or {}
+    if d:
+        print(f"\nDESIGN: {d.get('n_pinned', 0)} pinned + "
+              f"{d.get('n_stratified', 0)} stratified  [{d.get('allocation_rule')}]")
     print(f"\n{res['n_columns']} CONCRETE COLUMNS:")
-    print(f"  {'id':<8}{'lat':>9}{'lon':>11}{'elev_m':>8}{'band':>5}"
-          f"{'fan_m':>8}  soil")
-    print("  " + "-" * 64)
+    print(f"  {'id':<8}{'lat':>9}{'lon':>11}{'elev_m':>8}{'band':>5}  station")
+    print("  " + "-" * 66)
     for c in res["columns"]:
+        st = c.get("station_id") or "-"
+        if c.get("dem_minus_station_m") is not None:
+            st += f"  ({c['dem_minus_station_m']:+.1f} m vs station)"
         print(f"  {c['id']:<8}{c['lat']:>9}{c['lon']:>11}{c['elevation_m']:>8}"
-              f"{c['band']:>5}{(c.get('fan_wtd_m') if c.get('fan_wtd_m') is not None else '-'):>8}"
-              f"  {c.get('soil_top_texture') or '-'}")
+              f"{c['band']:>5}  {st}")
 
 
 def main():
@@ -594,6 +863,10 @@ def main():
     ap.add_argument("--n", type=int, help="number of columns (overrides plan)")
     ap.add_argument("--bands", type=int, default=0, help="number of elevation bands")
     ap.add_argument("--grid-n", type=int, default=120, help="DEM sample density")
+    ap.add_argument("--per-band", type=int, default=0,
+                    help="stratified columns per band (overrides plan.sampling.per_band)")
+    ap.add_argument("--no-pin", action="store_true",
+                    help="skip station pinning (stratified columns only)")
     ap.add_argument("--plot", action="store_true",
                     help="render sampling_design.png (domain map, hypsometry, WTD vs elev, allocation)")
     ap.add_argument("--forcing-year", type=int, default=None,
@@ -615,6 +888,7 @@ def main():
         # Materialize once: resolve domain + N, then sample DEM/soil/Fan.
         bbox = n_total = huc = None
         n_bands = args.bands or 4
+        per_band, pinned = args.per_band, []
         if args.run_dir:
             rd = Path(args.run_dir)
             brief = json.loads((rd / "reception_brief.json").read_text())
@@ -626,8 +900,16 @@ def main():
             n_total = _n_from_plan(plan)
             huc = (brief.get("domain") or {}).get("huc")
             if not args.bands:
-                eb = (brief.get("heterogeneity") or {}).get("elevation_bands") or []
-                n_bands = len(eb) if eb else 4
+                # The planner's count, not len(brief.heterogeneity.elevation_bands)
+                # — those are band edges, never a band count. See _n_bands_from_plan.
+                n_bands = _n_bands_from_plan(plan) or 4
+            per_band = per_band or _per_band_from_plan(plan)
+            rec_f = rd / "reception.json"
+            if rec_f.exists() and not args.no_pin:
+                pinned = _pinned_from_plan(plan, json.loads(rec_f.read_text()))
+            elif (plan.get("validation") or []) and not args.no_pin:
+                print(f"⚠️  {rec_f} not found — the plan names validation stations "
+                      f"but NO column will be pinned to one.")
         if args.bbox:
             v = [float(x) for x in args.bbox.split(",")]
             bbox = {"min_lon": v[0], "min_lat": v[1], "max_lon": v[2], "max_lat": v[3]}
@@ -638,7 +920,8 @@ def main():
         if not n_total:
             sys.exit("No column count (give --run-dir with a plan, or --n).")
 
-        print(f"bbox: {bbox} | N={n_total} | bands={n_bands}")
+        print(f"bbox: {bbox} | N={n_total} | bands={n_bands} | "
+              f"per_band={per_band or '-'} | pinned={len(pinned)}")
         clients = MCPManager("mcp_config.json").get_all_clients()
         boundary = None
         if huc:   # watershed polygon — clips sampling to the basin + outlines the map
@@ -646,7 +929,7 @@ def main():
                 "get_watershed_boundary", {"huc": huc, "huc_level": len(huc)}) or {}
             boundary = b.get("rings")
         res = expand(clients, bbox, n_total, n_bands, grid_n=args.grid_n,
-                     boundary=boundary)
+                     boundary=boundary, per_band=per_band, pinned=pinned)
         if "error" in res:
             sys.exit(res["error"])
         if boundary:

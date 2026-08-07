@@ -944,6 +944,58 @@ column as a band covering a third of the basin, which fights the area-weighting
 **Open:** what to do when a cited station is not in the fetched set. Given this
 whole finding is a dropped instruction nobody noticed for months, fail loudly.
 
+### IMPLEMENTED 2026-08-07 — and it uncovered a second bug
+
+`tools/expand_sampling.py`
+
+| added | does |
+|---|---|
+| `_station_index` | flattens `reception.observations` to `{id: record}`. Three fetchers, three shapes: streamflow/water_table key on `id`, SNOTEL on `triplet`, and only SNOTEL reports an elevation |
+| `_pinned_from_plan` | resolves `plan.validation[].stations`; **raises** on an id reception never fetched |
+| `_place_pinned` | one column at each station's own coordinates |
+| `_even_allocate` | replaces `_allocate` (deleted) |
+| `_farthest_point_select(..., seeds=)` | pinned columns seed the distance array, so a stratified pick never lands on ground a station column already covers. No seeds ⇒ identical picks to before |
+| `expand(..., per_band=, pinned=)` | assembles bands ascending, pinned before stratified within each |
+| `sampling_design` in the output | asked-for vs built, in `columns.json`, so the design is auditable without holding `plan.json` open beside it — which is what nobody did |
+
+`_materialize` reads `per_band` and resolves stations from `config["reception"]`;
+warns when a plan names validation stations but no reception was passed.
+
+**Verified against the 19-column Gunnison run** — the planner's design, reproduced
+exactly: **19 = 4 pinned + 15 stratified, 3 per band.** Budget is never exceeded
+across four scenarios (as-written / rewritten to 2 / no-pin / budget 6).
+
+**Elevation comes from a 3DEP point query AT the station, not the nearest grid
+point.** Measured, and this is the whole ballgame:
+
+```
+station                 3DEP    reported   Δ        nearest grid point
+538:CO:SNTL           2982.17    2980.9   +1.3      3988.72   (+1006.5 m)
+762:CO:SNTL           3518.79    3523.5   -4.7      3621.81   (+103.0 m)
+USGS-09119000         2328.11         -      -      2591.83   (+263.7 m)
+USGS-382715107514501  1792.51         -      -      2061.21   (+268.7 m)
+```
+
+±5 m against the instrument. A grid-based lookup would have been **1006 m** out
+on 538:CO:SNTL — the same order as the 846 m offsets that made
+`step1_compare_swe` abandon station pairing. Pinning without the point query
+would have rebuilt the scar it exists to remove.
+
+**Second bug, pre-existing, found by this work.** `_assign_band` returned the
+LAST band for anything it could not place, so an elevation *below* the sampled
+minimum was filed with the alpine columns. Invisible while every caller passed a
+grid point — the bands are built from those points, so nothing could fall
+outside. Pinning is the first caller that can pass an outside elevation, and the
+Gunnison well does: **1792 m against a 2031 m sampled minimum → band 5 of 5.**
+Now clamps to the nearest band and says so.
+
+Three `_allocate` tests in `test_mcp_tools.py` were removed with the function.
+The new suite owes coverage of `_even_allocate`, pinning, and the band clamp.
+
+**Still unproven:** the CLI path (`--run-dir` reading `reception.json`, writing
+`columns.json`). The selection logic was verified offline against the real saved
+DEM grid; the 3DEP numbers above are real MCP calls. Only the wiring is untested.
+
 ---
 
 ## 12. Open

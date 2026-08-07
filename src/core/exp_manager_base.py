@@ -935,10 +935,23 @@ class ExperimentManagerBase:
 		bands = (config.get("n_bands")
 				 or exp._n_bands_from_plan(config.get("strategy") or plan)
 				 or DEFAULT_BANDS)
+		strategy = config.get("strategy") or plan
+		per_band = config.get("per_band") or exp._per_band_from_plan(strategy)
+
+		# The stations the strategy wants a column AT. Resolved against what
+		# reception actually fetched, and raising when the two disagree — see
+		# expand_sampling._pinned_from_plan for why a miss is not survivable.
+		reception = config.get("reception") or {}
+		pinned = exp._pinned_from_plan(strategy, reception) if reception else []
+		if not reception and (strategy.get("validation") or []):
+			print("   ⚠️  the strategy names validation stations but no reception "
+				  "was passed — NO column will be pinned, and no variable can be "
+				  "compared at a station. Pass config['reception'].")
 
 		print("\n🗺️  STEP 0: Materializing Sampling")
 		print("-" * 40)
-		print(f"   bbox={bbox} N={n_total} bands={bands}")
+		print(f"   bbox={bbox} N={n_total} bands={bands} per_band={per_band} "
+			  f"pinned={len(pinned)}")
 
 		# Clip the rectangular DEM sample to the real basin when we know the HUC.
 		# Without a boundary the sample is the raw bbox, so columns can land
@@ -966,7 +979,8 @@ class ExperimentManagerBase:
 				  f"config['boundary'] explicitly.")
 		boundary = config.get("boundary", boundary)
 
-		res = exp.expand(clients, bbox, n_total, bands, boundary=boundary)
+		res = exp.expand(clients, bbox, n_total, bands, boundary=boundary,
+						 per_band=per_band, pinned=pinned)
 		if res.get("error"):
 			raise RuntimeError(f"Sampling expansion failed: {res['error']}")
 		columns = res.get("columns", [])
