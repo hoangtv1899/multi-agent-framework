@@ -561,7 +561,7 @@ filesystem fills, and the warm start is what makes every column credible — so
 this is a single point of failure for the scientific validity of every run, not
 just for a build step.
 
-Two consequences for phase 1c:
+Two consequences, the first of which is **done** (see below):
 
 * `_requirements()` must check the restart manifest **and** that at least one
   band resolves, so a missing restart is diagnosed by
@@ -569,6 +569,50 @@ Two consequences for phase 1c:
 * Owning a copy of these files is worth costing out separately. Not a blocker
   for this rework; it is a standing risk that the rework makes the MCP's
   problem rather than the framework's.
+
+#### 1a-bis — the path resolver — DONE, 2026-08-07
+
+`mcp/elm-mcp/src/paths.py`. Hardcoded paths were what made 1a pass; making them
+configurable must not give that back.
+
+```
+precedence   1  explicit tool argument       recorded in provenance
+             2  IDEAS_CONUS_RESTART etc.     works via our MCPManager
+             3  paths.json beside main.py    works under ANY client
+             4  the hardcoded default        unchanged
+```
+
+**Layer 3 is the point.** `mcp_client.py:78` does `os.environ.copy()`, so an
+environment variable reaches the server under *our* manager and vanishes under a
+standard client — an override that works in the framework and fails silently in
+Claude Code is worse than none. A file the server reads itself has no such
+asymmetry. `mcp_config.json` has no `env` block to use instead; the manager
+reads only `command` and `args`.
+
+`describe()` reports, per path: the value, **which layer supplied it**, whether
+it is readable, owner, mtime, and for the manifest how many bands actually
+resolve. On Compy today that renders as:
+
+```
+conus_restart_manifest  source=default  present=True  bands=12/12
+   WARN: restarts: owned by bish218, not by you — you cannot protect it
+   WARN: restarts: on a personal scratch tree, which is what gets purged
+                   when the filesystem fills
+```
+
+Surfaced under `data_paths` in `describe_elm_capabilities`, deliberately **not**
+under `requirements`: the server does not generate inputs yet, so a missing
+restart cannot stop it and must not gate `ready`. Phase 1c moves them.
+
+`provenance()` returns value **and** source for every path, for
+`case_inputs.json` — because which restart a column warm-started from is a fact
+about the science, and today it survives only as a NetCDF attribute
+(`make_finidat_subset.py:259`) that nothing the Analyzer reads ever sees.
+
+13 tests in `tests/test_elm_mcp_paths.py`, including the two failures that would
+otherwise be silent: a manifest whose restarts have vanished (`present: False`,
+not "fine"), and a `paths.json` with a typo (reported, not indistinguishable
+from absence).
 
 #### 1b — move the modules, change no behaviour
 

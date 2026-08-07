@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Copy to paths.json to point this server at different bulk data.",
+    "Every key is optional; anything omitted falls back to the hardcoded default.",
+    "",
+    "Precedence: a tool argument, then the environment variable, then this file,",
+    "then the default. Prefer THIS FILE over the environment variable when a",
+    "standard MCP client launches the server — such a client forwards only HOME,",
+    "LOGNAME, PATH, SHELL and USER, so an exported variable never arrives.",
+    "",
+    "Run `python3 src/paths.py` to see what currently resolves, from where,",
+    "and any warnings about it."
+  ],
+
+  "conus_restart_manifest": "/qfs/people/tran289/conus_restart_transfer/MANIFEST_conus_restarts.txt",
+  "conus_surfdata": "/qfs/people/tran289/IDEAS/1d_elm/conus_surfdata",
+  "elm_input_files": "/qfs/people/tran289/IDEAS/1d_elm/input_files"
+}

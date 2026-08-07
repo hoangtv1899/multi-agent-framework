@@ -111,8 +111,12 @@ os.environ.setdefault("MODULEPATH", ":".join(
 # The framework's own modules. This server is a thin front for them rather than
 # a reimplementation — the case build is ELMExperimentBuilder either way.
 sys.path.insert(0, str(FRAMEWORK / "src"))
+# This server's own library. Inserted after the framework's so a name that
+# exists in both resolves HERE — the ELM code is migrating into this directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from mcp.server.fastmcp import FastMCP                          # noqa: E402
+import paths                                                    # noqa: E402
 
 mcp = FastMCP("elm")
 
@@ -248,6 +252,24 @@ def describe_elm_capabilities() -> str:
 
         "requirements": reqs,
         "imports": imports,
+
+        # REPORTED, not yet REQUIRED. This server does not generate inputs
+        # today, so a missing CONUS restart cannot stop it and must not show up
+        # in `ready`. It is surfaced anyway because the warm start is what makes
+        # a column credible, and "the restarts are gone" should be answerable
+        # here rather than eight minutes into a build. When input generation
+        # lands these move into `requirements` and do gate readiness.
+        "data_paths": paths.describe_all(),
+        "data_paths_note": (
+            "Not required yet — this server does not generate inputs. Each is "
+            "overridable three ways, in precedence order: a tool argument, its "
+            "environment variable, or a paths.json beside this server. Prefer "
+            "paths.json when a standard MCP client launches the server: it "
+            "forwards only HOME, LOGNAME, PATH, SHELL and USER, so an exported "
+            "variable reaches this process only under a client that copies the "
+            "whole environment."
+        ),
+
         "environment": {k: os.environ.get(k) for k in (
             "PSCRATCH", "E3SM_SRC_DIR", "LC_ALL",
             "IDEAS_SLURM_ACCOUNT", "IDEAS_SLURM_QUEUE")},
