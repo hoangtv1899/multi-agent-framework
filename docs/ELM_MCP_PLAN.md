@@ -881,6 +881,71 @@ everything:
 
 ---
 
+## 11b. The sampler ignores most of the planner's strategy — found 2026-08-07
+
+**Highest-value outstanding item. Larger in scientific impact than the remaining
+stage merge, because it restores validation the framework has never had.**
+
+The planner emits a sampling design. The sampler reads two numbers of it.
+
+```
+planner said                          sampler did
+  n_bands: 5                          5 bands
+  n_columns: 19                       19 columns
+  per_band: 3                         proportional allocation instead
+  n_validation: 4                     nothing
+  approach: "...plus columns          nothing — the words "pinned", "station",
+    pinned to observation stations"     "per_band", "n_validation" appear
+                                        NOWHERE in expand_sampling.py
+```
+
+So a design of 15 stratified + 4 station-pinned columns became 19 stratified and
+nothing at any station.
+
+**This is the root of a scar elsewhere.** `step1_compare_swe` abandoned station
+pairing because *"five stations collapsed onto two columns with elevation offsets
+up to 846 m… any agreement that produced was arithmetic, not skill."* Pairing
+failed because no column was ever placed AT a station — the instruction that
+would have put one there was dropped upstream, and the comparison rebuilt itself
+around elevation gradients to work around a gap nobody had noticed.
+
+**The data is already on disk.** Verified on the 19-column run: `reception.json`
+carries 37 stations with coordinates, keyed by exactly the IDs the planner cites.
+
+```
+streamflow   USGS-09119000          38.52111, -106.94096
+swe          538:CO:SNTL            37.93389, -107.67620   2980.9 m
+swe          762:CO:SNTL            37.99076, -107.20392   3523.5 m
+water_table  USGS-382715107514501   38.45417, -107.86250
+```
+
+All four found; none invented. The SNOTEL pair spans the snow-band elevations
+exactly as the strategy claimed. Pinning needs no new MCP call.
+
+### What the revision does
+
+```
+read strategy.sampling      n_bands · per_band · n_validation · approach
+read strategy.validation[]  station IDs per variable
+read reception.observations resolve ID -> lat/lon/elevation
+
+PINNED   one column per named station, at the station's own coordinates
+BANDED   per_band columns per band, AS STATED
+total    pinned + banded, reconciled against n_columns
+```
+
+**DECIDED: `_allocate` is dropped for the banded columns.** The planner said 3
+per band and `_allocate` overrode it with area-proportional counts plus a
+`max(1, ...)` floor. Obeying the planner is simpler and removes a bias worth
+naming: the floor gives a sliver band with 3 DEM points the same guaranteed
+column as a band covering a third of the basin, which fights the area-weighting
+`_merge_column_metadata` expects downstream.
+
+**Open:** what to do when a cited station is not in the fetched set. Given this
+whole finding is a dropped instruction nobody noticed for months, fail loudly.
+
+---
+
 ## 12. Open
 
 * **Fan WTD sits awkwardly in `sample_columns`, and moves when PFLOTRAN does.**
