@@ -86,7 +86,7 @@ if $PY -c "import json,sys;d=json.load(open('\$BUILT'));sys.exit(0 if d.get('ok'
   echo "-- build: reusing \$BUILT --"
 else
   echo "-- build --"
-  $PY $ROOT/mcp/elm-mcp/build_cases_job.py $ABS_RD || echo "build step returned nonzero"
+  $PY $ROOT/mcp/elm-mcp/scripts/ensemble_job.py $ABS_RD || echo "build step returned nonzero"
 fi
 $PY -c "import json,sys;d=json.load(open('\$BUILT'));sys.exit(0 if d.get('ok') else 1)" 2>/dev/null || {
   echo "BUILD FAILED -- no cases to run; stopping before the ensemble"; exit 1; }

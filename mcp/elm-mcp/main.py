@@ -118,7 +118,7 @@ mcp = FastMCP("elm")
 
 SUBMIT_SCRIPT = FRAMEWORK / "tools" / "submit_cases.sh"
 STUDY_SCRIPT  = FRAMEWORK / "tools" / "run_study.sh"
-BUILD_JOB     = Path(__file__).resolve().parent / "build_cases_job.py"
+BUILD_JOB     = Path(__file__).resolve().parent / "scripts" / "ensemble_job.py"
 
 # What the framework writes, and what this server reads.
 CASE_INPUTS  = "case_inputs.json"

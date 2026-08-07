@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """What the build_elm_cases batch job runs: the CIME case build.
 
-mcp/elm-mcp/build_cases_job.py
+mcp/elm-mcp/scripts/ensemble_job.py
 
-    python build_cases_job.py <run_dir>
+    python scripts/ensemble_job.py <run_dir>
 
 Driven entirely by the CASE LIST the framework wrote — one entry per column,
 carrying its case_name and its runtime_config. That config already names every
@@ -33,8 +33,13 @@ import sys
 import traceback
 from pathlib import Path
 
+# parents[3], not [2]: this file is mcp/elm-mcp/scripts/, one level deeper than
+# the mcp/elm-mcp/ it used to live in. The fallback is only reached when
+# IDEAS_FRAMEWORK_DIR is unset — which is exactly the by-hand invocation this
+# script exists to support — so a wrong depth here fails only in the case
+# nobody tests.
 FRAMEWORK = Path(os.getenv(
-    "IDEAS_FRAMEWORK_DIR", str(Path(__file__).resolve().parents[2])))
+    "IDEAS_FRAMEWORK_DIR", str(Path(__file__).resolve().parents[3])))
 sys.path.insert(0, str(FRAMEWORK / "src"))
 
 os.environ.setdefault("LC_ALL", "en_US.utf8")
@@ -114,5 +119,5 @@ def main(run_dir: str) -> int:
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        sys.exit("usage: build_cases_job.py <run_dir>")
+        sys.exit("usage: ensemble_job.py <run_dir>")
     sys.exit(main(sys.argv[1]))

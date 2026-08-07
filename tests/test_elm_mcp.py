@@ -360,7 +360,7 @@ class TestTheCaseListCarriesWhatTheBuildNeeds:
             json.dumps([{"case_name": "col_01"}]))
         import importlib.util
         spec = importlib.util.spec_from_file_location(
-            "bcj", ROOT / "mcp" / "elm-mcp" / "build_cases_job.py")
+            "bcj", ROOT / "mcp" / "elm-mcp" / "scripts" / "ensemble_job.py")
         job = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(job)
         rc = job.main(str(m.run_dir))
