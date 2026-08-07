@@ -114,12 +114,6 @@ def test_allocation_sums_to_n_total_and_column_shape():
         assert lo <= col["elevation_m"] <= hi + 1          # within its band (rounded)
 
 
-def test_enriches_fan_wtd():
-    res = exp.expand(_clients(fan=_fan(depth=7.5)), BBOX, n_total=4, n_bands=2,
-                     grid_n=24)
-    assert all(c["fan_wtd_m"] == 7.5 for c in res["columns"])
-
-
 def test_no_soil_is_gathered_at_sampling_time():
     """Sampling used to query a soil profile per column.
 
@@ -167,38 +161,33 @@ def test_clips_sample_to_watershed_boundary():
 # ─────────────────────────────────────────────────────────────────────────────
 # Enrichment is batched — one call per source, not one per column
 # ─────────────────────────────────────────────────────────────────────────────
-class TestBatchedEnrichment:
-    """Every MCP call opens a fresh session (HPC-safe by design), so asking per
-    column paid a process spawn — and for Fan a dataset reopen — per column.
-    Live: 6 points took 41.4 s per-call vs 7.7 s batched, same values."""
 
-    def test_one_fan_call_serves_every_column(self):
-        fan = _fan(depth=7.5)
-        res = exp.expand(_clients(fan=fan), BBOX, n_total=6, n_bands=3,
-                         grid_n=24)
-        fan_calls = [c for c in fan.calls if "fan" in c[0]]
-        assert len(fan_calls) == 1, f"expected 1 batched call, got {fan_calls}"
-        assert fan_calls[0][0] == "get_fan_wtd_points"
-        assert len(fan_calls[0][1]["lats"]) == len(res["columns"])
-        assert all(c["fan_wtd_m"] == 7.5 for c in res["columns"])
 
-    def test_points_are_sent_in_column_order(self):
-        """Results are zipped back positionally — a reordering here would give
-        every column its neighbour's water table, silently and plausibly."""
-        fan = _fan()
-        res = exp.expand(_clients(fan=fan), BBOX, n_total=5, n_bands=2,
-                         grid_n=24)
-        sent = [c for c in fan.calls if c[0] == "get_fan_wtd_points"][0][1]
-        assert sent["lats"] == [c["lat"] for c in res["columns"]]
-        assert sent["lons"] == [c["lon"] for c in res["columns"]]
-
-    def test_a_short_reply_leaves_the_rest_none_not_shifted(self):
-        """If the server returns fewer points than asked, the remainder must be
-        None — never silently filled from the wrong column."""
-        short = _Fake(lambda tool, args: {"n_points": 1, "points":
-                                          [{"depth_to_water_m": 3.3}]})
-        res = exp.expand(_clients(fan=short), BBOX, n_total=5, n_bands=2,
-                         grid_n=24)
-        vals = [c["fan_wtd_m"] for c in res["columns"]]
-        assert vals[0] == 3.3
-        assert all(v is None for v in vals[1:])
+# ─────────────────────────────────────────────────────────────────────
+# FAN ENRICHMENT WAS REMOVED FROM SAMPLING, 2026-08-07
+# ─────────────────────────────────────────────────────────────────────
+# test_enriches_fan_wtd and TestBatchedEnrichment lived here and are deleted
+# rather than repaired: they pinned behaviour that is intentionally gone.
+#
+# Sampling selects on ELEVATION. Fan's water table was queried afterwards, at
+# coordinates already chosen, and never influenced a placement — so the stage
+# appeared to depend on a dataset it did not use. fan_wtd_m is PFLOTRAN's
+# initial condition (it sets wt_in_domain; 10 of 19 columns on the 2019
+# Gunnison sample had their water table below the modelled domain), so it is
+# now the consumer's to fetch where that decision is made.
+#
+# The batching lesson those tests encoded still holds wherever it lands: one
+# call for all coordinates, never one per column, because every MCP call is a
+# fresh session and for Fan the dataset OPEN is the cost.
+def test_sampling_no_longer_attaches_a_water_table():
+    """The removal, asserted — so a well-meaning re-add is a visible decision."""
+    src = (ROOT / "tools" / "expand_sampling.py").read_text()
+    body = src[src.index("def expand("):src.index("def _nldas_month_file")]
+    # Comments stripped: the block above explains WHY the fetch left and names
+    # the tool, so a substring match would flag its own documentation.
+    code = "\n".join(l for l in body.splitlines()
+                     if not l.lstrip().startswith("#"))
+    assert "get_fan_wtd_points" not in code, (
+        "sampling fetches Fan again; selection is elevation-only and the "
+        "consumer fetches its own water table")
+    assert "fan_wtd" not in code, "a fan_wtd client is back in expand()"

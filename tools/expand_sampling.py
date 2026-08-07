@@ -4,9 +4,14 @@ Tier-2 expander: planner sampling STRATEGY -> concrete column points.
 
 Deterministic geospatial expansion (no LLM, no invented coordinates). Samples
 the real DEM via the terrain MCP across the domain bbox, stratifies by elevation
-band, allocates the planner's N columns proportionally to occupied area, picks
-spatially-spread points per band, and enriches each with Fan equilibrium WTD +
-point soil texture. NOTHING is executed.
+band, allocates the planner's N columns proportionally to occupied area, and
+picks spatially-spread points per band. NOTHING is executed.
+
+SELECTION IS ELEVATION-ONLY. No water table, no soil. Fan WTD used to be
+attached here and never influenced a single placement; soil comes from the
+warm-start donor gridcell, so a profile queried here would be a field the model
+never sees. Both are the consumer's to fetch, where the decision that needs
+them is made.
 
 Operates on a pipeline run dir (reads reception_brief.json for the bbox and
 plan.json for N / band count), or standalone via --bbox/--n/--bands.
@@ -143,7 +148,6 @@ def _clip_to_polygon(pts, rings):
 
 def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None):
     terr = clients["terrain"]
-    fan = clients.get("fan_wtd")
 
     grid = terr.call_tool_json("sample_elevation_grid", {**bbox, "n": grid_n}) or {}
     pts = [p for p in grid.get("points", []) if p.get("elevation_m") is not None]
@@ -171,20 +175,31 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None):
             columns.append(col)
             cid += 1
 
-    # Enrichment is batched, not per column. Every MCP call is a fresh session
-    # (HPC-safe by design), so asking per column paid a process spawn plus a
-    # dataset open per column -- for Fan the open IS the cost. Two calls now
-    # serve the whole design.
-    lats = [c["lat"] for c in columns]
-    lons = [c["lon"] for c in columns]
-    if fan and columns:
-        fr = fan.call_tool_json("get_fan_wtd_points",
-                                {"lats": lats, "lons": lons}) or {}
-        pts_out = fr.get("points") or []
-        for col, entry in zip(columns, pts_out):
-            col["fan_wtd_m"] = (entry or {}).get("depth_to_water_m")
-        for col in columns[len(pts_out):]:
-            col["fan_wtd_m"] = None
+    # NO WATER TABLE IS GATHERED HERE ANY MORE (2026-08-07). Sampling selects on
+    # ELEVATION: a DEM grid, clipped to the basin, split into bands, then
+    # farthest-point selection within each. Fan's water table never influenced
+    # any of that — it was queried afterwards, at coordinates already chosen,
+    # which made this stage look like it depended on a dataset it did not use.
+    #
+    # WHO NEEDS IT AND WHERE IT GOES. `fan_wtd_m` is PFLOTRAN's initial
+    # condition and sets wt_in_domain — a column whose water table is below the
+    # modelled domain runs fully unsaturated, which was 10 of 19 columns on the
+    # 2019 Gunnison sample. ELM only displays it. So it belongs to whoever needs
+    # it, fetched where that decision is made, not pre-emptively for everyone.
+    # Until PFLOTRAN's inputs are restructured, a consumer must call
+    # get_fan_wtd_points itself; nothing here does it for them.
+    #
+    # The batching lesson still holds wherever it lands: every MCP call is a
+    # fresh session, so asking per column pays a process spawn plus a dataset
+    # open each time — and for Fan the open IS the cost. Ask once for all
+    # coordinates.
+    #
+    # Also worth carrying: a value fetched HERE describes the pre-snap
+    # coordinate. ELM's warm start moves each column up to ~0.4 km against a
+    # ~0.93 km Fan grid, which measurably changed nothing across 19 columns, but
+    # a consumer that fetches after the snap is simply correct rather than
+    # correct-by-margin.
+
     # NO SOIL IS GATHERED HERE, deliberately. The run is warm-started from the
     # CONUS 1 km restarts, which carry the donor gridcell's own surfdata — so
     # the soil ELM runs on is decided by the donor, not by anything queried at
