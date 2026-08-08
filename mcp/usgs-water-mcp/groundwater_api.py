@@ -26,6 +26,7 @@ Pure parsers `_parse_sites` / `_parse_wtd` are network-free by design.
 HTTP client is httpx (synchronous), one short timeout, no retry loops.
 """
 import os
+import random
 import time
 
 import httpx
@@ -41,7 +42,14 @@ OGC_BASE = "https://api.waterdata.usgs.gov/ogcapi/v0"
 # limit. Without one the retry below still recovers, just slowly.
 USGS_API_KEY = os.environ.get("USGS_API_KEY", "").strip()
 _RATE_RETRIES = 3
-_RATE_MAX_WAIT = 90        # seconds; longer than this, fail and say so
+_RATE_BASE_WAIT = 5        # seconds; doubles per attempt when the server sends
+                           # no retry-after, with jitter so parallel callers do
+                           # not retry in lockstep
+_MIN_REQUEST_ROOM = 20     # leave this much of the budget for the retry itself
+# ONE budget for all waiting inside a single call, kept below the usgs_water
+# timeout in mcp_config.json so a retry that would succeed is not killed by the
+# client first. That mismatch is what made the old retry unreachable.
+_RATE_BUDGET = 200
 NWIS_IV = "https://waterservices.usgs.gov/nwis/iv/"
 
 FT_TO_M = 0.3048
@@ -68,21 +76,60 @@ def _headers():
     return {"X-Api-Key": USGS_API_KEY} if USGS_API_KEY else {}
 
 
-def _get(cx, url, params=None):
+def _retry_after(r, attempt):
+    """Seconds to wait before retrying a 429, from the server or from backoff.
+
+    The server's own `retry-after` wins when present — it knows its window. With
+    no header, back off exponentially from _RATE_BASE_WAIT with jitter, so N
+    concurrent callers that all trip the limit do not then retry in lockstep.
+    """
+    hdr = r.headers.get("retry-after")
+    if hdr:
+        try:
+            return max(0.0, float(hdr))
+        except (TypeError, ValueError):
+            pass
+    return _RATE_BASE_WAIT * (2 ** attempt) * (1.0 + random.random() * 0.25)
+
+
+def _get(cx, url, params=None, deadline=None):
     """One GET that respects the server's own rate-limit instruction.
 
-    429 carries `retry-after` in seconds. Honouring it is the difference
-    between recovering and reporting a basin as unobserved: in a 15-case run
-    the tail failed on OVER_RATE_LIMIT with retry-after=66, which one wait
-    would have cleared.
+    429 carries `retry-after` in seconds. Honouring it is the difference between
+    recovering and reporting a basin as unobserved: on the 2026-08-07 chain run
+    6 of 13 basins came back 429, and the planner had to report them as fetch
+    failures.
+
+    TWO BUGS LIVED HERE, and they cancelled the retry entirely.
+
+    1. `wait = min(retry_after, _RATE_MAX_WAIT)` then `if wait >= _RATE_MAX_WAIT:
+       return r`. The clamp set wait to exactly the ceiling, which then tripped
+       the give-up test — so any retry-after at or above the ceiling produced an
+       INSTANT failure with no wait at all. The clamp and the check fought each
+       other, and the longer the server asked us to wait, the faster we gave up.
+
+    2. The retry budget did not fit inside the client's patience. Three attempts
+       sleeping up to the ceiling each is minutes, while mcp_config gave
+       usgs_water 120 s — so even a retry that would have succeeded was killed by
+       the MCP client first, and the caller saw a timeout rather than data.
+
+    Now there is ONE budget, `deadline`, and the loop only sleeps when the wait
+    plus one more request still fits inside it. Running out of budget returns the
+    429 so the caller reports a failed fetch — which is the honest answer, and
+    distinguishable from an empty basin.
     """
+    if deadline is None:
+        deadline = time.monotonic() + _RATE_BUDGET
     for attempt in range(_RATE_RETRIES):
         r = cx.get(url, params=params, headers=_headers())
         if r.status_code != 429:
             return r
-        wait = min(float(r.headers.get("retry-after", 30) or 30), _RATE_MAX_WAIT)
-        if attempt == _RATE_RETRIES - 1 or wait >= _RATE_MAX_WAIT:
+        if attempt == _RATE_RETRIES - 1:
             return r                      # caller raises; the error says 429
+        wait = _retry_after(r, attempt)
+        # Only sleep if the wait AND a further request still fit the budget.
+        if time.monotonic() + wait + _MIN_REQUEST_ROOM > deadline:
+            return r
         time.sleep(wait)
     return r
 

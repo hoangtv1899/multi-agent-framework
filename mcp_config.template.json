@@ -6,7 +6,7 @@
       "args": [
         "/path/to/RCSFA/mcp/usgs-water-mcp/main.py"
       ],
-      "timeout": 120.0
+      "timeout": 300.0
     },
     "geology": {
       "command": "/path/to/your/python3",
