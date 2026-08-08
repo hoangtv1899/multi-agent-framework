@@ -159,7 +159,39 @@ def _farthest_point_select(pts, k, seeds=None):
 
 STATION_SOURCES = (("streamflow", "stations"),
                    ("water_table", "wells"),
-                   ("swe", "stations"))
+                   ("swe", "stations"),
+                   ("et", "towers"))
+
+# WHAT A 1-D COLUMN CAN BE PINNED TO.
+#
+# A pinned column exists so a simulated value and an observed one describe the
+# SAME place. That only works for a quantity the column actually produces at a
+# point. SWE, water table and ET are vertical and local — the column computes
+# them where it stands, and an instrument measures them where it stands.
+#
+# Streamflow is not. A gauge measures discharge integrated and ROUTED over its
+# upstream area, and this framework runs 1-D columns with no lateral transport,
+# so a column at the gauge's coordinates produces a point runoff flux, never the
+# thing the gauge recorded. Putting a column there buys nothing the ensemble
+# mean does not already give.
+#
+# Measured on the 13-basin chain run, 2026-08-07: 14 of 40 pinned columns went
+# to gauges. Eight were under the planner's own "basin-aggregate" label — it
+# knew — and the rest were labelled "co-located", which for a gauge cannot be
+# true. brandywine_2010 is the clearest: four gauge pins, all in band 1, giving
+# that band 7 of the basin's 13 columns for a third of the elevation range.
+# Gauges sit on rivers, so gauge pins sit in valleys, so the ensemble tilts
+# downhill.
+#
+# Filtering on the variable rather than on the planner's `comparison` string is
+# deliberate: brandywine called all four "co-located", so a string filter would
+# have caught none of them. The reason is structural — true of every gauge in
+# every basin — which makes it the sampler's to enforce, not the planner's to
+# remember.
+#
+# Streamflow validation is NOT dropped. It stays a basin-aggregate comparison
+# against the ensemble; it simply stops costing a column.
+PINNABLE_VARIABLES = ("swe", "water_table", "et")
 
 
 def _station_index(reception):
@@ -238,6 +270,7 @@ def _pinned_from_plan(plan, reception):
         return []
 
     idx = _station_index(reception)
+
     missing = [s for s in wanted if s not in idx]
     if missing:
         raise ValueError(
@@ -248,7 +281,22 @@ def _pinned_from_plan(plan, reception):
             f"pair a simulation with an observation, so this is not degraded "
             f"silently — fix reception's fetch, or drop the station from "
             f"strategy.validation.")
-    return [idx[s] for s in wanted]
+
+    # Drop what a 1-D column cannot be co-located with. The variable comes from
+    # WHICH LIST RECEPTION FOUND THE STATION IN, not from the plan's claim about
+    # it, so a mislabelled entry is filtered on what the station actually is.
+    keep = [idx[s] for s in wanted
+            if idx[s]["station_variable"] in PINNABLE_VARIABLES]
+    dropped = [idx[s] for s in wanted
+               if idx[s]["station_variable"] not in PINNABLE_VARIABLES]
+    if dropped:
+        print(f"   ⚠️  not pinning {len(dropped)} station(s) a 1-D column cannot "
+              f"be co-located with: "
+              f"{[(d['station_id'], d['station_variable']) for d in dropped]}")
+        print(f"   ⚠️  A gauge integrates and routes an upstream area; this model "
+              f"has no lateral transport. Those variables stay as "
+              f"basin-aggregate comparisons against the ensemble.")
+    return keep
 
 
 def _outside_basin(lat, lon, rings):

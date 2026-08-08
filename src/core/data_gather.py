@@ -264,6 +264,37 @@ def gather_observations(clients, bbox_str: str, yr_start: int, yr_end: int,
         "n_reporting": sr.get("n_reporting"),
         "stations": _cap_series(sr.get("stations") or [], MAX_SWE_SERIES),
     }
+
+    # ET, the observable a 1-D column is best matched to: vertical, local to the
+    # tower footprint, and computed directly by ELM. SWE and water table are the
+    # other two a column can produce at a point; streamflow is not, because a
+    # gauge integrates and routes an upstream area that the model has no lateral
+    # transport to represent.
+    #
+    # with_values is OFF, deliberately. AmeriFlux flux data is not on an open
+    # endpoint — it needs a registered account and data-use-policy acceptance —
+    # so asking for values would return ok=false and lose the tower list with it.
+    # Discovery is what pinning needs anyway: coordinates, and whether the tower
+    # was running. The comparison step needs the series, and that needs
+    # credentials.
+    #
+    # Coverage is thin and that is the point of recording it rather than
+    # assuming: of the 13 chain-eval basins, 2 had a tower operating in their
+    # simulation year.
+    e = _call(clients, "ameriflux", "get_et",
+              {"bbox": bbox_str, "start_date": start, "end_date": end})
+    prov.append({k: e[k] for k in ("tool", "args", "fetched_at", "ok", "error")})
+    er = e.get("result") or {}
+    out["et"] = {
+        "ok": e["ok"], "error": e["error"],
+        "n_in_bbox": er.get("n_in_bbox"),
+        "n_operating": er.get("n_operating"),
+        "n_with_released_data": er.get("n_with_released_data"),
+        # only towers that were RUNNING in the period can validate it
+        "towers": [t for t in (er.get("towers") or []) if t.get("operating")],
+        "values_available": False,
+        "values_note": "series need an AmeriFlux account; discovery only",
+    }
     return out
 
 
@@ -278,6 +309,7 @@ def summarise(observations: Dict[str, Any]) -> Dict[str, Any]:
     q = observations.get("streamflow") or {}
     w = observations.get("water_table") or {}
     s = observations.get("swe") or {}
+    e = observations.get("et") or {}
     # THE ERROR TRAVELS WITH ok=False. Carrying the flag alone was not enough:
     # on 2026-08-07 the Chattahoochee fetch was rate-limited (HTTP 429) and the
     # planner, seeing {"ok": false, "stations": []}, wrote "observations_summary
@@ -306,5 +338,13 @@ def summarise(observations: Dict[str, Any]) -> Dict[str, Any]:
                           ("triplet", "name", "lat", "lon", "elevation_m",
                            "peak_swe_mm", "peak_date")}
                          for st in (s.get("stations") or [])],
+        },
+        "et": {
+            "ok": e.get("ok"), "error": e.get("error"),
+            "n_operating": e.get("n_operating"),
+            "values_available": False,
+            "towers": [{k: st.get(k) for k in
+                        ("id", "name", "lat", "lon", "elevation_m", "igbp")}
+                       for st in (e.get("towers") or [])],
         },
     }

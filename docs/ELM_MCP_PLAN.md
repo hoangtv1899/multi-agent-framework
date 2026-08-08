@@ -1121,6 +1121,79 @@ step1_compare_swe give up on station pairing.
 
 ---
 
+## 11d. Pin only what a 1-D column produces at a point — 2026-08-07
+
+The framework runs 1-D columns: vertical water and energy, no lateral transport.
+A pinned column exists so a simulated value and an observed one describe the SAME
+place, and that only works for a quantity the column computes where it stands.
+
+```
+swe · water_table · et    vertical, local           PINNABLE
+streamflow                integrated + routed       NEVER
+```
+
+A gauge measures discharge over its whole upstream area. A column at the gauge's
+coordinates produces a point runoff flux — not the thing the gauge recorded. The
+comparison is basin-aggregate whatever it is labelled, and it needs no column at
+the gauge.
+
+**Measured on the 13-basin run.** 14 of 40 pinned columns went to gauges, and
+they are what tilted the ensembles downhill: gauges sit on rivers, so gauge pins
+sit in valleys.
+
+```
+brandywine_2010   band 1 held 7 of 13 columns — all four pins were gauges,
+                  all labelled "co-located — column runoff (surface+QDRAI)
+                  converted to mm/yr against gauge specific discharge"
+```
+
+Chicopee's plan said the opposite about the same variable — *"a 1-D column has no
+routing so only a first-order runoff-…"*. The planner knows, inconsistently.
+
+**Filtered on the variable, not on the `comparison` string.** Brandywine called
+all four "co-located", so a string filter catches none of them. And the variable
+is read from WHICH LIST RECEPTION FOUND THE STATION IN, not from the plan's claim,
+so a mislabelled entry is filtered on what the station actually is. The reason is
+structural — true of every gauge in every basin — which makes it the sampler's to
+enforce rather than the planner's to remember. `planner.txt` states it too, so
+the planner stops asking.
+
+Replayed over all 13: **42 pinned -> 26, sixteen columns returned to stratified
+sampling**, every drop a gauge. Brandywine 4 -> 0, Chicopee 3 -> 0.
+
+Streamflow validation is not dropped. It stays a basin-aggregate comparison
+against the ensemble — which is what it always was — and simply stops costing a
+column.
+
+### The ET gap this exposed, and the MCP that fills it
+
+Of the three observables reception fetched, removing streamflow left SWE and
+water table. ET is the one best matched to the model — vertical, local to a tower
+footprint of a few hundred metres, and computed directly by ELM — and it was not
+fetched at all.
+
+`mcp/ameriflux-mcp/` (ca3e52f) adds it: `get_et(bbox[, start_date, end_date,
+with_values])` over the open AmeriFlux web service, 837 sites, 677 in the US, each
+with coordinates, elevation, IGBP cover and tower years. `data_gather` now fetches
+it, `summarise` passes it, and `STATION_SOURCES` indexes `("et", "towers")`, so a
+tower can be pinned like any other station.
+
+**Two limits, both measured rather than assumed:**
+
+* **Coverage is thin.** 2 of the 13 basins have a tower operating in their
+  simulation year — Chicopee (Harvard Forest) and St Vrain (Niwot Ridge). It is a
+  high-quality option where it exists, not a general replacement. Where it does
+  exist it is excellent: St Vrain 2013 returns US-NR1 (subalpine forest, 3050 m)
+  with US-NR3/NR4 (alpine tundra, 3502/3504 m), a pair spanning 450 m of the
+  gradient the banded design samples.
+* **No series without credentials.** AmeriFlux flux data needs a registered
+  account and data-use-policy acceptance; there is no open series endpoint. So
+  `with_values=True` returns `ok: false` WITH the reason and the request URL, and
+  still lists the towers. Discovery is what pinning needs; the comparison step
+  needs the series, and that is a credentialed step someone must take.
+
+---
+
 ## 12. Open
 
 * **Fan WTD sits awkwardly in `sample_columns`, and moves when PFLOTRAN does.**

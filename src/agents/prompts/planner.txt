@@ -78,10 +78,26 @@ entries. It is not an estimate — the column budget is computed from it
 more column than the budget you yourself derived, and the extra is taken out of
 the stratified design.
 
+PIN ONLY WHAT A 1-D COLUMN PRODUCES AT A POINT: swe, water_table, et.
+
+A pinned column exists so the simulated and observed values describe the same
+place. SWE, water table and ET are vertical and local — the column computes them
+where it stands. **Never pin a streamflow gauge.** A gauge measures discharge
+integrated and ROUTED over its upstream area, and this model has no lateral
+transport, so a column at the gauge produces a point runoff flux and not the
+quantity the gauge recorded. Calling it "co-located" does not make it so, and
+the sampler will refuse the pin regardless.
+
+Streamflow is still validated — as a basin-aggregate comparison against the
+ensemble, which is what it always was. Emit it with `stations: []` and a
+`comparison` beginning "basin-aggregate", naming the gauge whose
+drainage_area_km2 is closest to the basin area in the text. A gauge draining 7%
+of the basin cannot validate a basin-wide ensemble, and saying so is more useful
+than pretending otherwise.
+
 Pin at most 4, and prefer:
-  • a streamflow gauge whose drainage_area_km2 is closest to the basin area —
-    a gauge draining 7% of the basin cannot validate a basin-wide ensemble, and
-    saying so is more useful than pretending otherwise;
+  • AmeriFlux towers (`et`) — the closest match to what the model computes,
+    where the basin has one; they are sparse, so most basins will have none;
   • SNOTEL stations spanning the elevation range, not clustered.
 
 A variable you are not pinning gets `stations: []` and a `comparison` that
