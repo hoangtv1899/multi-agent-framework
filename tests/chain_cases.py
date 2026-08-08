@@ -270,6 +270,11 @@ def main():
     ap.add_argument("--report", default="", help="summarise an existing run dir")
     ap.add_argument("--replay", default="",
                     help="re-run ONLY the sampler over a run dir's artifacts")
+    ap.add_argument("--sleep", type=float, default=0.0,
+                    help="seconds to pause BETWEEN cases, to stay under the "
+                         "USGS rate limit (the 2026-08-07 run took a 429 on "
+                         "chattahoochee and the planner reported it as an "
+                         "absence of gauges)")
     ap.add_argument("--reception-model", default="claude-opus-4-8-project")
     ap.add_argument("--planner-model", default="claude-opus-4-8-project")
     a = ap.parse_args()
@@ -310,7 +315,9 @@ def main():
 
     print(f"\n{len(todo)} cases -> {out}\n" + "=" * 72)
     summary = []
-    for c in todo:
+    for n, c in enumerate(todo):
+        if n and a.sleep:
+            time.sleep(a.sleep)
         t0 = time.time()
         rec = plan = res = None
         pinned, err = [], None

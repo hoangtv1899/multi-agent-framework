@@ -1194,6 +1194,63 @@ tower can be pinned like any other station.
 
 ---
 
+## 11e. The manuscript figure — deferred to the MCP, deliberately
+
+**DECIDED 2026-08-07: build it from `build_elm_inputs_from_location`'s output,
+not from the sampler's.** The reason is a real measurement, not tidiness.
+
+`dem_minus_station_m` in the chain artifacts is a SAMPLING-TIME number. The warm
+start then snaps every column to its CONUS 1 km donor gridcell — measured at
+**≤0.409 km displacement** — so the column ELM actually integrates is up to ~400 m
+from the station, on the donor cell's surface rather than the 3DEP one. A figure
+drawn from the sampler would show co-location as designed and not as simulated,
+which is the distinction a reviewer will press on.
+
+The chain-eval artifacts are all pre-snap: the driver calls `expand()` directly
+and never runs `_refine_columns`. So the figure waits for the tool that returns
+the snapped columns.
+
+### What the figure shows, once the tool exists
+
+Three panels, each a measurement with no interpretation drawn on it (claims go in
+the caveat record):
+
+```
+1  DESIGN, one basin      basin outline · elevation bands · stratified columns
+                          · pinned columns marked distinctly at their stations
+2  CO-LOCATION            |DEM - station| per pinned column, DESIGNED vs
+                          SIMULATED (post-snap), against the nearest-grid-point
+                          alternative
+3  DESIGN FIDELITY        13 basins x the check set, before/after
+```
+
+Panel 2 is the one that carries the result. Measured pre-snap so far: Naches
++0.5, +15.9, -4.1 m; Gunnison +1.3, -1.3 m — against +1006.5, +263.7, +268.7,
++103.0 m for the same stations by nearest grid point, and against the 846 m
+offsets that made `step1_compare_swe` abandon station pairing. Showing designed
+AND simulated makes the warm start's cost explicit instead of hiding it.
+
+**St Vrain is the basin for panel 1** — the only case in the set with SNOTEL *and*
+flux towers (US-NR1 subalpine forest 3050 m; US-NR3/NR4 alpine tundra ~3503 m),
+so one map shows stratification plus two kinds of co-located validation across
+450 m of gradient.
+
+### What it claims, and what it does not
+
+It supports a METHODS claim: the design an LLM planner specifies is recoverable,
+checkable, and reproduced by a deterministic sampler, with co-location achieved
+to within metres at sampling time and a stated displacement after the warm start.
+
+It does NOT support a skill claim. No ELM run has been compared against SWE or ET
+at a pinned column — that is Phase 5, and for ET it needs AmeriFlux credentials.
+
+**Known weakness to state in the caption:** only SNOTEL reports its own
+elevation, so the offset panel has one point per SNOTEL pin, not per pinned
+column. USGS gauges and wells carry no elevation, and gauges are no longer pinned
+at all (§11d).
+
+---
+
 ## 12. Open
 
 * **Fan WTD sits awkwardly in `sample_columns`, and moves when PFLOTRAN does.**
