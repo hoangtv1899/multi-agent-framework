@@ -541,11 +541,28 @@ def build_finidats(columns, out_dir, bands, quiet=False, workers=None):
     n_workers = max(1, min(int(workers or DEFAULT_WORKERS), len(resolved)))
     results = {}
     if n_workers > 1 and len(resolved) > 1:
+        import multiprocessing as _mp
         from concurrent.futures import ProcessPoolExecutor
         payload = [(cid, lat, lon, band, restart, str(out_dir))
                    for _, cid, lat, lon, band, restart in resolved]
+        # SPAWN, NOT FORK. ProcessPoolExecutor forks by default on Linux, and
+        # forking a process that has an asyncio event loop and its threads --
+        # which is exactly what an MCP server is -- deadlocks: the child
+        # inherits mutexes held by threads that do not exist in it, and the
+        # first netCDF open never returns.
+        #
+        # Measured 2026-08-07: build_elm_inputs_from_location took 8 s for three
+        # columns called directly and hung to the 600 s MCP timeout for the SAME
+        # three through the server, every time, with the tool log stopping after
+        # the warm-start header and before the first column. It had never once
+        # completed over the protocol.
+        #
+        # spawn re-imports this module in each worker instead of copying the
+        # parent, so it carries no inherited locks. Slower to start a worker,
+        # which is nothing against 53.4 s/column serial.
         try:
-            with ProcessPoolExecutor(max_workers=n_workers) as ex:
+            with ProcessPoolExecutor(max_workers=n_workers,
+                                     mp_context=_mp.get_context("spawn")) as ex:
                 for cid, info, reason in ex.map(_subset_one, payload):
                     results[cid] = (info, reason)
         except Exception as e:

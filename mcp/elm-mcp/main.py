@@ -60,6 +60,7 @@ Tools:
 """
 import contextlib
 import functools
+import io
 import json
 import os
 import re
@@ -144,11 +145,36 @@ mcp = FastMCP("elm")
 # call says nothing about a transport. A decorator rather than 54 edits, so a
 # print added later cannot reintroduce it, and the messages still reach a human
 # on stderr.
+# REDIRECTED TO A FILE, NOT TO STDERR. The first version of this sent tool
+# output to sys.stderr and every MCP call then hung to the 600 s timeout while
+# the same work took 8 s called directly. redirect_stdout swaps sys.stdout
+# GLOBALLY, so in an async server the JSON-RPC reply can be written while the
+# swap is active and disappear down the same pipe as the progress text — the
+# client waits for a frame that was never delivered. A file has neither problem:
+# nothing shares it, nothing parses it, and it cannot fill and block.
+_LOG_PATH = os.environ.get(
+    "IDEAS_ELM_MCP_LOG",
+    str(Path(os.environ.get("TMPDIR", "/tmp")) / "elm_mcp_tools.log"))
+
+
 def _stdout_to_stderr(fn):
+    """Keep tool print() off the protocol channel.
+
+    stdout IS the JSON-RPC transport for a stdio server, and the moved modules
+    print 54 progress lines. They go to a log file so a human can still read
+    them, and the transport stays clean.
+    """
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        with contextlib.redirect_stdout(sys.stderr):
-            return fn(*args, **kwargs)
+        try:
+            log = open(_LOG_PATH, "a", buffering=1)
+        except Exception:                       # noqa: BLE001 - never fail a tool
+            log = io.StringIO()                 # discard rather than corrupt
+        try:
+            with contextlib.redirect_stdout(log):
+                return fn(*args, **kwargs)
+        finally:
+            log.close()
     return wrapper
 
 SUBMIT_SCRIPT = FRAMEWORK / "tools" / "submit_cases.sh"
