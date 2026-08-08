@@ -1251,6 +1251,55 @@ at all (§11d).
 
 ---
 
+## 11f. build_elm_inputs_from_location, first working run — 2026-08-08
+
+It had NEVER completed through the MCP protocol. Every call hung to the 600 s
+timeout while the same work took 8 s called directly.
+
+**Root cause: `ProcessPoolExecutor` in `make_finidat_subset` forks by default on
+Linux**, and forking a process that owns an asyncio event loop and its threads —
+an MCP server — deadlocks. The child inherits mutexes held by threads that do not
+exist in it and the first netCDF open never returns. `mp_context="spawn"` fixes
+it: 600 s -> 7 s. Invisible to a direct call, which has no event loop to fork.
+
+Two misdiagnoses came first and are worth keeping. The stdout framing corruption
+(54 `print()` calls on the JSON-RPC channel) was real and is fixed, but it never
+caused the hang. Redirecting them to *stderr* then introduced a second fault —
+`redirect_stdout` swaps `sys.stdout` globally, so an async server can write its
+reply into the swap — so they now go to a log file.
+
+**Phase 1a passed this tool on 285 fields and 247 runtime_config values by
+calling its functions directly.** A tool that could not answer over the protocol
+at all scored full marks. Parity across a function call says nothing about a
+transport.
+
+### Results, 13/13 built, 18.6 min
+
+Warm start handles PINNED columns, including ones below the DEM's sampled range:
+every pinned column found a CONUS donor. Snap distances ≤ 0.529 km, consistent
+with the ≤0.409 km measured earlier.
+
+### BLOCKER FOR THE FIGURE: elevation_m is not updated on snap
+
+`warm_start` sets `c["lat"], c["lon"] = donor_lat, donor_lon` and leaves
+`elevation_m` at its pre-snap 3DEP value. The record then describes two places at
+once, and the designed-vs-simulated panel of §11e **cannot be built from this
+output** — all 27 pinned columns report identical designed and simulated offsets
+because the second is the first, relabelled.
+
+ELM itself reads the donor's surfdata and domain, so the run is unaffected; the
+error is in what `columns.json` reports, which is what the analyzer and the
+figure read. Fix before §11e: carry the donor gridcell's own elevation through.
+
+### Also unexplained
+
+`centralcoast_1998` snapped a column **4.522 km**, nine times any other case. An
+elongated coastal basin has few CONUS land gridcells near the shore, so the
+nearest donor may be far inland — but a column moved 4.5 km no longer represents
+where it was sampled, and nothing currently warns.
+
+---
+
 ## 12. Open
 
 * **Fan WTD sits awkwardly in `sample_columns`, and moves when PFLOTRAN does.**
