@@ -328,8 +328,20 @@ def summarise(observations: Dict[str, Any]) -> Dict[str, Any]:
         },
         "water_table": {
             "ok": w.get("ok"), "error": w.get("error"), "n_with_records": w.get("n_with_records"),
+            # WELLS WITH COORDINATES FIRST. The cap keeps the planner's payload
+            # small, but a plain head slice let it decide the wrong thing: on
+            # brandywine_2010 (2026-08-07) 116 wells were fetched, 23 of them
+            # with lat/lon, and the first 25 in fetch order had none — so the
+            # planner saw 25 coordinate-less wells, wrote "wells reported
+            # without coordinates (lat/lon null)", and 23 pinnable wells stayed
+            # invisible in a basin that otherwise has nothing co-locatable.
+            # A well without coordinates cannot be pinned and cannot be paired,
+            # so it is the least useful kind to spend the cap on.
             "wells": [{k: st.get(k) for k in ("id", "lat", "lon", "n_obs", "wtd_m")}
-                      for st in (w.get("wells") or [])[:25]],
+                      for st in sorted(w.get("wells") or [],
+                                       key=lambda x: (x.get("lat") is None,
+                                                      -(x.get("n_obs") or 0))
+                                       )[:25]],
         },
         "swe": {
             "ok": s.get("ok"), "error": s.get("error"), "n_stations": s.get("n_stations"),

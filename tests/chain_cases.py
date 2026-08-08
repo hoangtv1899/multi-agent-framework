@@ -77,11 +77,25 @@ def check_chain(plan, reception, res, pinned):
     # streamflow and water-table fetches were rate-limited (HTTP 429), so the
     # plan citing nothing was correct; scoring that as a planner failure would
     # have blamed the wrong box for a data-collection failure.
+    # Only stations a 1-D column can be CO-LOCATED with count as citable. Two
+    # earlier versions of this check blamed the wrong box: it fired on
+    # chattahoochee, whose fetches were rate-limited (429), and then on
+    # brandywine, which fetched 30 stations that are all stream gauges — not
+    # pinnable since 11d, wells with null coordinates, no SNOTEL, no towers. In
+    # both cases citing nothing was the correct plan.
     import expand_sampling as _exp
-    available = len(_exp._station_index(reception))
-    if available:
+    idx = _exp._station_index(reception)
+    pinnable = [k for k, v in idx.items()
+                if v["station_variable"] in _exp.PINNABLE_VARIABLES]
+    if pinnable:
         add("plan.cites_stations", bool(cited),
-            f"{len(cited)} pinnable of {available} fetched: {cited}")
+            f"{len(cited)} cited of {len(pinnable)} pinnable "
+            f"({len(idx)} fetched): {cited}")
+    elif idx:
+        add("basin.has_colocatable_observation", False,
+            f"{len(idx)} stations fetched but NONE pinnable — a 1-D column "
+            f"cannot be co-located with any of them. Streamflow-only basin; "
+            f"validation is basin-aggregate, and no column is spent on it.")
     else:
         add("reception.fetched_any_station", False,
             "reception fetched NO stations — check ok/error, this may be a "
