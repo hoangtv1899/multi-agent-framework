@@ -1291,6 +1291,39 @@ ELM itself reads the donor's surfdata and domain, so the run is unaffected; the
 error is in what `columns.json` reports, which is what the analyzer and the
 figure read. Fix before §11e: carry the donor gridcell's own elevation through.
 
+### MEASURED: the snap costs ~10x the co-location, and the bug hid it
+
+Recomputing every pinned column's offset from the donor's own TOPO — which the
+warm start already writes to `surfdata_col_NN.nc` — instead of the stale
+`elevation_m`:
+
+```
+|offset| designed : max  15.9 m, mean  4.4 m
+|offset| SIMULATED: max 155.6 m, mean 41.0 m
+
+337:NV:SNTL  station 2654.8  3DEP 2651.2  donor 2810.4   -3.6 -> +155.6
+863:WA:SNTL  station 1353.3  3DEP 1353.8  donor 1443.6   +0.5 ->  +90.3
+538:CO:SNTL  station 2980.9  3DEP 2982.2  donor 3069.6   +1.3 ->  +88.7
+```
+
+A 0.5 km snap in mountain terrain costs tens to over a hundred metres.
+
+**The near miss.** Plotting the reported `elevation_m` would have shown ±4 m
+co-location in the manuscript when the model actually sees ±41 m — a false claim
+any reviewer could find by asking what elevation ELM ran at. This is the argument
+for §11e's designed-vs-simulated panel over a single one.
+
+The result stays strongly positive: `step1_compare_swe` abandoned pairing over
+846 m offsets; pinning gives 41 m mean and 156 m worst, and the residual has a
+named, measured cause — the CONUS 1 km donor snap — rather than being the
+absence of any column at the station.
+
+**Fix:** read TOPO back from `surfdata_col_NN.nc` and set `elevation_m` from it,
+recording the pre-snap value alongside rather than overwriting it silently.
+`elevation_m` is read by step1_compare_swe / _wtd / _streamflow and step2_derive,
+so the analyzer is comparing on the pre-snap value today. The ELM run is
+unaffected — it reads the donor surfdata directly.
+
 ### Also unexplained
 
 `centralcoast_1998` snapped a column **4.522 km**, nine times any other case. An
