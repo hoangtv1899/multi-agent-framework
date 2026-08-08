@@ -36,6 +36,14 @@
         "/path/to/RCSFA/mcp/snotel-mcp/main.py"
       ],
       "timeout": 90.0
+    },
+    "ameriflux": {
+      "command": "/path/to/your/python3",
+      "args": [
+        "/path/to/RCSFA/mcp/ameriflux-mcp/main.py"
+      ],
+      "timeout": 120.0,
+      "description": "AmeriFlux eddy-covariance towers: ET validation sites (discovery only; series needs credentials)"
     }
   }
 }
