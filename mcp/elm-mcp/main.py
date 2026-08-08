@@ -58,6 +58,8 @@ Tools:
     check_elm_job(...)           -> what SLURM is doing, and the built case
                                     directories once a build job has landed
 """
+import contextlib
+import functools
 import json
 import os
 import re
@@ -120,6 +122,34 @@ from mcp.server.fastmcp import FastMCP                          # noqa: E402
 import paths                                                    # noqa: E402
 
 mcp = FastMCP("elm")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STDOUT IS THE PROTOCOL. Every tool body runs with stdout redirected to stderr.
+#
+# This is a stdio MCP server: the client reads JSON-RPC frames from our stdout,
+# so ANY print() inside a tool corrupts the transport. The moved modules print
+# freely — 54 calls across inputs.py and elm_exp_manager.py, progress lines that
+# are genuinely useful when the same code is driven from a terminal — and on
+# 2026-08-07 the first call to build_elm_inputs_from_location through the
+# protocol produced a stream of
+#
+#     Failed to parse JSONRPC message from server
+#     Invalid JSON: input_value='🌡️  STEP 0b: Warm Start (CONUS subset)'
+#
+# and then timed out, because the reply was lost in the noise.
+#
+# Phase 1a checked this tool by calling the functions DIRECTLY and comparing 285
+# fields. That is why it missed the defect entirely: parity across a function
+# call says nothing about a transport. A decorator rather than 54 edits, so a
+# print added later cannot reintroduce it, and the messages still reach a human
+# on stderr.
+def _stdout_to_stderr(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with contextlib.redirect_stdout(sys.stderr):
+            return fn(*args, **kwargs)
+    return wrapper
 
 SUBMIT_SCRIPT = FRAMEWORK / "tools" / "submit_cases.sh"
 STUDY_SCRIPT  = FRAMEWORK / "tools" / "run_study.sh"
@@ -187,6 +217,7 @@ def _imports() -> dict:
 
 
 @mcp.tool()
+@_stdout_to_stderr
 def describe_elm_capabilities() -> str:
     """What this server can do, what it needs, and whether that is present.
 
@@ -287,6 +318,7 @@ def describe_elm_capabilities() -> str:
 # LOCATIONS → RUNNABLE INPUTS  (not a job — fast, local, returns DATA)
 # ─────────────────────────────────────────────────────────────────────
 @mcp.tool()
+@_stdout_to_stderr
 def build_elm_inputs_from_location(run_dir:         str,
                                    soil_config:     str = "native",
                                    substrate:       str = "extrapolate",
@@ -376,6 +408,7 @@ def build_elm_inputs_from_location(run_dir:         str,
 # BUILD THE CASES  (a job — D1)
 # ─────────────────────────────────────────────────────────────────────
 @mcp.tool()
+@_stdout_to_stderr
 def build_elm_cases(run_dir:  str,
                     queue:    str = "",
                     walltime: str = "02:00:00",
@@ -481,6 +514,7 @@ def _exeroot(case_dir: str) -> Optional[str]:
 
 
 @mcp.tool()
+@_stdout_to_stderr
 def submit_elm_ensemble(run_dir:   str,
                         case_dirs: List[str],
                         queue:     str = "",
@@ -548,6 +582,7 @@ def submit_elm_ensemble(run_dir:   str,
 # THE WHOLE STUDY  (one job)
 # ─────────────────────────────────────────────────────────────────────
 @mcp.tool()
+@_stdout_to_stderr
 def run_elm_study(run_dir:  str,
                   queue:    str = "",
                   walltime: str = "02:00:00",
@@ -628,6 +663,7 @@ def run_elm_study(run_dir:  str,
 # WHAT IS THE SCHEDULER DOING
 # ─────────────────────────────────────────────────────────────────────
 @mcp.tool()
+@_stdout_to_stderr
 def check_elm_job(job_id: str, run_dir: str = "") -> str:
     """What is SLURM doing with this job? Works for build and run alike.
 
