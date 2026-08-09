@@ -106,6 +106,97 @@ def _depth_axis(ax):
     ax.yaxis.set_minor_formatter(NullFormatter())
 
 
+# Everything the CONUS surfdata carries per soil layer, which is everything ELM
+# is given: PCT_SAND, PCT_CLAY, ORGANIC and PCT_GRVL over nlevsoi=10. Porosity,
+# conductivity, retention and the thermal properties are not inputs — ELM derives
+# them from these four at runtime.
+SOIL_VARS = {"sand_pct": "sand (%)",
+             "clay_pct": "clay (%)",
+             "organic_kg_m3": "soil organic matter (kg m$^{-3}$)",
+             "gravel_pct": "gravel (%)"}
+
+
+# Esri's World Shaded Relief rather than imagery or a street map: a pale
+# hillshade with water on it, so it puts the columns in real terrain without
+# competing with the elevation colormap they are coloured by.
+TILES = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+         "World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}")
+MAX_TILES = 48
+
+
+def _tile_xy(lon, lat, z):
+    """Web Mercator tile coordinates, the slippy-map convention every XYZ
+    service uses."""
+    import math
+    n = 2.0 ** z
+    r = math.radians(lat)
+    return ((lon + 180.0) / 360.0 * n,
+            (1 - math.log(math.tan(r) + 1 / math.cos(r)) / math.pi) / 2 * n)
+
+
+def _tile_lonlat(x, y, z):
+    import math
+    n = 2.0 ** z
+    return (x / n * 360.0 - 180.0,
+            math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n)))))
+
+
+def _basemap(ax, extent):
+    """Paste an XYZ hillshade under the map panel, in plain lon/lat.
+
+    Each tile is drawn with imshow at its own lon/lat bounds rather than through
+    cartopy. Cartopy would be the obvious tool and was tried first: its GeoAxes
+    mis-places itself inside a gridspec — the panel hangs off the canvas and its
+    title disappears — because the fixed aspect is applied at draw time, after
+    the layout engine has sized the cell. Drawing the tiles directly keeps every
+    panel on ordinary axes and every coordinate in degrees.
+
+    Tiles are square in Mercator and we draw them as latitude rectangles, so
+    each one is stretched by how much sec(lat) varies across it: 0.4% over a
+    0.3-degree tile at 38N, well under a pixel.
+
+    A missing basemap is not an error. Compute nodes have no network, and a
+    figure without a backdrop beats one that cannot be drawn.
+    """
+    import io
+    import urllib.request
+    import numpy as np
+    from PIL import Image
+
+    for z in range(11, 5, -1):
+        x0, y0 = _tile_xy(extent[0], extent[3], z)
+        x1, y1 = _tile_xy(extent[1], extent[2], z)
+        tiles = [(tx, ty) for tx in range(int(x0), int(x1) + 1)
+                 for ty in range(int(y0), int(y1) + 1)]
+        if len(tiles) <= MAX_TILES:
+            break
+    try:
+        for tx, ty in tiles:
+            url = TILES.format(z=z, x=tx, y=ty)
+            with urllib.request.urlopen(url, timeout=20) as r:
+                img = Image.open(io.BytesIO(r.read())).convert("RGB")
+            w, n = _tile_lonlat(tx, ty, z)
+            e, s = _tile_lonlat(tx + 1, ty + 1, z)
+            ax.imshow(np.asarray(img), extent=[w, e, s, n], origin="upper",
+                      zorder=0, interpolation="bilinear")
+    except Exception as ex:                                  # noqa: BLE001
+        print(f"   basemap unavailable ({type(ex).__name__}: {str(ex)[:60]})")
+        return
+    print(f"   basemap: {len(tiles)} tiles at zoom {z}")
+
+
+def _map_axes(fig, cell, extent, basemap=True):
+    """The map panel: lon/lat at the right aspect, over a hillshade."""
+    import math
+    ax = fig.add_subplot(cell)
+    if basemap:
+        _basemap(ax, extent)
+    ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3])
+    ax.set_xlabel("longitude"); ax.set_ylabel("latitude")
+    ax.set_aspect(1 / math.cos(math.radians((extent[2] + extent[3]) / 2)))
+    return ax
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
@@ -113,6 +204,8 @@ def main():
     ap.add_argument("--year", type=int, default=0)
     ap.add_argument("--out", default="")
     ap.add_argument("--title", default="")
+    ap.add_argument("--soil-var", default="sand_pct", choices=sorted(SOIL_VARS))
+    ap.add_argument("--no-basemap", action="store_true")
     a = ap.parse_args()
 
     import matplotlib
@@ -133,7 +226,8 @@ def main():
     plt.rcParams.update({"font.size": 15, "axes.titlesize": 16,
                          "axes.labelsize": 15, "xtick.labelsize": 13,
                          "ytick.labelsize": 13, "legend.fontsize": 12})
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12.5), layout="constrained")
+    fig = plt.figure(figsize=(15, 12.5), layout="constrained")
+    gs = fig.add_gridspec(2, 2)
     cmap, vmin, vmax = "terrain", elev.min(), elev.max()
     norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
     sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -146,29 +240,26 @@ def main():
                    marker="*", edgecolor="k", linewidth=0.9, zorder=4)
 
     # (a) WHERE THE COLUMNS ARE ────────────────────────────────────────────────
-    ax = axes[0, 0]
+    # Extent from the basin when we have it, since the polygon is the thing the
+    # panel is about; from the columns otherwise. 5% of margin either way.
+    bx = [p[0] for p in max(rings, key=len)] if rings else list(lon)
+    by = [p[1] for p in max(rings, key=len)] if rings else list(lat)
+    mx, my = 0.05 * (max(bx) - min(bx)), 0.05 * (max(by) - min(by))
+    extent = [min(bx) - mx, max(bx) + mx, min(by) - my, max(by) + my]
+
+    ax = _map_axes(fig, gs[0, 0], extent, basemap=not a.no_basemap)
+    axes = [ax] + [fig.add_subplot(gs[i]) for i in ((0, 1), (1, 0), (1, 1))]
     if rings:
         xs, ys = zip(*[(p[0], p[1]) for p in max(rings, key=len)])
-        ax.plot(xs, ys, color="0.35", lw=1.6, zorder=1)
+        ax.plot(xs, ys, color="0.15", lw=1.8, zorder=5)
     if grid:
         ax.scatter([p["lon"] for p in grid], [p["lat"] for p in grid], s=6,
-                   c="0.8", zorder=2)
+                   c="0.45", zorder=2)
     points(ax, lon, lat)
-    ax.set_xlabel("longitude"); ax.set_ylabel("latitude")
     ax.set_title("(a) columns")
-    ax.set_aspect(1 / np.cos(np.radians(float(lat.mean()))))
-    # Below the axes, not inside them: `loc="best"` parked the key on top of two
-    # columns, and a legend that hides the data it explains is worse than none.
-    ax.legend(handles=[
-        Line2D([], [], ls="", marker="o", mfc="w", mec="k", ms=9,
-               label="stratified"),
-        Line2D([], [], ls="", marker="*", mfc="w", mec="k", ms=16,
-               label="pinned at station"),
-        Line2D([], [], ls="", marker=".", color="0.8", ms=12, label="DEM sample"),
-    ], loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=3, frameon=False)
 
     # (b) FORCING ACROSS THE GRADIENT ──────────────────────────────────────────
-    ax = axes[0, 1]
+    ax = axes[1]
     pr = _precip(cols, a.year) if a.year else None
     if pr:
         p = np.array([pr.get(c["id"], np.nan) for c in cols], float)
@@ -184,11 +275,11 @@ def main():
     ax.set_ylabel("donor elevation (m)")
 
     # (c) THE SOIL THE MODEL RUNS ──────────────────────────────────────────────
-    ax = axes[1, 0]
+    ax = axes[2]
     n_prof = 0
     for c in cols:
         sp = (c.get("soil_profile") or {}).get("layers") or []
-        v = [l.get("sand_pct") for l in sp]
+        v = [l.get(a.soil_var) for l in sp]
         if not sp or any(x is None for x in v):
             continue
         d = [(l["depth_top_cm"] + l["depth_bot_cm"]) / 2 for l in sp]
@@ -197,11 +288,11 @@ def main():
                 alpha=0.95 if c.get("pinned") else 0.7)
         n_prof += 1
     _depth_axis(ax)
-    ax.set_xlabel("sand (%)"); ax.set_ylabel("depth (cm)")
+    ax.set_xlabel(SOIL_VARS[a.soil_var]); ax.set_ylabel("depth (cm)")
     ax.set_title(f"(c) donor soil — {n_prof} profiles")
 
     # (d) THE STATE THE RUN STARTS FROM ────────────────────────────────────────
-    ax = axes[1, 1]
+    ax = axes[3]
     n_init = 0
     for c in cols:
         theta, mid = _init_soil_water(rd, c)
@@ -224,6 +315,16 @@ def main():
     # panel, and it had been drawn twice.
     fig.colorbar(sm, ax=axes, label="donor elevation (m)", fraction=0.035,
                  shrink=0.6, pad=0.015)
+    # The marker key belongs to the whole figure too. Inside panel (a) it landed
+    # on top of columns; anchored under panel (a) it landed on panel (c)'s title.
+    fig.legend(handles=[
+        Line2D([], [], ls="", marker="o", mfc="w", mec="k", ms=9,
+               label="stratified"),
+        Line2D([], [], ls="", marker="*", mfc="w", mec="k", ms=16,
+               label="pinned at station"),
+        Line2D([], [], ls="", marker=".", color="0.45", ms=12,
+               label="DEM sample"),
+    ], loc="outside lower center", ncol=3, frameon=False)
     d = cj.get("sampling_design") or {}
     fig.suptitle(a.title or
                  f"{name} — {len(cols)} columns "
