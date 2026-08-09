@@ -116,12 +116,27 @@ SOIL_VARS = {"sand_pct": "sand (%)",
              "gravel_pct": "gravel (%)"}
 
 
-# Esri's World Shaded Relief rather than imagery or a street map: a pale
-# hillshade with water on it, so it puts the columns in real terrain without
-# competing with the elevation colormap they are coloured by.
+# Esri's World Hillshade: relief and nothing else. Measured against the
+# alternatives over this basin it is both the most detailed and the least
+# coloured — mean saturation 9 against World Shaded Relief's 18, at 33% more
+# contrast — so it needs no muting, and muting is what made the first attempt
+# bland. World Light Gray Base is neutral but carries no relief at all, which
+# for a design stratified BY elevation throws away the context that matters.
 TILES = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
-         "World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}")
+         "Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}")
 MAX_TILES = 48
+
+# VIRIDIS, NOT TERRAIN, for the columns. `terrain` runs blue-green-yellow-brown
+# -white, which is every colour a landscape has: on a hillshade its browns sat
+# in the shadows and its white top end — the highest columns, the ones a
+# snow-dominated design is most about — vanished into the light valleys. It
+# disappeared into the white background of panels (c) and (d) too.
+#
+# Desaturating the basemap "fixed" that by taking the relief out with the hue.
+# The honest fix is to colour the DATA in something a landscape never contains.
+# Viridis is perceptually uniform, colourblind-safe, and dark at the low end and
+# bright at the high one, so it still reads as elevation.
+CMAP = "viridis"
 
 
 def _tile_xy(lon, lat, z):
@@ -139,20 +154,6 @@ def _tile_lonlat(x, y, z):
     n = 2.0 ** z
     return (x / n * 360.0 - 180.0,
             math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n)))))
-
-
-def _muted(rgb):
-    """Strip the hue out of a basemap tile and lighten what is left.
-
-    Esri's relief is tan, and tan is where the `terrain` colormap puts ~3400 m
-    — so the backdrop was the same colour as the columns standing on it. The
-    figure's rule is that hue belongs to the data: the basemap keeps only enough
-    of its own to show water, and gives up the rest.
-    """
-    import numpy as np
-    grey = rgb @ np.array([0.299, 0.587, 0.114])       # perceptual luminance
-    out = 0.2 * rgb + 0.8 * grey[..., None]            # nearly neutral
-    return (255 - 0.5 * (255 - out)).astype("uint8")   # and half-way to white
 
 
 def _basemap(ax, extent):
@@ -191,8 +192,8 @@ def _basemap(ax, extent):
                 img = Image.open(io.BytesIO(r.read())).convert("RGB")
             w, n = _tile_lonlat(tx, ty, z)
             e, s = _tile_lonlat(tx + 1, ty + 1, z)
-            ax.imshow(_muted(np.asarray(img, float)), extent=[w, e, s, n],
-                      origin="upper", zorder=0, interpolation="bilinear")
+            ax.imshow(np.asarray(img), extent=[w, e, s, n], origin="upper",
+                      zorder=0, interpolation="bilinear")
     except Exception as ex:                                  # noqa: BLE001
         print(f"   basemap unavailable ({type(ex).__name__}: {str(ex)[:60]})")
         return
@@ -242,7 +243,7 @@ def main():
                          "ytick.labelsize": 13, "legend.fontsize": 12})
     fig = plt.figure(figsize=(15, 12.5), layout="constrained")
     gs = fig.add_gridspec(2, 2)
-    cmap, vmin, vmax = "terrain", elev.min(), elev.max()
+    cmap, vmin, vmax = CMAP, elev.min(), elev.max()
     norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
     sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
 
