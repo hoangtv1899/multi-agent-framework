@@ -141,6 +141,20 @@ def _tile_lonlat(x, y, z):
             math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n)))))
 
 
+def _muted(rgb):
+    """Strip the hue out of a basemap tile and lighten what is left.
+
+    Esri's relief is tan, and tan is where the `terrain` colormap puts ~3400 m
+    — so the backdrop was the same colour as the columns standing on it. The
+    figure's rule is that hue belongs to the data: the basemap keeps only enough
+    of its own to show water, and gives up the rest.
+    """
+    import numpy as np
+    grey = rgb @ np.array([0.299, 0.587, 0.114])       # perceptual luminance
+    out = 0.2 * rgb + 0.8 * grey[..., None]            # nearly neutral
+    return (255 - 0.5 * (255 - out)).astype("uint8")   # and half-way to white
+
+
 def _basemap(ax, extent):
     """Paste an XYZ hillshade under the map panel, in plain lon/lat.
 
@@ -177,8 +191,8 @@ def _basemap(ax, extent):
                 img = Image.open(io.BytesIO(r.read())).convert("RGB")
             w, n = _tile_lonlat(tx, ty, z)
             e, s = _tile_lonlat(tx + 1, ty + 1, z)
-            ax.imshow(np.asarray(img), extent=[w, e, s, n], origin="upper",
-                      zorder=0, interpolation="bilinear")
+            ax.imshow(_muted(np.asarray(img, float)), extent=[w, e, s, n],
+                      origin="upper", zorder=0, interpolation="bilinear")
     except Exception as ex:                                  # noqa: BLE001
         print(f"   basemap unavailable ({type(ex).__name__}: {str(ex)[:60]})")
         return
