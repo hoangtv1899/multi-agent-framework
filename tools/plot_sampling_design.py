@@ -101,6 +101,38 @@ def _init_soil_water(run_dir: Path, col):
     return w[:n] / (1000.0 * dz), mid
 
 
+def _check_titles(fig):
+    """Warn when a panel's titles are wider than the panel.
+
+    Drawing at printed size makes overflow visible, but visible is not the same
+    as noticed — the first version of this figure shipped with (b)'s title
+    running through (c)'s and I only caught it by looking. A panel here is about
+    28 characters wide at 8 pt, and basin names and column counts vary, so
+    whether a title fits is a property of the DATA and has to be measured on
+    every figure rather than decided once.
+
+    Reports; never changes the figure. Titles are the author's call.
+    """
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    over = []
+    for ax in fig.axes:
+        w = ax.get_window_extent(r).width
+        used = sum(t.get_window_extent(r).width
+                   for t in (ax.title, ax._left_title, ax._right_title)
+                   if t.get_text())
+        if used > w:
+            over.append(f"title {ax.get_title('left') or ax.get_title()!r} "
+                        f"({used / w:.0%} of its panel)")
+        xl = ax.xaxis.label
+        if xl.get_text() and xl.get_window_extent(r).width > w:
+            over.append(f"x label {xl.get_text()!r} "
+                        f"({xl.get_window_extent(r).width / w:.0%})")
+    for o in over:
+        print(f"   ⚠️  title overflows: {o}")
+    return over
+
+
 def _depth_axis(ax):
     """Depth downward, on a log scale, for the two profile panels.
 
@@ -121,10 +153,10 @@ def _depth_axis(ax):
 # is given: PCT_SAND, PCT_CLAY, ORGANIC and PCT_GRVL over nlevsoi=10. Porosity,
 # conductivity, retention and the thermal properties are not inputs — ELM derives
 # them from these four at runtime.
-SOIL_VARS = {"sand_pct": "sand (%)",
-             "clay_pct": "clay (%)",
-             "organic_kg_m3": "soil organic matter (kg m$^{-3}$)",
-             "gravel_pct": "gravel (%)"}
+SOIL_VARS = {"sand_pct": ("sand", "%"),
+             "clay_pct": ("clay", "%"),
+             "organic_kg_m3": ("organic matter", "kg m$^{-3}$"),
+             "gravel_pct": ("gravel", "%")}
 
 
 # Esri's World Hillshade: relief and nothing else. Measured against the
@@ -280,20 +312,19 @@ def main():
     s_col, s_pin = 110 * (20 * k) ** 2 / 400, 300 * (20 * k) ** 2 / 400
     lw_edge, lw_line = max(0.3, 1.4 * k), max(0.5, 2.0 * k)
 
-    def tag(ax, letter, note=""):
-        """Panel letter above the frame, measurement above its right corner.
+    def tag(ax, letter, text, note=""):
+        """Panel title left, measurement right, on the one title line.
 
-        Not a title: at 7.2 inches a title long enough to say anything overruns
-        the panel beside it — "(b) forcing — 14 distinct values for 17 columns"
-        ran straight through (c)'s. A letter outside the axes costs almost no
-        height, cannot collide with data, and puts the variable where a reader
-        of a printed figure looks for it, on the axis.
+        LEFT-aligned, and short. At 7.2 inches a panel is about 28 characters
+        wide, so a centred title long enough to say anything runs into its
+        neighbour — "(b) forcing — 14 distinct values for 17 columns" ran
+        straight through (c)'s. Splitting the measurement onto matplotlib's
+        right-hand title keeps both on one line and inside the panel; the
+        title says what the panel is, the note says what was counted.
         """
-        ax.text(0.0, 1.015, f"({letter})", transform=ax.transAxes,
-                va="bottom", ha="left", fontweight="bold")
+        ax.set_title(f"({letter}) {text}", loc="left")
         if note:
-            ax.text(1.0, 1.015, note, transform=ax.transAxes, va="bottom",
-                    ha="right", fontsize=a.font - 1, color="0.35")
+            ax.set_title(note, loc="right", fontsize=a.font - 1, color="0.35")
 
     def points(ax, x, y):
         """Every panel draws the same ensemble: stars pinned, circles not."""
@@ -342,7 +373,7 @@ def main():
         ax.scatter([p["lon"] for p in grid], [p["lat"] for p in grid],
                    s=max(1.0, s_col * 0.055), c="0.45", zorder=2)
     points(ax, lon, lat)
-    tag(ax, "a")
+    tag(ax, "a", "columns")
 
     # (b) FORCING ACROSS THE GRADIENT ──────────────────────────────────────────
     ax = fig.add_subplot(gs[0, 1]); axes.append(ax)
@@ -351,12 +382,12 @@ def main():
         p = np.array([pr.get(c["id"], np.nan) for c in cols], float)
         points(ax, p, elev)
         n_cell = len(set(np.round(p[np.isfinite(p)], 1)))
-        ax.set_xlabel(f"NLDAS annual precipitation {a.year} (mm)")
-        tag(ax, "b", f"{n_cell} of {len(cols)} distinct")
+        ax.set_xlabel("NLDAS precipitation (mm)")
+        tag(ax, "b", "forcing", f"{n_cell} distinct")
     else:
         ax.text(0.5, 0.5, "pass --year for the NLDAS panel", ha="center",
                 transform=ax.transAxes, color="0.4")
-        tag(ax, "b")
+        tag(ax, "b", "forcing")
     ax.set_ylabel("donor elevation (m)")
 
     # (c) THE STATE THE RUN STARTS FROM ────────────────────────────────────────
@@ -365,9 +396,9 @@ def main():
     if not n:
         ax.text(0.5, 0.5, "no finidat in warmstart/", ha="center",
                 transform=ax.transAxes, color="0.4")
-    ax.set_xlabel("initial soil water (m$^3$ m$^{-3}$)")
     ax.set_ylabel("depth (cm)")
-    tag(ax, "c", short(n))
+    ax.set_xlabel("m$^3$ m$^{-3}$")
+    tag(ax, "c", "initial soil water", short(n))
 
     # (d-f) THE SOIL THE MODEL WAS HANDED ──────────────────────────────────────
     # The bottom row shares one depth axis, so it is labelled once.
@@ -376,8 +407,8 @@ def main():
         ax = fig.add_subplot(gs[1, j], sharey=first)
         axes.append(ax)
         n = profiles(ax, lambda c, v=var: _soil_layers(c, v))
-        ax.set_xlabel(SOIL_VARS[var])
-        tag(ax, "def"[j], short(n))
+        ax.set_xlabel(SOIL_VARS[var][1])
+        tag(ax, "def"[j], SOIL_VARS[var][0], short(n))
         if first is None:
             first = ax
             ax.set_ylabel("depth (cm)")
@@ -401,9 +432,10 @@ def main():
     ], loc="outside lower center", ncol=3, frameon=False)
     d = cj.get("sampling_design") or {}
     fig.suptitle(a.title or
-                 f"{name} — {len(cols)} columns "
+                 f"{name}{f' {a.year}' if a.year else ''} — {len(cols)} columns "
                  f"({d.get('n_pinned', 0)} pinned, {d.get('n_stratified', 0)} stratified)",
                  fontsize=a.font + 2)
+    _check_titles(fig)
     out = Path(a.out) if a.out else rd / "sampling_design.png"
     fig.savefig(out)
     print(f"saved {out}")
