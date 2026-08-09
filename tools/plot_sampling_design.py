@@ -54,6 +54,15 @@ def _precip(cols, year):
         return None
 
 
+def _soil_layers(col, var):
+    """(values, layer-midpoint depths) for one donor profile, or (None, None)."""
+    sp = (col.get("soil_profile") or {}).get("layers") or []
+    v = [l.get(var) for l in sp]
+    if not sp or any(x is None for x in v):
+        return None, None
+    return v, [(l["depth_top_cm"] + l["depth_bot_cm"]) / 2 for l in sp]
+
+
 def _init_soil_water(run_dir: Path, col):
     """Volumetric soil water the column STARTS from, layer by layer.
 
@@ -219,9 +228,15 @@ def main():
     ap.add_argument("--year", type=int, default=0)
     ap.add_argument("--out", default="")
     ap.add_argument("--title", default="")
-    ap.add_argument("--soil-var", default="sand_pct", choices=sorted(SOIL_VARS))
+    ap.add_argument("--soil-vars", default="sand_pct,clay_pct,organic_kg_m3",
+                    help=f"1-3 of {', '.join(sorted(SOIL_VARS))}")
     ap.add_argument("--no-basemap", action="store_true")
     a = ap.parse_args()
+
+    soil_vars = [v.strip() for v in a.soil_vars.split(",") if v.strip()]
+    bad = [v for v in soil_vars if v not in SOIL_VARS]
+    if bad or not 1 <= len(soil_vars) <= 3:
+        ap.error(f"--soil-vars takes 1-3 of {sorted(SOIL_VARS)}, got {soil_vars}")
 
     import matplotlib
     matplotlib.use("Agg")
@@ -241,8 +256,11 @@ def main():
     plt.rcParams.update({"font.size": 15, "axes.titlesize": 16,
                          "axes.labelsize": 15, "xtick.labelsize": 13,
                          "ytick.labelsize": 13, "legend.fontsize": 12})
-    fig = plt.figure(figsize=(15, 12.5), layout="constrained")
-    gs = fig.add_gridspec(2, 2)
+    # Top row: where the columns are, what drives them, what state they start
+    # in. Bottom row: the static soil the model was handed. Three columns, so
+    # the soil row holds three properties instead of one.
+    fig = plt.figure(figsize=(20, 13), layout="constrained")
+    gs = fig.add_gridspec(2, 3)
     cmap, vmin, vmax = CMAP, elev.min(), elev.max()
     norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
     sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -254,6 +272,29 @@ def main():
         ax.scatter(x[pin], y[pin], c=elev[pin], cmap=cmap, norm=norm, s=300,
                    marker="*", edgecolor="k", linewidth=0.9, zorder=4)
 
+    def profiles(ax, values_of):
+        """One depth profile per column, coloured by elevation, pinned heavier.
+
+        `values_of(col)` returns (values, depths_cm) or (None, None) when that
+        column has nothing to draw. Returns how many were drawn — the count only
+        earns a place in the title when it is short of the ensemble.
+        """
+        n = 0
+        for c in cols:
+            v, d = values_of(c)
+            if v is None:
+                continue
+            ax.plot(v, d, color=sm.to_rgba(c["elevation_m"]),
+                    lw=2.4 if c.get("pinned") else 1.2,
+                    alpha=0.95 if c.get("pinned") else 0.7)
+            n += 1
+        if n:
+            _depth_axis(ax)
+        return n
+
+    def short(n):
+        return f" — {n} of {len(cols)}" if n < len(cols) else ""
+
     # (a) WHERE THE COLUMNS ARE ────────────────────────────────────────────────
     # Extent from the basin when we have it, since the polygon is the thing the
     # panel is about; from the columns otherwise. 5% of margin either way.
@@ -263,7 +304,7 @@ def main():
     extent = [min(bx) - mx, max(bx) + mx, min(by) - my, max(by) + my]
 
     ax = _map_axes(fig, gs[0, 0], extent, basemap=not a.no_basemap)
-    axes = [ax] + [fig.add_subplot(gs[i]) for i in ((0, 1), (1, 0), (1, 1))]
+    axes = [ax]
     if rings:
         xs, ys = zip(*[(p[0], p[1]) for p in max(rings, key=len)])
         ax.plot(xs, ys, color="0.15", lw=1.8, zorder=5)
@@ -274,7 +315,7 @@ def main():
     ax.set_title("(a) columns")
 
     # (b) FORCING ACROSS THE GRADIENT ──────────────────────────────────────────
-    ax = axes[1]
+    ax = fig.add_subplot(gs[0, 1]); axes.append(ax)
     pr = _precip(cols, a.year) if a.year else None
     if pr:
         p = np.array([pr.get(c["id"], np.nan) for c in cols], float)
@@ -289,42 +330,31 @@ def main():
         ax.set_title("(b) forcing")
     ax.set_ylabel("donor elevation (m)")
 
-    # (c) THE SOIL THE MODEL RUNS ──────────────────────────────────────────────
-    ax = axes[2]
-    n_prof = 0
-    for c in cols:
-        sp = (c.get("soil_profile") or {}).get("layers") or []
-        v = [l.get(a.soil_var) for l in sp]
-        if not sp or any(x is None for x in v):
-            continue
-        d = [(l["depth_top_cm"] + l["depth_bot_cm"]) / 2 for l in sp]
-        ax.plot(v, d, color=sm.to_rgba(c["elevation_m"]),
-                lw=2.4 if c.get("pinned") else 1.2,
-                alpha=0.95 if c.get("pinned") else 0.7)
-        n_prof += 1
-    _depth_axis(ax)
-    ax.set_xlabel(SOIL_VARS[a.soil_var]); ax.set_ylabel("depth (cm)")
-    ax.set_title(f"(c) donor soil — {n_prof} profiles")
-
-    # (d) THE STATE THE RUN STARTS FROM ────────────────────────────────────────
-    ax = axes[3]
-    n_init = 0
-    for c in cols:
-        theta, mid = _init_soil_water(rd, c)
-        if theta is None:
-            continue
-        ax.plot(theta, mid, color=sm.to_rgba(c["elevation_m"]),
-                lw=2.4 if c.get("pinned") else 1.2,
-                alpha=0.95 if c.get("pinned") else 0.7)
-        n_init += 1
-    if n_init:
-        _depth_axis(ax)
-        ax.set_xlabel("initial soil water, liquid + ice (m$^3$/m$^3$)")
-    else:
+    # (c) THE STATE THE RUN STARTS FROM ────────────────────────────────────────
+    ax = fig.add_subplot(gs[0, 2]); axes.append(ax)
+    n = profiles(ax, lambda c: _init_soil_water(rd, c))
+    if not n:
         ax.text(0.5, 0.5, "no finidat in warmstart/", ha="center",
                 transform=ax.transAxes, color="0.4")
     ax.set_ylabel("depth (cm)")
-    ax.set_title(f"(d) initial condition — {n_init} profiles")
+    ax.set_title("(c) initial soil water, liquid + ice "
+                 "(m$^3$/m$^3$)" + short(n))
+
+    # (d-f) THE SOIL THE MODEL WAS HANDED ──────────────────────────────────────
+    # The bottom row shares one depth axis, so it is labelled once.
+    first = None
+    for j, var in enumerate(soil_vars):
+        ax = fig.add_subplot(gs[1, j], sharey=first)
+        axes.append(ax)
+        n = profiles(ax, lambda c, v=var: _soil_layers(c, v))
+        ax.set_title(f"({'def'[j]}) "
+                     + ("donor soil — " if j == 0 else "")
+                     + SOIL_VARS[var] + short(n))
+        if first is None:
+            first = ax
+            ax.set_ylabel("depth (cm)")
+        else:
+            ax.tick_params(labelleft=False)
 
     # ONE colorbar for the whole figure: elevation is the same variable in every
     # panel, and it had been drawn twice.
