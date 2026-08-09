@@ -47,6 +47,28 @@ CASE_INPUTS = "case_inputs.json"
 # ─────────────────────────────────────────────────────────────────────
 # WARM START
 # ─────────────────────────────────────────────────────────────────────
+def _donor_topo(surfdata_path):
+    """The donor gridcell's surface height, from the surfdata just subset.
+
+    Returns None when the file is unreadable or TOPO is absent or zero. ~19% of
+    the CONUS surfdata's TOPO cells are zero (1,353,973 of 1,670,400 are not),
+    and a zero silently becoming a column's elevation would be worse than the
+    stale value this replaced — so it is a miss, not a number.
+    """
+    if not surfdata_path:
+        return None
+    try:
+        import netCDF4 as nc
+        import numpy as np
+        with nc.Dataset(str(surfdata_path)) as d:
+            if "TOPO" not in d.variables:
+                return None
+            v = float(np.asarray(d.variables["TOPO"][:]).ravel()[0])
+        return None if (v == 0.0 or not np.isfinite(v)) else v
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
 def warm_start(run_dir: Path, columns: List[Dict],
                config: Dict[str, Any]) -> Dict[str, Any]:
     """A finidat per column, straight from the CONUS 1-km restarts.
@@ -104,10 +126,63 @@ def warm_start(run_dir: Path, columns: List[Dict],
                 f"datasets in one ensemble.")
 
         # Snap to the donor cell so domain/surfdata/finidat agree exactly.
+        #
+        # ELEVATION MOVES WITH THE COORDINATES. Until 2026-08-08 this loop set
+        # lat and lon and left elevation_m at the 3DEP value sampled BEFORE the
+        # snap, so every warm-started column described the station's elevation at
+        # the donor's coordinates — two places in one record. It read as correct
+        # and was consumed as correct: step1_compare_swe, _wtd, _streamflow and
+        # step2_derive all regress on elevation_m.
+        #
+        # The two DEMs differ by more than rounding, and in the direction that
+        # matters. 3DEP is a ~10 m point query; the donor's TOPO is the mean over
+        # a CONUS 1 km gridcell, which in mountains sits tens to hundreds of
+        # metres from any point inside it. Measured across 27 pinned columns:
+        # |elevation - station| was 4.4 m mean / 15.9 m max against 3DEP, and
+        # 41.0 m mean / 155.6 m max against the donor. The model runs the donor
+        # cell, so the second pair is the true representativeness gap and the
+        # first was flattering nothing.
+        #
+        # TOPO comes from the per-column surfdata this warm start just wrote, so
+        # it is the same file ELM initialises from — no second source to drift.
+        excluded = []
         for c in columns:
             m = manifest.get(c.get("id"))
-            if m:
-                c["lat"], c["lon"] = m["donor_lat"], m["donor_lon"]
+            if not m:
+                continue
+            c["lat"], c["lon"] = m["donor_lat"], m["donor_lon"]
+            topo = _donor_topo(m.get("surface_template"))
+            if topo is None:
+                excluded.append((c.get("id"), "donor surfdata carries no TOPO"))
+                continue
+            band = c.get("band_range_m")
+            c["elevation_m"] = round(topo, 2)
+            c["elevation_source"] = "conus_donor_topo"
+            # The BAND is the design stratum and is deliberately not reassigned —
+            # the column was chosen to represent it. But the donor can land
+            # outside it, so say so rather than leave the record self-inconsistent.
+            if band and not (band[0] <= topo <= band[1]):
+                c["outside_design_band"] = True
+                print(f"  ⚠️  {c.get('id')}: donor elevation {topo:.0f} m is "
+                      f"outside its design band {band[0]}-{band[1]} m "
+                      f"(kept — the band is what it was sampled to represent)")
+
+        # A column with no donor elevation is FLAGGED AND DROPPED, not run. Its
+        # surfdata would carry a zero or missing surface height into the model,
+        # and one column integrating at the wrong altitude inside an ensemble is
+        # the same failure this function already refuses for a partial warm
+        # start: every cross-column comparison would span two experiments.
+        if excluded:
+            ids = [e[0] for e in excluded]
+            for cid, why in excluded:
+                print(f"  ⚠️  EXCLUDED {cid}: {why} — it will not be run")
+            columns[:] = [c for c in columns if c.get("id") not in ids]
+            manifest = {k: v for k, v in manifest.items() if k not in ids}
+            manifest["_excluded"] = excluded
+            if not columns:
+                raise RuntimeError(
+                    "every column was excluded for want of a donor elevation; "
+                    "the CONUS surfdata has no usable TOPO over this domain.")
 
         (run_dir / "warmstart" / "warmstart.json").write_text(
             json.dumps(manifest, indent=2))

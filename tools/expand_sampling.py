@@ -332,10 +332,10 @@ def _place_pinned(clients, pinned, bands, pts, boundary=None):
     Elevation comes from a point 3DEP query AT the station, not from the nearest
     DEM grid point: at grid_n=120 over a basin this size the nearest grid point
     sits up to ~1 km away, which in this relief is worth hundreds of metres and
-    would file the column under the wrong band. `dem_minus_station_m` is
-    recorded wherever the station reports its own elevation, so a comparison can
-    see how far the model surface sits from the instrument before trusting the
-    pairing — the quantity step1_compare_swe had to give up on.
+    would file the column under the wrong band. `station_elevation_m` is kept
+    beside it wherever the station reports one, so a comparison can see how far
+    the model surface sits from the instrument before trusting the pairing — the
+    quantity step1_compare_swe had to give up on.
     """
     terr = clients.get("terrain")
     out = []
@@ -361,9 +361,10 @@ def _place_pinned(clients, pinned, bands, pts, boundary=None):
                     "elevation_m": round(float(elev), 2) if elev is not None else None,
                     "pinned": True,
                     "elevation_source": src})
-        if elev is not None and st.get("station_elevation_m") is not None:
-            col["dem_minus_station_m"] = round(
-                float(elev) - float(st["station_elevation_m"]), 1)
+        # No stored elevation-minus-station field. Both operands are on the
+        # record — elevation_m and station_elevation_m — so the difference is one
+        # subtraction away, and a stored copy would only drift once the warm
+        # start replaces elevation_m with the donor gridcell's TOPO.
         col["_band_idx"] = (_assign_band(elev, bands) if elev is not None else 0)
 
         # A station outside the DEM sample's elevation range is clamped to the
@@ -538,7 +539,8 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
           f"{len(columns) - n_pin} stratified ({alloc_rule})")
     for c in columns:
         if c.get("pinned"):
-            d = c.get("dem_minus_station_m")
+            se = c.get("station_elevation_m")
+            d = (c["elevation_m"] - se) if (se and c.get("elevation_m")) else None
             print(f"     {c['id']}  {c['station_id']:<22} {c['station_variable']:<11} "
                   f"band {c['band']}  DEM {c['elevation_m']} m"
                   + (f"  ({d:+.1f} m vs station)" if d is not None else ""))
@@ -596,8 +598,8 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
                 "pinned_stations": [{"id": c["station_id"],
                                      "variable": c["station_variable"],
                                      "column": c["id"], "band": c["band"],
-                                     "dem_minus_station_m":
-                                         c.get("dem_minus_station_m")}
+                                     "station_elevation_m":
+                                         c.get("station_elevation_m")}
                                     for c in columns if c.get("pinned")],
             },
             "columns": columns,
@@ -984,8 +986,9 @@ def _print_table(res):
     print("  " + "-" * 66)
     for c in res["columns"]:
         st = c.get("station_id") or "-"
-        if c.get("dem_minus_station_m") is not None:
-            st += f"  ({c['dem_minus_station_m']:+.1f} m vs station)"
+        se, el = c.get("station_elevation_m"), c.get("elevation_m")
+        if se and el:
+            st += f"  ({el - se:+.1f} m vs station)"
         print(f"  {c['id']:<8}{c['lat']:>9}{c['lon']:>11}{c['elevation_m']:>8}"
               f"{c['band']:>5}  {st}")
 
