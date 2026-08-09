@@ -20,6 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import figstyle                                              # noqa: E402
+
 
 def _load(run_dir: Path, reception: Path | None):
     """The columns, the basin polygon, and the basin's name.
@@ -231,6 +233,10 @@ def main():
     ap.add_argument("--soil-vars", default="sand_pct,clay_pct,organic_kg_m3",
                     help=f"1-3 of {', '.join(sorted(SOIL_VARS))}")
     ap.add_argument("--no-basemap", action="store_true")
+    ap.add_argument("--width", type=float, default=figstyle.WIDTH["double"],
+                    help="printed width in inches (the canvas IS the page)")
+    ap.add_argument("--font", type=float, default=8.0,
+                    help="body text size in points, on the page")
     a = ap.parse_args()
 
     soil_vars = [v.strip() for v in a.soil_vars.split(",") if v.strip()]
@@ -253,24 +259,48 @@ def main():
     lon = np.array([c["lon"] for c in cols], float)
     pin = np.array([bool(c.get("pinned")) for c in cols])
 
-    plt.rcParams.update({"font.size": 15, "axes.titlesize": 16,
-                         "axes.labelsize": 15, "xtick.labelsize": 13,
-                         "ytick.labelsize": 13, "legend.fontsize": 12})
+    # Sizes come from figstyle, which draws at the PRINTED width so the point
+    # sizes here are the point sizes on the page. `k` scales what has to shrink
+    # with the canvas: marker areas as k**2, line widths as k.
+    k = figstyle.manuscript(a.width, a.font)
+
     # Top row: where the columns are, what drives them, what state they start
     # in. Bottom row: the static soil the model was handed. Three columns, so
     # the soil row holds three properties instead of one.
-    fig = plt.figure(figsize=(20, 13), layout="constrained")
+    fig = plt.figure(figsize=(a.width, a.width * 0.65), layout="constrained")
     gs = fig.add_gridspec(2, 3)
     cmap, vmin, vmax = CMAP, elev.min(), elev.max()
     norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
     sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
 
+    # Marker AREA scales as the square of the canvas; edges and rules as the
+    # canvas, with a floor so nothing drops out of print. The weights are set
+    # for the PRINTED panel — a 1.4 pt profile line looked right on a 6 inch
+    # panel and is a bar across a 2 inch one.
+    s_col, s_pin = 110 * (20 * k) ** 2 / 400, 300 * (20 * k) ** 2 / 400
+    lw_edge, lw_line = max(0.3, 1.4 * k), max(0.5, 2.0 * k)
+
+    def tag(ax, letter, note=""):
+        """Panel letter above the frame, measurement above its right corner.
+
+        Not a title: at 7.2 inches a title long enough to say anything overruns
+        the panel beside it — "(b) forcing — 14 distinct values for 17 columns"
+        ran straight through (c)'s. A letter outside the axes costs almost no
+        height, cannot collide with data, and puts the variable where a reader
+        of a printed figure looks for it, on the axis.
+        """
+        ax.text(0.0, 1.015, f"({letter})", transform=ax.transAxes,
+                va="bottom", ha="left", fontweight="bold")
+        if note:
+            ax.text(1.0, 1.015, note, transform=ax.transAxes, va="bottom",
+                    ha="right", fontsize=a.font - 1, color="0.35")
+
     def points(ax, x, y):
         """Every panel draws the same ensemble: stars pinned, circles not."""
-        ax.scatter(x[~pin], y[~pin], c=elev[~pin], cmap=cmap, norm=norm, s=110,
-                   edgecolor="k", linewidth=0.6, zorder=3)
-        ax.scatter(x[pin], y[pin], c=elev[pin], cmap=cmap, norm=norm, s=300,
-                   marker="*", edgecolor="k", linewidth=0.9, zorder=4)
+        ax.scatter(x[~pin], y[~pin], c=elev[~pin], cmap=cmap, norm=norm,
+                   s=s_col, edgecolor="k", linewidth=lw_edge, zorder=3)
+        ax.scatter(x[pin], y[pin], c=elev[pin], cmap=cmap, norm=norm, s=s_pin,
+                   marker="*", edgecolor="k", linewidth=lw_edge * 1.4, zorder=4)
 
     def profiles(ax, values_of):
         """One depth profile per column, coloured by elevation, pinned heavier.
@@ -285,7 +315,7 @@ def main():
             if v is None:
                 continue
             ax.plot(v, d, color=sm.to_rgba(c["elevation_m"]),
-                    lw=2.4 if c.get("pinned") else 1.2,
+                    lw=lw_line * (2.0 if c.get("pinned") else 1.0),
                     alpha=0.95 if c.get("pinned") else 0.7)
             n += 1
         if n:
@@ -293,7 +323,7 @@ def main():
         return n
 
     def short(n):
-        return f" — {n} of {len(cols)}" if n < len(cols) else ""
+        return f"{n} of {len(cols)} columns" if n < len(cols) else ""
 
     # (a) WHERE THE COLUMNS ARE ────────────────────────────────────────────────
     # Extent from the basin when we have it, since the polygon is the thing the
@@ -307,12 +337,12 @@ def main():
     axes = [ax]
     if rings:
         xs, ys = zip(*[(p[0], p[1]) for p in max(rings, key=len)])
-        ax.plot(xs, ys, color="0.15", lw=1.8, zorder=5)
+        ax.plot(xs, ys, color="0.15", lw=max(0.6, 2.5 * k), zorder=5)
     if grid:
-        ax.scatter([p["lon"] for p in grid], [p["lat"] for p in grid], s=6,
-                   c="0.45", zorder=2)
+        ax.scatter([p["lon"] for p in grid], [p["lat"] for p in grid],
+                   s=max(1.0, s_col * 0.055), c="0.45", zorder=2)
     points(ax, lon, lat)
-    ax.set_title("(a) columns")
+    tag(ax, "a")
 
     # (b) FORCING ACROSS THE GRADIENT ──────────────────────────────────────────
     ax = fig.add_subplot(gs[0, 1]); axes.append(ax)
@@ -322,12 +352,11 @@ def main():
         points(ax, p, elev)
         n_cell = len(set(np.round(p[np.isfinite(p)], 1)))
         ax.set_xlabel(f"NLDAS annual precipitation {a.year} (mm)")
-        ax.set_title(f"(b) forcing — {n_cell} distinct values "
-                     f"for {len(cols)} columns")
+        tag(ax, "b", f"{n_cell} of {len(cols)} distinct")
     else:
         ax.text(0.5, 0.5, "pass --year for the NLDAS panel", ha="center",
                 transform=ax.transAxes, color="0.4")
-        ax.set_title("(b) forcing")
+        tag(ax, "b")
     ax.set_ylabel("donor elevation (m)")
 
     # (c) THE STATE THE RUN STARTS FROM ────────────────────────────────────────
@@ -336,9 +365,9 @@ def main():
     if not n:
         ax.text(0.5, 0.5, "no finidat in warmstart/", ha="center",
                 transform=ax.transAxes, color="0.4")
+    ax.set_xlabel("initial soil water (m$^3$ m$^{-3}$)")
     ax.set_ylabel("depth (cm)")
-    ax.set_title("(c) initial soil water, liquid + ice "
-                 "(m$^3$/m$^3$)" + short(n))
+    tag(ax, "c", short(n))
 
     # (d-f) THE SOIL THE MODEL WAS HANDED ──────────────────────────────────────
     # The bottom row shares one depth axis, so it is labelled once.
@@ -347,9 +376,8 @@ def main():
         ax = fig.add_subplot(gs[1, j], sharey=first)
         axes.append(ax)
         n = profiles(ax, lambda c, v=var: _soil_layers(c, v))
-        ax.set_title(f"({'def'[j]}) "
-                     + ("donor soil — " if j == 0 else "")
-                     + SOIL_VARS[var] + short(n))
+        ax.set_xlabel(SOIL_VARS[var])
+        tag(ax, "def"[j], short(n))
         if first is None:
             first = ax
             ax.set_ylabel("depth (cm)")
@@ -362,21 +390,22 @@ def main():
                  shrink=0.6, pad=0.015)
     # The marker key belongs to the whole figure too. Inside panel (a) it landed
     # on top of columns; anchored under panel (a) it landed on panel (c)'s title.
+    ms = s_col ** 0.5                    # legend markers are DIAMETERS, not areas
     fig.legend(handles=[
-        Line2D([], [], ls="", marker="o", mfc="w", mec="k", ms=9,
+        Line2D([], [], ls="", marker="o", mfc="w", mec="k", ms=ms,
                label="stratified"),
-        Line2D([], [], ls="", marker="*", mfc="w", mec="k", ms=16,
+        Line2D([], [], ls="", marker="*", mfc="w", mec="k", ms=ms * 1.7,
                label="pinned at station"),
-        Line2D([], [], ls="", marker=".", color="0.45", ms=12,
+        Line2D([], [], ls="", marker=".", color="0.45", ms=ms,
                label="DEM sample"),
     ], loc="outside lower center", ncol=3, frameon=False)
     d = cj.get("sampling_design") or {}
     fig.suptitle(a.title or
                  f"{name} — {len(cols)} columns "
                  f"({d.get('n_pinned', 0)} pinned, {d.get('n_stratified', 0)} stratified)",
-                 fontsize=18)
+                 fontsize=a.font + 2)
     out = Path(a.out) if a.out else rd / "sampling_design.png"
-    fig.savefig(out, dpi=200)
+    fig.savefig(out)
     print(f"saved {out}")
 
 
