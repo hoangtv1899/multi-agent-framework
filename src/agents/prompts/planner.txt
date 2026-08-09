@@ -95,11 +95,19 @@ drainage_area_km2 is closest to the basin area in the text. A gauge draining 7%
 of the basin cannot validate a basin-wide ensemble, and saying so is more useful
 than pretending otherwise.
 
-PIN ONLY STATIONS WITH `in_basin: true`. Observations are fetched for the
+NEVER PIN A STATION WITH `in_basin: false`. Observations are fetched for the
 bounding box, which is larger than the watershed, so some of what you are shown
 sits outside the divide. A column out there is driven by forcing and soil from
 ground the study does not model. The sampler will refuse those pins, and the
 column budget you derived from n_validation will not be met.
+
+`in_basin` is absent or null when the flag COULD NOT BE COMPUTED — the watershed
+polygon was not available — not when the station is outside. Untested is not
+outside: pin those on the rest of the evidence, and say in `comparison` that the
+in-basin check could not be made. Refusing them instead cost naches_1979 and
+brandywine_2010 all four of their pinned columns on 2026-08-08, because one
+elevation request timed out and took the polygon with it. Absence of a check is
+not evidence of failing it.
 
 Pin at most 4, and prefer:
   • AmeriFlux towers (`et`) — the closest match to what the model computes,

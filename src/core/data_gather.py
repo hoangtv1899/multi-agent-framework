@@ -125,14 +125,34 @@ def gather_grid(clients, bbox: Dict[str, float], huc: str = "", boundary=None,
         prov.append({k: b[k] for k in ("tool", "args", "fetched_at", "ok", "error")})
         boundary = (b.get("result") or {}).get("rings")
 
-    g = _call(clients, "terrain", "sample_elevation_grid", {**bbox, "n": int(n)})
-    prov.append({k: g[k] for k in ("tool", "args", "fetched_at", "ok", "error")})
-    pts = [p for p in ((g.get("result") or {}).get("points") or [])
-           if p.get("elevation_m") is not None]
+    # RETRIED, because this one call decides everything downstream. It is a few
+    # hundred point queries against 3DEP and it is occasionally just slow: on
+    # 2026-08-08 it timed out on 2 of 12 basins, and each time the case lost its
+    # grid, then its boundary, then every station tag, then all four of its
+    # pinned columns. A second attempt costs a minute; losing the case costs the
+    # case.
+    for attempt in range(2):
+        g = _call(clients, "terrain", "sample_elevation_grid",
+                  {**bbox, "n": int(n)})
+        prov.append({k: g[k] for k in ("tool", "args", "fetched_at", "ok", "error")})
+        pts = [p for p in ((g.get("result") or {}).get("points") or [])
+               if p.get("elevation_m") is not None]
+        if pts:
+            break
+        if attempt == 0:
+            print(f"   ⚠️  elevation grid came back empty ({g.get('error')}) "
+                  f"— retrying once")
 
     rings = _rings(boundary)
     clipped = [p for p in pts if _inside(p.get("lat"), p.get("lon"), rings)]
-    if not clipped:                              # a bad polygon must not empty the grid
+    # A BAD POLYGON must not empty the grid — but an empty FETCH is not a bad
+    # polygon, and conflating them threw away a boundary that had arrived
+    # perfectly well. `rings = []` then propagated as boundary=None, so no
+    # station could be tagged in_basin and the planner, told to pin only what it
+    # could confirm was inside, pinned nothing. One slow request cost naches_1979
+    # and brandywine_2010 their whole validation design. The fallback now needs
+    # points to have come back at all.
+    if pts and not clipped:
         clipped, rings = pts, []
 
     # A grid is requested over the BOUNDING BOX but used inside the BASIN, and

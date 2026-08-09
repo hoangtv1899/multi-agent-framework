@@ -28,6 +28,7 @@ HTTP client is httpx (synchronous), one short timeout, no retry loops.
 import os
 import random
 import time
+import sys
 
 import httpx
 
@@ -49,7 +50,12 @@ _MIN_REQUEST_ROOM = 20     # leave this much of the budget for the retry itself
 # ONE budget for all waiting inside a single call, kept below the usgs_water
 # timeout in mcp_config.json so a retry that would succeed is not killed by the
 # client first. That mismatch is what made the old retry unreachable.
-_RATE_BUDGET = 200
+#
+# 200 left a third of the client's 300 s patience unused, and _get gives up the
+# moment a wait does not fit — so a server asking for 200 s was refused with 100
+# spare. Raised to fit: 240 + _MIN_REQUEST_ROOM + the 30 s a cold OGC query takes
+# still lands inside 300.
+_RATE_BUDGET = 240
 NWIS_IV = "https://waterservices.usgs.gov/nwis/iv/"
 
 FT_TO_M = 0.3048
@@ -117,20 +123,42 @@ def _get(cx, url, params=None, deadline=None):
     plus one more request still fits inside it. Running out of budget returns the
     429 so the caller reports a failed fetch — which is the honest answer, and
     distinguishable from an empty basin.
+
+    THE RETRY STILL DID NOT HOLD, and on 2026-08-08 chattahoochee_2000 and
+    centralcoast_1998 came back 429 on their FIRST field-measurements request
+    with 30 s between cases. The message said only "429", which is not enough to
+    tell an exhausted retry from a retry that never slept — so the attempt log
+    now travels with the error. Guessing at which of the two it was is how the
+    previous two fixes were written.
     """
     if deadline is None:
         deadline = time.monotonic() + _RATE_BUDGET
+    log = []
     for attempt in range(_RATE_RETRIES):
         r = cx.get(url, params=params, headers=_headers())
         if r.status_code != 429:
+            if log:
+                print(f"recovered from 429 after {log}", file=sys.stderr)
             return r
+        hdr = r.headers.get("retry-after")
         if attempt == _RATE_RETRIES - 1:
-            return r                      # caller raises; the error says 429
+            log.append(f"attempt {attempt + 1}: 429, retry-after={hdr}, "
+                       f"no attempts left")
+            break
         wait = _retry_after(r, attempt)
+        left = deadline - time.monotonic()
         # Only sleep if the wait AND a further request still fit the budget.
-        if time.monotonic() + wait + _MIN_REQUEST_ROOM > deadline:
-            return r
+        if wait + _MIN_REQUEST_ROOM > left:
+            log.append(f"attempt {attempt + 1}: 429, retry-after={hdr}, "
+                       f"wanted {wait:.0f}s but only {left:.0f}s of budget left")
+            break
+        log.append(f"attempt {attempt + 1}: 429, retry-after={hdr}, "
+                   f"slept {wait:.0f}s")
         time.sleep(wait)
+    # The caller raises on this response; attach what we tried so the failure is
+    # diagnosable from the record the planner is shown.
+    r.rate_limit_log = log
+    print(f"429 giving up: {'; '.join(log)}", file=sys.stderr)
     return r
 
 

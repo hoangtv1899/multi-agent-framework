@@ -46,8 +46,13 @@ def check_chain(plan, reception, res, pinned):
     """What the planner asked for, against what the sampler built."""
     out = []
 
-    def add(name, ok, detail):
-        out.append({"check": name, "ok": bool(ok), "detail": detail})
+    def add(name, ok, detail, note=False):
+        """note=True records a FINDING ABOUT THE BASIN, not a verdict on the
+        code. A basin with no co-locatable observation is a fact about where
+        the instruments are; scoring it as a failure blames the pipeline for
+        the state of the USGS network."""
+        out.append({"check": name, "ok": bool(ok), "detail": detail,
+                    "note": bool(note)})
 
     s = plan.get("sampling") or {}
     nb, pb = s.get("n_bands"), s.get("per_band")
@@ -83,19 +88,34 @@ def check_chain(plan, reception, res, pinned):
     # brandywine, which fetched 30 stations that are all stream gauges — not
     # pinnable since 11d, wells with null coordinates, no SNOTEL, no towers. In
     # both cases citing nothing was the correct plan.
+    # A station OUTSIDE THE DIVIDE is not citable either, for the same reason a
+    # gauge is not: the sampler will refuse the pin. Counting them made the
+    # check fail four basins on 2026-08-08 for doing the right thing — smoky's
+    # only in-basin observations are 2 stream gauges, its lone SNOTEL and all 25
+    # of its wells lie outside, and the planner said so in as many words. The
+    # check has to apply the same test the sampler does, or it scores the
+    # pipeline against a rule the pipeline no longer follows.
+    # And an AmeriFlux tower whose SERIES we cannot fetch validates nothing, so
+    # a column there is spent for nothing. Chicopee has 3 towers inside the
+    # divide and the planner declined all 3 — "values_available false" — which
+    # is right until the account exists.
     import expand_sampling as _exp
+    et_ok = ((reception.get("observations") or {}).get("et")
+             or {}).get("values_available", False)
     idx = _exp._station_index(reception)
     pinnable = [k for k, v in idx.items()
-                if v["station_variable"] in _exp.PINNABLE_VARIABLES]
+                if v["station_variable"] in _exp.PINNABLE_VARIABLES
+                and v.get("in_basin") is not False
+                and (et_ok or v["station_variable"] != "et")]
     if pinnable:
         add("plan.cites_stations", bool(cited),
             f"{len(cited)} cited of {len(pinnable)} pinnable "
             f"({len(idx)} fetched): {cited}")
     elif idx:
-        add("basin.has_colocatable_observation", False,
-            f"{len(idx)} stations fetched but NONE pinnable — a 1-D column "
-            f"cannot be co-located with any of them. Streamflow-only basin; "
-            f"validation is basin-aggregate, and no column is spent on it.")
+        add("basin.has_colocatable_observation", False, note=True, detail=
+            f"{len(idx)} stations fetched but NONE pinnable in basin — a 1-D "
+            f"column cannot be co-located with any of them. Validation is "
+            f"basin-aggregate, and no column is spent on it.")
     else:
         add("reception.fetched_any_station", False,
             "reception fetched NO stations — check ok/error, this may be a "
@@ -250,8 +270,8 @@ def replay(d: Path, clients):
             err = f"{type(e).__name__}: {e}"
 
         checks = check_chain(plan, rec, res, pinned)
-        n_ok = sum(1 for x in checks if x["ok"])
-        bad = [x["check"] for x in checks if not x["ok"]]
+        n_ok = sum(1 for x in checks if x["ok"] or x.get("note"))
+        bad = [x["check"] for x in checks if not (x["ok"] or x.get("note"))]
         (d / f"{cid}.replay.json").write_text(json.dumps(
             {"case": art["case"], "sampling": res, "pinned_resolved": pinned,
              "checks": checks, "error": err}, indent=2, default=str))
@@ -259,7 +279,7 @@ def replay(d: Path, clients):
         before = art.get("checks") or []
         summary.append({"id": cid, "error": err,
                         "n_checks": len(checks), "n_ok": n_ok, "failed": bad,
-                        "n_ok_before": sum(1 for x in before if x["ok"]),
+                        "n_ok_before": sum(1 for x in before if x["ok"] or x.get("note")),
                         "n_checks_before": len(before),
                         "n_columns": (res or {}).get("n_columns"),
                         "design": (res or {}).get("sampling_design")})
@@ -354,8 +374,8 @@ def main():
             "seconds": round(el, 1),
         }, indent=2, default=str))
 
-        n_ok = sum(1 for x in checks if x["ok"])
-        bad = [x["check"] for x in checks if not x["ok"]]
+        n_ok = sum(1 for x in checks if x["ok"] or x.get("note"))
+        bad = [x["check"] for x in checks if not (x["ok"] or x.get("note"))]
         summary.append({"id": c["id"], "seconds": round(el, 1), "error": err,
                         "n_checks": len(checks), "n_ok": n_ok, "failed": bad,
                         "n_columns": (res or {}).get("n_columns"),
