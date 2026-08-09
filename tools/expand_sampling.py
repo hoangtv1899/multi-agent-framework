@@ -213,6 +213,7 @@ def _station_index(reception):
                              "station_name": rec.get("name"),
                              "lat": float(rec["lat"]),
                              "lon": float(rec["lon"]),
+                             "in_basin": rec.get("in_basin"),
                              "station_elevation_m": rec.get("elevation_m")}
     return idx
 
@@ -296,37 +297,22 @@ def _pinned_from_plan(plan, reception):
         print(f"   ⚠️  A gauge integrates and routes an upstream area; this model "
               f"has no lateral transport. Those variables stay as "
               f"basin-aggregate comparisons against the ensemble.")
+
+    # And drop what sits outside the watershed. Reception tags every station
+    # against the WBD polygon (`in_basin`); the tag is absent only when there was
+    # no polygon to test against, and absent is not the same as False.
+    outside = [c for c in keep if c.get("in_basin") is False]
+    if outside:
+        keep = [c for c in keep if c.get("in_basin") is not False]
+        print(f"   ⚠️  not pinning {len(outside)} station(s) OUTSIDE the watershed: "
+              f"{[c['station_id'] for c in outside]}")
+        print(f"   ⚠️  Observations are fetched for the bounding box, which is "
+              f"larger than the basin. A column out there is forced and soiled "
+              f"from ground the study does not model.")
     return keep
 
 
-def _outside_basin(lat, lon, rings):
-    """True when (lat, lon) falls outside the watershed polygon.
-
-    Only ever used to REPORT. A station the planner named is pinned wherever it
-    is — moving it would defeat the point — but a column outside the basin is
-    driven by forcing and soil from ground the study does not claim to model,
-    and the comparison it feeds is between a simulation of one place and an
-    observation of another. Returns None when the test cannot be made.
-    """
-    if not rings:
-        return None
-    try:
-        from shapely.geometry import Polygon, Point
-    except Exception:
-        return None
-    polys = []
-    for r in rings:
-        if len(r) >= 4:
-            try:
-                polys.append(Polygon(r))
-            except Exception:
-                pass
-    if not polys:
-        return None
-    return not max(polys, key=lambda p: p.area).contains(Point(lon, lat))
-
-
-def _place_pinned(clients, pinned, bands, pts, boundary=None):
+def _place_pinned(clients, pinned, bands, pts):
     """One column at each station's own coordinates.
 
     Elevation comes from a point 3DEP query AT the station, not from the nearest
@@ -375,19 +361,6 @@ def _place_pinned(clients, pinned, bands, pts, boundary=None):
             print(f"   ⚠️  {st['station_id']} sits at {elev:.0f} m, outside the "
                   f"sampled range {bands[0][0]:.0f}-{bands[-1][1]:.0f} m — "
                   f"clamped into band {col['_band_idx'] + 1}.")
-
-        # Reception fetches observations for the BBOX, which is strictly larger
-        # than the basin, so a station the planner names can legitimately sit
-        # outside the watershed. Pin it anyway — it is what was asked for — but
-        # a column there is forced and soiled from ground the study does not
-        # model, so the comparison it feeds needs that caveat attached.
-        outside = _outside_basin(st["lat"], st["lon"], boundary)
-        if outside is not None:
-            col["outside_basin"] = outside
-            if outside:
-                print(f"   ⚠️  {st['station_id']} lies OUTSIDE the watershed "
-                      f"boundary. Pinned as asked, but this column is not part "
-                      f"of the basin the study describes.")
         out.append(col)
     return out
 
@@ -475,7 +448,7 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
     counts = [len(by_band[i]) for i in range(len(bands))]
 
     # ── PINNED FIRST: they are the validation design, and they consume budget ──
-    pin_cols = _place_pinned(clients, pinned or [], bands, pts, boundary)
+    pin_cols = _place_pinned(clients, pinned or [], bands, pts)
     if len(pin_cols) > n_total:
         dropped = pin_cols[n_total:]
         pin_cols = pin_cols[:n_total]

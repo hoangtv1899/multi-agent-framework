@@ -121,8 +121,15 @@ class LLMReceptionAgent:
             if isinstance(y0, int) and isinstance(y1, int):
                 bs = (f'{bbox["min_lon"]},{bbox["min_lat"]},'
                       f'{bbox["max_lon"]},{bbox["max_lat"]}')
+                # The polygon comes from the GRID, not from the brief: when the
+                # brief carries no boundary, gather_grid is what fetched it from
+                # the HUC. Passing it here is what tags each station in- or
+                # out-of-basin; without it the observations are bbox-wide while
+                # the grid is basin-clipped, and the two disagree about where
+                # the study is.
                 pkg["observations"] = gather.gather_observations(
-                    self._clients, bs, y0, y1, provenance=prov)
+                    self._clients, bs, y0, y1,
+                    boundary=pkg["grid"].get("boundary"), provenance=prov)
                 brief["observations_summary"] = gather.summarise(pkg["observations"])
         pkg["provenance"] = prov
         return pkg

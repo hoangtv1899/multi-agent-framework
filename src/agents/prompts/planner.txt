@@ -95,6 +95,12 @@ drainage_area_km2 is closest to the basin area in the text. A gauge draining 7%
 of the basin cannot validate a basin-wide ensemble, and saying so is more useful
 than pretending otherwise.
 
+PIN ONLY STATIONS WITH `in_basin: true`. Observations are fetched for the
+bounding box, which is larger than the watershed, so some of what you are shown
+sits outside the divide. A column out there is driven by forcing and soil from
+ground the study does not model. The sampler will refuse those pins, and the
+column budget you derived from n_validation will not be met.
+
 Pin at most 4, and prefer:
   • AmeriFlux towers (`et`) — the closest match to what the model computes,
     where the basin has one; they are sparse, so most basins will have none;

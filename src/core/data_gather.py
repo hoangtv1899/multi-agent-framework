@@ -203,7 +203,32 @@ def _cap_series(stations, limit, key="daily"):
     return ranked
 
 
+def _tag_in_basin(out: Dict[str, Any], boundary) -> None:
+    """Mark every station inside or outside the watershed polygon.
+
+    Observations are fetched for the BBOX, which is strictly larger than the
+    basin, and until 2026-08-08 nothing tested them against the polygon the DEM
+    grid was already clipped to — so stations from the corners of the rectangle
+    reached the planner indistinguishable from ones inside the divide, and four
+    of Gunnison's columns were pinned outside its own watershed.
+
+    Stations are TAGGED, never dropped. A gauge just below the outlet is
+    correctly outside and is still the right gauge for a basin-aggregate
+    comparison. What the tag prevents is PINNING a column there: a column
+    outside the divide is forced and soiled from ground the study does not model.
+    """
+    rings = _rings(boundary)
+    if not rings:
+        return
+    for var, key in (("streamflow", "stations"), ("water_table", "wells"),
+                     ("swe", "stations"), ("et", "towers")):
+        for st in ((out.get(var) or {}).get(key) or []):
+            if st.get("lat") is not None and st.get("lon") is not None:
+                st["in_basin"] = _inside(st["lat"], st["lon"], rings)
+
+
 def gather_observations(clients, bbox_str: str, yr_start: int, yr_end: int,
+                        boundary=None,
                         provenance: Optional[List] = None) -> Dict[str, Any]:
     """Streamflow, water table and snow for the RESOLVED period.
 
@@ -295,6 +320,8 @@ def gather_observations(clients, bbox_str: str, yr_start: int, yr_end: int,
         "values_available": False,
         "values_note": "series need an AmeriFlux account; discovery only",
     }
+
+    _tag_in_basin(out, boundary)
     return out
 
 
@@ -323,7 +350,8 @@ def summarise(observations: Dict[str, Any]) -> Dict[str, Any]:
             "n_in_bbox": q.get("n_in_bbox"),
             "n_with_records": q.get("n_with_records"),
             "stations": [{k: st.get(k) for k in
-                          ("id", "name", "lat", "lon", "drainage_area_km2", "n_days")}
+                          ("id", "name", "lat", "lon", "in_basin",
+                           "drainage_area_km2", "n_days")}
                          for st in (q.get("stations") or [])],
         },
         "water_table": {
@@ -336,10 +364,13 @@ def summarise(observations: Dict[str, Any]) -> Dict[str, Any]:
             # without coordinates (lat/lon null)", and 23 pinnable wells stayed
             # invisible in a basin that otherwise has nothing co-locatable.
             # A well without coordinates cannot be pinned and cannot be paired,
-            # so it is the least useful kind to spend the cap on.
-            "wells": [{k: st.get(k) for k in ("id", "lat", "lon", "n_obs", "wtd_m")}
+            # so it is the least useful kind to spend the cap on. A well outside
+            # the divide is the next least useful, for the same reason.
+            "wells": [{k: st.get(k) for k in
+                       ("id", "lat", "lon", "in_basin", "n_obs", "wtd_m")}
                       for st in sorted(w.get("wells") or [],
                                        key=lambda x: (x.get("lat") is None,
+                                                      x.get("in_basin") is False,
                                                       -(x.get("n_obs") or 0))
                                        )[:25]],
         },
@@ -347,8 +378,8 @@ def summarise(observations: Dict[str, Any]) -> Dict[str, Any]:
             "ok": s.get("ok"), "error": s.get("error"), "n_stations": s.get("n_stations"),
             "n_reporting": s.get("n_reporting"),
             "stations": [{k: st.get(k) for k in
-                          ("triplet", "name", "lat", "lon", "elevation_m",
-                           "peak_swe_mm", "peak_date")}
+                          ("triplet", "name", "lat", "lon", "in_basin",
+                           "elevation_m", "peak_swe_mm", "peak_date")}
                          for st in (s.get("stations") or [])],
         },
         "et": {
@@ -356,7 +387,8 @@ def summarise(observations: Dict[str, Any]) -> Dict[str, Any]:
             "n_operating": e.get("n_operating"),
             "values_available": False,
             "towers": [{k: st.get(k) for k in
-                        ("id", "name", "lat", "lon", "elevation_m", "igbp")}
+                        ("id", "name", "lat", "lon", "in_basin", "elevation_m",
+                         "igbp")}
                        for st in (e.get("towers") or [])],
         },
     }
