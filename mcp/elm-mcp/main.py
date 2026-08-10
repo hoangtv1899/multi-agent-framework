@@ -357,11 +357,21 @@ def build_elm_inputs_from_location(run_dir:         str,
                                    yr_start:        int = 0,
                                    yr_end:          int = 0,
                                    conus_restart:   str = "",
+                                   columns:         Optional[List[Dict]] = None,
                                    ) -> str:
     """Turn sampled column locations into everything ELM needs to run them.
 
     Reads <run_dir>/01_inputs/columns.json — the locations the caller sampled —
     and returns the SNAPPED columns plus a written case_inputs.json.
+
+    `columns` PASSES THEM AS DATA INSTEAD, and is preferred by any caller that
+    already has them in hand. The file form exists for an agent driving this
+    server from a run directory; it is not the better interface. A caller whose
+    warm start must happen before it persists anything cannot use the file form
+    at all — the framework's own materialize step is exactly that case, since
+    the snap moves the columns and so columns.json cannot be written until
+    after this call. Passing them as data removes the ordering problem and the
+    temporary file with it.
 
     Not a job: no scheduler, no compile, seconds to minutes. It is the counterpart
     of run_elm_ensemble, which is a job and returns an id instead of data.
@@ -389,26 +399,29 @@ def build_elm_inputs_from_location(run_dir:         str,
     and every cross-column comparison then spans two experiments.
     """
     rd = Path(run_dir).resolve()
-    src = rd / "01_inputs" / "columns.json"
-    if not src.is_file():
-        # The legacy location, which older runs wrote before 01_inputs existed.
-        src = rd / "columns.json"
-    if not src.is_file():
-        return json.dumps({
-            "ok": False,
-            "error": f"no columns.json in {rd / '01_inputs'} or {rd} — this "
-                     f"server does not sample; the caller decides where the "
-                     f"columns go and writes them there"})
+    doc, src = {}, None
+    if columns is None:
+        src = rd / "01_inputs" / "columns.json"
+        if not src.is_file():
+            # The legacy location, which older runs wrote before 01_inputs existed.
+            src = rd / "columns.json"
+        if not src.is_file():
+            return json.dumps({
+                "ok": False,
+                "error": f"no columns.json in {rd / '01_inputs'} or {rd} and no "
+                         f"`columns` passed — this server does not sample; the "
+                         f"caller either writes the columns or hands them over"})
+        try:
+            doc = json.loads(src.read_text())
+        except Exception as e:                                  # noqa: BLE001
+            return json.dumps({"ok": False,
+                               "error": f"unreadable columns.json: {e}"})
+        columns = doc.get("columns") if isinstance(doc, dict) else doc
 
-    try:
-        doc = json.loads(src.read_text())
-    except Exception as e:                                      # noqa: BLE001
-        return json.dumps({"ok": False, "error": f"unreadable columns.json: {e}"})
-
-    columns = doc.get("columns") if isinstance(doc, dict) else doc
     if not columns:
         return json.dumps({"ok": False,
-                           "error": f"{src} carries no columns"})
+                           "error": f"no columns to build from"
+                                    + (f" — {src} carries none" if src else "")})
 
     cfg = {"soil_config": soil_config, "substrate": substrate}
     if yr_start:
@@ -430,7 +443,7 @@ def build_elm_inputs_from_location(run_dir:         str,
     # as it was written — it is an input, and inputs are not edited in place.
     meta = dict(doc) if isinstance(doc, dict) else {}
     meta["columns"] = out["columns"]
-    meta["source_columns"] = str(src)
+    meta["source_columns"] = str(src) if src else "passed as data"
     meta_path = rd / "01_inputs" / COLUMN_META
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     meta_path.write_text(json.dumps(meta, indent=2, default=str))

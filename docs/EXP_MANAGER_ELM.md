@@ -168,6 +168,47 @@ So the same six steps have two callers today. The local by-import path is
 **deleted**, not kept as a fallback: ELM stops being buildable without the
 server. Decided 2026-08-10.
 
+### Phase 1e was the wrong shape — found 2026-08-10
+
+The pending task read *"`_build_case_inputs` calls the MCP tool, delete the
+local path."* That cannot be done as written, and the reason is structural
+rather than incidental.
+
+The manager does not split those six steps where the tool does. It splits them
+across **two** stages:
+
+* `_refine_columns` — warm start + donor soil, and the base enforces that it
+  runs **before `columns.json` is written**, because the snap moves the columns
+  and a file written earlier describes a run that will not happen. (The base
+  states this as one of two structural ordering constraints; every column of the
+  2026-07-28 run was 200-700 m from where `columns.json` claimed.)
+* `_build_case_inputs` — surfaces, `runtime_config`, `case_inputs.json`.
+
+`build_elm_inputs_from_location` does all six in one call. So:
+
+* routing **`_build_case_inputs`** through the tool re-runs the warm start,
+  which has already happened in `_refine_columns`; and
+* routing **`_refine_columns`** through the tool was impossible, because the
+  tool read `columns.json` and at that moment the file does not exist yet.
+
+**Fix, done 2026-08-10:** the tool now accepts `columns` as data
+(`build_elm_inputs_from_location(..., columns=[...])`), the file form kept for
+an agent driving the server from a run directory. Passing them as data removes
+the ordering problem and the temporary file with it — which is what decision
+2.2 implies anyway: a temporary input that never has to be written beats one
+written and then ignored.
+
+**Consequence for sequencing:** Phase 1e is not a separate step. The manager
+change is *one* call at `_refine_columns` time that returns snapped columns and
+a written `case_inputs.json`, after which `_build_case_inputs` has nothing left
+to do but read what the MCP produced. That is the same edit as the dissolution
+in section 4, so it folds into it rather than being done twice.
+
+Verified both forms: with columns passed as data and **no `columns.json` on
+disk at all**, two perturbed columns snap to 39.6292/-75.6875 at 20.5 m and
+40.1292/-75.4875 at 32.1 m — identical to what the file form produces, and the
+file form still works.
+
 ---
 
 ## 5. Backwards dependencies to straighten
