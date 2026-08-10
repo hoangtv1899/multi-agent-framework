@@ -82,15 +82,27 @@ class TestItDoesNotClaimWhatItCannotDo:
             assert callable(getattr(srv, step["tool"], None)), \
                 f"{step['tool']} is advertised but not defined"
 
-    def test_the_surface_is_only_compile_and_run(self, srv):
-        """The rule the whole design follows: this server compiles and runs
-        the model, and the caller decides what to run and reads what came
-        out. A tool that generated inputs or read results would break it."""
+    def test_describe_advertises_every_tool(self, srv):
+        """describe_elm_capabilities is EXHAUSTIVE, checked against the registry.
+
+        This is the tool an agent calls first, so a tool missing from it
+        effectively does not exist — and the omission reads as an absent
+        capability rather than a stale description. The list had drifted to 3
+        of 7 by 2026-08-10.
+
+        This replaces test_the_surface_is_only_compile_and_run, which asserted
+        the SUPERSEDED rule ("this server compiles and runs; the caller decides
+        what to run and reads what came out"). Under the current rule — anything
+        requiring ELM knowledge lives here — the server generates inputs, and
+        extraction is scheduled to follow. That test passed only because the
+        advertised list was stale enough not to contradict it.
+        """
         d = json.loads(srv.describe_elm_capabilities())
         advertised = {step["tool"] for step in d["workflow"]}
-        assert advertised <= {"build_elm_inputs_from_location",
-                              "build_elm_cases", "submit_elm_ensemble",
-                              "check_elm_job"}, advertised
+        registered = set(srv.mcp._tool_manager._tools)
+        assert advertised == registered, (
+            f"not advertised: {sorted(registered - advertised)} · "
+            f"advertised but not registered: {sorted(advertised - registered)}")
 
     def test_requirements_are_checked_not_asserted(self, srv):
         """A list of assumptions is worth nothing on a machine where one is

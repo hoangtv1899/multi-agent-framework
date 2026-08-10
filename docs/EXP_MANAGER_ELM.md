@@ -75,12 +75,11 @@ regardless.
 
 **Decided:** the MCP owns the layout of everything it writes.
 
-**Interpretation, to be confirmed:** the framework's four boundary files —
+**Confirmed 2026-08-10:** the framework's four boundary files —
 `reception.json`, `strategy.json`, `experiment.json`, `analysis.json`
 (`docs/RUN_LAYOUT.md`) — are the framework's surface and stay framework-owned.
-What moves is ownership of the *simulation subtree*. If the intent was that the
-MCP owns the run directory including those four, say so; it is a larger change
-and it makes the framework a client of its own run directory.
+What moves is ownership of the *simulation subtree*: `01_inputs/`,
+`warmstart/`, `02_setup_plots/`, and the case directories under `$PSCRATCH`.
 
 `run_layout.py` also carries the legacy-path fallbacks that let a tool read runs
 from any era. Those are about **reading old runs**, not about where new work

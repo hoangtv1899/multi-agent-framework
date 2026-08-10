@@ -50,13 +50,15 @@ filesystem, and a UTF-8 locale CIME's python refuses to run without.
 
 Registered in mcp_config.json as `elm`.
 
-Tools:
+Tools — all seven, and describe_elm_capabilities advertises all seven:
     describe_elm_capabilities()          -> what this does, needs, and does NOT do
     build_elm_inputs_from_location(...)  -> DATA; snapped columns + case_inputs.json
+    get_column_metadata(...)             -> DATA; the columns as they will be RUN
     build_elm_cases(...)                 -> a JOB ID; CIME cases from the case list
-    submit_elm_ensemble(...)     -> a JOB ID; the ensemble as one batch job
-    check_elm_job(...)           -> what SLURM is doing, and the built case
-                                    directories once a build job has landed
+    submit_elm_ensemble(...)             -> a JOB ID; the ensemble as one batch job
+    run_elm_study(...)                   -> a JOB ID; build + run + analyze, one job
+    check_elm_job(...)                   -> what SLURM is doing, and the built case
+                                            directories once a build job has landed
 """
 import contextlib
 import functools
@@ -287,19 +289,43 @@ def describe_elm_capabilities() -> str:
             "case directory."
         ),
 
+        # EXHAUSTIVE, and a test enforces that against the tool registry. A
+        # partial list here is worse than none: this is the tool an agent calls
+        # FIRST, so anything missing from it effectively does not exist, and
+        # the omission looks like an absent capability rather than a stale doc.
         "workflow": [
-            {"step": 1, "tool": "build_elm_cases",
+            {"step": 1, "tool": "describe_elm_capabilities",
+             "does": "this — the workflow, a checked inventory of every "
+                     "external dependency, and what this server does NOT do",
+             "returns": "DATA"},
+            {"step": 2, "tool": "build_elm_inputs_from_location",
+             "does": "columns (passed as data, or read from "
+                     "01_inputs/columns.json) — warm start, donor soil, "
+                     f"surfaces, domains, and 01_inputs/{CASE_INPUTS}",
+             "returns": "DATA; the SNAPPED columns, which are not the ones "
+                        "you passed in"},
+            {"step": 3, "tool": "get_column_metadata",
+             "does": f"the columns as they will be RUN, from 01_inputs/"
+                     f"{COLUMN_META} — post warm start, with donor soil",
+             "returns": "DATA; ask here rather than reading the columns.json "
+                        "you sampled, which is what you ASKED FOR"},
+            {"step": 4, "tool": "build_elm_cases",
              "does": f"CIME cases from 01_inputs/{CASE_INPUTS} — reference "
                      f"case compiled, the rest cloned with --keepexe",
              "returns": "a JOB ID; the case directories come back from "
                         "check_elm_job once it lands"},
-            {"step": 2, "tool": "check_elm_job",
-             "does": "ask SLURM what a job from step 1 or 3 is doing",
-             "returns": "state, whether it is still active, and for a build "
-                        "job the case directories it produced"},
-            {"step": 3, "tool": "submit_elm_ensemble",
+            {"step": 5, "tool": "submit_elm_ensemble",
              "does": "run every column concurrently as one batch job",
              "returns": "a JOB ID"},
+            {"step": 6, "tool": "run_elm_study",
+             "does": "steps 4 and 5 and the analysis as ONE job, so a study "
+                     "finishes unattended instead of costing three "
+                     "invocations each waiting on a queue",
+             "returns": "a JOB ID"},
+            {"step": 7, "tool": "check_elm_job",
+             "does": "ask SLURM what a job from step 4, 5 or 6 is doing",
+             "returns": "state, whether it is still active, and for a build "
+                        "job the case directories it produced"},
         ],
 
         "inputs_expected": {
@@ -309,8 +335,11 @@ def describe_elm_capabilities() -> str:
                      "ATM_DOMAIN_PATH, STOP_N, STOP_OPTION, RUN_STARTDATE, "
                      "DATM_CLMNCEP_YR_START, DATM_CLMNCEP_YR_END, REST_N, "
                      "REST_OPTION}}, ...]",
-            "note": "absolute paths to files that already exist. This server "
-                    "does not generate them.",
+            "note": "absolute paths to files that already exist. "
+                    "build_elm_inputs_from_location WRITES this file — the "
+                    "claim that this server does not generate inputs was true "
+                    "under the superseded rule and is not true now. A caller "
+                    "holding one already can go straight to build_elm_cases.",
         },
 
         "does_not": [
