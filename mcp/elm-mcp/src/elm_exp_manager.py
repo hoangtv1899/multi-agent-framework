@@ -303,12 +303,22 @@ class ELMExpManager(ExperimentManagerBase):
 		return email
 
 	def _run_study_via_mcp(self, experiments, config, client):
-		"""The entire study as one job: build, run, extract, package, analyze.
+		"""JOB A through the MCP, then JOB B by dependency. Returns a Pending.
 
-		Returns a Pending like the split path does, so the ledger and the
-		resume machinery are unchanged — but the job itself finishes the run,
-		so a resume is never actually needed. Anyone who does resume finds
-		every stage already marked done, written by the job's own --finalize.
+		A builds the cases and runs every column, and stops. B is submitted HERE,
+		with --dependency=afterany on A's id, and does the analysis. Then this
+		returns and the framework exits — SLURM starts B by itself.
+
+		WHY B IS SUBMITTED BY THE FRAMEWORK AND NOT BY A. The tool this replaces,
+		run_elm_study, ended its job by running `workflow.py --finalize`: the
+		server's job executing the client's code, which is the dependency the
+		boundary rule forbids and the reason the two could not be separated.
+		Submitting B from this side inverts it — the framework asks for the model
+		run and arranges its own follow-up, and nothing in the server calls back.
+
+		afterany, NEVER afterok. With afterok a failed ensemble means B never runs
+		and no mail is ever sent — the silent failure of 2026-08-06, twice. afterany
+		means B always runs and always reports, including "the ensemble failed".
 		"""
 		src = self.input_dir / self.CASE_INPUTS
 		if not src.is_file():
@@ -316,17 +326,83 @@ class ELMExpManager(ExperimentManagerBase):
 				f"{src} is missing — the framework builds the inputs and the "
 				f"elm MCP only compiles cases against them")
 		email = self._announce(experiments, config)
-		out = self._mcp_call(client, "run_elm_study", {
+		out = self._mcp_call(client, "run_elm_ensemble", {
 			"run_dir":  str(self.run_dir),
 			"queue":    str(config.get("queue", "")),
 			"walltime": str(config.get("study_walltime", "02:00:00")),
-			"email":    email,
 		}, budget=600)
+		if out.get("error"):
+			raise RuntimeError(f"run_elm_ensemble: {out['error']}")
+		job_a = str(out["job_id"])
+		job_b = self._submit_job_b(job_a, config, email)
 		if email:
-			print(f"   ✉  {email} will be mailed when it finishes")
-		return Pending(out["job_id"], n_cases=len(experiments or []),
+			print(f"   ✉  {email} will be mailed when job B lands")
+		return Pending(job_b or job_a, n_cases=len(experiments or []),
 					   log=out.get("log_path"), via="mcp", scope="study",
 					   notify=email or None)
+
+	def _submit_job_b(self, job_a: str, config: Dict[str, Any],
+					  email: str = "") -> Optional[str]:
+		"""JOB B — the analysis, held until A ends. Returns its id, or None.
+
+		Non-fatal: A is already queued and its model output does not depend on B.
+		Losing B costs the analysis, which can be run by hand; raising here would
+		strand a running ensemble with nothing recording that it exists.
+		"""
+		import shutil, subprocess
+		if not shutil.which("sbatch"):
+			print("   ⚠️  no sbatch — job B not submitted; analyse by hand")
+			return None
+		# REFUSE A NODE-LOCAL RUN DIRECTORY. A compute node cannot see this node's
+		# /tmp: the first A/B attempt (770938/770939) put its scripts there and both
+		# jobs died in two seconds with completely empty logs, which is
+		# indistinguishable from a scheduler fault.
+		#
+		# It also makes this method safe to reach from a test. pytest's tmp_path is
+		# under /tmp, and `sbatch` exists on a login node, so a test that got past
+		# the mocked client would otherwise submit a real job into the queue.
+		try:
+			fs = subprocess.check_output(
+				["df", "-P", str(self.run_dir)], text=True,
+				timeout=20).splitlines()[-1].split()[0]
+		except Exception:                                       # noqa: BLE001
+			fs = ""
+		if fs.startswith("/dev/"):
+			print(f"   ⚠️  {self.run_dir} is on {fs}, a node-local filesystem — "
+				  f"job B not submitted. Put the run directory on $PSCRATCH.")
+			return None
+		fw = Path(__file__).resolve().parents[3]
+		sb = self.run_dir / "ensemble_B.sbatch"
+		mail = (f"#SBATCH --mail-user={email}\n#SBATCH --mail-type=END,FAIL"
+				if email else "")
+		sb.write_text(f"""#!/bin/bash
+#SBATCH -J elm_B
+#SBATCH -N 1
+#SBATCH -p {config.get("queue") or os.environ.get("IDEAS_SLURM_QUEUE", "short")}
+#SBATCH -A {config.get("account") or os.environ.get("IDEAS_SLURM_ACCOUNT", "e3sm")}
+#SBATCH -t {config.get("analysis_walltime", "00:30:00")}
+#SBATCH -o {self.run_dir}/ensemble_B.log
+{mail}
+cd {fw}
+# The analysis is DEFERRED while the Analyzer is redesigned; job B reports what
+# the ensemble did and stops. Set IDEAS_RUN_ANALYSIS=1 to run the tail here.
+if [ "${{IDEAS_RUN_ANALYSIS:-0}}" = "1" ]; then
+  {sys.executable} workflow.py --resume {self.run_dir}
+  {sys.executable} tools/notify_study.py {self.run_dir}
+else
+  {sys.executable} tools/notify_study.py {self.run_dir} --deferred
+fi
+exit $?
+""")
+		try:
+			jid = subprocess.check_output(
+				["sbatch", "--parsable", f"--dependency=afterany:{job_a}", str(sb)],
+				text=True, timeout=120).strip().split(";")[0]
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   ⚠️  job B not submitted ({e}) — A is running; analyse by hand")
+			return None
+		print(f"   job A {job_a} (build+run) → job B {jid} (afterany, reports)")
+		return jid
 
 	def _submit_via_mcp(self, experiments, config, client):
 		"""The ensemble as one batch job. Returns a Pending."""

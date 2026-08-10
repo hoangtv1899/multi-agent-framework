@@ -230,7 +230,7 @@ class TestEachStageGoesThroughTheServer:
     def test_the_case_build_hands_back_a_job_not_case_dirs(self, tmp_path):
         """D1: the CIME build is sbatch'd, so _build_cases returns a Pending.
 
-        The tool it reaches for is run_elm_study, not build_elm_cases: ELM no
+        The tool it reaches for is run_elm_ensemble (job A), not build_elm_cases: ELM no
         longer splits build from run, because doing so made the user the
         scheduler across three invocations of a 25-40 minute study.
         """
@@ -238,7 +238,7 @@ class TestEachStageGoesThroughTheServer:
         m = _mgr(tmp_path)
         (m.input_dir / m.CASE_INPUTS).write_text(json.dumps(
             [{"case_name": "col_01", "runtime_config": {"FSURDAT": "/x.nc"}}]))
-        c = _FakeClient(run_elm_study={"job_id": "880001",
+        c = _FakeClient(run_elm_ensemble={"job_id": "880001",
                                        "log_path": "/x/study.log"})
         out = m._build_cases([{"case_name": "col_01"}],
                          {"mcp_clients": {"elm": c},
