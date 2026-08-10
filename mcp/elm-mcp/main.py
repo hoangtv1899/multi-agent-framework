@@ -50,7 +50,7 @@ filesystem, and a UTF-8 locale CIME's python refuses to run without.
 
 Registered in mcp_config.json as `elm`.
 
-Tools — all five, and describe_elm_capabilities advertises all five:
+Tools — all seven, and describe_elm_capabilities advertises all seven:
     describe_elm_capabilities()          -> what this does, needs, and does NOT do
     build_elm_inputs_from_location(...)  -> DATA; snapped columns + case_inputs.json
     get_column_metadata(...)             -> DATA; the columns as they will be RUN
@@ -59,6 +59,9 @@ Tools — all five, and describe_elm_capabilities advertises all five:
                                             the cases before spending node time
     check_elm_job(...)                   -> what SLURM is doing, and the built case
                                             directories once a build job has landed
+    compare_to_obs(...)                  -> MEASUREMENTS; model vs observations for
+                                            swe / wtd / streamflow / et, plus how much
+                                            of each observation was really measured
 
 TWO WENT AWAY on 2026-08-10, both because they shelled out to scripts in the
 FRAMEWORK — a server running its client's code, which is the dependency the
@@ -346,6 +349,14 @@ def describe_elm_capabilities() -> str:
              "does": "ask SLURM what a job from step 4 is doing",
              "returns": "state, whether it is still active, and for a build "
                         "job the case directories it produced"},
+            {"step": 6, "tool": "compare_to_obs",
+             "does": "pair each column's daily series against observations you "
+                     "supply — swe, wtd, streamflow, et — and report metrics "
+                     "plus how much of the observation was measured rather "
+                     "than gap-filled. Reuses the extraction when it is "
+                     "already on disk",
+             "returns": "MEASUREMENTS, never a verdict; a summary inline and "
+                        "the full record in 04_analysis/comparison.json"},
         ],
 
         "inputs_expected": {
@@ -751,6 +762,176 @@ echo "building {n_cases} case(s) for {rd} on $(hostname)"
         "log_path": str(rd / "build_cases.log"),
         "next":     "check_elm_job",
     }, indent=2)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# MODEL vs OBSERVATIONS
+# ─────────────────────────────────────────────────────────────────────
+HYDRO_SUMMARY = "hydro_summary.json"
+COMPARISON = "comparison.json"
+
+
+def _extracted_rows(rd: Path) -> tuple:
+    """The per-column daily series, reused from disk when they are already there.
+
+    Returns (rows, how). Reading 19 columns of history NetCDF is the expensive
+    part of any comparison, and the extract stage has usually already done it —
+    so this checks for a usable hydro_summary.json first and only opens NetCDF
+    when there is not one. Same reuse-if-valid shape as job A's built_cases
+    check, and valid means the same thing there and here: the artefact exists
+    AND still contains what the next step needs, which for this is the `daily`
+    blocks. A summary written before daily series existed parses fine and
+    compares nothing, so its mere presence is not enough.
+    """
+    summ = rd / "04_analysis" / HYDRO_SUMMARY
+    if summ.is_file():
+        try:
+            rows = json.loads(summ.read_text()).get("experiments") or []
+            if isinstance(rows, dict):
+                rows = list(rows.values())
+            has_daily = any(
+                ((v or {}).get("daily") or {}).get("values")
+                for r in rows for v in (r.get("variables") or {}).values())
+            if rows and has_daily:
+                return rows, f"reused {HYDRO_SUMMARY} ({len(rows)} column(s))"
+        except Exception:                                       # noqa: BLE001
+            pass                        # fall through and read the NetCDF
+
+    built = rd / "01_inputs" / BUILT_CASES
+    if not built.is_file():
+        return [], f"no {HYDRO_SUMMARY} with daily series and no {BUILT_CASES}"
+    cases = json.loads(built.read_text()).get("cases") or []
+    exps = [{"case_name": c.get("case_name"), "case_dir": c.get("case_dir")}
+            for c in cases if c.get("case_dir")]
+    if not exps:
+        return [], f"{BUILT_CASES} names no case directories"
+    from elm_results_analyzer import ELMResultsAnalyzer
+    an = ELMResultsAnalyzer(experiments=exps,
+                            analysis_dir=str(rd / "04_analysis"))
+    an.extract_all()
+    res = an.results
+    rows = list(res.values()) if isinstance(res, dict) else list(res or [])
+    return rows, f"read {len(rows)} column(s) of history files"
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def compare_to_obs(run_dir: str,
+                   observations_csv: str = "",
+                   observations_meta: str = "",
+                   observables: str = "") -> str:
+    """Model against observations for this study. MEASUREMENTS ONLY.
+
+    Compares each column's daily series to the observations the caller supplies,
+    for any of four observables:
+
+        swe          H2OSNO                  vs snow pillow      mm
+        wtd          ZWT                     vs well             m below surface
+        streamflow   QOVER + QDRAI           vs gauge            mm/day
+        et           QSOIL + QVEGE + QVEGT   vs flux tower       mm/day
+
+    RETURNS NUMBERS, NOT VERDICTS. Paired series, per-station metrics (bias,
+    MAE, RMSE, r, NSE, KGE), and diagnostics about the pairing itself: how many
+    pairs, over which window, and how much of the observation was actually
+    measured rather than gap-filled. It does not say whether the model is good.
+    That reading is the caller's, and it needs the diagnostics to make it.
+
+    EVERY COMPARISON HERE IS CONTEXT, NOT A SKILL CLAIM. Decided 2026-08-10.
+    It is what makes streamflow admissible: a 1-D column produces point runoff
+    and a gauge measures routed discharge over a basin, so they are not
+    co-located and no metric between them scores the model — but the hydrograph
+    shape is still worth seeing. Each record carries `model_comparand`,
+    `obs_quantity` and `colocated` so a reader can see what was put beside what.
+
+    observations_csv: long format, defaults to <run_dir>/04_analysis/
+        observations.csv. Columns: station_id,variable,time,value,quality.
+        `quality` is load-bearing — measured 2026-08-10 at US-NR1, gap-filled
+        annual ET is 464 mm against 89 mm from the measured half-hours alone,
+        because only 36% of that year was observed. Both are true; they are not
+        the same claim, and a table without provenance cannot tell them apart.
+
+    observations_meta: JSON list, defaults to <run_dir>/04_analysis/
+        observations_meta.json. One entry per (station_id, variable) with units,
+        lat, lon, elevation_m, source, in_basin and licence.
+
+    observables: comma-separated subset, or empty for all four.
+
+    Writes 04_analysis/comparison.json and a figure per observable, and returns
+    a SUMMARY plus their paths — the full record is per station per column per
+    observable and does not belong inline, the same rule that keeps this server
+    from returning results.
+    """
+    rd = Path(run_dir).resolve()
+    if not rd.is_dir():
+        return json.dumps({"ok": False, "error": f"no such run dir: {rd}"})
+    adir = rd / "04_analysis"
+    obs_csv = Path(observations_csv or (adir / "observations.csv"))
+    obs_meta = Path(observations_meta or (adir / "observations_meta.json"))
+    if not obs_csv.is_file():
+        return json.dumps({
+            "ok": False,
+            "error": f"no observation table at {obs_csv}. This server compares "
+                     f"what it is given; gathering observations is the "
+                     f"caller's job.",
+            "expected_columns": ["station_id", "variable", "time", "value",
+                                 "quality"],
+            "expected_variables": ["swe", "wtd", "streamflow", "et"]}, indent=2)
+
+    rows, how = _extracted_rows(rd)
+    if not rows:
+        return json.dumps({"ok": False, "error": how,
+                           "note": "no model output to compare — this is not "
+                                   "a disagreement with the observations"},
+                          indent=2)
+
+    import compare as _cmp
+    want = [s.strip().lower() for s in observables.split(",") if s.strip()]
+    try:
+        out = _cmp.compare_all(rows, str(obs_csv),
+                               str(obs_meta) if obs_meta.is_file() else "",
+                               observables=want or None,
+                               figure_dir=str(adir))
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "model_rows": how,
+                           "error": f"{type(e).__name__}: {e}"[:300]}, indent=2)
+
+    adir.mkdir(parents=True, exist_ok=True)
+    (adir / COMPARISON).write_text(json.dumps(out, indent=2, default=str))
+
+    # The summary: enough to act on, small enough to travel.
+    summary = {}
+    for name, rec in out["observables"].items():
+        if rec.get("error"):
+            summary[name] = {"error": rec["error"]}
+            continue
+        best = []
+        for e in rec.get("pairs") or []:
+            want_col = e.get("nearest_column")
+            col = next((c for c in e["columns"]
+                        if c.get("n_pairs") and c["case_name"] == want_col),
+                       next((c for c in e["columns"] if c.get("n_pairs")), None))
+            if col:
+                best.append({"station_id": e["station_id"],
+                             "column": col["case_name"],
+                             "n_pairs": col["n_pairs"],
+                             "overlap": col.get("overlap"),
+                             "frac_measured": col["obs_quality"]["frac_measured"],
+                             **{k: col["metrics"].get(k)
+                                for k in ("bias", "rmse", "nse", "kge")}})
+        summary[name] = {"units": rec["units"], "colocated": rec["colocated"],
+                         "n_stations": rec["n_stations"],
+                         "n_columns": rec["n_columns_with_series"],
+                         "n_pairs_total": rec.get("n_pairs_total"),
+                         "nearest_column_per_station": best}
+    return json.dumps({
+        "ok": True,
+        "model_rows": how,
+        "observation_rows_dropped": out.get("n_observation_rows_dropped"),
+        "comparison_json": str(adir / COMPARISON),
+        "figures": out.get("figures"),
+        "summary": summary,
+        "note": out.get("note"),
+    }, indent=2, default=str)
 
 
 # ─────────────────────────────────────────────────────────────────────
