@@ -61,6 +61,20 @@ def build(run_dir: str):
     docs = sorted((rd / "04_analysis").glob("*.json")) if (rd / "04_analysis").is_dir() else []
     lines += ["", f"04_analysis: {len(docs)} json, {len(figs)} figures"]
 
+    # AN EMPTY LEDGER IS NOT A CLEAN RUN. `bad` is built only from stages that
+    # were RECORDED and failed, so a run that recorded nothing at all walked
+    # through the loop untouched and reported OK — which is what job 773088 did
+    # after its finalize raised, with 0 json and 0 figures printed directly
+    # underneath. _read() also returns {} on ANY exception, so an unwritable or
+    # truncated run_state.json reached the same happy answer.
+    if not stages:
+        bad.append("no stage ledger (run_state.json missing or unreadable)")
+    # And the counts were already computed two lines up without being consulted.
+    # This script exists to say whether the analysis is written; saying so while
+    # the directory is empty is the one thing it must never do.
+    if not docs and not figs:
+        bad.append("04_analysis is empty")
+
     if bad:
         lines = [f"INCOMPLETE — {', '.join(bad)}", ""] + lines
         lines += ["", "The model output is on disk. Finish or inspect with:",
