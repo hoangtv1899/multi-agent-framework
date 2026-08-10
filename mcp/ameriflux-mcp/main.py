@@ -174,20 +174,51 @@ def _operating(site, yr_start, yr_end):
     return began <= yr_end and (end is None or end >= yr_start)
 
 
-def _availability_index(av):
+# Most open first. A site can be listed under more than one policy for the same
+# product, and which one you report decides whether a caller thinks it owes the
+# PI an email.
+_LICENCE_RANK = ("CCBY4.0", "LEGACY")
+
+
+def _best_licence(lics):
+    """The most permissive licence in a set, by _LICENCE_RANK."""
+    for want in _LICENCE_RANK:
+        if want in lics:
+            return want
+    return sorted(lics)[0] if lics else None
+
+
+def _availability_index(av, all_licences=False):
     """{site_id: {product: licence}} from the site_availability payload.
 
     Shape is {product: {licence: [[site_id, name], ...]}}, so it is inverted
     once here rather than scanned per site.
+
+    THE LISTS OVERLAP, and the first version of this function did not know
+    that: it assigned `idx[sid][product] = lic` in iteration order, so the last
+    policy seen silently won. The payload happens to list CCBY4.0 before LEGACY,
+    which meant every dual-listed site was reported as LEGACY — 0 sites came
+    back with BASE-BADM under CC-BY-4.0 while the payload itself lists 514 of
+    them. That is not cosmetic: it made this server claim a PI-notification duty
+    that does not exist, and it made request_flux_data refuse US-NR1 as
+    BASE-BADM/CCBY4.0, a combination the download API serves without complaint
+    (verified 2026-08-10: 1 site, 2 files).
+
+    So every licence is collected and the MOST OPEN one is reported.
+    all_licences=True returns the full set per product instead.
     """
-    idx = {}
+    raw = {}
     for product, by_lic in (av or {}).items():
         for lic, rows in (by_lic or {}).items():
             for row in rows or []:
                 sid = row[0] if isinstance(row, (list, tuple)) and row else None
                 if sid:
-                    idx.setdefault(sid, {})[product] = lic
-    return idx
+                    raw.setdefault(sid, {}).setdefault(product, set()).add(lic)
+    if all_licences:
+        return {s: {p: sorted(l) for p, l in prods.items()}
+                for s, prods in raw.items()}
+    return {s: {p: _best_licence(l) for p, l in prods.items()}
+            for s, prods in raw.items()}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -388,27 +419,27 @@ def request_flux_data(site_ids: str, intended_use: str = "model",
     # FLUXNET under CC-BY-4.0 — so the obvious-looking default
     # (BASE-BADM + CCBY4.0) asks most sites for a combination they do not have.
     # That is why FLUXNET is the default product here.
+    # ADVISORY, NOT BLOCKING. The first version refused when the index and the
+    # request disagreed, and it was wrong twice over: the index itself was buggy
+    # (see _availability_index), and the download API is the authority on what
+    # it will serve, not a catalogue derived from a different endpoint. A
+    # pre-check that vetoes a request the server would have honoured is worse
+    # than no pre-check. So it warns, sends, and lets the OUTCOME decide.
     offered = _offered(sites)
+    notes, legacy = [], []
     if offered is not None:
-        missing = [s for s in sites if data_product not in offered[s]]
-        wrong_lic = [f"{s} ({offered[s][data_product]})" for s in sites
-                     if data_product in offered[s]
-                     and offered[s][data_product] != data_policy]
-        if missing or wrong_lic:
-            return json.dumps({
-                "ok": False, "sent": False,
-                "error": "not requested — these sites do not publish "
-                         f"{data_product}/{data_policy}",
-                "no_such_product": missing or None,
-                "different_licence": wrong_lic or None,
-                "offered": offered,
-                "hint": "pick a product/policy pair from `offered` above. Most "
-                        "towers publish FLUXNET under CCBY4.0 and BASE-BADM "
-                        "under LEGACY.",
-            }, indent=2)
-        legacy = [s for s in sites if offered[s].get(data_product) == "LEGACY"]
-    else:
-        legacy = []
+        for s in sites:
+            have = offered.get(s) or {}
+            if data_product not in have:
+                notes.append(f"{s}: the catalogue does not list {data_product} "
+                             f"(it lists {sorted(have) or 'nothing'}) — sending "
+                             f"anyway; the download API decides")
+            elif have[data_product] != data_policy:
+                notes.append(f"{s}: catalogue says {data_product} is "
+                             f"{have[data_product]}, requesting under "
+                             f"{data_policy}")
+            if have.get(data_product) == "LEGACY" and data_policy == "LEGACY":
+                legacy.append(s)
 
     body = {
         "user_id": uid, "user_email": mail,
@@ -430,20 +461,37 @@ def request_flux_data(site_ids: str, intended_use: str = "model",
         payload = r.json()
     except ValueError:
         payload = {"raw": r.text[:2000]}
+    # `ok` IS ABOUT THE DOWNLOAD, NOT THE HTTP CALL. Measured 2026-08-10:
+    # asking for FLUXNET at US-NR1 returns HTTP 200 with
+    # number_of_sites_downloaded=0 and no URLs — byte-for-byte the same shape a
+    # nonexistent site returns. Reporting that as ok=true is precisely the
+    # silent success this project keeps rediscovering, so the manifest decides.
+    man = payload.get("manifest") or {}
+    n_got = man.get("number_of_sites_downloaded")
+    urls = payload.get("data_urls") or []
+    got = bool(r.ok and (n_got or 0) > 0 and urls)
     return json.dumps({
-        "ok": r.ok, "http_status": r.status_code, "sent": True,
-        "n_sites_requested": len(sites), "site_ids": sites,
+        "ok": got, "http_status": r.status_code, "sent": True,
+        "n_sites_requested": len(sites), "n_sites_downloaded": n_got,
+        "n_urls": len(urls), "site_ids": sites,
         "data_product": data_product, "data_policy": data_policy,
+        "catalogue_notes": notes or None,
         # LEGACY carries a DUTY, not just a different label: you are expected to
         # notify the site PI before publishing. Surfaced on the response so it
         # cannot be discovered at manuscript time.
         "legacy_sites_notify_pi": legacy or None,
-        "response": payload,
-        # A 400 here is the useful case: it names the field that is wrong, which
-        # is exactly what an unverified request body needs told about it.
-        "note": None if r.ok else
-                "request rejected — the response above names what it objected "
-                "to. Check the field names against data_status()['request_shape'].",
+        "pi_contact_emails": payload.get("pi_contact_emails") or None,
+        "data_urls": urls,
+        "manifest": man,
+        "error": None if got else (
+            f"HTTP {r.status_code} — request rejected; the response names what "
+            "it objected to" if not r.ok else
+            f"the server accepted the request and returned NOTHING "
+            f"({data_product} for {', '.join(sites)}). This is not an empty "
+            f"dataset, it is a request that matched no files — an unavailable "
+            f"product for these sites looks identical to a nonexistent site. "
+            f"Try another data_product; see catalogue_notes and get_et()."),
+        "response": payload if not r.ok else None,
     }, indent=2)
 
 
