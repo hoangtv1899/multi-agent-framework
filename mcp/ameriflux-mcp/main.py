@@ -42,6 +42,7 @@ what column pinning needs, since pinning needs coordinates. The comparison step
 needs the series, and that needs credentials.
 """
 import json
+import os
 from datetime import datetime
 
 import requests
@@ -53,9 +54,43 @@ from mcp.server.fastmcp import FastMCP
 AMF = "https://amfcdn.lbl.gov/api/v1"
 _SOURCE = "AmeriFlux (LBNL) web services"
 _TIMEOUT = 90
+# BOTH CONFIRMED LIVE from Compy, 2026-08-10 (HTTP 200). Checked rather than
+# recalled: the obvious-looking ameriflux-data.lbl.gov/Pages/RequestAccount.aspx
+# answers 522 (origin not responding), and a dead link as step one of "how to
+# unblock this" is worse than saying nothing. Both hosts 403 a bare
+# python-requests user agent and 200 a browser one, so a 403 here means "we were
+# taken for a bot", not "the page is gone".
 _REQUEST_URL = "https://ameriflux.lbl.gov/data/download-data/"
+_REGISTER_URL = "https://ameriflux.lbl.gov/data/download-data/"
+_POLICY_URL = "https://ameriflux.lbl.gov/data/data-policy/"
+
+# THE DOWNLOAD ENDPOINT EXISTS AND IS POST-ONLY. Probed 2026-08-10 from Compy:
+# GET returns 405, and OPTIONS answers `Allow: OPTIONS, POST`. So the series is
+# reachable in principle — what is missing is an identity to reach it with, not
+# an endpoint. That is why this server refuses rather than reports an absence.
+_DOWNLOAD = f"{AMF}/data_download"
+
+# Who is asking. AmeriFlux ties every download to a registered account and to an
+# accepted data-use policy; there is no anonymous mode and no API key. Set both
+# in env_compy.sh, beside the USGS key:
+#     export AMERIFLUX_USER_ID=<your ameriflux username>
+#     export AMERIFLUX_EMAIL=<the address the account was registered with>
+_USER_ID = "AMERIFLUX_USER_ID"
+_EMAIL = "AMERIFLUX_EMAIL"
 
 mcp = FastMCP("ameriflux")
+
+
+def _creds():
+    """(user_id, email) from the environment, or (None, None).
+
+    Never guessed and never defaulted. A download is attributed to a person who
+    accepted the data-use policy, so inventing a plausible username would be
+    submitting a request in someone else's name.
+    """
+    uid = (os.environ.get(_USER_ID) or "").strip()
+    mail = (os.environ.get(_EMAIL) or "").strip()
+    return (uid or None, mail or None)
 
 
 def _get(endpoint):
@@ -218,17 +253,153 @@ def get_et(bbox: str, start_date: str = "", end_date: str = "",
         out["n_with_released_data"] = sum(1 for s in running if s["data_products"])
 
     if with_values:
-        out["ok"] = False
-        out["error"] = (
-            "AmeriFlux flux data (BASE/FLUXNET) is not available over an open "
-            "endpoint: it requires a registered AmeriFlux account and acceptance "
-            "of the data-use policy, and is delivered as files rather than a REST "
-            "response. The tower list above is real and complete; the SERIES was "
-            "not fetched. Treat this as a failed fetch, not as an absence of "
-            f"observations. Request access at {_REQUEST_URL}")
+        uid, mail = _creds()
         out["values_available"] = False
-        out["request_access"] = _REQUEST_URL
+        out["ok"] = False
+        if not (uid and mail):
+            out["error"] = (
+                "AmeriFlux flux data (BASE/FLUXNET) needs a REGISTERED ACCOUNT: "
+                "every download is attributed to a person who accepted the "
+                f"data-use policy. Set ${_USER_ID} and ${_EMAIL} and this tool "
+                "will fetch. The tower list above is real and complete; the "
+                "SERIES was not fetched. Treat this as a failed fetch, not as an "
+                "absence of observations. "
+                f"Register: {_REGISTER_URL}  ·  Policy: {_REQUEST_URL}")
+            out["missing_credentials"] = [v for v, s in
+                                          ((_USER_ID, uid), (_EMAIL, mail)) if not s]
+            out["register"] = _REGISTER_URL
+        else:
+            out["error"] = (
+                "credentials are set, but fetching series through get_et is not "
+                "wired yet — call request_flux_data(site_ids=[...]) instead, "
+                "which submits the download request and returns its URLs.")
+            out["next"] = "request_flux_data"
     return json.dumps(out)
+
+
+@mcp.tool()
+def data_status() -> str:
+    """Can this server fetch flux SERIES right now, and if not, what is missing?
+
+    Separate from describe_ameriflux_capabilities because the answer CHANGES:
+    capabilities are what the server can do in principle, this is whether the
+    machine it is running on is currently able to do it. Same split as the
+    fan_wtd server, and for the same reason — a capability list that says "can
+    fetch ET" on a host with no credentials is a promise the run will break.
+    """
+    uid, mail = _creds()
+    reachable, detail = None, None
+    try:                        # POST-only: a GET returning 405 IS the proof
+        r = requests.get(_DOWNLOAD, timeout=30, verify=False)
+        reachable = r.status_code in (200, 405)
+        detail = f"HTTP {r.status_code} (405 = POST-only, which is expected)"
+    except Exception as e:                                      # noqa: BLE001
+        reachable, detail = False, f"{type(e).__name__}: {e}"[:200]
+
+    ready = bool(uid and mail and reachable)
+    return json.dumps({
+        "source": _SOURCE,
+        "site_discovery": "always available — no account needed",
+        "series_download_ready": ready,
+        "endpoint": _DOWNLOAD,
+        "endpoint_reachable": reachable,
+        "endpoint_detail": detail,
+        "credentials": {_USER_ID: bool(uid), _EMAIL: bool(mail)},
+        "how_to_enable": None if ready else [
+            f"1. Go to {_REGISTER_URL} and create an account (name, email, "
+            "institution). It is free and immediate — there is no approval "
+            "queue for the CC-BY-4.0 sites, which is most of them.",
+            f"2. Accept the AmeriFlux Data Use Policy: {_POLICY_URL}. Most "
+            "sites are CC-BY-4.0; some are LEGACY, which additionally asks you "
+            "to notify the site PI before publishing.",
+            f"3. Put both in env_compy.sh:  export {_USER_ID}=<username>  and  "
+            f"export {_EMAIL}=<registered address>",
+            "4. Re-run data_status() — series_download_ready should be true.",
+        ],
+        "policy_url": _POLICY_URL,
+        "unverified": (
+            "The download REQUEST BODY below has never been exercised against a "
+            "real account, because this machine has none. The endpoint and its "
+            "method are confirmed (GET->405, OPTIONS->'OPTIONS, POST', probed "
+            "2026-08-10); the field names come from AmeriFlux's documented "
+            "download API and are the part to check first if the first real "
+            "call fails."),
+        "request_shape": {
+            "user_id": "<account username>", "user_email": "<address>",
+            "data_product": "BASE-BADM", "data_policy": "CCBY4.0",
+            "agree_policy": True, "intended_use": "model",
+            "description": "<why you want it>", "site_ids": ["US-xxx"],
+        },
+    }, indent=2)
+
+
+@mcp.tool()
+def request_flux_data(site_ids: str, intended_use: str = "model",
+                      description: str = "",
+                      data_product: str = "BASE-BADM",
+                      data_policy: str = "CCBY4.0") -> str:
+    """Submit the AmeriFlux download request for these sites. NEEDS CREDENTIALS.
+
+    site_ids: comma-separated, e.g. "US-Me2,US-Wrc".
+
+    THIS IS AN OUTWARD-FACING ACTION and it is deliberately its own tool rather
+    than a flag on get_et. It submits a request in the account holder's name,
+    it is logged against them, and AmeriFlux emails the PIs of LEGACY-policy
+    sites. A tool that did this as a side effect of "fetch the observations"
+    would be doing something the caller did not ask for.
+
+    Returns the response as-is. Downloads are delivered as file URLs (and by
+    email), so the caller fetches them; this server does not warehouse data.
+
+    NOT YET EXERCISED against a real account — see data_status()['unverified'].
+    The failure to expect is a 400 naming a field, which is reported verbatim
+    rather than swallowed, precisely so the first real call is diagnostic.
+    """
+    uid, mail = _creds()
+    if not (uid and mail):
+        return json.dumps({
+            "ok": False,
+            "error": f"no AmeriFlux credentials — set ${_USER_ID} and ${_EMAIL}",
+            "missing": [v for v, s in ((_USER_ID, uid), (_EMAIL, mail)) if not s],
+            "register": _REGISTER_URL,
+            "next": "data_status",
+        }, indent=2)
+
+    sites = [s.strip() for s in str(site_ids).split(",") if s.strip()]
+    if not sites:
+        return json.dumps({"ok": False, "error": "no site_ids given"})
+
+    body = {
+        "user_id": uid, "user_email": mail,
+        "data_product": data_product, "data_policy": data_policy,
+        "agree_policy": True,
+        "intended_use": intended_use,
+        "description": description or
+                       "1-D ELM column evaluation: ET at co-located towers.",
+        "site_ids": sites,
+        "is_test": False,
+    }
+    try:
+        r = requests.post(_DOWNLOAD, json=body, timeout=_TIMEOUT, verify=False)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "n_sites": len(sites),
+                           "error": f"{type(e).__name__}: {e}"[:300]}, indent=2)
+
+    try:
+        payload = r.json()
+    except ValueError:
+        payload = {"raw": r.text[:2000]}
+    return json.dumps({
+        "ok": r.ok, "http_status": r.status_code,
+        "n_sites_requested": len(sites), "site_ids": sites,
+        "data_policy": data_policy,
+        "response": payload,
+        # A 400 here is the useful case: it names the field that is wrong, which
+        # is exactly what an unverified request body needs told about it.
+        "note": None if r.ok else
+                "request rejected — the response above names what it objected "
+                "to. Check the field names against data_status()['request_shape'].",
+    }, indent=2)
 
 
 @mcp.tool()
@@ -244,10 +415,19 @@ def describe_ameriflux_capabilities() -> str:
             "say whether its data is released, and under which licence",
         ],
         "cannot": [
-            "return ET time series — AmeriFlux data download needs a registered "
-            "account and data-use-policy acceptance; there is no open series "
-            "endpoint. get_et(with_values=True) returns ok=false saying so.",
+            "return ET time series WITHOUT CREDENTIALS — every AmeriFlux "
+            "download is attributed to a registered account that accepted the "
+            "data-use policy. get_et(with_values=True) returns ok=false saying "
+            "so, and data_status() says exactly what is missing.",
+            "warehouse data — downloads arrive as file URLs and by email; the "
+            "caller fetches them.",
         ],
+        "with_credentials": (
+            f"Set ${_USER_ID} and ${_EMAIL}, then request_flux_data(site_ids) "
+            "submits the download. That is a separate tool on purpose: it is an "
+            "outward-facing action logged against the account holder, not a "
+            "side effect of fetching observations."),
+        "credentials_present": all(_creds()),
         "why_it_matters": (
             "The framework runs 1-D columns with no lateral routing. ET is "
             "vertical and local to the tower footprint, so a column pinned at a "
