@@ -20,26 +20,39 @@ like with like.
 Source: AmeriFlux web services (https://amfcdn.lbl.gov/api/v1), Lawrence Berkeley
 National Laboratory. Site metadata is open and needs no key.
 
-    get_et(bbox[, start_date, end_date, with_values])
-        -> no dates: towers that exist, with coordinates, elevation and cover
-           dates:    which of them were OPERATING then, and whether their data
-                     is released and under what licence
-           with_values: NOT AVAILABLE without credentials — see below
+    describe_ameriflux_capabilities()      what this can and cannot answer
+    data_status()                          can THIS host download? what is missing?
+    get_et(bbox[, start, end, with_values]) towers, and whether they were running
+    request_flux_data(site_ids, ...)       submit a download; returns file URLs
 
-WHAT THIS SERVER CANNOT DO, AND WHY IT SAYS SO LOUDLY. AmeriFlux flux DATA
-(BASE/FLUXNET products) is not served over an open endpoint: downloading it
-requires a registered account and acceptance of the data-use policy, and the
-files arrive by an emailed link rather than a REST response. So `with_values`
-returns ok=false WITH the reason and the URL to request access. It does not
-return an empty series, because "we could not look" and "there is nothing there"
-are different findings — the same rule data_gather.py states, and the same
-confusion that on 2026-08-07 turned a rate-limited USGS fetch into a planner
-claiming a basin had no stream gauges.
+DISCOVERY IS OPEN, DOWNLOAD IS NOT. Site metadata and availability need no
+account. The flux DATA is tied to a registered AmeriFlux account and an accepted
+data-use policy — set $AMERIFLUX_USER_ID and $AMERIFLUX_EMAIL; data_status()
+reports exactly where a given machine stands.
 
-So this server is a DISCOVERY source today: it answers "where are the towers,
-were they running in my period, and is their data obtainable" — which is exactly
-what column pinning needs, since pinning needs coordinates. The comparison step
-needs the series, and that needs credentials.
+VERIFIED END TO END 2026-08-10: US-NR1, BASE-BADM/CCBY4.0 ->
+AMF_US-NR1_BASE_HH_26-5.csv, 490,896 half-hourly rows covering 1998-2025,
+57,191,377 bytes, MD5 matching the manifest. LE -> ET gives 584 mm/yr mean over
+2003-2019, the right order for 3050 m subalpine conifer.
+
+THREE THINGS THAT FIRST REAL REQUEST TAUGHT, all worth keeping:
+
+  * A REQUEST THAT MATCHES NOTHING RETURNS HTTP 200. Asking for FLUXNET at
+    US-NR1 gives number_of_sites_downloaded=0 and no URLs — byte-identical to
+    what a nonexistent site returns. So `ok` here is read off the MANIFEST, not
+    the status line. An unavailable product and a typo in a site id look the
+    same from outside, and neither is an empty dataset.
+  * THE LICENCE LISTS OVERLAP. All 514 sites offering BASE-BADM under CC-BY-4.0
+    are ALSO listed under LEGACY, so an index that keeps one licence per product
+    reports whichever it saw last. See _availability_index.
+  * THE DOWNLOAD API IS THE AUTHORITY on what it will serve — not the
+    availability catalogue, which is a different endpoint and can disagree. The
+    pre-check warns; it does not veto.
+
+Choosing a product: BASE-BADM is the AmeriFlux standard product and the default
+here because it is what actually returns files. FLUXNET is listed for many sites
+and returned nothing for the one tested. LEGACY-policy sites carry a duty to
+notify the site PI before publishing, and the response says which ones those are.
 """
 import json
 import os
