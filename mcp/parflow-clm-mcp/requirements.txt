@@ -1,0 +1,19 @@
+# ParFlow-CLM MCP — ParFlow-CLM CONUS water-table depth via HydroFrame.
+#
+# hf_hydrodata is the Princeton/HydroFrame client. It brings its own transitive
+# deps (requests, pandas, xarray, dataclasses-json).
+#
+# Installed on Compy 2026-08-10 with PIP_ONLY_BINARY=:all: — this host is
+# CentOS 7 and anything that needs to compile against its system libraries will
+# fail, so wheels only.
+#
+#     PIP_ONLY_BINARY=:all: pip install -r requirements.txt
+#
+# The install gets you the CATALOGUE, not the data. Reading gridded values
+# needs a free email + PIN registered once per machine:
+#     https://hydrogen.princeton.edu/signup   then   .../pin
+#     python -c "import hf_hydrodata as hf; hf.register_api_pin('<email>','<pin>')"
+# Run the server's data_status() tool to see where you are.
+hf_hydrodata
+mcp
+numpy

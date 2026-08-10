@@ -44,6 +44,14 @@
       ],
       "timeout": 120.0,
       "description": "AmeriFlux eddy-covariance towers: ET validation sites (discovery only; series needs credentials)"
+    },
+    "parflow_clm": {
+      "command": "/path/to/your/python3",
+      "args": [
+        "/path/to/RCSFA/mcp/parflow-clm-mcp/main.py"
+      ],
+      "timeout": 300.0,
+      "description": "ParFlow-CLM CONUS water-table depth (1 km) via HydroFrame. Needs `pip install hf_hydrodata` and a free Princeton email+PIN registered once per machine; see the server's data_status() tool."
     }
   }
 }

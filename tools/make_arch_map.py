@@ -118,7 +118,12 @@ BLURB = {
     "snotel":     "Snow water equivalent at SNOTEL stations.",
     "ameriflux":  "Flux towers. Site discovery works; the flux SERIES needs a "
                   "registered account, so ET is offered and never pinned.",
-    "fan_wtd":    "Fan et al. 2013 water-table depth, as a prior.",
+    "fan_wtd":    "Fan et al. 2013 water-table depth, as a prior. Static "
+                  "TILES, so coverage is whatever was provisioned.",
+    "parflow_clm": "ParFlow-CLM CONUS water-table depth at 1 km, via "
+                   "HydroFrame. A full field rather than tiles, so sampling "
+                   "is not constrained by coverage. Catalogue is open; the "
+                   "data needs a Princeton PIN.",
     "geology":    "Soil and geology characterisation at a point.",
     "reaction":   "PFLOTRAN reaction sandbox: builds decks, runs 1-D reactive "
                   "transport, and runs the LAMBDA network. Not on the ELM path.",
