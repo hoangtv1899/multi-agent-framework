@@ -1,6 +1,8 @@
 # The Experiment Manager, once ELM lives behind the MCP
 
-**Status:** decisions recorded 2026-08-10. Implementation pending.
+**Status:** decisions recorded 2026-08-10; the ELM side implemented and cleaned
+up the same day (§8). `ELMExpManager` still exists and the Analyzer half is
+untouched — see §8, "Still open".
 
 **This is not a second boundary document.** `docs/ELM_MCP_PLAN.md` §1–8 is the
 boundary and stays the authority; that design was agreed 2026-08-07 and a
@@ -148,12 +150,15 @@ read the package                framework
 interpret and report            framework
 ```
 
-Five compute stages become one call and a poll. The ledger, `Pending`, and the
-resume machinery were built to make a five-stage pipeline restartable at any
-point; with one job that either finished or did not, most of that has nothing
-left to guard. **Do not port it forward on the assumption it is still needed** —
-`ELM_MCP_PLAN.md` §6 already establishes that the study job finalises itself, so
-a resume finds every stage already marked done.
+Five compute stages become one call and a poll.
+
+> **The ledger paragraph that stood here was wrong, and §8 replaces it.** It
+> argued that with one job, the ledger and resume machinery had nothing left to
+> guard, and reasoned from `ELM_MCP_PLAN.md` §6 — where the study job finalises
+> *itself*, so a resume finds every stage already done. Jobs A and B removed
+> that premise: the framework submits and **exits**, and job B is a different
+> process on a different node hours later. `run_state.json` is the only thing
+> that crosses that gap. Keep it.
 
 ### The agreed call sequence — settled 2026-08-10
 
@@ -249,16 +254,22 @@ file form still works.
 
 ---
 
-## 5. Backwards dependencies to straighten
+## 5. Backwards dependencies — where they stand
 
-These exist now and are the concrete measure of whether the boundary is real.
+These are the concrete measure of whether the boundary is real. Four of the
+seven are closed.
 
-| what | direction today | fix |
+| what | direction | state |
 |---|---|---|
-| `tools/run_study.sh` | MCP tool `run_elm_study` sbatches a **framework** script | moves into the MCP (`ELM_MCP_PLAN.md` §7 deletes it in favour of jobs A+B) |
-| `workflow.py --finalize` | that script calls back into the framework | deleted with it |
-| `core.limitations` | `analyze_run.py` imports it from the framework | Analyzer redesign (§3) |
-| `elm_exp_manager` | inherits `src/core/exp_manager_base`, imports `agents.analyzer` | dissolves with the class |
+| `tools/run_study.sh` | MCP tool `run_elm_study` sbatched a **framework** script | **gone** — tool and script both deleted, e7ecc1b |
+| `workflow.py --finalize` | that script called back into the framework | no longer called by anything on the server side. The *entry point* stays: it adopts a landed job from disk without needing SLURM or a live MCP client, which `--resume` cannot do |
+| `tools/submit_cases.sh` | MCP tool `submit_elm_ensemble` sbatched it; `_run_batch` also ran it | **server side gone** — both callers deleted. The file stays in `tools/` as the legacy `run_watershed.sh` CLI's plumbing, which nothing in the framework flow touches |
+| `core.exp_manager_base` | `check_elm_job` imported it for `_slurm_state` | **gone** — copied across the boundary. Thirty lines about `squeue` is not framework knowledge |
+| `agents.analyzer` | `elm_exp_manager` imported `Analyzer` | **gone** — the import was unused |
+| `core.limitations` | `elm_exp_manager._extract` and `scripts/analyze_run.py` import it | open — Analyzer redesign (§3) |
+| `core.exp_manager_base` | `elm_exp_manager` inherits `ExperimentManagerBase` | open — dissolves with the class (§8) |
+| `core.model_agent_base` | `elm_input_agent` inherits `ModelAgentBase` | open |
+| `agents.analysis`, `core.figure_registry` | `scripts/analyze_agentic.py` imports both | open — Analyzer redesign (§3) |
 
 ---
 
@@ -307,3 +318,66 @@ could never reach the dict branch.
 
 **Standing constraint:** ask before submitting any SLURM job. Reaffirmed
 2026-08-07 and again by the explicit authorisation required for job 773080.
+## 8. The cleanup of 2026-08-10, and what is left
+
+### What the manager became
+
+`ELMExpManager` is 819 lines, down from 1035, and **every ELM computation in it
+is now an MCP call**. The reduction is not refactoring: `_refine_columns` has
+required the `elm` client since 8f32a2d, so everything guarded by
+`client is None` was unreachable from the first stage onward and only *looked*
+like a fallback. Deleted: `_run_batch`, `_submit_via_mcp`, `_build_cases_via_mcp`,
+`_poll_via_mcp`, the `ELMExperimentBuilder` handle, the serial-`srun` path, and
+the local half of `_poll`.
+
+What is left is the four things that are not ELM knowledge: **when** to call the
+server, **where** the run directory is, **what** the derived fields mean
+(`FIELD_SEMANTICS`), and arranging the framework's own follow-up job.
+
+### The bug the collapse found
+
+`_poll` dispatched on `record['stage']`. A polled job A came back down the
+`build_cases` branch — which hands back case directories and lets `execute_plan`
+walk into `_run`, **which submitted the ensemble job A had already run**. Every
+column would have run a second time, over the top of the first pass's history
+files. Nothing had hit it only because the analysis is deferred, so no resume
+had reached that line since the switch to A+B.
+
+`_run` now collects from disk and never submits anything; `_poll` has one shape,
+because there is one job.
+
+### The ledger question — settled: keep it
+
+Raised as "how much of the resume machinery survives one-job studies", on the
+theory that a study which is one `sbatch` does not need a stage ledger.
+
+**It needs it more, not less.** The framework submits A and B and then *exits* —
+the Python process is gone. Job B starts hours later, on a different node, in a
+different process, and `run_state.json` is the only thing carrying the job id
+and the record of which stages finished across that gap. Without it B has
+nothing to resume from. The ledger is a process-boundary carrier now, not a
+convenience for an interrupted session.
+
+Two things did change, and are worth writing down so nothing is built on the old
+shape:
+
+* **`build_cases` is the only stage that ever returns `Pending`.** `run` no
+  longer participates in the pending protocol at all. `_advance`'s three-path
+  logic stays — it is the base's, and PFLOTRAN uses it — but on the ELM side it
+  is exercised once per study.
+* **The base's comment "PHASE 1 WRITES IT AND NOTHING READS IT" is stale** and
+  has been corrected. It is read, by every job B.
+
+### Still open
+
+* `ELMExpManager` **still exists** and still inherits `ExperimentManagerBase`.
+  The class dissolving is a separate move and belongs with §12's PFLOTRAN work,
+  because the base is what the two backends share.
+* `_extract` is still split — `ELMResultsAnalyzer` computes MCP-side, the
+  orchestration is here. That is the Analyzer redesign (§3), not this.
+* **Unproven:** no study has been driven end to end through the collapsed
+  manager. The build+run half is verified (job 773089); `_run`-as-collect and
+  the setup figure in job A are verified by inspection only.
+
+---
+

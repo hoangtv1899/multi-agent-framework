@@ -176,9 +176,13 @@ class ExperimentManagerBase:
 	# what lets a later invocation know that materialize and build are already
 	# done and the only thing outstanding is a job id.
 	#
-	# PHASE 1 WRITES IT AND NOTHING READS IT. That is deliberate: the file can
-	# be checked against runs that already exist before any control flow
-	# depends on it, so a bug in the ledger cannot break a working pipeline.
+	# IT IS LOAD-BEARING NOW — the comment here said "phase 1 writes it and
+	# nothing reads it", which stopped being true with jobs A and B. The
+	# framework submits both and EXITS; job B starts hours later, on another
+	# node, in another process, and this file is the only thing carrying the job
+	# id and the finished-stage record across that gap. A one-job study needs it
+	# MORE than the five-stage pipeline it was built for, not less
+	# (docs/EXP_MANAGER_ELM.md §8).
 	STATE_FILE = "run_state.json"
 
 	# The stage sequence, in order, as execute_plan runs it. Named here so the

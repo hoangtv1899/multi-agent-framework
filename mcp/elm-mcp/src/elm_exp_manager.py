@@ -362,11 +362,21 @@ class ELMExpManager(ExperimentManagerBase):
 		# It also makes this method safe to reach from a test. pytest's tmp_path is
 		# under /tmp, and `sbatch` exists on a login node, so a test that got past
 		# the mocked client would otherwise submit a real job into the queue.
+		#
+		# IT FAILS OPEN, AND SAYS SO. `df` not answering is not evidence that the
+		# directory is node-local, so refusing on it would break every machine
+		# where df is absent or slow. But an unmade check that prints nothing is
+		# indistinguishable from a check that passed — which is exactly how this
+		# went unnoticed once already, when a harness broke `df` and the bare
+		# `except` turned the failure into a silent green light.
 		try:
 			fs = subprocess.check_output(
 				["df", "-P", str(self.run_dir)], text=True,
 				timeout=20).splitlines()[-1].split()[0]
-		except Exception:                                       # noqa: BLE001
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   ⚠️  could not check whether {self.run_dir} is on shared "
+				  f"storage ({type(e).__name__}: {e}) — submitting job B anyway. "
+				  f"If it dies in seconds with an empty log, this is why.")
 			fs = ""
 		if fs.startswith("/dev/"):
 			print(f"   ⚠️  {self.run_dir} is on {fs}, a node-local filesystem — "

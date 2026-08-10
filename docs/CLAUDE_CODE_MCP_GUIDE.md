@@ -268,21 +268,38 @@ exactly this command returned `ready: true` in 8 s for about $0.10 on Sonnet.
 
 ## Part 2 — what the two servers are, and are not
 
-### `elm` — five tools
+### `elm` — six tools
 
 ```
 describe_elm_capabilities()                     what this does, needs, and does NOT do
-build_elm_cases(run_dir, queue, walltime)       -> JOB ID   (CIME cases; ~8-10 min compile)
-submit_elm_ensemble(run_dir, case_dirs, ...)    -> JOB ID   (all columns concurrently)
-run_elm_study(run_dir, queue, walltime, email)  -> JOB ID   (build + run + analyze, one job)
+build_elm_inputs_from_location(run_dir, ...)    -> DATA     (warm start, donor soil,
+                                                             surfaces, case_inputs.json)
+get_column_metadata(run_dir)                    -> DATA     (the columns as they will RUN)
+run_elm_ensemble(run_dir, queue, walltime)      -> JOB ID   (JOB A: build + run, one job)
+build_elm_cases(run_dir, queue, walltime)       -> JOB ID   (the build alone; ~8-10 min)
 check_elm_job(job_id, run_dir)                  what Slurm is doing; case dirs when built
 ```
 
-**The rule:** *this server compiles and runs the model; the caller decides what
-to run and reads what came out.* It does not choose where columns go, does not
-warm-start, does not generate surface or domain files, and does not read a
-single history file. Those decisions belong to the framework (or to you), and
-they cross the boundary as data in `<run_dir>/01_inputs/case_inputs.json`.
+**Two tools went away on 2026-08-10**, both because they shelled out to scripts
+in the framework — a server running its client's code. `run_elm_study` ran
+`tools/run_study.sh`, whose job ended by calling `workflow.py --finalize`;
+`run_elm_ensemble` plus a job B of your own is the same study with the callback
+inverted (Example 7). `submit_elm_ensemble` ran `tools/submit_cases.sh` to run
+already-built cases; `run_elm_ensemble` does that now — it verifies
+`built_cases.json` against the case directories on disk and skips the compile
+when they are still there.
+
+**The rule:** *this server owns the simulation end to end; the caller decides
+what to simulate and interprets what came out.* Give it locations and it does
+the warm start, the donor soil, the surfaces and the case list
+(`build_elm_inputs_from_location`), then compiles and runs them. What it does
+not do is choose the columns, hold the observations, or say what the numbers
+mean. Everything crosses the boundary as data in `<run_dir>/01_inputs/`.
+
+*(This is the second rule, adopted 2026-08-08. The first said the server only
+compiled and ran, and the caller generated every input — read that way, the
+sentence "it does not warm-start" was true of the same server four days
+earlier.)*
 
 **The contract:** *every tool returns quickly or returns a job id.* An MCP
 client opens a fresh session per call and tearing it down kills the server's
@@ -758,11 +775,14 @@ Tell me the case directories and whether every column produced history files.
 //                           {"case_name": "col_02",
 //                  "case_dir": "/compyfs/tran289/E3SMv3/1D_ELM.b198763.2026-08-03-231051.col_02"}]}
 
-// 3. submit_elm_ensemble
+// 3. run_elm_ensemble — the cases are built, so this skips the compile and
+//    goes straight to the columns. (Until 2026-08-10 this step was a separate
+//    tool, submit_elm_ensemble, which took the case_dirs from step 2 as an
+//    argument. It no longer needs them: the job reads built_cases.json.)
 {"run_dir": ".../workflow_outputs/mcp_demo_elm",
- "case_dirs": ["/compyfs/tran289/E3SMv3/...col_01", "/compyfs/tran289/E3SMv3/...col_02"],
  "queue": "short", "walltime": "00:40:00"}
-// -> {"job_id": "770827", "n_cases": 2, "stage": "run", "log_path": ".../run.log"}
+// -> {"job_id": "770827", "n_cases": 2, "stage": "ensemble",
+//     "log_path": ".../ensemble_A.log"}
 
 // 4. check_elm_job again — branch on state/active, and read run.log for the columns
 {"job_id": "770827", "run_dir": ".../workflow_outputs/mcp_demo_elm"}
@@ -803,47 +823,63 @@ cases.json --plot`, or ask it to open the history files directly with xarray.
 
 ---
 
-### Example 7 — the whole ELM study as one unattended job
+### Example 7 — the whole ELM study unattended (jobs A and B)
 
-*Use this when you want to close the laptop. Build, run, and the framework's own
-analysis on a single allocation; Slurm mails you when the analysis is already
-written.*
+*Use this when you want to close the laptop. One call builds and runs
+everything; a second job you submit yourself reports when it lands.*
 
 **You type:**
 
 ```
-Run the study in workflow_outputs/mcp_demo_elm end to end as one job — short
-queue, two hours — and mail hoang.tran@pnnl.gov when it lands.
+Run the study in workflow_outputs/mcp_demo_elm end to end — short queue, two
+hours — then submit a follow-up job that depends on it and mails
+hoang.tran@pnnl.gov when it finishes.
 ```
 
-**The call** — `mcp__elm__run_elm_study`:
+**The call** — `mcp__elm__run_elm_ensemble`:
 
 ```json
 {"run_dir": ".../workflow_outputs/mcp_demo_elm", "queue": "short",
- "walltime": "02:00:00", "email": "hoang.tran@pnnl.gov"}
+ "walltime": "02:00:00"}
 ```
 
 ```json
-{"job_id": "...", "n_cases": 2, "stage": "study",
- "produces": "04_analysis/ — the analysis is written INSIDE this job",
- "next": "check_elm_job (optional — the email is the signal)"}
+{"job_id": "...", "n_cases": 2, "stage": "ensemble",
+ "log_path": ".../ensemble_A.log",
+ "next": "submit job B with --dependency=afterany:<id>, then exit"}
 ```
 
-**Why not just do Examples 6 twice.** Split, a study costs three separate
-invocations, each waiting on a queue: submit the build, come back and submit the
-run, come back and analyze. This costs one, and by the time the END mail arrives
-`04_analysis/` is written. Slurm mail is confirmed delivering to @pnnl.gov from
-Compy (job 770794) — it goes through the scheduler, so it does not need an MTA
-on the compute node.
+**Then job B, which is yours, not the server's:**
 
-**Walltime must cover build + run + analysis**, not just the run: ~8-10 min of
-compile, then the columns, then 1-2 min of Analyzer. Two hours is the `short`
-partition's ceiling and fits a 19-column study. Anything bigger: `queue:
-"slurm"` (4-day limit) and a longer walltime.
+```bash
+sbatch --dependency=afterany:<A> ensemble_B.sbatch   # analysis + mail
+```
 
-**It is restartable.** The build step is skipped when
-`01_inputs/built_cases.json` already reports success, so a job killed at the
-wall can be resubmitted without paying for the compile twice.
+**Why two jobs and not one.** The tool this replaces, `run_elm_study`, ended
+its job by running the framework's `workflow.py --finalize` — the server's job
+executing the client's code, a circular dependency the boundary rule forbids.
+A and B invert it: the caller asks for the model run and arranges its own
+follow-up, and nothing inside the server calls back out. The cost to you is
+identical — one sitting, one email — because SLURM presses the second button.
+
+**`afterany`, never `afterok`.** With `afterok` a failed ensemble means B never
+runs and *no mail is ever sent*, which is the silent failure that happened twice
+on 2026-08-06. `afterany` means B always runs and always reports, including "the
+ensemble failed, here is why". Slurm mail is confirmed delivering to @pnnl.gov
+from Compy (job 770794) — it goes through the scheduler, so it does not need an
+MTA on the compute node.
+
+**Walltime covers build + run.** ~8-10 min of compile, then the columns. Two
+hours is the `short` partition's ceiling and fits a 19-column study. Anything
+bigger: `queue: "slurm"` (4-day limit) and a longer walltime. B is separate and
+needs minutes, not hours.
+
+**It is restartable, and it now means it.** Job A skips the compile when
+`built_cases.json` reports success *and* every case directory it names is still
+on disk — one missing directory condemns the whole manifest and triggers a
+rebuild, rather than launching columns at an executable that is not there. Until
+2026-08-10 the tool deleted that file before every submission, so the "reuse"
+check could never fire and each resubmission paid the ~7 min compile again.
 
 ---
 
@@ -863,7 +899,7 @@ the real QINFL series and tell me what changed.
 ```
 
 This is one conversation using both servers, and it works because of the
-contract in Part 2: `run_elm_study` returns a job id in seconds, so nothing is
+contract in Part 2: `run_elm_ensemble` returns a job id in seconds, so nothing is
 blocked while the PFLOTRAN columns run inline in the same session. Claude polls
 `check_elm_job` between the PFLOTRAN calls.
 
@@ -910,7 +946,7 @@ from a login node cannot see it, and the ensemble silently finds nothing. Use
 
 **`rc=0` is not proof an ELM column ran.** If you ever see `rc=0 history=0`,
 distrust `rc` and read `<case>/run/srun.out`. Two Compy-specific causes, both
-fixed in `tools/submit_cases.sh` but worth knowing: `srun --exact` does not
+fixed in `mcp/elm-mcp/scripts/ensemble_ab.sh` but worth knowing: `srun --exact` does not
 exist on Slurm 18.08 (use `--exclusive`), and Intel-MPI cases need
 `srun --mpi=pmi2` or they hang in bootstrap.
 
@@ -956,16 +992,17 @@ source /qfs/people/tran289/IDEAS/claude_bedrock.sh   # AWS Bedrock (creds expire
 cd /qfs/people/tran289/IDEAS/multi-agent-framework && claude
 /mcp                      # are elm and reaction connected?
 
-# ELM, split
+# ELM, split (build first, inspect the cases, then run them)
 "describe_elm_capabilities"                              # ready: true?
 "build_elm_cases on <run_dir>, short queue, 1 h"         # -> job id
 "check_elm_job <id> with run_dir <run_dir>"              # -> cases when done
-"submit_elm_ensemble with those case dirs, 40 min"       # -> job id
+"run_elm_ensemble on <run_dir>, 40 min"                  # -> job id (skips the compile)
 "check_elm_job <id> again"                               # -> state/active
-tail -3 <run_dir>/run.log                                # -> rc= and history= per column
+tail -3 <run_dir>/ensemble_A.log                         # -> rc= and history= per column
 
-# ELM, unattended
-"run_elm_study on <run_dir>, 2 h, mail me at <addr>"     # -> job id, then email
+# ELM, unattended (jobs A + B)
+"run_elm_ensemble on <run_dir>, 2 h"                     # -> job id  = A
+sbatch --dependency=afterany:<A> ensemble_B.sbatch       # your job B: report + mail
 
 # PFLOTRAN, inline
 "create_column_deck for <site> at <wtd> m, <r> mm/yr, <y> years, out_dir <dir>"

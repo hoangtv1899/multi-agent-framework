@@ -150,15 +150,19 @@ constraints.
 
 ## 3. Experiment Manager — strategy → runs
 
-`src/core/elm_exp_manager.py` (`ELMExpManager.execute_plan`) is the whole stage.
+`src/core/exp_manager_base.py` (`ExperimentManagerBase.execute_plan`) runs the
+stage; `mcp/elm-mcp/src/elm_exp_manager.py` (`ELMExpManager`) supplies ELM's
+half of it. **Every ELM computation below is an `elm` MCP call** — the local
+by-import path was deleted 2026-08-10, so a study without a registered `elm`
+client fails at step 0b rather than quietly running a second implementation.
 
-| step | what happens | writes |
-|---|---|---|
-| 0 materialize | strategy → real columns via MCP terrain/soil/WTD | `columns.json`, `run_plan.json`, `assumptions.json` |
-| 0b warm start | subset each column's donor gridcell out of the CONUS 1-km restart → per-column `finidat` + surfdata; columns snap to the donor and adopt its soil | `warmstart/`, `sampling_design.png` |
-| 1 build | per-column domain + surface NetCDFs | `01_inputs/` |
-| 2 prepare | one CIME build, then `--keepexe` clones | `02_setup_plots/column_surfaces.png` |
-| 3 run | all columns as one SLURM job | `03_results/` |
+| step | what happens | who | writes |
+|---|---|---|---|
+| 0 materialize | strategy → real columns via MCP terrain/soil/WTD | framework | `columns.json`, `run_plan.json`, `assumptions.json` |
+| 0b warm start | one call, `build_elm_inputs_from_location`: subset each column's donor gridcell out of the CONUS 1-km restart → per-column `finidat` + surfdata, then surfaces, domains and the case list. Columns snap to the donor and adopt its soil | elm MCP | `warmstart/`, `01_inputs/`, `sampling_design.png` |
+| 1 build_case_inputs | read back what that call wrote — computes nothing | framework | — |
+| 2 build_cases | **JOB A**: one CIME build, then `--keepexe` clones, then every column, as one SLURM job. The framework also submits **JOB B** here (`--dependency=afterany`) and exits | elm MCP + SLURM | `02_setup_plots/column_surfaces.png` |
+| 3 run | collect what landed — job A already ran the columns | framework | `03_results/` |
 | 4 analyze | history files → metrics + 5 figures | `04_analysis/` |
 | 4b validate | compare against USGS / SNOTEL observations | `04_analysis/validation.json` |
 | 4c interpret | Analyzer selects figures, renders, LOOKS at them, interprets | `04_analysis/interpretation.md`, `analysis_plan.json`, `figure_captions.json` |
@@ -304,7 +308,10 @@ See `docs/PFLOTRAN_PLAN.md`.
 **The shell path.** `tools/run_watershed.sh` runs the same stages step-by-step from
 the login node (`build_cases.py`, `run_cases.sh`, `submit_cases.sh`,
 `plot_columns.py`, `analyze_run.py`). Useful when you want to stop between steps.
-See `docs/RUNBOOK.md`.
+See `docs/RUNBOOK.md`. It is a **legacy CLI**: it predates `workflow.py`, does
+not go through the MCP, and `tools/submit_cases.sh` + `tools/run_cases.sh` now
+exist only to serve it — nothing in the framework flow or the elm server calls
+either any more.
 
 **Standalone diagnostics.** `tools/scout_watersheds.py` (pre-flight observation
 coverage), `tools/mcp_conus_sweep.py` (MCP coverage), `tools/probe_planner.py`
