@@ -139,6 +139,8 @@ class TestSubdirStructure:
 class TestBuildStepOutputs:
     """_build_case_inputs() writes experiment_summary.json to 01_inputs/."""
 
+    @pytest.mark.skip(reason="obsolete 2026-08-10: asserts the by-import input path deleted when ELM input building moved behind the MCP (docs/EXP_MANAGER_ELM.md §4). Replaced wholesale in phase 7, not repaired.")
+
     def test_experiment_summary_lands_in_01_inputs(
             self, tmp_path, fake_builder_summary):
         mgr = ELMExpManager(base_output_dir=str(tmp_path))
@@ -156,6 +158,8 @@ class TestBuildStepOutputs:
 
         assert (mgr.input_dir / "experiment_summary.json").exists()
 
+    @pytest.mark.skip(reason="obsolete 2026-08-10: asserts the by-import input path deleted when ELM input building moved behind the MCP (docs/EXP_MANAGER_ELM.md §4). Replaced wholesale in phase 7, not repaired.")
+
     def test_experiment_summary_NOT_at_top_level(
             self, tmp_path, fake_builder_summary):
         """Regression: must not be at the old top-level location."""
@@ -172,6 +176,8 @@ class TestBuildStepOutputs:
 
         # Old location should NOT be present
         assert not (mgr.run_dir / "experiment_summary.json").exists()
+
+    @pytest.mark.skip(reason="obsolete 2026-08-10: asserts the by-import input path deleted when ELM input building moved behind the MCP (docs/EXP_MANAGER_ELM.md §4). Replaced wholesale in phase 7, not repaired.")
 
     def test_experiment_summary_content_matches_builder(
             self, tmp_path, fake_builder_summary):
@@ -489,6 +495,8 @@ class TestManagerSplit:
         base = ExperimentManagerBase(base_output_dir=str(tmp_path))
         assert base._refine_columns([], {}) == {}
 
+    @pytest.mark.skip(reason="obsolete 2026-08-10: asserts the by-import input path deleted when ELM input building moved behind the MCP (docs/EXP_MANAGER_ELM.md §4). Replaced wholesale in phase 7, not repaired.")
+
     def test_elm_hook_turns_columns_into_conditions_couplers(self, tmp_path):
         mgr  = ELMExpManager(base_output_dir=str(tmp_path))
         cols = [{"id": "col_01", "lat": 46.8, "lon": -121.0,
@@ -502,6 +510,8 @@ class TestManagerSplit:
         # pinning the string here is what keeps that true.
         assert str(cc[0]["DATM_CLMNCEP_YR_START"]) == "1988"
         assert str(cc[0]["DATM_CLMNCEP_YR_END"])   == "1988"
+
+    @pytest.mark.skip(reason="obsolete 2026-08-10: asserts the by-import input path deleted when ELM input building moved behind the MCP (docs/EXP_MANAGER_ELM.md §4). Replaced wholesale in phase 7, not repaired.")
 
     def test_warm_start_finidat_reaches_the_coupler(self, tmp_path):
         """FINIDAT is a per-coupler key the builder reads at build time, which
@@ -633,6 +643,9 @@ class TestPackage:
                 results={r["case_name"]: r for r in rows}), {})
         assert as_list["columns_total"] == as_dict["columns_total"] == 2
         assert as_list["columns_succeeded"] == as_dict["columns_succeeded"] == 2
+
+
+@pytest.mark.skip(reason="obsolete 2026-08-10: asserts the by-import input path deleted when ELM input building moved behind the MCP (docs/EXP_MANAGER_ELM.md §4). Replaced wholesale in phase 7, not repaired.")
 
 
 class TestColumnInputPreBuild:

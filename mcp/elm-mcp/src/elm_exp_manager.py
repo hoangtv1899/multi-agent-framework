@@ -118,21 +118,66 @@ class ELMExpManager(ExperimentManagerBase):
 		return bool(plan.get("CONDITIONS_COUPLERS"))
 
 	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
-		"""Warm start, then adopt the donor cell's soil.
+		"""ONE MCP call: warm start, donor soil, surfaces, case_inputs.json.
 
 		Runs inside the base's materialize, BEFORE columns.json is written and
 		before the design figure is drawn — the warm start snaps each column to
 		its donor gridcell, so anything persisted earlier describes a plan the
 		run will not follow.
+
+		WHY THE WHOLE INPUT BUILD HAPPENS HERE, in a hook named for refinement.
+		The MCP does all six input steps in one call and the manager used to
+		split them across two stages, with the columns.json write wedged
+		between. That split is why routing this through the MCP was impossible
+		for a week: calling the tool from the later stage re-ran the warm start,
+		and calling it from here could not work while the tool's only input was
+		a file that does not exist yet at this moment. The tool now takes the
+		columns as DATA, so the call lands here — the one moment that satisfies
+		the ordering constraint — and the two stages after it have nothing left
+		to compute.
+
+		THE COLUMNS ARE REPLACED IN PLACE. The base persists the same list
+		object it handed us, so returning a new one would silently persist the
+		pre-snap coordinates.
 		"""
-		finidat_map = self._warmstart(columns, config)
-		self._attach_donor_soil(columns, finidat_map)
-		return {"finidat_map": finidat_map}
+		client = self._mcp(config)
+		if client is None:
+			raise RuntimeError(
+				"the elm MCP is required to build ELM inputs — the local "
+				"by-import path was deleted 2026-08-10 (docs/EXP_MANAGER_ELM.md "
+				"§4). Register an `elm` client in mcp_config.json.")
+		yr_start = int((config or {}).get("yr_start", 1995))
+		ws = (config or {}).get("warm_start")
+		out = self._mcp_call(client, "build_elm_inputs_from_location", {
+			"run_dir":       str(self.run_dir),
+			"columns":       columns,
+			"yr_start":      yr_start,
+			"yr_end":        int((config or {}).get("yr_end", yr_start)),
+			"soil_config":   str((config or {}).get("soil_config", "native")),
+			"substrate":     str((config or {}).get("substrate", "extrapolate")),
+			"conus_restart": str((ws or {}).get("conus_restart", "")
+								 if isinstance(ws, dict) else ""),
+		}, budget=900)
+		if not out.get("ok"):
+			raise RuntimeError(
+				f"build_elm_inputs_from_location failed: {out.get('error')}")
+		columns[:] = out["columns"]          # snapped — see the docstring
+		self._mcp_inputs = out
+		print(f"✓ {out['n_cases']} case input(s) built via the elm MCP")
+		return {"mcp_inputs": out}
 
 	def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
-		"""Delegates to inputs.to_run_plan — see there for the reasoning."""
-		import inputs
-		return inputs.to_run_plan(columns, config, (refine or {}).get("finidat_map"))
+		"""The plan the MCP already built, handed back.
+
+		Rebuilding it here would be the same computation twice with two chances
+		to disagree; the base still persists it as run_plan.json and resumes
+		from it, so it is returned by the call rather than recomputed.
+		"""
+		out = (refine or {}).get("mcp_inputs") or getattr(self, "_mcp_inputs", None)
+		if not out or "run_plan" not in out:
+			raise RuntimeError(
+				"no run plan from the elm MCP — _refine_columns must run first")
+		return out["run_plan"]
 
 	# ─────────────────────────────────────────────────────────
 	# MAIN ENTRY POINT
@@ -193,24 +238,9 @@ class ELMExpManager(ExperimentManagerBase):
 		implementation so the coupling code has one home."""
 		return self._couple_pflotran(plan, config)
 
-	def _attach_donor_soil(self, columns, finidat_map):
-		"""Delegates to inputs.attach_donor_soil — see there for the reasoning."""
-		import inputs
-		return inputs.attach_donor_soil(columns, finidat_map)
-
-	def _warmstart(self, columns, config: Dict[str, Any]):
-		"""Delegates to inputs.warm_start — see there for the reasoning."""
-		import inputs
-		return inputs.warm_start(self.run_dir, columns, config)
-
 	# ─────────────────────────────────────────────────────────
 	# STEP 1 — BUILD (writes to 01_inputs/)
 	# ─────────────────────────────────────────────────────────
-	def _build_column_inputs(self, config: Dict[str, Any]) -> Dict[str, Any]:
-		"""Delegates to inputs.build_column_inputs — see there for the reasoning."""
-		import inputs
-		return inputs.build_column_inputs(self.run_dir, config)
-
 	# ─────────────────────────────────────────────────────────
 	# THE MCP PATH — Phase 4
 	# ─────────────────────────────────────────────────────────
@@ -359,15 +389,21 @@ class ELMExpManager(ExperimentManagerBase):
 	def _build_case_inputs(self,
 			   plan:   Dict[str, Any],
 			   config: Dict[str, Any]) -> List[Dict]:
-		"""Delegates to inputs.build_case_inputs, keeping the builder handle.
+		"""Read what the MCP already wrote. Computes nothing.
 
-		The handle is what _build_cases uses for the --keepexe fast path; the MCP
-		tool discards it, which is the only difference between the two callers.
+		_refine_columns made the one call that produced case_inputs.json, so
+		this stage exists only because the base's pipeline has a slot for it.
+		The rows come back as PLAIN DATA with no live ELMAgent — which is
+		exactly the state a resumed run is in, and _rehydrate_handles already
+		handles it. The --keepexe builder handle is gone with the local path;
+		_build_cases_via_mcp never used it, and the job side does the cloning.
 		"""
-		import inputs
-		experiments, self._builder = inputs.build_case_inputs(
-			self.run_dir, plan, config)
-		return experiments
+		rows = self._rehydrate_case_inputs()
+		if not rows:
+			raise RuntimeError(
+				f"{self.input_dir / self.CASE_INPUTS} is missing or empty — "
+				f"_refine_columns should have written it via the elm MCP")
+		return rows
 
 	def _plot_setups(self, cases: List[str]) -> None:
 		"""02_setup_plots/column_surfaces.png — the soil each column ACTUALLY got.
