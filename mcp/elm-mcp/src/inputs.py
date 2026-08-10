@@ -47,6 +47,13 @@ CASE_INPUTS = "case_inputs.json"
 # ─────────────────────────────────────────────────────────────────────
 # WARM START
 # ─────────────────────────────────────────────────────────────────────
+# The CONUS restart grid is 1 km, so a point inside a cell is at most a
+# half-diagonal (~0.71 km) from its centre. 1.5 km is twice that: comfortably
+# past any grid irregularity, and far short of the 4.52 km that says the point
+# was never on the land grid.
+MAX_SNAP_KM = 1.5
+
+
 def _donor_topo(surfdata_path):
     """The donor gridcell's surface height, from the surfdata just subset.
 
@@ -150,6 +157,24 @@ def warm_start(run_dir: Path, columns: List[Dict],
             m = manifest.get(c.get("id"))
             if not m:
                 continue
+            # TOO FAR TO BE THE SAME PLACE. The snap is meant to land on the
+            # gridcell CONTAINING the sampled point, so on a 1 km grid it cannot
+            # honestly exceed a half-diagonal (~0.7 km); measured across the 13
+            # chain basins the worst legitimate snap was 0.571 km. A larger
+            # distance means the point has no land gridcell at all and the search
+            # walked to a different one.
+            #
+            # centralcoast_1998 col_04 is the case: sampled at 3DEP 0 m on the
+            # Big Sur shoreline, where the CONUS land grid simply stops, so the
+            # nearest donor was 4.52 km inland and 74 m uphill. Snapping it does
+            # not relocate the column, it SUBSTITUTES a different place — and the
+            # design still counted it as representing the coast.
+            if m.get("dist_km") is not None and m["dist_km"] > MAX_SNAP_KM:
+                excluded.append((c.get("id"),
+                                 f"nearest CONUS land donor is {m['dist_km']:.2f} km "
+                                 f"away (> {MAX_SNAP_KM} km) — the sampled point "
+                                 f"is not on the land grid"))
+                continue
             c["lat"], c["lon"] = m["donor_lat"], m["donor_lon"]
             topo = _donor_topo(m.get("surface_template"))
             if topo is None:
@@ -181,14 +206,19 @@ def warm_start(run_dir: Path, columns: List[Dict],
             manifest["_excluded"] = excluded
             if not columns:
                 raise RuntimeError(
-                    "every column was excluded for want of a donor elevation; "
-                    "the CONUS surfdata has no usable TOPO over this domain.")
+                    f"every column was excluded ({excluded}); the CONUS grid "
+                    f"has no usable donor over this domain.")
 
         (run_dir / "warmstart" / "warmstart.json").write_text(
             json.dumps(manifest, indent=2))
-        snap = max(m["dist_km"] for m in manifest.values())
-        print(f"✓ {len(manifest)}/{len(columns)} column(s) warm-started from "
-              f"CONUS (snapped <= {snap} km) → warmstart/warmstart.json")
+        # `_excluded` is a LIST living in a dict of dicts, so anything walking
+        # manifest.values() has to skip it. Nothing did, and this line would have
+        # raised on the first exclusion — which never happened until the snap
+        # limit above started producing them.
+        kept = [m for k, m in manifest.items() if k != "_excluded"]
+        snap = max((m["dist_km"] for m in kept), default=0.0)
+        print(f"✓ {len(kept)}/{len(kept) + len(excluded)} column(s) warm-started "
+              f"from CONUS (snapped <= {snap} km) → warmstart/warmstart.json")
         return manifest
     except Exception as e:                                      # noqa: BLE001
         raise RuntimeError(f"warm start failed: {e}") from e
