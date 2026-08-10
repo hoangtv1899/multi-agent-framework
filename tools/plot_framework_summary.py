@@ -373,9 +373,9 @@ def thumbnail(ax, art, cols, label, pt, area=None, basemap=True):
     if (art["reception"].get("grid") or {}).get("boundary"):
         ax.plot(bx, by, color="0.1", lw=0.5, zorder=5)
     ax.scatter(lon[~pin], lat[~pin], c=e[~pin], cmap=psd.CMAP, vmin=0, vmax=1,
-               s=5, edgecolor="k", linewidth=0.2, zorder=3)
+               s=11, edgecolor="k", linewidth=0.25, zorder=3)
     ax.scatter(lon[pin], lat[pin], c=e[pin], cmap=psd.CMAP, vmin=0, vmax=1,
-               s=22, marker="*", edgecolor="k", linewidth=0.3, zorder=4)
+               s=42, marker="*", edgecolor="k", linewidth=0.35, zorder=4)
     ax.set_xlim(ext[0], ext[1]); ax.set_ylim(ext[2], ext[3])
     ax.set_aspect(1 / math.cos(math.radians(float(lat.mean()))))
     ax.set_xticks([]); ax.set_yticks([])
@@ -511,9 +511,9 @@ def main():
     cb.ax.tick_params(labelsize=small, length=1.5, pad=1.0)
 
     fig.legend(handles=[
-        Line2D([], [], ls="", marker="o", mfc="w", mec="k", ms=3,
+        Line2D([], [], ls="", marker="o", mfc="w", mec="k", ms=4.2,
                label="stratified column"),
-        Line2D([], [], ls="", marker="*", mfc="w", mec="k", ms=6,
+        Line2D([], [], ls="", marker="*", mfc="w", mec="k", ms=8.5,
                label="pinned at an observation station"),
     ], loc="lower right", bbox_to_anchor=(0.975, y_of(0.10)), ncol=1, frameon=False,
         fontsize=small, handletextpad=0.4, labelspacing=0.35)
