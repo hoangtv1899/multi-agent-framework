@@ -80,7 +80,7 @@ def build(run_dir: str, deferred: bool = False):
     # underneath. _read() also returns {} on ANY exception, so an unwritable or
     # truncated run_state.json reached the same happy answer.
     if not stages and not deferred:
-        bad.append("no stage ledger (run_state.json missing or unreadable)")
+        bad.append("no run state (run_state.json missing or unreadable)")
     # And the counts were already computed two lines up without being consulted.
     # This script exists to say whether the analysis is written; saying so while
     # the directory is empty is the one thing it must never do.
@@ -105,7 +105,7 @@ def build(run_dir: str, deferred: bool = False):
 
 
 def ExpectedOrder(stages):
-    """Ledger order, with any unknown stage appended rather than dropped."""
+    """Stage order, with any unknown stage appended rather than dropped."""
     known = ("materialize", "build_case_inputs", "build_cases", "run",
              "extract", "package", "analyze")
     return [s for s in known if s in stages] + \
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     # Also written to the run directory. The compute node has no mail
     # transport (verified 2026-08-03, job 770819: "NO mail on node"), so the
     # body cannot always be delivered — but it can always be LEFT somewhere
-    # the user can read without reconstructing it from the ledger.
+    # the user can read without reconstructing it from the run state.
     try:
         (Path(sys.argv[1]) / REPORT_NAME).write_text(body + "\n")
     except Exception as e:                                      # noqa: BLE001

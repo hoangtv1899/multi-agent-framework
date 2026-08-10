@@ -108,7 +108,7 @@ convention). In order:
 6  write 01_inputs/columns.json          locations + grid + boundary + bands
 ```
 
-Then the stage ledger, `_package`, the Analyzer's question-driven half, and the
+Then the run state, `_package`, the Analyzer's question-driven half, and the
 job-B composition.
 
 ### ELM MCP
@@ -304,7 +304,7 @@ JOB B            the ordinary --resume path:
 
 **The framework never waits.** It records the job id in `run_state.json` and
 exits. Job B is the resume path a person would trigger, with SLURM pressing the
-button. Same ledger, same stages, no polling loop, no held allocation.
+button. Same run state, same stages, no polling loop, no held allocation.
 
 **`afterany`, not `afterok`.** With `afterok`, a failed ensemble means B never
 runs and *no mail is ever sent* — the silent failure that occurred twice on
@@ -711,8 +711,8 @@ sample_columns    framework    where the columns go   (3 MCP calls, worth protec
 build_inputs      ELM MCP      what ELM sees there    (one tool call)
 ```
 
-The save point becomes the layer boundary, so the ledger describes the
-architecture instead of cutting across it. `STAGES` entries are ledger keys, so
+The save point becomes the layer boundary, so the run state describes the
+architecture instead of cutting across it. `STAGES` entries are run-state keys, so
 `materialize → sample_columns` and `build_case_inputs → build_inputs` need an
 alias map or in-flight runs find neither.
 
@@ -776,7 +776,7 @@ counts* — and must pass again before anything depends on it.
 **Risk:** `ELMResultsAnalyzer.results` is a **dict keyed by case name**;
 PFLOTRAN's is a list. `list()` on the dict yields the case *names*, and packaging
 then drops every non-dict — that is how 19 clean columns were packaged as
-`columns_total: 0` on 2026-08-06 while the ledger recorded `n_rows=19`. Compare
+`columns_total: 0` on 2026-08-06 while the run state recorded `n_rows=19`. Compare
 **row contents**, never counts.
 
 ---

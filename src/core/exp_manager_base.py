@@ -74,9 +74,9 @@ class Pending:
 	guessable.
 
 	  job_id   what the scheduler called it — the one thing a later session
-	           needs, and what gets written into the ledger
+	           needs, and what gets written into the run state
 	  detail   anything else the backend wants back when it is polled; it is
-	           stored verbatim in the ledger entry and handed to _poll
+	           stored verbatim in the run-state entry and handed to _poll
 	"""
 
 	def __init__(self, job_id: Any, **detail: Any):
@@ -166,15 +166,25 @@ class ExperimentManagerBase:
 	COUPLES_TO      = None    # backend name this one hands its output to
 
 	# ─────────────────────────────────────────────────────────
-	# THE STAGE LEDGER — what has already been done, on disk
+	# THE RUN STATE — what this study has already finished, on disk
 	# ─────────────────────────────────────────────────────────
 	#
-	# run_state.json records each stage as it finishes, with the artifacts it
-	# left behind. Written for one reason: an ELM ensemble is ~40 minutes in a
-	# queue, and a process that has to sit and block for it is a process that
-	# cannot be interrupted, resumed, or moved between sessions. The ledger is
-	# what lets a later invocation know that materialize and build are already
-	# done and the only thing outstanding is a job id.
+	# One small file per study. A checklist: each stage is ticked off as it
+	# finishes, with the job id it was waiting on and the artifacts it left
+	# behind. It is A HANDOFF NOTE, not a progress bar — nothing reads it while
+	# a study is running in one process; it exists so the NEXT process can pick
+	# the study up.
+	#
+	# Written for one reason: an ELM ensemble is ~40 minutes in a queue, and a
+	# process that has to sit and block for it is a process that cannot be
+	# interrupted, resumed, or moved between sessions. The run state is what
+	# lets a later invocation know that materialize and build are already done
+	# and the only thing outstanding is a job id.
+	#
+	# (Called "the ledger" until 2026-08-10. Renamed because that word already
+	# names a DIFFERENT object here — the assumptions ledger in assumptions.json,
+	# which records the choices a study made rather than the steps it finished.
+	# One word for two files is one word too few.)
 	#
 	# IT IS LOAD-BEARING NOW — the comment here said "phase 1 writes it and
 	# nothing reads it", which stopped being true with jobs A and B. The
@@ -186,7 +196,7 @@ class ExperimentManagerBase:
 	STATE_FILE = "run_state.json"
 
 	# The stage sequence, in order, as execute_plan runs it. Named here so the
-	# ledger's reader and its writer cannot disagree about what a stage is
+	# run state's reader and its writer cannot disagree about what a stage is
 	# called or which one comes next — a scan that thought "extract" preceded
 	# "run" would report the wrong thing as outstanding.
 	STAGES = ("materialize", "build_case_inputs", "build_cases", "run",
@@ -201,8 +211,8 @@ class ExperimentManagerBase:
 		return self.run_dir / self.STATE_FILE
 
 	def _load_state(self) -> Dict[str, Any]:
-		"""The ledger, or an empty one. Never raises — a corrupt or absent
-		ledger must degrade to "nothing is known to be done", which is the
+		"""The run state, or an empty one. Never raises — a corrupt or absent
+		run state must degrade to "nothing is known to be done", which is the
 		same as a fresh run, rather than taking the run down."""
 		p = self._state_path()
 		if not p.exists():
@@ -218,7 +228,7 @@ class ExperimentManagerBase:
 		return {"model": self.MODEL, "run_dir": str(self.run_dir), "stages": {}}
 
 	def _mark(self, stage: str, status: str = "done", **fields) -> None:
-		"""Record one stage. Never raises: the ledger is bookkeeping, and a
+		"""Record one stage. Never raises: the run state is bookkeeping, and a
 		failure to write it must not lose a stage that actually completed."""
 		try:
 			st = self._load_state()
@@ -234,7 +244,7 @@ class ExperimentManagerBase:
 
 	def _artifacts(self, *names: str) -> List[str]:
 		"""Of the named files, the ones that actually exist. Recording a file
-		that was never written would make the ledger a claim rather than a
+		that was never written would make the run state a claim rather than a
 		record, and a later resume would trust it."""
 		return [n for n in names if (self.run_dir / n).exists()]
 
@@ -347,7 +357,7 @@ class ExperimentManagerBase:
 		# ELMResultsAnalyzer.results is Dict[str, Dict] KEYED BY CASE NAME;
 		# PFLOTRAN's is a list. list() on the dict yields the case NAMES, and
 		# _package then drops every non-dict — job 770923 packaged
-		# columns_total: 0 from 19 clean columns, while the ledger recorded
+		# columns_total: 0 from 19 clean columns, while the run state recorded
 		# n_rows=19 because the COUNT was right. _extract_rows was fixed for
 		# exactly this and the fix was not carried to its sibling here.
 		return {"rows": ExperimentManagerBase._extract_rows(obj),
@@ -487,7 +497,7 @@ class ExperimentManagerBase:
 			print("-" * 40)
 			# Three ways to arrive here: nothing has run; the ensemble already
 			# ran; or an earlier session SUBMITTED it and left. The third is the
-			# whole point of the ledger.
+			# whole point of the run state.
 			if _done("run"):
 				_reuse("run", "the completed ensemble")
 				results = experiments
@@ -537,7 +547,7 @@ class ExperimentManagerBase:
 			#
 			# _package still runs (above): experiment.json is the record that
 			# the run failed, and skipping THAT would lose the only account of
-			# what happened. Only the interpretation is skipped, and the ledger
+			# what happened. Only the interpretation is skipped, and the run state
 			# says why so a reader does not think the Analyzer crashed.
 			n_ok = sum(1 for v in self._outcome_map(results).values() if v)
 			if experiments and not n_ok:
@@ -555,7 +565,7 @@ class ExperimentManagerBase:
 					# printed "❌ context failed" to a console nobody was
 					# watching. Harmless while a human sat at the terminal; not
 					# harmless once the unattended flow mails "your analysis is
-					# ready" off the back of this ledger entry.
+					# ready" off the back of this run-state entry.
 					st = Analyzer(str(self.run_dir)).run(results=analyzer,
 														 config=config) or {}
 					steps = st.get("steps") if isinstance(st, dict) else None
@@ -655,7 +665,7 @@ class ExperimentManagerBase:
 		"""Has the job in `record` finished?
 
 		Return what the stage would have returned had it waited, or None if the
-		job is still queued or running. `record` is the ledger's entry for that
+		job is still queued or running. `record` is the run state's entry for that
 		stage, so it carries job_id, whatever the Pending marker's detail held,
 		and — since build_cases became job-shaped too — **which stage it is**, under
 		the key `stage`. A backend answers differently for a CIME build than for
@@ -739,7 +749,7 @@ class ExperimentManagerBase:
 				 experiments, config, **done_fields):
 		"""Run one stage that may hand back a job id instead of finishing.
 
-		Three paths, and the ledger is what tells them apart:
+		Three paths, and the run state is what tells them apart:
 
 		  * an earlier session submitted this stage and left → poll it. Still
 		    running, and the run stops again (STOP); finished, and its result
@@ -1042,7 +1052,7 @@ class ExperimentManagerBase:
 		merged     = {**plan, **executable}
 
 		# The honesty payload reads this back at extraction; without it an
-		# integrated run shipped an empty ledger.
+		# integrated run shipped an empty run state.
 		(self.run_dir / "assumptions.json").write_text(
 			json.dumps(executable.get("assumptions_ledger", []), indent=2))
 		(self.run_dir / "run_plan.json").write_text(json.dumps(merged, indent=2))
@@ -1453,7 +1463,7 @@ class ExperimentManagerBase:
 
 	@staticmethod
 	def _n_results(results: Any) -> Optional[int]:
-		"""How many results a backend returned, for the ledger. None when the
+		"""How many results a backend returned, for the run state. None when the
 		shape has no length — a count is bookkeeping, not worth a raise."""
 		return len(results) if hasattr(results, "__len__") else None
 

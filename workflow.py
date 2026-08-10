@@ -498,7 +498,7 @@ class WorkflowCoordinator:
 		try:
 			Manager = backends.get(model)
 		except Exception as e:                                  # noqa: BLE001
-			return (f"❌ The ledger says this run used model '{model}', which "
+			return (f"❌ The run state says this run used model '{model}', which "
 					f"this build does not have ({e})")
 		self.model = model
 
@@ -523,7 +523,7 @@ class WorkflowCoordinator:
 		return self.resume_run(str(rd))
 
 	def resume_run(self, run_dir: str) -> str:
-		"""Re-enter an existing run directory and carry on from its ledger.
+		"""Re-enter an existing run directory and carry on from its run state.
 
 		Everything needed is already ON DISK, written by the stage that
 		produced it: run_state.json says what is done and which model ran,
@@ -559,10 +559,10 @@ class WorkflowCoordinator:
 		try:
 			backends.get(model)
 		except Exception as e:                                  # noqa: BLE001
-			return (f"❌ The ledger says this run used model '{model}', which "
+			return (f"❌ The run state says this run used model '{model}', which "
 					f"this build does not have ({e})")
 		if model != self.model:
-			print(f"   model: {model} (from the ledger, not --model)")
+			print(f"   model: {model} (from the run state, not --model)")
 			self.model = model
 
 		reception = _read_json(rd / "reception.json") or {}

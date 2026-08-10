@@ -128,7 +128,7 @@ signature written before it has a caller will be wrong by the time it has one.
 
 ## 4. What the experiment manager becomes
 
-Today, for ELM, with the stage ledger and resume machinery around each step:
+Today, for ELM, with the run state and resume machinery around each step:
 
 ```
 _materialize / _sample_columns   framework
@@ -152,8 +152,8 @@ interpret and report            framework
 
 Five compute stages become one call and a poll.
 
-> **The ledger paragraph that stood here was wrong, and §8 replaces it.** It
-> argued that with one job, the ledger and resume machinery had nothing left to
+> **The paragraph that stood here was wrong, and §8 replaces it.** It argued
+> that with one job, the run state and the resume machinery had nothing left to
 > guard, and reasoned from `ELM_MCP_PLAN.md` §6 — where the study job finalises
 > *itself*, so a resume finds every stage already done. Jobs A and B removed
 > that premise: the framework submits and **exits**, and job B is a different
@@ -346,16 +346,16 @@ had reached that line since the switch to A+B.
 `_run` now collects from disk and never submits anything; `_poll` has one shape,
 because there is one job.
 
-### The ledger question — settled: keep it
+### The run state question — settled: keep it
 
 Raised as "how much of the resume machinery survives one-job studies", on the
-theory that a study which is one `sbatch` does not need a stage ledger.
+theory that a study which is one `sbatch` does not need a run-state file.
 
 **It needs it more, not less.** The framework submits A and B and then *exits* —
 the Python process is gone. Job B starts hours later, on a different node, in a
 different process, and `run_state.json` is the only thing carrying the job id
 and the record of which stages finished across that gap. Without it B has
-nothing to resume from. The ledger is a process-boundary carrier now, not a
+nothing to resume from. The run state is a process-boundary carrier now, not a
 convenience for an interrupted session.
 
 Two things did change, and are worth writing down so nothing is built on the old

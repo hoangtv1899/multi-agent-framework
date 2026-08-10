@@ -161,7 +161,7 @@ GROUPS = [
   {"n": "Submit A + B", "side": "fw", "sum": "Two sbatch calls, then the framework exits.",
    "flow": [ref("Ask the server for job A — build and run, one job.", "mcp/elm-mcp/main.py", "run_elm_ensemble"),
             ref("Submit <b>job B</b> here, with <code>--dependency=afterany</code> on A. <b>afterany, never afterok</b>: with afterok a failed ensemble means B never runs and no mail is ever sent.", "mcp/elm-mcp/src/elm_exp_manager.py", "_submit_job_b"),
-            ref("Record the job id in <code>run_state.json</code> and stop. This ledger is the only thing that reaches job B — a different process, on a different node, hours later.", "src/core/exp_manager_base.py", "_advance"),
+            ref("Record the job id in <code>run_state.json</code> and stop. That file is the only thing that reaches job B — a different process, on a different node, hours later.", "src/core/exp_manager_base.py", "_advance"),
             ref("Refuse a node-local run directory. A compute node cannot see this node's <code>/tmp</code>, and both jobs die in two seconds with empty logs.", "mcp/elm-mcp/src/elm_exp_manager.py", "_submit_job_b")],
    "flag": "B is submitted by the FRAMEWORK, not by A. The tool this replaced ended its job by running workflow.py --finalize — the server executing its client's code.",
    "files": f("mcp/elm-mcp/src/elm_exp_manager.py", "src/core/exp_manager_base.py")},

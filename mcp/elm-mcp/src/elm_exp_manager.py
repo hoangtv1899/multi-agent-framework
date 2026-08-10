@@ -530,7 +530,7 @@ exit $?
 		summaries, execution_report.txt, results_summary.csv — still has to
 		happen. What it does NOT do is run ELM: by the time execute_plan reaches
 		this line, either job A has just been polled (the case dirs came back
-		from _poll) or the ledger says build_cases is done, and both mean the
+		from _poll) or the run state says build_cases is done, and both mean the
 		ensemble has already been through the queue.
 
 		SUBMITTING HERE WAS A BUG, not a simplification removed. A --resume of a

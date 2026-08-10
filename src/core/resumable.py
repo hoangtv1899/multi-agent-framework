@@ -66,8 +66,8 @@ def _age(iso: Optional[str]) -> Optional[str]:
 
 
 def _mtime(run_dir: Path) -> Optional[str]:
-	"""When the run dir was last touched — the only clock a ledger-less run
-	has. Reads the directory, not a walk of it: a 19-column ELM study has
+	"""When the run dir was last touched — the only clock a run with no
+	run_state.json has. Reads the directory, not a walk of it: a 19-column ELM study has
 	thousands of files and this runs on every candidate."""
 	try:
 		return datetime.fromtimestamp(run_dir.stat().st_mtime).isoformat()
@@ -76,7 +76,7 @@ def _mtime(run_dir: Path) -> Optional[str]:
 
 
 def _model_from_name(name: str) -> Optional[str]:
-	"""'elm_run_20260731_112621' → 'elm'. Only for runs with no ledger, where
+	"""'elm_run_20260731_112621' → 'elm'. Only for runs with no run state, where
 	the directory name is the sole surviving statement of what ran — which is
 	exactly why run dirs stopped being called elm_run_* for every backend."""
 	head = name.split("_run_")[0]
@@ -108,7 +108,7 @@ def _stages_for(model: Optional[str]) -> tuple:
 
 	PFLOTRAN declares NEEDS_CASE_BUILD = False — deck generation IS its build — so
 	`build_cases` is never recorded for a PFLOTRAN run and is not missing when it
-	is absent. Reading the ledger without asking the backend reports `build_cases`
+	is absent. Reading the run state without asking the backend reports `build_cases`
 	as the outstanding stage of every interrupted PFLOTRAN study, forever.
 	"""
 	if not model:
@@ -156,8 +156,8 @@ def inspect_run(run_dir: Path, check_jobs: bool = False) -> Dict[str, Any]:
 
 	state = _read_json(run_dir / STATE_FILE)
 	if state is None:
-		# Every run made before the ledger existed lands here. Re-entering one
-		# with resume=True would find an empty ledger and redo everything,
+		# Every run made before the run state existed lands here. Re-entering one
+		# with resume=True would find an empty run state and redo everything,
 		# which is not resuming — so say so rather than offer it.
 		#
 		# Still worth describing properly: these are most of what is on disk
@@ -168,9 +168,9 @@ def inspect_run(run_dir: Path, check_jobs: bool = False) -> Dict[str, Any]:
 		rec["age"]   = _age(_mtime(run_dir))
 		if (run_dir / "experiment.json").exists():
 			rec.update(stage=TERMINAL, status="done")
-			rec["why"] = "complete (experiment.json was written), no ledger"
+			rec["why"] = "complete (experiment.json was written), no run state"
 		else:
-			rec["why"] = ("incomplete AND predates the ledger — nothing "
+			rec["why"] = ("incomplete AND predates the run state — nothing "
 						  "records what it finished, so it would have to be "
 						  "re-run rather than resumed")
 		return rec
@@ -182,7 +182,7 @@ def inspect_run(run_dir: Path, check_jobs: bool = False) -> Dict[str, Any]:
 
 	# ANY stage may be waiting on a job, not just `run`. Since D1 the CIME case
 	# build is sbatch'd too, and a study parked at `build_cases` looks identical in
-	# the ledger — but "your cases are being built" and "your ensemble is
+	# the run state — but "your cases are being built" and "your ensemble is
 	# simulating" are hours apart in what happens next, so the stage is named.
 	for name in _stages_for(rec["model"]):
 		entry = stages.get(name) or {}
@@ -213,7 +213,7 @@ def inspect_run(run_dir: Path, check_jobs: bool = False) -> Dict[str, Any]:
 		return rec
 
 	if not stages:
-		rec["why"] = "ledger is empty — nothing has been recorded as done"
+		rec["why"] = "run state is empty — nothing has been recorded as done"
 		return rec
 
 	done = [s for s in _stages_for(rec["model"])
@@ -231,9 +231,9 @@ def find_resumable(output_dir: str = "./workflow_outputs",
 				   include_all: bool = False) -> List[Dict[str, Any]]:
 	"""Every run under output_dir that a later session could continue.
 
-	Newest first. `include_all` returns the complete and the ledger-less ones
+	Newest first. `include_all` returns the complete ones and those with no run state
 	too, each carrying its own `why` — which is what lets a caller print
-	"4 runs, none resumable, all predate the ledger" instead of nothing.
+	"4 runs, none resumable, all predate the run state" instead of nothing.
 
 	check_jobs costs one squeue (and possibly one sacct) per pending run, so it
 	is opt-in; it is worth paying interactively and not worth paying inside a
