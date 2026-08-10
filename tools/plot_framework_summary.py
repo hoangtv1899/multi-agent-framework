@@ -36,6 +36,7 @@ NOT to a common scale, so each carries its own area in km2.
 import argparse
 import json
 import math
+import random
 import sys
 import textwrap
 from pathlib import Path
@@ -59,15 +60,22 @@ CASES = ["brandywine_2010", "centralcoast_1998", "chattahoochee_2000",
          "naches_1995", "naches_2020", "naches_2023", "smoky_2012",
          "stvrain_2013", "verde_2005"]
 
-# One ring entry per WATERSHED, holding the designs that watershed actually has.
-ENTRIES = [["brandywine_2010"], ["centralcoast_1998"], ["chattahoochee_2000"],
-           ["chicopee_2018"], ["gunnison_2015"],
-           ["naches_1979", "naches_2023"],
-           ["smoky_2012"], ["stvrain_2013"], ["verde_2005"]]
+# One cell per DESIGN. Naches appears twice, 1979 and 2023, because those are
+# the two designs it has; 1988, 1995 and 2020 came back identical to 2023 and
+# four copies of one picture would read as repetition, not reproducibility.
+#
+# The two Naches years used to be a single grouped cell, because the bearing
+# rule could not place two thumbnails that share a dot. `untangle` counts
+# crossings instead, and two lines leaving the same point cannot cross each
+# other, so the grouping bought nothing and cost the widest cell on the page —
+# which is what capped the type size.
+ENTRIES = ["brandywine_2010", "centralcoast_1998", "chattahoochee_2000",
+           "chicopee_2018", "gunnison_2015", "naches_1979", "naches_2023",
+           "smoky_2012", "stvrain_2013", "verde_2005"]
 
 # Display only; the full names are in the request table. A 0.8 inch box cannot
 # hold "Northern Big Smoky Valley" at a legible size.
-SHORT = {"Northern Big Smoky Valley": "Big Smoky Valley",
+SHORT = {"Northern Big Smoky Valley": "Big Smoky",
          "Brandywine-Christina": "Brandywine",
          "Middle Chattahoochee": "Chattahoochee",
          "Chicopee River": "Chicopee"}
@@ -84,20 +92,21 @@ CONUS = [-125.0, -66.5, 23.5, 50.5]
 LOCATOR_TILES = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
                  "World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}")
 
-FIGW, FIGH = 7.2, 8.5
-MAP_BOX = [0.27, 0.420, 0.46, 0.225]        # x0, y0, w, h, figure coordinates
+FIGW = 7.2                   # the printed double-column width; see figstyle
+MAP_W = 0.50                 # locator width, fraction of the page
 
-# Nine slots around the map for nine watersheds. (x, y) is the slot CENTRE;
-# `side` is the box edge a leader line attaches to, always the one facing the
-# map. Boxes are sized per basin, so these are positions only.
-SLOTS = [(0.185, 0.840, "bottom"), (0.500, 0.840, "bottom"),
-         (0.815, 0.840, "bottom"),
-         (0.910, 0.630, "left"), (0.910, 0.350, "left"),
-         (0.770, 0.185, "top"), (0.480, 0.185, "top"), (0.185, 0.185, "top"),
-         (0.090, 0.490, "right")]
+# Ten cells on the perimeter of a 4 x 3 grid whose middle two cells are the
+# locator: four across the top, one either side, four across the bottom. Only
+# the COLUMN positions are fixed here — the row heights come from the cells
+# themselves in `layout`, because they depend on the type size and on how tall
+# each basin is, and hard-coding them means re-tuning the whole figure by hand
+# every time the font changes. That is the mistake figstyle exists to prevent.
+COLS = (0.125, 0.375, 0.625, 0.875)
+SIDES = (0.115, 0.885)
 
-MAP_AREA = 1.15              # square inches of MAP per entry, titles excluded
+MAP_AREA = 1.90              # square inches of MAP per cell, titles excluded
 ASPECT_CLAMP = (0.55, 1.80)  # a sliver and a letterbox are both unreadable
+TOP_BAND, BOT_BAND, GAP = 0.32, 0.54, 0.13      # inches: title, key, row gap
 
 
 def load(cid):
@@ -187,11 +196,11 @@ def page_aspect(ext):
 def wrap_for(text, box_w_in, pt):
     """Wrap to a box `box_w_in` wide.
 
-    0.64 em per character, not the 0.55 em DejaVu Sans averages over its whole
+    0.70 em per character, not the 0.55 em DejaVu Sans averages over its whole
     table: these strings are digits, capitals and middots, every one of them
-    wider than the average letter. _check_titles caught the difference at 110%.
+    wider than the average letter. _check_titles caught 110% at 0.55 em and 111% again at 0.64.
     """
-    return textwrap.wrap(text, max(8, int(box_w_in / (0.64 * pt / 72.0)))) \
+    return textwrap.wrap(text, max(8, int(box_w_in / (0.70 * pt / 72.0)))) \
         or [text]
 
 
@@ -205,7 +214,7 @@ def _crosses(p1, p2, q1, q2):
     return (d1 * d2 < 0) and (d3 * d4 < 0)
 
 
-def untangle(dots, bearings):
+def untangle(dots, bearings, slots, centre):
     """Assign entries to slots: no crossing leader lines, geography preserved.
 
     Crossings are counted exactly and dominate the cost, because a crossed pair
@@ -217,12 +226,9 @@ def untangle(dots, bearings):
 
     Returns (assignment, crossings remaining).
     """
-    slot_xy = [(x, y) for x, y, _ in SLOTS]
-    slot_ang = []
-    for x, y in slot_xy:
-        slot_ang.append(math.atan2(x - (MAP_BOX[0] + MAP_BOX[2] / 2),
-                                   y - (MAP_BOX[1] + MAP_BOX[3] / 2))
-                        % (2 * math.pi))
+    slot_xy = [(x, y) for x, y, _ in slots]
+    slot_ang = [math.atan2(x - centre[0], y - centre[1]) % (2 * math.pi)
+                for x, y in slot_xy]
 
     def crossings(a):
         ks = list(a)
@@ -237,27 +243,97 @@ def untangle(dots, bearings):
             ang += min(d, 2 * math.pi - d)
         return 1000.0 * c + ang, c
 
+    def polish(a):
+        """Swap pairs while the cost strictly falls. Returns (assignment, cost)."""
+        c0 = cost(a)
+        improved = True
+        while improved:
+            improved = False
+            for i in a:
+                for j in a:
+                    if i >= j:
+                        continue
+                    a[i], a[j] = a[j], a[i]
+                    c = cost(a)
+                    if c < c0:
+                        c0, improved = c, True
+                    else:
+                        a[i], a[j] = a[j], a[i]
+        return a, c0
+
     order = sorted(range(len(dots)), key=lambda i: bearings[i])
     best_assign, best = None, (1e18, 99)
-    for rot in range(len(SLOTS)):        # the bearing seed, every rotation
-        a = {ei: (rot + k) % len(SLOTS) for k, ei in enumerate(order)}
-        if cost(a) < best:
-            best_assign, best = a, cost(a)
+    for rot in range(len(slots)):        # the bearing seed, every rotation
+        a, c = polish({ei: (rot + k) % len(slots) for k, ei in enumerate(order)})
+        if c < best:
+            best_assign, best = a, c
 
-    assign, improved = best_assign, True
-    while improved:
-        improved = False
-        for i in assign:
-            for j in assign:
-                if i >= j:
-                    continue
-                assign[i], assign[j] = assign[j], assign[i]
-                c = cost(assign)
-                if c < best:
-                    best, improved = c, True
-                else:
-                    assign[i], assign[j] = assign[j], assign[i]
-    return assign, best[1]
+    # Pair swapping is a local search and the bearing seeds all sit in the same
+    # basin of attraction, so a forced crossing can survive every one of them.
+    # Restarting from shuffles escapes that; the seed is fixed so the figure is
+    # reproducible.
+    rng = random.Random(0)
+    while best[1] and rng is not None:
+        for _ in range(200):
+            keys = list(best_assign)
+            vals = list(range(len(slots)))
+            rng.shuffle(vals)
+            a, c = polish(dict(zip(keys, vals)))
+            if c < best:
+                best_assign, best = a, c
+        break
+    return best_assign, best[1]
+
+
+def layout(rows_h, map_h, width):
+    """Page height, slot positions and locator box, from the row heights.
+
+    The page is exactly as tall as its content: three rows of cells, the middle
+    one at least as tall as the locator, plus the title and key bands. Nothing
+    here is a tuned constant, so changing the type size re-proportions the
+    figure instead of requiring the whole layout to be re-tuned by hand.
+    """
+    top_h, mid_h, bot_h = rows_h
+    mid_h = max(mid_h, map_h)
+    figh = TOP_BAND + top_h + GAP + mid_h + GAP + bot_h + BOT_BAND
+
+    def y(inches):
+        return inches / figh
+
+    mid_c = BOT_BAND + bot_h + GAP + mid_h / 2
+    slots = ([(x, y(figh - TOP_BAND), "bottom") for x in COLS]
+             + [(SIDES[0], y(mid_c + mid_h / 2), "right"),
+                (SIDES[1], y(mid_c + mid_h / 2), "left")]
+             + [(x, y(BOT_BAND + bot_h), "top") for x in COLS])
+    map_box = [0.5 - MAP_W / 2, y(mid_c - map_h / 2), MAP_W, y(map_h)]
+    return figh, slots, map_box, (0.5, y(mid_c))
+
+
+def row_of(slot):
+    """Which of the three rows a slot index belongs to."""
+    return 0 if slot < len(COLS) else 1 if slot < len(COLS) + 2 else 2
+
+
+def in_reading_order(assign, geom, slots):
+    """Put same-place designs in the order they are listed, left to right.
+
+    Naches 1979 and 2023 sit on one dot, so every cost in `untangle` is blind
+    to which of them takes which slot and it returned 2023 first. Sorting the
+    slots of any co-located group into reading order and dealing them out in
+    ENTRIES order costs nothing — identical dots means identical crossings and
+    identical bearings — and stops the years running backwards.
+    """
+    groups = {}
+    for i, g in enumerate(geom):
+        groups.setdefault((round(g["lon"], 4), round(g["lat"], 4)), []).append(i)
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        taken = sorted((assign[i] for i in members),
+                       key=lambda sl: (-slots[sl][1], slots[sl][0]))
+        for i, sl in zip(sorted(members), taken):
+            assign[i] = sl
+    return assign
 
 
 def check_overlaps(boxes):
@@ -319,7 +395,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="framework_summary.png")
     ap.add_argument("--width", type=float, default=FIGW)
-    ap.add_argument("--font", type=float, default=8.0)
+    ap.add_argument("--font", type=float, default=10.0)
     ap.add_argument("--no-basemap", action="store_true")
     a = ap.parse_args()
 
@@ -334,118 +410,119 @@ def main():
     small = max(6.0, a.font - 2.0)     # the journal floor, never scaled past
     line_h = small * 1.25 / 72.0       # one line of title, inches
 
+    data = {cid: load(cid) for cid in ENTRIES}
+
+    # One cell per design: a map shaped like its own basin, at a common area,
+    # under a title wrapped to that map's width.
+    geom = []
+    for cid in ENTRIES:
+        bx, by = boundary(*data[cid])
+        r = page_aspect(extent(bx, by))
+        r = min(max(r, ASPECT_CLAMP[0]), ASPECT_CLAMP[1])
+        mw, mh = math.sqrt(MAP_AREA * r), math.sqrt(MAP_AREA / r)
+        base = name.get(cid, cid)
+        cols = data[cid][1]
+        label = (wrap_for(f"{SHORT.get(base, base)} {cid.split('_')[1]}",
+                          mw, small)
+                 + wrap_for(f"{len(cols)} col · "
+                            f"{sum(1 for c in cols if c.get('pinned'))} pinned",
+                            mw, small))
+        geom.append({"cid": cid, "label": label, "mh": mh,
+                     "lon": sum(bx) / len(bx), "lat": sum(by) / len(by),
+                     "km2": area_km2(bx, by),
+                     "w": mw, "h": len(label) * line_h + 0.05 + mh})
+
+    map_h = MAP_W * a.width / page_aspect(CONUS)
+    cell_h = max(g["h"] for g in geom)
+
+    # Row heights depend on which cells land in which row, and the placement
+    # depends on the geometry the row heights produce. Two or three passes
+    # settle it; without this every row was as tall as the tallest cell
+    # anywhere on the page, which cost a full inch of white to rows holding
+    # none of the tall basins.
+    rows_h, slot_of, seen = (cell_h,) * 3, None, []
+    for _ in range(4):
+        figh, slots, map_box, centre = layout(rows_h, map_h, a.width)
+        dots, bearings = [], []
+        for g in geom:
+            fx = map_box[0] + ((g["lon"] - CONUS[0]) / (CONUS[1] - CONUS[0])
+                               * map_box[2])
+            fy = map_box[1] + ((g["lat"] - CONUS[2]) / (CONUS[3] - CONUS[2])
+                               * map_box[3])
+            dots.append((fx, fy))
+            bearings.append(math.atan2(fx - centre[0], fy - centre[1])
+                            % (2 * math.pi))
+        slot_of, left = untangle(dots, bearings, slots, centre)
+        slot_of = in_reading_order(slot_of, geom, slots)
+        key = tuple(sorted(slot_of.items()))
+        new_rows = tuple(max([geom[i]["h"] for i, sl in slot_of.items()
+                              if row_of(sl) == r] or [0.0]) for r in range(3))
+        if key in seen and new_rows == rows_h:
+            break
+        seen.append(key)
+        rows_h = new_rows
+    print(f"   leader lines: {left} crossing(s) · page {a.width} x {figh:.1f} in")
+
     figstyle.manuscript(a.width, a.font)
-    fig = plt.figure(figsize=(a.width, FIGH * a.width / FIGW))
+    fig = plt.figure(figsize=(a.width, figh))
     fw, fh = fig.get_size_inches()
 
+    def y_of(inches):
+        return inches / figh
+
     # ── the locator ──────────────────────────────────────────────────────────
-    axm = fig.add_axes(MAP_BOX)
+    axm = fig.add_axes(map_box)
     if not a.no_basemap:
         psd._basemap(axm, CONUS, tiles=LOCATOR_TILES, max_tiles=90)
     axm.set_xlim(CONUS[0], CONUS[1]); axm.set_ylim(CONUS[2], CONUS[3])
     axm.set_aspect(1 / math.cos(math.radians(37.0)))
     axm.set_xticks([]); axm.set_yticks([])
-    for s in axm.spines.values():
-        s.set_linewidth(0.4)
-
-    data = {cid: load(cid) for cids in ENTRIES for cid in cids}
-
-    # Geometry per entry: where its dot is, and how tall a stack of correctly
-    # shaped maps plus their titles comes to.
-    geom = []
-    for cids in ENTRIES:
-        bx, by = boundary(*data[cids[0]])
-        r = page_aspect(extent(bx, by))
-        r = min(max(r, ASPECT_CLAMP[0]), ASPECT_CLAMP[1])
-        mw = math.sqrt(MAP_AREA / len(cids) * r)
-        mh = math.sqrt(MAP_AREA / len(cids) / r)
-        base = name.get(cids[0], cids[0])
-        head = SHORT.get(base, base)
-        labels, head_lines = [], []
-        if len(cids) > 1:
-            head_lines = wrap_for(head, mw, small)
-        for cid in cids:
-            cols = data[cid][1]
-            npin = sum(1 for c in cols if c.get("pinned"))
-            txt = f"{len(cols)} col · {npin} pinned"
-            if len(cids) == 1:
-                labels.append(wrap_for(f"{head} {cid.split('_')[1]}", mw, small)
-                              + wrap_for(txt, mw, small))
-            else:
-                labels.append(wrap_for(f"{cid.split('_')[1]} · {txt}", mw, small))
-        head_h = len(head_lines) * line_h + (0.01 if head_lines else 0.0)
-        geom.append({"cids": cids, "mw": mw, "mh": mh, "labels": labels,
-                     "head": head_lines, "head_h": head_h,
-                     "lon": sum(bx) / len(bx), "lat": sum(by) / len(by),
-                     "km2": area_km2(bx, by),
-                     "h": head_h + sum(len(l) * line_h + 0.05 + mh
-                                       for l in labels)})
-
-    cx = MAP_BOX[0] + MAP_BOX[2] / 2
-    cy = MAP_BOX[1] + MAP_BOX[3] / 2
-    dots, bearings = [], []
-    for g in geom:
-        fx = MAP_BOX[0] + (g["lon"] - CONUS[0]) / (CONUS[1] - CONUS[0]) * MAP_BOX[2]
-        fy = MAP_BOX[1] + (g["lat"] - CONUS[2]) / (CONUS[3] - CONUS[2]) * MAP_BOX[3]
-        dots.append((fx, fy))
-        bearings.append(math.atan2(fx - cx, fy - cy) % (2 * math.pi))
-    slot_of, left = untangle(dots, bearings)
-    print(f"   leader lines: {left} crossing(s)")
+    for sp in axm.spines.values():
+        sp.set_linewidth(0.4)
 
     cells = []
     for i, g in enumerate(geom):
-        sx, sy, side = SLOTS[slot_of[i]]
-        w, h = g["mw"] / fw, g["h"] / fh
-        x0, top = sx - w / 2, sy + h / 2
-        cells.append((g["cids"][0], x0, top - h, w, h))
-        if g["head"]:
-            fig.text(sx, top - g["head_h"] / fh + 0.004, "\n".join(g["head"]),
-                     ha="center", va="bottom", fontsize=small,
-                     linespacing=1.15)
-        y = top - g["head_h"] / fh
-        for j, cid in enumerate(g["cids"]):
-            lab_h = (len(g["labels"][j]) * line_h + 0.05) / fh
-            y -= lab_h + g["mh"] / fh
-            thumbnail(fig.add_axes([x0, y, w, g["mh"] / fh]), *data[cid],
-                      "\n".join(g["labels"][j]), small,
-                      area=(f"{g['km2']:,.0f} km$^2$"
-                            if j == len(g["cids"]) - 1 else None),
-                      basemap=not a.no_basemap)
+        sx, top, side = slots[slot_of[i]]
+        w, h = g["w"] / fw, g["h"] / fh
+        x0 = sx - w / 2
+        cells.append((g["cid"], x0, top - h, w, h))
+        thumbnail(fig.add_axes([x0, top - h, w, g["mh"] / fh]),
+                  *data[g["cid"]], "\n".join(g["label"]), small,
+                  area=f"{g['km2']:,.0f} km$^2$", basemap=not a.no_basemap)
 
-        axm.plot([g["lon"]], [g["lat"]], marker="o", ms=2.6, mfc="#d62728",
+        axm.plot([g["lon"]], [g["lat"]], marker="o", ms=3.0, mfc="#d62728",
                  mec="k", mew=0.3, zorder=6)
         anchor = {"bottom": (sx, top - h), "top": (sx, top),
-                  "left": (x0, sy), "right": (x0 + w, sy)}[side]
+                  "left": (x0, top - h / 2), "right": (x0 + w, top - h / 2)}[side]
         fig.add_artist(ConnectionPatch(
             xyA=(g["lon"], g["lat"]), coordsA=axm.transData,
             xyB=anchor, coordsB=fig.transFigure,
-            lw=0.4, color="0.35", zorder=1))
+            lw=0.5, color="0.35", zorder=1))
 
     # ── scale, key, and what was refused ─────────────────────────────────────
     sm = matplotlib.cm.ScalarMappable(
         norm=matplotlib.colors.Normalize(0, 1), cmap=psd.CMAP)
-    cb = fig.colorbar(sm, cax=fig.add_axes([0.44, 0.046, 0.235, 0.006]),
+    cb = fig.colorbar(sm, cax=fig.add_axes([0.105, y_of(0.30), 0.26,
+                                        y_of(0.05)]),
                       orientation="horizontal")
     cb.set_label("elevation, normalised per basin", fontsize=small,
                  labelpad=1.5)
     cb.set_ticks([0, 1]); cb.set_ticklabels(["low", "high"])
     cb.ax.tick_params(labelsize=small, length=1.5, pad=1.0)
 
-    for k, line in enumerate(refusals()):
-        fig.text(0.025, 0.058 - 0.0155 * k, line, fontsize=small, color="0.25",
-                 va="center")
-
     fig.legend(handles=[
         Line2D([], [], ls="", marker="o", mfc="w", mec="k", ms=3,
                label="stratified column"),
         Line2D([], [], ls="", marker="*", mfc="w", mec="k", ms=6,
                label="pinned at an observation station"),
-    ], loc="lower right", bbox_to_anchor=(0.985, 0.012), ncol=1, frameon=False,
+    ], loc="lower right", bbox_to_anchor=(0.975, y_of(0.10)), ncol=1, frameon=False,
         fontsize=small, handletextpad=0.4, labelspacing=0.35)
 
-    fig.text(0.5, 0.978, "13 requests · 9 watersheds · 1979–2023",
+    fig.text(0.5, y_of(figh - TOP_BAND / 2), "13 requests · 9 watersheds · 1979–2023",
              ha="center", va="center", fontsize=a.font + 2)
 
+    for line in refusals():
+        print(f"   {line}")
     check_overlaps(cells)
     psd._check_titles(fig)
     fig.savefig(Path(a.out))
