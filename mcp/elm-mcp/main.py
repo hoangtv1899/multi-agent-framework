@@ -50,15 +50,27 @@ filesystem, and a UTF-8 locale CIME's python refuses to run without.
 
 Registered in mcp_config.json as `elm`.
 
-Tools — all seven, and describe_elm_capabilities advertises all seven:
+Tools — all five, and describe_elm_capabilities advertises all five:
     describe_elm_capabilities()          -> what this does, needs, and does NOT do
     build_elm_inputs_from_location(...)  -> DATA; snapped columns + case_inputs.json
     get_column_metadata(...)             -> DATA; the columns as they will be RUN
-    build_elm_cases(...)                 -> a JOB ID; CIME cases from the case list
-    submit_elm_ensemble(...)             -> a JOB ID; the ensemble as one batch job
-    run_elm_study(...)                   -> a JOB ID; build + run + analyze, one job
+    run_elm_ensemble(...)                -> a JOB ID; JOB A, build + run, one job
+    build_elm_cases(...)                 -> a JOB ID; the build alone, for inspecting
+                                            the cases before spending node time
     check_elm_job(...)                   -> what SLURM is doing, and the built case
                                             directories once a build job has landed
+
+TWO WENT AWAY on 2026-08-10, both because they shelled out to scripts in the
+FRAMEWORK — a server running its client's code, which is the dependency the
+boundary rule exists to forbid:
+
+    run_elm_study        ran tools/run_study.sh, whose job ended with
+                         `workflow.py --finalize`. run_elm_ensemble + job B is
+                         the same study with the callback inverted.
+    submit_elm_ensemble  ran tools/submit_cases.sh to run already-built cases.
+                         run_elm_ensemble does exactly that now: job A verifies
+                         built_cases.json against the case directories on disk
+                         and skips the compile when they are still there.
 """
 import contextlib
 import functools
@@ -179,8 +191,12 @@ def _stdout_to_stderr(fn):
             log.close()
     return wrapper
 
-SUBMIT_SCRIPT = FRAMEWORK / "tools" / "submit_cases.sh"
-STUDY_SCRIPT  = FRAMEWORK / "tools" / "run_study.sh"
+# EVERY SCRIPT THIS SERVER RUNS LIVES BESIDE IT. There were two more here —
+# FRAMEWORK/tools/submit_cases.sh and FRAMEWORK/tools/run_study.sh — and they
+# were the server reaching back across the boundary to shell out to the client.
+# run_study.sh was the worse of the two: its job ended by running
+# `workflow.py --finalize`, so the server's job executed the framework's code.
+# Jobs A and B invert that (2026-08-10) and both scripts are gone from this side.
 BUILD_JOB     = Path(__file__).resolve().parent / "scripts" / "ensemble_job.py"
 ENSEMBLE_AB   = Path(__file__).resolve().parent / "scripts" / "ensemble_ab.sh"
 
@@ -221,8 +237,8 @@ def _requirements() -> dict:
 
     reqs = {
         "framework":     _dir(FRAMEWORK),
-        "submit_script": _file(SUBMIT_SCRIPT),
         "build_job":     _file(BUILD_JOB),
+        "ensemble_ab":   _file(ENSEMBLE_AB),
         "e3sm_source":   _dir(os.environ["E3SM_SRC_DIR"]),
         "cime":          _dir(Path(os.environ["E3SM_SRC_DIR"]) / "cime"),
         "scratch":       _dir(os.environ["PSCRATCH"]),
@@ -310,29 +326,24 @@ def describe_elm_capabilities() -> str:
                      f"{COLUMN_META} — post warm start, with donor soil",
              "returns": "DATA; ask here rather than reading the columns.json "
                         "you sampled, which is what you ASKED FOR"},
-            {"step": 4, "tool": "build_elm_cases",
-             "does": f"CIME cases from 01_inputs/{CASE_INPUTS} — reference "
-                     f"case compiled, the rest cloned with --keepexe",
+            {"step": 4, "tool": "run_elm_ensemble",
+             "does": "JOB A — build the cases from 01_inputs/"
+                     f"{CASE_INPUTS} (reference case compiled, the rest cloned "
+                     "with --keepexe) and run every column concurrently, then "
+                     "stop. Submit job B yourself with "
+                     "--dependency=afterany:<id> for the analysis, never "
+                     "afterok (a failed ensemble would then never report). "
+                     "Re-running on a directory whose cases still exist skips "
+                     "the compile",
+             "returns": "a JOB ID"},
+            {"step": "4 (alt)", "tool": "build_elm_cases",
+             "does": "the BUILD ALONE, when you want to inspect the cases "
+                     "before spending node time on them. run_elm_ensemble is "
+                     "the normal path and does this too",
              "returns": "a JOB ID; the case directories come back from "
                         "check_elm_job once it lands"},
-            {"step": 5, "tool": "submit_elm_ensemble",
-             "does": "run every column concurrently as one batch job",
-             "returns": "a JOB ID"},
-            {"step": 6, "tool": "run_elm_ensemble",
-             "does": "JOB A — build the cases and run every column, and stop "
-                     "there. Submit job B yourself with "
-                     "--dependency=afterany:<id> for the analysis, never "
-                     "afterok (a failed ensemble would then never report)",
-             "returns": "a JOB ID"},
-            {"step": 7, "tool": "run_elm_study",
-             "does": "DEPRECATED — steps 4 and 5 plus the analysis as one job. "
-                     "It ends by running the framework's workflow.py "
-                     "--finalize, the server executing the client's code. Use "
-                     "run_elm_ensemble + job B; this is deleted once the "
-                     "framework stops calling it",
-             "returns": "a JOB ID"},
-            {"step": 8, "tool": "check_elm_job",
-             "does": "ask SLURM what a job from step 4-7 is doing",
+            {"step": 5, "tool": "check_elm_job",
+             "does": "ask SLURM what a job from step 4 is doing",
              "returns": "state, whether it is still active, and for a build "
                         "job the case directories it produced"},
         ],
@@ -606,7 +617,14 @@ def run_elm_ensemble(run_dir:  str,
     if not n_cases:
         return json.dumps({"error": f"{CASE_INPUTS} is empty"})
 
-    (rd / "01_inputs" / BUILT_CASES).unlink(missing_ok=True)
+    # NOT unlinked. It used to be, copied from build_elm_cases below, where the
+    # file IS the job's answer channel and a stale one would be read as this
+    # job's result. Here it is the opposite: ensemble_ab.sh checks it to decide
+    # whether the ~7 min CIME compile can be skipped, so deleting it guaranteed
+    # a full rebuild of cases that were sitting right there, every single time.
+    # Job A owns that decision — it validates the case directories and the
+    # executable and rebuilds if either is missing, which is a check this side
+    # cannot make anyway (the paths are only known once the build has run).
     q = queue or os.environ["IDEAS_SLURM_QUEUE"]
     acct = account or os.environ["IDEAS_SLURM_ACCOUNT"]
     sb = rd / "ensemble_A.sbatch"
@@ -736,174 +754,59 @@ echo "building {n_cases} case(s) for {rd} on $(hostname)"
 
 
 # ─────────────────────────────────────────────────────────────────────
-# RUN THE ENSEMBLE  (a job)
-# ─────────────────────────────────────────────────────────────────────
-def _exeroot(case_dir: str) -> Optional[str]:
-    """Where CIME put the executable, asked of the case itself.
-
-    xmlquery rather than a constructed path: EXEROOT depends on the machine
-    config and on whether the case was cloned with --keepexe, and a guess that
-    is wrong produces a job that starts and immediately finds no binary.
-    """
-    try:
-        out = subprocess.check_output(
-            ["./xmlquery", "EXEROOT", "--value"], cwd=case_dir,
-            env={**os.environ, "LC_ALL": "en_US.utf8", "LANG": "en_US.utf8"},
-            text=True, timeout=120)
-        return out.strip() or None
-    except Exception:                                           # noqa: BLE001
-        return None
-
-
-@mcp.tool()
-@_stdout_to_stderr
-def submit_elm_ensemble(run_dir:   str,
-                        case_dirs: List[str],
-                        queue:     str = "",
-                        walltime:  str = "00:40:00",
-                        email:     str = "") -> str:
-    """Run every column concurrently as ONE batch job. Returns a JOB ID.
-
-    RETURNS IMMEDIATELY — it does not wait for the ensemble. That is the point:
-    19 columns took 2406 s through SLURM, and a tool that blocked for that
-    would be killed by its own client's timeout long before finishing.
-
-    Poll the returned job_id with check_elm_job. Reading the results is the
-    caller's job, not this server's.
-    """
-    rd = Path(run_dir)
-    cases = [c for c in (case_dirs or []) if c and Path(c).is_dir()]
-    if not cases:
-        return json.dumps({"error": "no existing case directories were given"})
-    if not SUBMIT_SCRIPT.is_file():
-        return json.dumps({"error": f"missing {SUBMIT_SCRIPT}"})
-    rd.mkdir(parents=True, exist_ok=True)
-
-    exeroot = _exeroot(cases[0])
-    if not exeroot:
-        return json.dumps({
-            "error": f"could not resolve EXEROOT from {cases[0]} — the case "
-                     f"may not be built yet (run build_elm_cases first)"})
-
-    # submit_cases.sh reads these two out of the run dir.
-    (rd / "cases.json").write_text(json.dumps(cases, indent=1))
-    (rd / "exe_path.txt").write_text(str(Path(exeroot) / "e3sm.exe") + "\n")
-
-    cmd = ["bash", str(SUBMIT_SCRIPT), str(rd),
-           "-q", queue or os.environ["IDEAS_SLURM_QUEUE"],
-           "-t", walltime]
-    if email:
-        cmd += ["-m", email]
-
-    try:
-        proc = subprocess.run(cmd, cwd=str(FRAMEWORK), check=False,
-                              capture_output=True, text=True, timeout=300)
-    except Exception as e:                                      # noqa: BLE001
-        return json.dumps({"error": f"submission failed: {e}"})
-
-    out = (proc.stdout or "") + (proc.stderr or "")
-    m = re.search(r"submitted job (\d+)", out)
-    if not m:
-        # No id means nothing to poll. Say so rather than return a success the
-        # caller can never follow up on.
-        return json.dumps({"error": "submitted but no job id in the output",
-                           "output": out[-2000:]})
-
-    return json.dumps({
-        "job_id":   m.group(1),
-        "n_cases":  len(cases),
-        "stage":    "run",
-        "queue":    queue or os.environ["IDEAS_SLURM_QUEUE"],
-        "walltime": walltime,
-        "log_path": str(rd / "run.log"),
-        "next":     "check_elm_job",
-    }, indent=2)
-
-
-# ─────────────────────────────────────────────────────────────────────
-# THE WHOLE STUDY  (one job)
-# ─────────────────────────────────────────────────────────────────────
-@mcp.tool()
-@_stdout_to_stderr
-def run_elm_study(run_dir:  str,
-                  queue:    str = "",
-                  walltime: str = "02:00:00",
-                  email:    str = "") -> str:
-    """Build the cases, run every column, and analyze — as ONE job.
-
-    Use this instead of build_elm_cases + submit_elm_ensemble when you want
-    the study to finish unattended. Those two are still the right tools when
-    you want to inspect the cases between building and running, or to run an
-    ensemble whose cases already exist.
-
-    The difference is what the caller has to do. Split, a study costs three
-    separate invocations, each one waiting on a queue: submit the build, come
-    back and submit the run, come back and analyze. This costs one — the job
-    builds, runs, and then invokes the framework's own tail on the same
-    allocation, so by the time Slurm sends its END mail the analysis is
-    already written to 04_analysis/.
-
-    Reads <run_dir>/01_inputs/case_inputs.json, like build_elm_cases; this
-    server still generates no inputs.
-
-    email: an address for Slurm's END,FAIL notification. Without it the job
-    runs identically and nobody is told when it lands.
-
-    Walltime must cover build + run + analysis, not just the run: ~8-10 min
-    for a cold compile, then the columns, then ~1-2 min of Analyzer. The
-    default two hours is the `short` partition's limit and fits a 19-column
-    study (measured: 2406 s of run time). Pass -q slurm and a longer walltime
-    for anything bigger.
-    """
-    rd = Path(run_dir).resolve()
-    src = rd / "01_inputs" / CASE_INPUTS
-    if not src.is_file():
-        return json.dumps({
-            "error": f"no {CASE_INPUTS} in {rd / '01_inputs'} — this server "
-                     f"does not generate inputs; the caller writes them"})
-    if not STUDY_SCRIPT.is_file():
-        return json.dumps({"error": f"missing {STUDY_SCRIPT}"})
-    try:
-        n_cases = len(json.loads(src.read_text()))
-    except Exception as e:                                      # noqa: BLE001
-        return json.dumps({"error": f"unreadable {CASE_INPUTS}: {e}"})
-    if not n_cases:
-        return json.dumps({"error": f"{CASE_INPUTS} is empty"})
-
-    cmd = ["bash", str(STUDY_SCRIPT), str(rd),
-           "-q", queue or os.environ["IDEAS_SLURM_QUEUE"],
-           "-t", walltime]
-    if email:
-        cmd += ["-m", email]
-
-    try:
-        proc = subprocess.run(cmd, cwd=str(FRAMEWORK), check=False,
-                              capture_output=True, text=True, timeout=300)
-    except Exception as e:                                      # noqa: BLE001
-        return json.dumps({"error": f"submission failed: {e}"})
-
-    out = (proc.stdout or "") + (proc.stderr or "")
-    m = re.search(r"submitted job (\d+)", out)
-    if not m:
-        return json.dumps({"error": "submitted but no job id in the output",
-                           "output": out[-2000:]})
-
-    return json.dumps({
-        "job_id":   m.group(1),
-        "n_cases":  n_cases,
-        "stage":    "study",
-        "queue":    queue or os.environ["IDEAS_SLURM_QUEUE"],
-        "walltime": walltime,
-        "email":    email or None,
-        "log_path": str(rd / "study.log"),
-        "produces": "04_analysis/ — the analysis is written INSIDE this job",
-        "next":     "check_elm_job (optional — the email is the signal)",
-    }, indent=2)
-
-
-# ─────────────────────────────────────────────────────────────────────
 # WHAT IS THE SCHEDULER DOING
 # ─────────────────────────────────────────────────────────────────────
+# States in which SLURM still owns the job. Anything else — COMPLETED, FAILED,
+# TIMEOUT, CANCELLED, NODE_FAIL — means the scheduler is finished with it,
+# whatever it did, and the caller should go look at the output.
+ACTIVE_JOB_STATES = {
+    "PENDING", "RUNNING", "CONFIGURING", "COMPLETING", "SUSPENDED",
+    "RESIZING", "REQUEUED", "REQUEUE_HOLD", "REQUEUE_FED", "SIGNALING",
+    "STAGE_OUT", "RESV_DEL_HOLD", "STOPPED",
+}
+
+
+def _slurm_state(job_id: Any) -> Optional[str]:
+    """SLURM's word for what job_id is doing, or None if it will not say.
+
+    squeue first — it is cheap and it is the only one that sees a job that has
+    not started. Then sacct, which is the only one that remembers a job that has
+    already left the queue.
+
+    None means NO ANSWER, not "finished". A squeue that times out or a cluster
+    without sacct must not be read as a completed ensemble; the caller decides
+    what other evidence it trusts.
+
+    A COPY of ExperimentManagerBase._slurm_state, and deliberately so: this used
+    to import it, which made a SERVER depend on its CLIENT for something that is
+    not framework knowledge at all — it is thirty lines about squeue. Duplicated
+    across the boundary rather than shared through it.
+    """
+    jid = str(job_id).split("_")[0].split(".")[0]
+    if not jid.isdigit():
+        return None
+
+    def _ask(cmd) -> Optional[str]:
+        if not shutil.which(cmd[0]):
+            return None
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except Exception:                                       # noqa: BLE001
+            return None
+        line = (out.stdout or "").strip().splitlines()
+        return line[0].strip() if line and line[0].strip() else None
+
+    st = _ask(["squeue", "-h", "-j", jid, "-o", "%T"])
+    if st:
+        return st.upper()
+    # -X so a job's steps do not shadow the job itself; the step lines come back
+    # first and a step can read COMPLETED while the job is still going.
+    st = _ask(["sacct", "-n", "-X", "-j", jid, "-o", "State"])
+    if st:
+        return st.split()[0].upper()    # sacct spells it "CANCELLED by 12345"
+    return None
+
+
 @mcp.tool()
 @_stdout_to_stderr
 def check_elm_job(job_id: str, run_dir: str = "") -> str:
@@ -926,11 +829,9 @@ def check_elm_job(job_id: str, run_dir: str = "") -> str:
     writes to a parallel filesystem from a compute node and the submitting
     host's view of it lags.
     """
-    from core.exp_manager_base import ExperimentManagerBase as _B
-
-    state = _B._slurm_state(job_id)
+    state = _slurm_state(job_id)
     known = state is not None
-    active = (state in _B.ACTIVE_JOB_STATES) if known else True
+    active = (state in ACTIVE_JOB_STATES) if known else True
 
     out: Dict[str, Any] = {"job_id": str(job_id), "state": state,
                            "active": active, "scheduler_answered": known}

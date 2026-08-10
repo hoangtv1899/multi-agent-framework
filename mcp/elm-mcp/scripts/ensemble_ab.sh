@@ -28,13 +28,40 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BUILT="$RD/01_inputs/built_cases.json"
 T0=$SECONDS
 
+# REUSABLE, not merely ok. The flag says a build once succeeded; it does not say
+# the cases are still there. Scratch is purged, case directories get deleted by
+# hand, and a manifest pointing at any of that would send the run loop looking
+# for an executable that no longer exists. So every case_dir is checked, and one
+# missing directory condemns the whole manifest rather than silently running a
+# subset. THIS is what makes it safe for run_elm_ensemble to stop deleting the
+# file: the reuse decision is made here, where the paths are known, instead of
+# being pre-empted by an unlink that cost a ~7 min recompile every time.
+reusable () {
+  $PY - "$BUILT" <<'PYEOF' 2>/dev/null
+import json, os, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+cases = d.get("cases") or []
+if not d.get("ok") or not cases:
+    sys.exit(1)
+for c in cases:
+    cd = c.get("case_dir")
+    if not cd or not os.path.isdir(cd):
+        print(f"  {c.get('case_name')}: {cd or 'no case_dir'} is gone")
+        sys.exit(1)
+sys.exit(0)
+PYEOF
+}
 ok_built () { $PY -c "import json,sys;d=json.load(open('$BUILT'));sys.exit(0 if d.get('ok') else 1)" 2>/dev/null; }
 
 # -- 1. build ---------------------------------------------------------
-if ok_built; then
-  echo "-- build: reusing $BUILT --"
+if reusable; then
+  echo "-- build: reusing $BUILT (cases verified on disk) --"
 else
   echo "-- build --"
+  rm -f "$BUILT"          # so a failed build cannot be read as the old success
   $PY "$ROOT/mcp/elm-mcp/scripts/ensemble_job.py" "$RD" || echo "build step returned nonzero"
 fi
 ok_built || { echo "BUILD FAILED -- no cases to run; stopping before the ensemble"; exit 1; }

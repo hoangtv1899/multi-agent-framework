@@ -41,7 +41,6 @@ import csv
 import glob
 import os
 import json
-import re
 import sys
 from pathlib  import Path
 from datetime import datetime
@@ -49,17 +48,12 @@ from typing   import Dict, Any, List, Optional
 
 sys.path.insert(0, "src")
 
-from agents.analyzer          import Analyzer
-from core.exp_manager_base       import ExperimentManagerBase, Pending
-from elm_experiment_builder import ELMExperimentBuilder
-from elm_results_analyzer   import ELMResultsAnalyzer
-from columns_to_plan        import columns_to_elm_plan
+from core.exp_manager_base import ExperimentManagerBase, Pending
+from elm_results_analyzer  import ELMResultsAnalyzer
 
 
-# Repo root — this file is <root>/src/core/elm_exp_manager.py
-# parents[3]: this file is mcp/elm-mcp/src/ now, not src/core/. _ROOT is
-# still the FRAMEWORK root — it locates tools/ and submit_cases.sh, which
-# did not move.
+# parents[3]: this file is mcp/elm-mcp/src/. _ROOT is the FRAMEWORK root — the
+# only thing left that needs it is _load_tool, for the PFLOTRAN coupling CLIs.
 _ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -67,10 +61,10 @@ _ROOT = Path(__file__).resolve().parents[3]
 def _load_tool(name: str):
 	"""Import tools/<name>.py by path — tools/ is a script dir, not a package.
 
-	The manager and the standalone CLIs then share ONE implementation of each
-	stage instead of drifting apart: expand_sampling (materialize),
-	make_warmstart (0b), plot_columns (setup figures), build_pflotran_cases +
-	analyze_pflotran_coupled (4d).
+	Down to one user: the PFLOTRAN coupling (step 4d, build_pflotran_cases +
+	analyze_pflotran_coupled), so that stage and its standalone CLIs share one
+	implementation. Everything else that used this now lives beside this file
+	or behind the MCP.
 	"""
 	import importlib.util
 	if name in sys.modules:
@@ -88,11 +82,26 @@ def _load_tool(name: str):
 # ─────────────────────────────────────────────────────────────────────
 class ELMExpManager(ExperimentManagerBase):
 	"""
-	Executes ELM experiment plans.
+	Executes ELM experiment plans. EVERY ELM COMPUTATION IS THE MCP'S.
 
-	Stages: materialize -> warm start -> build_case_inputs -> build_cases -> run -> extract
-	-> couple -> package. Steps 0, 0b, 4 and 4d delegate to the tools/ CLIs
-	via _load_tool(), so both entry points share one implementation.
+	What is left here is the four things that are not ELM knowledge: WHEN to
+	call the server (the stage order is the base's), WHERE the run directory
+	is, WHAT the derived fields mean (FIELD_SEMANTICS), and arranging the
+	framework's own follow-up job. The stages read:
+
+	    materialize        one MCP call — warm start, donor soil, surfaces,
+	                       case_inputs.json, the run plan  (_refine_columns)
+	    build_case_inputs  read back what that call wrote
+	    build_cases        submit JOB A (build + run), submit JOB B, stop
+	    run                collect from disk — A already ran the columns
+	    extract            read the history NetCDFs
+	    couple             optional one-way handoff to PFLOTRAN
+
+	THERE IS NO LOCAL PATH. It was deleted 2026-08-10: _refine_columns requires
+	the `elm` client, so every branch that ran ELM by import was unreachable
+	from the first stage onward and only looked like a fallback. With it went
+	_run_batch, _submit_via_mcp, the ELMExperimentBuilder handle, and the last
+	use of tools/submit_cases.sh from this side of the boundary.
 
 	Figures, observation validation and interpretation are NOT here — they are
 	the Analyzer (src/agents/analyzer.py), which execute_plan invokes after
@@ -239,43 +248,13 @@ class ELMExpManager(ExperimentManagerBase):
 		return self._couple_pflotran(plan, config)
 
 	# ─────────────────────────────────────────────────────────
-	# STEP 1 — BUILD (writes to 01_inputs/)
+	# THE MCP — the only path there is
 	# ─────────────────────────────────────────────────────────
-	# ─────────────────────────────────────────────────────────
-	# THE MCP PATH — Phase 4
-	# ─────────────────────────────────────────────────────────
-	# D5: the MCP is the DEFAULT when an `elm` client is registered. With no
-	# client in mcp_config.json the local path still runs — the choice is made
-	# by what is configured, not by a failure, so this is not the silent
-	# demotion commit d61eaed forbade. Set run_via_mcp=False to force local.
+	# Not a default with a fallback behind it: _refine_columns raises without a
+	# client, so a study that reaches any stage below has one. run_via_mcp=False
+	# now fails at the first stage instead of quietly running a second
+	# implementation of ELM that nobody has exercised since the move.
 	MCP_NAME = "elm"
-
-	def _build_cases_via_mcp(self, experiments, config, client):
-		"""D1: the CIME build is a JOB. Returns a Pending, not case dirs.
-
-		The server reads 01_inputs/case_inputs.json and nothing else — it does
-		not generate inputs and does not open a surfdata file. _save_case_inputs has
-		already written that file with each case's runtime_config, which is
-		where FSURDAT and FINIDAT (the warm start's two products) cross the
-		boundary as data.
-		"""
-		src = self.input_dir / self.CASE_INPUTS
-		if not src.is_file():
-			raise RuntimeError(
-				f"{src} is missing — the framework builds the inputs and the "
-				f"elm MCP only compiles cases against them")
-		# ONE JOB, ALWAYS. There is no split flow for ELM any more.
-		#
-		# Splitting build from run cost the user three invocations for a study
-		# that takes 25-40 minutes — submit the build, come back and submit the
-		# run, come back and analyze — which made the person the scheduler. The
-		# debugging value of stopping between stages did not pay for that.
-		#
-		# The MCP still publishes build_elm_cases and submit_elm_ensemble: an
-		# agent driving ELM without this framework may well want them, and
-		# _submit_via_mcp below still uses the latter to recover a study whose
-		# job died after building but before running.
-		return self._run_study_via_mcp(experiments, config, client)
 
 	def _announce(self, experiments, config) -> str:
 		"""Say what is about to happen. PRINTS ONLY — it never asks.
@@ -302,8 +281,18 @@ class ELMExpManager(ExperimentManagerBase):
 		print()
 		return email
 
-	def _run_study_via_mcp(self, experiments, config, client):
+	# ─────────────────────────────────────────────────────────
+	# STEP 2 — JOBS A AND B  (the whole of the compute)
+	# ─────────────────────────────────────────────────────────
+	def _build_cases(self, experiments: List[Dict], config: Dict[str, Any] = None):
 		"""JOB A through the MCP, then JOB B by dependency. Returns a Pending.
+
+		Named build_cases because that is the base's slot for "a stage that may
+		hand back a job id"; job A does the build AND the run, so _run has
+		nothing left to submit by the time it is reached. ONE JOB, ALWAYS — the
+		split flow cost three invocations for a 25-40 minute study (submit the
+		build, come back and submit the run, come back and analyze), which made
+		the person the scheduler.
 
 		A builds the cases and runs every column, and stops. B is submitted HERE,
 		with --dependency=afterany on A's id, and does the analysis. Then this
@@ -320,11 +309,23 @@ class ELMExpManager(ExperimentManagerBase):
 		and no mail is ever sent — the silent failure of 2026-08-06, twice. afterany
 		means B always runs and always reports, including "the ensemble failed".
 		"""
+		config = config or {}
+		client = self._mcp(config)
+		if client is None:
+			raise RuntimeError(
+				"the elm MCP is required to build and run ELM cases — the "
+				"local by-import path was deleted 2026-08-10 "
+				"(docs/EXP_MANAGER_ELM.md §4). Register an `elm` client in "
+				"mcp_config.json.")
+		# The server reads 01_inputs/case_inputs.json and nothing else. It does
+		# not generate inputs and never opens a surfdata file: FSURDAT and
+		# FINIDAT — the warm start's two products — crossed the boundary as
+		# data when _refine_columns wrote this file.
 		src = self.input_dir / self.CASE_INPUTS
 		if not src.is_file():
 			raise RuntimeError(
-				f"{src} is missing — the framework builds the inputs and the "
-				f"elm MCP only compiles cases against them")
+				f"{src} is missing — _refine_columns should have written it "
+				f"via the elm MCP")
 		email = self._announce(experiments, config)
 		out = self._mcp_call(client, "run_elm_ensemble", {
 			"run_dir":  str(self.run_dir),
@@ -404,32 +405,28 @@ exit $?
 		print(f"   job A {job_a} (build+run) → job B {jid} (afterany, reports)")
 		return jid
 
-	def _submit_via_mcp(self, experiments, config, client):
-		"""The ensemble as one batch job. Returns a Pending."""
-		cases = [e.get("case_dir") for e in experiments if e.get("case_dir")]
-		if not cases:
-			raise RuntimeError(
-				"no case directories — build_cases must run before the ensemble")
-		out = self._mcp_call(client, "submit_elm_ensemble", {
-			"run_dir":   str(self.run_dir),
-			"case_dirs": cases,
-			"queue":     str(config.get("queue", "")),
-			"walltime":  str(config.get("walltime", "00:40:00")),
-			"email":     str(config.get("email", "")),
-		}, budget=600)
-		print(f"   submitted {out.get('n_cases')} column(s) as job "
-			  f"{out['job_id']} via the elm MCP")
-		return Pending(out["job_id"], n_cases=out.get("n_cases"),
-					   log=out.get("log_path"), via="mcp")
+	def _poll(self, record: Dict[str, Any], experiments, config):
+		"""Has job A landed? The case directories if so, None if not.
 
-	def _poll_via_mcp(self, record, experiments, config, client):
-		"""Ask the server whether this stage's job has landed.
+		ONE SHAPE, because there is one job. build_cases is the only stage that
+		returns a Pending now, so the dispatch on record['stage'] is gone with
+		the split flow — and with it the way that dispatch went wrong: polling a
+		build+run job down the `build_cases` branch handed back case dirs and let
+		execute_plan walk into _run, which submitted the ensemble A HAD ALREADY
+		RUN. Every column would have run twice, and the second pass would have
+		overwritten the history files of the first.
 
-		Dispatches on record['stage'], which Phase 3b added for exactly this:
-		a finished CIME build hands back case directories and a finished
-		ensemble hands back outcomes, and a job id does not say which.
+		The case directories come back from check_elm_job itself. A stage that
+		hands back a job id needs somewhere to hand back its ANSWER, and a few
+		short strings can travel inline — unlike results, which is why reading
+		those stayed on this side.
 		"""
-		stage = record.get("stage")
+		client = self._mcp(config or {})
+		if client is None:
+			raise RuntimeError(
+				f"job {record.get('job_id')} is recorded as pending but there "
+				f"is no `elm` client to ask about it — register one in "
+				f"mcp_config.json, or check it by hand with squeue")
 		st = self._mcp_call(client, "check_elm_job",
 							{"job_id": str(record.get("job_id")),
 							 "run_dir": str(self.run_dir)})
@@ -437,30 +434,17 @@ exit $?
 			print(f"   job {record.get('job_id')} is "
 				  f"{st.get('state') or 'unanswered'} — nothing to collect yet")
 			return None
-
-		if stage == "build_cases":
-			# The case directories come back from check_elm_job itself. A stage
-			# that hands back a job id needs somewhere to hand back its ANSWER,
-			# and a few short strings can travel inline — unlike results, which
-			# is why reading those stayed on this side.
-			if not st.get("ok"):
-				raise RuntimeError(
-					f"the case build failed: {st.get('error')}"
-					+ (f"\n{st.get('log_tail')}" if st.get("log_tail") else ""))
-			got = st
-			by_name = {c.get("case_name"): c.get("case_dir")
-					   for c in (got.get("cases") or [])}
-			for e in experiments:
-				if by_name.get(e.get("case_name")):
-					e["case_dir"] = by_name[e["case_name"]]
-			print(f"   ✓ {got.get('n_ok')}/{got.get('n_total')} case(s) built")
-			return experiments
-
-		# stage == "run": the scheduler is done, so the FILES decide.
-		print(f"   job {record.get('job_id')} finished "
-			  f"({st.get('state')}) — collecting")
-		return self._collect(experiments, self._outcomes_from_disk(experiments))
-
+		if not st.get("ok"):
+			raise RuntimeError(
+				f"the case build failed: {st.get('error')}"
+				+ (f"\n{st.get('log_tail')}" if st.get("log_tail") else ""))
+		by_name = {c.get("case_name"): c.get("case_dir")
+				   for c in (st.get("cases") or [])}
+		for e in experiments:
+			if by_name.get(e.get("case_name")):
+				e["case_dir"] = by_name[e["case_name"]]
+		print(f"   ✓ {st.get('n_ok')}/{st.get('n_total')} case(s) built")
+		return experiments
 
 	def _build_case_inputs(self,
 			   plan:   Dict[str, Any],
@@ -469,10 +453,10 @@ exit $?
 
 		_refine_columns made the one call that produced case_inputs.json, so
 		this stage exists only because the base's pipeline has a slot for it.
-		The rows come back as PLAIN DATA with no live ELMAgent — which is
-		exactly the state a resumed run is in, and _rehydrate_handles already
-		handles it. The --keepexe builder handle is gone with the local path;
-		_build_cases_via_mcp never used it, and the job side does the cloning.
+		The rows come back as PLAIN DATA with no live ELMAgent, and that is now
+		the ONLY state they are ever in — not a resume-only special case. The
+		--keepexe builder handle went with the local path; the job side does
+		the cloning, on the compute node, out of case_inputs.json.
 		"""
 		rows = self._rehydrate_case_inputs()
 		if not rows:
@@ -481,78 +465,12 @@ exit $?
 				f"_refine_columns should have written it via the elm MCP")
 		return rows
 
-	def _plot_setups(self, cases: List[str]) -> None:
-		"""02_setup_plots/column_surfaces.png — the soil each column ACTUALLY got.
-
-		Runs after _build_cases, because it reads every case's generated FSURDAT via
-		its `run/lnd_in`; that is the only way to see what ELM will really use.
-		It also cross-checks each surface's lat/lon against the case's domain
-		file and shouts if they disagree — that mismatch aborts ELM at init.
-
-		This replaced a plan-driven version that drew soil from ELM_CONFIG
-		(which never carries soil — it is per-coupler) and labelled every x-axis
-		"Qian 1948-2004" while the pipeline runs NLDAS. It was confidently wrong
-		on both counts, which is worse than having no figure.
-
-		Non-fatal.
-		"""
-		if not cases:
-			return
-		try:
-			import plot_columns as pc
-			out = self.setup_plots_dir / "column_surfaces.png"
-			pc.plot_surfaces(list(cases), str(out))
-			print(f"✓ setup plot → 02_setup_plots/{out.name}")
-		except Exception as e:
-			print(f"   ⚠️  surface plot failed: {e}")
-
-	# ─────────────────────────────────────────────────────────
-	# STEP 2 — BUILD CASES (cases live at $PSCRATCH)
-	# ─────────────────────────────────────────────────────────
-	def _build_cases(self, experiments: List[Dict], config: Dict[str, Any] = None):
-		"""
-		Build all ELM cases.
-
-		Uses ELMExperimentBuilder.build_cases(): builds the FIRST case from
-		scratch (~8-10 min CIME compile) and clones the rest with
-		--keepexe (~30 s each, in parallel, with a serial retry pass for the
-		known parallel-filesystem race). The previous implementation called
-		prepare_case() per experiment with no ref_case_dir, i.e. a full
-		compile for EVERY column — ~2 h for a 14-column watershed instead of
-		~12 min.
-		"""
-		client = self._mcp(config or {})
-		if client is not None:
-			return self._build_cases_via_mcp(experiments, config or {}, client)
-
-		builder = getattr(self, "_builder", None)
-		if builder is None and getattr(self, "_resume_plan", None) is not None:
-			# Resumed past _build_case_inputs, and _build_cases turns out to be needed after
-			# all. The builder is reconstructible from the plan — that is the
-			# whole reason the plan is persisted — so rebuild it here, where
-			# the cost is actually incurred, rather than on every resume.
-			print("   ↻ rebuilding the case builder from the persisted plan")
-			builder = ELMExperimentBuilder(self._resume_plan)
-			builder.build_experiments()
-			self._builder = builder
-		if builder is not None:
-			case_dirs = builder.build_cases(output_dir=str(self.run_dir))
-			for exp, cd in zip(experiments, case_dirs):
-				exp['case_dir'] = cd
-			n_ok = sum(1 for c in case_dirs if c)
-			if not n_ok:
-				raise RuntimeError("No ELM cases could be built.")
-			if n_ok != len(case_dirs):
-				print(f"   ⚠️  {len(case_dirs) - n_ok} case(s) failed to build")
-		else:
-			# Fallback: no builder handle (e.g. a caller that bypassed _build_case_inputs)
-			for exp in experiments:
-				exp['case_dir'] = exp['elm_agent'].prepare_case(
-					output_dir = str(self.run_dir)
-				)
-
-		# Now that each case has a run/lnd_in, plot the soil it actually got.
-		self._plot_setups([e['case_dir'] for e in experiments if e.get('case_dir')])
+	# 02_setup_plots/column_surfaces.png — the soil each column ACTUALLY got —
+	# is drawn by the MCP's build job (mcp/elm-mcp/scripts/ensemble_job.py). It
+	# has to be: it reads each case's generated FSURDAT through its `run/lnd_in`,
+	# which does not exist until the case is built, and the build happens on the
+	# compute node. Drawing it from here was left behind by the move to jobs A+B
+	# and produced nothing for two studies.
 
 	BUILT_CASES = "built_cases.json"
 
@@ -595,45 +513,31 @@ exit $?
 	def _run(self,
 			 experiments: List[Dict],
 			 config:      Dict[str, Any]):
+		"""COLLECT. Job A already ran the columns; this never submits anything.
+
+		The stage is still here because the base's sequence has a slot for it
+		and because everything it does after the columns stop — the run
+		summaries, execution_report.txt, results_summary.csv — still has to
+		happen. What it does NOT do is run ELM: by the time execute_plan reaches
+		this line, either job A has just been polled (the case dirs came back
+		from _poll) or the ledger says build_cases is done, and both mean the
+		ensemble has already been through the queue.
+
+		SUBMITTING HERE WAS A BUG, not a simplification removed. A --resume of a
+		landed A+B study walked out of _poll into this stage and re-submitted
+		every column, over the top of the history files the first pass wrote.
+		Nothing had exercised it only because the analysis is deferred.
+
+		Success is what is ON DISK: a column succeeded if ELM wrote it a history
+		file. The scheduler being finished is what ends the wait; the files
+		decide the outcome.
 		"""
-		Run all simulations. Returns {case_name: bool} when it waited, or a
-		Pending marker when config['detach'] asked it to submit and return.
-
-		Detached is the interesting mode: a 19-column ELM ensemble is ~40
-		minutes of queue plus wall clock, and waiting for it holds a Python
-		process — and whatever session started it — for the duration. Submitting
-		and recording the job id lets the study be picked up later, from
-		anywhere, by re-entering with resume=True.
-		"""
-		client = self._mcp(config)
-		if client is not None:
-			return self._submit_via_mcp(experiments, config, client)
-
-		detach  = bool(config.get("detach"))
-		results = self._run_batch(experiments, config, wait=not detach)
-		if isinstance(results, Pending):
-			return results
-		if results is None:
-			# Fallback: bare srun, serially. Requires an interactive node.
-			# There is no job id to hand back here, so detach cannot apply.
-			if detach:
-				print("   ⚠️  detach requested but batch submission is not "
-					  "usable — running serially instead")
-			results = {}
-			for exp in experiments:
-				results[exp['case_name']] = exp['elm_agent'].run_simulation()
-
-		return self._collect(experiments, results)
+		return self._collect(experiments, self._outcomes_from_disk(experiments))
 
 	def _collect(self,
 				 experiments: List[Dict],
 				 results:     Dict[str, bool]) -> Dict[str, bool]:
-		"""Everything that happens once the columns have stopped running.
-
-		Split out of _run because a detached ensemble reaches this point from
-		_poll instead, in a later session — and the reports it writes are the
-		same reports either way.
-		"""
+		"""Everything that happens once the columns have stopped running."""
 		for exp in experiments:
 			try:
 				exp['run_summary'] = self._run_summary_for(exp)
@@ -652,65 +556,24 @@ exit $?
 
 	@staticmethod
 	def _run_summary_for(exp: Dict) -> Dict[str, Any]:
-		"""The case's run summary, from its live agent when there is one.
+		"""The case's run summary. Off disk, always.
 
-		A resumed run has no live agent — the build manifest is JSON — so the
-		one field anything downstream reads (history_files) is taken off disk
-		instead. Asking the string repr of an ELMAgent for a summary is how
-		this reported zero history files for cases that had plenty.
+		There is no live agent to ask any more: the cases are built inside job
+		A, and what comes back to this side is JSON. Asking the string repr of
+		an ELMAgent for a summary is how this once reported zero history files
+		for cases that had plenty — the branch that did it is gone rather than
+		guarded, so there is nothing left to fall back FROM.
 		"""
-		agent = exp.get('elm_agent')
-		if hasattr(agent, "get_run_summary"):
-			return agent.get_run_summary()
 		cd = exp.get('case_dir')
 		return {'history_files': sorted(glob.glob(f"{cd}/run/*.elm.h0.*.nc"))
 								 if cd else []}
 
 	def _outcomes_from_disk(self, experiments: List[Dict]) -> Dict[str, bool]:
-		"""Which columns produced output. The definition of success used by
-		both the waiting and the detached path: a column succeeded if ELM
-		wrote it a history file."""
+		"""Which columns produced output — the one definition of success: a
+		column succeeded if ELM wrote it a history file."""
 		return {e['case_name']: bool(e.get('case_dir') and
 									 glob.glob(f"{e['case_dir']}/run/*.elm.h0.*.nc"))
 				for e in experiments}
-
-	def _poll(self, record: Dict[str, Any], experiments, config):
-		"""Has the detached ensemble finished? Results if so, None if not.
-
-		Two sources, in order:
-
-		  1. SLURM. While it still owns the job, nothing else matters — a
-		     half-written history file from a running column would otherwise
-		     read as success.
-		  2. run.log's ALL_DONE. Used only when SLURM will not answer (sacct
-		     purged, squeue unreachable), because the alternative is to call an
-		     ensemble finished on no evidence at all.
-
-		Note what is NOT here: a column whose job COMPLETED but which wrote no
-		history file is a failure, not a reason to keep waiting. The scheduler
-		being done is what ends the wait; the files decide the outcome.
-		"""
-		client = self._mcp(config or {})
-		if client is not None:
-			return self._poll_via_mcp(record, experiments, config or {}, client)
-
-		jid   = record.get("job_id")
-		state = self._slurm_state(jid)
-		if state in self.ACTIVE_JOB_STATES:
-			print(f"   job {jid} is {state} — nothing to collect yet")
-			return None
-		if state is None:
-			log = self.run_dir / "run.log"
-			done = log.exists() and "ALL_DONE" in log.read_text(errors="replace")
-			if not done:
-				print(f"   ⚠️  SLURM will not say what job {jid} is doing and "
-					  f"run.log has no ALL_DONE — treating it as still running")
-				return None
-			print(f"   job {jid} is gone from SLURM but run.log says ALL_DONE")
-		else:
-			print(f"   job {jid} finished ({state}) — collecting")
-
-		return self._collect(experiments, self._outcomes_from_disk(experiments))
 
 	# ONE definition, in inputs.py, because two lists that must agree are two
 	# lists that will not. A key added there and forgotten here would drop a
@@ -727,99 +590,20 @@ exit $?
 		return inputs.serialise_case_inputs(experiments)
 
 	def _rehydrate_handles(self, experiments, plan, config) -> None:
-		"""A rehydrated ELM build has no ELMAgents and no builder.
+		"""Drop the ELMAgent string reprs a reloaded case_inputs.json carries.
 
-		Both are objects; the manifest is JSON. The agents come back as string
-		reprs, which are truthy and have no methods — so they are dropped here
-		rather than left to fail at the call site. The builder is not
-		reconstructed eagerly: rebuilding it re-runs per-column file generation,
-		which a resume that only needs to collect finished output should not
-		pay for. _build_cases rebuilds it on demand from this plan.
+		An agent is an object and the manifest is JSON, so what comes back is a
+		string: truthy, with no methods, and therefore a thing that fails at the
+		call site rather than here. Nothing on this side calls one any more —
+		the build happens inside job A — so they are dropped and the key stays
+		absent.
 		"""
-		self._resume_plan = plan
 		stale = [e for e in experiments if isinstance(e.get('elm_agent'), str)]
 		for e in stale:
 			e.pop('elm_agent', None)
 		if stale:
-			print(f"   ↻ {len(stale)} case handle(s) are not JSON — resuming "
+			print(f"   ↻ {len(stale)} case handle(s) are not JSON — working "
 				  f"from the case directories on disk")
-
-	def _run_batch(self,
-				   experiments: List[Dict],
-				   config:      Dict[str, Any],
-				   wait:        bool = True):
-		"""
-		Run every column as ONE sbatch job via tools/submit_cases.sh.
-
-		Works from a login node (the bare-srun path needs a pre-held
-		allocation) and runs the columns concurrently on one node.
-
-		wait=True  → --wait, blocks, returns {case_name: bool}
-		wait=False → submits and returns Pending(job_id)
-
-		Either way returns None if batch submission isn't usable, in which case
-		the caller falls back to serial srun.
-		"""
-		import shutil, subprocess
-		if config.get("no_batch") or not shutil.which("sbatch"):
-			return None
-
-		cases = [e.get('case_dir') for e in experiments if e.get('case_dir')]
-		if not cases:
-			return None
-		try:
-			exeroot = subprocess.check_output(
-				["./xmlquery", "EXEROOT", "--value"], cwd=cases[0],
-				env={**__import__("os").environ,
-					 "LC_ALL": "en_US.utf8", "LANG": "en_US.utf8"},
-				text=True).strip()
-		except Exception as e:
-			print(f"   ⚠️  could not resolve EXEROOT ({e}) — serial fallback")
-			return None
-
-		# submit_cases.sh reads these two files from the run dir
-		(self.run_dir / "cases.json").write_text(json.dumps(cases, indent=1))
-		(self.run_dir / "exe_path.txt").write_text(
-			str(Path(exeroot) / "e3sm.exe") + "\n")
-
-		cmd = ["bash", str(_ROOT / "tools" / "submit_cases.sh"),
-			   str(self.run_dir),
-			   "-q", str(config.get("queue", "short")),
-			   "-t", str(config.get("walltime", "00:40:00"))]
-		if wait:
-			cmd.append("--wait")
-		if config.get("email"):
-			cmd += ["-m", str(config["email"])]
-		print(f"   submitting {len(cases)} column(s) as one batch job "
-			  f"(queue={config.get('queue', 'short')}"
-			  f"{'' if wait else ', detached'}) ...")
-		try:
-			# Detached: capture stdout to read the job id back out of it. The
-			# waiting path keeps streaming to the terminal, where the per-column
-			# summary the script prints is the point.
-			proc = subprocess.run(cmd, cwd=str(_ROOT), check=False,
-								  capture_output=not wait, text=True)
-		except Exception as e:
-			print(f"   ⚠️  batch submission failed ({e}) — serial fallback")
-			return None
-
-		if not wait:
-			out = (proc.stdout or "") + (proc.stderr or "")
-			print(out.rstrip())
-			m = re.search(r"submitted job (\d+)", out)
-			if not m:
-				# No job id means nothing to resume with. Say so and fall back
-				# rather than returning a Pending nobody can ever poll.
-				print("   ⚠️  submitted but no job id in the output — cannot "
-					  "detach; falling back")
-				return None
-			return Pending(m.group(1), n_cases=len(cases),
-						   queue=str(config.get("queue", "short")),
-						   walltime=str(config.get("walltime", "00:40:00")),
-						   log=str(self.run_dir / "run.log"))
-
-		# Success == the column actually produced history files.
-		return self._outcomes_from_disk(experiments)
 
 	def _write_execution_report(self,
 								experiments: List[Dict],
