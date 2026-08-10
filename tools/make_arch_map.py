@@ -79,6 +79,13 @@ def f(*paths):
 # PFLOTRAN's reaction sandbox: it writes decks and runs the model.
 MODEL_SERVERS = {"elm", "reaction"}
 
+# The two model servers get hand-written detail rather than the generic card the
+# data servers get, so the paths are named once here. RXN is ABSOLUTE: the
+# reaction server is installed into the conda env from a source tree outside
+# this repo, which is a fact about the project worth showing rather than hiding.
+ELM_MAIN = "mcp/elm-mcp/main.py"
+RXN = "/qfs/people/tran289/IDEAS/reaction_sandbox_mcp-upstream/server.py"
+
 # Display names, where the registered key is not what the thing is called.
 SERVER_TITLE = {"reaction": "pflotran (reaction)"}
 
@@ -260,8 +267,86 @@ GROUPS = [
             ref("Stays in the framework deliberately: that shape is <b>model-independent</b>, so one packaging format serves every model rather than one per server.", "src/core/exp_manager_base.py", "_package")],
    "files": f("src/core/exp_manager_base.py")}]},
 
- {"name": "Model MCPs", "note": "they run the models — the stages above are what CALLS them",
-  "models": True, "steps": None},          # filled from mcp_config.json
+ {"name": "ELM MCP", "note": "6 tools · 14 modules · 9 scripts — the whole ELM simulation",
+  "steps": [
+  {"n": "Tools", "side": "srv", "sum": "The six calls the framework may make.",
+   "flow": [ref("<code>describe_elm_capabilities()</code> — the workflow, a CHECKED inventory of every external dependency, and what this server does not do. Exhaustive, and a test enforces that against the registry.", ELM_MAIN, "describe_elm_capabilities"),
+            ref("<code>build_elm_inputs_from_location(run_dir, columns, …)</code> — six steps in ONE call, returning the SNAPPED columns and writing <code>case_inputs.json</code>.", ELM_MAIN, "build_elm_inputs_from_location"),
+            ref("<code>get_column_metadata(run_dir)</code> — the columns as they will be RUN. Ask here, not from the columns.json you sampled: that one is what you ASKED FOR.", ELM_MAIN, "get_column_metadata"),
+            ref("<code>run_elm_ensemble(run_dir, …)</code> — JOB A. Build every case and run every column, then stop. Returns a job id in seconds.", ELM_MAIN, "run_elm_ensemble"),
+            ref("<code>build_elm_cases(run_dir, …)</code> — the build ALONE, for inspecting cases before spending node time. run_elm_ensemble does this too.", ELM_MAIN, "build_elm_cases"),
+            ref("<code>check_elm_job(job_id, run_dir)</code> — what SLURM is doing, plus the built case directories once a build lands.", ELM_MAIN, "check_elm_job")],
+   "flag": "Every tool returns quickly or returns a job id. An MCP client opens a fresh session per call and tearing it down kills this server's children — so a 10-minute CIME build inside a call is not a slow call, it is a half-built case directory.",
+   "files": f("mcp/elm-mcp/main.py", "mcp/elm-mcp/src/paths.py")},
+  {"n": "Input build", "side": "srv", "sum": "Locations in → a runnable case list out.",
+   "flow": [ref("Snap each column to its CONUS donor gridcell and subset the restart → per-column <code>finidat</code>.", "mcp/elm-mcp/src/inputs.py", "warm_start"),
+            ref("Take the donor cell's soil. The restart NAMES its own surfdata, and the same ixy/jxy slice both, so the two cannot disagree.", "mcp/elm-mcp/src/inputs.py", "attach_donor_soil"),
+            ref("Cut the per-column initial state out of the CONUS 1 km restart.", "mcp/elm-mcp/src/make_finidat_subset.py", "main"),
+            ref("Generate each column's surface file from the CONUS surfdata.", "mcp/elm-mcp/src/elm_surface_generator.py", "ELMSurfaceGenerator"),
+            ref("Generate each column's domain file.", "mcp/elm-mcp/src/elm_domain_generator.py", "ELMDomainGenerator"),
+            ref("Turn columns into the executable plan — one coupler per column, each with its OWN lat/lon.", "mcp/elm-mcp/src/columns_to_plan.py", "columns_to_elm_plan"),
+            ref("Serialise to plain data: <code>runtime_config</code> carries every path the build needs.", "mcp/elm-mcp/src/inputs.py", "serialise_case_inputs"),
+            ref("Write <code>case_inputs.json</code> + <code>elm_columns.json</code>, the final columns.", "mcp/elm-mcp/src/inputs.py", "write_case_inputs")],
+   "flag": "This is the moment the columns MOVE. Anything drawn from the sampled file afterwards shows a run that did not happen.",
+   "files": f("mcp/elm-mcp/src/inputs.py", "mcp/elm-mcp/src/make_finidat_subset.py",
+              "mcp/elm-mcp/src/make_warmstart.py", "mcp/elm-mcp/src/build_column_inputs.py",
+              "mcp/elm-mcp/src/elm_surface_generator.py",
+              "mcp/elm-mcp/src/elm_domain_generator.py",
+              "mcp/elm-mcp/src/columns_to_plan.py")},
+  {"n": "Case build + run", "side": "srv", "sum": "CIME compile, clone, then every column. Job A.",
+   "flow": [ref("Reuse the existing build only if <code>built_cases.json</code> is ok AND every case directory it names still exists.", "mcp/elm-mcp/scripts/ensemble_ab.sh", "reusable"),
+            ref("<code>create_newcase</code> → <code>xmlchange</code> the thirteen CIME keys → namelists.", "mcp/elm-mcp/src/elm_wrapper.py", "_configure_case"),
+            ref("<code>case.setup</code>, then <code>case.build</code> — about 7½ minutes for the reference column.", "mcp/elm-mcp/src/elm_wrapper.py", "_build_case"),
+            ref("<code>create_clone --keepexe</code> for the rest, seconds each, with a serial retry pass for the known parallel-filesystem race.", "mcp/elm-mcp/src/elm_experiment_builder.py", "build_cases"),
+            ref("Write <code>built_cases.json</code>, then draw <code>column_surfaces.png</code> from each case's GENERATED fsurdat.", "mcp/elm-mcp/scripts/ensemble_job.py", "_plot_setups"),
+            ref("<code>srun</code> every column concurrently, one task each, <code>--exclusive</code> not <code>--exact</code> (Slurm 18.08).", "mcp/elm-mcp/scripts/ensemble_ab.sh", "srun"),
+            ref("Count history files rather than trusting the exit code. A column that wrote nothing failed however srun exited.", "mcp/elm-mcp/scripts/ensemble_ab.sh", "N_OK")],
+   "flag": "A clone is left BUILD_COMPLETE=FALSE. Harmless today — the run path resolves EXEROOT itself — but the flag is not a usable readiness signal.",
+   "files": f("mcp/elm-mcp/scripts/ensemble_ab.sh", "mcp/elm-mcp/scripts/ensemble_job.py",
+              "mcp/elm-mcp/scripts/build_cases.py", "mcp/elm-mcp/src/elm_wrapper.py",
+              "mcp/elm-mcp/src/elm_experiment_builder.py",
+              "mcp/elm-mcp/src/elm_input_agent.py")},
+  {"n": "Results + figures", "side": "srv", "sum": "History NetCDFs → rows and plots.",
+   "breach": True,
+   "flow": [ref("Read each column's <code>*.elm.h0.*.nc</code> and pull the named series out.", "mcp/elm-mcp/src/elm_results_analyzer.py", "ELMResultsAnalyzer"),
+            ref("Per-column surface and time-series figures.", "mcp/elm-mcp/src/plot_columns.py", "plot_surfaces"),
+            ref("Re-plot a finished run without re-running it.", "mcp/elm-mcp/scripts/replot.py", "regenerate_setup_plots"),
+            ref("Standalone CLI over the same reader, for a run driven by hand.", "mcp/elm-mcp/scripts/analyze_run.py", "main")],
+   "flag": "STILL SPLIT: the ELM reader lives here, but WHEN to run it is framework stage machinery, and analyze_run/analyze_agentic still import core.limitations and agents.analysis. Closing that is the Analyzer redesign.",
+   "files": f("mcp/elm-mcp/src/elm_results_analyzer.py", "mcp/elm-mcp/src/plot_columns.py",
+              "mcp/elm-mcp/scripts/replot.py", "mcp/elm-mcp/scripts/analyze_run.py",
+              "mcp/elm-mcp/scripts/analyze_agentic.py")}]},
+
+ {"name": "PFLOTRAN MCP", "note": "20 tools · reactive transport, ensembles, and the LAMBDA network",
+  "tag": "outside this repo", "steps": [
+  {"n": "Decks", "side": "srv", "sum": "Write and check a PFLOTRAN input deck.",
+   "flow": [ref("<code>create_pflotran_input</code> — a deck from scratch.", RXN, "create_pflotran_input"),
+            ref("<code>create_column_deck</code> — a 1-D Richards column from a sampled column dict: depth, water table, recharge, van Genuchten soil.", RXN, "create_column_deck"),
+            ref("<code>check_column_schema</code> — does this column dict carry what a deck needs?", RXN, "check_column_schema"),
+            ref("<code>configure_reaction_sandbox</code> — attach a reaction network to the deck.", RXN, "configure_reaction_sandbox"),
+            ref("<code>validate_pflotran_input</code> — parse the deck before spending a run on it.", RXN, "validate_pflotran_input")],
+   "files": [[RXN, lines(RXN)]]},
+  {"n": "Run", "side": "srv", "sum": "Inline for one column, sbatch for an ensemble.",
+   "flow": [ref("<code>run_pflotran_simulation</code> — 1-D columns take seconds, so this runs INLINE and returns the result, no job id.", RXN, "run_pflotran_simulation"),
+            ref("<code>submit_pflotran_ensemble</code> — many decks as one batch job.", RXN, "submit_pflotran_ensemble"),
+            ref("<code>check_pflotran_job</code> / <code>check_simulation_status</code> — the scheduler, and the run.", RXN, "check_pflotran_job"),
+            ref("<code>create_parameter_ensemble</code> — sweep a parameter across decks.", RXN, "create_parameter_ensemble")],
+   "flag": "The opposite contract to ELM's: PFLOTRAN is fast enough to answer in the call. That is why this server has both an inline path and a job path, and ELM has only the job path.",
+   "files": [[RXN, lines(RXN)]]},
+  {"n": "Results", "side": "srv", "sum": "Observations out of finished runs.",
+   "flow": [ref("<code>collect_pflotran_results</code> — gather an ensemble's output.", RXN, "collect_pflotran_results"),
+            ref("<code>extract_observations</code> — pull the observation points out.", RXN, "extract_observations"),
+            ref("<code>convert_pflotran_to_netcdf</code> — into a form the rest of the world reads.", RXN, "convert_pflotran_to_netcdf"),
+            ref("<code>create_dart_config</code> — wire a run into DART for data assimilation.", RXN, "create_dart_config")],
+   "files": [[RXN, lines(RXN)]]},
+  {"n": "LAMBDA network", "side": "srv", "sum": "Organic-matter chemistry from FTICR-MS samples.",
+   "flow": [ref("<code>run_lambda_preprocessing</code> — raw sample data into the pipeline.", RXN, "run_lambda_preprocessing"),
+            ref("<code>run_lambda_binning</code> — bin compounds into reactive classes.", RXN, "run_lambda_binning"),
+            ref("<code>generate_lambda_reaction_database</code> — the network PFLOTRAN will actually integrate.", RXN, "generate_lambda_reaction_database"),
+            ref("<code>calculate_thermodynamic_properties</code> — per-compound thermodynamics.", RXN, "calculate_thermodynamic_properties"),
+            ref("<code>list_available_samples</code> / <code>visualize_binning_results</code> — what is on hand, and what the binning did.", RXN, "list_available_samples")],
+   "flag": "A generated network carries a header saying the binning is RECONSTRUCTED. Not a calibration to any site — the demonstration parameterisation. That fact reaches the Analyzer through the assumptions ledger, because the figures would otherwise look exactly like a calibrated study's.",
+   "files": [[RXN, lines(RXN)]]}]},
 
  {"name": "Analyzer", "note": "results become an answer", "tag": "being redesigned",
   "steps": [
@@ -431,6 +516,14 @@ def main():
         if g["steps"] is None:
             g["steps"] = _servers(want_models=g.get("models", False))
 
+    # A MODEL SERVER WITH NO CARD IS A HOLE IN THE MAP. The data servers are
+    # generated from mcp_config.json so a new one appears by itself; the two
+    # model servers are hand-detailed, which means adding a third would silently
+    # show nothing. Checked here against the same config the data side reads.
+    named = " ".join(g["name"] for g in groups).lower()
+    uncovered = [s for s in MODEL_SERVERS
+                 if s not in named and SERVER_TITLE.get(s, s).split()[0] not in named]
+
     missing = [p for g in groups for s in g["steps"] for p, n in s["files"] if not n]
     stale = [w for g in groups for s in g["steps"] for r in (s.get("flow") or [])
              if (w := check_ref(r))]
@@ -439,7 +532,7 @@ def main():
             f'<div class="wrap">\n'
             f'  <p class="eyebrow">IDEAS · multi-agent-framework · generated from the source</p>\n'
             f"  <h1>Agents, stages, and what happens inside each</h1>\n"
-            f'  <p class="lede">Six groups own the run end to end. Each stage is coloured by\n'
+            f'  <p class="lede">Seven groups own the run end to end. Each stage is coloured by\n'
             f"    <b>where it executes</b> — a different question from who orchestrates it.\n"
             f"    Click any stage for its internal workflow and its source.</p>\n"
             f'  <div class="legend">'
@@ -468,6 +561,9 @@ def main():
         print(f"   ⚠️  listed but not on disk: {p}")
     for w in stale:
         print(f"   ⚠️  stale reference: {w}")
+    for s in uncovered:
+        print(f"   ⚠️  model server '{s}' is registered but has no group on the "
+              f"map — add one, or it silently does not exist to a reader")
 
 
 if __name__ == "__main__":
