@@ -118,11 +118,26 @@ echo "-- columns done in \$(( (SECONDS - T0) / 60 ))min --"
 # --finalize, not --resume: the job that produced this output is the job
 # running this line, so resume would poll itself, find it RUNNING, and stop
 # one step short of the analysis it was submitted to produce.
-echo "-- finalize (extract, package, analyze) --"
-source /qfs/people/tran289/IDEAS/env_compy.sh 2>/dev/null || true
-cd $ROOT
-$PY workflow.py --finalize $ABS_RD \\
-  || echo "finalize returned nonzero -- the model output stands"
+# ANALYSIS IS DEFERRED, deliberately. Everything that needs the compute node
+# happened above; extract reads NetCDF off a shared filesystem and can run
+# anywhere, so nothing here is buying the allocation's time. The whole tail —
+# extract, package, compare, interpret — is being redesigned with the Analyzer,
+# and verifying it against a design that is about to change is wasted work.
+#
+# NOT deleted, and NOT silently skipped: the study reports DEFERRED as its own
+# state so "no analysis" cannot be mistaken for either success or failure.
+# IDEAS_RUN_ANALYSIS=1 puts it back.
+if [ "\${IDEAS_RUN_ANALYSIS:-0}" = "1" ]; then
+  echo "-- finalize (extract, package, analyze) --"
+  source /qfs/people/tran289/IDEAS/env_compy.sh 2>/dev/null || true
+  cd $ROOT
+  $PY workflow.py --finalize $ABS_RD \\
+    || echo "finalize returned nonzero -- the model output stands"
+  DEFER=""
+else
+  echo "-- analysis DEFERRED (set IDEAS_RUN_ANALYSIS=1 to run it here) --"
+  DEFER="--deferred"
+fi
 
 # -- 4. tell the user what actually happened -------------------------
 # Slurm's mail is a SUBJECT and nothing else, and its ExitCode describes the
@@ -130,7 +145,7 @@ $PY workflow.py --finalize $ABS_RD \\
 # package stage had failed and which had produced no analysis: every word
 # true of the script, none of it true of the study. So the study reports
 # itself, with a body, and exits with ITS status rather than the script's.
-BODY=\$($PY $ROOT/tools/notify_study.py $ABS_RD 2>&1); STUDY_RC=\$?
+BODY=\$($PY $ROOT/tools/notify_study.py $ABS_RD \$DEFER 2>&1); STUDY_RC=\$?
 echo "\$BODY"
 
 echo "STUDY_DONE in \$(( (SECONDS - T0) / 60 ))min (study rc=\$STUDY_RC)"

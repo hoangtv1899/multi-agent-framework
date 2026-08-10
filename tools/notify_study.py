@@ -23,6 +23,9 @@ from pathlib import Path
 # and a run that stops at experiment.json has not produced one.
 LOAD_BEARING = ("build_cases", "run", "extract", "package", "analyze")
 
+# The tail, which --deferred says was intentionally not run.
+TAIL = ("extract", "package", "analyze")
+
 
 def _read(p):
     try:
@@ -31,7 +34,16 @@ def _read(p):
         return {}
 
 
-def build(run_dir: str):
+def build(run_dir: str, deferred: bool = False):
+    """The body and the exit status.
+
+    THREE STATES, NOT TWO. A study that ran its columns and deliberately did not
+    analyse them is neither OK nor INCOMPLETE, and forcing it into either is how
+    a report stops being read: claim success and an empty 04_analysis passes
+    unnoticed (job 773088); claim failure and the warning fires on every single
+    run until nobody looks at it. DEFERRED says what happened and exits 0,
+    because the study did everything it was asked to.
+    """
     rd = Path(run_dir)
     state = _read(rd / "run_state.json")
     stages = state.get("stages") or {}
@@ -67,18 +79,24 @@ def build(run_dir: str):
     # after its finalize raised, with 0 json and 0 figures printed directly
     # underneath. _read() also returns {} on ANY exception, so an unwritable or
     # truncated run_state.json reached the same happy answer.
-    if not stages:
+    if not stages and not deferred:
         bad.append("no stage ledger (run_state.json missing or unreadable)")
     # And the counts were already computed two lines up without being consulted.
     # This script exists to say whether the analysis is written; saying so while
     # the directory is empty is the one thing it must never do.
-    if not docs and not figs:
+    if not docs and not figs and not deferred:
         bad.append("04_analysis is empty")
 
+    if deferred:
+        bad = [b for b in bad if not any(b.startswith(t) for t in TAIL)]
     if bad:
         lines = [f"INCOMPLETE — {', '.join(bad)}", ""] + lines
         lines += ["", "The model output is on disk. Finish or inspect with:",
                   f"    python workflow.py --resume {rd}"]
+    elif deferred:
+        lines = ["DEFERRED — model output complete, analysis not run", ""] + lines
+        lines += ["", "The history files are on disk. Analyse with:",
+                  f"    python workflow.py --finalize {rd}"]
     else:
         lines = ["OK — the analysis is written", ""] + lines
         lines += ["", f"Read: {rd / '04_analysis'}"]
@@ -100,7 +118,7 @@ REPORT_NAME = "STUDY_REPORT.txt"
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit("usage: notify_study.py <run_dir> [--mail <addr>]")
-    body, rc = build(sys.argv[1])
+    body, rc = build(sys.argv[1], deferred="--deferred" in sys.argv[2:])
     print(body)
     # Also written to the run directory. The compute node has no mail
     # transport (verified 2026-08-03, job 770819: "NO mail on node"), so the
