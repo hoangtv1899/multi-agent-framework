@@ -182,6 +182,7 @@ def _stdout_to_stderr(fn):
 SUBMIT_SCRIPT = FRAMEWORK / "tools" / "submit_cases.sh"
 STUDY_SCRIPT  = FRAMEWORK / "tools" / "run_study.sh"
 BUILD_JOB     = Path(__file__).resolve().parent / "scripts" / "ensemble_job.py"
+ENSEMBLE_AB   = Path(__file__).resolve().parent / "scripts" / "ensemble_ab.sh"
 
 # What the framework writes, and what this server reads.
 CASE_INPUTS  = "case_inputs.json"
@@ -317,13 +318,21 @@ def describe_elm_capabilities() -> str:
             {"step": 5, "tool": "submit_elm_ensemble",
              "does": "run every column concurrently as one batch job",
              "returns": "a JOB ID"},
-            {"step": 6, "tool": "run_elm_study",
-             "does": "steps 4 and 5 and the analysis as ONE job, so a study "
-                     "finishes unattended instead of costing three "
-                     "invocations each waiting on a queue",
+            {"step": 6, "tool": "run_elm_ensemble",
+             "does": "JOB A — build the cases and run every column, and stop "
+                     "there. Submit job B yourself with "
+                     "--dependency=afterany:<id> for the analysis, never "
+                     "afterok (a failed ensemble would then never report)",
              "returns": "a JOB ID"},
-            {"step": 7, "tool": "check_elm_job",
-             "does": "ask SLURM what a job from step 4, 5 or 6 is doing",
+            {"step": 7, "tool": "run_elm_study",
+             "does": "DEPRECATED — steps 4 and 5 plus the analysis as one job. "
+                     "It ends by running the framework's workflow.py "
+                     "--finalize, the server executing the client's code. Use "
+                     "run_elm_ensemble + job B; this is deleted once the "
+                     "framework stops calling it",
+             "returns": "a JOB ID"},
+            {"step": 8, "tool": "check_elm_job",
+             "does": "ask SLURM what a job from step 4-7 is doing",
              "returns": "state, whether it is still active, and for a build "
                         "job the case directories it produced"},
         ],
@@ -528,6 +537,111 @@ def get_column_metadata(run_dir: str) -> str:
     }, indent=2, default=str)
 
 
+def _shared_fs(path: Path) -> Optional[str]:
+    """None if `path` is on a shared mount, else why it is not.
+
+    A compute node cannot see this login node's /tmp. The first jobs-A-and-B
+    attempt (770938/770939) put the sbatch scripts and logs under node-local
+    /tmp and both died in TWO SECONDS WITH COMPLETELY EMPTY LOGS — no error, no
+    message, nothing to diagnose, because the shell that would have written the
+    error could not read the script it was told to run.
+
+    That is the worst failure shape there is: instant, silent, and identical to
+    a scheduler problem. So it is refused at submit time, where the message can
+    name the actual cause.
+    """
+    try:
+        fs = subprocess.check_output(
+            ["df", "-P", str(path)], text=True, timeout=20).splitlines()[-1].split()[0]
+    except Exception:                                           # noqa: BLE001
+        return None                     # cannot tell — do not block on a guess
+    # Lustre and NFS present as host:/export or 10.0.0.1@tcp:/fs; a local disk
+    # presents as a /dev node.
+    if fs.startswith("/dev/"):
+        return (f"{path} is on {fs}, a node-local filesystem — a compute node "
+                f"cannot see it. Put the run directory on shared storage "
+                f"($PSCRATCH).")
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# JOB A — BUILD AND RUN, one job, nothing else
+# ─────────────────────────────────────────────────────────────────────
+@mcp.tool()
+@_stdout_to_stderr
+def run_elm_ensemble(run_dir:  str,
+                     queue:    str = "",
+                     walltime: str = "02:00:00",
+                     account:  str = "") -> str:
+    """Build the cases and run every column, as ONE job. Returns its id.
+
+    This is JOB A. It does everything that needs the compute node and stops
+    there. The analysis is job B's: submit it yourself with
+    `--dependency=afterany:<this id>` and exit — SLURM starts it when this ends,
+    and nothing here calls back into the framework to trigger it.
+
+    USE `afterany`, NEVER `afterok`. With afterok a failed ensemble means B never
+    runs and no mail is ever sent, which is the silent failure that happened
+    twice on 2026-08-06. afterany means B always runs and always reports,
+    including "the ensemble failed, here is why".
+
+    Replaces run_elm_study, which ended by running the framework's
+    `workflow.py --finalize` — the server's job executing the client's code.
+    """
+    rd = Path(run_dir).resolve()
+    src = rd / "01_inputs" / CASE_INPUTS
+    if not src.is_file():
+        return json.dumps({
+            "error": f"no {CASE_INPUTS} in {rd / '01_inputs'} — call "
+                     f"build_elm_inputs_from_location first"})
+    if not ENSEMBLE_AB.is_file():
+        return json.dumps({"error": f"missing {ENSEMBLE_AB}"})
+    local = _shared_fs(rd)
+    if local:
+        return json.dumps({"error": local})
+    try:
+        n_cases = len(json.loads(src.read_text()))
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"error": f"unreadable {CASE_INPUTS}: {e}"})
+    if not n_cases:
+        return json.dumps({"error": f"{CASE_INPUTS} is empty"})
+
+    (rd / "01_inputs" / BUILT_CASES).unlink(missing_ok=True)
+    q = queue or os.environ["IDEAS_SLURM_QUEUE"]
+    acct = account or os.environ["IDEAS_SLURM_ACCOUNT"]
+    sb = rd / "ensemble_A.sbatch"
+    sb.write_text(f"""#!/bin/bash
+#SBATCH -J elm_A
+#SBATCH -N 1
+#SBATCH -p {q}
+#SBATCH -A {acct}
+#SBATCH -t {walltime}
+#SBATCH -o {rd}/ensemble_A.log
+export IDEAS_FRAMEWORK_DIR={FRAMEWORK}
+export PSCRATCH={os.environ['PSCRATCH']}
+export LC_ALL=en_US.utf8
+export LANG=en_US.utf8
+export PATH={Path(sys.executable).parent}:$PATH
+bash {ENSEMBLE_AB} {rd} {sys.executable}
+""")
+    try:
+        jid = subprocess.check_output(
+            ["sbatch", "--parsable", str(sb)], text=True, timeout=120).strip()
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"error": f"sbatch failed: {e}"})
+
+    jid = jid.split(";")[0]
+    return json.dumps({
+        "job_id":   jid,
+        "n_cases":  n_cases,
+        "stage":    "ensemble",
+        "queue":    q,
+        "walltime": walltime,
+        "log_path": str(rd / "ensemble_A.log"),
+        "next":     f"submit job B with --dependency=afterany:{jid}, then exit",
+    }, indent=2)
+
+
 # ─────────────────────────────────────────────────────────────────────
 # BUILD THE CASES  (a job — D1)
 # ─────────────────────────────────────────────────────────────────────
@@ -569,6 +683,10 @@ def build_elm_cases(run_dir:  str,
         return json.dumps({"error": f"unreadable {CASE_INPUTS}: {e}"})
     if not n_cases:
         return json.dumps({"error": f"{CASE_INPUTS} is empty"})
+
+    local = _shared_fs(rd)
+    if local:
+        return json.dumps({"error": local})
 
     # A stale result from an earlier attempt would be read as this job's answer
     # the moment it is polled.
