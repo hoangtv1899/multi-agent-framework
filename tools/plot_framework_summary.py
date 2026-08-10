@@ -110,11 +110,23 @@ TOP_BAND, BOT_BAND, GAP = 0.32, 0.54, 0.13      # inches: title, key, row gap
 
 
 def load(cid):
+    """The reception artifact, and the columns AS THEY RAN.
+
+    elm_columns.json first — the MCP's post-warm-start columns. columns.json is
+    what was sampled, and the warm start moves every column off it. Runs made
+    before the MCP owned that file have only columns.json, which the MCP
+    overwrote in place, so for those the fallback is already the snapped
+    version.
+    """
     for art_dir, run_dir in SOURCES:
         a = Path(art_dir) / f"{cid}.json"
-        c = Path(run_dir) / cid / "01_inputs" / "columns.json"
-        if a.is_file() and c.is_file():
-            return json.loads(a.read_text()), json.loads(c.read_text())["columns"]
+        if not a.is_file():
+            continue
+        for n in ("elm_columns.json", "columns.json"):
+            c = Path(run_dir) / cid / "01_inputs" / n
+            if c.is_file():
+                return (json.loads(a.read_text()),
+                        json.loads(c.read_text())["columns"])
     raise FileNotFoundError(cid)
 
 

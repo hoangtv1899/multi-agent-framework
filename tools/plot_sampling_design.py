@@ -30,7 +30,14 @@ def _load(run_dir: Path, reception: Path | None):
     dir written straight from the sampler carries the columns and the boundary
     but not what the place is called.
     """
-    cj = json.loads((run_dir / "01_inputs" / "columns.json").read_text())
+    # elm_columns.json FIRST: it is the MCP's post-warm-start columns, which is
+    # what actually ran. columns.json is what was sampled, and the warm start
+    # moves every column off it. Older runs have only columns.json, which the
+    # MCP used to overwrite in place — for those the fallback IS the snapped
+    # version, so both eras read correctly here.
+    cj = next(json.loads(p.read_text())
+              for n in ("elm_columns.json", "columns.json")
+              for p in [run_dir / "01_inputs" / n] if p.is_file())
     rings, name = cj.get("boundary"), (cj.get("sampling_domain") or {}).get("name")
     if reception and reception.is_file():
         rec = json.loads(reception.read_text())

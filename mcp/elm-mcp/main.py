@@ -184,6 +184,12 @@ BUILD_JOB     = Path(__file__).resolve().parent / "scripts" / "ensemble_job.py"
 # What the framework writes, and what this server reads.
 CASE_INPUTS  = "case_inputs.json"
 BUILT_CASES  = "built_cases.json"
+# The MCP's own column metadata, and the FINAL one. The caller's columns.json is
+# a temporary input: the warm start MOVES every column (snapping it to its CONUS
+# donor gridcell and adopting that cell's soil), so the sampled coordinates
+# describe a run that will not happen. This used to be written back into the
+# caller's file, which gave one path two producers and no owner.
+COLUMN_META  = "elm_columns.json"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -418,16 +424,66 @@ def build_elm_inputs_from_location(run_dir:         str,
         return json.dumps({"ok": False,
                            "error": f"{type(e).__name__}: {e}"})
 
-    # The snapped columns go back into the file they came from, so the caller's
-    # columns.json and the run agree. It is the caller's artifact — bands and
-    # priors are theirs, not ELM's — but the coordinates in it are now ours.
-    if isinstance(doc, dict):
-        doc["columns"] = out["columns"]
-        src.write_text(json.dumps(doc, indent=2, default=str))
-        out["columns_json"] = str(src)
+    # The snapped columns are OURS and are written where we own them, keeping
+    # the caller's design metadata (bands, priors, the sampling grid) alongside
+    # so the file is self-contained. The caller's columns.json is left exactly
+    # as it was written — it is an input, and inputs are not edited in place.
+    meta = dict(doc) if isinstance(doc, dict) else {}
+    meta["columns"] = out["columns"]
+    meta["source_columns"] = str(src)
+    meta_path = rd / "01_inputs" / COLUMN_META
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(json.dumps(meta, indent=2, default=str))
+    out["column_metadata_path"] = str(meta_path)
 
     out["next"] = "run_elm_ensemble"
     return json.dumps(out, indent=2, default=str)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# THE COLUMNS AS THEY WILL BE RUN  (data)
+# ─────────────────────────────────────────────────────────────────────
+@mcp.tool()
+@_stdout_to_stderr
+def get_column_metadata(run_dir: str) -> str:
+    """The FINAL columns — post warm start, with their donor soil.
+
+    Ask here rather than reading the columns.json you sampled. That file is
+    what you ASKED FOR; this is what will run. The warm start snaps every
+    column to its CONUS donor gridcell and adopts that cell's TOPO and soil
+    profile, so the two disagree by design — by up to MAX_SNAP_KM, and in
+    elevation by whatever the donor's TOPO differs from the sampled 3DEP value.
+
+    Anything that describes the ensemble — a design figure, a table of what was
+    run, an area weighting — wants these. Reading the sampled file instead
+    produces a picture of a run that did not happen, and nothing about it looks
+    wrong.
+    """
+    rd = Path(run_dir).resolve()
+    p = rd / "01_inputs" / COLUMN_META
+    if not p.is_file():
+        return json.dumps({
+            "ok": False,
+            "error": f"no {COLUMN_META} in {rd / '01_inputs'} — "
+                     f"build_elm_inputs_from_location has not run for this run "
+                     f"directory, so no column has a donor yet"})
+    try:
+        doc = json.loads(p.read_text())
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False,
+                           "error": f"unreadable {COLUMN_META}: {e}"})
+    cols = doc.get("columns") or []
+    return json.dumps({
+        "ok": True,
+        "n_columns": len(cols),
+        "path": str(p),
+        "columns": cols,
+        # The design metadata the caller sampled with, carried through so one
+        # fetch answers "what ran" and "what was it meant to represent".
+        "bands": doc.get("bands"),
+        "sampling_design": doc.get("sampling_design"),
+        "source_columns": doc.get("source_columns"),
+    }, indent=2, default=str)
 
 
 # ─────────────────────────────────────────────────────────────────────
