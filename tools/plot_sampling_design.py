@@ -199,8 +199,13 @@ def _tile_lonlat(x, y, z):
             math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n)))))
 
 
-def _basemap(ax, extent):
+def _basemap(ax, extent, tiles=None, max_tiles=None):
     """Paste an XYZ hillshade under the map panel, in plain lon/lat.
+
+    `tiles` and `max_tiles` override the module defaults for one call, so a
+    figure that needs a second backdrop — a country-scale locator wants
+    outlines where a basin panel wants relief — asks for it here instead of
+    reassigning this module's globals around the call.
 
     Each tile is drawn with imshow at its own lon/lat bounds rather than through
     cartopy. Cartopy would be the obvious tool and was tried first: its GeoAxes
@@ -217,21 +222,31 @@ def _basemap(ax, extent):
     figure without a backdrop beats one that cannot be drawn.
     """
     import io
+    import ssl
     import urllib.request
+    import certifi
     import numpy as np
     from PIL import Image
+
+    # This node's OpenSSL points at an empty cert directory, so the default
+    # context rejects every tile and the figure comes out backdrop-less with
+    # only a note on stderr. certifi's bundle is the one Python packages already
+    # trust, and naming it makes the figure render the same from any shell.
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    url_fmt = tiles or TILES
+    budget = MAX_TILES if max_tiles is None else max_tiles
 
     for z in range(11, 5, -1):
         x0, y0 = _tile_xy(extent[0], extent[3], z)
         x1, y1 = _tile_xy(extent[1], extent[2], z)
         tiles = [(tx, ty) for tx in range(int(x0), int(x1) + 1)
                  for ty in range(int(y0), int(y1) + 1)]
-        if len(tiles) <= MAX_TILES:
+        if len(tiles) <= budget:
             break
     try:
         for tx, ty in tiles:
-            url = TILES.format(z=z, x=tx, y=ty)
-            with urllib.request.urlopen(url, timeout=20) as r:
+            url = url_fmt.format(z=z, x=tx, y=ty)
+            with urllib.request.urlopen(url, timeout=20, context=ctx) as r:
                 img = Image.open(io.BytesIO(r.read())).convert("RGB")
             w, n = _tile_lonlat(tx, ty, z)
             e, s = _tile_lonlat(tx + 1, ty + 1, z)
