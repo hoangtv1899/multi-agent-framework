@@ -419,7 +419,11 @@ G.forEach(g=>{
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="workflow_outputs/arch_map.html")
+    # The published artifact is keyed to this FILE PATH: republishing the same
+    # path keeps the same URL, a different path mints a new one. Changing this
+    # default orphans the link people have — the old arch_map.html artifact was
+    # lost that way on 2026-08-10 and had to be re-published as v2.
+    ap.add_argument("--out", default="workflow_outputs/ideas_arch_map_v2.html")
     a = ap.parse_args()
 
     groups = [dict(g) for g in GROUPS]
