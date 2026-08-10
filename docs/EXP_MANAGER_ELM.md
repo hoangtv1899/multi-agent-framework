@@ -155,6 +155,45 @@ left to guard. **Do not port it forward on the assumption it is still needed** �
 `ELM_MCP_PLAN.md` §6 already establishes that the study job finalises itself, so
 a resume finds every stage already marked done.
 
+### The agreed call sequence — settled 2026-08-10
+
+```
+1  framework   sample columns          bands, spread, pin at stations
+2  elm_mcp     build inputs            warm start, donor soil, surfaces,
+                                       domains, case_inputs.json — ONE call
+3  elm_mcp     build cases             the CIME compile
+4  elm_mcp     run
+5  framework   package                 from elm_mcp's extract
+```
+
+`get_column_metadata` alongside, whenever the framework needs the final
+columns — the design figure, area weights. `compare` is MCP-side and is
+deferred until the experiment manager is done.
+
+**`conus_restart` is passed; the CONUS surfdata is NOT.** The restart names its
+own surfdata in its `surface_dataset` attribute and the code then asserts the
+gridcell indices fall inside that mesh ("restart and surfdata are different
+bands"). Passing the two independently would let a caller pair a restart with
+the wrong surfdata — a mismatch the current design makes structurally
+impossible. The warm-start directory is not passed either; the MCP owns the
+layout of what it writes (§2.3).
+
+**Why `package` is the framework's and `extract` is not.** Extract knows what
+ELM's variables mean, so it is model knowledge. Packaging is rows → the bundle
+the Analyzer reads, and that shape is model-independent — putting it in the
+framework means one packaging format rather than one per model. Comparison is
+worth duplicating per server (decided: cross-model duplication is fine);
+packaging is not.
+
+### A naming hazard, recorded because it has already caused one misreading
+
+`case_inputs.json` is a FILE — the columns and their settings, written by
+step 2. `build_elm_cases` is an ACTION — the CIME compile, step 3, which reads
+that file. "build case inputs" and "build cases" are adjacent steps whose names
+differ by one letter and mean entirely different things: one writes a settings
+file in seconds, the other compiles Fortran for ten minutes. If anything here
+is ever renamed, that pair is the one worth doing.
+
 ### The duplication to remove first
 
 `elm_exp_manager.py` calls `inputs.warm_start` (line ~204) and then
