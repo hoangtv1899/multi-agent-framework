@@ -333,10 +333,24 @@ def data_status() -> str:
     }, indent=2)
 
 
+def _offered(site_ids):
+    """{site_id: {product: licence}} for these sites, straight from AmeriFlux.
+
+    Used to CHECK A REQUEST BEFORE SENDING IT. Asking for a product/licence
+    combination a site does not publish is a request that can only fail, and it
+    fails after a round trip and an email rather than immediately.
+    """
+    try:
+        idx = _availability_index(_get("site_availability/AmeriFlux"))
+    except Exception:                                           # noqa: BLE001
+        return None
+    return {s: (idx.get(s) or {}) for s in site_ids}
+
+
 @mcp.tool()
 def request_flux_data(site_ids: str, intended_use: str = "model",
                       description: str = "",
-                      data_product: str = "BASE-BADM",
+                      data_product: str = "FLUXNET",
                       data_policy: str = "CCBY4.0") -> str:
     """Submit the AmeriFlux download request for these sites. NEEDS CREDENTIALS.
 
@@ -369,6 +383,33 @@ def request_flux_data(site_ids: str, intended_use: str = "model",
     if not sites:
         return json.dumps({"ok": False, "error": "no site_ids given"})
 
+    # CHECK BEFORE SENDING. Measured 2026-08-10: of the towers near this
+    # project's basins, nearly every one publishes BASE-BADM under LEGACY and
+    # FLUXNET under CC-BY-4.0 — so the obvious-looking default
+    # (BASE-BADM + CCBY4.0) asks most sites for a combination they do not have.
+    # That is why FLUXNET is the default product here.
+    offered = _offered(sites)
+    if offered is not None:
+        missing = [s for s in sites if data_product not in offered[s]]
+        wrong_lic = [f"{s} ({offered[s][data_product]})" for s in sites
+                     if data_product in offered[s]
+                     and offered[s][data_product] != data_policy]
+        if missing or wrong_lic:
+            return json.dumps({
+                "ok": False, "sent": False,
+                "error": "not requested — these sites do not publish "
+                         f"{data_product}/{data_policy}",
+                "no_such_product": missing or None,
+                "different_licence": wrong_lic or None,
+                "offered": offered,
+                "hint": "pick a product/policy pair from `offered` above. Most "
+                        "towers publish FLUXNET under CCBY4.0 and BASE-BADM "
+                        "under LEGACY.",
+            }, indent=2)
+        legacy = [s for s in sites if offered[s].get(data_product) == "LEGACY"]
+    else:
+        legacy = []
+
     body = {
         "user_id": uid, "user_email": mail,
         "data_product": data_product, "data_policy": data_policy,
@@ -390,9 +431,13 @@ def request_flux_data(site_ids: str, intended_use: str = "model",
     except ValueError:
         payload = {"raw": r.text[:2000]}
     return json.dumps({
-        "ok": r.ok, "http_status": r.status_code,
+        "ok": r.ok, "http_status": r.status_code, "sent": True,
         "n_sites_requested": len(sites), "site_ids": sites,
-        "data_policy": data_policy,
+        "data_product": data_product, "data_policy": data_policy,
+        # LEGACY carries a DUTY, not just a different label: you are expected to
+        # notify the site PI before publishing. Surfaced on the response so it
+        # cannot be discovered at manuscript time.
+        "legacy_sites_notify_pi": legacy or None,
         "response": payload,
         # A 400 here is the useful case: it names the field that is wrong, which
         # is exactly what an unverified request body needs told about it.
