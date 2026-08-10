@@ -415,6 +415,13 @@ def build_from_location(run_dir: Path, columns: List[Dict],
         "n_columns": len(columns),
         "n_cases": len(rows),
         "columns": columns,
+        # The plan this call built on its way through. Returned rather than
+        # discarded because the FRAMEWORK persists it as run_plan.json and
+        # resumes a run from it. Building it here and rebuilding it there would
+        # be the same computation twice with two chances to disagree; not
+        # returning it at all would delete a resume path as a side effect of
+        # moving a boundary, which is not a decision this change gets to make.
+        "run_plan": plan,
         "case_inputs_path": str(path),
         "runtime_config_keys": sorted(
             {k for r in rows for k in (r.get("runtime_config") or {})}),
