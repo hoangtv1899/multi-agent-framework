@@ -381,7 +381,7 @@ def _offered(site_ids):
 @mcp.tool()
 def request_flux_data(site_ids: str, intended_use: str = "model",
                       description: str = "",
-                      data_product: str = "FLUXNET",
+                      data_product: str = "BASE-BADM",
                       data_policy: str = "CCBY4.0") -> str:
     """Submit the AmeriFlux download request for these sites. NEEDS CREDENTIALS.
 
