@@ -30,7 +30,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def lines(rel: str) -> int:
-    p = ROOT / rel
+    # Absolute paths pass through: the reaction server is installed OUTSIDE the
+    # repo, and reporting it as a 0-line file would read as "missing".
+    p = Path(rel) if Path(rel).is_absolute() else ROOT / rel
     try:
         return sum(1 for _ in p.open(errors="ignore"))
     except OSError:
@@ -70,41 +72,94 @@ def f(*paths):
     return [[p, lines(p)] for p in paths]
 
 
-def data_servers():
-    """The registered MCP servers, minus elm, read from mcp_config.json.
+# WHICH SERVERS RUN A MODEL. The split is not cosmetic: a data server answers
+# "what is true at this place", and a model server "what happens if we simulate
+# it". `reaction` sat in the data group for months because the grouping was
+# "everything except elm", which is not a category — it is a leftover. It is
+# PFLOTRAN's reaction sandbox: it writes decks and runs the model.
+MODEL_SERVERS = {"elm", "reaction"}
 
-    Read rather than listed: a server added to the config appears here without
-    anyone remembering to update a diagram.
+# Display names, where the registered key is not what the thing is called.
+SERVER_TITLE = {"reaction": "pflotran (reaction)"}
+
+
+def _entry_point(spec) -> str:
+    """The server's source file, for a config entry that may not name one.
+
+    Most servers are `python <path>/main.py` and the path is right there. The
+    reaction server is a console script installed into the conda env, so the
+    config names a wrapper; follow it to the module it imports. Returned
+    ABSOLUTE in that case, because it lives outside this repo — which is worth
+    showing rather than hiding, since it is the one server whose source is not
+    version-controlled here.
     """
-    blurb = {
-        "terrain":    "Watershed boundaries, DEM sampling, elevation grids.",
-        "usgs_water": "Stream gauges and groundwater wells. Needs an API key — "
-                      "without one it 429s and a basin silently loses its pins.",
-        "snotel":     "Snow water equivalent at SNOTEL stations.",
-        "ameriflux":  "Flux towers. Registration pending, so ET is offered and "
-                      "never pinned.",
-        "fan_wtd":    "Fan et al. 2013 water-table depth, as a prior.",
-        "geology":    "Soil and geology characterisation at a point.",
-        "reaction":   "PFLOTRAN reaction sandbox — not part of the ELM path.",
-    }
+    args = [a for a in spec.get("args", []) if a.endswith(".py")]
+    if args:
+        return args[0].split("multi-agent-framework/")[-1]
+    cmd = spec.get("command", "")
+    if not cmd or not Path(cmd).is_file():
+        return ""
+    try:                                    # `from server import main`
+        import re as _re
+        mod = _re.search(r"^from\s+(\w+)\s+import", Path(cmd).read_text(
+            errors="ignore"), _re.M)
+        if not mod:
+            return ""
+        import importlib.util
+        s = importlib.util.find_spec(mod.group(1))
+        return s.origin if s and s.origin else ""
+    except Exception:                                           # noqa: BLE001
+        return ""
+
+BLURB = {
+    "terrain":    "Watershed boundaries, DEM sampling, elevation grids.",
+    "usgs_water": "Stream gauges and groundwater wells. Needs an API key — "
+                  "without one it 429s and a basin silently loses its pins.",
+    "snotel":     "Snow water equivalent at SNOTEL stations.",
+    "ameriflux":  "Flux towers. Site discovery works; the flux SERIES needs a "
+                  "registered account, so ET is offered and never pinned.",
+    "fan_wtd":    "Fan et al. 2013 water-table depth, as a prior.",
+    "geology":    "Soil and geology characterisation at a point.",
+    "reaction":   "PFLOTRAN reaction sandbox: builds decks, runs 1-D reactive "
+                  "transport, and runs the LAMBDA network. Not on the ELM path.",
+    "elm":        "E3SM Land Model: warm start, donor soil, surfaces, the CIME "
+                  "build, and the ensemble. The whole simulation, end to end.",
+}
+
+DATA_FLOW = ["Called by Reception to gather the basin and its observations.",
+             "Returns DATA. It never decides what to sample and never runs a "
+             "model.",
+             "The observations it returns are what the Analyzer will later "
+             "compare against."]
+
+MODEL_FLOW = ["Given what to simulate, owns HOW the model produces it.",
+              "Returns data or a job id — never a blocking call on the science.",
+              "Knows the model's file formats and physics; knows nothing about "
+              "the study design that asked for the run."]
+
+
+def _servers(want_models: bool):
+    """Registered MCP servers of one kind, read from mcp_config.json.
+
+    Read rather than listed: a server added to the config appears on the map
+    without anyone remembering to update a diagram. Only the CLASSIFICATION is
+    hand-maintained, in MODEL_SERVERS above — an unclassified server shows up
+    as a data server, which is the safe default (it claims less).
+    """
     try:
         cfg = json.loads((ROOT / "mcp_config.json").read_text())["mcp_servers"]
     except Exception:                                           # noqa: BLE001
         return []
     out = []
     for name, spec in cfg.items():
-        if name == "elm":
+        is_model = name in MODEL_SERVERS
+        if is_model != want_models:
             continue
-        args = [a for a in spec.get("args", []) if a.endswith(".py")]
-        rel = args[0].split("multi-agent-framework/")[-1] if args else ""
-        out.append({"n": name, "side": "data",
-                    "sum": blurb.get(name, spec.get("description", "")),
-                    "flow": ["Called by Reception to gather the basin and its "
-                             "observations.",
-                             "Returns DATA. It never decides what to sample and "
-                             "never runs a model.",
-                             "The observations it returns are what the Analyzer "
-                             "will later compare against."],
+        rel = _entry_point(spec)
+        out.append({"n": SERVER_TITLE.get(name, name),
+                    "side": "srv" if is_model else "data",
+                    "sum": BLURB.get(name, spec.get("description", "")),
+                    "flow": MODEL_FLOW if is_model else DATA_FLOW,
                     "files": f(rel) if rel else []})
     return out
 
@@ -199,6 +254,9 @@ GROUPS = [
    "flow": [ref("Assemble rows into the standard result shape.", "src/core/exp_manager_base.py", "_package"),
             ref("Stays in the framework deliberately: that shape is <b>model-independent</b>, so one packaging format serves every model rather than one per server.", "src/core/exp_manager_base.py", "_package")],
    "files": f("src/core/exp_manager_base.py")}]},
+
+ {"name": "Model MCPs", "note": "they run the models — the stages above are what CALLS them",
+  "models": True, "steps": None},          # filled from mcp_config.json
 
  {"name": "Analyzer", "note": "results become an answer", "tag": "being redesigned",
   "steps": [
@@ -322,7 +380,7 @@ color:var(--ink-3);font-size:.78rem;max-width:70ch}
 """
 
 JS = """
-const WHERE={fw:"framework",srv:"ELM MCP",data:"data MCP"};
+const WHERE={fw:"framework",srv:"model MCP",data:"data MCP"};
 const host=document.getElementById("groups");
 G.forEach(g=>{
   const el=document.createElement("section");el.className="group";
@@ -362,7 +420,7 @@ def main():
     groups = [dict(g) for g in GROUPS]
     for g in groups:
         if g["steps"] is None:
-            g["steps"] = data_servers()
+            g["steps"] = _servers(want_models=g.get("models", False))
 
     missing = [p for g in groups for s in g["steps"] for p, n in s["files"] if not n]
     stale = [w for g in groups for s in g["steps"] for r in (s.get("flow") or [])
@@ -372,13 +430,13 @@ def main():
             f'<div class="wrap">\n'
             f'  <p class="eyebrow">IDEAS · multi-agent-framework · generated from the source</p>\n'
             f"  <h1>Agents, stages, and what happens inside each</h1>\n"
-            f'  <p class="lede">Five groups own the run end to end. Each stage is coloured by\n'
+            f'  <p class="lede">Six groups own the run end to end. Each stage is coloured by\n'
             f"    <b>where it executes</b> — a different question from who orchestrates it.\n"
             f"    Click any stage for its internal workflow and its source.</p>\n"
             f'  <div class="legend">'
             f'<span class="key"><span class="dot" style="background:var(--fw)"></span>Framework</span>'
             f'<span class="key"><span class="dot" style="background:var(--dat)"></span>Data MCP</span>'
-            f'<span class="key"><span class="dot" style="background:var(--srv)"></span>ELM MCP</span>'
+            f'<span class="key"><span class="dot" style="background:var(--srv)"></span>Model MCP</span>'
             f'<span class="key"><span class="dot" style="background:var(--breach)"></span>Not yet where it belongs</span>'
             f"</div>\n"
             f'  <div id="groups"></div>\n'
