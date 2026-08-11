@@ -106,6 +106,21 @@ OBSERVABLES: Dict[str, Dict[str, Any]] = {
 # it instead of quietly averaging them in.
 ACTIVE_SOIL_DEPTH_M = 3.8
 
+# WHICH COLUMN A STATION IS COMPARED TO. Elevation for SWE, because elevation
+# is what governs snowpack; geography for the rest.
+#
+# THIS IS PORTED, NOT INVENTED, and the first version of this module got it
+# wrong by inventing it. step1_compare_swe.pair_by_elevation records that
+# matching SWE stations on horizontal distance was tried and rejected: it
+# "produced offsets up to 846 m, with five stations collapsed onto two
+# columns", where matching on elevation left a worst offset of 162 m and every
+# station paired. Reaching for nearest-by-lat/lon here reintroduced a rule
+# somebody had already measured and thrown out.
+PAIR_ON = {"swe": "elevation", "wtd": "distance",
+           "streamflow": "distance", "et": "distance"}
+MAX_PAIR_DELTA_M = 200.0        # elevation, see pair_stations
+SWE_THRESHOLD_MM = 25.0         # ~1 inch SWE; a pack, not a dusting
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # READING WHAT THE CALLER WROTE
@@ -277,6 +292,110 @@ def _span(dates: List[str]) -> Optional[List[str]]:
     return [dates[0], dates[-1]] if dates else None
 
 
+def swe_phenology(dates: List[str], values: List[float],
+                  threshold: float = SWE_THRESHOLD_MM) -> Dict[str, Any]:
+    """WHEN the snowpack happened, not just how much of it there was.
+
+    Ported from step1_compare_swe.swe_metrics, and the reason it is here rather
+    than left to bias/RMSE is in that module's own comment: a thin pack lasting
+    months and a deep one melting fast can produce the same mean. Peak agreeing
+    while duration disagrees is a different finding from both disagreeing, and
+    a generic goodness-of-fit number cannot express either.
+
+    Measurements only, on both sides, so the caller can difference them.
+    """
+    pairs = [(d, v) for d, v in zip(dates or [], values or [])
+             if v is not None and not (isinstance(v, float) and math.isnan(v))]
+    if not pairs:
+        return {"available": False, "reason": "no SWE series"}
+    ds = [d for d, _ in pairs]
+    vs = [v for _, v in pairs]
+    peak = max(vs)
+    above = [i for i, v in enumerate(vs) if v > threshold]
+    out = {"available": True,
+           "peak_swe_mm": round(peak, 1),
+           "mean_swe_mm": round(sum(vs) / len(vs), 1),
+           "peak_date": ds[vs.index(peak)],
+           "first_date": ds[0], "last_date": ds[-1],
+           "threshold_mm": threshold,
+           "days_above_threshold": len(above),
+           "has_snowpack": bool(above)}
+    if above:
+        out["first_snow_date"] = ds[above[0]]
+        # Melt-out is the LAST day above threshold, not the first day below:
+        # a mid-winter thaw dipping under the line for a week would otherwise
+        # end the season in January.
+        out["melt_out_date"] = ds[above[-1]]
+    return out
+
+
+def pair_stations(stations: List[Dict], columns: List[Dict],
+                  on: str = "distance",
+                  max_delta_m: float = MAX_PAIR_DELTA_M) -> Tuple[List, List]:
+    """One station to one column. A BIJECTION, closest claims first.
+
+    Ported from step1_compare_swe.pair_by_elevation, including the property the
+    first version of this module lost: two stations cannot share a column.
+    Allowing it "would put two points at the same y on a 1:1 plot, and a
+    repeated model value cannot carry the comparison it appears to make."
+
+    `on` is 'elevation' for SWE — elevation governs snowpack, and matching on
+    horizontal distance was measured at up to 846 m of elevation offset with
+    five stations collapsing onto two columns — and 'distance' otherwise.
+
+    Returns (pairs, unpaired). An unpaired station carries its REASON: excluded
+    by a rule and never reported are different findings, and a list that merges
+    them cannot tell you which happened.
+    """
+    def _delta(st, col):
+        if on == "elevation":
+            if st.get("elevation_m") is None or col.get("elevation_m") is None:
+                return None
+            return abs(col["elevation_m"] - st["elevation_m"])
+        if st.get("lat") is None or col.get("lat") is None:
+            return None
+        return math.hypot((col.get("lat") or 0) - st["lat"],
+                          (col.get("lon") or 0) - (st.get("lon") or 0))
+
+    cands = []
+    for st in stations:
+        best, delta = None, None
+        for col in columns:
+            d = _delta(st, col)
+            if d is None:
+                continue
+            if delta is None or d < delta:
+                best, delta = col, d
+        if best is None:
+            continue
+        cands.append((delta, st, best))
+
+    cands.sort(key=lambda t: t[0])          # closest claims its column first
+    pairs, unpaired, taken = [], [], {}
+    for delta, st, col in cands:
+        if on == "elevation" and delta > max_delta_m:
+            unpaired.append({"station_id": st["station_id"],
+                             "reason": f"nearest column is {delta:.0f} m away "
+                                       f"in elevation, beyond the "
+                                       f"{max_delta_m:.0f} m limit"})
+            continue
+        cid = col["case_name"]
+        if cid in taken:
+            unpaired.append({"station_id": st["station_id"],
+                             "reason": f"{cid} is already paired with "
+                                       f"{taken[cid]}, which is closer"})
+            continue
+        taken[cid] = st["station_id"]
+        p = {"station_id": st["station_id"], "case_name": cid, "matched_on": on}
+        if on == "elevation":
+            p["station_elevation_m"] = st.get("elevation_m")
+            p["column_elevation_m"] = col.get("elevation_m")
+            p["delta_elevation_m"] = round(
+                (col.get("elevation_m") or 0) - (st.get("elevation_m") or 0), 1)
+        pairs.append(p)
+    return pairs, unpaired
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ONE OBSERVABLE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -288,7 +407,8 @@ def compare_one(rows: List[Dict], series: Dict, meta: Dict,
     should be compared to is a design question — nearest, same elevation band,
     the pinned one — and answering it here would bury a choice the caller
     should make. The pairs are returned per (station, column) so the caller can
-    select; `nearest_column` is offered as a convenience, not applied.
+    select. A one-to-one assignment is computed over the whole set afterwards
+    and reported as `assignment`, but it is offered, not imposed.
     """
     spec = OBSERVABLES[observable]
     model = model_series(rows, observable)
@@ -361,16 +481,43 @@ def compare_one(rows: List[Dict], series: Dict, meta: Dict,
             entry["columns"].append(col)
         paired = [c for c in entry["columns"] if c.get("n_pairs")]
         entry["n_columns_paired"] = len(paired)
-        if paired and st_meta.get("lat") is not None:
-            entry["nearest_column"] = min(
-                paired,
-                key=lambda c: ((c.get("lat") or 0) - st_meta["lat"]) ** 2
-                + ((c.get("lon") or 0) - (st_meta.get("lon") or 0)) ** 2
-            )["case_name"]
+        if observable == "swe":
+            entry["swe_phenology_obs"] = swe_phenology(obs["dates"], obs["values"])
         rec["pairs"].append(entry)
 
     rec["n_pairs_total"] = sum(c.get("n_pairs", 0) for e in rec["pairs"]
                                for c in e["columns"])
+
+    # THE ASSIGNMENT, as a bijection over all stations at once. It cannot be
+    # decided per station in the loop above — "closest claims first" is a
+    # property of the whole set, and a per-station nearest lets every station
+    # pick the same column. Reported alongside the full grid rather than
+    # replacing it: the caller may have a better rule, and every pair is
+    # already there to use.
+    on = PAIR_ON.get(observable, "distance")
+    sts = [{"station_id": e["station_id"],
+            "lat": (meta.get((e["station_id"], observable)) or {}).get("lat"),
+            "lon": (meta.get((e["station_id"], observable)) or {}).get("lon"),
+            "elevation_m": (meta.get((e["station_id"], observable))
+                            or {}).get("elevation_m")}
+           for e in rec["pairs"]]
+    cols = [{"case_name": c, **{k: v for k, v in m.items()
+                                if k in ("lat", "lon", "elevation_m")}}
+            for c, m in model.items()]
+    assigned, unpaired = pair_stations(sts, cols, on=on)
+    rec["assignment"] = {"matched_on": on, "pairs": assigned,
+                         "unpaired": unpaired,
+                         "note": ("one station to one column, closest first, "
+                                  "no column claimed twice. Offered, not "
+                                  "imposed — every station-column pair is in "
+                                  "`pairs` above")}
+    by_station = {a["station_id"]: a["case_name"] for a in assigned}
+    for e in rec["pairs"]:
+        e["assigned_column"] = by_station.get(e["station_id"])
+        if observable == "swe" and e["assigned_column"]:
+            m = model.get(e["assigned_column"])
+            if m:
+                e["swe_phenology_model"] = swe_phenology(m["dates"], m["values"])
     return rec
 
 
@@ -465,7 +612,7 @@ def plot_observable(rec: Dict[str, Any], rows: List[Dict], series: Dict,
     for e in pairs:
         sid = e["station_id"]
         obs = series.get((sid, obs_name))
-        want = e.get("nearest_column") or next(
+        want = e.get("assigned_column") or next(
             c["case_name"] for c in e["columns"] if c.get("n_pairs"))
         m = model.get(want)
         if not (obs and m):
@@ -494,7 +641,7 @@ def plot_observable(rec: Dict[str, Any], rows: List[Dict], series: Dict,
         ax2.set_aspect("equal", adjustable="box")
     ax2.set_xlabel(f"observed  [{units}]")
     ax2.set_ylabel(f"model  [{units}]")
-    ax2.set_title("every pair, nearest column")
+    ax2.set_title("every pair, assigned column")
     ax2.legend(fontsize=9, frameon=True, facecolor="white", framealpha=0.92,
                edgecolor="#CCCCCC", loc="best")
 

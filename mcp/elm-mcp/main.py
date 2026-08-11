@@ -906,7 +906,7 @@ def compare_to_obs(run_dir: str,
             continue
         best = []
         for e in rec.get("pairs") or []:
-            want_col = e.get("nearest_column")
+            want_col = e.get("assigned_column")
             col = next((c for c in e["columns"]
                         if c.get("n_pairs") and c["case_name"] == want_col),
                        next((c for c in e["columns"] if c.get("n_pairs")), None))
@@ -922,7 +922,10 @@ def compare_to_obs(run_dir: str,
                          "n_stations": rec["n_stations"],
                          "n_columns": rec["n_columns_with_series"],
                          "n_pairs_total": rec.get("n_pairs_total"),
-                         "nearest_column_per_station": best}
+                         "matched_on": rec.get("assignment", {}).get("matched_on"),
+                         "unpaired_stations": (rec.get("assignment", {})
+                                               .get("unpaired") or None),
+                         "assigned_column_per_station": best}
     return json.dumps({
         "ok": True,
         "model_rows": how,
