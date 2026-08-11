@@ -819,7 +819,8 @@ def _extracted_rows(rd: Path) -> tuple:
 def compare_to_obs(run_dir: str,
                    observations_csv: str = "",
                    observations_meta: str = "",
-                   observables: str = "") -> str:
+                   observables: str = "",
+                   references_json: str = "") -> str:
     """Model against observations for this study. MEASUREMENTS ONLY.
 
     Compares each column's daily series to the observations the caller supplies,
@@ -856,6 +857,13 @@ def compare_to_obs(run_dir: str,
 
     observables: comma-separated subset, or empty for all four.
 
+    references_json: path to per-column static priors for the water table,
+        {"col_01": {"fan": 12.3, "parflow_clm": 10.1}, ...}. A well MEASURES;
+        Fan 2013 is an equilibrium surface fitted to observations; ParFlow-CLM
+        is a simulated steady state. They answer different questions, so each
+        is differenced against the model separately and none is called truth.
+        Ignored by the other three observables.
+
     Writes 04_analysis/comparison.json and a figure per observable, and returns
     a SUMMARY plus their paths — the full record is per station per column per
     observable and does not belong inline, the same rule that keeps this server
@@ -886,11 +894,18 @@ def compare_to_obs(run_dir: str,
 
     import compare as _cmp
     want = [s.strip().lower() for s in observables.split(",") if s.strip()]
+    refs = None
+    if references_json:
+        rp = Path(references_json)
+        if not rp.is_file():
+            return json.dumps({"ok": False,
+                               "error": f"no references file at {rp}"})
+        refs = json.loads(rp.read_text())
     try:
         out = _cmp.compare_all(rows, str(obs_csv),
                                str(obs_meta) if obs_meta.is_file() else "",
                                observables=want or None,
-                               figure_dir=str(adir))
+                               figure_dir=str(adir), references=refs)
     except Exception as e:                                      # noqa: BLE001
         return json.dumps({"ok": False, "model_rows": how,
                            "error": f"{type(e).__name__}: {e}"[:300]}, indent=2)
