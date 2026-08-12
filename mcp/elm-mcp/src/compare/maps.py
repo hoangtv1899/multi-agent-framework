@@ -41,15 +41,32 @@ def plot_all(records: Dict[str, Dict], rows: List[Dict], meta: Dict,
 
     for name, rec in have.items():
         marker, colour = MARK.get(name, ("o", "#444444"))
-        assigned = {a["station_id"] for a in
-                    (rec.get("assignment") or {}).get("pairs") or []}
+        # THREE RECORD SHAPES, ALL READ (2026-08-12). swe and wtd match their
+        # stations to columns FIRST and report only the matches, so their
+        # `pairs` are already pairs and the stations that missed out sit in
+        # `unpaired_stations`. streamflow does not pair at all — a gauge
+        # measures an area, so it stands against the ensemble mean and every
+        # in-basin gauge is used, which is why its `gauges` all count as
+        # assigned and none is ever unassigned. et still compares everything
+        # against everything and reports the bijection under `assignment`. This
+        # reads any of the three, so the map keeps working while the observables
+        # are converted one at a time.
+        assigned = ({a["station_id"] for a in
+                     (rec.get("assignment") or {}).get("pairs") or []}
+                    or {e["station_id"] for e in (rec.get("pairs") or [])
+                        if e.get("case_name")}
+                    or {g["station_id"] for g in (rec.get("gauges") or [])})
+        seen = (list(rec.get("pairs") or [])
+                + list(rec.get("unpaired_stations") or [])
+                + list(rec.get("gauges") or []))
         xs, ys, ring_x, ring_y = [], [], [], []
-        for e in rec.get("pairs") or []:
-            m = meta.get((e["station_id"], name)) or {}
-            if m.get("lat") is None:
+        for e in seen:
+            sid = e.get("station_id")
+            m = meta.get((sid, name)) or {}
+            if not sid or m.get("lat") is None:
                 continue
-            (ring_x if e["station_id"] in assigned else xs).append(m["lon"])
-            (ring_y if e["station_id"] in assigned else ys).append(m["lat"])
+            (ring_x if sid in assigned else xs).append(m["lon"])
+            (ring_y if sid in assigned else ys).append(m["lat"])
         if ring_x:
             ax.scatter(ring_x, ring_y, s=90, marker=marker, facecolors="none",
                        edgecolors=colour, linewidths=1.8, zorder=4,

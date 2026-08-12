@@ -29,20 +29,18 @@ the model — but the hydrograph shape is worth seeing. Each record carries
 `model_comparand`, `obs_quantity` and `colocated` so a reader can see what was
 put beside what.
 
-THE OBSERVATION CONTRACT — the caller writes these, this package reads them:
+WHERE THE OBSERVATIONS COME FROM — reception.json, and nowhere else. Reception
+queries the four data servers once, after the period is fixed, and persists the
+whole payload under `observations`: streamflow, water_table, swe and et, each
+station with its coordinates and its daily series. This package reads that file
+in the shape reception wrote it. To refresh the observations, RE-RUN RECEPTION —
+it is the component that reaches outside, and routing the refresh through it is
+what keeps the observations a run is judged against identical to the ones its
+brief was written from.
 
-    observations.csv        station_id,variable,time,value,quality
-        SNOTEL:663,swe,2019-01-01,241.3,measured
-        US-NR1,et,2019-01-01,0.42,filled
-
-    observations_meta.json  one entry per (station_id, variable):
-        station_id · variable · units · lat · lon · elevation_m · source
-        · in_basin · licence · drainage_area_km2 (gauges only)
-
-CSV, not parquet: neither pyarrow nor fastparquet is installed here, and a
-format the host cannot read is not a format. A FILE, not an argument, for the
-reason this server already applies elsewhere — a few short strings travel
-inline and results never do, and one flux tower is 490k rows.
+A FILE, not an argument, for the reason this server already applies elsewhere:
+a few short strings travel inline and results never do, and one basin's gauges
+are 10k rows before ET is even in the picture.
 
 `quality` is load-bearing. See et.py, which computes its metrics twice because
 of it.
@@ -65,21 +63,26 @@ pair_stations = C.pair_stations
 metrics = C.metrics
 
 
-def compare_all(rows: List[Dict], obs_csv: str, meta_json: str = "",
+def compare_all(rows: List[Dict], reception_json: str,
                 observables: Optional[List[str]] = None,
                 figure_dir: str = "",
                 references: Optional[Dict[str, Dict[str, float]]] = None
                 ) -> Dict[str, Any]:
     """Every requested observable that has both a model series and observations.
 
+    reception_json: the run's reception.json, or a payload already narrowed to
+    its `observations` block.
+
     references: static per-column priors for wtd, {case_name: {"fan": 12.3,
     "parflow_clm": 10.1}}. Ignored by the others.
     """
-    series, meta, dropped = C.load_observations(obs_csv, meta_json)
+    series, meta, dropped = C.load_observations(reception_json)
+    domain = C.load_domain(reception_json)
     want = observables or list(OBSERVABLES)
 
     out: Dict[str, Any] = {
         "observables": {}, "n_observation_rows_dropped": dropped,
+        "domain": domain,
         "note": ("measurements only — no verdict is offered on any of these, "
                  "and every comparison is context rather than a skill claim"),
     }
@@ -91,14 +94,36 @@ def compare_all(rows: List[Dict], obs_csv: str, meta_json: str = "",
                 "error": f"unknown observable '{name}'; have "
                          f"{sorted(OBSERVABLES)}"}
             continue
-        rec = mod.compare(rows, series, meta, references=references)
+        # reception_json is passed to EVERY module and used by wtd alone: the
+        # Fan wells and the modelled water-table raster live in that file and
+        # reach no module through `series`, because BLOCKS loads only station
+        # tables and a GeoTIFF is not one. The others absorb it in **kw.
+        rec = mod.compare(rows, series, meta, references=references,
+                          domain=domain, reception_json=reception_json)
         out["observables"][name] = rec
-        if figure_dir and not rec.get("error"):
+        if figure_dir:
+            # DRAWN EVEN WHEN THE RECORD CARRIES AN `error` (2026-08-12). The
+            # guard used to be `not rec.get("error")`, which was right when an
+            # error meant an empty record — and wrong the moment wtd and
+            # streamflow began returning model-side findings ALONGSIDE the
+            # message that no station was available. That is exactly the basin
+            # where the figure is the only water-table or runoff picture there
+            # is, and it was the one being skipped: Naches has no recorder well
+            # in any year, so its wtd panel of three distributions was computed
+            # and then never rendered. Each plot() returns None when it truly
+            # has nothing to draw, so the decision belongs to the module that
+            # knows what it has, not to a key that means several things.
+            #
             # NON-FATAL. The numbers are the product; a figure that will not
             # render must not take the comparison down with it.
             try:
+                # reception_json reaches plot() for the same reason it reaches
+                # compare(): streamflow's map panel draws the DEM samples and
+                # the watershed ring, and both live in that file rather than in
+                # `series`. The other plots absorb it in **kw.
                 p = mod.plot(rec, rows, series,
-                             str(Path(figure_dir) / f"compare_{name}.png"))
+                             str(Path(figure_dir) / f"compare_{name}.png"),
+                             reception_json=reception_json)
                 if p:
                     figures[name] = p
             except Exception as e:                              # noqa: BLE001

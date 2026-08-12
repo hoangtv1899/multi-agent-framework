@@ -166,15 +166,7 @@ SOIL_VARS = {"sand_pct": ("sand", "%"),
              "gravel_pct": ("gravel", "%")}
 
 
-# Esri's World Hillshade: relief and nothing else. Measured against the
-# alternatives over this basin it is both the most detailed and the least
-# coloured — mean saturation 9 against World Shaded Relief's 18, at 33% more
-# contrast — so it needs no muting, and muting is what made the first attempt
-# bland. World Light Gray Base is neutral but carries no relief at all, which
-# for a design stratified BY elevation throws away the context that matters.
-TILES = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
-         "Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}")
-MAX_TILES = 48
+# The hillshade itself, and why it is that one, moved to src/core/basemap.py.
 
 # VIRIDIS, NOT TERRAIN, for the columns. `terrain` runs blue-green-yellow-brown
 # -white, which is every colour a landscape has: on a hillshade its browns sat
@@ -189,80 +181,20 @@ MAX_TILES = 48
 CMAP = "viridis"
 
 
-def _tile_xy(lon, lat, z):
-    """Web Mercator tile coordinates, the slippy-map convention every XYZ
-    service uses."""
-    import math
-    n = 2.0 ** z
-    r = math.radians(lat)
-    return ((lon + 180.0) / 360.0 * n,
-            (1 - math.log(math.tan(r) + 1 / math.cos(r)) / math.pi) / 2 * n)
-
-
-def _tile_lonlat(x, y, z):
-    import math
-    n = 2.0 ** z
-    return (x / n * 360.0 - 180.0,
-            math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n)))))
-
-
 def _basemap(ax, extent, tiles=None, max_tiles=None):
-    """Paste an XYZ hillshade under the map panel, in plain lon/lat.
+    """Paste an XYZ hillshade under the map panel. See src/core/basemap.py.
 
-    `tiles` and `max_tiles` override the module defaults for one call, so a
-    figure that needs a second backdrop — a country-scale locator wants
-    outlines where a basin panel wants relief — asks for it here instead of
-    reassigning this module's globals around the call.
-
-    Each tile is drawn with imshow at its own lon/lat bounds rather than through
-    cartopy. Cartopy would be the obvious tool and was tried first: its GeoAxes
-    mis-places itself inside a gridspec — the panel hangs off the canvas and its
-    title disappears — because the fixed aspect is applied at draw time, after
-    the layout engine has sized the cell. Drawing the tiles directly keeps every
-    panel on ordinary axes and every coordinate in degrees.
-
-    Tiles are square in Mercator and we draw them as latitude rectangles, so
-    each one is stretched by how much sec(lat) varies across it: 0.4% over a
-    0.3-degree tile at 38N, well under a pixel.
-
-    A missing basemap is not an error. Compute nodes have no network, and a
-    figure without a backdrop beats one that cannot be drawn.
+    MOVED OUT (2026-08-12). The tile maths, the certifi context and the zoom
+    search now live in core.basemap, because the ELM MCP's comparison figures
+    draw their column maps over the same ground and a second copy of this would
+    drift from the one that draws the design. This is the same function it
+    always was, one import further away.
     """
-    import io
-    import ssl
-    import urllib.request
-    import certifi
-    import numpy as np
-    from PIL import Image
-
-    # This node's OpenSSL points at an empty cert directory, so the default
-    # context rejects every tile and the figure comes out backdrop-less with
-    # only a note on stderr. certifi's bundle is the one Python packages already
-    # trust, and naming it makes the figure render the same from any shell.
-    ctx = ssl.create_default_context(cafile=certifi.where())
-    url_fmt = tiles or TILES
-    budget = MAX_TILES if max_tiles is None else max_tiles
-
-    for z in range(11, 5, -1):
-        x0, y0 = _tile_xy(extent[0], extent[3], z)
-        x1, y1 = _tile_xy(extent[1], extent[2], z)
-        tiles = [(tx, ty) for tx in range(int(x0), int(x1) + 1)
-                 for ty in range(int(y0), int(y1) + 1)]
-        if len(tiles) <= budget:
-            break
-    try:
-        for tx, ty in tiles:
-            url = url_fmt.format(z=z, x=tx, y=ty)
-            with urllib.request.urlopen(url, timeout=20, context=ctx) as r:
-                img = Image.open(io.BytesIO(r.read())).convert("RGB")
-            w, n = _tile_lonlat(tx, ty, z)
-            e, s = _tile_lonlat(tx + 1, ty + 1, z)
-            ax.imshow(np.asarray(img), extent=[w, e, s, n], origin="upper",
-                      zorder=0, interpolation="bilinear")
-    except Exception as ex:                                  # noqa: BLE001
-        print(f"   basemap unavailable ({type(ex).__name__}: {str(ex)[:60]})")
-        return
-    print(f"   basemap: {len(tiles)} tiles at zoom {z}")
+    import sys
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "src"))
+    from core.basemap import paste
+    return paste(ax, extent, tiles=tiles, max_tiles=max_tiles)
 
 
 def _map_axes(fig, cell, extent, basemap=True):

@@ -34,7 +34,8 @@ SPEC = C.Spec(
 
 
 def compare(rows: List[Dict], series: Dict, meta: Dict, **kw) -> Dict[str, Any]:
-    rec = C.standard_compare(SPEC, rows, series, meta)
+    rec = C.standard_compare(SPEC, rows, series, meta,
+                             domain=kw.get("domain"))
     if rec.get("error"):
         return rec
     model = C.model_series(rows, SPEC.model_vars)
@@ -58,7 +59,8 @@ def compare(rows: List[Dict], series: Dict, meta: Dict, **kw) -> Dict[str, Any]:
     return rec
 
 
-def plot(rec: Dict, rows: List[Dict], series: Dict, out_path: str) -> Optional[str]:
+def plot(rec: Dict, rows: List[Dict], series: Dict, out_path: str,
+         **kw) -> Optional[str]:
     """Two panels: the flux series, and the pairs split by provenance.
 
     Gap-filled points are hollow in both. The whole reason this observable has
