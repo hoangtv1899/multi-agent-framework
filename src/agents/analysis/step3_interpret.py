@@ -244,6 +244,29 @@ def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
 # ─────────────────────────────────────────────────────────────────────
 # THE PROMPT
 # ─────────────────────────────────────────────────────────────────────
+# A finding's result, whole if it fits. The old cap was 700 characters, and it
+# was silent — the model was shown a fifth of a result and asked to quote from
+# it exactly. Measured on the 2026-08-13 runs: `partition_fractions_vs_elevation`
+# held 324 numbers and 292 of them were behind the cut; five of the ten findings
+# across the two studies were truncated.
+#
+# 6000 is generous rather than principled: the largest result measured was 4244
+# characters, so nothing real is cut today, and a runaway result still cannot
+# swallow the prompt. When it DOES cut, it says so and forbids quoting from
+# that finding — a model asked to copy exactly from evidence it cannot see is
+# being set up to fail the audit.
+RESULT_CAP = 6000
+
+
+def _render_result(result) -> str:
+    body = json.dumps(result, default=str)
+    if len(body) <= RESULT_CAP:
+        return body
+    return (body[:RESULT_CAP] +
+            f"  …CUT at {RESULT_CAP} of {len(body)} chars — DO NOT quote "
+            f"numbers from this finding; cite one you can read in full")
+
+
 def review_brief(ctx, comparison: Dict[str, Any],
                  investigation: Dict[str, Any]) -> str:
     plan = ctx.plan or {}
@@ -262,25 +285,36 @@ def review_brief(ctx, comparison: Dict[str, Any],
         lines.append(f"    [{c.get('id')}] applies to: {c.get('applies_to')}")
         lines.append(f"        {str(c.get('statement'))[:240]}")
 
-    # THE COMPARISON IS EVIDENCE, AND CITABLE (2026-08-12). It used to reach
-    # this prompt as caveats only — the model was told what it could not say
-    # about the observations and never shown what they measured, so a claim
-    # about them had no finding to cite and the audit struck it. Rendered from
-    # the same summary the audit checks against, and listed under the ids the
-    # findings carry, so a sentence about the gauges can name `compare_streamflow`.
-    if comparison.get("summary"):
-        from agents.analysis import step1_compare as _cmp
-        lines += ["", "WHAT THE COMPARISON WITH OBSERVATIONS MEASURED",
-                  "(cite these as compare_<observable>; measurements only —",
-                  " none of these numbers is a verdict on the model):",
-                  _cmp.format_comparison(comparison["summary"])]
+    # ONE LIST, AND IT IS THE LIST THE AUDIT CHECKS AGAINST (2026-08-13).
+    #
+    # Step 1's comparison findings and step 2's investigation findings are
+    # equally citable — `evidence["findings"]` in interpret() is the
+    # concatenation of both — but this brief used to render them in two
+    # different shapes: step 2's under `FINDINGS:` with an id, a question and a
+    # result, step 1's as a separate prose block headed "WHAT THE COMPARISON
+    # MEASURED". A model writing about snow then cited the step-2 finding whose
+    # SUBJECT matched, `swe_snotel_validation`, while quoting numbers that live
+    # in `compare_swe`.
+    #
+    # Measured on the 2026-08-13 verification runs: of 15 struck values, 8 sat
+    # in a compare_* finding and 6 in a different step-2 finding. Every one of
+    # them was a real measurement in this run, cited under the wrong id. The
+    # audit was right every time; the prompt was what made the mistake easy.
+    #
+    # So the rule is now structural: whatever the audit will accept is listed
+    # here, in one shape, under the id that has to be named.
+    findings = list(investigation.get("findings") or []) + \
+        list(comparison.get("findings") or [])
 
     lines += ["", "WHAT STEP 2 INVESTIGATED:",
-              f"    {investigation.get('notes')}", "", "FINDINGS:"]
-    for f in (investigation.get("findings") or []):
+              f"    {investigation.get('notes')}", "",
+              "FINDINGS — every citable number in this run is below, under the",
+              "id you must name. A value not in the finding you cite is struck,",
+              "even when it is a real measurement from somewhere else:"]
+    for f in findings:
         lines.append(f"    id: {f['id']}   (n={f.get('n')}, scale={f.get('scale')})")
         lines.append(f"        question: {f.get('question')}")
-        lines.append(f"        result:   {json.dumps(f.get('result'), default=str)[:700]}")
+        lines.append(f"        result:   {_render_result(f.get('result'))}")
     if investigation.get("caveats"):
         lines.append("")
         lines.append("FIGURES THAT FAILED TO PRODUCE A RESULT:")
@@ -299,6 +333,14 @@ from the cited finding's result — do not round, restate or convert. Counts you
 made by reading a table, band or column labels, and thresholds you chose to
 describe a pattern are NOT measurements and do not belong there. A declared
 value absent from the finding is struck automatically.
+
+CITE THE FINDING THE NUMBER IS IN, not the one whose subject matches. These
+are different, and confusing them is the single commonest way a true sentence
+gets struck here. Observation metrics — bias, RMSE, NSE, KGE, station counts —
+live in the `compare_<observable>` findings; the step-2 findings hold what the
+generated scripts computed from the model's own series. If your sentence pairs
+one of each, split it into two claims, each citing where its numbers came from.
+Before you list a value, find it in the finding you are about to name.
 
 Judge whether the findings answer what the user asked. Decide:
   "sufficient"    the question is answered as well as this experiment allows
