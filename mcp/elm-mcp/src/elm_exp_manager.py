@@ -751,7 +751,7 @@ exit $?
 			couplers = plan.get("CONDITIONS_COUPLERS") or [{}]
 			y0 = int(couplers[0].get("DATM_CLMNCEP_YR_START", cfg.get("yr_start", 1995)))
 			y1 = int(couplers[0].get("DATM_CLMNCEP_YR_END",   cfg.get("yr_end", y0)))
-			analyzer.extra_summary = {
+			honesty = {
 				"limitations": select_limitations(
 					n_years       = max(1, y1 - y0 + 1),
 					warm_start    = bool(couplers[0].get("FINIDAT")),
@@ -773,8 +773,25 @@ exit $?
 					json.loads((self.run_dir / "assumptions.json").read_text())
 					if (self.run_dir / "assumptions.json").exists() else []),
 			}
+		except (NameError, AttributeError, TypeError) as e:
+			# A BUG HERE IS NOT A MISSING PAYLOAD, and the handler used to
+			# report it as one. A bare `except Exception` swallowed a NameError
+			# — a stale variable left by a refactor — and printed "limitations
+			# payload unavailable", which reads as "this run has no
+			# limitations". It does not: it means this code did not run. The
+			# consequence is silent and large, because extra_summary is what
+			# _ensemble_blocks folds into experiment.json and step 0 turns into
+			# the caveats that bind the interpreter. Found 2026-08-13 by
+			# re-running the stage over an archived study.
+			print(f"   ✗ BUG in the limitations payload — {type(e).__name__}: "
+				  f"{e}. This is a code fault, not a run without caveats; "
+				  f"experiment.json will carry no limitations.")
+			raise
 		except Exception as e:
-			print(f"   ⚠️  limitations payload unavailable ({e})")
+			# Genuinely absent input: no assumptions.json, an unreadable one, a
+			# plan with no couplers. The run stands; the caveats do not.
+			print(f"   ⚠️  limitations payload unavailable ({type(e).__name__}: "
+				  f"{e}) — experiment.json will carry no limitations")
 
 		from extract import VARIABLE_UNITS, extract_run
 		from column_rows import build_rows
