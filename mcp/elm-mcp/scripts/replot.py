@@ -646,17 +646,21 @@ def plot_cross_experiment_comparison(loaded_runs, output_path):
 #   ORCHESTRATION
 # ═════════════════════════════════════════════════════════════════════
 def _load_run_context(run_dir):
-    llm_input_path = run_dir / "LLM_ANALYSIS_INPUT.json"
-    summary_path   = run_dir / "01_inputs" / "experiment_summary.json"
+    # THE EXECUTABLE PLAN, read from the file that holds it. This used to open
+    # LLM_ANALYSIS_INPUT.json and take its 'experiment_plan' key — an alias
+    # written for the report agent, deleted 2026-08-13. Only ELM_CONFIG is
+    # wanted here, and that is run_plan.json's, which the manager writes at the
+    # end of materialize and --resume already reads.
+    plan_path    = run_dir / "run_plan.json"
+    summary_path = run_dir / "01_inputs" / "experiment_summary.json"
 
-    if not llm_input_path.exists() or not summary_path.exists():
+    if not plan_path.exists() or not summary_path.exists():
         logger.error("Missing required JSON files in run dir")
         return None, None
 
-    llm_input = json.loads(llm_input_path.read_text())
-    summary   = json.loads(summary_path.read_text())
+    plan    = json.loads(plan_path.read_text())
+    summary = json.loads(summary_path.read_text())
 
-    plan = llm_input.get('experiment_plan', {})
     experiments = summary.get('experiments', [])
 
     for exp in experiments:

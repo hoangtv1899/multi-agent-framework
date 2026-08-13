@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 """
 ELM Results Analyzer
-src/core/elm_results_analyzer.py
+mcp/elm-mcp/src/elm_results_analyzer.py
 
 Single responsibility: read ELM NetCDF history files
 and extract hydrological variables into a standard dict.
 
-Plotting is NOT this class's job: figures come from tools/analyze_run.py,
-which reads the summaries computed here. They are written straight into
-04_analysis/ next to hydro_summary.json.
+Plotting is NOT this class's job, and neither is interpretation. Figures come
+from scripts/analyze_run.py; every claim about the ensemble is computed by the
+Analyzer's step 2 from the artifact this class writes.
 """
-import json
 import logging
-import numpy as np
 from pathlib import Path
-from typing  import Dict, List, Any, Optional
+from typing  import Dict, List, Any
 
 try:
     import xarray as xr
@@ -35,7 +33,6 @@ from extract import (                                           # noqa: E402
     TARGET_VARIABLES, VARIABLE_UNITS, SPINUP_DAYS,
     extract_column, history_files, write_extracted, _sigfig)    # noqa: F401
 from column_metrics import column_metrics                       # noqa: E402
-
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -71,9 +68,6 @@ from column_metrics import column_metrics                       # noqa: E402
 # start where the simulation did.
 #
 # The constant itself now lives in extract.py and is imported above.
-
-
-
 
 
 def _metric(row: Dict[str, Any], key: str):
@@ -124,14 +118,17 @@ def _keep_last_full_year(data: Dict[str, Any]) -> Dict[str, Any]:
 
 class ELMResultsAnalyzer:
     """
-    Reads ELM NetCDF history files.
-    Extracts QCHARGE, QOVER, TWS, SOILLIQ.
-    Computes annual metrics and cross-experiment comparisons.
+    Reads ELM NetCDF history files through extract.py and computes each
+    column's metrics through column_metrics.py.
+
+    It MEASURES. Every claim about the ensemble — which driver explains the
+    spread, what the bands have in common, whether soil separates from forcing
+    — belongs to the Analyzer's step 2, which computes it from the artifact
+    this class writes.
 
     Usage:
         analyzer = ELMResultsAnalyzer(experiments, analysis_dir)
-        analyzer.extract_all()
-        llm_input = analyzer.get_llm_analysis_input()
+        analyzer.extract_all()      # -> results, and 03_results/extracted.json
     """
 
     def __init__(self,
@@ -152,12 +149,12 @@ class ELMResultsAnalyzer:
         self.last_year_only = last_year_only
         # days of warm-start relaxation trimmed off the front of the record.
         # 0 keeps everything. What was actually dropped lands in
-        # spinup_dropped and travels into hydro_summary.json — a series that
-        # does not start where the simulation did must say so.
+        # spinup_dropped and travels into the package — a series that does not
+        # start where the simulation did must say so.
         self.spinup_days = spinup_days
         self.spinup_dropped: Dict[str, Any] = {}
-        # extra top-level fields merged into hydro_summary.json at save time
-        # (e.g. the assumptions ledger + limitations honesty payload)
+        # extra top-level fields the manager attaches and _package merges into
+        # experiment.json (the assumptions ledger + limitations honesty payload)
         self.extra_summary: Dict[str, Any] = {}
         self.results: Dict[str, Dict] = {}
         # The raw extracted blocks, kept so extract_all can write the ONE
@@ -201,34 +198,30 @@ class ELMResultsAnalyzer:
                 self.analysis_dir.parent, self._meta, self._blocks,
                 list(TARGET_VARIABLES), int(self.spinup_days or 0))
             print(f"   ✓ {path.name} — the series everything downstream reads")
-        self._save_hydro_summary()
+        # hydro_summary.json IS NOT WRITTEN ANY MORE (2026-08-13). It carried
+        # the same rows as experiment.json — verified identical, case for case
+        # — at 8 MB per run, and it predated extracted.json, which is now the
+        # record of what was read. Two files holding one thing is how they end
+        # up disagreeing: this run directory already had an extracted.json a day
+        # older than its package, and nothing said so.
         print(f"\n✅ Analysis complete — "
               f"{len(self.results)} experiments")
         return self.results
 
-    def get_llm_analysis_input(self) -> Dict[str, Any]:
-        """Package results for AnalysisReportAgent."""
-        return {
-            'model_type':      'elm',
-            'experiments':      list(self.results.values()),
-            'spatial_summary':  self._compute_spatial_summary(),
-            'soil_attribution': self._compute_soil_attribution(),
-            'driver_matrix':    self._compute_driver_matrix(),
-            'units':           VARIABLE_UNITS,
-            'focus_variables': {
-                'QCHARGE': 'Primary — aquifer recharge',
-                'QOVER':   'Surface runoff',
-                'ZWT':     'Water-table depth',
-                'TWS':     'Total water storage',
-                'SOILLIQ': 'Soil moisture profile',
-            },
-            'file_locations': {
-                'analysis_dir':  str(self.analysis_dir),
-                'hydro_summary': str(
-                    self.analysis_dir / "hydro_summary.json"
-                ),
-            }
-        }
+    # get_llm_analysis_input() IS GONE (2026-08-13), and with it
+    # _compute_spatial_summary and _compute_driver_matrix.
+    #
+    # It packed a prompt for AnalysisReportAgent: the rows, two ensemble
+    # correlations, and a `focus_variables` block naming which variables an
+    # interpreter should pay attention to. No model was called from here — but
+    # deciding what a reader should look at is not an extractor's judgement to
+    # make, and this server's rule is that it measures. It also duplicated
+    # step2_derive.driver_matrix and .spatial_summary, which the framework
+    # already owned and every other caller already used.
+    #
+    # The agent it fed is deleted; the Analyzer's steps 3 and 4 do that job
+    # over the comparison, the caveats and the figures, none of which this
+    # payload carried.
 
     # ─────────────────────────────────────────────────────────
     # PRIVATE — EXTRACTION
@@ -354,9 +347,6 @@ class ELMResultsAnalyzer:
             return self._empty_result(exp, str(e))
 
 
-
-
-
     # `_compute_comparisons` DELETED 2026-08-13 — it could not return anything.
     #
     # It compared a metric ACROSS FORCING PERIODS, keying the values by
@@ -368,262 +358,9 @@ class ELMResultsAnalyzer:
     # every packaged run on disk: `forcing_period` is 'baseline', everywhere.
     #
     # So it returned [] on every run since the ensemble design changed, and
-    # `comparisons: []` travelled into LLM_ANALYSIS_INPUT.json looking like a
+    # `comparisons: []` travelled into the report payload looking like a
     # finding — "nothing differed" rather than "nothing was compared". If the
     # scenario ensemble comes back, this belongs with whatever builds it.
-
-    def _compute_spatial_summary(self) -> Dict[str, Any]:
-        """Cross-column summary for a SPATIAL ensemble that attributes the response
-        to its ACTUAL drivers rather than asserting a clean elevation gradient.
-
-        It surfaces per-column forcing (precip), how well a linear elevation fit
-        holds (fit_r2), and whether recharge tracks elevation or precip — so a
-        coarse, quantized forcing (which makes 'elevation' a confounded proxy)
-        can't masquerade as a smooth elevation effect."""
-        ok = [r for r in self.results.values()
-              if r.get('status') == 'ok' and r.get('elevation_m') is not None]
-        locs = {(r.get('lat'), r.get('lon')) for r in ok}
-        if len(ok) < 2 or len(locs) < 2:
-            return {}
-
-        ok.sort(key=lambda r: r['elevation_m'])
-        rows = [{
-            'case_name':           r['case_name'],
-            'elevation_m':         round(r['elevation_m'], 1),
-            'lat':                 r.get('lat'),
-            'lon':                 r.get('lon'),
-            'precip_mm_yr':        r['metrics'].get('precip_mm_yr'),
-            'recharge_mm_yr':      _metric(r, 'recharge_mm_yr'),
-            'runoff_mm_yr':        _metric(r, 'runoff_mm_yr'),
-            'recharge_frac_of_P':  _metric(r, 'recharge_frac_of_P'),
-            'water_table_depth_m': r['metrics'].get('water_table_depth_m'),
-        } for r in ok]
-
-        elevs = np.array([r['elevation_m'] for r in ok], dtype=float)
-
-        def col(metric_key):
-            # metrics first, then the water budget — the terms that used to be
-            # duplicated at the top level (annual_runoff_mm_yr and friends) now
-            # live only in the budget, and a key name should still address them.
-            return np.array([_metric(r, metric_key) for r in ok], dtype=float)
-
-        def fit_vs_elev(metric_key):
-            """Linear slope per 1000 m AND its r2 (how well a line vs elevation fits)."""
-            ys = col(metric_key)
-            mask = ~np.isnan(ys)
-            if mask.sum() < 2 or np.ptp(elevs[mask]) < 1e-6:
-                return None, None
-            x, y = elevs[mask], ys[mask]
-            a, b = np.polyfit(x, y, 1)
-            ss_tot = float(np.sum((y - y.mean()) ** 2))
-            r2 = (round(1 - float(np.sum((y - (a * x + b)) ** 2)) / ss_tot, 3)
-                  if ss_tot > 1e-12 else None)
-            return round(float(a) * 1000.0, 4), r2
-
-        def corr(metric_key, xs):
-            ys = col(metric_key)
-            mask = ~np.isnan(ys) & ~np.isnan(xs)
-            # a correlation still needs 3; with 2 the rows carry the comparison
-            if mask.sum() < 3 or np.ptp(xs[mask]) < 1e-9 or np.ptp(ys[mask]) < 1e-9:
-                return None
-            return round(float(np.corrcoef(xs[mask], ys[mask])[0, 1]), 3)
-
-        precip = col('precip_mm_yr')
-        finite = precip[~np.isnan(precip)]
-        bins = sorted({round(float(p)) for p in finite})        # distinct forcing cells
-
-        slope, r2 = {}, {}
-        for key, name in [('recharge_mm_yr', 'recharge_mm_yr'),
-                          ('runoff_mm_yr', 'runoff_mm_yr'),
-                          ('recharge_frac_of_P', 'recharge_frac_of_P'),
-                          ('water_table_depth_m', 'water_table_m')]:
-            slope[name], r2[name] = fit_vs_elev(key)
-
-        r_elev = corr('recharge_mm_yr', elevs)
-        r_prcp = corr('recharge_mm_yr', precip)
-
-        notes = []
-        if bins and len(bins) <= 3 and len(ok) > len(bins):
-            notes.append(f"precip is quantized to {len(bins)} value(s) {bins} mm/yr — "
-                         f"coarse DATM forcing, NOT elevation-resolved")
-        if r_elev is not None and r_prcp is not None and abs(r_prcp) > abs(r_elev):
-            notes.append(f"recharge tracks precip (r={r_prcp}) more than elevation "
-                         f"(r={r_elev}) — response is forcing/soil-controlled")
-        if r2.get('recharge_mm_yr') is not None and r2['recharge_mm_yr'] < 0.5:
-            notes.append(f"linear elevation fit is weak (r2={r2['recharge_mm_yr']}) — "
-                         f"the elevation 'gradient' is not a reliable summary")
-
-        return {
-            'n_columns':         len(ok),
-            'elevation_range_m': [round(float(elevs.min()), 1), round(float(elevs.max()), 1)],
-            'forcing': {
-                'precip_mm_yr_distinct': bins,
-                'n_forcing_bins':        len(bins),
-                'elevation_resolved':    len(bins) > 3,
-            },
-            'by_elevation': rows,
-            'vs_elevation': {'slope_per_1000m': slope, 'fit_r2': r2},
-            'driver_correlation': {'recharge_vs_elevation_r': r_elev,
-                                   'recharge_vs_precip_r':    r_prcp},
-            'interpretation': notes or ['response varies smoothly with elevation'],
-            'note': 'check forcing.n_forcing_bins, vs_elevation.fit_r2 and '
-                    'driver_correlation before reading any slope as an elevation effect',
-        }
-
-    def _compute_soil_attribution(self) -> Dict[str, Any]:
-        """Attribute the partitioning to SOIL, holding forcing constant. Picks the
-        largest forcing bin (so precip is fixed) and correlates recharge / runoff
-        with per-column soil predictors (max clay %, min Ksat = the drainage
-        bottleneck). This is the soil-control answer the spatial run confounds."""
-        ok = [r for r in self.results.values()
-              if r.get('status') == 'ok' and r.get('soil')]
-        if len(ok) < 3:
-            return {}
-
-        # hold forcing constant: keep only the most-populated precip bin
-        bins: Dict[Any, list] = {}
-        for r in ok:
-            p = r['metrics'].get('precip_mm_yr')
-            bins.setdefault(round(p) if p is not None else None, []).append(r)
-        precip_bin, group = max(bins.items(), key=lambda kv: len(kv[1]))
-        # 2, not 3. The 12 km forcing quantises precipitation so heavily that a
-        # 13-column ensemble rarely puts 3 columns in one bin — so the ONE
-        # analysis that holds forcing constant almost never ran. With 2 the
-        # correlation is meaningless, but the PAIR is not: two columns under
-        # identical forcing that differ in recharge differ because of soil.
-        if len(group) < 2:
-            return {}
-
-        group.sort(key=lambda r: -(_metric(r, 'recharge_mm_yr') or 0))
-        rows = [{
-            'case_name':         r['case_name'],
-            'texture_top':       r['soil'].get('texture_top'),
-            'clay_max_pct':      r['soil'].get('clay_max_pct'),
-            'ksat_min_ums':      r['soil'].get('ksat_min_ums'),
-            'recharge_mm_yr':    _metric(r, 'recharge_mm_yr'),
-            'runoff_mm_yr':      _metric(r, 'runoff_mm_yr'),
-            'recharge_frac_of_P': _metric(r, 'recharge_frac_of_P'),
-        } for r in group]
-
-        def corr(feat, target):
-            xs = np.array([r['soil'].get(feat) for r in group], dtype=float)
-            ys = np.array([r['metrics'].get(target) for r in group], dtype=float)
-            mask = ~np.isnan(xs) & ~np.isnan(ys)
-            # a correlation still needs 3; with 2 the rows carry the comparison
-            if mask.sum() < 3 or np.ptp(xs[mask]) < 1e-9 or np.ptp(ys[mask]) < 1e-9:
-                return None
-            return round(float(np.corrcoef(xs[mask], ys[mask])[0, 1]), 3)
-
-        soil_corr = {
-            'recharge_vs_clay_max': corr('clay_max_pct', 'recharge_mm_yr'),
-            'recharge_vs_ksat_min': corr('ksat_min_ums', 'recharge_mm_yr'),
-            'runoff_vs_clay_max':   corr('clay_max_pct', 'runoff_mm_yr'),
-            'runoff_vs_ksat_min':   corr('ksat_min_ums', 'runoff_mm_yr'),
-        }
-        ranked = sorted(((abs(v), k, v) for k, v in soil_corr.items() if v is not None),
-                        reverse=True)
-        best = (f"{ranked[0][1]} (r={ranked[0][2]})" if ranked else "no clear predictor")
-
-        return {
-            'forcing_held_mm_yr': precip_bin,
-            'n_columns':          len(group),
-            'by_recharge':        rows,
-            'soil_correlation':   soil_corr,
-            'strongest_predictor': best,
-            'note': f'precip held at {precip_bin} mm/yr across {len(group)} columns, '
-                    'so this spread is soil-driven (clay impedes, Ksat permits drainage)',
-        }
-
-    # response name -> where its value lives in a result's metrics
-    _RESPONSE_GETTERS = {
-        'runoff':             lambda m: (m.get('water_budget') or {}).get('runoff_mm_yr'),
-        'infiltration':       lambda m: (m.get('water_budget') or {}).get('infiltration_mm_yr'),
-        'et':                 lambda m: (m.get('water_budget') or {}).get('et_mm_yr'),
-        'recharge':           lambda m: (m.get('water_budget') or {}).get('recharge_mm_yr'),
-        'recharge_frac_of_P': lambda m: (m.get('water_budget') or {}).get('recharge_frac_of_P'),
-    }
-    _DRIVER_GETTERS = {
-        'elevation_m':  lambda r: r.get('elevation_m'),
-        'precip_mm_yr': lambda r: r['metrics'].get('precip_mm_yr'),
-        'clay_max_pct': lambda r: (r.get('soil') or {}).get('clay_max_pct'),
-        'ksat_min_ums': lambda r: (r.get('soil') or {}).get('ksat_min_ums'),
-    }
-
-    def _compute_driver_matrix(self) -> Dict[str, Any]:
-        """Pearson r for EVERY response (runoff, infiltration, ET, recharge,
-        recharge fraction) against EVERY driver (elevation, forcing precip,
-        soil clay, soil Ksat) across the ok columns — so the interpreter sees
-        the full relationship structure, not cherry-picked pairs. Responses
-        missing from a run (e.g. infiltration/ET in pre-2026-07 output) are
-        simply omitted."""
-        ok = [r for r in self.results.values() if r.get('status') == 'ok']
-        if len(ok) < 3:
-            return {}
-
-        def corr(xs, ys):
-            x = np.array(xs, dtype=float)
-            y = np.array(ys, dtype=float)
-            mask = ~np.isnan(x) & ~np.isnan(y)
-            if mask.sum() < 3 or np.ptp(x[mask]) < 1e-9 or np.ptp(y[mask]) < 1e-9:
-                return None
-            return round(float(np.corrcoef(x[mask], y[mask])[0, 1]), 3)
-
-        nan = float('nan')
-        matrix: Dict[str, Any] = {}
-        for resp, rget in self._RESPONSE_GETTERS.items():
-            ys = [rget(r['metrics']) for r in ok]
-            ys = [nan if v is None else v for v in ys]
-            if all(np.isnan(v) for v in ys):
-                continue                     # response not in this run's output
-            row = {}
-            for drv, dget in self._DRIVER_GETTERS.items():
-                xs = [dget(r) for r in ok]
-                xs = [nan if v is None else v for v in xs]
-                row[drv] = corr(xs, ys)
-            matrix[resp] = row
-        if not matrix:
-            return {}
-        return {'n_columns': len(ok), 'pearson_r': matrix,
-                'note': 'correlations across ALL columns — when precip is quantized, '
-                        'elevation and precip are confounded; use soil_attribution '
-                        '(forcing held) for the clean soil signal'}
-
-    def _save_hydro_summary(self):
-        """Save hydro_summary.json."""
-        hydro_file = self.analysis_dir / "hydro_summary.json"
-        with open(hydro_file, 'w') as f:
-            json.dump(
-                {
-                    'experiments':      list(self.results.values()),
-                    # What the record does NOT cover. A reader lining this up
-                    # against a gauge series has to know the model series
-                    # starts later than the simulation did.
-                    'spinup_dropped':   self.spinup_dropped or None,
-                    # comparisons and soil_attribution are NOT here either,
-                    # for the same reason as the correlations: both are
-                    # derived claims, and both filtered on row['soil'], which
-                    # extraction never populates. soil_attribution therefore
-                    # returned {} on EVERY run and soil_control.png was
-                    # silently never drawn. src/agents/drivers.py computes
-                    # them from the package rows, where the soil profile is.
-                    # spatial_summary and driver_matrix are NOT here any more.
-                    # A correlation is a claim about a relationship, which is
-                    # interpretation; extraction reads the model's output
-                    # format and stops. Frozen here they could also never
-                    # answer a driver thought of later. src/agents/drivers.py
-                    # computes both from the package rows.
-                    #
-                    # The concrete damage: this version read
-                    # row['soil'].get('clay_max_pct'), and extraction never
-                    # populates `soil`, so every soil correlation came out
-                    # null on every run — and null in a correlation table
-                    # reads as "no relationship", not "not computed".
-                    'units':            VARIABLE_UNITS,
-                    **self.extra_summary,
-                },
-                f, indent=2, default=str
-            )
-        print(f"\n   ✓ hydro_summary.json saved")
 
     @staticmethod
     def _empty_result(exp:    Dict[str, Any],

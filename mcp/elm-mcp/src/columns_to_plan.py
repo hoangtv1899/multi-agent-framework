@@ -96,7 +96,7 @@ def columns_to_elm_plan(columns: List[Dict[str, Any]],
                            f"{c.get('elevation_m', '?')} m",
             "lat": c["lat"], "lon": c["lon"],
             # Carried so the analyzer can key results by place: without these
-            # the integrated path produced hydro_summary rows with
+            # the integrated path produced packaged rows with
             # lat/lon/elevation = None, which silently disabled the elevation
             # gradient figure, soil attribution, and observation pairing.
             "elevation_m": c.get("elevation_m"),

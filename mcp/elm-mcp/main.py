@@ -947,7 +947,6 @@ def extract_elm_output(run_dir:   str,
 # ─────────────────────────────────────────────────────────────────────
 # MODEL vs OBSERVATIONS
 # ─────────────────────────────────────────────────────────────────────
-HYDRO_SUMMARY = "hydro_summary.json"
 # The comparison's own file name lives in the compare package (compare.FILENAME)
 # — one name, next to the code that writes it.
 

@@ -25,6 +25,7 @@ this returns.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -52,6 +53,75 @@ CASE_INPUTS = "case_inputs.json"
 # past any grid irregularity, and far short of the 4.52 km that says the point
 # was never on the land grid.
 MAX_SNAP_KM = 1.5
+
+
+# ── the forcing grid ─────────────────────────────────────────────────────────
+# NLDAS-2 is a regular 1/8 degree grid; its cell edges fall on multiples of
+# 0.125 from 25.0 N and -125.0 W. Every column inside one cell is driven by the
+# SAME rain, snow and temperature — which is why two columns in one cell that
+# partition water differently differ because of soil or terrain, not weather.
+#
+# STATED, NOT MEASURED. These constants are the published NLDAS-2 geometry, not
+# something read out of the forcing files. Checked against 30 columns across
+# Naches and Brandywine: grouping by this cell reproduced the grouping by annual
+# precipitation EXACTLY, every group, both basins. If the forcing ever changes,
+# this is wrong silently, so it is written down rather than inferred.
+NLDAS_DEG = 0.125
+NLDAS_LAT0, NLDAS_LON0 = 25.0, -125.0
+
+
+def _nldas_cell(lat, lon):
+    """(row, col) of the NLDAS-2 cell containing this point, or None."""
+    try:
+        return (math.floor((float(lat) - NLDAS_LAT0) / NLDAS_DEG),
+                math.floor((float(lon) - NLDAS_LON0) / NLDAS_DEG))
+    except (TypeError, ValueError):
+        return None
+
+
+def _soil_summary(prof: Dict[str, Any]) -> Dict[str, Any]:
+    """The donor profile in one readable line's worth of numbers.
+
+    THE PROFILE ITSELF STAYS — this is not a replacement for `soil_profile`,
+    which keeps every layer. It exists because ten nested layers per column is
+    bulky to put in front of a reader or a prompt, where "loam, clay 20-25%, 10
+    layers to 380 cm" is one line and says what differs between columns.
+
+    NO KSAT. The old soil attribution wanted `ksat_min_ums` as its second
+    predictor and no such field exists anywhere in the surface dataset this
+    reads; asking for it is what left that analysis half-configured.
+
+    NOTHING ABOUT FORCING IS IN HERE. Which cell a column is driven by is a
+    separate fact with a separate field — see _nldas_cell. Keeping them apart is
+    the point: the old `_compute_soil_attribution` summarised soil, binned by
+    precipitation and correlated against results in one function, and could not
+    be repaired one piece at a time.
+    """
+    layers = (prof or {}).get("layers") or []
+    if not layers:
+        return {}
+
+    def rng(key):
+        vals = [l.get(key) for l in layers if l.get(key) is not None]
+        return [round(min(vals), 1), round(max(vals), 1)] if vals else None
+
+    out = {"texture_top": layers[0].get("texture_class"),
+           "n_layers": len(layers)}
+    for key, name in (("clay_pct", "clay_pct"), ("sand_pct", "sand_pct"),
+                      ("gravel_pct", "gravel_pct")):
+        r = rng(key)
+        if r:
+            out[name] = r
+    bot = [l.get("depth_bot_cm") for l in layers
+           if l.get("depth_bot_cm") is not None]
+    if bot:
+        out["depth_cm"] = round(max(bot), 1)
+    textures = [l.get("texture_class") for l in layers if l.get("texture_class")]
+    if textures:
+        # A column whose texture changes with depth is a different object from
+        # one that does not, and the top layer alone cannot say which it is.
+        out["textures"] = sorted(set(textures))
+    return out
 
 
 def _donor_topo(surfdata_path):
@@ -176,6 +246,11 @@ def warm_start(run_dir: Path, columns: List[Dict],
                                  f"is not on the land grid"))
                 continue
             c["lat"], c["lon"] = m["donor_lat"], m["donor_lon"]
+            # WHICH FORCING CELL THIS COLUMN ENDS UP IN. Recorded HERE, after
+            # the snap, because the snap moves the column by up to ~0.6 km and
+            # can carry it across a cell edge; the cell computed before the snap
+            # would be the cell of a place that is not run.
+            c["forcing_cell"] = _nldas_cell(c["lat"], c["lon"])
             topo = _donor_topo(m.get("surface_template"))
             if topo is None:
                 excluded.append((c.get("id"), "donor surfdata carries no TOPO"))
@@ -253,6 +328,9 @@ def attach_donor_soil(columns: List[Dict], finidat_map: Dict[str, Any]) -> int:
         c["soil_layers"] = prof["num_layers"]
         c["soil_top_texture"] = prof["layers"][0]["texture_class"]
         c["soil_source"] = "conus"
+        # The same profile, small enough to read. See _soil_summary: the layers
+        # stay where they are; this is for anything that has to SHOW the soil.
+        c["soil_summary"] = _soil_summary(prof)
         n += 1
     if n:
         print(f"   soil for the design/figure taken from the CONUS donor cells "

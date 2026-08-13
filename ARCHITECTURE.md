@@ -167,7 +167,11 @@ client fails at step 0b rather than quietly running a second implementation.
 | 4b validate | compare against USGS / SNOTEL observations | `04_analysis/validation.json` |
 | 4c interpret | Analyzer selects figures, renders, LOOKS at them, interprets | `04_analysis/interpretation.md`, `analysis_plan.json`, `figure_captions.json` |
 | 4d couple | each column's daily QINFL drives its own 1-D PFLOTRAN column | `05_pflotran/` *(only if the plan couples)* |
-| 5 package | everything the Analyzer agent needs | `LLM_ANALYSIS_INPUT.json` |
+
+Step 5 used to write `LLM_ANALYSIS_INPUT.json`, an alias holding a prompt
+payload for a one-shot report agent. Both were deleted 2026-08-13:
+`experiment.json` is the manager's product and `04_analysis/analysis.json` is
+the Analyzer's.
 
 **Step 0b — warm start is the DEFAULT**; cold is an explicit opt-out. A cold
 single-column year begins from ELM's generic state and spends itself relaxing
@@ -252,8 +256,13 @@ CLI and you get the same code.
 | `src/agents/analyzer_agent.py` | the agentic Analyzer: selects, reviews by sight, interprets |
 | `src/core/figure_registry.py` | the menu it selects from; capability detection |
 | `tools/analyze_agentic.py` | orchestration: select → render → look → interpret |
-| `src/agents/analysis_report_agent.py` | final report the coordinator returns |
-| `src/agents/prompts/analyzer_system_elm.txt`, `analyzer_validation.txt` | prompts |
+| `src/agents/analysis/step4_report.py` | assembles `analysis.json` — the report the coordinator returns |
+
+`analysis_report_agent.py` and its two prompts (`analyzer_system_elm.txt`,
+`analyzer_validation.txt`) were deleted 2026-08-13. It was a second interpreter
+that ran *after* the five-step Analyzer on the chat path, over a payload with
+the comparison, the caveats and the figures stripped out — and its answer, not
+the pipeline's, was the one printed.
 
 Analysis figures: `partitioning` (where P goes, as fractions), `controls`
 (fractions vs drivers with the orographic confound made visible), `spatial`

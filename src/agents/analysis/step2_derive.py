@@ -38,10 +38,10 @@ and `unavailable` are both reported, and `unavailable` carries the reason.
 from typing import Any, Dict, List, Optional, Sequence
 
 _RESPONSES = {
-    "runoff":            "annual_runoff_mm_yr",
-    "recharge":          "annual_recharge_mm_yr",
-    "recharge_fraction": "recharge_fraction",
-    "runoff_fraction":   "runoff_fraction",
+    "runoff":            "runoff_mm_yr",
+    "recharge":          "recharge_mm_yr",
+    "recharge_fraction": "recharge_frac_of_P",
+    "runoff_fraction":   "runoff_frac_of_P",
     "precip":            "precip_mm_yr",
 }
 
@@ -54,6 +54,28 @@ def _num(x) -> Optional[float]:
         return None if f != f else f            # NaN
     except (TypeError, ValueError):
         return None
+
+
+def _metric(row: Dict[str, Any], key: str) -> Optional[float]:
+    """One metric by name, from `metrics` or from `metrics.water_budget`.
+
+    THE BUDGET TERMS MOVED (2026-08-13). `annual_runoff_mm_yr`,
+    `annual_recharge_mm_yr`, `recharge_fraction` and `runoff_fraction` were
+    dropped from column_metrics because they duplicated water_budget's
+    `runoff_mm_yr`, `recharge_mm_yr` and the `_frac_of_P` pair. Every function
+    in this file was still asking for the old names.
+
+    Nothing raised. A response key that is absent was skipped, so on the next
+    run driver_matrix would have reported one row (precip), soil_attribution
+    would have ranked every column by a recharge of 0, and comparisons would
+    have covered one metric — a step 2 that runs, writes its file, and says
+    almost nothing. This accessor is the same metrics-then-budget rule the
+    extractor uses, so one rename cannot quietly empty the table again.
+    """
+    m = row.get("metrics") or {}
+    if key in m:
+        return _num(m[key])
+    return _num((m.get("water_budget") or {}).get(key))
 
 
 def _pearson(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
@@ -140,16 +162,28 @@ def driver_matrix(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
                    for k in values if k not in available}
     unavailable.update(KNOWN_UNAVAILABLE)
 
+    # A RESPONSE THAT CANNOT BE COMPUTED SAYS SO BY NAME, for the same reason
+    # the drivers do. This loop used to `continue` past a missing key, so a
+    # renamed metric shrank the table in silence and the shrunken table looked
+    # like a legitimate result.
     out: Dict[str, Any] = {}
+    missing: Dict[str, str] = {}
     for resp, key in _RESPONSES.items():
-        ys = [_num((r.get("metrics") or {}).get(key)) for r in rows]
-        if len([y for y in ys if y is not None]) < 3:
+        ys = [_metric(r, key) for r in rows]
+        n = len([y for y in ys if y is not None])
+        if n < 3:
+            missing[resp] = (f"{n} of {len(rows)} column(s) carry "
+                             f"'{key}'; a correlation needs at least 3")
             continue
         out[resp] = {d: _pearson(values[d], ys) for d in available}
 
     return {
         "n_columns":   len(rows),
         "pearson_r":   out,
+        "responses": {
+            "measured":   sorted(out),
+            "unmeasured": missing,
+        },
         "drivers": {
             "available":   {d: DRIVERS[d][1] for d in available},
             "unavailable": unavailable,
@@ -167,7 +201,7 @@ def spatial_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     rows = [r for r in (rows or []) if isinstance(r, dict)]
     elev = [_num(r.get("elevation_m")) for r in rows]
     elev = [e for e in elev if e is not None]
-    precip = [_num((r.get("metrics") or {}).get("precip_mm_yr")) for r in rows]
+    precip = [_metric(r, "precip_mm_yr") for r in rows]
     precip = [p for p in precip if p is not None]
 
     by_band: Dict[str, Any] = {}
@@ -187,11 +221,10 @@ def spatial_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "mean": {
                 k: round(sum(v) / len(v), 2)
                 for k, v in (
-                    (key, [x for x in
-                           (_num((r.get("metrics") or {}).get(key)) for r in rs)
+                    (key, [x for x in (_metric(r, key) for r in rs)
                            if x is not None])
-                    for key in ("precip_mm_yr", "annual_runoff_mm_yr",
-                                "annual_recharge_mm_yr"))
+                    for key in ("precip_mm_yr", "runoff_mm_yr",
+                                "recharge_mm_yr"))
                 if v
             },
         }
@@ -242,7 +275,7 @@ def soil_attribution(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     bins: Dict[Any, List[Dict[str, Any]]] = {}
     for r in usable:
-        p = _num((r.get("metrics") or {}).get("precip_mm_yr"))
+        p = _metric(r, "precip_mm_yr")
         bins.setdefault(round(p) if p is not None else None, []).append(r)
     precip_bin, group = max(bins.items(), key=lambda kv: len(kv[1]))
     if len(group) < 2:
@@ -251,17 +284,16 @@ def soil_attribution(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
                           "be separated from precipitation",
                 "n_forcing_bins": len(bins)}
 
-    group = sorted(group, key=lambda r: -( _num(
-        (r.get("metrics") or {}).get("annual_recharge_mm_yr")) or 0))
+    group = sorted(group, key=lambda r: -(_metric(r, "recharge_mm_yr") or 0))
     table = [{
         "case_name":         r.get("case_name"),
         "texture_top":       r.get("soil_top_texture"),
         "clay_max_pct":      _clay_max_pct(r),
         "sand_max_pct":      _sand_max_pct(r),
         "organic_max":       _organic_max(r),
-        "recharge_mm_yr":    _num((r.get("metrics") or {}).get("annual_recharge_mm_yr")),
-        "runoff_mm_yr":      _num((r.get("metrics") or {}).get("annual_runoff_mm_yr")),
-        "recharge_fraction": _num((r.get("metrics") or {}).get("recharge_fraction")),
+        "recharge_mm_yr":    _metric(r, "recharge_mm_yr"),
+        "runoff_mm_yr":      _metric(r, "runoff_mm_yr"),
+        "recharge_fraction": _metric(r, "recharge_frac_of_P"),
     } for r in group]
 
     out: Dict[str, Any] = {
@@ -322,10 +354,9 @@ def comparisons(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return []
 
     out = []
-    for key in ("annual_recharge_mm_yr", "annual_runoff_mm_yr",
-                "precip_mm_yr", "recharge_fraction"):
-        vals = {r.get("case_name"): _num((r.get("metrics") or {}).get(key))
-                for r in rows}
+    for key in ("recharge_mm_yr", "runoff_mm_yr",
+                "precip_mm_yr", "recharge_frac_of_P"):
+        vals = {r.get("case_name"): _metric(r, key) for r in rows}
         vals = {k: v for k, v in vals.items() if v is not None}
         if len(vals) < 2:
             continue

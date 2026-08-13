@@ -15,7 +15,7 @@ lands in front of a human). Different risk, different constraint.
 The three things it is NOT free to do:
 
   1. INVENT NUMBERS. Every value the interpretation states comes from
-     hydro_summary.json / validation.json. Vision judges whether a figure is
+     experiment.json / validation.json. Vision judges whether a figure is
      readable and on-point; it never reads a measurement off an image.
   2. HIDE PROVENANCE. Each figure records whether a vetted registry function or
      analyzer-supplied code drew it.

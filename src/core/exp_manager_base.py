@@ -324,7 +324,11 @@ class ExperimentManagerBase:
 	#
 	# Saying so in one place makes the stage boundary crossable: a dict can go
 	# through a tool call, an object cannot.
-	EXTRACT_KEYS = ("rows", "units", "extra_summary", "llm_input")
+	#
+	# `llm_input` LEFT THE CONTRACT 2026-08-13. It carried a prompt payload the
+	# ELM results object packed for the deleted report agent; a stage boundary
+	# is a place to hand over MEASUREMENTS, and nothing else consumed it.
+	EXTRACT_KEYS = ("rows", "units", "extra_summary")
 
 	@staticmethod
 	def _as_extract(obj: Any) -> Dict[str, Any]:
@@ -348,12 +352,6 @@ class ExperimentManagerBase:
 			if isinstance(src, dict) and src:
 				units = dict(src)
 				break
-		llm = None
-		if hasattr(obj, "get_llm_analysis_input"):
-			try:
-				llm = obj.get_llm_analysis_input()
-			except Exception:                                   # noqa: BLE001
-				llm = None                  # non-fatal, as it has always been
 		# ELMResultsAnalyzer.results is Dict[str, Dict] KEYED BY CASE NAME;
 		# PFLOTRAN's is a list. list() on the dict yields the case NAMES, and
 		# _package then drops every non-dict — job 770923 packaged
@@ -362,8 +360,7 @@ class ExperimentManagerBase:
 		# exactly this and the fix was not carried to its sibling here.
 		return {"rows": ExperimentManagerBase._extract_rows(obj),
 				"units": units,
-				"extra_summary": getattr(obj, "extra_summary", None) or {},
-				"llm_input": llm}
+				"extra_summary": getattr(obj, "extra_summary", None) or {}}
 
 	@staticmethod
 	def _extract_rows(res: Any) -> List[Dict]:
@@ -399,8 +396,7 @@ class ExperimentManagerBase:
 			return None
 		return {"rows": rows,
 				"units": dict(d.get("variable_units") or {}),
-				"extra_summary": d.get("extra_summary") or {},
-				"llm_input": None}
+				"extra_summary": d.get("extra_summary") or {}}
 
 	def execute_plan(self,
 					 experiment_plan: Dict[str, Any],
@@ -605,9 +601,10 @@ class ExperimentManagerBase:
 					print(f"   ⚠️  {self.COUPLES_TO} coupling failed ({e}) — "
 						  f"the {self.MODEL} run stands")
 
-			print("\n📦 STEP 5: Packaging LLM Input")
-			print("-" * 40)
-			self._save_llm_input(experiment_plan, analyzer)
+			# STEP 5 IS GONE (2026-08-13). It wrote LLM_ANALYSIS_INPUT.json, an
+			# alias holding a prompt payload for the report agent that this
+			# framework no longer has. experiment.json is the product, and
+			# 04_analysis/analysis.json is the Analyzer's boundary file.
 
 			# NON-FATAL, like every stage since _package — and this one was
 			# not, which is the one place the rule was written down and not
@@ -1122,18 +1119,13 @@ class ExperimentManagerBase:
 		if isinstance(results, dict) and isinstance(results.get("units"), dict) \
 				and results["units"]:
 			return dict(results["units"])
+		# hydro_summary.json was the third source here and is no longer written
+		# (2026-08-13). It was never reached in practice: the contract above
+		# always carries units, and both object shapes below predate it.
 		for src in (getattr(results, "units", None),
-					(getattr(results, "summary", None) or {}).get("units"),
-					(self.analysis_dir / "hydro_summary.json")):
+					(getattr(results, "summary", None) or {}).get("units")):
 			if isinstance(src, dict) and src:
 				return src
-			if isinstance(src, Path) and src.exists():
-				try:
-					u = (json.loads(src.read_text()) or {}).get("units")
-					if u:
-						return u
-				except Exception:
-					pass
 		return {}
 
 	# Fields the extraction cannot know, because they describe how the column
@@ -1185,6 +1177,14 @@ class ExperimentManagerBase:
 					   "band", "band_range_m", "wtd_prior_m",
 					   "wtd_prior_uncertainty_m", "wtd_prior_source",
 					   "pinned", "station_id", "station_variable",
+					   # WHICH FORCING CELL, and WHAT SOIL — two independent
+					   # facts about where the column ended up, both settled at
+					   # input time and neither derivable from the row without
+					   # them. Columns sharing forcing_cell got the same rain, so
+					   # a difference between them is soil or terrain; that
+					   # reading is the reader's to make, and nothing here
+					   # precomputes it.
+					   "forcing_cell", "soil_summary",
 					   "soil_top_texture",
 					   "soil_layers", "soil_source", "soil_profile")
 
@@ -1235,13 +1235,10 @@ class ExperimentManagerBase:
 		"not computed", where a null says "computed as nothing".
 		"""
 		out: Dict[str, Any] = {}
-		hs: Dict[str, Any] = {}
-		f = self.analysis_dir / "hydro_summary.json"
-		if f.exists():
-			try:
-				hs = json.loads(f.read_text()) or {}
-			except Exception as e:
-				print(f"   ⚠️  could not read the extraction ({e})")
+		# hydro_summary.json used to be read here as a fallback for the honesty
+		# payload. It is no longer written, and the fallback never fired: the
+		# manager sets extra_summary on the results object in _extract, which is
+		# the branch below.
 		# No derived blocks at all. comparisons, soil_attribution,
 		# spatial_summary and driver_matrix are the Analyzer's to compute
 		# (src/agents/drivers.py): every one of them is a claim about the
@@ -1256,7 +1253,7 @@ class ExperimentManagerBase:
 		extra = (results.get("extra_summary") if isinstance(results, dict)
 				 else getattr(results, "extra_summary", None)) or {}
 		for k in ("limitations", "assumptions_ledger"):
-			v = extra.get(k) or hs.get(k)
+			v = extra.get(k)
 			if v:
 				out[k] = v
 		if "assumptions_ledger" not in out:
@@ -1363,9 +1360,10 @@ class ExperimentManagerBase:
 
 			"artifacts": {
 				"sampling_design": "sampling_design.png",
-				"extracted":       "04_analysis/hydro_summary.json",
-				"note": "hydro_summary.json holds the same per-column rows; "
-						"this file is the one the Analyzer reads",
+				"extracted":       "03_results/extracted.json",
+				"note": "extracted.json is the record of what was READ from the "
+						"history files; this file is what the Analyzer reads, "
+						"and everything derived is computed from that record",
 			},
 		}
 		# COMPACT, not indented. This file carries ~188k daily values for a
@@ -1390,74 +1388,24 @@ class ExperimentManagerBase:
 	# ─────────────────────────────────────────────────────────
 
 	# ─────────────────────────────────────────────────────────
-	# STEP 5 — PACKAGE LLM INPUT (top level)
+	# _save_llm_input DELETED 2026-08-13
 	# ─────────────────────────────────────────────────────────
-	def _save_llm_input(self,
-						plan:     Dict[str, Any],
-						analyzer: Any) -> None:
-		"""Save LLM_ANALYSIS_INPUT.json at the top level of run_dir.
-
-		An ALIAS. experiment.json is the manager's real product; this exists
-		because the standalone report tools open it by this name.
-
-		Non-fatal, and that matters: it runs AFTER the compute has succeeded,
-		so anything raising here throws away a finished ensemble over a
-		convenience file. get_llm_analysis_input() is also specific to ELM's
-		results object — a backend without it must still finish its run.
-		"""
-		try:
-			llm_input = (analyzer.get("llm_input") if isinstance(analyzer, dict)
-						 else analyzer.get_llm_analysis_input())
-		except Exception as e:
-			print(f"   ⚠️  LLM_ANALYSIS_INPUT.json skipped ({e}) — "
-				  f"experiment.json is unaffected")
-			return
-		# The contract carries llm_input: None for a backend that has no such
-		# payload, and for every RESUMED run (experiment.json does not store
-		# it). That used to arrive as a raised AttributeError and be caught
-		# above; as data it arrives as None and has to be checked, or the
-		# first assignment below dies at the last stage of a finished run.
-		if not isinstance(llm_input, dict):
-			print(f"   ⚠️  LLM_ANALYSIS_INPUT.json skipped — this run carries "
-				  f"no LLM payload; experiment.json is unaffected")
-			return
-		llm_input['experiment_plan'] = plan
-		llm_input['run_directory']   = str(self.run_dir)
-
-		# get_llm_analysis_input() omits extra_summary, so the honesty payload
-		# and the observation verdicts never reached the report agent. Attach
-		# them here so the written report can be held to the same standard as
-		# 04_analysis/interpretation.md.
-		_extra = (analyzer.get("extra_summary") if isinstance(analyzer, dict)
-				  else getattr(analyzer, 'extra_summary', None))
-		if _extra:
-			llm_input['limitations'] = _extra.get('limitations')
-			llm_input['assumptions_ledger'] = _extra.get('assumptions_ledger')
-		vp = self.analysis_dir / "validation.json"
-		if vp.exists():
-			try:
-				val = json.loads(vp.read_text())
-				llm_input['validation'] = {
-					"targets": val.get("targets"),
-					"observation_inventory": val.get("observation_inventory"),
-					"hydrograph_metrics": {
-						k: v for k, v in (val.get("hydrograph") or {}).items()
-						if k not in ("days", "obs", "mod")},
-				}
-			except Exception as e:
-				print(f"   ⚠️  could not attach validation to LLM input: {e}")
-		ip = self.analysis_dir / "interpretation.md"
-		if ip.exists():
-			llm_input['interpretation_md'] = ip.read_text()
-
-		try:
-			llm_file = self.run_dir / "LLM_ANALYSIS_INPUT.json"
-			with open(llm_file, 'w') as f:
-				json.dump(llm_input, f, indent=2, default=str)
-			print(f"✓ LLM_ANALYSIS_INPUT.json saved")
-		except Exception as e:
-			print(f"   ⚠️  LLM_ANALYSIS_INPUT.json not written ({e})")
-
+	# It wrote LLM_ANALYSIS_INPUT.json: experiment.json's rows plus a
+	# `focus_variables` hint block, packed for AnalysisReportAgent. That
+	# agent is deleted — the Analyzer's steps 3 and 4 interpret, over the
+	# comparison and the caveats and the figures that this payload never
+	# carried.
+	#
+	# FOUR OF ITS FIELDS WERE ALREADY DEAD when it went. It attached
+	# `limitations` and `assumptions_ledger` off extra_summary, plus
+	# `validation` from 04_analysis/validation.json and `interpretation_md`
+	# from interpretation.md. Nothing fills extra_summary any more; nothing
+	# writes validation.json at all; and interpretation.md is written only by
+	# the standalone analyze_agentic.py, which runs long after this point. So
+	# all four were absent on every pipeline run. The comment above them said
+	# the written report could be held to the same standard as the
+	# interpretation — it had not been able to for some time, and nothing said
+	# so.
 	# ─────────────────────────────────────────────────────────
 	# RUN SUMMARY
 	# ─────────────────────────────────────────────────────────
@@ -1609,13 +1557,14 @@ class ExperimentManagerBase:
 					self.results_dir / "execution_report.txt"),
 				'results_csv':        str(
 					self.results_dir / "results_summary.csv"),
-				'hydro_summary':      str(
-					self.analysis_dir / "hydro_summary.json"),
-				# experiment.json is the product; llm_input is the alias the
-				# standalone report tools open by name.
+				'extracted':          str(
+					self.results_dir / "extracted.json"),
+				# experiment.json is the manager's product. `llm_input` used to
+				# name an alias beside it, written for the report agent; both
+				# are gone (2026-08-13).
 				'experiment':         str(self.run_dir / "experiment.json"),
-				'llm_input':          str(
-					self.run_dir / "LLM_ANALYSIS_INPUT.json"),
+				'analysis_report':    str(
+					self.analysis_dir / "analysis.json"),
 			},
 			'model_type': self.MODEL,
 		}

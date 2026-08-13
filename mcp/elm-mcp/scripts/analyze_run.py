@@ -9,7 +9,7 @@ Wraps core.ELMResultsAnalyzer over a pipeline run dir that holds:
     run_plan.json   per-column metadata (forcing, lat/lon, years)
     columns.json        per-column elevation (optional, for the gradient)
 
-Writes hydro_summary.json (+ an elevation-gradient figure with --plot) into
+Prints the ensemble summary (+ figures with --plot) into
 <run-dir>/04_analysis/. NOTHING is executed — read-only over existing output.
 
 Run from the project root with the analysis env:
@@ -28,7 +28,7 @@ _FRAMEWORK = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_HERE.parent / "src"))              # ELM modules
 sys.path.insert(0, str(_FRAMEWORK / "src"))                # framework
 from elm_results_analyzer import ELMResultsAnalyzer
-from core.limitations import select_limitations
+from agents.analysis import step2_derive as _drv
 
 
 def soil_features(sp):
@@ -115,43 +115,66 @@ def print_summary(results, spatial):
               f"{_f(wb.get('recharge_mm_yr')):>11}{_f(wb.get('runoff_mm_yr')):>9}"
               f"{_f(wb.get('recharge_frac_of_P'), 3):>11}{_f(m.get('water_table_depth_m'), 2):>8}")
     print("-" * 84)
+    # THE SPATIAL BLOCK IS step2_derive.spatial_summary's NOW. The version this
+    # printed came from a private method on ELMResultsAnalyzer that also fitted
+    # recharge against elevation and wrote its own `interpretation` sentences —
+    # an extractor drawing conclusions. The fit is not lost: the elevation and
+    # precip correlations print immediately below, out of the driver matrix,
+    # for every response rather than recharge alone.
     if spatial:
-        fo, ve, dc = spatial["forcing"], spatial["vs_elevation"], spatial["driver_correlation"]
+        fo = spatial["forcing"]
         print(f"forcing: {fo['n_forcing_bins']} distinct precip value(s) "
               f"{fo['precip_mm_yr_distinct']} mm/yr  (elevation-resolved: {fo['elevation_resolved']})")
-        print(f"recharge vs elevation: slope {_f(ve['slope_per_1000m']['recharge_mm_yr'])}/1000m, "
-              f"fit r2={ve['fit_r2']['recharge_mm_yr']}, corr r={dc['recharge_vs_elevation_r']}"
-              f"  |  vs precip: corr r={dc['recharge_vs_precip_r']}")
-        print("interpretation:")
-        for n in spatial["interpretation"]:
-            print(f"  • {n}")
+        er = spatial.get("elevation_range_m")
+        if er:
+            print(f"elevation: {er[0]}-{er[1]} m over {spatial['n_columns']} "
+                  f"column(s) in {spatial['n_bands']} band(s)")
+        for band, b in (spatial.get("by_band") or {}).items():
+            mean = b.get("mean") or {}
+            print(f"  band {band:<10} n={b['n_columns']:<3} "
+                  f"elev {b.get('elevation_range_m')}  "
+                  + "  ".join(f"{k.replace('_mm_yr',''):}={_f(v)}"
+                              for k, v in mean.items()))
     else:
         print("(single location or no elevation — no spatial summary)")
     print("=" * 84)
 
 
-def print_soil(soil):
-    if not soil:
-        print("\n(no soil attribution — need >=2 columns sharing a forcing bin with soil data)")
+def print_forcing_groups(results):
+    """Columns that share a forcing cell — the soil control, read off the rows.
+
+    NOT a precomputed attribution (deleted 2026-08-13). Columns inside one
+    NLDAS-2 cell got the same rain, so a difference between them is soil or
+    terrain. Printed as the pairs and their numbers; no correlation is offered,
+    because two columns is not a sample and the old function computed one
+    anyway.
+    """
+    import collections
+    ok = [r for r in results.values() if r.get("status") == "ok"]
+    groups = collections.defaultdict(list)
+    for r in ok:
+        cell = r.get("forcing_cell")
+        if cell is not None:
+            groups[tuple(cell)].append(r)
+    shared = {c: g for c, g in groups.items()
+              if len(g) > 1 and len({(x.get("lat"), x.get("lon")) for x in g}) > 1}
+    if not shared:
+        print("\n(no soil control — no two columns at different places share a "
+              "forcing cell)")
         return
-    print("\n" + "=" * 84)
-    print(f"SOIL CONTROL  (forcing held at {soil['forcing_held_mm_yr']} mm/yr across "
-          f"{soil['n_columns']} columns — spread is soil-driven)")
-    print("=" * 84)
-    print(f"{'column':<9}{'top texture':>14}{'clay_max%':>11}{'ksat_min':>11}"
-          f"{'recharge':>11}{'runoff':>9}")
-    print(f"{'':9}{'':>14}{'':>11}{'µm/s':>11}{'mm/yr':>11}{'mm/yr':>9}")
-    print("-" * 84)
-    for r in soil["by_recharge"]:
-        print(f"{r['case_name']:<9}{str(r['texture_top']):>14}{_f(r['clay_max_pct'], 1):>11}"
-              f"{_f(r['ksat_min_ums'], 1):>11}{_f(r['recharge_mm_yr']):>11}{_f(r['runoff_mm_yr']):>9}")
-    print("-" * 84)
-    sc = soil["soil_correlation"]
-    print(f"recharge vs clay_max: r={sc['recharge_vs_clay_max']}   "
-          f"vs ksat_min: r={sc['recharge_vs_ksat_min']}   "
-          f"runoff vs clay_max: r={sc['runoff_vs_clay_max']}")
-    print(f"strongest soil predictor of recharge: {soil['strongest_predictor']}")
-    print("=" * 84)
+    print(f"\nSOIL CONTROL — same forcing, different soil "
+          f"({len(shared)} group(s))")
+    for cell, g in sorted(shared.items()):
+        print(f"  forcing cell {cell}:")
+        for r in g:
+            ss = r.get("soil_summary") or {}
+            wb = (r.get("metrics") or {}).get("water_budget") or {}
+            clay = ss.get("clay_pct")
+            print(f"    {r['case_name']:<9} {str(ss.get('texture_top')):<12} "
+                  f"clay {clay[0] if clay else '?'}-{clay[1] if clay else '?'}%   "
+                  f"recharge {wb.get('recharge_mm_yr')}  "
+                  f"runoff {wb.get('runoff_mm_yr')}  "
+                  f"drainage {wb.get('drainage_mm_yr')} mm/yr")
 
 
 def plot_soil(soil, out_path):
@@ -616,28 +639,17 @@ def main():
     print(f"analyzing {len(exps)} column(s) from {run_dir}")
 
     az = ELMResultsAnalyzer(exps, str(analysis_dir), last_year_only=args.last_year)
-    # honesty payload: run-config facts -> applicable limitations + ledger
-    rp = json.load(open(run_dir / args.plan_file)) if (run_dir / args.plan_file).exists() else {}
-    ccs = rp.get("CONDITIONS_COUPLERS") or [{}]
-    _y0 = int(ccs[0].get("DATM_CLMNCEP_YR_START", 1995) or 1995)
-    _y1 = int(ccs[0].get("DATM_CLMNCEP_YR_END", _y0) or _y0)
-    _warm = any(cc.get("FINIDAT") for cc in ccs)
-    _forcing = ((run_dir / "forcing.txt").read_text().strip()
-                if (run_dir / "forcing.txt").exists() else "nldas")
-    honesty = {
-        "limitations": select_limitations(
-            n_years=_y1 - _y0 + 1, warm_start=_warm, forcing=_forcing,
-            spinup_years=(_y1 - _y0) if args.last_year else 0),
-        "assumptions_ledger": (json.loads((run_dir / "assumptions.json").read_text())
-                               if (run_dir / "assumptions.json").exists() else []),
-    }
-    az.extra_summary = honesty
     az.extract_all()
-    spatial = az._compute_spatial_summary()
-    soil = az._compute_soil_attribution()
+    # THE ENSEMBLE VIEWS ARE THE ANALYZER'S, not the extractor's. This script
+    # used to reach through the class into az._compute_spatial_summary() and
+    # az._compute_driver_matrix() — private methods that were a second copy of
+    # step2_derive's functions. Deleted 2026-08-13; analyze_agentic.py and
+    # interpret_run.py already read them from here.
+    rows = list(az.results.values())
+    spatial = _drv.spatial_summary(rows)
     print_summary(az.results, spatial)
-    print_soil(soil)
-    print_matrix(az._compute_driver_matrix())
+    print_forcing_groups(az.results)
+    print_matrix(_drv.driver_matrix(rows))
 
     if args.plot:
         # partitioning + controls replace the old water_budget, driver_response

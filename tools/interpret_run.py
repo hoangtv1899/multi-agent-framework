@@ -2,7 +2,7 @@
 """
 LLM interpretation of a completed study — the agentic analyzer step.
 
-The deterministic analyzer produces numbers (hydro_summary.json) and the
+The deterministic analyzer produces numbers (experiment.json) and the
 validator produces observation comparisons (validation.json); this step hands
 BOTH, plus the original question and the planner's design, to the LLM and asks
 for a scientist's interpretation: what the partitioning story is, what drives
@@ -54,10 +54,41 @@ def load(p):
         return {}
 
 
+def _forcing_groups(rows):
+    """Columns sharing an NLDAS-2 forcing cell — the soil control, as facts.
+
+    Same weather, different soil, so a difference between them is soil or
+    terrain. Groups of one, and groups where every column sits at the same
+    place, are not controls and are left out. No correlation is computed: the
+    block this replaced computed one over two points.
+    """
+    import collections
+    g = collections.defaultdict(list)
+    for r in rows:
+        if r.get("status") != "ok" or r.get("forcing_cell") is None:
+            continue
+        g[tuple(r["forcing_cell"])].append(r)
+    out = []
+    for cell, members in sorted(g.items()):
+        if len(members) < 2:
+            continue
+        if len({(m.get("lat"), m.get("lon")) for m in members}) < 2:
+            continue
+        out.append({"forcing_cell": list(cell), "columns": [
+            {"column": m["case_name"],
+             "soil": m.get("soil_summary"),
+             "water_budget": (m.get("metrics") or {}).get("water_budget")}
+            for m in members]})
+    return out
+
+
 def compact_results(hs):
-    """Boil hydro_summary down to what the LLM needs (drop timeseries bulk)."""
+    """Boil the package down to what the LLM needs (drop timeseries bulk).
+
+    `columns`, not `experiments` — the rows come from experiment.json now.
+    """
     cols = []
-    for r in hs.get("experiments", []):
+    for r in hs.get("columns", []):
         if r.get("status") != "ok":
             continue
         m = r["metrics"]
@@ -65,11 +96,13 @@ def compact_results(hs):
                      "soil": r.get("soil"), **m})
     return {"columns": cols,
             "spatial_summary": _drv.spatial_summary(
-                hs.get("experiments") or []),
-            "soil_attribution": {k: v for k, v in (hs.get("soil_attribution") or {}).items()
-                                 if k != "by_recharge"},
+                hs.get("columns") or []),
+            # soil_attribution is gone (2026-08-13): columns sharing a
+            # forcing_cell got the same weather, so grouping on that field is
+            # the soil control, and it needs no precomputed block.
+            "forcing_groups": _forcing_groups(hs.get("columns") or []),
             "driver_matrix": _drv.driver_matrix(
-                hs.get("experiments") or [])}
+                hs.get("columns") or [])}
 
 
 def interpret(run_dir, model: str = "claude-opus-4-8-project",
@@ -85,10 +118,13 @@ def interpret(run_dir, model: str = "claude-opus-4-8-project",
     Raises FileNotFoundError if the deterministic analysis has not run.
     """
     rd = Path(run_dir)
-    hs = load(rd / "04_analysis" / "hydro_summary.json")
+    # experiment.json holds the same rows plus the honesty payload; the 8 MB
+    # hydro_summary.json copy beside it went on 2026-08-13.
+    hs = load(rd / "experiment.json")
     if not hs:
         raise FileNotFoundError(
-            f"no {rd}/04_analysis/hydro_summary.json — run the analysis first")
+            f"no {rd}/experiment.json — the Experiment Manager has not "
+            f"packaged this run")
 
     brief = load(rd / "reception_brief.json")
     plan = load(rd / "plan.json")

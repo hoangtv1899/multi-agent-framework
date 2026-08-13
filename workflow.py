@@ -51,7 +51,6 @@ def _drop_if_empty(d) -> None:
 
 
 from agents.planner               import Planner
-from agents.analysis_report_agent import AnalysisReportAgent
 from core.mcp_manager             import MCPManager
 
 class WorkflowCoordinator:
@@ -66,7 +65,12 @@ class WorkflowCoordinator:
 	def __init__(self,
 				 reception_model:      str = "claude-opus-4-8-project",
 				 planner_model:        str = "claude-opus-4-8-project",
-				 analyzer_model:       str = "claude-opus-4-8-project",
+				 # ACCEPTED AND UNUSED. The Analyzer is the five-step box in
+				 # src/agents/analysis/, and each step picks its own model —
+				 # step 2 and step 3 have different jobs and different budgets,
+				 # so one name here could only ever be wrong for one of them.
+				 # Kept in the signature because callers and tests pass it.
+				 analyzer_model:       str = None,
 				 default_output_dir:   str = "./workflow_outputs",
 				 mcp_config_file:      str = "mcp_config.json",
 				 interactive_reception: bool = False,
@@ -119,7 +123,9 @@ class WorkflowCoordinator:
 			interactive = interactive_reception,
 		)
 		self.planner  = Planner(model=planner_model)
-		self.analyzer = AnalysisReportAgent(model=analyzer_model, model_type="elm")
+		# NO ANALYZER OBJECT. The Analyzer is not an agent this class holds; it
+		# is a box that runs over a finished run directory, constructed where it
+		# is used (execute_plan stage 4c, and _workflow_analyze_existing).
 
 		# ── Defaults ──────────────────────────────────────────
 		self.default_output_dir   = default_output_dir
@@ -324,21 +330,21 @@ class WorkflowCoordinator:
 					"ensure a previous run exists.")
 	
 		print(f"📂 Analyzing: {run_dir}\n")
-		llm_input_file = Path(run_dir) / "LLM_ANALYSIS_INPUT.json"
-		if not llm_input_file.exists():
-			return f"❌ Analysis input not found in {run_dir}"
-	
+		# THE ANALYZER BOX, over a run directory. This used to require
+		# LLM_ANALYSIS_INPUT.json and hand it to a one-shot report agent, which
+		# meant "analyze that run" failed on any archived study that predated
+		# the alias or never wrote it. The Analyzer reads the packaged run off
+		# disk, so a directory is the only thing it needs.
 		try:
-			analysis = self.analyzer.generate_analysis_report(
-				user_request   = result.get('user_request', ''),
-				llm_input_file = str(llm_input_file),
-				output_file    = str(
-					Path(run_dir) / "ANALYSIS_REPORT.json"
-				),
-			)
-			self.conversation_context['last_analysis'] = analysis
+			from agents.analyzer import Analyzer
+			status = Analyzer(str(run_dir)).run() or {}
+			if status.get("error"):
+				return f"❌ Analysis failed: {status['error']}"
+			report = json.loads(
+				(Path(run_dir) / "04_analysis" / "analysis.json").read_text())
+			self.conversation_context['last_analysis'] = report
 			self.conversation_context['last_run_dir']  = run_dir
-			return self._format_analysis_response(analysis)
+			return self._format_analysis_response(report, run_dir)
 		except Exception as e:
 			return f"❌ Analysis failed: {e}"
 	
@@ -415,45 +421,41 @@ class WorkflowCoordinator:
 			# Step 3 — Analyze
 			print("📊 STEP 3: Analyzing Results")
 			print("-" * 50)
-			llm_input_file = (
-				Path(run_summary['run_directory']) /
-				"LLM_ANALYSIS_INPUT.json"
-			)
-			# NON-FATAL. The ensemble is computed and experiment.json is
-			# written by the time we get here, so a report failure — a dead
-			# gateway, a missing alias file — must not be reported as a failed
-			# pipeline. It reads as though the run was lost, and it was not.
+			# THE ANALYSIS ALREADY RAN. execute_plan's stage 4c runs the
+			# Analyzer over this directory and writes 04_analysis/analysis.json.
+			# This step used to spend TWO MORE LLM calls on a second, separate
+			# interpreter that never saw the comparison, the caveats or the
+			# figures — and its answer, not the pipeline's, was what got printed.
+			# The worse of two analyses was the one the user read. Deleted
+			# 2026-08-13; this step now reads what 4c wrote.
+			#
+			# STILL NON-FATAL, for the original reason: the ensemble and
+			# experiment.json exist by the time we get here, so a missing or
+			# half-written report must not be reported as a failed pipeline.
+			run_directory = Path(run_summary['run_directory'])
+			report_path = run_directory / "04_analysis" / "analysis.json"
 			analysis = None
 			try:
-				# Nothing succeeded — same reasoning as the Analyzer skip in
-				# execute_plan. A written report over zero columns costs an LLM
-				# call to say it has no data, which RUN_SUMMARY.json already
-				# says for free.
+				# 4c skips itself on a dead ensemble rather than paying an LLM
+				# to conclude it has no data, so the file is legitimately absent
+				# here. RUN_SUMMARY.json already says that for free.
 				if not run_summary.get('experiments_success'):
 					raise _NothingToReportOn(
 						f"0/{run_summary['experiments_total']} columns produced "
 						f"output")
-				if not llm_input_file.exists():
+				if not report_path.exists():
 					raise FileNotFoundError(
-						f"{llm_input_file.name} was not written; "
+						f"04_analysis/analysis.json was not written; "
 						f"experiment.json holds the results")
-				analysis = self.analyzer.generate_analysis_report(
-					user_request    = result.get('user_request', ''),
-					experiment_plan = plan,
-					llm_input_file  = str(llm_input_file),
-					output_file     = str(
-						Path(run_summary['run_directory']) /
-						"ANALYSIS_REPORT.json"
-					),
-				)
+				analysis = json.loads(report_path.read_text())
 				print("✓ Analysis complete\n")
 				self.conversation_context['last_analysis'] = analysis
 			except _NothingToReportOn as e:
 				print(f"   ⏭  report skipped — {e}\n")
 			except Exception as e:                              # noqa: BLE001
-				print(f"   ⚠️  written report failed ({e}) — the run and its "
-					  f"results are intact\n")
-	
+				print(f"   ⚠️  written report unavailable ({e}) — the run and "
+					  f"its results are intact\n")
+
 			if analysis is None:
 				return (f"✅ Run complete: {run_summary['experiments_success']}"
 						f"/{run_summary['experiments_total']} columns → "
@@ -766,22 +768,49 @@ class WorkflowCoordinator:
 			'last_focus':    None,
 		}
 	
-	def _format_analysis_response(self, analysis: dict) -> str:
+	# ─────────────────────────────────────────────────────────
+	# RENDERING analysis.json — the Analyzer's boundary file
+	# ─────────────────────────────────────────────────────────
+	# Both formatters below read `answer` / `verdict` / `claims` / `withheld`,
+	# the schema step 4 writes. They used to read `answer_to_user_question` and
+	# `key_findings` — the deleted report agent's shape, in which a claim was a
+	# sentence and nothing else. A claim now travels with the figure and the
+	# script that produced it, so the terminal can show where a number came
+	# from, and `withheld` shows what the audit struck rather than hiding it.
+
+	@staticmethod
+	def _claim_lines(analysis: dict, limit: int = 3) -> list:
+		out = []
+		claims = (analysis.get('claims') or [])[:limit]
+		if claims:
+			out += ["🔍 CLAIMS:", "-" * 70]
+			for i, c in enumerate(claims, 1):
+				out.append(f"{i}. {c.get('claim', 'N/A')}")
+				fig = c.get('figure')
+				if fig:
+					out.append(f"   figure: {fig}")
+			out.append("")
+		withheld = analysis.get('withheld') or []
+		if withheld:
+			out += ["🚫 WITHHELD (the audit struck these):", "-" * 70]
+			for w in withheld[:3]:
+				out.append(f"• {w.get('claim', 'N/A')}")
+				out.append(f"  because: {w.get('struck_because', 'N/A')}")
+			out.append("")
+		return out
+
+	def _format_analysis_response(self, analysis: dict,
+								  run_dir: str = None) -> str:
+		run_dir = run_dir or self.conversation_context.get('last_run_dir')
 		lines = ["=" * 70, "ANALYSIS RESULTS", "=" * 70, ""]
 		lines += ["📌 ANSWER:", "-" * 70,
-				  analysis.get('answer_to_user_question', 'N/A'),
-				  ""]
-		findings = analysis.get('key_findings', [])[:3]
-		if findings:
-			lines += ["🔍 KEY FINDINGS:", "-" * 70]
-			for i, f in enumerate(findings, 1):
-				lines.append(f"{i}. {f.get('finding', 'N/A')}")
-			lines.append("")
+				  analysis.get('answer') or 'N/A',
+				  "",
+				  f"verdict: {analysis.get('verdict')}", ""]
+		lines += self._claim_lines(analysis)
 		lines += [
 			"=" * 70,
-			f"Full report: "
-			f"{self.conversation_context.get('last_run_dir')}/"
-			f"ANALYSIS_REPORT.txt",
+			f"Full report: {run_dir}/04_analysis/analysis.json",
 			"=" * 70,
 		]
 		return "\n".join(lines)
@@ -791,8 +820,9 @@ class WorkflowCoordinator:
 										analysis:    dict) -> str:
 		lines = ["=" * 70, "WORKFLOW COMPLETE", "=" * 70, ""]
 		lines += ["📌 ANSWER:", "-" * 70,
-				  analysis.get('answer_to_user_question', 'N/A'),
-				  ""]
+				  analysis.get('answer') or 'N/A',
+				  "",
+				  f"verdict: {analysis.get('verdict')}", ""]
 		lines += ["⚙️  EXECUTION:", "-" * 70,
 				  f"• Experiments: "
 				  f"{run_summary['experiments_success']}/"
@@ -801,20 +831,21 @@ class WorkflowCoordinator:
 				  f"{run_summary['total_runtime_seconds']:.1f}s",
 				  f"• Output:      "
 				  f"{run_summary['run_directory']}", ""]
-		findings = analysis.get('key_findings', [])[:3]
-		if findings:
-			lines += ["🔍 KEY FINDINGS:", "-" * 70]
-			for i, f in enumerate(findings, 1):
-				lines.append(f"{i}. {f.get('finding', 'N/A')}")
-			lines.append("")
-		recs = analysis.get('recommendations', [])
-		if recs:
-			lines += ["💡 RECOMMENDATIONS:", "-" * 70]
-			for rec in recs[:2]:
-				lines.append(f"  • {rec}")
+		lines += self._claim_lines(analysis)
+		# CAVEATS REPLACE "RECOMMENDATIONS". The old agent invented next steps;
+		# the pipeline carries what actually limits the run, which is the thing
+		# a reader has to know before quoting any number above.
+		caveats = [c for c in (analysis.get('caveats') or [])
+				   if c.get('severity') in ('blocking', 'qualify')]
+		if caveats:
+			lines += ["⚠️  CAVEATS:", "-" * 70]
+			for c in caveats[:3]:
+				lines.append(f"  • [{c.get('severity')}] "
+							 f"{c.get('statement') or c.get('id')}")
 			lines.append("")
 		lines += ["=" * 70,
-				  f"Full details: {run_summary['run_directory']}",
+				  f"Full details: {run_summary['run_directory']}"
+				  f"/04_analysis/analysis.json",
 				  "=" * 70]
 		return "\n".join(lines)
 

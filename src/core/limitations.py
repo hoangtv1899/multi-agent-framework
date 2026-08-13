@@ -9,7 +9,7 @@ Two kinds, kept distinct because they mean different things to a reader:
                   rerunning (spin-up, forcing resolution, domain depth, years)
 
 select_limitations() picks the entries relevant to a given run so the
-analyzer can attach them to hydro_summary.json, the interpreter must
+analyzer can attach them to the results package, the interpreter must
 acknowledge them in its Trust section, and the deck renders them beside the
 results they qualify. Sourced from the same limits the planner reasons with —
 this module makes them mandatory at RESULT time, not just design time.

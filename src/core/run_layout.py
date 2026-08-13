@@ -41,8 +41,17 @@ LAYOUT: Dict[str, tuple] = {
     # ── the boundary files ──────────────────────────────────────────────
     "reception":   ("reception.json",),
     "strategy":    ("strategy.json", "plan.json"),
-    "experiment":  ("experiment.json", "LLM_ANALYSIS_INPUT.json"),
-    "analysis":    ("analysis.json", "ANALYSIS_REPORT.json"),
+    # NO LEGACY FALLBACK ON THESE TWO (2026-08-13). They used to fall back to
+    # LLM_ANALYSIS_INPUT.json and ANALYSIS_REPORT.json, both written by the
+    # deleted report agent — and neither holds the schema its canonical name
+    # promises. LLM_ANALYSIS_INPUT.json keys the rows under `experiments`, not
+    # `columns`; ANALYSIS_REPORT.json carries `answer_to_user_question` and
+    # `key_findings`, not analysis/1's `answer`, `verdict` and `claims`. A
+    # fallback that resolves to the wrong shape is worse than none: the caller
+    # gets a real path, opens it, and reads nothing. Both names are in RETIRED
+    # below, so asking for them by their old key still says where they went.
+    "experiment":  ("experiment.json",),
+    "analysis":    ("analysis.json",),
 
     # ── manager working state: 01_inputs/, formerly the top level ────────
     "columns":     ("01_inputs/columns.json",     "columns.json"),
@@ -51,7 +60,11 @@ LAYOUT: Dict[str, tuple] = {
     "assumptions": ("01_inputs/assumptions.json", "assumptions.json"),
 
     # ── extraction + analyzer products: 04_analysis/ ─────────────────────
-    "extracted":      ("04_analysis/hydro_summary.json",),
+    # The record of what was read from the history files. Was
+    # 04_analysis/hydro_summary.json until 2026-08-13 — an 8 MB copy of the
+    # package's own rows, written beside it and a day out of step with it.
+    "extracted":      ("03_results/extracted.json",
+                       "04_analysis/hydro_summary.json"),
     "validation":     ("04_analysis/validation.json",),
     "interpretation": ("04_analysis/interpretation.md",),
 

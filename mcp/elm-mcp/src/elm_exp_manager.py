@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """
 ELM Experiment Manager
-src/core/elm_exp_manager.py
+mcp/elm-mcp/src/elm_exp_manager.py
 
 Single responsibility: orchestrate the ELM execution pipeline — the
 Experiment Manager box of the framework (see ARCHITECTURE.md).
+
+NOT AN MCP TOOL, despite living in the server's src/. The seven tools are
+registered in mcp/elm-mcp/main.py; this is the framework's per-model manager
+class, which moved here with the rest of the ELM code in phase 1b and is
+imported back across the boundary by core/backends.py. It is deleted after
+phase 4 (docs/ELM_MCP_PLAN.md §1e) — the input half is already a shim around
+one MCP call, and what remains is the SLURM job-A/job-B orchestration that has
+to live outside a tool, because a tool must return fast or return an id.
 
 Output directory structure:
 
@@ -20,20 +28,24 @@ Output directory structure:
         ├── 02_setup_plots/
         │   └── column_surfaces.png                 (real FSURDAT per column)
         ├── 03_results/
-        │   ├── execution_report.txt
-        │   └── results_summary.csv
+        │   ├── execution_report.txt  results_summary.csv
+        │   └── extracted.json          (the record of what was READ)
         ├── 04_analysis/
-        │   ├── hydro_summary.json  validation.json  interpretation.md
+        │   ├── comparison.json  investigation.json  interpretation.json
+        │   ├── analysis.json           (the Analyzer's boundary file)
         │   ├── partitioning.png  controls.png  soil_control.png
-        │   ├── wtd_columns.png
-        │   └── validation_{hydrograph,yield,water_table,swe,context}.png
+        │   └── wtd_columns.png
         ├── 05_pflotran/                            (step 4d, only if coupled)
         │   ├── <col>/<col>.in + outputs
         │   ├── pflotran_summary_coupled.json  pflotran_study.json
         │   └── pflotran_coupled.png
-        ├── ANALYSIS_REPORT.json
-        ├── LLM_ANALYSIS_INPUT.json
+        ├── experiment.json             (this box's product)
         └── RUN_SUMMARY.json
+
+ANALYSIS_REPORT.json and LLM_ANALYSIS_INPUT.json used to sit at the top level.
+Both belonged to the one-shot report agent, deleted 2026-08-13; the Analyzer
+writes 04_analysis/analysis.json instead. validation.json is listed by no
+current writer either.
 
 ELM cases live at: $PSCRATCH/E3SMv3/1D_ELM.*/
 """

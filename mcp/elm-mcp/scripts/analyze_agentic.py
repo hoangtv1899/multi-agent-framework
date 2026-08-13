@@ -76,7 +76,7 @@ def evidence_payload(hs, val, brief, plan, assumptions):
     Deliberately narrow. The interpretation may only state numbers that appear
     here, so anything absent is a number it cannot invent.
     """
-    ok = [r for r in hs.get("experiments", []) if r.get("status") == "ok"]
+    ok = [r for r in hs.get("columns", []) if r.get("status") == "ok"]
     cols = []
     for r in ok:
         m = r["metrics"]
@@ -102,10 +102,12 @@ def evidence_payload(hs, val, brief, plan, assumptions):
         "limitations": hs.get("limitations"),
         "columns": cols,
         # computed here, not read: extraction no longer freezes them
-        "spatial_summary": _drv.spatial_summary(hs.get("experiments") or []),
-        "driver_matrix": _drv.driver_matrix(hs.get("experiments") or []),
-        "soil_attribution": {k: v for k, v in (hs.get("soil_attribution") or {}).items()
-                             if k != "by_recharge"},
+        "spatial_summary": _drv.spatial_summary(hs.get("columns") or []),
+        "driver_matrix": _drv.driver_matrix(hs.get("columns") or []),
+        # soil_attribution is gone (2026-08-13). Columns sharing a forcing_cell
+        # got the same weather, so what differs between them is soil or terrain
+        # — the control is a grouping on a field, not a precomputed block.
+        "forcing_groups": _forcing_groups(hs.get("columns") or []),
         "validation_verdicts": verdicts,
         "domain_match": val.get("domain_match"),
         "runoff_ratio": val.get("runoff_ratio"),
@@ -182,9 +184,11 @@ def main():
     ana = rd / "04_analysis"
     ana.mkdir(parents=True, exist_ok=True)
 
-    hs = _read(ana / "hydro_summary.json")
+    # experiment.json, not hydro_summary.json — the 8 MB copy of the same
+    # rows went on 2026-08-13.
+    hs = _read(rd / "experiment.json")
     if not hs:
-        sys.exit(f"no {ana}/hydro_summary.json — run analyze_run.py first")
+        sys.exit(f"no {rd}/experiment.json — package the run first")
     val = _read(ana / "validation.json")
     brief = _read(rd / "reception_brief.json")
     plan = _read(rd / "plan.json")
@@ -195,7 +199,7 @@ def main():
                 or "Summarise what this ensemble shows.")
 
     ar = _load_tool("analyze_run")
-    results = {r["case_name"]: r for r in hs.get("experiments", [])}
+    results = {r["case_name"]: r for r in hs.get("columns", [])}
     caps = detect_capabilities(results, val, cmeta)
     print(f"run capabilities: {', '.join(caps) or 'none'}")
     print(f"renderable figures: {', '.join(available(caps))}\n")
@@ -213,11 +217,10 @@ def main():
     # deterministic render context — the LLM never touches these objects
     az_soil = None
     try:
-        from elm_results_analyzer import ELMResultsAnalyzer
-        exps = ar.build_experiments(rd, args.cases_file, "run_plan.json")
-        _az = ELMResultsAnalyzer(exps, str(ana))
-        _az.results = results
-        az_soil = _az._compute_soil_attribution()
+        # The soil signal is no longer a precomputed block. Columns sharing a
+        # forcing_cell got the same weather, so what differs between them is
+        # soil or terrain — group on that field and read it.
+        az_soil = None
     except Exception:
         pass
     ctx = {"results": results, "run_dir": rd, "validation": val, "soil": az_soil}

@@ -14,8 +14,7 @@ series carries its own units and means what its name says; a ratio does not.
 Anything that needs interpreting stays where the interpretation lives.
 
 Standalone on purpose: it imports nothing from elm_results_analyzer, whose
-42 kB bundles the derived metrics, hydro_summary writing and plotting that this
-does not want. The variable definitions below are the CANONICAL ones — that
+42 kB bundled the derived metrics and plotting that this does not want. The variable definitions below are the CANONICAL ones — that
 module imports them from here, so the two lists cannot drift apart.
 """
 from __future__ import annotations

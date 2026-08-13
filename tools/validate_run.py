@@ -13,8 +13,8 @@ with the model, honestly labelling the strength of each comparison:
     CONTEXT-ONLY (the run carries no SWE output to compare against).
 
 Reads reception_brief.json (bbox), columns.json (Fan WTD per column), the run
-plan (simulation year) and 04_analysis/hydro_summary.json (model state — run
-analyze_run.py first). Writes 04_analysis/validation.json + validation.png.
+plan (simulation year) and experiment.json (model state — package the run
+first). Writes 04_analysis/validation.json + validation.png.
 
     source /qfs/people/tran289/IDEAS/env_compy.sh
     python3 tools/validate_run.py --run-dir <dir>
@@ -464,9 +464,14 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     cols = _cj["columns"] if isinstance(_cj, dict) else _cj
     _bands = _cj.get("bands") if isinstance(_cj, dict) else None
     fan = {c["id"]: _n(c.get("fan_wtd_m")) for c in cols}
-    hs = json.loads((run_dir / "04_analysis" / "hydro_summary.json").read_text())
+    # experiment.json, not hydro_summary.json (2026-08-13). The two carried the
+    # SAME rows — verified identical, case for case — and the second was an 8 MB
+    # copy written beside the first. experiment.json is the Experiment Manager's
+    # declared product and the Analyzer's only input; a validator reading a
+    # different file could disagree with the analysis about the same run.
+    hs = json.loads((run_dir / "experiment.json").read_text())
 
-    ok = [r for r in hs.get("experiments", []) if r.get("status") == "ok"]
+    ok = [r for r in hs.get("columns", []) if r.get("status") == "ok"]
     model_zwt = [_n(r["metrics"].get("water_table_depth_m")) for r in ok]
     model_zwt = [z for z in model_zwt if z is not None]
     fan_at_cols = [fan[r["case_name"]] for r in ok if fan.get(r["case_name"]) is not None]
@@ -1178,8 +1183,9 @@ def main():
         return
 
     run_dir = Path(args.run_dir)
-    if not (run_dir / "04_analysis" / "hydro_summary.json").exists():
-        sys.exit("run analyze_run.py first (no 04_analysis/hydro_summary.json)")
+    if not (run_dir / "experiment.json").exists():
+        sys.exit("no experiment.json — the Experiment Manager has not packaged "
+                 "this run, so there is nothing to validate")
     if not (run_dir / "reception_brief.json").exists():
         sys.exit("no reception_brief.json — controlled runs have no domain to validate against")
 
