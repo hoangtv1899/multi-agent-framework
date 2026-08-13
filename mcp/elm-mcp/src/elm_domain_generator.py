@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ELM Domain Generator
-src/core/elm_domain_generator.py
+mcp/elm-mcp/src/elm_domain_generator.py
 
 Generates single-column ELM domain files
 for arbitrary lat/lon locations.

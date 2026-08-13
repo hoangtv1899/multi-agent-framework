@@ -55,8 +55,8 @@ AJOBLINES=""
 echo \"── in-job analysis ──\"
 source /qfs/people/tran289/IDEAS/env_compy.sh 2>/dev/null || true
 cd $ROOT
-bash tools/run_watershed.sh --analyze $ABS_RD \\
-  || echo \"analysis failed — rerun with: bash tools/run_watershed.sh --analyze $ABS_RD\""
+python3 mcp/elm-mcp/scripts/analyze_run.py --run-dir $ABS_RD --plot \\
+  || echo \"analysis failed — rerun with: python3 mcp/elm-mcp/scripts/analyze_run.py --run-dir $ABS_RD --plot\""
 
 cat > "$SB" <<SBATCH
 #!/bin/bash
@@ -103,7 +103,7 @@ if [ -z "$WAIT" ]; then
         echo "  analysis runs inside the job after the columns finish"
         echo "  results will appear in $RD/04_analysis/"
     else
-        echo "  analyze: bash tools/run_watershed.sh --analyze $RD"
+        echo "  analyze: python3 mcp/elm-mcp/scripts/analyze_run.py --run-dir $RD --plot"
     fi
     [ -n "$MAIL" ] && echo "  email notification (END,FAIL) → $MAIL"
     exit 0
@@ -143,5 +143,5 @@ if [ -n "$ANALYZE" ]; then
         echo "✗ nothing succeeded — skipping analysis"; exit 1
     fi
     echo ""
-    bash tools/run_watershed.sh --analyze "$RD"
+    python3 mcp/elm-mcp/scripts/analyze_run.py --run-dir "$RD" --plot
 fi

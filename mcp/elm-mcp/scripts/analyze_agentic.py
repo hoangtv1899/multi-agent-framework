@@ -7,7 +7,7 @@ each one and flags rendering problems, and the interpretation is written against
 the JSON — bound by the verdicts validation already issued.
 
     source /qfs/people/tran289/IDEAS/env_compy.sh
-    python3 tools/analyze_agentic.py --run-dir <dir> [--question "..."]
+    python3 mcp/elm-mcp/scripts/analyze_agentic.py --run-dir <dir> [--question "..."]
                                      [--no-vision] [--annotate]
 
 Writes 04_analysis/analysis_plan.json (what it chose and why, so a rerun is

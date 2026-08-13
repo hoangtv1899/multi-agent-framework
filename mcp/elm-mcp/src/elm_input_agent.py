@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ELM Input Agent (Adapter)
-src/core/elm_input_agent.py
+mcp/elm-mcp/src/elm_input_agent.py
 
 Adapter that wraps GeneratedELMAgent to satisfy the
 ModelAgentBase contract used by the framework.

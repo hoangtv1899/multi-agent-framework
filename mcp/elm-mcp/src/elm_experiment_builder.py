@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ELM Experiment Builder
-src/core/elm_experiment_builder.py
+mcp/elm-mcp/src/elm_experiment_builder.py
 
 Translates plan JSON from the Planner into a list of
 ELMAgentAdapter instances, one per experiment.

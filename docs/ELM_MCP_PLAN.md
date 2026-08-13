@@ -556,9 +556,12 @@ has moved. **Do this first.**
 
 #### 1a RESULT — PASSED, 2026-08-07
 
-`mcp/elm-mcp/scripts/probe_conus_access.py`, run normally and with `--stripped`
-(which re-execs carrying only `HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`).
-**Identical output, all checks pass, in both.**
+`scripts/probe_conus_access.py`, run normally and with `--stripped` (which
+re-execs carrying only `HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`).
+**Identical output, all checks pass, in both.** (The script was deleted
+2026-08-13 once the result below had been recorded; the answer it produced is
+what mattered, and `describe_elm_capabilities` now checks every path at call
+time.)
 
 ```
 paths      manifest · conus_surfdata · input_files          all readable

@@ -19,21 +19,17 @@ REF=/pscratch/sd/h/hvtran/E3SMv3/1D_ELM.3c13216be8.2026-06-19-150916.elm_phase0
 
 ---
 
-## One-command wrapper (recommended)
-`run_watershed.sh` chains the login-node steps (1–4) + the soil pre-flight, then
-prints the `salloc` run block and the resume command. Add `--execute` to also run
-on a node and analyze — the whole pipeline in one go.
+## One-command wrapper — REMOVED 2026-08-13
 
-```bash
-# safe default: plan -> plot -> build -> pre-flight, then it prints steps 5 & 6
-bash tools/run_watershed.sh "Partitioning of runoff/recharge in the <WATERSHED> (HUC8 <CODE>), validate with observations"
-bash tools/run_watershed.sh --analyze workflow_outputs/pipeline_<TIMESTAMP>   # step 6, after the salloc run
+`tools/run_watershed.sh` is gone. It predated `workflow.py` and had been broken
+since the ELM code moved into `mcp/elm-mcp/`: four of the six paths it invoked
+no longer existed, and it died at the third — before building anything. So
+`--execute` and `--submit` had not built or submitted a run in some time.
 
-bash tools/run_watershed.sh --execute "…question…"   # all-in-one (also runs the salloc step)
-# -i = let reception clarify an ambiguous name;  override with  YR_START= YR_END= REF=
-```
-The manual steps below are exactly what the wrapper runs — use them to drive or
-debug any single stage.
+**Use `workflow.py`**, which drives Reception → Planner → Experiment Manager →
+Analyzer and reaches ELM through the MCP tools (`run_elm_ensemble` submits job A
+and the manager chains job B). The manual steps below still work for driving or
+debugging a single stage.
 
 ---
 

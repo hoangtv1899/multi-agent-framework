@@ -50,18 +50,19 @@ filesystem, and a UTF-8 locale CIME's python refuses to run without.
 
 Registered in mcp_config.json as `elm`.
 
-Tools — all seven, and describe_elm_capabilities advertises all seven:
-    describe_elm_capabilities()          -> what this does, needs, and does NOT do
-    build_elm_inputs_from_location(...)  -> DATA; snapped columns + case_inputs.json
-    get_column_metadata(...)             -> DATA; the columns as they will be RUN
-    run_elm_ensemble(...)                -> a JOB ID; JOB A, build + run, one job
-    build_elm_cases(...)                 -> a JOB ID; the build alone, for inspecting
-                                            the cases before spending node time
-    check_elm_job(...)                   -> what SLURM is doing, and the built case
-                                            directories once a build job has landed
-    compare_to_obs(...)                  -> MEASUREMENTS; model vs observations for
-                                            swe / water_table / streamflow / et, plus how much
-                                            of each observation was really measured
+THE TOOL LIST IS NOT WRITTEN DOWN HERE, deliberately. It used to be, and it
+said "all seven" while the registry held eight — extract_elm_output was
+registered, undescribed, and therefore invisible to the planner that reads
+describe_elm_capabilities() to find out what exists. A capability the caller
+cannot see is the same as one that does not exist.
+
+So the authority is the live registry (_registered_tools), the ORDER and the
+reasons are in _workflow(), and _coverage() compares them on every call and
+reports both failure directions: registered_but_not_described (a real
+capability reading as absent) and described_but_not_registered (the caller sent
+at a name that will fail). Ask the server:
+
+    describe_elm_capabilities() -> tools_registered, workflow, tool_coverage
 
 TWO WENT AWAY on 2026-08-10, both because they shelled out to scripts in the
 FRAMEWORK — a server running its client's code, which is the dependency the
@@ -404,7 +405,18 @@ def _workflow() -> List[Dict[str, Any]]:
              "does": "ask SLURM what a job from step 4 is doing",
              "returns": "state, whether it is still active, and for a build "
                         "job the case directories it produced"},
-            {"step": 6, "tool": "compare_to_obs",
+            {"step": 6, "tool": "extract_elm_output",
+             "does": "read each column's *.elm.h0.*.nc into daily series on "
+                     "disk. IT IS ALSO WHAT ESTABLISHES WHAT RAN — a "
+                     "submission receipt is written before the model starts, "
+                     "and RUN_SUMMARY.json has said 'pending, 0 success' for a "
+                     "run where every column finished. The history files are "
+                     "the ground truth. RAW SERIES ONLY: daily means, fluxes "
+                     "in mm/day, no fractions, ratios or budgets — those carry "
+                     "semantics that stay framework-side",
+             "returns": "a SUMMARY and the path to 03_results/extracted.json; "
+                        "the series never travel inline"},
+            {"step": 7, "tool": "compare_to_obs",
              "does": "pair each column's daily series against the observations "
                      "reception already gathered and persisted in "
                      "reception.json — swe, water_table, streamflow, et — and report "

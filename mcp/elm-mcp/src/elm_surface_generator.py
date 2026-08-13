@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ELM Surface Data Generator
-src/core/elm_surface_generator.py
+mcp/elm-mcp/src/elm_surface_generator.py
 
 Generates ELM surface data NetCDF files for a given lat/lon
 with soil properties from either MCP geology data (real layered

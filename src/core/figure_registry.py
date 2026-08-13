@@ -133,7 +133,13 @@ def detect_capabilities(results: Dict[str, Any], validation: Dict[str, Any],
     ok = [r for r in (results or {}).values() if r.get("status") == "ok"]
     if any((r["metrics"].get("water_budget") or {}) for r in ok):
         caps.append("water_budget")
-    if any((r.get("soil") or {}).get("clay_max_pct") is not None for r in ok):
+    # SOIL COMES FROM soil_profile, the form the data actually arrives in.
+    # This tested `r["soil"]["clay_max_pct"]` — a precomputed scalar nothing
+    # ever wrote. Measured across every packaged run on disk, `soil` was null
+    # on 100% of columns while `soil_profile` beside it was complete, so the
+    # soil capability read as absent on every run and the figures that need it
+    # were never offered. `soil` stopped being a row field on 2026-08-13.
+    if any(((r.get("soil_profile") or {}).get("layers")) for r in ok):
         caps.append("soil")
     if any(r.get("lat") is not None and r.get("lon") is not None for r in ok):
         caps.append("coordinates")

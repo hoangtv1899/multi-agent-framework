@@ -4,17 +4,17 @@ Analyze a completed ELM run — read the per-column history files, extract the
 hydrology, and summarize how recharge / runoff / soil moisture / water-table
 depth vary across the ensemble (spatially, by elevation).
 
-Wraps core.ELMResultsAnalyzer over a pipeline run dir that holds:
-    cases.json      the case directories that were run
-    run_plan.json   per-column metadata (forcing, lat/lon, years)
-    columns.json        per-column elevation (optional, for the gradient)
+Reads 03_results/extracted.json — the artifact extract_run wrote — and computes
+the ensemble views from it. Extracts first only when no artifact is there, so
+running this does not silently re-read NetCDF or rewrite what somebody else
+extracted.
 
 Prints the ensemble summary (+ figures with --plot) into
 <run-dir>/04_analysis/. NOTHING is executed — read-only over existing output.
 
 Run from the project root with the analysis env:
     source /qfs/people/tran289/IDEAS/env_compy.sh
-    python3 tools/analyze_run.py --run-dir workflow_outputs/pipeline_XXXX --plot
+    python3 mcp/elm-mcp/scripts/analyze_run.py --run-dir workflow_outputs/pipeline_XXXX --plot
 """
 import argparse
 import json
@@ -27,7 +27,8 @@ _HERE = Path(__file__).resolve().parent                    # scripts/
 _FRAMEWORK = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_HERE.parent / "src"))              # ELM modules
 sys.path.insert(0, str(_FRAMEWORK / "src"))                # framework
-from elm_results_analyzer import ELMResultsAnalyzer
+from extract import extract_run
+from column_rows import build_rows
 from agents.analysis import step2_derive as _drv
 
 
@@ -92,6 +93,24 @@ def build_experiments(run_dir: Path, cases_file="cases.json",
             "soil": soil_features(cc.get("soil_profile")),
         })
     return exps
+
+
+def _clay_max_pct(r):
+    """Deepest clay fraction in the profile, from soil_profile.
+
+    Both panels below used to read `r["soil"]["clay_max_pct"]`, a precomputed
+    scalar nothing ever wrote — null on 100% of columns across every packaged
+    run — so the clay axis was blank on every figure this script has ever
+    drawn. soil_profile carries the per-layer values and always did.
+    """
+    layers = ((r.get("soil_profile") or {}).get("layers")) or []
+    vals = []
+    for l in layers:
+        try:
+            vals.append(float(l.get("clay_pct")))
+        except (TypeError, ValueError):
+            pass
+    return max(vals) if vals else None
 
 
 def _f(x, d=1):
@@ -354,7 +373,7 @@ def plot_controls(results, out_path):
                  ("recharge / P", "recharge_mm_yr")]
     drivers = [("elevation (m)", lambda r: r.get("elevation_m"), True),
                ("precip P (mm/yr)", P_of, False),
-               ("max clay (%)", lambda r: (r.get("soil") or {}).get("clay_max_pct"), False)]
+               ("max clay (%)", _clay_max_pct, False)]
 
     nr, nc = len(responses), len(drivers)
     fig = plt.figure(figsize=(3.4 * nc + 4.6, 2.7 * nr))
@@ -406,7 +425,7 @@ def plot_controls(results, out_path):
             grp = shared[k]
             for r in grp:
                 yy.append((k, fr(r, "recharge_mm_yr"),
-                           (r.get("soil") or {}).get("clay_max_pct"),
+                           _clay_max_pct(r),
                            r["case_name"]))
             lbl.append(k)
         ks = sorted({q[0] for q in yy})
@@ -635,29 +654,46 @@ def main():
 
     run_dir = Path(args.run_dir)
     analysis_dir = run_dir / "04_analysis"
-    exps = build_experiments(run_dir, args.cases_file, args.plan_file)
-    print(f"analyzing {len(exps)} column(s) from {run_dir}")
 
-    az = ELMResultsAnalyzer(exps, str(analysis_dir), last_year_only=args.last_year)
-    az.extract_all()
+    # READ ONCE, THEN COMPUTE FROM WHAT WAS READ. This used to build an
+    # ELMResultsAnalyzer over cases.json + run_plan.json and re-open every
+    # NetCDF, which meant running this CLI rewrote 03_results/extracted.json —
+    # so "read-only over existing output", as the header above promises, was
+    # not true. It reuses the artifact when one is there and extracts when it
+    # is not, saying which.
+    art = run_dir / "03_results" / "extracted.json"
+    if art.is_file():
+        print(f"reading {art.relative_to(run_dir)}")
+    else:
+        print("no extraction artifact — reading the history files")
+        res = extract_run(str(run_dir))
+        if not res.get("ok"):
+            print(f"✗ {res.get('error')}")
+            return
+    results = build_rows(run_dir, last_year_only=args.last_year)
+    if not results:
+        print(f"✗ no columns in {art}")
+        return
+    print(f"analyzing {len(results)} column(s) from {run_dir}")
+
     # THE ENSEMBLE VIEWS ARE THE ANALYZER'S, not the extractor's. This script
     # used to reach through the class into az._compute_spatial_summary() and
     # az._compute_driver_matrix() — private methods that were a second copy of
     # step2_derive's functions. Deleted 2026-08-13; analyze_agentic.py and
     # interpret_run.py already read them from here.
-    rows = list(az.results.values())
+    rows = list(results.values())
     spatial = _drv.spatial_summary(rows)
-    print_summary(az.results, spatial)
-    print_forcing_groups(az.results)
+    print_summary(results, spatial)
+    print_forcing_groups(results)
     print_matrix(_drv.driver_matrix(rows))
 
     if args.plot:
         # partitioning + controls replace the old water_budget, driver_response
         # and elevation_gradient figures (see their docstrings for why).
-        plot_partitioning(az.results, analysis_dir / "partitioning.png")
-        plot_controls(az.results, analysis_dir / "controls.png")
-        plot_spatial(az.results, run_dir, analysis_dir / "spatial.png")
-        plot_wtd(az.results, run_dir, analysis_dir / "wtd_columns.png")
+        plot_partitioning(results, analysis_dir / "partitioning.png")
+        plot_controls(results, analysis_dir / "controls.png")
+        plot_spatial(results, run_dir, analysis_dir / "spatial.png")
+        plot_wtd(results, run_dir, analysis_dir / "wtd_columns.png")
         if soil:
             plot_soil(soil, analysis_dir / "soil_control.png")
     print(f"\nanalysis written to {analysis_dir}/")

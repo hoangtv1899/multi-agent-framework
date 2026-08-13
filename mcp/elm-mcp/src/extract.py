@@ -392,7 +392,13 @@ def _identity(rd: Path) -> Dict[str, Dict[str, Any]]:
                     out[c['case_name']] = {
                         k: c.get(k) for k in
                         ('lat', 'lon', 'elevation_m', 'band',
-                         'forcing_start', 'forcing_end', 'scenario_name')}
+                         'forcing_start', 'forcing_end', 'scenario_name',
+                         # WHICH FORCING PERIOD. Added 2026-08-13, when the
+                         # rows started being built from this artifact rather
+                         # than from the manager's experiment list — that list
+                         # carried it and the artifact did not, so every row
+                         # came out `forcing_period: None`.
+                         'forcing_period')}
         except Exception:                                       # noqa: BLE001
             pass
     colf = rd / 'columns.json'

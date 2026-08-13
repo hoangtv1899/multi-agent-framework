@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Build the per-column ELM input files
-tools/build_column_inputs.py
+mcp/elm-mcp/src/build_column_inputs.py
 
 domain.nc + surface.nc for every column in a run, from the SNAPPED coordinates
 in columns.json. A thin CLI over ELMDomainGenerator and ELMSurfaceGenerator —
@@ -34,9 +34,9 @@ through the generator even with no soil data of its own, because that is what
 rewrites lat/lon to match the per-column domain.
 
 Run:
-    python3 tools/build_column_inputs.py --run-dir workflow_outputs/elm_run_X
-    python3 tools/build_column_inputs.py --run-dir ... --only col_01,col_07
-    python3 tools/build_column_inputs.py --lat 46.8 --lon -121.0
+    python3 mcp/elm-mcp/src/build_column_inputs.py --run-dir workflow_outputs/elm_run_X
+    python3 mcp/elm-mcp/src/build_column_inputs.py --run-dir ... --only col_01,col_07
+    python3 mcp/elm-mcp/src/build_column_inputs.py --lat 46.8 --lon -121.0
 """
 import argparse
 import json

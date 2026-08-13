@@ -61,7 +61,6 @@ from typing   import Dict, Any, List, Optional
 sys.path.insert(0, "src")
 
 from core.exp_manager_base import ExperimentManagerBase, Pending
-from elm_results_analyzer  import ELMResultsAnalyzer
 
 
 # parents[3]: this file is mcp/elm-mcp/src/. _ROOT is the FRAMEWORK root — the
@@ -714,26 +713,39 @@ exit $?
 				 experiments,
 				 plan:   Dict[str, Any] = None,
 				 config: Dict[str, Any] = None) -> Dict[str, Any]:
-		"""Read the ELM history NetCDFs and pull the numbers out → 04_analysis/.
+		"""Read the ELM history NetCDFs, then build the rows FROM what was read.
+
+		TWO STEPS, IN THIS ORDER, AND NOTHING BETWEEN THEM:
+
+		    extract_run   history files -> 03_results/extracted.json
+		    build_rows    extracted.json -> the per-column rows
+
+		This used to be one object, ELMResultsAnalyzer, which read and computed
+		in the same pass and called write_extracted itself. That made TWO
+		writers of one artifact — it and extract_run — reached by two paths.
+		They did not disagree, but the shape is the one that already cost a
+		day: an extracted.json from one morning beside an experiment.json from
+		the next, 351 days against 352, nothing saying so. One writer now, and
+		the rows are reconstructible from the file it wrote.
+
+		OVERWRITE, deliberately. This stage has just run the model, so it is
+		the authoritative read; reuse belongs to the tool and to the comparison,
+		which may legitimately open an artifact somebody else made. A resumed
+		run does not pay for it twice — execute_plan skips a completed stage
+		outright, so this body does not run at all.
 
 		This is extraction, not analysis: it knows ELM's output format and
 		nothing about what the numbers mean. Figures, observation comparison
-		and interpretation belong to the Analyzer (src/agents/analyzer.py) and
-		are no longer reachable from here.
+		and interpretation belong to the Analyzer (src/agents/analyzer.py).
 
 		Also attaches the honesty payload (structural + configuration
-		limitations, assumptions ledger). ELMResultsAnalyzer already computes
-		the confounding notes, fit r2 and soil attribution; only
-		tools/analyze_run.py used to add `extra_summary`, so runs driven
-		through this manager silently lost the caveats.
+		limitations, assumptions ledger), which _ensemble_blocks folds into
+		experiment.json and step 0 turns into the caveats that bind the
+		interpreter.
 		"""
-		analyzer = ELMResultsAnalyzer(
-			experiments  = experiments,
-			analysis_dir = str(self.analysis_dir),
-		)
-
 		cfg  = config or {}
 		plan = plan or {}
+		honesty = {}
 		try:
 			from core.limitations import select_limitations
 			couplers = plan.get("CONDITIONS_COUPLERS") or [{}]
@@ -764,11 +776,29 @@ exit $?
 		except Exception as e:
 			print(f"   ⚠️  limitations payload unavailable ({e})")
 
-		analyzer.extract_all()
+		from extract import VARIABLE_UNITS, extract_run
+		from column_rows import build_rows
 
-		# The stage's output is DATA. ELMResultsAnalyzer stays as the thing
-		# that COMPUTES the rows; it just no longer crosses the boundary.
-		return self._as_extract(analyzer)
+		res = extract_run(str(self.run_dir), overwrite=True)
+		if not res.get("ok"):
+			# NOT fatal here. _package still runs and records that the run
+			# produced nothing readable, which is the only account of what
+			# happened; raising would throw away a finished ensemble.
+			print(f"   ✗ extraction failed: {res.get('error')}")
+			return {"rows": [], "units": dict(VARIABLE_UNITS),
+					"extra_summary": honesty}
+		print(f"   ✓ {res['n_ok']}/{res['n_columns']} column(s) read "
+			  f"-> 03_results/extracted.json ({res.get('size_mb')} MB)")
+
+		rows = build_rows(self.run_dir)
+		print(f"   ✓ {len(rows)} row(s) built from the artifact")
+
+		# THE STAGE'S OUTPUT IS DATA — a plain dict in the contract's shape, not
+		# a live object the base has to read with getattr. That was the last
+		# holdout, and it is what makes this stage crossable by a tool call.
+		return {"rows": list(rows.values()),
+				"units": dict(VARIABLE_UNITS),
+				"extra_summary": honesty}
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 4d — ONE-WAY ELM → PFLOTRAN COUPLING

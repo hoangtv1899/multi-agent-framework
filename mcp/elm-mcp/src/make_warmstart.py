@@ -16,7 +16,7 @@ WHAT IT DOES (one source, since 2026-08-12):
              both miss (esp. deep soil temperature). Snow/canopy/PFT state are
              left as the carrier's (already a real-forcing January state).
 
-    python3 tools/make_warmstart.py --run-dir <dir> [--cases-file cases_all.json]
+    python3 mcp/elm-mcp/src/make_warmstart.py --run-dir <dir> [--cases-file cases_all.json]
                                     [--out-dir <dir>/warmstart]
                                     [--conus-restart /path/MANIFEST_or_file]
 

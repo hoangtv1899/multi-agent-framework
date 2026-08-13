@@ -314,13 +314,17 @@ and the reactive-transport demo (`tools/build_reactive_demo.py`).
 `src/core/pflotran_input_agent.py` is the deck writer for all of them.
 See `docs/PFLOTRAN_PLAN.md`.
 
-**The shell path.** `tools/run_watershed.sh` runs the same stages step-by-step from
-the login node (`build_cases.py`, `run_cases.sh`, `submit_cases.sh`,
-`plot_columns.py`, `analyze_run.py`). Useful when you want to stop between steps.
-See `docs/RUNBOOK.md`. It is a **legacy CLI**: it predates `workflow.py`, does
-not go through the MCP, and `tools/submit_cases.sh` + `tools/run_cases.sh` now
-exist only to serve it — nothing in the framework flow or the elm server calls
-either any more.
+**The shell path.** `tools/run_watershed.sh` was deleted on 2026-08-13. It was a
+legacy one-command wrapper predating `workflow.py`, and it had been **broken
+since the ELM code moved into `mcp/elm-mcp/`**: four of the six paths it invoked
+(`src/core/columns_to_plan.py`, `tools/build_cases.py`, `tools/plot_columns.py`,
+`tools/analyze_run.py`) no longer existed, and under `set -euo pipefail` it died
+at the third — before building anything. Building and submitting is the
+`run_elm_ensemble` tool (job A) plus the manager's job B.
+
+The individual stages are still drivable by hand: `tools/run_cases.sh` and
+`tools/submit_cases.sh` remain, and the ELM CLIs live in `mcp/elm-mcp/scripts/`
+and `mcp/elm-mcp/src/`. See `docs/RUNBOOK.md`.
 
 **Standalone diagnostics.** `tools/scout_watersheds.py` (pre-flight observation
 coverage), `tools/mcp_conus_sweep.py` (MCP coverage), `tools/probe_planner.py`

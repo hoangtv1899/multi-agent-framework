@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ELM Wrapper
-src/core/elm_wrapper.py
+mcp/elm-mcp/src/elm_wrapper.py
 
 Simplified wrapper for creating, configuring, building, and
 running a single-column ELM case on Compy.

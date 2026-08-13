@@ -11,7 +11,7 @@ build/clone runs on the login node; the ELM run is a separate salloc step
 (tools/run_cases.sh).
 
     source /qfs/people/tran289/IDEAS/env_compy.sh
-    python3 tools/build_cases.py --plan <plan.json> --ref <ref_case_dir> --out-dir <run_dir>
+    python3 mcp/elm-mcp/scripts/build_cases.py --plan <plan.json> --ref <ref_case_dir> --out-dir <run_dir>
 """
 import argparse
 import json

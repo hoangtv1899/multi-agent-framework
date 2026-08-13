@@ -11,11 +11,11 @@ density; only clay/sand vary) at the same (lat,lon), native soil_config +
 extrapolate substrate — the same surface-generation path the real run used.
 
     source /qfs/people/tran289/IDEAS/env_compy.sh
-    python3 tools/make_soil_sweep.py --out-dir workflow_outputs/soil_sweep
+    python3 mcp/elm-mcp/scripts/make_soil_sweep.py --out-dir workflow_outputs/soil_sweep
     # then:
-    #   python3 tools/build_cases.py --plan <out>/soilsweep_plan.json --ref <ref_case> --out-dir <out>
+    #   python3 mcp/elm-mcp/scripts/build_cases.py --plan <out>/soilsweep_plan.json --ref <ref_case> --out-dir <out>
     #   salloc ... bash tools/run_cases.sh "$(cat <out>/exe_path.txt)" <case dirs>
-    #   python3 tools/analyze_run.py --run-dir <out> --cases-file cases.json --plan-file soilsweep_plan.json --plot
+    #   python3 mcp/elm-mcp/scripts/analyze_run.py --run-dir <out> --cases-file cases.json --plan-file soilsweep_plan.json --plot
 """
 import argparse
 import json

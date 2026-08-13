@@ -32,8 +32,8 @@ writing anything:
     (--surfdata), not from a coarser global file.
 
     source /qfs/people/tran289/IDEAS/env_compy.sh
-    python3 tools/make_finidat_subset.py --run-dir <dir> [--conus-restart MANIFEST]
-    python3 tools/make_finidat_subset.py --lat 46.736 --lon -120.835 \
+    python3 mcp/elm-mcp/src/make_finidat_subset.py --run-dir <dir> [--conus-restart MANIFEST]
+    python3 mcp/elm-mcp/src/make_finidat_subset.py --lat 46.736 --lon -120.835 \
         --conus-restart <band.nc> --out /tmp/finidat_col_01.nc
 """
 import argparse
