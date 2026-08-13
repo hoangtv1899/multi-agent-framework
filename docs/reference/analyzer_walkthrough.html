@@ -147,7 +147,7 @@
      sentences survive.</p>
   <div class="meta">
     <span>src/agents/analyzer.py</span>
-    <span>revised 2026-08-13, 15:30</span>
+    <span>revised + verified 2026-08-13, 16:40</span>
     <span>naches_1979 · brandywine_2010</span>
   </div>
 </header>
@@ -445,23 +445,50 @@
     </tbody>
   </table>
 
-  <div class="quote">
-    <span class="said">"Compared context-only with the two USGS gauges, the
-      unweighted column-mean QOVER+QDRAI (0.7236 mm/day, 254.72 mm total) is
-      far too low…"</span>
-    <span class="why">Struck: declared −1.3489, −0.2637, 22 and −0.1818 as
-      measured, but cited the step-2 figure, which does not contain them. The
-      sentence was true; the citation pointed at the wrong evidence.</span>
-  </div>
+  <h3 style="margin-top:6px;">What the audit caught, and what it revealed</h3>
+  <p>On the 2026-08-13 verification runs the audit struck <strong>9 of 14
+     claims</strong>. Every struck value turned out to be a real measurement
+     from that run, cited under the wrong id — so the audit was right fourteen
+     times out of fourteen, and the failure was upstream of it.</p>
 
   <div class="quote">
-    <span class="said">"Where water leaves each column differs sharply between
-      columns (4.34 to 798.27 mm over the run)…"</span>
-    <span class="why">Struck for the same reason on the Brandywine run. Both
-      strikes are the citation rule working, not a false positive — the numbers
-      exist, in <code>compare_streamflow</code>, which the claim did not
-      name.</span>
+    <span class="said">"Against the two co-located SNOTEL pillows, modelled SWE
+      is biased low but tracks the seasonal shape…"</span>
+    <span class="why">Struck: declared −85.8531, 196.9291, 0.2867 and 0.4612
+      while citing <code>swe_snotel_validation</code>. Those four numbers live
+      in <code>compare_swe</code>. The claim named the finding whose
+      <em>subject</em> matched, not the one its numbers came from.</span>
   </div>
+
+  <p>Tracing all 15 struck values: <strong>8 sat in a
+     <code>compare_*</code> finding</strong>, 6 in a different step-2 finding,
+     1 nowhere. Two causes, both in how the evidence was shown rather than in
+     the rule:</p>
+  <table>
+    <thead><tr><th>cause</th><th>measured</th><th>fixed by</th></tr></thead>
+    <tbody>
+      <tr><td>Step 1's findings were rendered as a prose block while step 2's
+              were listed with ids — though the audit accepts both.</td>
+          <td>8 of 15 values</td>
+          <td>one uniform <code>FINDINGS:</code> list holding exactly what the
+              audit accepts. The verification asserts
+              ids-shown&nbsp;=&nbsp;ids-accepted.</td></tr>
+      <tr><td>A silent 700-character cap on each result. The model was shown a
+              fifth of a finding and told to quote from it exactly.</td>
+          <td><code>partition_fractions_vs_elevation</code> held 324 numbers;
+              292 were behind the cut. 5 of 10 findings truncated.</td>
+          <td>cap raised to 6,000 — nothing measured is cut — and when it does
+              cut it says so and forbids quoting from that finding.</td></tr>
+    </tbody>
+  </table>
+
+  <p class="rule-note">Re-running step 3 alone over the <em>same</em> step-2
+     findings, so only the prompt differed:
+     <strong>Naches 3 kept / 5 struck → 11 kept / 0 struck</strong>;
+     <strong>Brandywine 2 / 4 → 9 / 1</strong>. The one survivor is a
+     <code>respects</code> strike, not a misattribution — a water-table claim
+     that did not carry <code>limitation_structural_3</code>. Cost: about 1,300–1,700
+     extra prompt tokens against per-run totals of 40–78k.</p>
 </section>
 
 <section>
@@ -517,52 +544,64 @@
 
 <section>
   <span class="eyebrow">Evidence</span>
-  <h2>Two runs, end to end</h2>
+  <h2>Two runs, re-run end to end on 2026-08-13</h2>
+  <p>Both studies were replayed on copies from the extraction stage onward —
+     history files re-read, rows rebuilt, packaged, then all five Analyzer
+     steps. Nothing here is quoted from an earlier pass.</p>
   <div class="runs">
     <div class="run">
       <h3>Naches · 1979 · 17 columns</h3>
-      <span class="verdict v-ok">sufficient</span>
+      <span class="verdict v-no">insufficient</span>
       <dl>
-        <dt>caveats</dt><dd>23 &nbsp;(8 blocking)</dd>
-        <dt>from step 1</dt><dd>8</dd>
-        <dt>figures</dt><dd>5 compare + 4 investigate</dd>
-        <dt>claims</dt><dd>6 kept · 3 struck</dd>
-        <dt>rounds</dt><dd>1</dd>
-        <dt>model</dt><dd>2 calls · 33k tok · 138 s</dd>
+        <dt>caveats</dt><dd>14 &nbsp;(5 blocking)</dd>
+        <dt>from step 1</dt><dd>0</dd>
+        <dt>figures</dt><dd>5 compare + 5 investigate</dd>
+        <dt>claims</dt><dd>11 kept · 0 struck</dd>
+        <dt>rounds</dt><dd>2</dd>
+        <dt>model</dt><dd>4 calls · 78k tok · 298 s</dd>
       </dl>
-      <p style="font-size:.86rem;margin:0;">Concluded that drainage is set by a
-         diagnosed aquifer store rather than by soil physics — the mechanism
-         behind ten columns draining nothing.</p>
+      <p style="font-size:.86rem;margin:0;"><strong>It completes.</strong> Its
+         previous run recorded <code>analyze: failed — investigate,
+         interpret</code>: one call, verdict <code>None</code>, zero claims.
+         Still <em>insufficient</em>, but now that is a statement about the
+         experiment's reach rather than a stage that fell over.</p>
     </div>
     <div class="run">
       <h3>Brandywine · 2010 · 13 columns</h3>
-      <span class="verdict v-no">insufficient</span>
+      <span class="verdict v-ok">sufficient</span>
       <dl>
-        <dt>caveats</dt><dd>21 &nbsp;(7 blocking)</dd>
-        <dt>from step 1</dt><dd>7</dd>
+        <dt>caveats</dt><dd>14 &nbsp;(5 blocking)</dd>
+        <dt>from step 1</dt><dd>0</dd>
         <dt>figures</dt><dd>5 compare + 5 investigate</dd>
-        <dt>claims</dt><dd>6 kept · 2 struck</dd>
-        <dt>rounds</dt><dd>2</dd>
-        <dt>model</dt><dd>4 calls · 78k tok · 297 s</dd>
+        <dt>claims</dt><dd>9 kept · 1 struck</dd>
+        <dt>rounds</dt><dd>1</dd>
+        <dt>model</dt><dd>2 calls · 41k tok · 150 s</dd>
       </dl>
-      <p style="font-size:.86rem;margin:0;">Refused the soil-moisture half of
-         the question and said why: the field it needs is not exposed as a
-         depth-resolved frame. An analysis gap, not a limit of the run.</p>
+      <p style="font-size:.86rem;margin:0;">Was <em>insufficient</em> over two
+         rounds and 79k tokens. Now sufficient in one, at half the cost — and
+         its answer opens by quoting <code>below_active_soil</code>
+         unprompted, which is the whole case for removing step 1's caveats.</p>
     </div>
   </div>
+  <p class="rule-note">The claim counts are from a second step-3 pass over the
+     <em>same</em> step-2 findings, isolating the prompt fix described below.
+     The first pass through the full pipeline gave 3 kept / 5 struck and 2 kept
+     / 4 struck — see that section for why.</p>
 </section>
 
 <section>
   <span class="eyebrow">For review</span>
-  <h2>Six things I would question</h2>
+  <h2>Seven things I would question</h2>
 
   <div class="open">
-    <h3>The citation rule strikes true sentences</h3>
-    <p>Both struck claims above were factually correct and cited the wrong
-       finding. The rule is right — but a reviewer that quotes step 1's numbers
-       under step 2's figure id is making an easy mistake, and we could tell it
-       which finding holds which number rather than letting the audit catch it
-       afterwards.</p>
+    <h3 style="text-decoration:line-through;opacity:.6;">The citation rule
+        strikes true sentences</h3>
+    <p><strong>Resolved 2026-08-13.</strong> It was never the rule. The brief
+       showed step 1's evidence in one shape and step 2's in another, and cut
+       every result at 700 characters — so the model was quoting from evidence
+       it could only partly see, under ids it had no uniform list of. Showing it
+       exactly what the audit accepts took the strike rate from 9 of 14 to 1 of
+       21. The remaining strike is a caveat the claim genuinely owed.</p>
   </div>
 
   <div class="open">
@@ -617,12 +656,29 @@
   </div>
 
   <div class="open">
-    <h3>Naches has never produced an interpretation</h3>
-    <p>Its last run recorded <code>analyze: failed — these steps failed:
-       investigate, interpret</code>: one model call, verdict <code>None</code>,
-       zero claims. The figures above for Naches come from an earlier pass.
-       Undiagnosed, and it is the study with the more interesting physics — ten
-       columns draining nothing, and now three soil-control pairs.</p>
+    <h3 style="text-decoration:line-through;opacity:.6;">Naches has never
+        produced an interpretation</h3>
+    <p><strong>It does now</strong> — all five steps, 11 claims, verdict
+       <em>insufficient</em>. What made the earlier attempt fail is still
+       unknown; it did not recur on a clean replay, so it was most likely a
+       transient rather than a defect, and I am recording that as a guess
+       rather than a diagnosis.</p>
+  </div>
+
+  <div class="open">
+    <h3>The verification found the bug that verification exists to find</h3>
+    <p>Re-running the extract stage surfaced a stale variable left by an earlier
+       refactor: the honesty payload was assigned to a name that no longer
+       existed, the <code>NameError</code> was swallowed by a bare
+       <code>except Exception</code>, and it printed
+       <em>"limitations payload unavailable"</em> — which reads as a run with no
+       limitations rather than as code that did not run.</p>
+    <p>Since step 1 stopped deriving caveats that morning, that payload is the
+       <strong>only</strong> source of anything blocking. Every future run would
+       have had an interpreter with no constraints at all, announced as a
+       warning. The handler now raises on a code fault and warns only on
+       genuinely absent input — but the general shape, <em>a bare except
+       turning a bug into a data condition</em>, is worth hunting elsewhere.</p>
   </div>
 </section>
 
