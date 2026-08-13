@@ -162,7 +162,7 @@
 
   <figure>
     <div class="scroll">
-      <svg viewBox="0 0 860 400" role="img" aria-label="Dataflow through the Analyzer: three boundary files enter step 0, which splits them into plan, data and caveats; step 1 calls the ELM server's compare package and adds caveats and citable findings; step 2 asks a model for figures which pandas computes; step 3 judges and a code audit strikes unsupported claims, with one loop back to step 2; step 4 writes analysis.json.">
+      <svg viewBox="0 0 860 400" role="img" aria-label="Dataflow through the Analyzer: three boundary files enter step 0, which splits them into plan, data and caveats; step 1 calls the ELM server's compare package and turns the measurements into citable findings; step 2 asks a model for figures which pandas computes; step 3 judges and a code audit strikes unsupported claims, with one loop back to step 2; step 4 writes analysis.json.">
         <defs>
           <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5"
                   markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -196,7 +196,7 @@
         <!-- step 1 -->
         <rect x="180" y="120" width="240" height="72" rx="4" fill="none" stroke="currentColor" stroke-width="1.4"/>
         <text x="300" y="145" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">step 1 · compare</text>
-        <text x="300" y="163" text-anchor="middle" font-size="11" fill="currentColor">caveats · citable findings</text>
+        <text x="300" y="163" text-anchor="middle" font-size="11" fill="currentColor">citable findings</text>
         <text x="300" y="180" text-anchor="middle" font-size="11" fill="currentColor">5 figures</text>
         <line x1="240" y1="76" x2="240" y2="116" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
 
@@ -288,19 +288,29 @@
       <span class="step-n">step 1</span>
       <span class="io"><b>reads</b>ctx only</span>
       <span class="io"><b>writes</b>comparison.json<br>4 figures + map</span>
+      <span class="io"><b>caveats</b>none</span>
     </div>
     <div class="step-body">
-      <h3>Compare — the server measures, this step judges</h3>
+      <h3>Compare — the server measures, this step makes it citable</h3>
       <p>The measuring belongs to the model's own server, chosen from the run
          rather than assumed: ELM's <code>compare</code> package handles swe,
          water_table, streamflow and et — each matched then compared, returning
          bias, RMSE, NSE, KGE and the diagnostics about the matching itself. It
          offers no verdict, deliberately. A backend with no comparison
          registered gets told so; it does not get ELM's.</p>
-      <p>This step turns those numbers into <strong>caveats</strong> — each one
-         derived from a value in the record and quoting it — and into
-         <strong>findings step 3 may cite</strong>, one per observable, carrying
-         its figure and its caveat ids.</p>
+      <p>It turns those numbers into <strong>findings step 3 may cite</strong>,
+         one per observable, carrying its figure. Without them a sentence about
+         an observation had nothing to cite and the audit struck it — the
+         interpreter could describe the model and was forbidden to say how it
+         compared.</p>
+      <p class="rule-note"><strong>It derives no caveats, as of 2026-08-13.</strong>
+         It used to add eight, including four blocking. Each restated as a
+         verdict a measurement the summary already carried —
+         <code>below_active_soil</code>, <code>onset_censored_columns</code>,
+         <code>gauges_exceeding_modelled_domain</code> — so the step was
+         measuring <em>and</em> ruling on the measurement, which is the one
+         thing its own docstring says it does not do. Understanding what the
+         scope and the model choice permit belongs to whoever interprets.</p>
       <p class="rule-note">Streamflow matches nothing. A gauge measures an area,
          so the ensemble mean stands against each gauge as context, and no
          metric between them scores the model.</p>
@@ -315,15 +325,20 @@
       <span class="io"><b>driven by</b>step 3</span>
     </div>
     <div class="step-body">
-      <span class="llm">1 model call per round</span>
-      <h3>Investigate — it decides what to compute, and computes nothing</h3>
-      <p>The model is shown the question, the variable catalogue, the caveats,
-         and what the comparison measured. It returns figure specs with Python;
-         each script runs in a subprocess and must assign a <code>result</code>
-         dict and an <code>n</code>. A result with <code>n</code> under 3 is
-         rejected.</p>
-      <p>It concludes nothing. Every number that reaches step 3 was produced by
-         pandas, not written by a model.</p>
+      <span class="llm">1 model call per round · then N subprocesses</span>
+      <h3>Investigate — the model decides, the machine computes</h3>
+      <p><strong>This step is where the arithmetic happens.</strong> The model is
+         shown the question, the variable catalogue, the caveats and what the
+         comparison measured; it returns figure specs <em>with Python</em>. Step
+         2 then runs each script itself, in its own subprocess through
+         <code>script_runner</code> — a real timeout and crash isolation, which
+         <code>exec()</code> in-process cannot give. Each script must assign a
+         <code>result</code> dict and an <code>n</code>; a result with
+         <code>n</code> under 3 is rejected.</p>
+      <p>So two different actors work in this one step, and separating them is
+         the whole point: <strong>the model produces no number and the machine
+         makes no judgement</strong>. That is what lets step 3 check a claim
+         against the data it came from. Nothing here concludes anything.</p>
       <p class="rule-note">There is no step-2 call in <code>Analyzer.run()</code>.
          Step 3 owns the loop — <code>investigate_and_interpret</code> runs step
          2, judges it, and may run it once more. The two are one bounded
@@ -451,47 +466,53 @@
 
 <section>
   <span class="eyebrow">What binds a claim</span>
-  <h2>The caveats step 1 derives</h2>
-  <p>Severity is about what a caveat <em>does</em> to a claim, not how bad it
-     sounds. Only <span class="pill p-block">blocking</span> is enforced by the
-     audit; the other two travel into the report and the prompts.</p>
+  <h2>What a caveat is, and where the surviving ones come from</h2>
+  <p>A caveat is a <strong>record, not a sentence</strong> — five fields, so it
+     can be checked. An unrespected caveat written as prose looks exactly like a
+     respected one.</p>
+  <pre style="background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+              padding:14px 18px;overflow-x:auto;font-size:.82rem;
+              font-family:var(--mono);color:var(--ink-2);margin:0;">{"id": "limitation_structural_2",
+ "severity": "blocking",
+ "statement": "Local runoff generation on a 1 m² column, not routed discharge…",
+ "applies_to": "any comparison against a stream gauge",
+ "source": "experiment.json:limitations"}</pre>
+  <p>Severity is what the caveat <em>does</em> to a claim, not how bad it sounds.
+     <span class="pill p-block">blocking</span> — the claim must not be made, or
+     must carry the id, and this is the only one the audit enforces.
+     <span class="pill p-qual">qualify</span> — may be made, stated with this
+     attached. <span class="pill p-ctx">context</span> — worth knowing,
+     constrains nothing by itself.</p>
+  <p><code>applies_to</code> is not decoration: step 3 matches a claim's own
+     words against it. Scope wording that names the <em>subject</em> ("recharge,
+     drainage and any water-table claim") works; wording that names the
+     <em>machinery</em> ("the water_table comparison") does not.</p>
 
+  <h3 style="margin-top:10px;">One producer now, not three</h3>
+  <p>As of 2026-08-13 caveats come from <strong>step 0 alone</strong> — read out
+     of <code>experiment.json</code>, where the Experiment Manager put them.
+     They say what the study's scope and the model choices allow, which is what
+     a caveat was for. On both runs: 14, of which 5 blocking.</p>
   <table>
-    <thead><tr><th>id</th><th>fires when</th><th>severity</th></tr></thead>
+    <thead><tr><th>source</th><th>n</th><th>what it says</th></tr></thead>
     <tbody>
-      <tr><td class="id">unrouted_columns_vs_integrated_gauge</td>
-          <td>any gauge is compared at all</td>
-          <td><span class="pill p-block">blocking</span></td></tr>
-      <tr><td class="id">water_table_below_active_soil</td>
-          <td>a column's mean water table is below 3.8021 m — measured as the
-              sum of the first ten <code>DZSOI</code> layers, not asserted</td>
-          <td><span class="pill p-block">blocking</span></td></tr>
-      <tr><td class="id">swe_onset_unobservable</td>
-          <td>a column already carries snow on day one of the record</td>
-          <td><span class="pill p-block">blocking</span></td></tr>
-      <tr><td class="id">gauge_exceeds_modelled_domain</td>
-          <td>a gauge drains more area than was simulated</td>
-          <td><span class="pill p-block">blocking</span></td></tr>
-      <tr><td class="id">snotel_siting_bias</td>
-          <td>any SNOTEL pair exists</td>
-          <td><span class="pill p-qual">qualify</span></td></tr>
-      <tr><td class="id">swe_window_overlap</td>
-          <td>model and station spans differ</td>
-          <td><span class="pill p-qual">qualify</span></td></tr>
-      <tr><td class="id">water_table_references_are_not_this_period</td>
-          <td>Fan 2013 or ParFlow CONUS2 stands in for an observation</td>
-          <td><span class="pill p-qual">qualify</span></td></tr>
-      <tr><td class="id">et_partly_gap_filled</td>
-          <td>a tower record is partly modelled</td>
-          <td><span class="pill p-qual">qualify</span></td></tr>
-      <tr><td class="id">no_recorder_well · no_flux_tower · no_swe_station</td>
-          <td>the basin has none — a fact about the basin, not a failed fetch</td>
-          <td><span class="pill p-ctx">context</span></td></tr>
-      <tr><td class="id">&lt;observable&gt;_stations_outside_basin</td>
-          <td>reception's bounding box caught ground outside the divide</td>
-          <td><span class="pill p-ctx">context</span></td></tr>
+      <tr><td class="id">experiment.json:limitations</td><td>8</td>
+          <td>Structural and configuration limits of the run design — a 1 m²
+              unrouted column, a one-year record, a warm start whose inherited
+              storage is not in equilibrium with this basin's forcing.</td></tr>
+      <tr><td class="id">experiment.json:assumptions_ledger</td><td>6</td>
+          <td>What the planner and the expander assumed to make the study
+              runnable, each tagged with who assumed it — reception, the user,
+              a default, or the sampler.</td></tr>
+      <tr><td class="id">step2_investigate</td><td>0–1</td>
+          <td>One kind only: a planned figure that failed to produce a usable
+              result. <span class="pill p-ctx">context</span>.</td></tr>
     </tbody>
   </table>
+  <p class="rule-note">Step 1's eight are gone. Every one of them restated a
+     number the summary already carried — and the interpreter reads that summary,
+     which is <strong>43% of its brief against the caveats' 24%</strong>. What
+     was lost is enforcement, not information.</p>
 </section>
 
 <section>
@@ -545,10 +566,18 @@
   </div>
 
   <div class="open">
-    <h3>Only blocking caveats are enforced</h3>
-    <p>A <span class="pill p-qual">qualify</span> caveat reaches the prompt and
-       the report but nothing checks that a claim carried it. The SNOTEL siting
-       argument was used correctly on Naches — by choice, not by rule.</p>
+    <h3>The audit now has five generic caveats and no run-specific ones</h3>
+    <p>Removing step 1's caveats was right — they restated measurements the
+       interpreter could already see, and they were never shown to it as rules,
+       only used to strike it afterwards. But it leaves
+       <code>limitations.py</code> as the sole source of anything
+       <span class="pill p-block">blocking</span>, and its five entries are the
+       same on every run. Nothing run-specific can bind any more.</p>
+    <p>Whether that matters is an empirical question, and the run to answer it
+       is Naches: sixteen of sixteen columns sit below the active soil, and
+       the interpreter is now trusted to notice that in
+       <code>below_active_soil</code> and reason accordingly rather than being
+       struck for missing it.</p>
   </div>
 
   <div class="open">

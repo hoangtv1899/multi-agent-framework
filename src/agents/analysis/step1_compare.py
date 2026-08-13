@@ -134,8 +134,7 @@ def compare_all(ctx, out_dir, draw: bool = True) -> Dict[str, Any]:
     out = done["comparison"]
     summary = done["summary"]
 
-    caveats = derive_caveats(out)
-    findings = as_findings(summary, caveats, done["figures"])
+    findings = as_findings(summary, done["figures"])
 
     record = {
         "observables":  out.get("observables") or {},
@@ -143,14 +142,19 @@ def compare_all(ctx, out_dir, draw: bool = True) -> Dict[str, Any]:
         "domain":       out.get("domain"),
         "note":         out.get("note"),
         "n_observation_rows_dropped": out.get("n_observation_rows_dropped"),
-        "caveats":      caveats,
+        # KEPT AND ALWAYS EMPTY, deliberately. Step 4 and step 2 both read
+        # `comparison["caveats"]`, and an archived run written before
+        # 2026-08-13 has real entries here. Dropping the key would make a new
+        # record and an old one differently shaped, which is a worse failure
+        # than an empty list: the reader cannot tell "this step no longer
+        # derives caveats" from "this file is truncated".
+        "caveats":      [],
         "findings":     findings,
         "figures":      done["figures"],
     }
     # Rewritten over what compare_run just wrote. The measurements are the
-    # server's and the caveats are ours, and the file has to carry both: step 3
-    # re-run alone against this directory reads its blocking caveats from here
-    # and from nowhere else.
+    # server's, and this file is what step 3 reads when it is re-run alone
+    # against an archived directory.
     (out_dir / FILENAME).write_text(json.dumps(record, indent=2, default=str))
     return record
 
@@ -165,212 +169,50 @@ def load(out_dir) -> Dict[str, Any]:
     except Exception:
         return {}
 
-
 # ─────────────────────────────────────────────────────────────────────
-# WHAT THE MEASUREMENTS FORBID
+# STEP 1 NO LONGER DERIVES CAVEATS  (2026-08-13)
 # ─────────────────────────────────────────────────────────────────────
-# Each caveat below is derived from a NUMBER in the record and quotes it. That
-# is the whole discipline: a caveat nobody can trace to the evidence is prose,
-# and prose cannot be checked by the step-3 audit — which is the only place
-# these finally bind.
+# It produced eight: blocking ones for an unrouted column against a routed
+# gauge, a water table below the active soil, an unobservable snow onset and a
+# gauge draining more ground than was simulated, plus qualify/context ones for
+# SNOTEL siting, window overlap, gap-filled towers and absent stations.
 #
-#     blocking   a claim of this kind must not be made, or must carry the id
-#     qualify    the claim may be made, stated with this attached
-#     context    worth knowing; constrains nothing by itself
+# THEY ADDED NO INFORMATION. Every fact behind them is already a MEASUREMENT in
+# the summary, and the summary is already in the brief the interpreter reads:
 #
-# `applies_to` is not decoration either: step 3 matches a claim's own words
-# against it to decide which caveats that claim owes. Scope wording that names
-# the subject ("recharge, drainage and any water-table claim") works; wording
-# that names the machinery ("the water_table comparison") does not.
-BLOCKING, QUALIFY, CONTEXT = "blocking", "qualify", "context"
-
-
-def _cav(cid: str, severity: str, statement: str, applies_to: str,
-         observable: str) -> Dict[str, Any]:
-    return {"id": cid, "severity": severity, "statement": statement,
-            "applies_to": applies_to, "observable": observable,
-            "source": "step1_compare"}
+#     below_active_soil: {active_soil_depth_m=3.8, n_columns_mean_below=16, of=16, ...}
+#     onset_censored_columns: {n=16, of=17, columns=[...]}
+#     gauges_exceeding_modelled_domain: {n=0, of=2, basin_area_km2=2860.6, ...}
+#
+# The caveat restated one of those as a verdict about what may be claimed —
+# which is precisely what the docstring at the top of this file says this step
+# does not do. Measuring and ruling on the measurement are different jobs, and
+# the second belongs to whoever interprets.
+#
+# AND IN PRACTICE IT WAS A TRAP, not a guardrail. step2_investigate builds its
+# caveat block from ctx.caveats alone, so these were never quoted to the model
+# choosing the figures. The number was shown; the rule was not; and step 3's
+# `respects` audit then struck claims for breaking it. Brandywine lost a
+# factually correct sentence that way.
+#
+# WHAT STILL BINDS: step 0's caveats, read out of experiment.json's
+# `limitations` and `assumptions_ledger`. Those describe the experiment's scope
+# and the model choices behind it, which is what a caveat was for.
+#
+# WHAT REPLACES THE ENFORCEMENT: nothing mechanical, deliberately. The
+# interpreter is given the numbers and is expected to understand what the scope
+# and the model choice permit — see the note in as_findings about what a
+# finding still carries.
 
 
 def _n(block: Optional[Dict], key: str, default=0):
     return (block or {}).get(key, default) or default
 
 
-def derive_caveats(out: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The comparison record -> the constraints it places on inference."""
-    obs = out.get("observables") or {}
-    caveats: List[Dict[str, Any]] = []
-
-    caveats += _streamflow_caveats(obs.get("streamflow") or {})
-    caveats += _water_table_caveats(obs.get("water_table") or {})
-    caveats += _swe_caveats(obs.get("swe") or {})
-    caveats += _et_caveats(obs.get("et") or {})
-
-    # ONE PER OBSERVABLE, and only where reception actually excluded someone.
-    # Observations are fetched for the BOUNDING BOX, which is bigger than the
-    # watershed, so this is routine — it is context, not a problem, and saying
-    # so stops a reader treating a smaller station count as a data failure.
-    for name, rec in obs.items():
-        outside = rec.get("stations_excluded_outside_basin") or []
-        if outside:
-            caveats.append(_cav(
-                f"{name}_stations_outside_basin", CONTEXT,
-                f"{len(outside)} {name} station(s) lie outside the watershed "
-                f"and were not compared: {', '.join(str(s) for s in outside[:8])}"
-                + (" …" if len(outside) > 8 else "") + ". Reception fetches by "
-                f"bounding box, which includes ground the study does not model.",
-                f"{name} station coverage", name))
-    return caveats
-
-
-def _streamflow_caveats(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    n_gauges = rec.get("n_stations") or 0
-    if n_gauges:
-        # THE ONE THAT MAKES THE STREAMFLOW COMPARISON ADMISSIBLE AT ALL.
-        out.append(_cav(
-            "unrouted_columns_vs_integrated_gauge", BLOCKING,
-            f"A gauge integrates a routed catchment; these are independent 1-D "
-            f"columns with no lateral flow and no run-on. Both sides are mm/day "
-            f"of specific discharge, so the units match, but the model value is "
-            f"local generation and the gauge value is routed discharge. The "
-            f"comparison stands the ensemble mean against each of the "
-            f"{n_gauges} gauge(s) as CONTEXT: no bias, NSE or KGE between them "
-            f"scores the model, and timing especially cannot be compared "
-            f"without routing.",
-            "streamflow, runoff, discharge, hydrograph and timing claims",
-            "streamflow"))
-
-    over = rec.get("gauges_exceeding_modelled_domain") or {}
-    if _n(over, "n"):
-        ids = ", ".join(str(s) for s in (over.get("station_ids") or [])[:6])
-        out.append(_cav(
-            "gauge_exceeds_modelled_domain", BLOCKING,
-            f"{over['n']} of {over.get('of')} gauge(s) drain more area than the "
-            f"{over.get('basin_area_km2')} km2 basin that was simulated ({ids}), "
-            f"so their flow includes water that was never modelled. A "
-            f"difference against them is not attributable to the model.",
-            "streamflow and discharge claims against those gauges",
-            "streamflow"))
-    return out
-
-
-def _water_table_caveats(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    below = rec.get("below_active_soil") or {}
-    n_below, of = _n(below, "n_columns_mean_below"), below.get("of")
-    unmoving = _n(rec.get("columns_with_unmoving_water_table") or {}, "n")
-    if n_below:
-        depth = below.get("active_soil_depth_m") or ACTIVE_SOIL_M
-        extra = (f" {unmoving} of them have a water table that moves less than "
-                 f"1 cm all year, so their soil column and their water table "
-                 f"never interact." if unmoving else "")
-        out.append(_cav(
-            "water_table_below_active_soil", BLOCKING,
-            f"ELM's hydrologically active soil column is ~{depth} m deep; a "
-            f"water table below that is DIAGNOSED from an aquifer store, not "
-            f"simulated by the soil physics. {n_below} of {of} columns have a "
-            f"mean water table below it.{extra} No drainage or recharge claim "
-            f"about those columns is a statement about groundwater.",
-            "recharge, drainage and any water-table depth claim", "water_table"))
-
-    if rec.get("skipped") or rec.get("error"):
-        out.append(_cav(
-            "no_recorder_well", CONTEXT,
-            str(rec.get("error") or rec.get("skipped")),
-            "water-table validation", "water_table"))
-
-    # The three distributions are the substitute for a validation, and they are
-    # not one: two of them are other people's models, and Fan is 1927-2009.
-    d = rec.get("distributions") or {}
-    if d.get("fan_2013") or d.get("parflow_conus2"):
-        fan, pf = d.get("fan_2013") or {}, d.get("parflow_conus2") or {}
-        out.append(_cav(
-            "water_table_references_are_not_this_period", QUALIFY,
-            f"Where the water table SITS is set beside two references, neither "
-            f"of them an observation of this run's period: Fan et al. 2013 is a "
-            f"long-term mean over {fan.get('period', '1927-2009')} "
-            f"({fan.get('n')} sites in this basin) and ParFlow CONUS2 is another "
-            f"model's steady state ({pf.get('n')} columns sampled). They bound "
-            f"what is plausible; they do not measure this year.",
-            "water-table depth claims", "water_table"))
-    return out
-
-
-def _swe_caveats(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    win, period = rec.get("shared_window"), rec.get("model_period")
-    if win and period and list(win) != list(period):
-        out.append(_cav(
-            "swe_window_overlap", QUALIFY,
-            f"The model ran {period[0]} to {period[1]} and the stations cover a "
-            f"different span, so every SWE metric is taken over the shared "
-            f"window {win[0]} to {win[1]} only.",
-            "SWE magnitude and snow claims", "swe"))
-
-    if rec.get("pairs"):
-        # NOT MEASURED HERE — a fact about how the network was built, and the
-        # reason an observed-above-modelled reading is not evidence by itself.
-        out.append(_cav(
-            "snotel_siting_bias", QUALIFY,
-            "SNOTEL sites are deliberately placed where snow accumulates and "
-            "persists — sheltered, shaded, wind-protected. The model column is "
-            "a grid-cell average driven by ~12 km forcing. Observed SWE above "
-            "modelled at the same elevation is expected from siting alone and "
-            "is not by itself a model snow bias.",
-            "SWE magnitude and snow bias claims", "swe"))
-
-    cens = rec.get("onset_censored_columns") or {}
-    if _n(cens, "n"):
-        out.append(_cav(
-            "swe_onset_unobservable", BLOCKING,
-            f"{cens['n']} of {cens.get('of')} columns already carried snow "
-            f"above the {rec.get('threshold_mm')} mm threshold on the first day "
-            f"of the record, so accumulation cannot be seen to start in this "
-            f"run. A first-snow date taken from a warm-started January reports "
-            f"when the run began, not when snow arrived.",
-            "snow accumulation start dates and first-snow claims", "swe"))
-
-    if rec.get("error") and not rec.get("pairs"):
-        out.append(_cav("no_swe_station", CONTEXT, str(rec["error"]),
-                        "SWE validation", "swe"))
-    return out
-
-
-def _et_caveats(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    if rec.get("skipped") or rec.get("error"):
-        disc = rec.get("tower_discovery") or {}
-        out.append(_cav(
-            "no_flux_tower", CONTEXT,
-            str(rec.get("error") or rec.get("skipped"))
-            + (f" Discovery found {disc.get('n_in_bbox')} tower(s) in the "
-               f"bounding box, {disc.get('n_operating')} operating in this "
-               f"period." if disc else ""),
-            "evapotranspiration validation", "et"))
-
-    # Half an AmeriFlux record is a GAP-FILLING MODEL, not a measurement, and
-    # comparing a model against a model quietly is how a good score gets
-    # reported for the wrong reason.
-    filled = [p for p in (rec.get("pairs") or [])
-              if ((p.get("obs_quality") or {}).get("frac_measured") or 1) < 1]
-    if filled:
-        worst = min((p.get("obs_quality") or {}).get("frac_measured")
-                    for p in filled)
-        out.append(_cav(
-            "et_partly_gap_filled", QUALIFY,
-            f"{len(filled)} tower record(s) are partly gap-filled — as little "
-            f"as {round(float(worst), 3)} of days measured. A gap-filled value "
-            f"is a model's estimate, so that share of the comparison is model "
-            f"against model.",
-            "evapotranspiration and ET skill claims", "et"))
-    return out
-
-
 # ─────────────────────────────────────────────────────────────────────
 # THE COMPARISON AS EVIDENCE STEP 3 MAY CITE
 # ─────────────────────────────────────────────────────────────────────
-def as_findings(summary: Dict[str, Any], caveats: List[Dict[str, Any]],
+def as_findings(summary: Dict[str, Any],
                 figures: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Each observable as a finding, in step 2's shape.
 
@@ -382,13 +224,15 @@ def as_findings(summary: Dict[str, Any], caveats: List[Dict[str, Any]],
 
     The result is the SUMMARY block, not the full record: the audit checks a
     claim's numbers against the finding it cites, so the finding must hold
-    exactly what the brief showed. `blocked_by` carries that observable's
-    caveat ids, which is what makes a streamflow claim owe the routing caveat.
-    """
-    by_obs: Dict[str, List[str]] = {}
-    for c in caveats:
-        by_obs.setdefault(c.get("observable") or "", []).append(c["id"])
+    exactly what the brief showed.
 
+    `blocked_by` IS NOW ALWAYS EMPTY. It used to carry the observable's caveat
+    ids, which is what made a streamflow claim owe the routing caveat. Step 1
+    stopped deriving caveats on 2026-08-13 — see the note above — so the
+    finding carries the measurement and nothing about what may be concluded
+    from it. The block itself stays because step 2 and step 3 both read the
+    key, and an absent key and an empty one are different shapes.
+    """
     questions = {
         "swe": "How does modelled snow water equivalent stand against the "
                "snow pillows, and what did the snowpack do across the columns?",
@@ -409,7 +253,7 @@ def as_findings(summary: Dict[str, Any], caveats: List[Dict[str, Any]],
             "scale": "overall",
             "n": block.get("n_columns"),
             "result": block,
-            "blocked_by": by_obs.get(name, []),
+            "blocked_by": [],
             "figure": figures.get(name),
             "source": "step1_compare",
         })
