@@ -85,6 +85,9 @@ MODEL_SERVERS = {"elm", "reaction"}
 # this repo, which is a fact about the project worth showing rather than hiding.
 ELM_MAIN = "mcp/elm-mcp/main.py"
 RXN = "/qfs/people/tran289/IDEAS/reaction_sandbox_mcp-upstream/server.py"
+# The compare package, named once: it is one directory with seven files and the
+# per-observable sub-boxes reference it on nearly every line.
+CMP = "mcp/elm-mcp/src/compare/"
 
 # Display names, where the registered key is not what the thing is called.
 SERVER_TITLE = {"reaction": "pflotran (reaction)"}
@@ -121,16 +124,24 @@ def _entry_point(spec) -> str:
 BLURB = {
     "terrain":    "Watershed boundaries, DEM sampling, elevation grids.",
     "usgs_water": "Stream gauges and groundwater wells. Needs an API key — "
-                  "without one it 429s and a basin silently loses its pins.",
-    "snotel":     "Snow water equivalent at SNOTEL stations.",
+                  "without one it 429s and a basin silently loses its pins. "
+                  "Every observation carries its OWN coordinates. The water "
+                  "table is RECORDER WELLS ONLY — a daily series, never a "
+                  "single visit — so an empty list means no logger, not no "
+                  "wells, and the reason travels with it. min_days TAGS a "
+                  "short gauge; min_obs on a well DROPS it (2026-08-12).",
+    "snotel":     "Snow water equivalent at SNOTEL stations. Fetched on the "
+                  "CALENDAR year like everything else since 2026-08-12 — the "
+                  "water year returned months the run never simulated.",
     "ameriflux":  "Flux towers. Site discovery works; the flux SERIES needs a "
                   "registered account, so ET is offered and never pinned.",
-    "fan_wtd":    "Fan et al. 2013 water-table depth, as a prior. Static "
-                  "TILES, so coverage is whatever was provisioned.",
-    "parflow_clm": "ParFlow-CLM CONUS water-table depth at 1 km, via "
-                   "HydroFrame. A full field rather than tiles, so sampling "
-                   "is not constrained by coverage. Catalogue is open; the "
-                   "data needs a Princeton PIN.",
+    "hydrodata":  "Water table from HydroFrame, two kinds, never merged: the "
+                  "ParFlow CONUS2 settled state — MODELLED, 1 km, every land "
+                  "cell — written once per basin as a GeoTIFF; and Fan et al. "
+                  "2013 — MEASURED, well sites with one long-term mean each. "
+                  "Per-point tools and ma_2025 were deleted 2026-08-12: this "
+                  "is a university's server and it gets ONE request per "
+                  "basin. Catalogue is open; data needs a PIN.",
     "geology":    "Soil and geology characterisation at a point.",
     "reaction":   "PFLOTRAN reaction sandbox: builds decks, runs 1-D reactive "
                   "transport, and runs the LAMBDA network. Not on the ELM path.",
@@ -180,13 +191,17 @@ GROUPS = [
  {"name": "Reception", "note": "one sentence in, a brief out", "steps": [
   {"n": "Reception", "side": "fw",
    "sum": "Parse the request; gather the basin and every nearby station.",
-   "flow": [ref("An LLM turns the sentence into a <b>brief</b>: basin, year, what is being asked.", "src/agents/reception_llm.py", "LLMReceptionAgent"),
-            ref("Resolve the watershed polygon through the terrain MCP.", "src/core/data_gather.py", "gather_grid"),
-            ref("Sample an elevation grid inside it.", "src/core/data_gather.py", "gather_grid"),
-            ref("Fetch observations — gauges, wells, SNOTEL, flux towers.", "src/core/data_gather.py", "gather_observations"),
-            ref("<b>Tag every station in or out of the basin.</b> Absent is not the same as outside: untested stations stay eligible, and conflating the two cost four basins their pinned columns.", "src/core/data_gather.py", "_tag_in_basin")],
+   "flow": [ref("An LLM turns the sentence into a <b>brief</b>: basin, year, what is being asked. <b>Two tools only.</b> Everything else is fetched by code afterwards, because what to fetch is not a decision — with twelve tools the loop spent most of its time choosing them and then summarised a truncated result.", "src/agents/reception_llm.py", "LLMReceptionAgent"),
+            ref("Resolve the watershed polygon, then sample an elevation grid inside it. <b>Terrain and nothing else</b> — a function named for the grid returns only the grid.", "src/core/data_gather.py", "gather_grid"),
+            ref("Fetch the observations — gauges, recorder wells, Fan's well means, SNOTEL, flux towers. <b>One calendar period for all five</b>: snow used to be asked for on the water year, which returned months the run never simulated.", "src/core/data_gather.py", "gather_observations"),
+            ref("<b>How complete a record must be is a SHARE of the period</b>, never a fixed count — 90% for a gauge, 30% for a well. 300 days was 82% of a one-year study and 41% of a two-year one, so the bar fell quietly as studies got longer.", "src/core/data_gather.py", "_period_days"),
+            ref("<b>Each observation carries the point it was measured at.</b> Read from the record itself, not looked up in a site catalogue — that lookup was capped at 500 of 5,312 wells and cost Naches 236 of 251 well coordinates, so a basin with 56 in-basin wells reported none (fixed 2026-08-11).", "src/core/data_gather.py", "gather_observations"),
+            ref("The modelled water table arrives as a <b>GeoTIFF written once</b>, not as values at points. Sampling it per column was 116 requests to a university's server, and could only answer at points the sampler was about to move when it snapped columns to the CONUS grid.", "src/core/static_wtd.py", "sample"),
+            ref("<b>Tag every station in or out of the basin.</b> Absent is not the same as outside: untested stations stay eligible, and conflating the two cost four basins their pinned columns.", "src/core/data_gather.py", "_tag_in_basin"),
+            ref("<b>The planner is handed a summary, never the series</b> — 0.9 KB against 170 kB — and never the fetch thresholds, because it is not the one choosing them.", "src/core/data_gather.py", "summarise")],
+   "flag": "A lat/lon bounding box is a ROTATED quadrilateral on the CONUS2 grid — about 17° at Naches. Building the raster window from two corners left the basin's other two corners outside it, and any column there read back as 'no water table': a plausible absence with a projection behind it (fixed 2026-08-12, window now walks the whole perimeter).",
    "files": f("src/agents/reception_llm.py", "src/core/data_gather.py",
-              "src/agents/tool_loop.py")}]},
+              "src/core/static_wtd.py", "src/agents/tool_loop.py")}]},
 
  {"name": "Data MCPs", "note": "observations and terrain, as data — they decide nothing",
   "steps": None},          # filled from mcp_config.json
@@ -256,28 +271,32 @@ GROUPS = [
    "flag": "This stage NEVER submits. It used to, and a resumed study re-ran every column over the top of the history files the first pass wrote (fixed 2026-08-10).",
    "files": f("mcp/elm-mcp/src/elm_exp_manager.py", "tools/notify_study.py")},
   {"n": "Extract", "side": "srv", "sum": "History files become rows of numbers.",
-   "breach": True,
-   "flow": [ref("Read each column's <code>*.elm.h0.*.nc</code>.", "mcp/elm-mcp/src/elm_results_analyzer.py", "ELMResultsAnalyzer"),
-            ref("Pull the named series out — which variable means what is model knowledge.", "mcp/elm-mcp/src/elm_results_analyzer.py", "ELMResultsAnalyzer"),
+   "breach": True, "tag": "being replaced",
+   "flow": [ref("<b>ONE reader of the history files.</b> Daily series per column, layers kept, no derived ratios, written to <code>03_results/extracted.json</code>. Finding the files, opening them and trimming the warm start live here and nowhere else — the results class kept its own copy of all three until 2026-08-13.", "mcp/elm-mcp/src/extract.py", "extract_column"),
+            ref("<b>A day with one timestep is not a day.</b> ELM stamps a history record at the END of its window, so the final average of 31 December lands on 1 January with an eighth of the sampling — and a daily resample weighted it like any other day. Dropping it is what makes the published series and the raw record agree.", "mcp/elm-mcp/src/extract.py", "_drop_partial_days"),
+            ref("<b>EVERY computation is downstream of the extraction</b> (the user's rule, 2026-08-13). Annual means, the water budget and the per-variable reductions are derived from <code>extracted.json</code> and from nothing else — so anyone holding the run directory can recompute them. Computed while the NetCDF was open, they stopped being checkable the moment scratch was purged.", "mcp/elm-mcp/src/column_metrics.py", "column_metrics"),
             ref("Normalise whatever the backend built into the stage's JSON contract — rows, units, extra_summary. <b>Model-AGNOSTIC and shared with PFLOTRAN</b>, which is why it is framework-side and stays there.", "src/core/exp_manager_base.py", "_as_extract"),
             ref("Attach the honesty payload: applicable limitations + the assumptions ledger.", "mcp/elm-mcp/src/elm_exp_manager.py", "_extract")],
    "flag": "The breach is NOT the row-shaping — that is shared glue and belongs where it is. It is the four backwards imports: elm_exp_manager and analyze_run pull core.limitations, analyze_agentic pulls agents.analysis + core.figure_registry, and the class still inherits ExperimentManagerBase. Those close with the Analyzer redesign, because limitations.py is what binds the Analyzer LLM. Moving extract behind a tool call was proposed 2026-08-06 and REJECTED: FIELD_SEMANTICS would end up on the far side of the boundary.",
-   "files": f("mcp/elm-mcp/src/elm_results_analyzer.py", "src/core/exp_manager_base.py")},
+   "files": f("mcp/elm-mcp/src/extract.py", "mcp/elm-mcp/src/column_metrics.py",
+              "mcp/elm-mcp/src/elm_results_analyzer.py",
+              "src/core/exp_manager_base.py")},
   {"n": "Package", "side": "fw", "sum": "Rows become the bundle the Analyzer reads.",
    "flow": [ref("Assemble rows into the standard result shape.", "src/core/exp_manager_base.py", "_package"),
             ref("Stays in the framework deliberately: that shape is <b>model-independent</b>, so one packaging format serves every model rather than one per server.", "src/core/exp_manager_base.py", "_package")],
    "files": f("src/core/exp_manager_base.py")}]},
 
- {"name": "ELM MCP", "note": "7 tools · 15 modules · 9 scripts — the whole ELM simulation",
+ {"name": "ELM MCP", "note": "8 tools · 15 modules · 8 scripts — the whole ELM simulation",
   "steps": [
-  {"n": "Tools", "side": "srv", "sum": "The six calls the framework may make.",
+  {"n": "Tools", "side": "srv", "sum": "The eight calls the framework may make.",
    "flow": [ref("<code>describe_elm_capabilities()</code> — the workflow, a CHECKED inventory of every external dependency, and what this server does not do. Exhaustive, and a test enforces that against the registry.", ELM_MAIN, "describe_elm_capabilities"),
             ref("<code>build_elm_inputs_from_location(run_dir, columns, …)</code> — six steps in ONE call, returning the SNAPPED columns and writing <code>case_inputs.json</code>.", ELM_MAIN, "build_elm_inputs_from_location"),
             ref("<code>get_column_metadata(run_dir)</code> — the columns as they will be RUN. Ask here, not from the columns.json you sampled: that one is what you ASKED FOR.", ELM_MAIN, "get_column_metadata"),
             ref("<code>run_elm_ensemble(run_dir, …)</code> — JOB A. Build every case and run every column, then stop. Returns a job id in seconds.", ELM_MAIN, "run_elm_ensemble"),
             ref("<code>build_elm_cases(run_dir, …)</code> — the build ALONE, for inspecting cases before spending node time. run_elm_ensemble does this too.", ELM_MAIN, "build_elm_cases"),
             ref("<code>check_elm_job(job_id, run_dir)</code> — what SLURM is doing, plus the built case directories once a build lands.", ELM_MAIN, "check_elm_job"),
-            ref("<code>compare_to_obs(run_dir, …)</code> — model against observations for swe / wtd / streamflow / et. <b>Measurements, never a verdict.</b>", ELM_MAIN, "compare_to_obs")],
+            ref("<code>extract_elm_output(run_dir, …)</code> — the history files become daily series in <code>03_results/extracted.json</code>. RAW SERIES ONLY; no derived ratios cross this boundary. Added 2026-08-11.", ELM_MAIN, "extract_elm_output"),
+            ref("<code>compare_to_obs(run_dir, …)</code> — model against observations for swe / water_table / streamflow / et. <b>Measurements, never a verdict.</b>", ELM_MAIN, "compare_to_obs")],
    "flag": "Every tool returns quickly or returns a job id. An MCP client opens a fresh session per call and tearing it down kills this server's children — so a 10-minute CIME build inside a call is not a slow call, it is a half-built case directory.",
    "files": f("mcp/elm-mcp/main.py", "mcp/elm-mcp/src/paths.py")},
   {"n": "Input build", "side": "srv", "sum": "Locations in → a runnable case list out.",
@@ -310,20 +329,45 @@ GROUPS = [
               "mcp/elm-mcp/src/elm_input_agent.py")},
   {"n": "Compare to obs", "side": "srv", "sum": "Model beside observations. Numbers only.",
    "flow": [ref("Reuse the extraction if <code>hydro_summary.json</code> already holds daily series; open NetCDF only when it does not.", ELM_MAIN, "_extracted_rows"),
-            ref("Read the caller's long table — <code>station_id, variable, time, value, quality</code>. Unparseable rows are DROPPED AND COUNTED, never coerced to zero.", "mcp/elm-mcp/src/compare/_common.py", "load_observations"),
-            ref("<b>One module per observable</b>, each a SPEC + compare() + plot(); this is pure dispatch, so a fifth observable is a file and one registry line, never a branch in shared code.", "mcp/elm-mcp/src/compare/__init__.py", "compare_all"),
-            ref("Shared half: sum the comparands, inner-join on the date (<b>no interpolation</b>), bias/MAE/RMSE/r/NSE/KGE, and the measured-vs-gap-filled split.", "mcp/elm-mcp/src/compare/_common.py", "standard_compare"),
-            ref("One station to one column, closest claiming first. SWE matches on ELEVATION — matching on distance was measured at 846 m of offset with five stations collapsing onto two columns.", "mcp/elm-mcp/src/compare/_common.py", "pair_stations"),
-            ref("<b>swe</b> — phenology both sides (peak, peak day-of-water-year, melt-out, days above 25 mm) and the water-year window, because a thin pack lasting months and a deep one melting fast share a mean.", "mcp/elm-mcp/src/compare/swe.py", "phenology"),
-            ref("<b>wtd</b> — wells, Fan and ParFlow-CLM each differenced SEPARATELY (a measurement, an equilibrium surface and a simulated steady state are different claims), plus a log axis and the 3.8 m active-soil count.", "mcp/elm-mcp/src/compare/wtd.py", "compare"),
-            ref("<b>streamflow</b> — the scale mismatch as a NUMBER: a gauge's drainage area against the column's 1 m², in orders of magnitude. Nothing is rescaled by it.", "mcp/elm-mcp/src/compare/streamflow.py", "compare"),
-            ref("<b>et</b> — metrics computed TWICE, measured-only and all pairs, so a reader sees how much agreement came from the gap-filling model rather than the instrument.", "mcp/elm-mcp/src/compare/et.py", "compare"),
-            ref("One map: columns and stations on the same ground, assigned stations ringed. A basin with every station in the valley is a design problem no metric surfaces.", "mcp/elm-mcp/src/compare/maps.py", "plot_all")],
-   "flag": "MEASUREMENTS, NOT VERDICTS — 'bias = -41 mm' is here, 'the model underestimates snowpack' is not. Every comparison is CONTEXT rather than a skill claim, which is what makes streamflow admissible at all. limitations.py is deliberately not used.",
-   "files": f("mcp/elm-mcp/src/compare/__init__.py", "mcp/elm-mcp/src/compare/_common.py",
-              "mcp/elm-mcp/src/compare/swe.py", "mcp/elm-mcp/src/compare/wtd.py",
-              "mcp/elm-mcp/src/compare/streamflow.py", "mcp/elm-mcp/src/compare/et.py",
-              "mcp/elm-mcp/src/compare/maps.py")},
+            ref("Read the observations out of <b>reception.json in the shape reception wrote it</b> — the only source. A tool that re-fetched them into a CSV returned 14,102 values identical to what was already on disk, and was deleted. Unparseable rows are DROPPED AND COUNTED, never coerced to zero.", CMP + "_common.py", "load_observations"),
+            ref("<b>One module per observable</b>, each a SPEC + compare() + plot(); this is pure dispatch, so a fifth observable is a file and one registry line, never a branch in shared code.", CMP + "__init__.py", "compare_all"),
+            ref("<b>Outside the divide, out of the comparison</b> — applying reception's tag, never recomputing it. Only an explicit False excludes: unchecked is not outside, and refusing untested stations cost two basins all four pinned columns when one elevation request timed out. Each module applies it now: <code>standard_compare</code>, which used to, is deleted.", CMP + "streamflow.py", "compare"),
+            ref("<b>A designed PIN wins outright</b> — where the sampler placed a column at a station, that pairing is honoured with no distance or elevation test. Re-deriving it geometrically was guessing at an answer already recorded in <code>columns.json</code>.", CMP + "_common.py", "pair_stations"),
+            ref("For the rest: a column qualifies on BOTH limits, then the CLOSEST wins. Elevation FILTERS, distance DECIDES. Limits are <b>per observable</b> and declared on the Spec — SWE is 150 m and 5 km. One pass over the columns in name order, and a station leaves the pool when taken, so col_01 has first refusal.", CMP + "_common.py", "pair_stations"),
+            ref("An unpaired station carries the number that disqualified it, and <b>&quot;no coordinates&quot; is its own reason</b> — collapsing it into &quot;no column qualified&quot; is what let 236 coordinate-less wells read as a pairing failure.", CMP + "_common.py", "pair_stations"),
+            ref("Then the numbers, the same for all four: inner-join model and observation <b>on the date, never interpolated</b>, and report bias / MAE / RMSE / r / NSE / KGE with the measured-versus-gap-filled split beside them.", CMP + "_common.py", "metrics")],
+   "subs_label": "One module per observable",
+   "subs": [
+     {"n": "swe", "sum": "H2OSNO against a snow pillow. MATCHES FIRST, then compares.",
+      "flow": [ref("<b>Match, then compare</b> — the only observable that does, so far. Every station used to be compared against every column: 8,772 paired days on a 17-column Naches run to keep 516. The cost was never the arithmetic, it was that the record then carried 34 complete metric sets beside one &quot;assignment&quot;, and the flattering one is always in there somewhere.", CMP + "swe.py", "compare"),
+               ref("<b>The season's timing, both sides, never differenced here</b>: peak, peak day-of-water-year, first snow, melt-out, days above 25 mm. A thin pack lasting months and a deep one melting fast share a mean, and bias cannot say which you have.", CMP + "swe.py", "snow_season_timing"),
+               ref("<b>The timing belongs to ONE season</b> — the one holding the peak, split where the ground is bare for over 30 days. Reception fetches SWE on the calendar year now, so a series can hold a melt limb AND the next winter accumulating; melt-out was the last above-threshold day of the WHOLE series, which in a full-year record lands just before New Year. A 7-day midwinter thaw must not split a season, and does not.", CMP + "swe.py", "_seasons"),
+               ref("Day-of-water-year, Oct 1 = 1. A calendar day-of-year puts a 15 December peak at 349 and a 5 January peak at 5 — adjacent events 344 apart, which makes the timing panel unreadable.", CMP + "swe.py", "day_of_water_year"),
+               ref("Both sides clipped to the window they SHARE before any metric. A run can start mid-year, as Gunnison's did on 2019-01-15, and a mean over two different denominators is not a comparison.", CMP + "swe.py", "shared_window"),
+               ref("Three panels: every column with the matched ones in their station's colour, every matched day against 1:1, and peak AND melt-out timing together. All 17 columns stay on the figure — at Naches 2 of them got a station, so the other 15 are the study and the observations are a thin check on a corner of it.", CMP + "swe.py", "plot")],
+      "flag": "Onset is now censored in every snow basin, and that is the honest answer rather than a loss: ELM was not running the previous November, so this run cannot observe its own snow onset. The old water-year fetch reported an observed onset date with no model counterpart.",
+      "files": f(CMP + "swe.py")},
+     {"n": "water_table", "sum": "ZWT against recorder wells, and against two static fields.",
+      "flow": [ref("Recorder wells differenced against the model, on a log axis, with the 3.8 m active-soil count.", CMP + "water_table.py", "compare"),
+               ref("<b>Its `references` panel is STALE.</b> It still expects a per-column <code>{fan, parflow_clm}</code> pair and calls Fan &quot;an equilibrium surface&quot;. Fan is now WELL OBSERVATIONS with one long-term mean per site; the modelled field is a GeoTIFF read by static_wtd. Neither arrives in the shape this expects.", CMP + "water_table.py", "plot")],
+      "files": f(CMP + "water_table.py")},
+     {"n": "streamflow", "sum": "QOVER + QDRAI against a gauge. Context, never a score.",
+      "flow": [ref("<b>The scale mismatch as a NUMBER</b>: a gauge's drainage area against the column's 1 m², in orders of magnitude. Nothing is rescaled by it.", CMP + "streamflow.py", "compare"),
+               ref("A gauge integrates and routes an upstream area a 1-D column has no lateral transport to represent, so <code>colocated</code> is false and no metric here scores the model. The hydrograph SHAPE is still worth seeing.", CMP + "streamflow.py", "plot")],
+      "files": f(CMP + "streamflow.py")},
+     {"n": "et", "sum": "QSOIL + QVEGE + QVEGT against a flux tower.",
+      "flow": [ref("<b>Metrics computed TWICE</b>, measured-only and all pairs, so a reader sees how much agreement came from the gap-filling model rather than the instrument. At US-NR1 in 2016 the gap-filled annual total is 464 mm against 89 mm from the measured half-hours alone.", CMP + "et.py", "compare")],
+      "files": f(CMP + "et.py")},
+     {"n": "map", "sum": "Where we are even looking. All observables, one figure.",
+      "flow": [ref("Columns as grey points, stations coloured by observable and <b>ringed when matched</b>. A basin with every station in the valley and every column on the ridge is a design problem no metric surfaces.", CMP + "maps.py", "plot_all"),
+               ref("Reads BOTH record shapes — swe's matched pairs and the other three's all-pairs-plus-assignment — so the map keeps working while the observables are converted one at a time.", CMP + "maps.py", "plot_all")],
+      "flag": "No elevation and no basin outline. Snow pairs on ELEVATION and two columns adjacent on this map can be 1,000 m apart vertically. Subplots per variable were asked for 2026-08-12 and are still to come.",
+      "files": f(CMP + "maps.py")}],
+   "flag": "MEASUREMENTS, NOT VERDICTS — 'bias = -41 mm' is here, 'the model underestimates snowpack' is not. Every comparison is CONTEXT rather than a skill claim, which is what makes streamflow admissible at all. limitations.py is deliberately not used. THE FORCING RESOLUTION IS NOT A PAIRING CRITERION (removed 2026-08-11): one NLDAS-2 cell answers 'did these two points get the same rain', which is a fact about the atmosphere, not about what was measured. MATCH FIRST, THEN COMPARE — swe, water_table and et each match ONE column to ONE station and compare only those; streamflow matches NOTHING, because a gauge measures an area, and stands the ensemble mean against each gauge instead.",
+   "files": f(CMP + "__init__.py", CMP + "_common.py",
+              CMP + "swe.py", CMP + "water_table.py",
+              CMP + "streamflow.py", CMP + "et.py",
+              CMP + "maps.py")},
   {"n": "Results + figures", "side": "srv", "sum": "History NetCDFs → rows and plots.",
    "breach": True,
    "flow": [ref("Read each column's <code>*.elm.h0.*.nc</code> and pull the named series out.", "mcp/elm-mcp/src/elm_results_analyzer.py", "ELMResultsAnalyzer"),
@@ -368,23 +412,19 @@ GROUPS = [
 
  {"name": "Analyzer", "note": "results become an answer", "tag": "being redesigned",
   "steps": [
-  {"n": "Compare to obs", "side": "fw", "sum": "Model against SNOTEL, wells, gauges.",
-   "breach": True,
-   "flow": [ref("Align the model series to each observation's time base.", "src/agents/analysis/step1_compare_streamflow.py", "gauge_daily"),
-            ref("Metrics per variable — SWE, water table, runoff as specific discharge.", "src/agents/analysis/step1_compare_streamflow.py", "compare"),
-            ref("A comparability verdict, which can be <b>refusal</b>: a gauge comparison is context-only until routing exists.", "src/agents/analysis/step1_compare_swe.py", "compare"),
-            ref("Emit the caveats alongside the numbers.", "src/core/limitations.py", "select_limitations")],
-   "flag": "Belongs in the MCP and has not moved. Knowing that QOVER + QDRAI is runoff is model knowledge, and so is the biggest caveat — columns generate locally, a gauge integrates upstream.",
-   "files": f("src/agents/analysis/step1_compare_swe.py",
-              "src/agents/analysis/step1_compare_streamflow.py",
-              "src/agents/analysis/step1_compare_wtd.py")},
+  {"n": "Compare to obs", "side": "fw", "sum": "Call the model's comparison; judge what it may support.",
+   "flow": [ref("The measurements come from the MODEL'S server — one call, four observables, the figures with them. The 1,400 lines that used to do this here knew H2OSNO from ZWT and how deep ELM's soil goes, in the one box that also reads PFLOTRAN runs.", "src/agents/analysis/step1_compare.py", "compare_all"),
+            ref("<b>What stays is the judgement.</b> The server measures and refuses to grade: &quot;bias = -85.9 mm&quot;, never &quot;the model underestimates snow&quot;. A caveat says what those numbers may not support, which is inference and not a reading of a history file.", "src/agents/analysis/step1_compare.py", "derive_caveats"),
+            ref("Every caveat is derived from a NUMBER in the record and quotes it: 16 of 16 columns below the 3.8 m active soil <b>blocks</b> any groundwater claim about them; SNOTEL siting <b>qualifies</b> a snow bias; a basin with no recorder well is <b>context</b>, not a failure.", "src/agents/analysis/step1_compare.py", "_water_table_caveats"),
+            ref("Then the comparison becomes evidence the interpreter may CITE — one finding per observable, carrying its figure and its caveat ids. Until this existed, a sentence about an observation had nothing to cite and the audit struck it.", "src/agents/analysis/step1_compare.py", "as_findings")],
+   "files": f("src/agents/analysis/step1_compare.py")},
   {"n": "Interpret", "side": "fw", "sum": "What the numbers mean, and whether to trust them.",
    "flow": [ref("Build the context: results, assumptions ledger, and the limitations catalogue.", "src/agents/analysis/step0_context.py", "load"),
             ref("<b>Structural caveats are promoted to blocking</b> — they do not qualify a gauge comparison, they forbid the naive one.", "src/agents/analysis/step0_context.py", "_caveats"),
-            ref("Derive and investigate, then interpret.", "src/agents/analysis/step2_derive.py", "driver_matrix"),
-            ref("The LLM is told the catalogue binds it and that a refusal cannot be argued into evidence.", "src/agents/analyzer_agent.py", "AnalyzerAgent")],
-   "files": f("src/agents/analyzer_agent.py", "src/agents/analysis/step0_context.py",
-              "src/agents/analysis/step2_derive.py", "src/core/limitations.py")},
+            ref("An LLM decides which figures answer the user's question and writes the code; pandas computes. It is shown what the comparison MEASURED, not how many rows each record held.", "src/agents/analysis/step2_investigate.py", "context_brief"),
+            ref("<b>The LLM judges; code audits the judgement.</b> Every claim cites a finding — step 2's figures or step 1's comparison — every number it declares must appear in that finding, and a claim inside a blocking caveat's scope must carry the caveat's id or it is struck with the reason.", "src/agents/analysis/step3_interpret.py", "audit")],
+   "files": f("src/agents/analysis/step0_context.py",
+              "src/agents/analysis/step2_investigate.py")},
   {"n": "Report", "side": "fw", "sum": "The answer, with what is wrong with it attached.",
    "flow": [ref("Answer first, leading with the number that answers the question.", "src/agents/analysis/step3_interpret.py", "interpret"),
             ref("A Trust section that must acknowledge the caveats carried this far.", "src/agents/analysis/step3_interpret.py", "interpret"),
@@ -456,7 +496,9 @@ text-transform:uppercase;color:var(--ink-3);flex:none}
 .chev{flex:none;width:.6rem;height:.6rem;border-right:1.6px solid var(--ink-3);
 border-bottom:1.6px solid var(--ink-3);transform:rotate(45deg);
 transition:transform .16s ease;margin-top:-.2rem}
-.step.open .chev{transform:rotate(-135deg);margin-top:.15rem}
+/* SCOPED TO THE STEP'S OWN BUTTON. Unscoped, an open step also rotated every
+   chevron of its sub-boxes, so a closed sub read as open. */
+.step.open > .s-btn .chev{transform:rotate(-135deg);margin-top:.15rem}
 .s-sum{font-size:.78rem;color:var(--ink-2);line-height:1.4}
 .s-body{display:none;padding:0 .7rem .75rem;border-top:1px dashed var(--rule);margin-top:.1rem}
 .step.open .s-body{display:block}
@@ -481,6 +523,24 @@ margin-top:.15rem;overflow-wrap:anywhere}
 .flag{font-size:.75rem;color:var(--breach);border-left:2px solid var(--breach);
 padding:.35rem .55rem;background:var(--panel);border-radius:0 4px 4px 0;
 margin-top:.6rem;line-height:1.4}
+/* SUB-BOXES — one level deeper than a stage. A stage that dispatches to
+   several independent implementations (compare_to_obs -> one module per
+   observable) reads as a single flow otherwise, and the flows are not the
+   same: swe matches before it compares, the other three do not yet. */
+.subs{display:grid;gap:.4rem;margin-top:.1rem}
+.sub{border:1px solid var(--rule);border-radius:6px;background:var(--panel);
+overflow:hidden}
+.sub-btn{appearance:none;font:inherit;color:inherit;background:none;border:0;
+width:100%;text-align:left;cursor:pointer;padding:.45rem .55rem;display:flex;
+flex-direction:column;gap:.18rem}
+.sub-btn:focus-visible{outline:2px solid var(--srv);outline-offset:-2px}
+.sub-top{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.sub-name{font-family:var(--mono);font-size:.74rem;font-weight:600;color:var(--ink)}
+.sub-sum{font-size:.74rem;color:var(--ink-2);line-height:1.38}
+.sub-body{display:none;padding:.1rem .55rem .6rem;border-top:1px dashed var(--rule)}
+.sub.open .sub-body{display:block}
+.sub.open > .sub-btn .chev{transform:rotate(-135deg);margin-top:.15rem}
+.sub-body ol.flow{margin-top:.45rem}
 .foot{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--rule);
 color:var(--ink-3);font-size:.78rem;max-width:70ch}
 .foot code{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
@@ -496,25 +556,40 @@ G.forEach(g=>{
     (g.tag?`<span class="g-tag">${g.tag}</span>`:"")+
     `<span class="g-note">${g.note}</span></div><div class="steps"></div>`;
   const row=el.querySelector(".steps");
+  const flow=x=>`<ol class="flow">${(x||[]).map(y=>Array.isArray(y)
+      ?`<li>${y[0]}<span class="ref">${y[1]}</span></li>`:`<li>${y}</li>`).join("")}</ol>`;
+  const files=x=>`<ul class="files">${(x||[]).map(y=>
+      `<li><span class="fp">${y[0]}</span><span class="fl">${y[1]?y[1]+" lines":"—"}</span></li>`
+    ).join("")}</ul>`;
   (g.steps||[]).forEach(s=>{
     const d=document.createElement("div");
     d.className="step";d.dataset.side=s.side;
     if(s.breach)d.dataset.breach="1";
+    const subs=(s.subs||[]).map(u=>`<div class="sub">
+        <button class="sub-btn" aria-expanded="false">
+          <span class="sub-top"><span class="sub-name">${u.n}</span><span class="chev"></span></span>
+          <span class="sub-sum">${u.sum}</span></button>
+        <div class="sub-body">${flow(u.flow)}`+
+        (u.flag?`<div class="flag">${u.flag}</div>`:"")+
+        (u.files&&u.files.length?`<h4>Source</h4>${files(u.files)}`:"")+
+        `</div></div>`).join("");
     d.innerHTML=`<button class="s-btn" aria-expanded="false">
         <span class="s-top"><span class="s-name">${s.n}</span><span class="chev"></span></span>
         <span class="s-where">${WHERE[s.side]||s.side}${s.breach?" · needs moving":""}</span>
         <span class="s-sum">${s.sum}</span></button>
-      <div class="s-body"><h4>Inside this stage</h4>
-        <ol class="flow">${(s.flow||[]).map(x=>Array.isArray(x)
-            ?`<li>${x[0]}<span class="ref">${x[1]}</span></li>`:`<li>${x}</li>`).join("")}</ol>`+
+      <div class="s-body"><h4>Inside this stage</h4>${flow(s.flow)}`+
+        (subs?`<h4>${s.subs_label||"Inside that, one per kind"}</h4>
+          <div class="subs">${subs}</div>`:"")+
         (s.flag?`<div class="flag">${s.flag}</div>`:"")+
-        `<h4>Source</h4><ul class="files">${(s.files||[]).map(x=>
-          `<li><span class="fp">${x[0]}</span><span class="fl">${x[1]?x[1]+" lines":"—"}</span></li>`
-        ).join("")}</ul></div>`;
+        `<h4>Source</h4>${files(s.files)}</div>`;
     const b=d.querySelector(".s-btn");
     b.addEventListener("click",()=>{
       const open=d.classList.toggle("open");
       b.setAttribute("aria-expanded",open?"true":"false");});
+    d.querySelectorAll(".sub-btn").forEach(sb=>{
+      sb.addEventListener("click",()=>{
+        const open=sb.parentElement.classList.toggle("open");
+        sb.setAttribute("aria-expanded",open?"true":"false");});});
     row.appendChild(d);});
   host.appendChild(el);});
 """
@@ -543,7 +618,17 @@ def main():
                  if s not in named and SERVER_TITLE.get(s, s).split()[0] not in named]
 
     missing = [p for g in groups for s in g["steps"] for p, n in s["files"] if not n]
-    stale = [w for g in groups for s in g["steps"] for r in (s.get("flow") or [])
+    # SUB-BOXES ARE CHECKED TOO. They were not when they were added, and the
+    # count silently fell from 119 references to 115 — the four that vanished
+    # were the ones now nested, so the map gained a level of detail and lost
+    # the guarantee that it points at anything real. A reference that is never
+    # verified is exactly the rot this generator exists to prevent.
+    def _flows(step):
+        yield from (step.get("flow") or [])
+        for sub in (step.get("subs") or []):
+            yield from (sub.get("flow") or [])
+
+    stale = [w for g in groups for s in g["steps"] for r in _flows(s)
              if (w := check_ref(r))]
     html = (f"<title>IDEAS pipeline — agents, stages, and what happens inside each</title>\n"
             f"<style>{CSS}</style>\n"

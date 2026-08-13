@@ -262,6 +262,19 @@ def review_brief(ctx, comparison: Dict[str, Any],
         lines.append(f"    [{c.get('id')}] applies to: {c.get('applies_to')}")
         lines.append(f"        {str(c.get('statement'))[:240]}")
 
+    # THE COMPARISON IS EVIDENCE, AND CITABLE (2026-08-12). It used to reach
+    # this prompt as caveats only — the model was told what it could not say
+    # about the observations and never shown what they measured, so a claim
+    # about them had no finding to cite and the audit struck it. Rendered from
+    # the same summary the audit checks against, and listed under the ids the
+    # findings carry, so a sentence about the gauges can name `compare_streamflow`.
+    if comparison.get("summary"):
+        from agents.analysis import step1_compare as _cmp
+        lines += ["", "WHAT THE COMPARISON WITH OBSERVATIONS MEASURED",
+                  "(cite these as compare_<observable>; measurements only —",
+                  " none of these numbers is a verdict on the model):",
+                  _cmp.format_comparison(comparison["summary"])]
+
     lines += ["", "WHAT STEP 2 INVESTIGATED:",
               f"    {investigation.get('notes')}", "", "FINDINGS:"]
     for f in (investigation.get("findings") or []):
@@ -339,18 +352,59 @@ def _parse(reply: str) -> Dict[str, Any]:
         return json.loads(repaired)
 
 
+# The longest side a figure is sent at. Vision models resize anything larger
+# before they look at it, so pixels above this are paid for and then discarded —
+# and the comparison figures are 2700 px wide and up to 1.9 MB each, which at
+# ten attachments is a 25 MB request that buys no extra detail.
+MAX_IMAGE_PX = 1568
+
+
+def _encoded(path: Path) -> Optional[tuple]:
+    """(mime, base64) for one figure, downscaled if it is oversized.
+
+    Falls back to the file as it stands when Pillow is absent: sending a large
+    PNG costs bandwidth, and sending nothing costs the review its eyes.
+    """
+    import base64
+    raw = path.read_bytes()
+    try:
+        import io
+        from PIL import Image
+        im = Image.open(io.BytesIO(raw))
+        if max(im.size) > MAX_IMAGE_PX:
+            scale = MAX_IMAGE_PX / max(im.size)
+            im = im.resize((max(1, round(im.width * scale)),
+                            max(1, round(im.height * scale))),
+                           Image.LANCZOS)
+        # White, not transparent: matplotlib saves RGBA, and a transparent
+        # background composites to black in some viewers — an unreadable
+        # figure the reviewer would report as a plotting bug.
+        if im.mode in ("RGBA", "LA", "P"):
+            bg = Image.new("RGB", im.size, "white")
+            im = im.convert("RGBA")
+            bg.paste(im, mask=im.split()[-1])
+            im = bg
+        buf = io.BytesIO()
+        im.convert("RGB").save(buf, format="JPEG", quality=88, optimize=True)
+        return "image/jpeg", base64.b64encode(buf.getvalue()).decode()
+    except Exception:                                           # noqa: BLE001
+        return "image/png", base64.b64encode(raw).decode()
+
+
 def _content(brief: str, figures: List[str], with_images: bool):
     """The user turn: the brief, then each figure as an image block."""
     parts: List[Dict[str, Any]] = [{"type": "text", "text": brief + "\n" + TASK}]
     if not with_images:
         return brief + "\n" + TASK
-    import base64
     for p in figures:
         try:
-            b = base64.b64encode(Path(p).read_bytes()).decode()
+            enc = _encoded(Path(p))
+            if not enc:
+                continue
+            mime, b = enc
             parts.append({"type": "text", "text": f"figure: {Path(p).stem}"})
             parts.append({"type": "image_url",
-                          "image_url": {"url": f"data:image/png;base64,{b}"}})
+                          "image_url": {"url": f"data:{mime};base64,{b}"}})
         except Exception:
             continue
     return parts
@@ -368,12 +422,26 @@ def interpret(ctx, comparison, investigation, out_dir,
         client = SimpleLLMClient(model=model)
         client.label = "step3_interpret"      # so step 4 can attribute the spend
 
-    brief = review_brief(ctx, comparison or {}, investigation or {})
-    content = _content(brief, investigation.get("figures") or [], with_images)
+    comparison = comparison or {}
+    brief = review_brief(ctx, comparison, investigation or {})
+
+    # THE EVIDENCE IS BOTH STEPS'. Step 2's figures answer the user's question;
+    # step 1's put the model beside an observation, which nothing step 2 draws
+    # can do. The audit reads the same merged list, so a claim citing
+    # `compare_water_table` is checked against the comparison record exactly as
+    # citing a step-2 figure is checked against its result.
+    evidence = dict(investigation)
+    evidence["findings"] = list(investigation.get("findings") or []) + \
+        list(comparison.get("findings") or [])
+
+    figures = list(investigation.get("figures") or [])
+    figures += [p for p in (comparison.get("figures") or {}).values()
+                if isinstance(p, str) and Path(p).is_file()]
+    content = _content(brief, figures, with_images)
     spec = _parse(client.ask([{"role": "user", "content": content}]))
 
-    caveats = list(ctx.caveats or []) + list((comparison or {}).get("caveats") or [])
-    result = audit(spec.get("claims") or [], investigation, caveats,
+    caveats = list(ctx.caveats or []) + list(comparison.get("caveats") or [])
+    result = audit(spec.get("claims") or [], evidence, caveats,
                    facts=run_facts(ctx))
 
     verdict = spec.get("verdict")

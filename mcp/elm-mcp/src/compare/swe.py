@@ -23,9 +23,11 @@ difference — never differenced here.
 
 Pairing is on ELEVATION, not distance. See _common.pair_stations.
 
-This module deliberately does not call _common.standard_compare. The other three
-observables still do; when they have each been through this, what is genuinely
-shared can be factored back out with all four in view.
+This module was the first to stop calling _common.standard_compare. All four
+have now been through it and that function is deleted, along with the
+assigned_pairs helper that read its output — 157 lines implementing the
+compare-everything-then-choose approach the package rejected. What is genuinely
+shared stayed in _common: loading, pairing, metrics, quality, the plot helpers.
 """
 from __future__ import annotations
 
@@ -43,7 +45,8 @@ SPEC = C.Spec(
     # share: a snow pillow measures the snow ON IT, and a column 10 km away
     # across a ridge is not that snowpack. Elevation FILTERS, distance
     # DECIDES — see pair_stations.
-    max_delta_m=150.0, max_km=5.0)
+    max_delta_m=150.0, max_km=5.0,
+    headlines=("shared_window", "onset_censored_columns"))
 
 THRESHOLD_MM = 25.0     # ~1 inch SWE: a pack, not a dusting
 
@@ -479,3 +482,30 @@ def plot(rec: Dict, model_columns: List[Dict], observations: Dict,
                  f"mean SWE  [{SPEC.units}]", kw.get("reception_json"),
                  cmap="viridis")
     return C.save(fig, out_path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAP POINTS — this module's own values, in place. LAYOUT BELONGS TO maps.py.
+# ─────────────────────────────────────────────────────────────────────────────
+def map_points(rec, model_columns, observations, station_meta, **kw):
+    """One row of the spatial comparison: SNOTEL beside ELM, both mean SWE.
+
+    THE VALUES ARE COMPUTED HERE, NOT IN maps.py, which is the rule the legacy
+    figure kept and the reason its two maps could never disagree about a
+    station: the module that knows what H2OSNO means is the module that
+    averages it. maps.py decides where the panels go and nothing else.
+    """
+    model = C.model_series(model_columns, SPEC.model_vars)
+    stations = C.stations_for(observations, SPEC.name)
+    obs = []
+    for sid, s in stations.items():
+        m = station_meta.get((sid, SPEC.name)) or {}
+        if m.get("lat") is None or m.get("in_basin") is False or not s["values"]:
+            continue
+        obs.append((m["lon"], m["lat"], sum(s["values"]) / len(s["values"]), sid))
+    mod = [(v["lon"], v["lat"], sum(v["values"]) / len(v["values"]), c)
+           for c, v in model.items()
+           if v.get("lat") is not None and v["values"]]
+    return {"label": f"mean SWE  [{SPEC.units}]", "log": False,
+            "panels": [{"title": "SNOTEL", "points": obs},
+                       {"title": "ELM", "points": mod}]}

@@ -28,6 +28,20 @@ code and a stronger figure, because the rows share their ground.
 """
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+# ONE RAY-CASTER, AND IT LIVES UPSTREAM. `in_basin` is decided once, in
+# data_gather, at the moment reception tags the stations — every consumer after
+# that reads the flag rather than recomputing it. This module kept a second
+# implementation until 2026-08-11, and the two had quietly diverged on three
+# points: no rings meant "keep everything" there and "keep nothing" here, and
+# where _inside accumulates crossings across all rings (so a hole excludes),
+# this one tested each ring alone and returned True for any hit (so a hole
+# included). WBD basins have disjoint exteriors and no holes, so the two agreed
+# on every real boundary — which is exactly how a divergence like that survives.
+#
+# Imported under the old name so the call sites read unchanged; there is now
+# one body behind it.
+from core.data_gather import _inside as in_polygon                # noqa: F401
+
 
 def _num(x) -> Optional[float]:
     try:
@@ -35,30 +49,6 @@ def _num(x) -> Optional[float]:
         return None if f != f else f
     except (TypeError, ValueError):
         return None
-
-
-def in_polygon(lat: float, lon: float, rings) -> bool:
-    """Ray casting against the watershed rings.
-
-    No rings means no polygon to test against — a run with no resolved HUC.
-    Returns False, and callers must treat "no boundary" as "exclude nothing"
-    rather than "exclude everything".
-    """
-    for ring in (rings or []):
-        try:
-            n, hit = len(ring), False
-            for i in range(n):
-                x1, y1 = ring[i][0], ring[i][1]
-                x2, y2 = ring[(i + 1) % n][0], ring[(i + 1) % n][1]
-                if (y1 > lat) != (y2 > lat):
-                    xi = x1 + (lat - y1) * (x2 - x1) / ((y2 - y1) or 1e-12)
-                    if lon < xi:
-                        hit = not hit
-            if hit:
-                return True
-        except Exception:
-            continue
-    return False
 
 
 def split_by_basin(items: Sequence[Dict[str, Any]], rings

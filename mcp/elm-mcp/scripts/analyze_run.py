@@ -110,9 +110,10 @@ def print_summary(results, spatial):
                 key=lambda r: (r.get("elevation_m") or 0))
     for r in ok:
         m = r["metrics"]
+        wb = m.get("water_budget") or {}
         print(f"{r['case_name']:<9}{_f(r.get('elevation_m'), 0):>8}{_f(m.get('precip_mm_yr'), 0):>9}"
-              f"{_f(m.get('annual_recharge_mm_yr')):>11}{_f(m.get('annual_runoff_mm_yr')):>9}"
-              f"{_f(m.get('recharge_fraction'), 3):>11}{_f(m.get('water_table_depth_m'), 2):>8}")
+              f"{_f(wb.get('recharge_mm_yr')):>11}{_f(wb.get('runoff_mm_yr')):>9}"
+              f"{_f(wb.get('recharge_frac_of_P'), 3):>11}{_f(m.get('water_table_depth_m'), 2):>8}")
     print("-" * 84)
     if spatial:
         fo, ve, dc = spatial["forcing"], spatial["vs_elevation"], spatial["driver_correlation"]
@@ -161,7 +162,7 @@ def plot_soil(soil, out_path):
     clay = [r["clay_max_pct"] for r in rows]
     ksat = [r["ksat_min_ums"] for r in rows]
     rech = [r["recharge_mm_yr"] for r in rows]
-    frac = [r["recharge_fraction"] for r in rows]
+    frac = [r.get("recharge_frac_of_P") for r in rows]
     sc = soil["soil_correlation"]
     has_ksat = any(k is not None for k in ksat)
 
@@ -216,8 +217,7 @@ def plot_partitioning(results, out_path):
         return False
     names = [f"{r['case_name']}\n{r.get('elevation_m') or 0:.0f} m" for r in ok]
     wb = [r["metrics"]["water_budget"] for r in ok]
-    P = np.array([(r["metrics"].get("precip_total_mm_yr")
-                   or r["metrics"].get("precip_mm_yr") or np.nan) for r in ok], float)
+    P = np.array([(r["metrics"].get("precip_mm_yr") or np.nan) for r in ok], float)
 
     def frac(key):
         return np.array([(b.get(key) or 0.0) for b in wb], float) / np.where(P > 0, P, np.nan)
@@ -319,7 +319,7 @@ def plot_controls(results, out_path):
 
     def P_of(r):
         m = r["metrics"]
-        return m.get("precip_total_mm_yr") or m.get("precip_mm_yr")
+        return m.get("precip_mm_yr")
 
     def fr(r, key):
         wb = r["metrics"].get("water_budget") or {}
@@ -464,7 +464,7 @@ def plot_spatial(results, run_dir, out_path, annotate=False):
 
     def P_of(r):
         m = r["metrics"]
-        return m.get("precip_total_mm_yr") or m.get("precip_mm_yr")
+        return m.get("precip_mm_yr")
 
     def frac(r, key):
         wb = r["metrics"].get("water_budget") or {}
@@ -475,7 +475,7 @@ def plot_spatial(results, run_dir, out_path, annotate=False):
         ("recharge / P", lambda r: frac(r, "recharge_mm_yr"), "viridis"),
         ("runoff / P",   lambda r: frac(r, "runoff_mm_yr"),   "Oranges"),
         ("ET / P",       lambda r: frac(r, "et_mm_yr"),       "Greens"),
-        ("peak SWE (mm)", lambda r: r["metrics"].get("peak_swe_mm"), "Blues"),
+        ("peak SWE (mm)", lambda r: r["metrics"].get("peak_swe_modelled_mm"), "Blues"),
     ]
     lat = np.array([r["lat"] for r in ok], float)
     lon = np.array([r["lon"] for r in ok], float)
@@ -524,21 +524,24 @@ def plot_spatial(results, run_dir, out_path, annotate=False):
 
 
 def plot_wtd(results, run_dir, out_path):
-    """Per-column water table: model ZWT initial vs final vs the Fan (2013)
-    equilibrium WTD at the same point. Exposes the cold-start problem — every
-    column begins at ELM's default (~8.8 m) regardless of the real water table,
-    and barely moves in a 1-yr run."""
+    """Per-column water table: model ZWT initial vs final vs the water-table
+    prior at the same point, whichever prior the run recorded
+    (`wtd_prior_source`). Exposes the cold-start problem — every column begins
+    at ELM's default (~8.8 m) regardless of the prior, and barely moves in a
+    1-yr run."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
 
-    fan = {}
+    fan, src = {}, "prior"
     cj = run_dir / "columns.json"
     if cj.exists():
         cols = json.loads(cj.read_text())
         cols = cols.get("columns", cols) if isinstance(cols, dict) else cols
-        fan = {c["id"]: c.get("fan_wtd_m") for c in cols}
+        fan = {c["id"]: c.get("wtd_prior_m") for c in cols}
+        src = next((c.get("wtd_prior_source") for c in cols
+                    if c.get("wtd_prior_source")), "prior")
 
     ok = sorted((r for r in results.values() if r["status"] == "ok"),
                 key=lambda r: (r.get("elevation_m") or 0))
@@ -551,11 +554,11 @@ def plot_wtd(results, run_dir, out_path):
     fig, ax = plt.subplots(figsize=(12.6, 4.2))
     f = np.array([fan.get(r["case_name"]) or np.nan for r in ok], float)
     ax.scatter(x, np.clip(f, .05, None), marker="o", s=48, color="#8856a7",
-               edgecolor="#222", label="Fan 2013 equilibrium WTD", zorder=3)
+               edgecolor="#222", label=f"water-table prior ({src})", zorder=3)
     firsts = [z.get("first_m") for z in zwt if z.get("first_m") is not None]
     uniform = firsts and (max(firsts) - min(firsts) < 0.05)
     init_lab = "model ZWT — initial (cold start)" if uniform else \
-               "model ZWT — initial (Fan warm start)"
+               "model ZWT — initial (warm start)"
     ax.scatter(x, [z.get("first_m") for z in zwt], marker="s", s=40,
                color="#d95f0e", label=init_lab, zorder=4)
     ax.scatter(x, [z.get("last_m") for z in zwt], marker="x", s=48,
@@ -564,9 +567,9 @@ def plot_wtd(results, run_dir, out_path):
     ax.set_xticks(x); ax.set_xticklabels(names, fontsize=7)
     ax.set_ylabel("water-table depth (m, log)")
     ax.set_title("Water table per column — every column cold-starts at the SAME default "
-                 "and barely moves in 1 yr; the real (Fan) WTD varies by orders of magnitude"
+                 "and barely moves in 1 yr; the prior WTD varies by orders of magnitude"
                  if uniform else
-                 "Water table per column — initialized from the Fan prior (warm start), "
+                 "Water table per column — initialized from the warm start, "
                  "then relaxing toward ELM's own equilibrium",
                  fontweight="bold", fontsize=11.5)
     ax.legend(frameon=False, fontsize=9)

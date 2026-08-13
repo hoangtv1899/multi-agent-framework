@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional
 from . import _common as C
 
 SPEC = C.Spec(
-    name="wtd", model_vars=["ZWT"], units="m",
+    name="water_table", model_vars=["ZWT"], units="m",
     comparand="ZWT, diagnosed water-table depth (positive down)",
     obs_quantity="depth to water in a well (positive down)",
     colocated=True, pair_on="distance",
@@ -60,7 +60,9 @@ SPEC = C.Spec(
     # where it was impossible before. Deliberately not added: the number would
     # have to be measured the way max_km was, and SWE's 150 m is a snow lapse
     # rate with nothing to say about water tables.
-    max_km=5.0)
+    max_km=5.0,
+    headlines=("columns_with_unmoving_water_table", "below_active_soil",
+               "distributions"))
 
 # ELM's hydrologically active soil column. Below this, ZWT is diagnosed from an
 # unconfined aquifer rather than simulated — a fact about where the model's
@@ -519,3 +521,46 @@ def plot(rec: Dict, model_columns: List[Dict], observations: Dict,
                  f"mean depth to water  [{SPEC.units}]", kw.get("reception_json"),
                  cmap="cividis_r")
     return C.save(fig, out_path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAP POINTS — this module's own values, in place. LAYOUT BELONGS TO maps.py.
+# ─────────────────────────────────────────────────────────────────────────────
+def map_points(rec, model_columns, observations, station_meta,
+               reception_json=None, **kw):
+    """One row: where the water table is documented, beside where ELM puts it.
+
+    THREE SOURCES, TWO PANELS — the same squeeze the distributions panel has.
+    Fan takes the left slot because it exists nearly everywhere (299 sites at
+    Naches, which has no recorder well in any year), and the recorder wells
+    ride on top of it as an overlay in their own marker. A basin with no well
+    simply gets no overlay, rather than an empty third panel that reads as
+    "measured nothing".
+    """
+    model = C.model_series(model_columns, SPEC.model_vars)
+    fan = []
+    if reception_json:
+        try:
+            obs = (json.loads(Path(reception_json).read_text())
+                   .get("observations") or {})
+            for w in ((obs.get("water_table_static") or {}).get("wells") or []):
+                if (w.get("in_basin") is not False and w.get("wtd_m") is not None
+                        and w.get("lat") is not None):
+                    fan.append((w["lon"], w["lat"], w["wtd_m"], w.get("id")))
+        except Exception:                                       # noqa: BLE001
+            pass
+    wells = []
+    for sid, s in C.stations_for(observations, SPEC.name).items():
+        m = station_meta.get((sid, SPEC.name)) or {}
+        if m.get("lat") is None or m.get("in_basin") is False or not s["values"]:
+            continue
+        wells.append((m["lon"], m["lat"], sum(s["values"]) / len(s["values"]), sid))
+    mod = [(v["lon"], v["lat"], sum(v["values"]) / len(v["values"]), c)
+           for c, v in model.items()
+           if v.get("lat") is not None and v["values"]]
+    return {"label": f"depth to water  [{SPEC.units}]", "log": True,
+            "panels": [{"title": "Fan 2013 long-term mean", "points": fan,
+                        "overlay": ({"title": "USGS recorder wells",
+                                     "points": wells, "marker": "D"}
+                                    if wells else None)},
+                       {"title": "ELM columns", "points": mod}]}

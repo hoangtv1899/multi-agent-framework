@@ -476,7 +476,8 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
     # different quantity from the daily hydrograph two panels away, which
     # already used QOVER + QDRAI. Against a gauge, QDRAI is the right term.
     yields = [(_n((r["metrics"].get("water_budget") or {}).get("drainage_mm_yr")) or 0)
-              + (_n(r["metrics"].get("annual_runoff_mm_yr")) or 0) for r in ok]
+              + (_n((r["metrics"].get("water_budget") or {}).get("runoff_mm_yr")) or 0)
+              for r in ok]
     precip = [_n(r["metrics"].get("precip_mm_yr")) for r in ok]
     precip = [p for p in precip if p is not None]
 
@@ -576,7 +577,7 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
                      else [r["case_name"] for r in ok])
     p_by_id = {r["case_name"]: _n(r["metrics"].get("precip_mm_yr")) for r in ok}
     y_by_id = {r["case_name"]: ((_n((r["metrics"].get("water_budget") or {}).get("drainage_mm_yr")) or 0)
-                                + (_n(r["metrics"].get("annual_runoff_mm_yr")) or 0))
+                                + (_n((r["metrics"].get("water_budget") or {}).get("runoff_mm_yr")) or 0))
                for r in ok}
     sel_w = {i: weights_all.get(i, 0.0) for i in ids_for_ratio}
     p_mean = weighted_mean({i: p_by_id.get(i) for i in ids_for_ratio}, sel_w)
@@ -645,19 +646,25 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
             "station": s["name"], "elevation_m": s.get("elevation_m"),
             "obs_peak_swe_mm": s["peak_swe_mm"],
             "nearest_column": n["case_name"] if n else None,
-            "model_peak_swe_mm": (_n(n["metrics"].get("peak_swe_mm")) if n else None),
+            "model_peak_swe_mm": (_n(n["metrics"].get("peak_swe_modelled_mm")) if n else None),
             "column_elevation_m": (_n(n.get("elevation_m")) if n else None)})
 
     model_swe_by_elev = [
         {"column": r["case_name"], "elevation_m": _n(r.get("elevation_m")),
-         "peak_swe_mm": _n(r["metrics"].get("peak_swe_mm"))}
+         "peak_swe_mm": _n(r["metrics"].get("peak_swe_modelled_mm"))}
         for r in ok
         if _n(r.get("elevation_m")) is not None
-        and _n(r["metrics"].get("peak_swe_mm")) is not None]
+        and _n(r["metrics"].get("peak_swe_modelled_mm")) is not None]
 
     # column-mean water budget, so yield can be read as P - ET - dStorage
+    # `unaccounted_mm_yr` was `closure_residual_mm_yr` until 2026-08-13. The
+    # old name is kept in the tuple so this still reads a run packaged before
+    # the rename — a key that silently returns None would drop the term from
+    # the mean without saying so, which is how a budget quietly stops
+    # balancing.
     wb_keys = ("precip_mm_yr", "et_mm_yr", "runoff_mm_yr", "drainage_mm_yr",
-               "storage_change_mm", "closure_residual_mm_yr")
+               "storage_change_mm", "unaccounted_mm_yr",
+               "closure_residual_mm_yr")
     wbs = [r["metrics"].get("water_budget") or {} for r in ok]
     water_budget_mean = {
         k: round(float(np.mean([b[k] for b in wbs if _n(b.get(k)) is not None])), 1)
@@ -669,7 +676,7 @@ def build_validation(run_dir: Path, clients, cases_file="cases.json"):
         water_budget_mean["precip_mm_yr"] = round(float(np.mean(precip)), 1)
 
     # model SWE (present in runs since H2OSNO joined hist_fincl1)
-    model_peak_swe = [_n(r["metrics"].get("peak_swe_mm")) for r in ok]
+    model_peak_swe = [_n(r["metrics"].get("peak_swe_modelled_mm")) for r in ok]
     model_peak_swe = [s for s in model_peak_swe if s is not None]
 
     _all_pts = [q for w in well_series for q in w["points"]]

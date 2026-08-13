@@ -52,7 +52,7 @@ mcp = FastMCP("usgs_water")
 @mcp.tool()
 def get_streamflow(bbox: str, start_date: str = "", end_date: str = "",
                    with_values: bool = False, min_days: int = 300,
-                   limit: int = 200) -> str:
+                   limit: int = 1000) -> str:
     """Stream gauges in a bbox — what exists, what has records, and the records.
 
     ONE tool, three uses, chosen by the arguments:
@@ -72,6 +72,14 @@ def get_streamflow(bbox: str, start_date: str = "", end_date: str = "",
     Every gauge carries lat/lon and drainage_area_km2, so a caller can judge
     whether its catchment resembles the domain being modelled: a bbox may hold
     93 gauges of which one reports, draining 7% of the basin.
+
+    MIN_DAYS TAGS, IT DOES NOT DROP. Every gauge with records in the window is
+    returned, carrying `n_days` and `meets_min_days`; read those beside
+    drainage_area_km2 rather than filtering on days alone. Naches 1979 is the
+    case that settled it — the 300-day threshold kept a 204 km2 tributary and
+    discarded the 2,437 km2 main stem for holding 272 days.
+
+    `limit` is a PAGE SIZE, not a ceiling: the catalogue is read to the end.
 
     bbox='min_lon,min_lat,max_lon,max_lat'; dates 'YYYY-MM-DD'.
     """
@@ -101,25 +109,47 @@ def get_streamflow(bbox: str, start_date: str = "", end_date: str = "",
 @mcp.tool()
 def get_water_table(bbox: str, start_date: str = "", end_date: str = "",
                     with_values: bool = False, min_obs: int = 1,
-                    limit: int = 500) -> str:
-    """Groundwater wells in a bbox that actually have depth-to-water records.
+                    limit: int = 2000) -> str:
+    """Wells in a bbox that RECORD the water table daily through this period.
 
-    Same three shapes as get_streamflow: no dates = every well with any record;
-    dates = wells measured in that window; with_values=True adds each well's
-    measurements through time. Depths are metres below land surface (USGS
-    parameter 72019, reported in feet, converted here).
+    RECORDER WELLS ONLY (2026-08-11). A depth-to-water TIME SERIES is what this
+    returns: daily means, metres below land surface, one entry per well under
+    `daily` — the same shape the SWE and streamflow stations use.
 
-    These are discrete field measurements, not a logger series — a well may hold
-    a handful of visits per decade, so min_obs defaults to 1 rather than the
-    near-continuous threshold a stream gauge gets.
+    IT DOES NOT RETURN FIELD MEASUREMENTS, and that is the point. A field
+    measurement is one visit; at Naches in 1979 all 56 in-basin wells had
+    exactly one static reading between them, and a single static level is the
+    quantity Fan already supplies at every point in the domain. What a well can
+    say that Fan cannot is how the water table MOVED, and only a recorder well
+    says it.
+
+    A BASIN WITH NO RECORDER WELL RETURNS NO WELLS AND SAYS SO, in `note`. That
+    is a finding about the basin, not a failure: of the 10 chain-eval basins, 9
+    have some groundwater series and 6 have one covering their simulation year.
+    Naches has none in any year.
+
+    Three USGS parameters carry the series and they are not the same quantity:
+    72019 is depth below land surface and is used as it stands; 62610/62611 are
+    groundwater ELEVATION and are subtracted from the site's land-surface
+    altitude, which puts that altitude's error (usually +/- 10 ft, interpolated
+    from a topographic map) into the well's LEVEL but not into its VARIATION.
+    Wells converted that way carry `depth_note`.
+
+    `min_obs` filters on the number of DAYS in the returned series. `limit` is a
+    page size, never a ceiling. `with_values` is accepted and ignored — a series
+    without its values is not an observation of anything.
     """
     try:
-        fm = gw.fetch_field_measurements_bbox(bbox, start_date or None,
-                                              end_date or None)
+        raw = gw.fetch_wtd_series(bbox, start_date or None, end_date or None)
         sites = gw.fetch_monitoring_locations(bbox, site_type_code="GW",
                                               limit=int(limit))
-        out = gw._parse_wells(fm, sites, min_obs=min_obs,
-                              with_values=bool(with_values))
+        out = gw._parse_wtd_series(raw, sites)
+        if int(min_obs) > 1:
+            kept = [w for w in out["wells"] if w["n_days"] >= int(min_obs)]
+            if len(kept) != len(out["wells"]):
+                out["n_below_min_obs"] = len(out["wells"]) - len(kept)
+            out["wells"] = kept
+            out["n_series_wells"] = out["n_wells_with_records"] = len(kept)
         out["period"] = (f"{start_date}/{end_date}"
                          if start_date and end_date else "all records")
         out["source"] = _SOURCE

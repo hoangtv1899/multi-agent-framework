@@ -119,9 +119,14 @@ def config_for(name: str,
         # generic state and spends the run relaxing out of it — measured on
         # this framework, recharge came out -0.18 mm/yr cold against 309 warm
         # on the SAME column. Cold is an explicit opt-out.
+        # NO `source` KEY (2026-08-12). There is one warm start — the CONUS
+        # 1-km restart subset — so a source was a choice with one option, and
+        # inputs.py never read it anyway: reception emitted it, this passed it
+        # on, and the warm start always did the CONUS subset regardless. A
+        # setting that travels three components and changes nothing is worse
+        # than no setting, because it reads like a lever.
         if (initialization or {}).get("mode") != "cold":
-            cfg["warm_start"] = {
-                "source": ((initialization or {}).get("source") or "conus")}
+            cfg["warm_start"] = True
 
     elif key in ("pflotran", "lambda-pflotran"):
         # Defaults matching the standalone tool, so a deck built through the

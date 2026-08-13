@@ -27,56 +27,20 @@ except ImportError as e:
 # ─────────────────────────────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────
-TARGET_VARIABLES = ['QOVER', 'QCHARGE', 'TWS', 'SOILLIQ', 'ZWT', 'RAIN', 'H2OSNO',
-                    'SNOW', 'QINFL', 'QDRAI', 'QSOIL', 'QVEGE', 'QVEGT']
+# CANONICAL DEFINITIONS LIVE IN extract.py. Imported rather than repeated so
+# the two cannot drift — this module is on its way out, and until it goes both
+# it and the extract tool must agree about what a variable is and what it is
+# measured in.
+from extract import (                                           # noqa: E402
+    TARGET_VARIABLES, VARIABLE_UNITS, SPINUP_DAYS,
+    extract_column, history_files, write_extracted, _sigfig)    # noqa: F401
+from column_metrics import column_metrics                       # noqa: E402
 
-VARIABLE_UNITS = {
-    'QOVER':   'mm/s',
-    'QCHARGE': 'mm/s',
-    'TWS':     'mm',
-    'SOILLIQ': 'kg/m2',
-    'ZWT':     'm',
-    'RAIN':    'mm/s',   # atmospheric forcing (rainfall flux) — surfaces the input
-    'H2OSNO':  'mm',     # snow water equivalent (absent in runs before 2026-07;
-                         # requested in hist_fincl1 by default since then)
-    'SNOW':    'mm/s',   # snowfall forcing
-    'QINFL':   'mm/s',   # infiltration into the soil column
-    'QDRAI':   'mm/s',   # sub-surface drainage (baseflow)
-    # ET is the sum of ground evap + canopy evap + transpiration (this ELM build
-    # registers the components, not a single QFLX_EVAP_TOT):
-    'QSOIL':   'mm/s',   # ground evaporation
-    'QVEGE':   'mm/s',   # canopy evaporation
-    'QVEGT':   'mm/s',   # canopy transpiration
-}
-
-# treated as annual fluxes (mm/yr) in _summarize
-FLUX_VARIABLES = ('QOVER', 'QCHARGE', 'RAIN', 'SNOW', 'QINFL', 'QDRAI',
-                  'QSOIL', 'QVEGE', 'QVEGT')
-
-S_TO_YEAR = 86400.0 * 365.25
 
 
 # ─────────────────────────────────────────────────────────────────────
 # ELM RESULTS ANALYZER
 # ─────────────────────────────────────────────────────────────────────
-def _sigfig(x: float, n: int = 4) -> float:
-    """Round to n SIGNIFICANT figures, not n decimal places.
-
-    Decimal places are the wrong instrument when one series is a water-table
-    depth near 71.67 m and another is snow water equivalent at 0.00002 mm. Five
-    decimals spends characters on the former; three would zero out 4.7% of the
-    values in a real run, including small-but-real recharge fluxes — 0.0005
-    mm/day is 0.18 mm/yr, which matters on a column that barely recharges.
-
-    Significant figures adapt to magnitude, so nothing real is lost and the
-    string stays short. Four is already more than a land-surface model
-    justifies; it is chosen to be visibly generous rather than to be argued
-    about.
-    """
-    if x == 0 or not np.isfinite(x):
-        return 0.0 if x == 0 else x
-    from math import floor, log10
-    return round(x, -int(floor(log10(abs(x)))) + (n - 1))
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -105,39 +69,57 @@ def _sigfig(x: float, n: int = 4) -> float:
 # package, because a run whose first fortnight is missing must say so — a
 # reader comparing this to a gauge record needs to know the series does not
 # start where the simulation did.
-SPINUP_DAYS = 14
+#
+# The constant itself now lives in extract.py and is imported above.
 
 
-def _drop_spinup(ds, days: int):
-    """Trim the first `days` of the record. Returns (ds, dropped_or_None).
 
-    Applied here, before any statistic is computed, so the annual metrics and
-    the daily series agree about what period they cover. Doing it in _daily()
-    alone would leave annual_runoff_mm_yr carrying the transient while the
-    hydrograph beside it did not.
+
+
+def _metric(row: Dict[str, Any], key: str):
+    """One metric off a result row, whether it sits at the top or in the budget.
+
+    The flat `annual_runoff_mm_yr` / `annual_recharge_mm_yr` / `recharge_fraction`
+    were deleted on 2026-08-13 because they duplicated the water-budget terms at
+    a different rounding. Everything that addressed them by name now addresses
+    the budget term instead, and this is the one place that knows both shapes.
     """
-    if not days or ds is None or "time" not in getattr(ds, "dims", ()):
-        return ds, None
-    try:
-        import numpy as _np
-        t = _np.asarray(ds["time"].values)
-        if t.size == 0:
-            return ds, None
-        start = _np.datetime64(str(t[0])[:10]) + _np.timedelta64(int(days), "D")
-        keep = _np.asarray([_np.datetime64(str(x)[:10]) >= start for x in t])
-        if not keep.any():          # a record shorter than the window: keep it
-            return ds, None         # all rather than return nothing at all
-        out = ds.isel(time=keep)
-        return out, {"days": int(days),
-                     "from": str(t[0])[:10],
-                     "to": str(_np.asarray(out["time"].values)[0])[:10],
-                     "timesteps_dropped": int((~keep).sum()),
-                     "reason": "warm-start relaxation; storage inherited from "
-                               "the CONUS spin-up is not in equilibrium with "
-                               "this domain's forcing"}
-    except Exception:
-        return ds, None
+    m = row.get('metrics') or {}
+    if key in m:
+        return m[key]
+    return (m.get('water_budget') or {}).get(key)
 
+
+def _keep_last_full_year(data: Dict[str, Any]) -> Dict[str, Any]:
+    """The extracted block, narrowed to the last calendar year with a full
+    record of days. Returns it unchanged when no year qualifies.
+
+    300 days, not 365: the warm-start trim removes a fortnight from the front
+    and a partial day from the back, so a "full" simulated year is never 365
+    days on disk. The threshold only has to separate a simulated year from a
+    stub, and the years it is choosing between are whole model years.
+    """
+    dates = (data or {}).get("dates") or []
+    if not dates:
+        return data
+    years: Dict[str, int] = {}
+    for d in dates:
+        years[d[:4]] = years.get(d[:4], 0) + 1
+    full = [y for y, n in years.items() if n >= 300]
+    if not full or len(years) < 2:
+        return data
+    keep_year = max(full)
+    idx = [i for i, d in enumerate(dates) if d[:4] == keep_year]
+    print(f"   (last-year analysis: {keep_year}, {len(idx)} days)")
+    out = dict(data)
+    out["dates"] = [dates[i] for i in idx]
+    out["variables"] = {}
+    for var, blk in (data.get("variables") or {}).items():
+        vals = blk.get("values") or []
+        out["variables"][var] = dict(blk,
+                                     values=[vals[i] for i in idx
+                                             if i < len(vals)])
+    return out
 
 
 class ELMResultsAnalyzer:
@@ -178,6 +160,13 @@ class ELMResultsAnalyzer:
         # (e.g. the assumptions ledger + limitations honesty payload)
         self.extra_summary: Dict[str, Any] = {}
         self.results: Dict[str, Dict] = {}
+        # The raw extracted blocks, kept so extract_all can write the ONE
+        # artifact everything downstream reads. Without this the class read the
+        # history files and left no record of what it read, and a run ended up
+        # with an extracted.json from a previous day beside a package from this
+        # one — disagreeing by a day, silently.
+        self._blocks: Dict[str, Dict[str, Any]] = {}
+        self._meta: Dict[str, Dict[str, Any]] = {}
         self.logger = logging.getLogger(__name__)
 
     # ─────────────────────────────────────────────────────────
@@ -194,7 +183,7 @@ class ELMResultsAnalyzer:
             case_dir  = exp.get('case_dir')
             print(f"\n📊 {exp['scenario_name']}")
 
-            hist_files = self._find_history_files(case_dir)
+            hist_files = history_files(case_dir) if case_dir else []
             if not hist_files:
                 print(f"   ⚠️  No history files found in {case_dir}")
                 self.results[case_name] = self._empty_result(
@@ -207,6 +196,11 @@ class ELMResultsAnalyzer:
                 exp, hist_files
             )
 
+        if self._blocks:
+            path = write_extracted(
+                self.analysis_dir.parent, self._meta, self._blocks,
+                list(TARGET_VARIABLES), int(self.spinup_days or 0))
+            print(f"   ✓ {path.name} — the series everything downstream reads")
         self._save_hydro_summary()
         print(f"\n✅ Analysis complete — "
               f"{len(self.results)} experiments")
@@ -217,7 +211,6 @@ class ELMResultsAnalyzer:
         return {
             'model_type':      'elm',
             'experiments':      list(self.results.values()),
-            'comparisons':      self._compute_comparisons(),
             'spatial_summary':  self._compute_spatial_summary(),
             'soil_attribution': self._compute_soil_attribution(),
             'driver_matrix':    self._compute_driver_matrix(),
@@ -240,77 +233,98 @@ class ELMResultsAnalyzer:
     # ─────────────────────────────────────────────────────────
     # PRIVATE — EXTRACTION
     # ─────────────────────────────────────────────────────────
-    def _find_history_files(self,
-                             case_dir: Optional[str]
-                             ) -> List[Path]:
-        """Find *.elm.h0.*.nc files in case run directory."""
-        if not case_dir:
-            return []
-        # Handle literal $PSCRATCH in path
-        if '$PSCRATCH' in str(case_dir):
-            import os
-            case_dir = str(case_dir).replace(
-                '$PSCRATCH',
-                os.environ.get('PSCRATCH', '')
-            )
-        run_dir = Path(case_dir) / "run"
-        if not run_dir.exists():
-            return []
-        return sorted(run_dir.glob("*.elm.h0.*.nc"))
-
-    def _open_dataset(self, hist_files: List[Path]):
-        """
-        Open NetCDF4 files using netCDF4 engine directly.
-        ELM produces NetCDF4 format.
-        """
-        # Explicit current defaults — silences the open_mfdataset FutureWarnings
-        # without changing the combine behavior (monthly files, concat on time).
-        return xr.open_mfdataset(
-            [str(f) for f in hist_files],
-            combine      = 'by_coords',
-            decode_times = True,
-            engine       = 'netcdf4',
-            data_vars    = 'all',
-            coords       = 'different',
-            compat       = 'no_conflicts',
-            join         = 'outer',
-        )
+    # FINDING AND OPENING THE FILES IS extract.py's, and always was — this
+    # class kept its own copy of both, plus its own _drop_spinup, which is 60
+    # lines saying the same thing twice about the same files. `combine`,
+    # `coords` and `compat` decide how monthly files concatenate, so a drift
+    # between the two copies would not raise; it would quietly change what a
+    # year contains. See _extract_one, which now calls the shared ones.
 
     def _extract_one(self,
                      exp:        Dict[str, Any],
                      hist_files: List[Path]) -> Dict[str, Any]:
-        """Extract variables from one experiment."""
+        """One column's row: the extracted series, plus what it adds up to.
+
+        READS THROUGH extract.py AND COMPUTES THROUGH column_metrics.py — this
+        method now does neither itself. It used to open the dataset, resample
+        it, summarise every variable off the RAW 3-hourly array and derive the
+        metrics in the same pass, which made every number here impossible to
+        check without re-reading NetCDF off purgeable scratch.
+
+        The series is `extract_column`'s, byte for byte the same one
+        extracted.json publishes. The metrics are computed FROM that series and
+        from nothing else, so anyone holding the run directory can recompute
+        them and get the same answer — which is the only arrangement in which a
+        wrong number can be traced to where it went wrong.
+        """
         try:
-            ds = self._open_dataset(hist_files)
+            case_dir = exp.get('case_dir')
+            data, meta = extract_column(str(case_dir), spinup_days=0
+                                        if self.spinup_days is None
+                                        else self.spinup_days)
+            # Kept BEFORE the last-year filter and before anything derived, so
+            # the artifact records what was read rather than what was used.
+            name = exp.get('case_name')
+            if name:
+                self._meta[name] = dict(meta, **{
+                    k: exp.get(k) for k in
+                    ('lat', 'lon', 'elevation_m', 'band', 'forcing_start',
+                     'forcing_end', 'scenario_name', 'pinned', 'station_id',
+                     'station_variable') if exp.get(k) is not None})
+                if data.get('variables'):
+                    self._blocks[name] = data
+            if not data:
+                return self._empty_result(exp, meta.get('status') or 'no data')
+
+            # LAST-YEAR-ONLY IS NOW A FILTER ON THE SERIES, not a slice of the
+            # dataset. It used to select the last calendar year with >=1000
+            # 3-hourly steps before anything was resampled; downstream the same
+            # question is "which year has a full record of days". Kept because
+            # analyze_run.py --last-year is a real entry point, and a spin-up
+            # run whose science year is averaged with its equilibration years
+            # reports neither.
             if self.last_year_only:
-                years = np.asarray(ds['time'].dt.year.values)
-                uniq, counts = np.unique(years, return_counts=True)
-                full = uniq[counts >= 1000]      # a full 3-hourly year ≈ 2920 steps
-                yr = int(full.max()) if len(full) else int(uniq.max())
-                ds = ds.isel(time=(years == yr))
-                print(f"   (last-year analysis: {yr}, "
-                      f"{int(ds.sizes['time'])} timesteps)")
+                data = _keep_last_full_year(data)
 
-            ds, dropped = _drop_spinup(ds, self.spinup_days)
-            if dropped:
-                self.spinup_dropped = dropped
-                print(f"   (dropped {dropped['days']} d of warm-start "
-                      f"relaxation: {dropped['from']} -> {dropped['to']})")
+            n_drop = meta.get('n_timesteps_dropped_spinup') or 0
+            dates = data.get('dates') or []
+            if n_drop and dates:
+                self.spinup_dropped = {
+                    "days": int(self.spinup_days),
+                    "from": meta.get("record_start"), "to": dates[0],
+                    "timesteps_dropped": int(n_drop),
+                    "reason": "warm-start relaxation; storage inherited from "
+                              "the CONUS spin-up is not in equilibrium with "
+                              "this domain's forcing"}
+                print(f"   (dropped {self.spinup_days} d of warm-start "
+                      f"relaxation: -> {dates[0]})")
+            if meta.get('partial_days_dropped'):
+                print(f"   (dropped {len(meta['partial_days_dropped'])} "
+                      f"partly-sampled day(s): "
+                      f"{', '.join(meta['partial_days_dropped'])})")
 
-            variables = {}
+            derived = column_metrics(data)
+            metrics = derived["metrics"]
 
+            # The row's `variables` keeps the shape every consumer already
+            # reads — the summary stats at the top, the daily series under
+            # `daily` — but both halves now come from the published series.
+            variables: Dict[str, Any] = {}
             for var in TARGET_VARIABLES:
-                if var in ds:
-                    variables[var] = self._summarize(
-                        ds[var], var
-                    )
-                    print(f"   ✓ {var}")
-                else:
+                blk = (data.get('variables') or {}).get(var)
+                if not blk:
                     print(f"   ⚠️  {var} not in history files")
                     variables[var] = None
-
-            ds.close()
-            metrics = self._compute_metrics(variables)
+                    continue
+                entry = dict(derived["stats"].get(var) or {})
+                entry["daily"] = {"units": blk.get("units"),
+                                  "dates": dates,
+                                  "values": blk.get("values")}
+                for k in ("n_layers", "layer_depth_m", "layer_thickness_m"):
+                    if blk.get(k) is not None:
+                        entry["daily"][k] = blk[k]
+                variables[var] = entry
+                print(f"   ✓ {var}")
 
             return {
                 'case_name':      exp['case_name'],
@@ -322,6 +336,12 @@ class ELMResultsAnalyzer:
                 'lon':            exp.get('lon'),
                 'elevation_m':    exp.get('elevation_m'),
                 'soil':           exp.get('soil'),
+                # PIN PROVENANCE, carried so the comparison can honour the
+                # pairing the sampler already decided instead of re-deriving it
+                # geometrically. Absent for every column that was not pinned.
+                'pinned':            exp.get('pinned'),
+                'station_id':        exp.get('station_id'),
+                'station_variable':  exp.get('station_variable'),
                 'status':         'ok',
                 'variables':      variables,
                 'metrics':        metrics,
@@ -333,272 +353,24 @@ class ELMResultsAnalyzer:
             print(f"   ✗ Extraction failed: {e}")
             return self._empty_result(exp, str(e))
 
-    def _daily(self, da: "xr.DataArray", var_name: str) -> Dict[str, Any]:
-        """The variable as a DAILY series, for the hydrograph and the budget.
 
-        Nothing in the pipeline used to extract this, so validate_run rebuilt
-        hydrographs by re-reading the history NetCDFs off $PSCRATCH — which
-        left the Analyzer coupled to scratch rather than to the manager's
-        package, and meant the series died with the scratch purge while the
-        run directory survived.
 
-        DAILY, not raw. ELM writes 3-hourly here (2921 steps for one year),
-        and 13 variables x 2921 steps x 19 columns is ~5.8 MB of JSON that
-        nothing reads at that resolution: USGS observations are daily, so a
-        hydrograph comparison resamples to daily anyway. Aggregating at
-        extraction costs one pass and saves 8x.
 
-        Fluxes come out in mm/day — the unit a daily hydrograph is actually
-        plotted in, rather than the mm/s ELM stores or the mm/yr the annual
-        metrics use. Stating it here is what stops the next reader guessing.
-        """
-        try:
-            if "time" in getattr(da, "dims", ()):
-                d = da.squeeze().resample(time="1D").mean()
-                vals = np.array(d.values, dtype=float).flatten()
-                stamps = [str(t)[:10] for t in np.array(d["time"].values)]
-            else:
-                vals = np.array(da.squeeze().values, dtype=float).flatten()
-                stamps = []
-        except Exception:
-            return {}
 
-        if vals.size == 0:
-            return {}
-        if var_name in FLUX_VARIABLES:
-            vals = vals * 86400.0          # mm/s -> mm/day
-            units = "mm/day"
-        else:
-            units = VARIABLE_UNITS.get(var_name, "")
-        out = {"units": units,
-               "values": [None if np.isnan(v) else _sigfig(float(v))
-                          for v in vals]}
-        if stamps:
-            out["dates"] = stamps
-        return out
-
-    def _summarize(self,
-                   da:       "xr.DataArray",
-                   var_name: str) -> Dict[str, Any]:
-        """Summary statistics for one variable, plus its daily series.
-
-        The stats and the series answer different questions and are kept
-        apart: the stats are what the annual metrics are built from, the
-        series is what a hydrograph is drawn from. Attaching the series here
-        rather than inside each branch means every variable gets one, and a
-        new branch cannot forget.
-        """
-        stats = self._summarize_stats(da, var_name)
-        daily = self._daily(da, var_name)
-        if daily:
-            stats["daily"] = daily
-        return stats
-
-    def _summarize_stats(self,
-                         da:       "xr.DataArray",
-                         var_name: str) -> Dict[str, Any]:
-        """Compute summary statistics for one variable."""
-        da  = da.squeeze()
-        val = np.array(da.values, dtype=float)
-
-        if var_name in FLUX_VARIABLES:
-            val_yr = val * S_TO_YEAR
-            return {
-                'units_raw':    VARIABLE_UNITS[var_name],
-                'units_annual': 'mm/year',
-                'annual_mean':  round(float(np.nanmean(val_yr)), 4),
-                'annual_std':   round(float(np.nanstd(val_yr)),  4),
-                'annual_min':   round(float(np.nanmin(val_yr)),  4),
-                'annual_max':   round(float(np.nanmax(val_yr)),  4),
-                'n_timesteps':  int(np.size(val)),
-            }
-
-        elif var_name == 'TWS':
-            val_1d = val.flatten()
-            return {
-                'units':          VARIABLE_UNITS[var_name],
-                'mean_mm':        round(float(np.nanmean(val_1d)), 4),
-                'std_mm':         round(float(np.nanstd(val_1d)),  4),
-                'min_mm':         round(float(np.nanmin(val_1d)),  4),
-                'max_mm':         round(float(np.nanmax(val_1d)),  4),
-                'seasonal_range': round(
-                    float(np.nanmax(val_1d) -
-                          np.nanmin(val_1d)), 4
-                ),
-                # storage change over the run (last - first) — closes the budget
-                'delta_mm':       round(float(val_1d[-1] - val_1d[0]), 4),
-                'n_timesteps':    int(len(val_1d)),
-            }
-
-        elif var_name == 'SOILLIQ':
-            # Shape: (time, levgrnd) or (levgrnd,)
-            if val.ndim == 2:
-                layer_means = np.nanmean(val, axis=0)
-            elif val.ndim == 1:
-                layer_means = val
-            else:
-                layer_means = val.reshape(-1)
-            return {
-                'units':              VARIABLE_UNITS[var_name],
-                'total_column_kg_m2': round(
-                    float(np.nansum(layer_means)), 4
-                ),
-                'layer_means_kg_m2':  [
-                    round(float(v), 4) for v in layer_means
-                ],
-                'n_layers':           int(len(layer_means)),
-                'n_timesteps':        int(val.shape[0])
-                                      if val.ndim == 2 else 1,
-            }
-
-        elif var_name == 'ZWT':
-            val_1d = val.flatten()
-            return {
-                'units':       VARIABLE_UNITS[var_name],
-                'mean_m':      round(float(np.nanmean(val_1d)), 4),
-                'min_m':       round(float(np.nanmin(val_1d)),  4),
-                'max_m':       round(float(np.nanmax(val_1d)),  4),
-                # initial vs final expose the cold-start problem: all columns
-                # begin at ELM's default (~8.8 m) regardless of the real WTD
-                'first_m':     round(float(val_1d[0]),  4),
-                'last_m':      round(float(val_1d[-1]), 4),
-                'n_timesteps': int(len(val_1d)),
-            }
-
-        elif var_name == 'H2OSNO':
-            val_1d = val.flatten()
-            return {
-                'units':       VARIABLE_UNITS[var_name],
-                'peak_swe_mm': round(float(np.nanmax(val_1d)),  1),
-                'mean_swe_mm': round(float(np.nanmean(val_1d)), 1),
-                'n_timesteps': int(len(val_1d)),
-            }
-
-        else:
-            val_1d = val.flatten()
-            return {
-                'units': VARIABLE_UNITS.get(var_name, 'unknown'),
-                'mean':  round(float(np.nanmean(val_1d)), 6),
-                'std':   round(float(np.nanstd(val_1d)),  6),
-                'min':   round(float(np.nanmin(val_1d)),  6),
-                'max':   round(float(np.nanmax(val_1d)),  6),
-            }
-
-    def _compute_metrics(self,
-                          variables: Dict) -> Dict[str, Any]:
-        """Compute derived per-column metrics."""
-        metrics = {}
-        qc = variables.get('QCHARGE') or {}
-        qo = variables.get('QOVER')   or {}
-        tw = variables.get('TWS')     or {}
-        zw = variables.get('ZWT')     or {}
-        rn = variables.get('RAIN')    or {}
-
-        if qc:
-            metrics['annual_recharge_mm_yr'] = qc.get('annual_mean')
-        if qo:
-            metrics['annual_runoff_mm_yr'] = qo.get('annual_mean')
-        sf = variables.get('SNOW') or {}
-        if rn or sf:
-            # PRECIPITATION IS RAIN + SNOW. This was RAIN alone, which in a
-            # snow-dominated basin is not a rounding error: across the 2020
-            # Naches columns the two differ by 1.11x in the warm valley and
-            # 2.17x at elevation — the ratio IS the snow fraction. Every
-            # runoff/P and recharge/P fraction built on it was inflated by
-            # exactly that much, and columns appeared to drain more water than
-            # fell on them because more than half of what fell was snow.
-            # The water budget below already used rain + snow, so the two
-            # disagreed inside the same metrics dict.
-            _r = rn.get('annual_mean') if rn else None
-            _s = sf.get('annual_mean') if sf else None
-            if _r is not None or _s is not None:
-                metrics['precip_mm_yr'] = round((_r or 0.0) + (_s or 0.0), 1)
-                metrics['rainfall_mm_yr'] = round(_r, 1) if _r is not None else None
-        if qc and qo:
-            qc_m = qc.get('annual_mean', 0) or 0
-            qo_m = qo.get('annual_mean', 0) or 0
-            if abs(qo_m) > 1e-10:
-                metrics['recharge_to_runoff_ratio'] = round(qc_m / qo_m, 4)
-            # recharge vs runoff partitioning — the core science question
-            total = qc_m + qo_m
-            if abs(total) > 1e-9:
-                metrics['recharge_fraction'] = round(qc_m / total, 4)
-                metrics['runoff_fraction']   = round(qo_m / total, 4)
-        if tw:
-            metrics['tws_seasonal_range_mm'] = tw.get('seasonal_range')
-        if zw:
-            metrics['water_table_depth_m'] = zw.get('mean_m')
-        sn = variables.get('H2OSNO') or {}
-        if sn:
-            metrics['peak_swe_mm'] = sn.get('peak_swe_mm')
-
-        # ── per-column water budget (needs the post-2026-07 output fields) ──
-        # P = RAIN + SNOW partitions into runoff + infiltration at the surface;
-        # infiltration then goes to ET, recharge/drainage, or storage (ΔTWS).
-        def mean(key):
-            d = variables.get(key) or {}
-            return d.get('annual_mean')
-
-        rain, snow = mean('RAIN'), mean('SNOW')
-        if rain is not None and snow is not None:
-            p = rain + snow
-            metrics['precip_total_mm_yr'] = round(p, 1)
-            metrics['snowfall_mm_yr'] = round(snow, 1)
-            # ET = ground evap + canopy evap + transpiration
-            et_parts = [mean(k) for k in ('QSOIL', 'QVEGE', 'QVEGT')]
-            et = sum(v for v in et_parts if v is not None) \
-                if any(v is not None for v in et_parts) else None
-            budget = {}
-            for label, v in (('runoff', mean('QOVER')), ('infiltration', mean('QINFL')),
-                             ('et', et), ('recharge', mean('QCHARGE')),
-                             ('drainage', mean('QDRAI'))):
-                if v is not None:
-                    budget[f'{label}_mm_yr'] = round(v, 1)
-                    if p > 1e-6:
-                        budget[f'{label}_frac_of_P'] = round(v / p, 3)
-            dtws = (variables.get('TWS') or {}).get('delta_mm')
-            if dtws is not None:
-                budget['storage_change_mm'] = round(dtws, 1)
-                # closure: P - runoff - drainage - ET - ΔS  (QCHARGE is internal
-                # to TWS, so it is not an export term here)
-                if all(k in budget for k in ('runoff_mm_yr', 'drainage_mm_yr', 'et_mm_yr')):
-                    resid = p - budget['runoff_mm_yr'] - budget['drainage_mm_yr'] \
-                            - budget['et_mm_yr'] - dtws
-                    budget['closure_residual_mm_yr'] = round(resid, 1)
-            if budget:
-                metrics['water_budget'] = budget
-        return metrics
-
-    def _compute_comparisons(self) -> List[Dict[str, Any]]:
-        """Compare metrics across experiments."""
-        ok = {
-            k: v for k, v in self.results.items()
-            if v.get('status') == 'ok'
-        }
-        if len(ok) < 2:
-            return []
-
-        comparisons = []
-        for metric_key in ['annual_recharge_mm_yr',
-                            'annual_runoff_mm_yr']:
-            vals = {
-                r['forcing_period']: r['metrics'].get(metric_key)
-                for r in ok.values()
-                if r['metrics'].get(metric_key) is not None
-            }
-            if len(vals) < 2:
-                continue
-            high = max(vals, key=vals.get)
-            low  = min(vals, key=vals.get)
-            comparisons.append({
-                'metric':     metric_key,
-                'values':     vals,
-                'highest':    high,
-                'lowest':     low,
-                'difference': round(vals[high] - vals[low], 4),
-                'units':      'mm/year',
-            })
-        return comparisons
+    # `_compute_comparisons` DELETED 2026-08-13 — it could not return anything.
+    #
+    # It compared a metric ACROSS FORCING PERIODS, keying the values by
+    # `forcing_period` and skipping when fewer than two were distinct. That is a
+    # scenario-ensemble question (baseline vs dry vs wet), and this framework
+    # builds SPATIAL ensembles: columns_to_plan.build_ledger takes one
+    # forcing_period for the whole study and stamps it on every column's
+    # coupler, so the dict it built always had exactly one key. Measured across
+    # every packaged run on disk: `forcing_period` is 'baseline', everywhere.
+    #
+    # So it returned [] on every run since the ensemble design changed, and
+    # `comparisons: []` travelled into LLM_ANALYSIS_INPUT.json looking like a
+    # finding — "nothing differed" rather than "nothing was compared". If the
+    # scenario ensemble comes back, this belongs with whatever builds it.
 
     def _compute_spatial_summary(self) -> Dict[str, Any]:
         """Cross-column summary for a SPATIAL ensemble that attributes the response
@@ -621,16 +393,19 @@ class ELMResultsAnalyzer:
             'lat':                 r.get('lat'),
             'lon':                 r.get('lon'),
             'precip_mm_yr':        r['metrics'].get('precip_mm_yr'),
-            'recharge_mm_yr':      r['metrics'].get('annual_recharge_mm_yr'),
-            'runoff_mm_yr':        r['metrics'].get('annual_runoff_mm_yr'),
-            'recharge_fraction':   r['metrics'].get('recharge_fraction'),
+            'recharge_mm_yr':      _metric(r, 'recharge_mm_yr'),
+            'runoff_mm_yr':        _metric(r, 'runoff_mm_yr'),
+            'recharge_frac_of_P':  _metric(r, 'recharge_frac_of_P'),
             'water_table_depth_m': r['metrics'].get('water_table_depth_m'),
         } for r in ok]
 
         elevs = np.array([r['elevation_m'] for r in ok], dtype=float)
 
         def col(metric_key):
-            return np.array([r['metrics'].get(metric_key) for r in ok], dtype=float)
+            # metrics first, then the water budget — the terms that used to be
+            # duplicated at the top level (annual_runoff_mm_yr and friends) now
+            # live only in the budget, and a key name should still address them.
+            return np.array([_metric(r, metric_key) for r in ok], dtype=float)
 
         def fit_vs_elev(metric_key):
             """Linear slope per 1000 m AND its r2 (how well a line vs elevation fits)."""
@@ -658,14 +433,14 @@ class ELMResultsAnalyzer:
         bins = sorted({round(float(p)) for p in finite})        # distinct forcing cells
 
         slope, r2 = {}, {}
-        for key, name in [('annual_recharge_mm_yr', 'recharge_mm_yr'),
-                          ('annual_runoff_mm_yr', 'runoff_mm_yr'),
-                          ('recharge_fraction', 'recharge_fraction'),
+        for key, name in [('recharge_mm_yr', 'recharge_mm_yr'),
+                          ('runoff_mm_yr', 'runoff_mm_yr'),
+                          ('recharge_frac_of_P', 'recharge_frac_of_P'),
                           ('water_table_depth_m', 'water_table_m')]:
             slope[name], r2[name] = fit_vs_elev(key)
 
-        r_elev = corr('annual_recharge_mm_yr', elevs)
-        r_prcp = corr('annual_recharge_mm_yr', precip)
+        r_elev = corr('recharge_mm_yr', elevs)
+        r_prcp = corr('recharge_mm_yr', precip)
 
         notes = []
         if bins and len(bins) <= 3 and len(ok) > len(bins):
@@ -719,15 +494,15 @@ class ELMResultsAnalyzer:
         if len(group) < 2:
             return {}
 
-        group.sort(key=lambda r: -(r['metrics'].get('annual_recharge_mm_yr') or 0))
+        group.sort(key=lambda r: -(_metric(r, 'recharge_mm_yr') or 0))
         rows = [{
             'case_name':         r['case_name'],
             'texture_top':       r['soil'].get('texture_top'),
             'clay_max_pct':      r['soil'].get('clay_max_pct'),
             'ksat_min_ums':      r['soil'].get('ksat_min_ums'),
-            'recharge_mm_yr':    r['metrics'].get('annual_recharge_mm_yr'),
-            'runoff_mm_yr':      r['metrics'].get('annual_runoff_mm_yr'),
-            'recharge_fraction': r['metrics'].get('recharge_fraction'),
+            'recharge_mm_yr':    _metric(r, 'recharge_mm_yr'),
+            'runoff_mm_yr':      _metric(r, 'runoff_mm_yr'),
+            'recharge_frac_of_P': _metric(r, 'recharge_frac_of_P'),
         } for r in group]
 
         def corr(feat, target):
@@ -740,10 +515,10 @@ class ELMResultsAnalyzer:
             return round(float(np.corrcoef(xs[mask], ys[mask])[0, 1]), 3)
 
         soil_corr = {
-            'recharge_vs_clay_max': corr('clay_max_pct', 'annual_recharge_mm_yr'),
-            'recharge_vs_ksat_min': corr('ksat_min_ums', 'annual_recharge_mm_yr'),
-            'runoff_vs_clay_max':   corr('clay_max_pct', 'annual_runoff_mm_yr'),
-            'runoff_vs_ksat_min':   corr('ksat_min_ums', 'annual_runoff_mm_yr'),
+            'recharge_vs_clay_max': corr('clay_max_pct', 'recharge_mm_yr'),
+            'recharge_vs_ksat_min': corr('ksat_min_ums', 'recharge_mm_yr'),
+            'runoff_vs_clay_max':   corr('clay_max_pct', 'runoff_mm_yr'),
+            'runoff_vs_ksat_min':   corr('ksat_min_ums', 'runoff_mm_yr'),
         }
         ranked = sorted(((abs(v), k, v) for k, v in soil_corr.items() if v is not None),
                         reverse=True)
@@ -761,11 +536,11 @@ class ELMResultsAnalyzer:
 
     # response name -> where its value lives in a result's metrics
     _RESPONSE_GETTERS = {
-        'runoff':            lambda m: m.get('annual_runoff_mm_yr'),
-        'infiltration':      lambda m: (m.get('water_budget') or {}).get('infiltration_mm_yr'),
-        'et':                lambda m: (m.get('water_budget') or {}).get('et_mm_yr'),
-        'recharge':          lambda m: m.get('annual_recharge_mm_yr'),
-        'recharge_fraction': lambda m: m.get('recharge_fraction'),
+        'runoff':             lambda m: (m.get('water_budget') or {}).get('runoff_mm_yr'),
+        'infiltration':       lambda m: (m.get('water_budget') or {}).get('infiltration_mm_yr'),
+        'et':                 lambda m: (m.get('water_budget') or {}).get('et_mm_yr'),
+        'recharge':           lambda m: (m.get('water_budget') or {}).get('recharge_mm_yr'),
+        'recharge_frac_of_P': lambda m: (m.get('water_budget') or {}).get('recharge_frac_of_P'),
     }
     _DRIVER_GETTERS = {
         'elevation_m':  lambda r: r.get('elevation_m'),

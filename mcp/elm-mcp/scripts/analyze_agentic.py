@@ -83,13 +83,13 @@ def evidence_payload(hs, val, brief, plan, assumptions):
         wb = m.get("water_budget") or {}
         cols.append({"column": r["case_name"], "elevation_m": r.get("elevation_m"),
                      "precip_mm_yr": m.get("precip_mm_yr"),
-                     "runoff_mm_yr": m.get("annual_runoff_mm_yr"),
-                     "recharge_mm_yr": m.get("annual_recharge_mm_yr"),
+                     "runoff_mm_yr": wb.get("runoff_mm_yr"),
+                     "recharge_mm_yr": wb.get("recharge_mm_yr"),
                      "et_mm_yr": wb.get("et_mm_yr"),
                      "drainage_mm_yr": wb.get("drainage_mm_yr"),
                      "storage_change_mm": wb.get("storage_change_mm"),
                      "water_table_depth_m": m.get("water_table_depth_m"),
-                     "peak_swe_mm": m.get("peak_swe_mm")})
+                     "peak_swe_modelled_mm": m.get("peak_swe_modelled_mm")})
     # the verdicts, carried verbatim — these BIND the interpretation
     verdicts = [{"variable": t.get("variable"), "status": t.get("status"),
                  "result": t.get("result"), "note": t.get("note")}

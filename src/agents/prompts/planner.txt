@@ -55,7 +55,15 @@ spatial coverage, so it is derived rather than chosen:
 
     n_bands   = 3 if relief_m < 500, else 4 if relief_m < 1200, else 5
     per_band  = 3
-    n_columns = n_bands * per_band + n_validation
+    n_columns = n_bands * per_band + n_validation + 2
+
+The `+ 2` is the sampler's own water-table anchors. It places one or two columns
+where the long-term water table is documented, so the ensemble spans a shallow
+and a typical water table rather than whatever elevation banding happened to
+pick — at Naches, elevation banding alone put 16 of 16 columns below the depth
+ELM still simulates. You do not choose these and are not shown the compilation
+they come from; count them, because they spend budget. If the basin has no such
+site the sampler says so and the two columns return to the stratified design.
 
 `n_validation` is the number of columns PINNED to observation stations (see
 below), 0 to 4. Hard bounds: 6 <= n_columns <= 24.
@@ -78,7 +86,7 @@ entries. It is not an estimate — the column budget is computed from it
 more column than the budget you yourself derived, and the extra is taken out of
 the stratified design.
 
-PIN ONLY WHAT A 1-D COLUMN PRODUCES AT A POINT: swe, water_table, et.
+PIN ONLY WHAT A 1-D COLUMN PRODUCES AT A POINT *AND* IS NOT CLUSTERED: swe, et.
 
 A pinned column exists so the simulated and observed values describe the same
 place. SWE, water table and ET are vertical and local — the column computes them
@@ -94,6 +102,18 @@ ensemble, which is what it always was. Emit it with `stations: []` and a
 drainage_area_km2 is closest to the basin area in the text. A gauge draining 7%
 of the basin cannot validate a basin-wide ensemble, and saying so is more useful
 than pretending otherwise.
+
+**Never pin a water-table well either** (2026-08-12). A well measures the same
+quantity a column computes, so this is not the gauge argument — it is that
+wells cluster and are scarce. At Brandywine four pinned wells put three columns
+in ONE model gridcell, so three identical cases were built and run; twelve wells
+sat in that cell spanning 0.42 m to 36.32 m, because most of them are screened
+in a confined aquifer hundreds of metres down. And most basins have no recorder
+well at all — Naches has none in any year. Emit water_table with `stations: []`
+and a `comparison` beginning "distance-matched", saying how many wells are in
+the basin. The sampler anchors one or two columns at documented long-term water
+tables on its own; you are not shown that compilation and do not need to be.
+The wells are still fetched and still compared — they just stop costing columns.
 
 NEVER PIN A STATION WITH `in_basin: false`. Observations are fetched for the
 bounding box, which is larger than the watershed, so some of what you are shown
@@ -120,10 +140,26 @@ starts with the word "unavailable". Never list stations alongside an
 on a comparison you have ruled out is taken straight out of the stratified
 design. Three reasons, and they are NOT the same finding:
 
-  • "unavailable — none in domain"   observations_summary lists no stations.
+  • "unavailable — none in domain"   observations_summary lists no stations AND
+                                     the block carries no `note` saying
+                                     otherwise.
   • "unavailable — <why>"            stations exist but cannot validate, e.g. a
                                      well whose observed water table lies below
                                      the ELM soil column.
+
+                                     READ `note` BEFORE YOU CHOOSE BETWEEN THE
+                                     TWO ABOVE. An empty `wells` list does not
+                                     by itself mean the basin has none. Water
+                                     table is fetched from wells that RECORD A
+                                     DAILY LEVEL, and a basin can hold
+                                     thousands of wells while none of them
+                                     logs one — Naches has 3,919 well sites in
+                                     its bounding box (measured 2026-08-12) and
+                                     zero recorders in any year. When `note`
+                                     explains an empty list, quote its reason
+                                     here rather than writing "none in domain",
+                                     which would tell the reader the basin is
+                                     empty of groundwater data when it is not.
   • "unavailable — FETCH FAILED"     the block has `ok: false`. You do not know
                                      whether stations exist. Say the fetch
                                      failed and quote its `error`. Do NOT write
@@ -159,7 +195,7 @@ OUTPUT — this JSON, nothing else
 
   "validation": [
     {
-      "variable":    "streamflow" | "swe" | "water_table",
+      "variable":    "streamflow" | "swe" | "water_table" | "et",
       "stations":    ["<id from observations_summary>", ...],
       "comparison":  "<co-located | basin-aggregate | unavailable> — one clause why"
     }

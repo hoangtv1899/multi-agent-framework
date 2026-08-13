@@ -149,7 +149,14 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
     caveats = list(ctx.caveats or []) + list((comparison or {}).get("caveats") or [])
     caveats += list((investigation or {}).get("caveats") or [])
 
-    findings = {f["id"]: f for f in ((investigation or {}).get("findings") or [])}
+    # BOTH STEPS' FINDINGS, because a claim may cite either. Step 3 audits
+    # against step 1's comparison as well as step 2's figures, so a report
+    # built from step 2 alone would strip the evidence off exactly the claims
+    # that rest on an observation — leaving them in the report with no figure
+    # and no n, which reads as a claim from nowhere.
+    inv = {f["id"]: f for f in ((investigation or {}).get("findings") or [])}
+    findings = {**inv,
+                **{f["id"]: f for f in ((comparison or {}).get("findings") or [])}}
 
     # Each surviving claim carries its evidence with it: the figure a reader
     # can look at and the script that produced the numbers. A claim whose
@@ -184,7 +191,7 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         "figures": {
             "comparison": (comparison or {}).get("figures") or {},
             "investigation": {f["id"]: f.get("figure")
-                              for f in findings.values() if f.get("figure")},
+                              for f in inv.values() if f.get("figure")},
         },
 
         "provenance": {

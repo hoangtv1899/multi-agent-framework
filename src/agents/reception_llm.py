@@ -68,15 +68,22 @@ class LLMReceptionAgent:
     def exposed_tools(self):
         return [t["function"]["name"] for t in self.loop.tools]
 
-    def process(self, user_request: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    def process(self, user_request: str, context: Dict[str, Any] = None,
+                run_dir=None) -> Dict[str, Any]:
         """LLM loop, then the deterministic gather. Returns the reception package.
 
         Two phases, and the split is the point:
 
           LLM     what is being asked, WHERE (domain) and WHEN (period).
                   Judgement, and the only part that can need a question.
-          CODE    the DEM grid, the water table, and the three observation
-                  sets for that period. Not decisions, so not the model's.
+          CODE    the DEM grid, the water table, and the observation sets for
+                  that period. Not decisions, so not the model's.
+
+        run_dir: where the modelled water table's GeoTIFF is written. It is the
+        one thing reception produces that is not JSON, so it needs a directory
+        rather than a return value. Optional — without it that single fetch is
+        skipped and everything else still runs, which is what lets a caller with
+        no run directory (a dry check, a test) use this unchanged.
 
         Returns {route, brief, observations, grid, provenance, trace, rounds,
         raw} — `route` carries the framework's dispatch (design / clarify /
@@ -129,7 +136,15 @@ class LLMReceptionAgent:
                 # the study is.
                 pkg["observations"] = gather.gather_observations(
                     self._clients, bs, y0, y1,
-                    boundary=pkg["grid"].get("boundary"), provenance=prov)
+                    boundary=pkg["grid"].get("boundary"),
+                    # WHERE THE MODELLED WATER TABLE IS WRITTEN. It used to be
+                    # `grid_points`, sampled at the 58 basin-clipped points —
+                    # but sample_columns snaps columns onto the CONUS grid and
+                    # moves them, so those were never the points anyone would
+                    # later ask about. It is a GeoTIFF beside reception.json
+                    # now, readable at any location by static_wtd.sample().
+                    run_dir=run_dir,
+                    provenance=prov)
                 brief["observations_summary"] = gather.summarise(pkg["observations"])
         pkg["provenance"] = prov
         return pkg

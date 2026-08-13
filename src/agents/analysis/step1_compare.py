@@ -1,74 +1,158 @@
 #!/usr/bin/env python3
 """
-Analyzer step 1 — the entry point
+Analyzer step 1 — the model against the observations
 src/agents/analysis/step1_compare.py
 
     in   ctx
-    out  04_analysis/comparison.json + the five step-1 figures
+    out  04_analysis/comparison.json + a figure per observable + the map
 
-The three observables each have their own module because each has its own
-station matching, its own exclusions and its own caveats. This is the one place
-that runs all three, draws the figures, and WRITES THE RESULT DOWN.
+THE COMPARISON ITSELF LIVES IN THE ELM SERVER (2026-08-12). This step used to
+own four modules of it — step1_compare_swe, _wtd, _streamflow and step1_maps,
+about 1,400 lines that knew H2OSNO from ZWT, what a snow pillow is sited for,
+and how deep ELM's soil column goes. None of that is model-agnostic, and the
+Analyzer is the one box that has to be: it reads PFLOTRAN runs too. So the
+knowledge moved to `mcp/elm-mcp/src/compare/`, where it sits beside the model it
+is about (docs/ELM_MCP_PLAN.md §9 phase 5, §11 decision 3), and this file became
+the caller.
 
-Persisting matters for the same reason step 0 is the only step that opens a
-file: it makes every later step runnable against an archived study. Until now
-the comparison records lived only in memory, so step 3 could not be developed
-or re-run without recomputing step 1 — and the caveats step 1 raises, which are
-the ones that bind everything downstream, existed nowhere on disk.
+WHAT STAYS HERE IS THE JUDGEMENT. The split follows the rule phase 4 already
+set for the limitations payload: **rows and units come back from the model's
+server; the framework attaches the caveats.** The comparison returns
+measurements and refuses to grade them — "bias = -85.9 mm" and never "the model
+underestimates snow". A caveat is the opposite kind of statement: it says what
+those measurements are not allowed to support, which is a judgement about
+inference, not a reading of a history file. Two different jobs, two sides of the
+boundary, and this file is the only place they meet.
+
+    ELM's server measures          this file judges
+    ────────────────────           ────────────────
+    bias, RMSE, NSE, KGE           whether a metric may be called skill
+    16 of 16 columns below 3.8 m   that no drainage claim about them is
+                                   a statement about groundwater
+    2 stations, 0 wells            that the absence is a fact about the
+                                   basin and not a failed comparison
+
+WHY THE RECORD IS PERSISTED. Same reason step 0 is the only file reader: every
+later step must be runnable against an archived study. Step 3 could not be
+developed at all while its input existed only in memory, and the caveats raised
+here — the ones that bind everything downstream — would have existed nowhere on
+disk.
 """
 import json
+import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
-from agents.analysis import step1_compare_swe as _swe            # noqa: E402
-from agents.analysis import step1_compare_streamflow as _flow    # noqa: E402
-from agents.analysis import step1_compare_wtd as _wtd            # noqa: E402
-from agents.analysis import step1_maps as _maps                  # noqa: E402
+# WHICH MODEL'S COMPARISON, resolved from the run rather than assumed.
+#
+# A REGISTRY, NOT AN IMPORT (2026-08-13). This file hardcoded ELM's package and
+# imported it whatever the run was — so a PFLOTRAN study reaching step 1 would
+# have asked ELM's modules for H2OSNO and ZWT, found neither, and written four
+# empty records plus their caveats as though the comparison had been made and
+# found nothing. That is the exact failure this box exists to avoid: "we could
+# not look" reported as "there is nothing there".
+#
+# So the model chooses the comparison, the same way core/backends.py lets the
+# model choose the manager class. A backend with no comparison says so; it does
+# not get ELM's.
+#
+#     model            module        where
+#     elm              compare       mcp/elm-mcp/src/compare/
+#     pflotran         —             none yet; see below
+#
+# ADDING PFLOTRAN is a package and one line here. It would declare its own
+# observables — a PFLOTRAN column has no snowpack, and its comparands are
+# concentrations and heads against wells — and the Spec/compare()/plot() shape
+# is model-agnostic on purpose. Nothing else in the Analyzer changes.
+#
+# IN-PROCESS RATHER THAN OVER MCP, deliberately. The Analyzer must run against
+# an ARCHIVED run directory with no servers configured — that is what makes
+# step 3 re-runnable, and it is how this step is developed. A tool call would
+# make the Analyzer's one input a live subprocess. It is the same edge
+# core/backends.py already opens for ELMExpManager, and it goes when that does.
+_SERVER_SRC = {
+    "elm": Path(__file__).resolve().parents[3] / "mcp" / "elm-mcp" / "src",
+}
+_COMPARE_MODULE = {"elm": "compare"}
 
 FILENAME = "comparison.json"
 
+# ELM's hydrologically active soil column. Quoted in a caveat, so it is named
+# once here and read from the comparison record when the record supplies it.
+ACTIVE_SOIL_M = 3.8
+
 
 def compare_all(ctx, out_dir, draw: bool = True) -> Dict[str, Any]:
-    """Run the three comparisons, draw the figures, write comparison.json.
+    """The four comparisons, their figures, and what they forbid.
 
-    `draw` exists so a caller that only needs the records — step 3 re-reading an
-    archived run, a test — does not pay for five renders it will not look at.
+    `draw` exists so a caller that only needs the records — step 3 re-reading
+    an archived run, a test — does not pay for five renders it will not look
+    at.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    swe = _swe.compare(ctx)
-    flow = _flow.compare(ctx)
-    wtd = _wtd.compare(ctx)
+    model = str((ctx.data or {}).get("model") or "").lower() or "elm"
+    mod_name = _COMPARE_MODULE.get(model)
+    if mod_name is None:
+        # NOT AN ERROR, AND NOT AN EMPTY COMPARISON. This backend has no
+        # observation comparison written yet; saying so is the finding. The
+        # alternative — running ELM's — would report four observables as
+        # compared-and-empty for a model that has none of those variables.
+        return {"observables": {}, "summary": {}, "caveats": [], "findings": [],
+                "figures": {},
+                "skipped": f"no observation comparison is registered for model "
+                           f"'{model}' — the comparison is model knowledge and "
+                           f"lives in that model's server. Registered: "
+                           f"{sorted(_COMPARE_MODULE)}."}
 
-    figures: Dict[str, str] = {}
-    if draw:
-        figures = {
-            "swe_scatter": _swe.plot_scatter(swe, out_dir / "swe_scatter.png"),
-            "swe_timeseries": _swe.plot_timeseries(
-                swe, out_dir / "swe_timeseries.png"),
-            "streamflow_timeseries": _flow.plot_timeseries(
-                flow, out_dir / "streamflow_timeseries.png"),
-            "wtd_timeseries": _wtd.plot_timeseries(
-                wtd, out_dir / "wtd_timeseries.png"),
-            "comparison_spatial_map": _maps.create_comparison_spatial_map(
-                ctx, out_dir / "comparison_spatial_map.png",
-                swe=swe, streamflow=flow, wtd=wtd),
-        }
+    src = _SERVER_SRC.get(model)
+    if src and src.is_dir() and str(src) not in sys.path:
+        sys.path.append(str(src))       # append: the framework's own modules
+                                        # must still win a name collision
+    try:
+        _cmp = __import__(mod_name)
+    except ImportError as e:                                    # noqa: BLE001
+        raise RuntimeError(
+            f"the comparison for '{model}' lives in that model's server "
+            f"({src}) and could not be imported: {e}") from e
 
-    # Caveats are hoisted to the top level rather than left inside each
-    # observable's record. They are what BINDS later steps, and a step 3 that
-    # had to know to look in three different places for them would eventually
-    # look in two.
-    caveats = []
-    for name, rec in (("swe", swe), ("streamflow", flow), ("wtd", wtd)):
-        for c in (rec.get("caveats") or []):
-            caveats.append(dict(c, observable=name))
+    # THE ROWS COME FROM ctx, not from a file this step opens. ctx.columns is
+    # already the shape the comparison reads — case_name, lat/lon/elevation_m,
+    # and each variable's daily block — because both were built from the same
+    # extraction. Reading 03_results/extracted.json here instead would make
+    # step 1 a second file reader AND would compare a different set of columns
+    # from the one every other step reports on.
+    rows = [r for r in ctx.columns if isinstance(r, dict)]
+    reception = (ctx.sources or {}).get("reception")
+    if not reception:
+        raise RuntimeError("no reception.json in this run — the observations "
+                           "are fetched once, by reception, and persisted "
+                           "there; nothing else in the run has them")
 
-    out = {"swe": swe, "streamflow": flow, "wtd": wtd,
-           "caveats": caveats, "figures": figures}
-    (out_dir / FILENAME).write_text(json.dumps(out, indent=2, default=str))
-    return out
+    done = _cmp.compare_run(rows, str(reception), str(out_dir), draw=draw)
+    out = done["comparison"]
+    summary = done["summary"]
+
+    caveats = derive_caveats(out)
+    findings = as_findings(summary, caveats, done["figures"])
+
+    record = {
+        "observables":  out.get("observables") or {},
+        "summary":      summary,
+        "domain":       out.get("domain"),
+        "note":         out.get("note"),
+        "n_observation_rows_dropped": out.get("n_observation_rows_dropped"),
+        "caveats":      caveats,
+        "findings":     findings,
+        "figures":      done["figures"],
+    }
+    # Rewritten over what compare_run just wrote. The measurements are the
+    # server's and the caveats are ours, and the file has to carry both: step 3
+    # re-run alone against this directory reads its blocking caveats from here
+    # and from nowhere else.
+    (out_dir / FILENAME).write_text(json.dumps(record, indent=2, default=str))
+    return record
 
 
 def load(out_dir) -> Dict[str, Any]:
@@ -80,3 +164,331 @@ def load(out_dir) -> Dict[str, Any]:
         return json.loads(p.read_text())
     except Exception:
         return {}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# WHAT THE MEASUREMENTS FORBID
+# ─────────────────────────────────────────────────────────────────────
+# Each caveat below is derived from a NUMBER in the record and quotes it. That
+# is the whole discipline: a caveat nobody can trace to the evidence is prose,
+# and prose cannot be checked by the step-3 audit — which is the only place
+# these finally bind.
+#
+#     blocking   a claim of this kind must not be made, or must carry the id
+#     qualify    the claim may be made, stated with this attached
+#     context    worth knowing; constrains nothing by itself
+#
+# `applies_to` is not decoration either: step 3 matches a claim's own words
+# against it to decide which caveats that claim owes. Scope wording that names
+# the subject ("recharge, drainage and any water-table claim") works; wording
+# that names the machinery ("the water_table comparison") does not.
+BLOCKING, QUALIFY, CONTEXT = "blocking", "qualify", "context"
+
+
+def _cav(cid: str, severity: str, statement: str, applies_to: str,
+         observable: str) -> Dict[str, Any]:
+    return {"id": cid, "severity": severity, "statement": statement,
+            "applies_to": applies_to, "observable": observable,
+            "source": "step1_compare"}
+
+
+def _n(block: Optional[Dict], key: str, default=0):
+    return (block or {}).get(key, default) or default
+
+
+def derive_caveats(out: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The comparison record -> the constraints it places on inference."""
+    obs = out.get("observables") or {}
+    caveats: List[Dict[str, Any]] = []
+
+    caveats += _streamflow_caveats(obs.get("streamflow") or {})
+    caveats += _water_table_caveats(obs.get("water_table") or {})
+    caveats += _swe_caveats(obs.get("swe") or {})
+    caveats += _et_caveats(obs.get("et") or {})
+
+    # ONE PER OBSERVABLE, and only where reception actually excluded someone.
+    # Observations are fetched for the BOUNDING BOX, which is bigger than the
+    # watershed, so this is routine — it is context, not a problem, and saying
+    # so stops a reader treating a smaller station count as a data failure.
+    for name, rec in obs.items():
+        outside = rec.get("stations_excluded_outside_basin") or []
+        if outside:
+            caveats.append(_cav(
+                f"{name}_stations_outside_basin", CONTEXT,
+                f"{len(outside)} {name} station(s) lie outside the watershed "
+                f"and were not compared: {', '.join(str(s) for s in outside[:8])}"
+                + (" …" if len(outside) > 8 else "") + ". Reception fetches by "
+                f"bounding box, which includes ground the study does not model.",
+                f"{name} station coverage", name))
+    return caveats
+
+
+def _streamflow_caveats(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    n_gauges = rec.get("n_stations") or 0
+    if n_gauges:
+        # THE ONE THAT MAKES THE STREAMFLOW COMPARISON ADMISSIBLE AT ALL.
+        out.append(_cav(
+            "unrouted_columns_vs_integrated_gauge", BLOCKING,
+            f"A gauge integrates a routed catchment; these are independent 1-D "
+            f"columns with no lateral flow and no run-on. Both sides are mm/day "
+            f"of specific discharge, so the units match, but the model value is "
+            f"local generation and the gauge value is routed discharge. The "
+            f"comparison stands the ensemble mean against each of the "
+            f"{n_gauges} gauge(s) as CONTEXT: no bias, NSE or KGE between them "
+            f"scores the model, and timing especially cannot be compared "
+            f"without routing.",
+            "streamflow, runoff, discharge, hydrograph and timing claims",
+            "streamflow"))
+
+    over = rec.get("gauges_exceeding_modelled_domain") or {}
+    if _n(over, "n"):
+        ids = ", ".join(str(s) for s in (over.get("station_ids") or [])[:6])
+        out.append(_cav(
+            "gauge_exceeds_modelled_domain", BLOCKING,
+            f"{over['n']} of {over.get('of')} gauge(s) drain more area than the "
+            f"{over.get('basin_area_km2')} km2 basin that was simulated ({ids}), "
+            f"so their flow includes water that was never modelled. A "
+            f"difference against them is not attributable to the model.",
+            "streamflow and discharge claims against those gauges",
+            "streamflow"))
+    return out
+
+
+def _water_table_caveats(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    below = rec.get("below_active_soil") or {}
+    n_below, of = _n(below, "n_columns_mean_below"), below.get("of")
+    unmoving = _n(rec.get("columns_with_unmoving_water_table") or {}, "n")
+    if n_below:
+        depth = below.get("active_soil_depth_m") or ACTIVE_SOIL_M
+        extra = (f" {unmoving} of them have a water table that moves less than "
+                 f"1 cm all year, so their soil column and their water table "
+                 f"never interact." if unmoving else "")
+        out.append(_cav(
+            "water_table_below_active_soil", BLOCKING,
+            f"ELM's hydrologically active soil column is ~{depth} m deep; a "
+            f"water table below that is DIAGNOSED from an aquifer store, not "
+            f"simulated by the soil physics. {n_below} of {of} columns have a "
+            f"mean water table below it.{extra} No drainage or recharge claim "
+            f"about those columns is a statement about groundwater.",
+            "recharge, drainage and any water-table depth claim", "water_table"))
+
+    if rec.get("skipped") or rec.get("error"):
+        out.append(_cav(
+            "no_recorder_well", CONTEXT,
+            str(rec.get("error") or rec.get("skipped")),
+            "water-table validation", "water_table"))
+
+    # The three distributions are the substitute for a validation, and they are
+    # not one: two of them are other people's models, and Fan is 1927-2009.
+    d = rec.get("distributions") or {}
+    if d.get("fan_2013") or d.get("parflow_conus2"):
+        fan, pf = d.get("fan_2013") or {}, d.get("parflow_conus2") or {}
+        out.append(_cav(
+            "water_table_references_are_not_this_period", QUALIFY,
+            f"Where the water table SITS is set beside two references, neither "
+            f"of them an observation of this run's period: Fan et al. 2013 is a "
+            f"long-term mean over {fan.get('period', '1927-2009')} "
+            f"({fan.get('n')} sites in this basin) and ParFlow CONUS2 is another "
+            f"model's steady state ({pf.get('n')} columns sampled). They bound "
+            f"what is plausible; they do not measure this year.",
+            "water-table depth claims", "water_table"))
+    return out
+
+
+def _swe_caveats(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    win, period = rec.get("shared_window"), rec.get("model_period")
+    if win and period and list(win) != list(period):
+        out.append(_cav(
+            "swe_window_overlap", QUALIFY,
+            f"The model ran {period[0]} to {period[1]} and the stations cover a "
+            f"different span, so every SWE metric is taken over the shared "
+            f"window {win[0]} to {win[1]} only.",
+            "SWE magnitude and snow claims", "swe"))
+
+    if rec.get("pairs"):
+        # NOT MEASURED HERE — a fact about how the network was built, and the
+        # reason an observed-above-modelled reading is not evidence by itself.
+        out.append(_cav(
+            "snotel_siting_bias", QUALIFY,
+            "SNOTEL sites are deliberately placed where snow accumulates and "
+            "persists — sheltered, shaded, wind-protected. The model column is "
+            "a grid-cell average driven by ~12 km forcing. Observed SWE above "
+            "modelled at the same elevation is expected from siting alone and "
+            "is not by itself a model snow bias.",
+            "SWE magnitude and snow bias claims", "swe"))
+
+    cens = rec.get("onset_censored_columns") or {}
+    if _n(cens, "n"):
+        out.append(_cav(
+            "swe_onset_unobservable", BLOCKING,
+            f"{cens['n']} of {cens.get('of')} columns already carried snow "
+            f"above the {rec.get('threshold_mm')} mm threshold on the first day "
+            f"of the record, so accumulation cannot be seen to start in this "
+            f"run. A first-snow date taken from a warm-started January reports "
+            f"when the run began, not when snow arrived.",
+            "snow accumulation start dates and first-snow claims", "swe"))
+
+    if rec.get("error") and not rec.get("pairs"):
+        out.append(_cav("no_swe_station", CONTEXT, str(rec["error"]),
+                        "SWE validation", "swe"))
+    return out
+
+
+def _et_caveats(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    if rec.get("skipped") or rec.get("error"):
+        disc = rec.get("tower_discovery") or {}
+        out.append(_cav(
+            "no_flux_tower", CONTEXT,
+            str(rec.get("error") or rec.get("skipped"))
+            + (f" Discovery found {disc.get('n_in_bbox')} tower(s) in the "
+               f"bounding box, {disc.get('n_operating')} operating in this "
+               f"period." if disc else ""),
+            "evapotranspiration validation", "et"))
+
+    # Half an AmeriFlux record is a GAP-FILLING MODEL, not a measurement, and
+    # comparing a model against a model quietly is how a good score gets
+    # reported for the wrong reason.
+    filled = [p for p in (rec.get("pairs") or [])
+              if ((p.get("obs_quality") or {}).get("frac_measured") or 1) < 1]
+    if filled:
+        worst = min((p.get("obs_quality") or {}).get("frac_measured")
+                    for p in filled)
+        out.append(_cav(
+            "et_partly_gap_filled", QUALIFY,
+            f"{len(filled)} tower record(s) are partly gap-filled — as little "
+            f"as {round(float(worst), 3)} of days measured. A gap-filled value "
+            f"is a model's estimate, so that share of the comparison is model "
+            f"against model.",
+            "evapotranspiration and ET skill claims", "et"))
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# THE COMPARISON AS EVIDENCE STEP 3 MAY CITE
+# ─────────────────────────────────────────────────────────────────────
+def as_findings(summary: Dict[str, Any], caveats: List[Dict[str, Any]],
+                figures: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Each observable as a finding, in step 2's shape.
+
+    ADDED 2026-08-12, and it closes a hole. Step 3 audits every claim against
+    the findings step 2 produced, and step 1's comparison was not among them —
+    so the one part of the analysis that touches an OBSERVATION could not be
+    cited, and any sentence about it was struck as unsupported. The interpreter
+    was left able to describe the model and forbidden to say how it compared.
+
+    The result is the SUMMARY block, not the full record: the audit checks a
+    claim's numbers against the finding it cites, so the finding must hold
+    exactly what the brief showed. `blocked_by` carries that observable's
+    caveat ids, which is what makes a streamflow claim owe the routing caveat.
+    """
+    by_obs: Dict[str, List[str]] = {}
+    for c in caveats:
+        by_obs.setdefault(c.get("observable") or "", []).append(c["id"])
+
+    questions = {
+        "swe": "How does modelled snow water equivalent stand against the "
+               "snow pillows, and what did the snowpack do across the columns?",
+        "water_table": "How does the modelled water table stand against the wells and "
+               "the published references, and where does it sit in the soil?",
+        "streamflow": "How does the ensemble-mean runoff stand against the "
+                      "gauges, and how does water leave each column?",
+        "et": "How does modelled evapotranspiration stand against the flux "
+              "towers, and where does the ET come from?",
+    }
+    out = []
+    for name, block in (summary or {}).items():
+        if not isinstance(block, dict):
+            continue
+        out.append({
+            "id": f"compare_{name}",
+            "question": questions.get(name, f"{name}: model against observations"),
+            "scale": "overall",
+            "n": block.get("n_columns"),
+            "result": block,
+            "blocked_by": by_obs.get(name, []),
+            "figure": figures.get(name),
+            "source": "step1_compare",
+        })
+    return out
+
+
+# How many matched stations are written out per observable before the rest are
+# counted. Brandywine has 20 gauges, all against the same ensemble mean; the
+# first few show the spread and the twentieth adds nothing a prompt can use.
+MAX_ROWS = 6
+
+
+def _fmt(v: Any) -> str:
+    """A value as text, NEVER rounded.
+
+    An earlier version printed floats at four significant figures, which reads
+    better and is a trap: the step-3 audit compares a claim's declared value
+    against the raw record, so a reviewer quoting the 2861 it was shown gets
+    struck for inventing a number that the record holds as 2860.6. What the
+    prompt shows and what the audit accepts have to be the same string.
+    """
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_fmt(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{" + ", ".join(f"{k}={_fmt(x)}" for k, x in v.items()) + "}"
+    return str(v)
+
+
+def _clip(text: str, limit: int) -> str:
+    """Cut at a separator, never mid-number. `0.72365` clipped to `0.72` is a
+    different measurement, and one the audit will correctly refuse."""
+    if len(text) <= limit:
+        return text
+    cut = max(text.rfind(", ", 0, limit), text.rfind("{", 0, limit))
+    return text[:cut if cut > 40 else limit].rstrip(", ") + " …"
+
+
+def format_comparison(summary: Dict[str, Any], max_rows: int = MAX_ROWS) -> str:
+    """The comparison as prompt text. One writer, two readers (steps 2 and 3).
+
+    Written from the SUMMARY rather than the record, so what a prompt shows and
+    what the step-3 audit checks a claim against are the same object. A number
+    visible here and absent there is how a correct sentence gets struck.
+    """
+    lines: List[str] = []
+    for name, b in (summary or {}).items():
+        if not isinstance(b, dict):
+            continue
+        head = [f"{b.get('n_columns')} columns", f"{b.get('n_stations')} station(s)"]
+        if b.get("colocated") is False:
+            head.append("NOT co-located — basin aggregate")
+        lines.append(f"  {name} [{b.get('units')}] — " + ", ".join(head))
+        # FIRST, because everything under it is meaningless without it. A
+        # reader that does not know `streamflow` here means QOVER + QDRAI will
+        # invent its own definition — one live run defined the drainage limb as
+        # QDRAI + QCHARGE and reported two different ensemble totals in one
+        # answer without noticing they were different quantities.
+        if b.get("model_comparand"):
+            lines.append(f"      model: {b['model_comparand']}")
+        if b.get("obs_quantity"):
+            lines.append(f"      obs:   {b['obs_quantity']}")
+        for key in ("error", "skipped"):
+            if b.get(key):
+                lines.append(f"      {key}: {_clip(str(b[key]), 300)}")
+        rows = b.get("matched") or []
+        for m in rows[:max_rows]:
+            bits = [f"{m.get('station_id')}"]
+            if m.get("column"):
+                bits.append(f"vs {m['column']}")
+            for k in ("n_days", "separation_km", "bias", "rmse", "nse", "kge",
+                      "model_days_later_than_gauge", "frac_measured"):
+                if m.get(k) is not None:
+                    bits.append(f"{k}={_fmt(m[k])}")
+            lines.append("      " + "  ".join(bits))
+        if len(rows) > max_rows:
+            lines.append(f"      … and {len(rows) - max_rows} more station(s)")
+        for k, v in b.items():
+            if k in ("units", "colocated", "n_columns", "n_stations", "matched",
+                     "error", "skipped", "model_comparand", "obs_quantity"):
+                continue
+            lines.append(f"      {k}: {_clip(_fmt(v), 500)}")
+    return "\n".join(lines)

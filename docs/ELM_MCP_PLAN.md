@@ -781,15 +781,30 @@ then drops every non-dict — that is how 19 clean columns were packaged as
 
 ---
 
-### Phase 5 — `compare_elm_to_observations` and `plots.py`
+### Phase 5 — `compare_to_obs` — DONE 2026-08-12
 
-Move the four `step1_compare_*` files and `step2_investigate.py` into
-`src/compare.py`; the figures into `src/plots.py`; extract the shared style
-module. Add the variable registry to `describe_elm_capabilities`, and named
-series to `collect_elm_results`.
+Landed as a PACKAGE, not one `compare.py`: `mcp/elm-mcp/src/compare/` with a
+module per observable (swe, wtd, streamflow, et), each a `SPEC` + `compare()` +
+`plot()` + `map_points()`, over a shared `_common.py`. A fifth observable is a
+file and one registry line. The four `step1_compare_*` files and `step1_maps.py`
+are deleted (1,393 lines); `src/agents/analysis/step1_compare.py` is now the
+caller.
 
-**Proof:** the same run analysed before and after produces the same metrics and
-the same figures.
+**`step2_investigate.py` did NOT move, and should not.** It plans figures for
+whatever the user asked, over whatever the run produced — it names no variable
+and no model. Moving it would have put the Analyzer's LLM inside ELM's server.
+
+**The split that replaced "move it all":** the server MEASURES and refuses to
+grade; the framework attaches the CAVEATS. Same rule phase 4 sets for the
+limitations payload, and it is what keeps the Analyzer model-agnostic while the
+comparison is not.
+
+**Proof:** not the planned before/after parity — the comparison was
+deliberately rewritten (match first then compare; streamflow matches nothing;
+no verdicts), so identical output would have meant the rewrite had not
+happened. Proved instead end-to-end: naches_1979 and brandywine_2010 both run
+step 0 → 4 off their own `experiment.json`, and the interpreter cites
+`compare_<observable>` findings that the audit checks against the record.
 
 ---
 

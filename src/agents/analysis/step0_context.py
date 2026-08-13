@@ -83,6 +83,10 @@ class AnalysisContext:
         self.data    = data
         self.caveats = caveats
         self.sources = sources
+        # Filled by series(): the variables it refused to put in the daily
+        # frame, and why. Read by step 2's catalog, so the figure planner is
+        # told what is absent instead of discovering it as an empty groupby.
+        self.series_withheld: Dict[str, Dict[str, Any]] = {}
 
     # ── the rule the split exists to enforce ────────────────────────────
     @property
@@ -104,6 +108,112 @@ class AnalysisContext:
         a missing observation stays explicitly missing instead of vanishing —
         which is how "no gauge had records that year" once became a finding
         about hydrology rather than about a failed query.
+
+        ONE VALUE PER DATE, OR THE VARIABLE STAYS OUT (2026-08-13). SOILLIQ and
+        H2OSOI are per-layer: 5,280 values against 352 dates on a 15-layer
+        Brandywine column, flattened time-by-layer into the same `values` list
+        every scalar uses. `zip(dates, vals)` does not fail on that — it stops
+        at the shorter one, so the frame got the first 352 numbers, which are
+        the first 23 days of the SOIL PROFILE, relabelled with a year of dates.
+        Nothing looked wrong: the column existed, the dates were real, the
+        units were right. It surfaced only when a reviewer looked at the figure
+        and said a total soil-water trace cannot collapse to zero and rebound
+        every fortnight — the fortnight being the 15 layers, cycling.
+
+        A frame that silently mislabels is worse than one that is missing the
+        variable, so the mismatch is DETECTED AND REPORTED here, and
+        `series_withheld` says which variables and why. Reshaping them into a
+        depth frame is the right answer and is not this function's to invent:
+        a column mean needs layer THICKNESSES, and the packaged block does not
+        carry them.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            return None
+        recs = []
+        withheld: Dict[str, Dict[str, Any]] = {}
+        for row in self.columns:
+            cid = row.get("case_name")
+            for var, blk in (row.get("variables") or {}).items():
+                daily = (blk or {}).get("daily") or {}
+                vals  = daily.get("values") or []
+                dates = daily.get("dates") or list(range(len(vals)))
+                units = daily.get("units")
+                if len(vals) != len(dates):
+                    n_layers = (blk or {}).get("n_layers")
+                    if not n_layers and dates and len(vals) % len(dates) == 0:
+                        n_layers = len(vals) // len(dates)
+                    withheld[var] = {
+                        "n_values": len(vals), "n_dates": len(dates),
+                        "n_layers": n_layers,
+                        "why": (f"{len(vals)} values against {len(dates)} dates"
+                                + (f" — one per day per soil layer ({n_layers} "
+                                   f"layers), flattened" if n_layers else "")
+                                + ". A daily frame holds one value per date; "
+                                  "pairing these would relabel the soil "
+                                  "profile as a time series."),
+                    }
+                    continue
+                if vals and isinstance(vals[0], list):
+                    # Properly layered — one row per day, one entry per layer.
+                    # Not a defect and not withheld: it belongs in soil(),
+                    # which keeps the depth axis instead of losing it.
+                    withheld[var] = {
+                        "n_layers": len(vals[0]), "n_dates": len(dates),
+                        "why": (f"depth-resolved — {len(dates)} days x "
+                                f"{len(vals[0])} soil layers. It is in `soil`, "
+                                f"with each layer's thickness and depth."),
+                        "in_frame": "soil",
+                    }
+                    continue
+                for d, v in zip(dates, vals):
+                    recs.append((d, cid, var, v, units, "model"))
+        # Said once, not once per call. series() is rebuilt by every step that
+        # wants the frame, and three identical warnings read as three problems.
+        if withheld and withheld != self.series_withheld:
+            broken = [k for k, v in withheld.items() if not v.get("in_frame")]
+            if broken:
+                print(f"   ⚠️  malformed, not in any frame: "
+                      f"{', '.join(sorted(broken))}")
+            moved = [k for k, v in withheld.items() if v.get("in_frame")]
+            if moved:
+                print(f"   ↳ depth-resolved, in `soil`: "
+                      f"{', '.join(sorted(moved))}")
+        self.series_withheld = withheld
+        if not recs:
+            return None
+        df = pd.DataFrame(recs, columns=["date", "entity", "variable",
+                                         "value", "units", "source"])
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        return df
+
+    def soil(self):
+        """The soil column through time, as a TIDY long frame, or None.
+
+            entity | date | layer | depth_m | thickness_m
+                   | depth_top_m | depth_bottom_m
+                   | variable | value | units | source
+
+        THE THIRD FRAME, and it exists because ELM's layered output has an axis
+        combination neither of the others has: one value per DAY per LAYER.
+        series() is one value per date and profiles() is one value per (output
+        time, depth) — a handful of yearly snapshots. Forcing SOILLIQ into
+        either would have meant dropping an axis, and dropping the layer axis
+        is exactly the bug this frame was built after.
+
+        EVERY LAYER CARRIES ITS OWN GEOMETRY, which is the point. ELM's fifteen
+        layers run 1.75 cm at the surface to 13.85 m at the bottom, so the
+        column mean of a moisture field is a THICKNESS-WEIGHTED mean —
+
+            (value * thickness_m).sum() / thickness_m.sum()
+
+        — and a plain mean is dominated by the deepest layer, which is mostly
+        bedrock. `depth_top_m` and `depth_bottom_m` are the running sum, so a
+        probe at 10 cm is the layer whose top and bottom straddle it, and the
+        hydrologically active soil is `depth_bottom_m <= 3.8021` — the first
+        ten layers. That number is now measured from the file rather than
+        asserted, which is what makes it checkable.
         """
         try:
             import pandas as pd
@@ -114,15 +224,37 @@ class AnalysisContext:
             cid = row.get("case_name")
             for var, blk in (row.get("variables") or {}).items():
                 daily = (blk or {}).get("daily") or {}
-                vals  = daily.get("values") or []
+                vals = daily.get("values") or []
+                if not (vals and isinstance(vals[0], list)):
+                    continue                    # not layered; series() has it
                 dates = daily.get("dates") or list(range(len(vals)))
                 units = daily.get("units")
-                for d, v in zip(dates, vals):
-                    recs.append((d, cid, var, v, units, "model"))
+                thick = daily.get("layer_thickness_m") or []
+                depth = daily.get("layer_depth_m") or []
+                # Running sum, so a layer knows where it starts and ends. Built
+                # once per variable rather than per row: 366 x 15 rows per
+                # column, and re-deriving it inside the loop is 5,490 identical
+                # accumulations.
+                tops, bottoms, run = [], [], 0.0
+                for t in thick:
+                    tops.append(round(run, 6))
+                    run += float(t or 0.0)
+                    bottoms.append(round(run, 6))
+                for d, layers in zip(dates, vals):
+                    for i, v in enumerate(layers):
+                        recs.append((
+                            cid, d, i + 1,
+                            depth[i] if i < len(depth) else None,
+                            thick[i] if i < len(thick) else None,
+                            tops[i] if i < len(tops) else None,
+                            bottoms[i] if i < len(bottoms) else None,
+                            var, v, units, "model"))
         if not recs:
             return None
-        df = pd.DataFrame(recs, columns=["date", "entity", "variable",
-                                         "value", "units", "source"])
+        df = pd.DataFrame(recs, columns=[
+            "entity", "date", "layer", "depth_m", "thickness_m",
+            "depth_top_m", "depth_bottom_m", "variable", "value", "units",
+            "source"])
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         return df
 

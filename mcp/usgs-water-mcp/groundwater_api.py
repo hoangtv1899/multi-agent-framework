@@ -29,6 +29,7 @@ import os
 import random
 import time
 import sys
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -60,7 +61,6 @@ NWIS_IV = "https://waterservices.usgs.gov/nwis/iv/"
 
 FT_TO_M = 0.3048
 MI2_TO_KM2 = 2.58999                  # USGS reports drainage area in sq miles
-WTD_PARAMETER_CODE = "72019"          # depth to water, ft below land surface
 Q_PARAMETER_CODE = "00060"            # discharge, cubic feet per second
 DAILY_PAGE = 5000                     # rows per page on the daily collection
 MAX_PAGES  = 10                       # ~50k records; beyond this, say truncated
@@ -162,14 +162,53 @@ def _get(cx, url, params=None, deadline=None):
     return r
 
 
-def _ogc_items(collection, params):
-    """GET one OGC API `items` page and return the parsed FeatureCollection."""
+def _ogc_items(collection, params, max_pages=MAX_PAGES):
+    """GET an OGC API `items` query TO THE END and return the merged features.
+
+    `limit` is a PAGE SIZE, never a total. This function used to read the first
+    page and stop, which made every caller's `limit` a silent ceiling: the
+    server returns exactly that many rows, reports `numberReturned` equal to it,
+    and offers no `numberMatched` to compare against — so a truncated answer is
+    indistinguishable from a complete one.
+
+    That cost 236 of 251 Naches wells their coordinates on 2026-08-11. The site
+    catalogue was asked for 500 of the 5,312 wells in the bbox; the 251 we
+    needed were mostly not in the page we got, so they came back unplaceable and
+    the basin looked like it had no usable wells. The same ceiling sits under
+    every other caller here — stream-gauge drainage areas at 200, record spans
+    at 500 — and for a gauge a missed lookup is worse than a missed coordinate,
+    because `attach_daily_series` skips any gauge without a drainage area and
+    the whole hydrograph disappears.
+
+    Following the `next` link is what the collection is designed for. Cost is
+    small: the full 5,312-well Naches catalogue pages through in 5.4 s.
+
+    Truncation is now only possible at max_pages, and it SAYS SO.
+    """
     url = f"{OGC_BASE}/collections/{collection}/items"
     q = {"f": "json", **params}
+    feats, pages, truncated, head = [], 0, False, None
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, verify=True) as cx:
         r = _get(cx, url, q)
         r.raise_for_status()
-        return r.json()
+        page = r.json()
+        while True:
+            if head is None:
+                head = {k: v for k, v in page.items() if k != "features"}
+            feats.extend(page.get("features") or [])
+            pages += 1
+            nxt = next((l.get("href") for l in (page.get("links") or [])
+                        if l.get("rel") == "next"), None)
+            if not nxt:
+                break
+            if pages >= max_pages:
+                truncated = True
+                break
+            r = _get(cx, nxt)
+            r.raise_for_status()
+            page = r.json()
+    return {**(head or {}), "type": "FeatureCollection", "features": feats,
+            "truncated": truncated, "n_pages": pages}
 
 
 def fetch_monitoring_locations(bbox, agency_code="", site_type_code="", limit=50):
@@ -183,14 +222,6 @@ def fetch_monitoring_locations(bbox, agency_code="", site_type_code="", limit=50
     if agency_code:
         params["agency_code"] = agency_code
     return _ogc_items("monitoring-locations", params)
-
-
-def fetch_field_measurements(monitoring_location_id, limit=100,
-                             parameter_code=WTD_PARAMETER_CODE):
-    """OGC field-measurements FeatureCollection (depth-to-water, param 72019)."""
-    params = {"monitoring_location_id": monitoring_location_id,
-              "parameter_code": parameter_code, "limit": int(limit)}
-    return _ogc_items("field-measurements", params)
 
 
 def _year_chunks(start_date, end_date):
@@ -296,43 +327,6 @@ def fetch_record_spans(bbox, parameter_code=Q_PARAMETER_CODE, limit=500):
                       {"bbox": bbox, "parameter_code": parameter_code,
                        "limit": int(limit),
                        "properties": "monitoring_location_id,begin,end"})
-
-
-def fetch_field_measurements_bbox(bbox, start_date=None, end_date=None,
-                                  limit=DAILY_PAGE, max_pages=MAX_PAGES,
-                                  parameter_code=WTD_PARAMETER_CODE):
-    """Every well measurement in a bbox in one paged query.
-
-    Replaces a site list plus one call per well. The old N+1 shape forced a
-    sample cap (10 wells) that silently decided the answer: the Naches "0 of 14
-    wells have records" came from looking at 14 of 2667 wells. One period-scoped
-    query here returns 232 wells with records in 1988.
-    """
-    url = f"{OGC_BASE}/collections/field-measurements/items"
-    q = {"f": "json", "bbox": bbox, "parameter_code": parameter_code,
-         "limit": int(limit), "properties": "monitoring_location_id,time,value"}
-    if start_date and end_date:
-        q["datetime"] = f"{start_date}/{end_date}"
-    feats, pages, truncated = [], 0, False
-    with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, verify=True) as cx:
-        r = _get(cx, url, q)
-        r.raise_for_status()
-        page = r.json()
-        while True:
-            feats.extend(page.get("features") or [])
-            pages += 1
-            nxt = next((l.get("href") for l in (page.get("links") or [])
-                        if l.get("rel") == "next"), None)
-            if not nxt:
-                break
-            if pages >= max_pages:
-                truncated = True
-                break
-            r = _get(cx, nxt)
-            r.raise_for_status()
-            page = r.json()
-    return {"type": "FeatureCollection", "features": feats,
-            "truncated": truncated, "n_pages": pages}
 
 
 def coverage_by_station(bbox, start_date, end_date, sites_data=None,
@@ -471,8 +465,28 @@ def _site_meta(sites_data):
             "lat": round(coords[1], 5) if len(coords) > 1 and coords[1] is not None else None,
             "lon": round(coords[0], 5) if len(coords) > 0 and coords[0] is not None else None,
             "drainage_area_km2": da_km2,
+            # LAND-SURFACE ALTITUDE, in metres. Needed twice: to turn a
+            # groundwater ELEVATION series into a depth below ground, and to
+            # give a well an elevation at all so it can be matched against a
+            # column's. `altitude_accuracy` travels with it because it is
+            # usually 10 ft, "interpolated from topographic map" — fine for a
+            # 150 m band, not fine to treat as survey-grade.
+            **_altitude(props),
         }
     return meta
+
+
+def _altitude(props) -> Dict[str, Any]:
+    """{altitude_m, altitude_accuracy_m} from a monitoring-location, in metres."""
+    out: Dict[str, Any] = {}
+    for src, dst in (("altitude", "altitude_m"),
+                     ("altitude_accuracy", "altitude_accuracy_m")):
+        try:
+            v = float(props.get(src))
+        except (TypeError, ValueError):
+            continue
+        out[dst] = round(v * FT_TO_M, 2)
+    return out
 
 
 def _parse_spans(md_data, sites_data):
@@ -504,48 +518,148 @@ def _parse_spans(md_data, sites_data):
                        "still hold no records; confirm with a dated query")}
 
 
-def _parse_wells(fm_data, sites_data, min_obs=1, with_values=False):
-    """field-measurements -> wells that actually have depth-to-water records.
+# ── the water table AS A TIME SERIES ─────────────────────────────────────────
+# A RECORDER WELL, NOT A WELL SOMEBODY VISITED (2026-08-11, user's decision).
+# Field measurements answer "how deep was the water on the day someone came by";
+# for a run they are one date per well, and a single static level is a quantity
+# Fan already supplies everywhere at once. What USGS has that Fan does not is
+# VARIATION THROUGH TIME, and that lives in the daily/continuous collections.
+#
+# Three parameters carry it, and they are not the same quantity:
+#   72019  depth to water, ft BELOW LAND SURFACE  -> comparable as it stands
+#   62610  groundwater elevation, ft above NGVD29 -> needs the site altitude
+#   62611  groundwater elevation, ft above NAVD88 -> needs the site altitude
+# Restricting to 72019 would be cleaner and would have cost 20 of 24 Brandywine
+# sites, so the elevation series are converted and TAGGED rather than dropped:
+# the subtraction inherits the altitude's error (usually 10 ft, interpolated
+# from a topographic map), which offsets the LEVEL and leaves the VARIATION —
+# the thing this is fetched for — untouched.
+WTD_SERIES_PARAMETERS = {"72019": "depth",
+                         "62610": "elevation",
+                         "62611": "elevation"}
 
-    `value` is a STRING in FEET in this collection; metres are computed here so
-    no caller has to remember the unit.
+# Sites publish Min, Mean and Max as separate series, so a bbox reporting "239
+# series" holds ~24 wells. Mean is present wherever Daily is, and Mean is what
+# a daily model mean should be put beside; a Min series against ELM's daily
+# mean would be biased by the diurnal range every day of the record.
+DAILY_MEAN_STATISTIC = "00003"
+
+
+def fetch_wtd_series(bbox, start_date=None, end_date=None, limit=DAILY_PAGE):
+    """Daily-mean water-table series for every recorder well in the bbox.
+
+    ONE QUERY PER PARAMETER, not one per well: the daily collection accepts the
+    bbox, and every row carries its own geometry, so 23 Brandywine wells and
+    their 6,835 daily values arrive in three calls and 13 s.
+    """
+    per, where, units, kinds, truncated = {}, {}, {}, {}, False
+    for pc, kind in WTD_SERIES_PARAMETERS.items():
+        params = {"bbox": bbox, "parameter_code": pc,
+                  "statistic_id": DAILY_MEAN_STATISTIC, "limit": int(limit)}
+        if start_date and end_date:
+            params["datetime"] = f"{start_date}/{end_date}"
+        data = _ogc_items("daily", params)
+        truncated = truncated or bool(data.get("truncated"))
+        for f in data.get("features") or []:
+            props = f.get("properties") or {}
+            sid, tm = props.get("monitoring_location_id"), props.get("time")
+            try:
+                val = float(props.get("value"))
+            except (TypeError, ValueError):
+                continue
+            if not (sid and tm):
+                continue
+            # A well reporting BOTH a depth and an elevation series would be
+            # counted twice and its two records interleaved. Depth wins, since
+            # it needs no altitude and so carries no borrowed error.
+            if sid in kinds and kinds[sid] != kind:
+                if kinds[sid] == "depth":
+                    continue
+                per.pop(sid, None)
+            kinds[sid] = kind
+            units[sid] = props.get("unit_of_measure")
+            c = (f.get("geometry") or {}).get("coordinates") or []
+            if sid not in where and len(c) > 1 and c[0] is not None \
+                    and c[1] is not None:
+                where[sid] = {"lat": round(c[1], 5), "lon": round(c[0], 5)}
+            per.setdefault(sid, {})[str(tm)[:10]] = val
+    return {"per": per, "where": where, "kinds": kinds, "units": units,
+            "truncated": truncated}
+
+
+def _parse_wtd_series(raw, sites_data):
+    """Recorder wells -> the `daily` shape every other observable already uses.
+
+    Depths are metres below land surface either way. An elevation series is
+    subtracted from the site's land-surface altitude and the well says so, so a
+    reader can see which wells carry the topographic-map error in their level.
     """
     meta = _site_meta(sites_data)
-    per = {}
-    for f in (fm_data or {}).get("features", []) or []:
-        props = f.get("properties", {}) or {}
-        sid, tm = props.get("monitoring_location_id"), props.get("time")
-        try:
-            ft = float(props.get("value"))
-        except (TypeError, ValueError):
+    wells, no_altitude = [], []
+    for sid, byday in (raw.get("per") or {}).items():
+        kind = (raw.get("kinds") or {}).get(sid, "depth")
+        site = meta.get(sid) or {}
+        alt = site.get("altitude_m")
+        if kind == "elevation" and alt is None:
+            # Reported, never guessed: without the land surface there is no
+            # depth to be had, and inventing one would put a whole well's
+            # record at an arbitrary offset.
+            no_altitude.append(sid)
             continue
-        if not sid:
-            continue
-        per.setdefault(sid, []).append({"date": str(tm)[:10] if tm else None,
-                                        "wtd_m": round(ft * FT_TO_M, 3)})
-
-    wells = []
-    for sid, obs in per.items():
-        if len(obs) < int(min_obs):
-            continue
-        depths = [o["wtd_m"] for o in obs]
-        w = {"id": sid, "n_obs": len(obs),
-             "wtd_m": round(_median(depths), 2),
-             "min_depth_m": round(min(depths), 2),
-             "max_depth_m": round(max(depths), 2),
-             **{k: v for k, v in meta.get(sid, {}).items()
-                if k in ("name", "lat", "lon")}}
-        if with_values:
-            w["series"] = sorted((o for o in obs if o["date"]),
-                                 key=lambda o: o["date"])
+        dates = sorted(byday)
+        vals = []
+        for d in dates:
+            v_m = byday[d] * FT_TO_M
+            vals.append(round(alt - v_m if kind == "elevation" else v_m, 3))
+        xy = (raw.get("where") or {}).get(sid) or {
+            k: v for k, v in site.items() if k in ("lat", "lon") and v is not None}
+        w = {"id": sid, "n_obs": len(dates), "n_days": len(dates),
+             "observation_kind": "series",
+             "wtd_m": round(_median(vals), 2),
+             "min_depth_m": round(min(vals), 2),
+             "max_depth_m": round(max(vals), 2),
+             "daily": {"dates": dates, "values": vals},
+             "parameter_kind": kind,
+             **({"name": site["name"]} if site.get("name") else {}),
+             **({"elevation_m": alt} if alt is not None else {}), **xy}
+        if kind == "elevation":
+            w["depth_note"] = (
+                "depth = site altitude - groundwater elevation; the LEVEL "
+                "carries the altitude's error"
+                + (f" (+/- {site['altitude_accuracy_m']} m, USGS)"
+                   if site.get("altitude_accuracy_m") is not None else "")
+                + ", the VARIATION does not")
         wells.append(w)
-    wells.sort(key=lambda w: -w["n_obs"])
+    wells.sort(key=lambda w: -w["n_days"])
 
-    out = {"n_wells_with_records": len(wells), "min_obs": int(min_obs),
+    out = {"n_wells_with_records": len(wells), "n_series_wells": len(wells),
+           "n_located": sum(1 for w in wells if w.get("lat") is not None),
+           "observation_kind": "series",
+           "statistic": "daily mean (USGS statistic 00003)",
            "wells": wells}
-    if (fm_data or {}).get("truncated"):
+    warnings = []
+    if no_altitude:
+        out["n_without_altitude"] = len(no_altitude)
+        warnings.append(f"{len(no_altitude)} well(s) report groundwater "
+                        f"ELEVATION but their site has no altitude, so no "
+                        f"depth below ground could be formed")
+    if raw.get("truncated"):
         out["truncated"] = True
-        out["warning"] = ("well list is INCOMPLETE — the query hit its page cap")
+        warnings.append("series list is INCOMPLETE — the daily query hit its "
+                        "page cap")
+    if not wells:
+        # THE FINDING, not an error. A basin with no recorder well cannot have
+        # its water table evaluated through time, and that is worth saying
+        # plainly: it decides whether wtd is an observable for this study at
+        # all. Measured 2026-08-11: of the 10 chain-eval basins, 9 have some
+        # groundwater series and 6 have one covering their simulation year.
+        out["note"] = ("no well in this bbox records a daily water-table "
+                       "series for this period. Field measurements may exist "
+                       "— one visit per well — but a single static level is "
+                       "what Fan already supplies everywhere, so there is "
+                       "nothing here to compare a run against through time.")
+    if warnings:
+        out["warning"] = "; ".join(warnings)
     return out
 
 
@@ -561,11 +675,16 @@ def attach_daily_series(coverage, start_date, end_date,
     depth per unit area is the same quantity in both, so this is the conversion
     that makes the comparison meaningful rather than merely plottable.
 
-    A gauge with no drainage area gets no series rather than a wrong one.
+    A gauge with no drainage area gets no series rather than a wrong one — and
+    SAYS SO, because a gauge that never appears is indistinguishable from a
+    basin that has none. Drainage area comes only from the site catalogue, so
+    this is the failure mode a truncated catalogue produces.
     """
     for g in coverage.get("available", []) or []:
         da_km2 = g.get("drainage_area_km2")
         if not da_km2:
+            g["no_series_reason"] = ("no drainage area, so flow cannot be "
+                                     "converted to specific discharge")
             continue
         try:
             raw = fetch_station_series(g["id"], start_date, end_date,
@@ -599,32 +718,90 @@ def _parse_coverage(daily_data, sites_data, min_days=300):
     needs to decide whether a station is USEFUL, not merely present:
     coordinates (to place a column or draw a map) and drainage area in km2
     (to judge whether the station represents the modelled domain at all).
+
+    MIN_DAYS TAGS, IT DOES NOT DROP (2026-08-11). Every gauge with at least one
+    day in the window is returned, carrying `n_days` and `meets_min_days`, and
+    the caller decides. A fixed day count cannot see how much of the basin a
+    gauge represents, and on Naches 1979 it made exactly the wrong call: it kept
+    USGS-12488500 (204 km2, 7% of the basin, 365 days) and discarded
+    USGS-12494000 (2,437 km2, 85% of the basin) for holding 272 days rather than
+    300 — a complete, gap-free January-to-September record, which is the whole
+    snowmelt season a snow-driven basin is judged on. That gauge was simply
+    retired on 29 September 1979. Reception reported "1 gauge with records" and
+    said nothing about the other.
+
+    This also restores the rule the rest of the pipeline already follows:
+    _tag_in_basin TAGS stations and never drops them, which is why a gauge just
+    outside the divide still reaches the caller. The day count was the last
+    place upstream that silently decided.
+
+    Widest catchment first, for the same reason _parse_spans sorts that way: the
+    gauge that could speak for the whole domain is the one a caller is looking
+    for, and it is rarely the one with the most days.
     """
-    counts = {}
+    counts, where = {}, {}
     for f in (daily_data or {}).get("features", []) or []:
         props = f.get("properties", {}) or {}
         sid = props.get("monitoring_location_id")
-        if sid and props.get("value") is not None:
-            counts[sid] = counts.get(sid, 0) + 1
+        if not (sid and props.get("value") is not None):
+            continue
+        counts[sid] = counts.get(sid, 0) + 1
+        # COORDINATES FROM THE RECORD ITSELF. The daily collection carries the
+        # point each value was measured at — its bbox filter could not work
+        # otherwise — so a gauge stays placeable even when the site catalogue
+        # misses it. Drainage area is the one field with no other source, and
+        # is why the catalogue is still read at all.
+        c = (f.get("geometry") or {}).get("coordinates") or []
+        if sid not in where and len(c) > 1 and c[0] is not None \
+                and c[1] is not None:
+            where[sid] = {"lat": round(c[1], 5), "lon": round(c[0], 5)}
 
     meta = _site_meta(sites_data)
 
-    available = []
-    for sid, n in sorted(counts.items(), key=lambda kv: -kv[1]):
-        if n < int(min_days):
-            continue
-        available.append({"id": sid, "n_days": n, **meta.get(sid, {})})
+    available, n_meeting = [], 0
+    for sid, n in counts.items():
+        m = dict(meta.get(sid) or {})
+        for k, v in (where.get(sid) or {}).items():
+            if m.get(k) is None:
+                m[k] = v
+        meets = n >= int(min_days)
+        n_meeting += 1 if meets else 0
+        available.append({"id": sid, "n_days": n, "meets_min_days": meets, **m})
+    available.sort(key=lambda s: (-(s.get("drainage_area_km2") or 0),
+                                  -s["n_days"], s["id"]))
 
     n_sites = len((sites_data or {}).get("features", []) or [])
     out = {"n_sites": n_sites, "n_available": len(available),
+           "n_meeting_min_days": n_meeting,
            "n_without_records": max(n_sites - len(available), 0),
-           "min_days": int(min_days), "available": available}
+           "min_days": int(min_days), "available": available,
+           "min_days_note": ("min_days TAGS, it does not drop — every gauge "
+                             "with records is here; read meets_min_days and "
+                             "drainage_area_km2 together, never n_days alone")}
+    warnings = []
+    n_unlocated = sum(1 for s in available if s.get("lat") is None)
+    if n_unlocated:
+        out["n_unlocated"] = n_unlocated
+        warnings.append(f"{n_unlocated} of {len(available)} gauges have no "
+                        f"coordinates and cannot be placed or tagged")
+    n_no_area = sum(1 for s in available if not s.get("drainage_area_km2"))
+    if n_no_area:
+        # Named because attach_daily_series gives these no series at all: a
+        # gauge can only become specific discharge if its catchment area is
+        # known, so this is the difference between a gauge that disagrees and
+        # a gauge that never appears.
+        out["n_without_drainage_area"] = n_no_area
+        warnings.append(f"{n_no_area} of {len(available)} gauges have no "
+                        f"drainage area, so they get no series")
     if (daily_data or {}).get("truncated"):
         # An undercount looks exactly like a real finding, so it must announce
         # itself rather than be inferred from a suspiciously round number.
         out["truncated"] = True
-        out["warning"] = ("record counts are INCOMPLETE — the daily query hit "
-                          "its page cap; treat n_days as a lower bound")
+        warnings.append("record counts are INCOMPLETE — the daily query hit "
+                        "its page cap; treat n_days as a lower bound")
+    if warnings:
+        # Joined, not assigned: these used to overwrite one another.
+        out["warning"] = "; ".join(warnings)
     return out
 
 

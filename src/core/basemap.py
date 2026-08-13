@@ -37,7 +37,8 @@ TILES = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
          "Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}")
 MAX_TILES = 48
 
-# FETCHED ONCE PER PROCESS. A comparison run draws three map panels — swe, wtd
+# FETCHED ONCE PER PROCESS. A comparison run draws three map panels — swe,
+# water table
 # and streamflow — over the same basin at the same extent, so without this the
 # same twenty tiles are pulled three times from somebody else's server for one
 # figure set. Keyed by the full URL, so a second basin or a different tile

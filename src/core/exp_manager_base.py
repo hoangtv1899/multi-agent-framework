@@ -1145,8 +1145,20 @@ class ExperimentManagerBase:
 	#                        size, so an unweighted mean over-weights small
 	#                        bands. Without this the weighting silently
 	#                        degrades to a plain average.
-	#   fan_wtd_m            the prior water-table depth, compared against
-	#                        modelled ZWT and plotted per column.
+	#   wtd_prior_m          the prior water-table depth — what a column's
+	#                        aquifer is warm-started to (make_warmstart
+	#                        --source prior) and what PFLOTRAN sizes its domain
+	#                        from. It arrives from reception, which is the only
+	#                        component that fetches it; renamed from fan_wtd_m
+	#                        on 2026-08-12 when the source stopped being Fan.
+	#                        The UNCERTAINTY travels with it because for
+	#                        ma_2025 it is often larger than the value itself
+	#                        (col_09: 8.08 m, IQR 41.14 m — the spread of the
+	#                        middle half of the random forest, NOT a standard
+	#                        deviation), and the SOURCE
+	#                        travels with it so a run records which estimate it
+	#                        used instead of leaving it implied by a field name
+	#                        — which is exactly how the old name went stale.
 	#   soil_*               which soil this column actually got, and from
 	#                        where — the soil-attribution figure and any claim
 	#                        that soil explains a gradient rest on it.
@@ -1157,8 +1169,23 @@ class ExperimentManagerBase:
 	#                        produced 19 rows with elevation_m absent — which
 	#                        silently flattens every elevation figure and
 	#                        every gradient claim to a single point.
+	# THE PIN TRAVELS (2026-08-13). `pinned` / `station_id` /
+	# `station_variable` are written into columns.json by the sampler and were
+	# not on this list, so the join dropped them and every packaged row reached
+	# the Analyzer with pinned=None. The comparison then re-derived the pairing
+	# geometrically — which is guessing at an answer the sampler had already
+	# recorded, and it is why a Brandywine run whose columns.json names four
+	# pinned wells reported `n_pinned: 0`.
+	#
+	# The MCP path never had this gap: extract.py copies the three fields out
+	# of columns.json itself. So the two paths disagreed about whether a column
+	# was pinned — the same class of split as the two extractors, and invisible
+	# because a refused pin looks exactly like a column that was never pinned.
 	COLUMN_METADATA = ("lat", "lon", "elevation_m",
-					   "band", "band_range_m", "fan_wtd_m", "soil_top_texture",
+					   "band", "band_range_m", "wtd_prior_m",
+					   "wtd_prior_uncertainty_m", "wtd_prior_source",
+					   "pinned", "station_id", "station_variable",
+					   "soil_top_texture",
 					   "soil_layers", "soil_source", "soil_profile")
 
 	def _merge_column_metadata(self, rows: List[Dict[str, Any]]) -> None:

@@ -91,12 +91,14 @@ def _frame_units(ctx) -> Dict[str, str]:
 def _variable_catalog(ctx) -> List[str]:
     """Frame variables, then the derived metrics and what they come FROM.
 
-    field_semantics is keyed by DERIVED METRIC (annual_recharge_mm_yr), not by
-    raw variable, and each entry records its `from` list. That mapping is the
-    framework's own record of what a metric means, and it is where I personally
-    got runoff_fraction wrong — assuming it was a fraction of precipitation when
-    it is QOVER/(QCHARGE+QOVER). Showing the derivation, not just the name,
-    stops the model repeating that.
+    field_semantics is keyed by DERIVED METRIC (water_budget, precip_mm_yr),
+    not by raw variable, and each entry records its `from` list. That mapping is
+    the framework's own record of what a metric means, and it is where I
+    personally got `runoff_fraction` wrong — assuming it was a fraction of
+    precipitation when it was QOVER/(QCHARGE+QOVER). That metric was deleted on
+    2026-08-13 for exactly that reason; every surviving ratio carries its
+    denominator in its name (`runoff_frac_of_P`). Showing the derivation, not
+    just the name, is what stops the next one.
     """
     units = _frame_units(ctx)
     sem = (ctx.data.get("field_semantics") or {})
@@ -116,6 +118,68 @@ def _variable_catalog(ctx) -> List[str]:
     else:
         out.append("  `df` is None for this run — it has NO daily series. Do "
                    "not use df.")
+
+    # WHAT IS DELIBERATELY ABSENT, and why. Silence here reads as "the variable
+    # is not in this run", and the model plans around an absence perfectly
+    # well. It does NOT plan around a variable it believes is present: told
+    # nothing, two rounds of figures at Brandywine went into re-deriving soil
+    # moisture from a variable that cannot be in a daily frame at all, and both
+    # were correctly rejected by the reviewer as physically impossible.
+    withheld = getattr(ctx, "series_withheld", None) or {}
+    broken = {k: v for k, v in withheld.items() if not v.get("in_frame")}
+    if broken:
+        out += ["",
+                "  NOT in any frame — the packaged block is malformed. Do not "
+                "use these:"]
+        for v in sorted(broken):
+            out.append(f"    {v:10s} {broken[v]['why']}")
+
+    soil = getattr(ctx, "soil", lambda: None)()
+    if soil is not None:
+        out += ["",
+                "  `soil` — the SOIL COLUMN THROUGH TIME for this run:",
+                "    entity | date | layer | depth_m | thickness_m | "
+                "depth_top_m | depth_bottom_m |",
+                "    variable | value | units | source",
+                "    variables: " + ", ".join(
+                    sorted(str(v) for v in soil["variable"].unique())),
+                f"    {soil['layer'].nunique()} layers per column"]
+        # THE GEOMETRY IS DESCRIBED ONLY IF IT IS THERE. DZSOI is in every h0
+        # file this pipeline writes, but a run extracted before 2026-08-13 has
+        # no thickness — and a catalog that states a weighting rule for a
+        # column the frame cannot weight sends the model to write code that
+        # divides by nothing.
+        geom = (soil[soil["entity"] == soil["entity"].iloc[0]]
+                .drop_duplicates("layer").sort_values("layer"))
+        thick = geom["thickness_m"].dropna()
+        bottom = geom["depth_bottom_m"].dropna()
+        if len(thick) and len(bottom):
+            active = bottom[bottom <= 3.81]
+            out += [
+                f"    {thick.min():.4f} m thick at the surface to "
+                f"{thick.max():.2f} m at the bottom, "
+                f"{bottom.max():.2f} m in total",
+                "",
+                "    A COLUMN MEAN IS THICKNESS-WEIGHTED. The layers differ by "
+                "three orders of",
+                "    magnitude, so an unweighted mean over `layer` reports the "
+                "bedrock:",
+                "        (g['value'] * g['thickness_m']).sum() / "
+                "g['thickness_m'].sum()",
+                "",
+                f"    The HYDROLOGICALLY ACTIVE soil is depth_bottom_m <= "
+                f"{active.max():.4f} (the first {len(active)} layers).",
+                "    Below that ELM diagnoses the water table from an aquifer "
+                "store rather than",
+                "    simulating it, which is what the water-table caveat is "
+                "about. A soil-water",
+                "    claim about the whole column is not a claim about the "
+                "soil."]
+        else:
+            out += ["    NO LAYER THICKNESSES in this run's package, so a "
+                    "column mean cannot be",
+                    "    weighted. Report per-layer or per-depth, never a mean "
+                    "over `layer`."]
 
     # getattr, because `profiles` is newer than this function's other callers:
     # a context object without it has no depth data by definition, which is
@@ -225,20 +289,20 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
             lines.append(f"    [{c.get('id')}] {str(c.get('statement'))[:180]}")
         lines.append("")
 
+    # THE NUMBERS, NOT THE COUNTS (2026-08-12). This block used to print how
+    # many entries each step-1 record held — "swe: model=17, observed=2" — and
+    # nothing about what they said, so the one part of the analysis that had
+    # touched an observation reached the planner of the figures as a pair of
+    # list lengths. It now shows the comparison's own summary, rendered by the
+    # step that owns the shape.
     if step1:
-        lines.append("WHAT THE STEP-1 COMPARISONS FOUND:")
-        for name, rec in step1.items():
-            if not isinstance(rec, dict):
-                continue
-            bits = []
-            for k in ("has_measured_wtd", "n_static_columns", "window"):
-                if k in rec:
-                    bits.append(f"{k}={rec[k]}")
-            for k in ("gauges", "wells", "model", "columns", "fan", "observed"):
-                if isinstance(rec.get(k), list):
-                    bits.append(f"{k}={len(rec[k])}")
-            lines.append(f"    {name}: " + ", ".join(bits))
-        lines.append("")
+        from agents.analysis import step1_compare as _cmp
+        text = _cmp.format_comparison(step1.get("summary") or {})
+        if text:
+            lines += ["WHAT THE MODEL-vs-OBSERVATION COMPARISON MEASURED",
+                      "(step 1; these are measurements, not verdicts — no",
+                      " metric below is a statement that the model is good):",
+                      text, ""]
 
     return "\n".join(lines)
 
@@ -274,6 +338,10 @@ Each figure's `code` is a Python snippet run with these already bound:
               which frames exist. Use only the ones it lists.
     prof      tidy DEPTH frame: entity | time_y | depth_m | variable | value |
               units | source. None when this run has no depth output.
+    soil      tidy SOIL frame: entity | date | layer | depth_m | thickness_m |
+              depth_top_m | depth_bottom_m | variable | value | units | source.
+              One row per day per layer. None when the run has no layered
+              output. Any mean over layers must be weighted by thickness_m.
     columns   list of per-column metadata dicts (keys listed above)
     caveats   the caveat records
     plt, np, pd, out_path

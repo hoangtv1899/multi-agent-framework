@@ -28,7 +28,8 @@ class Spec:
                  comparand: str, obs_quantity: str,
                  colocated: bool = True, pair_on: str = "distance",
                  max_delta_m: Optional[float] = None,
-                 max_km: Optional[float] = None):
+                 max_km: Optional[float] = None,
+                 headlines: Tuple[str, ...] = ()):
         self.name = name
         self.model_vars = model_vars
         self.units = units
@@ -36,6 +37,18 @@ class Spec:
         self.obs_quantity = obs_quantity
         self.colocated = colocated
         self.pair_on = pair_on
+        # WHICH OF THIS RECORD'S BLOCKS TRAVEL IN THE SUMMARY (2026-08-12).
+        # Every observable now computes findings that need no observation —
+        # where the water leaves, which water tables never move, where the ET
+        # came from — and those are the whole answer in a basin with no
+        # station, which is most basins. The summary the MCP returns must carry
+        # them or the caller sees "error: no gauge" and nothing else.
+        #
+        # Declared HERE, as a tuple of top-level keys, so the dispatcher stays
+        # dispatch: a fifth observable adds a file and a registry line, never a
+        # branch in shared code. Blocks are compacted on the way out, so a key
+        # naming a large structure costs a few scalars, not the structure.
+        self.headlines = headlines
         # PER-OBSERVABLE PAIRING LIMITS (2026-08-11). These were one shared
         # constant and one shared derived distance, applied identically to all
         # four observables — which is wrong, because how close a station has to
@@ -61,15 +74,25 @@ BLOCKS = {
                    "units": "mm/day", "source": "USGS NWIS daily values",
                    "licence": "public domain (US Government)"},
     # `units` is the CANONICAL symbol, matched against the Spec's; the prose
-    # goes in `units_detail`. They used to be one field, so wtd declared
-    # "m below land surface" against a Spec that said "m" and every well in
-    # every basin came back carrying a units_mismatch warning about a unit that
-    # matched perfectly — 56 of them at Naches. A guard that cries wolf on
-    # every station is how a real mismatch gets scrolled past.
-    "wtd": {"block": "water_table", "key": "wells", "id": "id",
-            "units": "m", "units_detail": "metres below land surface",
-            "source": "USGS NWIS daily groundwater levels (recorder wells)",
-            "licence": "public domain (US Government)"},
+    # goes in `units_detail`. They used to be one field, so this observable
+    # declared "m below land surface" against a Spec that said "m" and every
+    # well in every basin came back carrying a units_mismatch warning about a
+    # unit that matched perfectly — 56 of them at Naches. A guard that cries
+    # wolf on every station is how a real mismatch gets scrolled past.
+    #
+    # KEY AND BLOCK ARE THE SAME WORD NOW (2026-08-13). This entry read
+    # "wtd" -> block "water_table", and that one-word gap was a live bug: the
+    # sampler records a pinned column's target as `station_variable:
+    # "water_table"`, the Spec was called "wtd", and pair_stations compared the
+    # two. They never matched, so every designed well pin was silently refused
+    # and the column fell through to distance matching — `n_pinned: 0` on a run
+    # with four pinned wells. One name for one observable, everywhere.
+    "water_table": {"block": "water_table", "key": "wells", "id": "id",
+                    "units": "m",
+                    "units_detail": "metres below land surface",
+                    "source": "USGS NWIS daily groundwater levels "
+                              "(recorder wells)",
+                    "licence": "public domain (US Government)"},
     "swe": {"block": "swe", "key": "stations", "id": "triplet", "units": "mm",
             "source": "USDA NRCS SNOTEL (AWDB)",
             "licence": "public domain (US Government)"},
@@ -352,6 +375,14 @@ def pair_stations(stations: List[Dict], columns: List[Dict],
         sid = col.get("station_id")
 
         # ── the designed pin, taken as given ─────────────────────────────
+        #
+        # `station_variable` IS AN OBSERVABLE NAME, and it is now the SAME
+        # vocabulary this Spec is named in. It was not: the sampler wrote
+        # "water_table" and the Spec was called "wtd", so this test was false
+        # for every well pin ever designed and the column dropped through to
+        # geometric matching — the record said `n_pinned: 0` on a run whose
+        # columns.json named four pinned wells, and nothing anywhere reported a
+        # refusal. A silent mismatch between two spellings of one thing.
         if (col.get("pinned") and sid in pool
                 and (not observable
                      or col.get("station_variable") in (None, observable))):
@@ -371,8 +402,20 @@ def pair_stations(stations: List[Dict], columns: List[Dict],
             continue
 
         # ── otherwise the nearest station still unclaimed ────────────────
+        #
+        # SORTED, BECAUSE A SET IS NOT ORDERED (2026-08-12). `pool` is a set of
+        # station ids, and iterating it walked them in hash order — which Python
+        # varies BETWEEN PROCESSES. The winner is chosen with a strict `<`, so
+        # any exact tie in distance went to whichever station the seed happened
+        # to visit first. Brandywine has a well nest — four wells within metres
+        # of each other and three columns at the identical point, since they
+        # were pinned into one gridcell — and the same run directory compared
+        # three times produced three different pairings, each with different
+        # NSE and bias attached to the same column. The docstring above already
+        # promised "the same inputs always give the same pairing"; the column
+        # loop was sorted and this one was not.
         best, nearest_km, best_de = None, None, None
-        for s_id in pool:
+        for s_id in sorted(pool):
             st = by_station[s_id]
             d_km, de = separation_km(st, col), elev_delta(st, col)
             if d_km is not None and (nearest_km is None or d_km < nearest_km):
@@ -525,163 +568,6 @@ def span(dates: List[str]) -> Optional[List[str]]:
     return [dates[0], dates[-1]] if dates else None
 
 
-# ── the standard comparison every observable starts from ─────────────────────
-def standard_compare(spec: Spec, rows: List[Dict], series: Dict,
-                     meta: Dict,
-                     domain: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Every station against every column, plus the one-to-one assignment.
-
-    EVERY station against EVERY column, deliberately: which column a station
-    ought to be compared to is a design question, and answering it only inside
-    here would bury a choice the caller should be able to override. The
-    bijection is computed over the whole set afterwards and reported as
-    `assignment` — offered, not imposed.
-
-    An observable's own module calls this and then adds what only it knows.
-    """
-    model = model_series(rows, spec.model_vars)
-    stations = stations_for(series, spec.name)
-
-    # OUTSIDE THE DIVIDE, OUT OF THE COMPARISON — applying reception's tag,
-    # not recomputing it. The rule the old analyzer already had in all three of
-    # its compare steps and this package lost when it was rewritten: a station
-    # beyond the watershed measures ground the study does not model, and the
-    # bijection cannot know that, so it will spend a column on one. Measured
-    # 2026-08-10 at Gunnison: Red Mountain Pass, outside, claimed col_15 and
-    # left Wager Gulch, inside, with no column at all.
-    #
-    # ONLY AN EXPLICIT False EXCLUDES. None means nobody could check — no
-    # polygon, or a station with no coordinates — and unchecked must never be
-    # read as failed. That is the planner's rule too, and refusing untested
-    # stations instead cost naches_1979 and brandywine_2010 all four of their
-    # pinned columns on 2026-08-08 when one elevation request timed out and
-    # took the polygon with it.
-    tags = [(meta.get((sid, spec.name)) or {}).get("in_basin")
-            for sid in stations]
-    outside = sorted(sid for sid in stations
-                     if (meta.get((sid, spec.name)) or {}).get("in_basin")
-                     is False)
-    for sid in outside:
-        stations.pop(sid, None)
-    unchecked = sum(1 for t in tags if t is None)
-
-    rec: Dict[str, Any] = {
-        "observable": spec.name, "units": spec.units,
-        "model_comparand": spec.comparand, "obs_quantity": spec.obs_quantity,
-        "colocated": spec.colocated,
-        "n_columns_with_series": len(model), "n_stations": len(stations),
-        "stations_excluded_outside_basin": outside,
-        "pairs": [],
-    }
-    # SAID OUT LOUD, because nothing was filtered and that looks identical to
-    # everything having passed. Reception began tagging on 2026-08-08; a run
-    # older than that carries no flags, and the fix is to re-run reception for
-    # it rather than to re-derive the polygon here.
-    if unchecked:
-        rec["in_basin_unchecked"] = {
-            "n_stations": unchecked,
-            "note": ("these stations carry no in_basin flag, so none of them "
-                     "was excluded. Unchecked is not outside — but nor is it "
-                     "inside. Re-run reception for this domain to tag them.")}
-    if not model:
-        rec["error"] = (f"no column has a daily series for "
-                        f"{'+'.join(spec.model_vars)} — the extraction either "
-                        f"has not run or predates daily series. This is an "
-                        f"absence of model output, not of agreement.")
-        return rec
-    if not stations:
-        # "None were inside the basin" and "none were fetched" are different
-        # findings and the caller acts on them differently — one is a siting
-        # problem, the other is a coverage problem.
-        rec["error"] = (
-            (f"all {len(outside)} '{spec.name}' station(s) fell outside the "
-             f"watershed and were excluded, so nothing was compared: "
-             f"{', '.join(outside)}")
-            if outside else
-            (f"no observations of '{spec.name}' in the table — nothing was "
-             f"compared. This is not a disagreement."))
-        return rec
-
-    rec["model_period"] = span(sorted({d for m in model.values()
-                                       for d in m["dates"]}))
-    for sid, obs in stations.items():
-        st = meta.get((sid, spec.name), {})
-        entry: Dict[str, Any] = {
-            "station_id": sid, "obs_period": span(obs["dates"]),
-            "n_obs": len(obs["dates"]), "in_basin": st.get("in_basin"),
-            "source": st.get("source"), "licence": st.get("licence"),
-            "columns": [],
-        }
-        # A units mismatch is REPORTED, never silently converted: assuming "mm"
-        # meant "mm/day" is how a factor of 86400 gets in.
-        if st.get("units") and st["units"] != spec.units:
-            entry["units_mismatch"] = (
-                f"station reports {st['units']}, this comparison is in "
-                f"{spec.units} — NOT converted; fix the table")
-        for case, m in model.items():
-            dates, mm, oo, qq = pair(m, obs)
-            if not dates:
-                entry["columns"].append({"case_name": case, "n_pairs": 0,
-                                         "note": "no shared dates"})
-                continue
-            entry["columns"].append({
-                "case_name": case, "n_pairs": len(dates),
-                "overlap": span(dates), "metrics": metrics(mm, oo),
-                "obs_quality": quality(qq)})
-        entry["n_columns_paired"] = sum(1 for c in entry["columns"]
-                                        if c.get("n_pairs"))
-        rec["pairs"].append(entry)
-
-    rec["n_pairs_total"] = sum(c.get("n_pairs", 0) for e in rec["pairs"]
-                               for c in e["columns"])
-    sts = [{"station_id": e["station_id"],
-            **{k: (meta.get((e["station_id"], spec.name)) or {}).get(k)
-               for k in ("lat", "lon", "elevation_m")}} for e in rec["pairs"]]
-    cols = [{"case_name": c, **{k: m.get(k) for k in
-                                ("lat", "lon", "elevation_m",
-                                 "pinned", "station_id", "station_variable")}}
-            for c, m in model.items()]
-    # THE OBSERVABLE'S OWN LIMIT, AND NOTHING ELSE. No fallback to a number
-    # borrowed from outside this Spec: an observable with no limit declared
-    # gets none, and the record says so.
-    max_km = spec.max_km
-    assigned, unpaired, unmatched = pair_stations(
-        sts, cols, on=spec.pair_on, max_delta_m=spec.max_delta_m,
-        max_km=max_km, observable=spec.name)
-    rec["assignment"] = {
-        "matched_on": spec.pair_on, "pairs": assigned, "unpaired": unpaired,
-        "unmatched_columns": unmatched,
-        "max_separation_km": max_km,
-        "max_delta_elevation_m": spec.max_delta_m,
-        "n_pinned": sum(1 for a in assigned if a.get("matched_on") == "pinned"),
-        "matched_in_order": ("one pass over the columns in name order; a "
-                             "station leaves the pool when a column takes it, "
-                             "so col_01 has first refusal"),
-        "limit_source": (
-            f"declared for '{spec.name}' on its Spec"
-            if (spec.max_km is not None or spec.max_delta_m is not None) else
-            f"NO PAIRING LIMIT is declared for '{spec.name}' — every station "
-            f"with coordinates was eligible for every column, at any distance")}
-    by_station = {a["station_id"]: a["case_name"] for a in assigned}
-    for e in rec["pairs"]:
-        e["assigned_column"] = by_station.get(e["station_id"])
-    return rec
-
-
-def assigned_pairs(rec: Dict, model: Dict, series: Dict, name: str):
-    """Yield (station_id, case_name, dates, model, obs, quality) for the
-    assigned column of each station. The shape every plot() needs."""
-    for e in rec.get("pairs") or []:
-        case = e.get("assigned_column")
-        obs = series.get((e["station_id"], name))
-        m = model.get(case) if case else None
-        if not (m and obs):
-            continue
-        dates, mm, oo, qq = pair(m, obs)
-        if dates:
-            yield e["station_id"], case, dates, mm, oo, qq
-
-
 # ── plotting helpers ─────────────────────────────────────────────────────────
 def new_figure(ncols: int = 2, width: float = 13.0, height: float = 4.6):
     """A figure with this project's plot conventions already applied.
@@ -718,7 +604,7 @@ def save(fig, out_path: str) -> str:
 def _hillshade(ax, extent: List[float]) -> bool:
     """Esri's World Hillshade, through the framework's one implementation.
 
-    THE SERVER READING THE FRAMEWORK, the way wtd.py already reads
+    THE SERVER READING THE FRAMEWORK, the way water_table.py already reads
     core.static_wtd for the modelled water table. The alternative was a second
     copy of the tile maths inside this package, which is the thing that drifts:
     the design figure and the results figure would slowly stop showing the same
@@ -843,7 +729,8 @@ def column_map(fig, ax, model: Dict, value_of, label: str,
     """Every column in its place, coloured by one number and named. Returns n.
 
     THE PANEL ALL THREE OBSERVABLES NOW END ON (2026-08-12, user's call): swe,
-    wtd and streamflow each gave up a 1:1 scatter of matched days for this. The
+    water_table and streamflow each gave up a 1:1 scatter of matched days for
+    this. The
     scatter answered "how close are the pairs" for the two or three columns that
     had a station; this answers "what did the other fourteen do, and where", and
     a basin with no station at all still gets it.

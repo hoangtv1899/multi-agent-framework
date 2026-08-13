@@ -4,7 +4,7 @@
 THE ONE OBSERVABLE THAT DOES NOT PAIR (2026-08-12).
 
 A snow pillow and a well measure a point, and a column IS a point, so "find the
-nearest one" is a real question and swe.py and wtd.py ask it. A gauge measures
+nearest one" is a real question and swe.py and water_table.py ask it. A gauge measures
 every drop of water that came off the ground upstream of it, after the river has
 carried it there. That measurement has no location — it has an AREA — so there
 is no nearest column to find, and picking one is picking an answer.
@@ -23,7 +23,8 @@ which of seventeen columns happened to be near the gauge. The second gauge got
 a column 51.9 km away, because no distance limit was ever declared here.
 
 SO: ONE MODEL SERIES, the mean over every column, against each in-basin gauge.
-No pairing, no bijection, no 10,353-entry cross product. Same shape as wtd.py —
+No pairing, no bijection, no 10,353-entry cross product. Same shape as
+water_table.py —
 the model-side findings run FIRST and survive a basin with no gauge at all.
 
 THIS IS WHAT THE PLANNER ALREADY PROMISES, and compare never delivered.
@@ -55,7 +56,9 @@ SPEC = C.Spec(
     # question does not arise. Written as "none" rather than left absent, so
     # nothing downstream reads a missing limit as an unlimited one — which is
     # precisely how a gauge ended up matched to a column 51.9 km away.
-    pair_on="none")
+    pair_on="none",
+    headlines=("how_water_leaves", "ensemble_mean",
+               "gauges_exceeding_modelled_domain"))
 
 COLUMN_AREA_M2 = 1.0
 
@@ -74,7 +77,8 @@ MIN_OFFSET_DAYS = 30
 PERCENT_OF_DAYS = (5, 10, 25, 50, 75, 90, 95)
 
 # Water leaving a column over the WHOLE RUN, below which it has not left. A
-# threshold rather than a test for exactly zero, for the reason wtd.py uses one
+# threshold rather than a test for exactly zero, for the reason water_table.py
+# uses one
 # for an unmoving water table: at Naches six columns drain exactly 0.0 mm and
 # four more drain under a thousandth of a millimetre in a year, and those four
 # are the same finding. Exact zero is also a knife edge a recompile can cross.
@@ -82,7 +86,7 @@ NEGLIGIBLE_MM = 0.01
 
 
 def _quantiles(values: List[float], nd: int = 3) -> Dict[str, Any]:
-    """n, range and quartiles. The same shape wtd.py reports."""
+    """n, range and quartiles. The same shape water_table.py reports."""
     v = sorted(x for x in values if x is not None)
     if not v:
         return {"n": 0}
@@ -123,7 +127,8 @@ def _how_water_leaves(model_columns: List[Dict]) -> Dict[str, Any]:
     Ten of seventeen columns drain nothing at all — six of them exactly 0.0 mm,
     four more under a thousandth of a millimetre in the year — and the totals
     span 0.0 to 1,123 mm, three orders of magnitude between columns in the same
-    basin in the same year. Same finding as the frozen water tables in wtd.py,
+    basin in the same year. Same finding as the frozen water tables in
+    water_table.py,
     arriving through a different variable, and invisible under 10,353
     station-by-column pairs.
 
@@ -212,7 +217,8 @@ def _ensemble_mean(model: Dict) -> Dict[str, Any]:
     and removed: with ten of seventeen columns producing nothing, p25 sits on
     the floor every day, and on the log axis panel 1 needs the fill became a
     grey block covering the panel. Panel 1 draws the columns themselves instead,
-    the way swe.py and wtd.py do, so the two populations are visible rather than
+    the way swe.py and water_table.py do, so the two populations are visible
+    rather than
     summarised into a shape that hides them.
     """
     cases = sorted(model)
@@ -638,3 +644,37 @@ def _colour(i: int) -> str:
     import matplotlib.pyplot as plt
     cyc = plt.rcParams["axes.prop_cycle"].by_key().get("color") or ["#1f77b4"]
     return cyc[i % len(cyc)]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAP POINTS — this module's own values, in place. LAYOUT BELONGS TO maps.py.
+# ─────────────────────────────────────────────────────────────────────────────
+def map_points(rec, model_columns, observations, station_meta, **kw):
+    """One row: gauges beside the columns, both mean runoff.
+
+    GAUGES ARE SIZED BY WHAT THEY DRAIN, because that is the whole caveat of
+    this observable in one visual: a 2,437 km2 outlet and a 204 km2 headwater
+    gauge are not the same evidence, and drawn at one size they look it.
+
+    The ELM panel is the COLUMNS, not the ensemble mean — a single basin number
+    has nowhere to sit on a map, and the spread between columns is what the
+    row is for.
+    """
+    model = C.model_series(model_columns, SPEC.model_vars)
+    stations = C.stations_for(observations, SPEC.name)
+    obs, areas = [], []
+    for sid, s in stations.items():
+        m = station_meta.get((sid, SPEC.name)) or {}
+        if m.get("lat") is None or m.get("in_basin") is False or not s["values"]:
+            continue
+        obs.append((m["lon"], m["lat"], sum(s["values"]) / len(s["values"]), sid))
+        areas.append(m.get("drainage_area_km2") or 0.0)
+    hi = max(areas) if areas else 0
+    sizes = ([120 + 620 * (a / hi) ** 0.5 for a in areas] if hi else None)
+    mod = [(v["lon"], v["lat"], sum(v["values"]) / len(v["values"]), c)
+           for c, v in model.items()
+           if v.get("lat") is not None and v["values"]]
+    return {"label": f"mean runoff  [{SPEC.units}]", "log": True,
+            "panels": [{"title": "USGS gauges (sized by drainage area)",
+                        "points": obs, "sizes": sizes},
+                       {"title": "ELM columns", "points": mod}]}

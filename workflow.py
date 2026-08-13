@@ -35,6 +35,21 @@ class _NothingToReportOn(Exception):
 	"""
 
 
+def _drop_if_empty(d) -> None:
+	"""Remove a run directory only if nothing was ever written into it.
+
+	The directory is made BEFORE reception, because reception writes the
+	modelled water table into it as a GeoTIFF. Three of the four routes never
+	use it, and a failure can leave it untouched — so it is removed again here.
+	rmdir refuses a non-empty directory, which is the safety: this can never
+	take a real run with it.
+	"""
+	try:
+		Path(d).rmdir()
+	except OSError:
+		pass
+
+
 from agents.planner               import Planner
 from agents.analysis_report_agent import AnalysisReportAgent
 from core.mcp_manager             import MCPManager
@@ -184,11 +199,37 @@ class WorkflowCoordinator:
 		print(f"Request: {user_request[:80]}...")
 		print("=" * 70 + "\n")
 	
+		# THE RUN DIRECTORY IS MADE BEFORE RECEPTION (2026-08-12), because
+		# reception now writes one thing that is not JSON: the modelled water
+		# table, as a GeoTIFF. It has to land BESIDE reception.json — compare
+		# can be pointed at another run's reception.json, and the water table
+		# must travel with the observations it belongs to, not with whichever
+		# run is being analysed.
+		#
+		# The coordinator still owns the directory and reception still only ever
+		# PRODUCES. An unused directory is removed a few lines down, so a
+		# clarification leaves nothing behind.
+		from datetime import datetime as _dt
+		run_dir = (Path(output_dir or self.default_output_dir)
+				   / f"{self.model}_run_{_dt.now():%Y%m%d_%H%M%S}")
+		run_dir.mkdir(parents=True, exist_ok=True)
+
 		# Step 1 — Reception
-		result = self.reception.process(
-			user_request = user_request,
-			context      = self._reception_context(),
-		)
+		#
+		# ON ANY FAILURE THE EMPTY DIRECTORY GOES WITH IT. Made just above, and
+		# reception can raise before it writes anything — a broken LLM call, an
+		# unreachable server. Without this every failed request left a dated,
+		# empty run directory behind, and those accumulate in exactly the place
+		# someone looks for real runs.
+		try:
+			result = self.reception.process(
+				user_request = user_request,
+				context      = self._reception_context(),
+				run_dir      = run_dir,
+			)
+		except BaseException:
+			_drop_if_empty(run_dir)
+			raise
 		# Reception returns the whole package now: route (dispatch), brief
 		# (science), observations + grid (what was fetched), provenance.
 		# The adapter that used to flatten this into a dataclass is gone — it
@@ -197,6 +238,13 @@ class WorkflowCoordinator:
 		result["user_request"] = user_request
 		action = (result.get("route") or {}).get("action", "clarify")
 		print(f"🧠 Route: {action}\n")
+
+		# Only the design route uses the directory made above. Reception returns
+		# before it gathers anything on the other three, so the directory is
+		# still empty — remove it rather than leave a trail of empty run dirs
+		# behind every clarifying question.
+		if action != 'design':
+			_drop_if_empty(run_dir)
 
 		# Step 2 — Route
 		if action == 'clarify':
@@ -209,6 +257,7 @@ class WorkflowCoordinator:
 			return self._workflow_design_and_run(
 				result     = result,
 				output_dir = output_dir or self.default_output_dir,
+				run_dir    = run_dir,
 			)
 		else:
 			return f"❌ Unknown route: {action}"
@@ -296,20 +345,21 @@ class WorkflowCoordinator:
 	# ═════════════════════════════════════════════════════════
 	# WORKFLOW 3 — DESIGN & RUN
 	# ═════════════════════════════════════════════════════════
-	def _workflow_design_and_run(self, result, output_dir: str) -> str:
+	def _workflow_design_and_run(self, result, output_dir: str, run_dir) -> str:
 		print("🚀 WORKFLOW: Design & Run\n")
 		try:
 			# The COORDINATOR owns the run directory, and each stage's file is
 			# written when that stage finishes. Reception and the planner then
 			# only ever produce, and the Experiment Manager only ever reads —
 			# which also means a failure downstream leaves both intact.
-			from datetime import datetime as _dt
-			# NAMED FOR THE MODEL THAT RAN. Every run directory used to be
-			# elm_run_*, which was accurate while ELM was the only backend and
-			# becomes a mislabel the moment it is not — the directory name is
-			# the first thing anyone reads, and archived PFLOTRAN studies would
-			# all claim to be ELM.
-			run_dir = Path(output_dir) / f"{self.model}_run_{_dt.now():%Y%m%d_%H%M%S}"
+			#
+			# IT IS MADE IN process_request NOW, not here, because reception
+			# writes the modelled water table into it as a GeoTIFF and needs
+			# somewhere to put it. It is still NAMED FOR THE MODEL THAT RAN:
+			# every run directory used to be elm_run_*, which was accurate while
+			# ELM was the only backend and becomes a mislabel the moment it is
+			# not — archived PFLOTRAN studies would all claim to be ELM.
+			run_dir = Path(run_dir)
 			run_dir.mkdir(parents=True, exist_ok=True)
 			(run_dir / "reception.json").write_text(
 				json.dumps({k: v for k, v in result.items()

@@ -28,12 +28,21 @@ import itself:
     prof      the tidy DEPTH frame, for backends with a vertical axis:
               entity | time_y | depth_m | variable | value | units | source
               None when the run has no profiles (ELM)
+    soil      the tidy SOIL frame — one row per day per LAYER, with each
+              layer's own geometry:
+              entity | date | layer | depth_m | thickness_m | depth_top_m |
+              depth_bottom_m | variable | value | units | source
+              None when the run has no layered output (PFLOTRAN)
     columns   per-column metadata (lat, lon, elevation_m, band, soil_profile, ...)
     caveats   the constraint records — so a script can read what it must respect
     out_path  where to save the figure
 
-A run supplies one of df/prof or the other; a script must check which before
-using it. Both being None is refused below rather than passed through.
+A run supplies df + soil (ELM) or prof (PFLOTRAN); a script must check which
+before using it. All three being None is refused below rather than passed
+through.
+
+A COLUMN MEAN OVER `soil` IS THICKNESS-WEIGHTED, always: ELM's layers span
+1.75 cm to 13.85 m, so an unweighted mean reports the bedrock.
 
 WHAT IT MUST RETURN. A dict named `result`, carrying at minimum an `n`: how many
 data points the claim rests on. That requirement is the whole reason this file
@@ -75,6 +84,7 @@ with open({payload!r}, "rb") as _f:
     _ctx = pickle.load(_f)
 df       = _ctx["df"]
 prof     = _ctx["prof"]
+soil     = _ctx["soil"]
 columns  = _ctx["columns"]
 caveats  = _ctx["caveats"]
 out_path = {out_path!r}
@@ -147,6 +157,15 @@ def _payload(ctx) -> Dict[str, Any]:
     except Exception:
         prof = None
 
+    # The soil column through time — one row per day per LAYER, each carrying
+    # its own thickness. ELM has this and no `prof`; PFLOTRAN is the other way
+    # round. Bound unconditionally so a script can test it rather than meet a
+    # NameError.
+    try:
+        soil = ctx.soil()
+    except Exception:
+        soil = None
+
     # THE RAW `variables` BLOB IS WITHHELD, and this is the second half of the
     # unit fix rather than a size optimisation. Each column carries its daily
     # series twice: once here in mm/s, and once in `df` — which _to_daily_rates
@@ -161,6 +180,7 @@ def _payload(ctx) -> Dict[str, Any]:
 
     return {"df": df,
             "prof": prof,
+            "soil": soil,
             "columns": cols,
             "caveats": list(getattr(ctx, "caveats", []) or []),
             "converted_to_daily": converted}
@@ -185,11 +205,11 @@ def run(code: str, ctx, out_path, script_path=None,
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     payload = _payload(ctx)
-    if payload["df"] is None and payload["prof"] is None:
+    if all(payload[k] is None for k in ("df", "prof", "soil")):
         return {"ok": False,
-                "error": "no tidy frame to run against — the run has neither a "
-                         "daily series nor depth profiles (or pandas is "
-                         "unavailable)",
+                "error": "no tidy frame to run against — the run has no daily "
+                         "series, no soil layers and no depth profiles (or "
+                         "pandas is unavailable)",
                 "result": None, "figure": None, "script": code}
 
     tmp = Path(tempfile.mkdtemp(prefix="step2_"))

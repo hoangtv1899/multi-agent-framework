@@ -60,7 +60,7 @@ Tools — all seven, and describe_elm_capabilities advertises all seven:
     check_elm_job(...)                   -> what SLURM is doing, and the built case
                                             directories once a build job has landed
     compare_to_obs(...)                  -> MEASUREMENTS; model vs observations for
-                                            swe / wtd / streamflow / et, plus how much
+                                            swe / water_table / streamflow / et, plus how much
                                             of each observation was really measured
 
 TWO WENT AWAY on 2026-08-10, both because they shelled out to scripts in the
@@ -270,50 +270,105 @@ def _imports() -> dict:
     return out
 
 
-@mcp.tool()
-@_stdout_to_stderr
-def describe_elm_capabilities() -> str:
-    """What this server can do, what it needs, and whether that is present.
+def _registered_tools() -> List[str]:
+    """The tool names this server actually exposes, from the live registry.
 
-    Call this FIRST. It reports the workflow in order, and a checked inventory
-    of every external dependency — so a missing E3SM tree or an absent sbatch
-    is a one-line answer here rather than a confusing failure eight minutes
-    into a case build.
-
-    It also states plainly what this server does NOT do, which is most of what
-    makes an ELM study a study: the sampling design, the warm start, the input
-    generation, and reading the results.
+    The authority on what exists is the registry, never a list in a docstring.
     """
-    reqs = _requirements()
-    missing = sorted(k for k, v in reqs.items() if not v["present"])
-    imports = _imports()
-    broken = sorted(k for k, v in imports.items() if v is not True)
+    try:
+        return sorted(t.name for t in mcp._tool_manager.list_tools())
+    except Exception:                                           # noqa: BLE001
+        return []
 
-    return json.dumps({
-        "server": "elm",
-        "model": "E3SM Land Model (ELM), 1-D columns",
-        "ready": not missing and not broken,
-        "missing_requirements": missing,
-        "broken_imports": broken,
 
-        "rule": (
-            "Anything that requires knowing what ELM is lives here. The caller "
-            "decides WHERE the columns go; this server decides what ELM sees "
-            "at those locations, compiles, and runs."
-        ),
-        "contract": (
-            "Every tool returns quickly or returns a job id. No tool blocks on "
-            "the science: an MCP client opens a fresh session per call and "
-            "tearing it down kills this server's children, so a 10-minute CIME "
-            "build under a 300 s timeout is not a slow call, it is a half-built "
-            "case directory."
-        ),
+def _referenced_names() -> set:
+    """Every global name the CODE in this module actually references.
 
-        # EXHAUSTIVE, and a test enforces that against the tool registry. A
-        # partial list here is worse than none: this is the tool an agent calls
-        # FIRST, so anything missing from it effectively does not exist, and
-        # the omission looks like an absent capability rather than a stale doc.
-        "workflow": [
+    From code objects, not from the file's text, and the distinction is the
+    whole point. A text scan matches the claim strings themselves — the first
+    version of this check read the sentence "does not ... write
+    experiment.json", found "experiment.json" in the file, and declared its own
+    claim stale. co_names holds the names the bytecode reaches for; docstrings
+    and comments are not in it, and string constants are co_consts.
+    """
+    seen: set = set()
+
+    def walk(code) -> None:
+        seen.update(code.co_names)
+        for const in code.co_consts:
+            if hasattr(const, "co_names"):
+                walk(const)
+
+    for obj in list(globals().values()):
+        code = getattr(obj, "__code__", None)
+        if code is not None:
+            try:
+                walk(code)
+            except Exception:                                   # noqa: BLE001
+                continue
+    return seen
+
+
+def _does_not(names: set) -> List[Dict[str, Any]]:
+    """What this server does not do — each claim WITH THE CHECK THAT WOULD FALSIFY IT.
+
+    A hand-written list of negative claims is the most rot-prone thing in a
+    capability report, because nothing fails when one goes stale. This list
+    claimed the server "does not read history files or compute any result" for
+    as long as compare_to_obs has existed — false the whole time, and found
+    only on 2026-08-11 by someone reading it.
+
+    So each claim now names the symbols whose PRESENCE IN THE CODE would
+    contradict it, and one that has been contradicted reports itself as STALE
+    rather than lying quietly. The checks are deliberately coarse: a name is
+    referenced or it is not. A check subtle enough to be wrong is a second
+    thing to maintain, and this one only has to be harder to ignore than a
+    sentence nobody re-reads.
+
+    A claim with no checkable symbol says so — `checked: false` — rather than
+    borrowing the credibility of the ones that are checked.
+    """
+    claims = [
+        {"claim": "choose where to put columns — the sampling design belongs "
+                  "to the caller, and is shared with PFLOTRAN so the two are "
+                  "comparable",
+         "contradicted_by": ("expand_sampling", "sample_columns",
+                             "choose_columns", "place_columns")},
+        {"claim": "GATHER observations. It reads the ones reception already "
+                  "fetched and persisted in reception.json; refreshing them "
+                  "means re-running reception, the one component that reaches "
+                  "outside",
+         "contradicted_by": ("requests", "urlopen", "urllib", "httpx",
+                             "MCPManager", "MCPClient")},
+        {"claim": "decide whether a study is worth running, or write "
+                  "experiment.json and its caveats",
+         "contradicted_by": ("Analyzer", "limitations", "write_experiment")},
+        {"claim": "offer a verdict — compare_to_obs returns measurements, and "
+                  "what they mean belongs to whoever reads them",
+         "contradicted_by": ("verdict", "grade", "skill_score")},
+    ]
+    out = []
+    for c in claims:
+        hits = sorted(n for n in c["contradicted_by"] if n in names)
+        rec: Dict[str, Any] = {
+            "claim": c["claim"],
+            "checked": True,
+            "would_contradict": list(c["contradicted_by"])}
+        if hits:
+            rec["STALE"] = (f"no longer true — this server's code references "
+                            f"{', '.join(hits)}")
+        out.append(rec)
+    return out
+
+
+def _workflow() -> List[Dict[str, Any]]:
+    """The tools in the order a study uses them, with why each exists.
+
+    Hand-written because it carries what the registry cannot: the ORDER,
+    and the reason a step is there. _coverage() checks it against the
+    registry so the prose cannot quietly drift out of step with the code.
+    """
+    return [
             {"step": 1, "tool": "describe_elm_capabilities",
              "does": "this — the workflow, a checked inventory of every "
                      "external dependency, and what this server does NOT do",
@@ -350,15 +405,86 @@ def describe_elm_capabilities() -> str:
              "returns": "state, whether it is still active, and for a build "
                         "job the case directories it produced"},
             {"step": 6, "tool": "compare_to_obs",
-             "does": "pair each column's daily series against observations you "
-                     "supply — swe, wtd, streamflow, et — and report metrics "
-                     "plus how much of the observation was measured rather "
-                     "than gap-filled. Reuses the extraction when it is "
-                     "already on disk",
+             "does": "pair each column's daily series against the observations "
+                     "reception already gathered and persisted in "
+                     "reception.json — swe, water_table, streamflow, et — and report "
+                     "metrics plus how much of the observation was measured "
+                     "rather than gap-filled. Reuses the extraction when it is "
+                     "already on disk; re-run RECEPTION to refresh the "
+                     "observations",
              "returns": "MEASUREMENTS, never a verdict; a summary inline and "
                         "the full record in 04_analysis/comparison.json"},
-        ],
+    ]
 
+def _coverage(registered: List[str], wf: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Does the prose above still describe the tools that actually exist?
+
+    Two failures, opposite and both silent. A tool registered with no workflow
+    entry is INVISIBLE to the agent that calls this first, so a real capability
+    reads as an absent one. An entry naming a tool that is no longer registered
+    sends that agent at a name that will fail. Neither breaks anything at
+    import, which is exactly why it has to be reported at call time.
+    """
+    described = {e["tool"] for e in wf if e.get("tool")}
+    undescribed = sorted(set(registered) - described)
+    phantom = sorted(described - set(registered))
+    out: Dict[str, Any] = {
+        "n_registered": len(registered), "n_described": len(described),
+        "complete": not undescribed and not phantom}
+    if undescribed:
+        out["registered_but_not_described"] = undescribed
+    if phantom:
+        out["described_but_not_registered"] = phantom
+    return out
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def describe_elm_capabilities() -> str:
+    """What this server can do, what it needs, and whether that is present.
+
+    Call this FIRST. It reports the workflow in order, and a checked inventory
+    of every external dependency — so a missing E3SM tree or an absent sbatch
+    is a one-line answer here rather than a confusing failure eight minutes
+    into a case build.
+
+    It also states plainly what this server does NOT do, which is most of what
+    makes an ELM study a study: the sampling design, the warm start, the input
+    generation, and reading the results.
+    """
+    reqs = _requirements()
+    missing = sorted(k for k, v in reqs.items() if not v["present"])
+    imports = _imports()
+    broken = sorted(k for k, v in imports.items() if v is not True)
+    names = _referenced_names()
+    registered = _registered_tools()
+    wf = _workflow()
+
+    return json.dumps({
+        "server": "elm",
+        "model": "E3SM Land Model (ELM), 1-D columns",
+        "ready": not missing and not broken,
+        "missing_requirements": missing,
+        "broken_imports": broken,
+
+        "rule": (
+            "Anything that requires knowing what ELM is lives here. The caller "
+            "decides WHERE the columns go; this server decides what ELM sees "
+            "at those locations, compiles, and runs."
+        ),
+        "contract": (
+            "Every tool returns quickly or returns a job id. No tool blocks on "
+            "the science: an MCP client opens a fresh session per call and "
+            "tearing it down kills this server's children, so a 10-minute CIME "
+            "build under a 300 s timeout is not a slow call, it is a half-built "
+            "case directory."
+        ),
+
+        # EXHAUSTIVE, and a test enforces that against the tool registry. A
+        # partial list here is worse than none: this is the tool an agent calls
+        # FIRST, so anything missing from it effectively does not exist, and
+        # the omission looks like an absent capability rather than a stale doc.
+        "workflow": wf,
         "inputs_expected": {
             "file": f"<run_dir>/01_inputs/{CASE_INPUTS}",
             "shape": "[{case_name, runtime_config: {FSURDAT, FINIDAT, "
@@ -373,13 +499,16 @@ def describe_elm_capabilities() -> str:
                     "holding one already can go straight to build_elm_cases.",
         },
 
-        "does_not": [
-            "choose where to put columns — the sampling design belongs to the "
-            "caller, and is shared with PFLOTRAN so the two are comparable",
-            "read history files or compute any result",
-            "decide whether a study is worth running, record caveats, or write "
-            "experiment.json",
-        ],
+        "does_not": _does_not(names),
+
+        # THE REGISTRY IS THE AUTHORITY, this report is a description of it.
+        # The workflow above is prose — it carries the ORDER and the reason,
+        # which no registry knows — so it is written by hand and then checked
+        # against what is actually exposed. A tool added without a workflow
+        # entry is invisible to the agent that calls this first, and an entry
+        # for a tool that no longer exists sends it at a name that will fail.
+        "tools_registered": registered,
+        "tool_coverage": _coverage(registered, wf),
 
         "requirements": reqs,
         "imports": imports,
@@ -765,104 +894,185 @@ echo "building {n_cases} case(s) for {rd} on $(hostname)"
 
 
 # ─────────────────────────────────────────────────────────────────────
+# READ WHAT THE MODEL WROTE  (no job — reads files already on disk)
+# ─────────────────────────────────────────────────────────────────────
+@mcp.tool()
+@_stdout_to_stderr
+def extract_elm_output(run_dir:   str,
+                       columns:   str = "",
+                       variables: str = "",
+                       overwrite: bool = False) -> str:
+    """Every column's daily series, out of the history files and onto disk.
+
+    RUN THIS AFTER THE ENSEMBLE FINISHES. It reads `*.elm.h0.*.nc` from each
+    case directory named in built_cases.json, so it needs the model to have run;
+    a column whose files are absent is reported, not skipped.
+
+    IT IS ALSO WHAT ESTABLISHES WHAT RAN. Nothing else in a run directory
+    reliably says so. `run_elm_ensemble` returns a submission receipt written
+    before the model starts. RUN_SUMMARY.json still read "pending, 0 success"
+    for a run where all 17 columns finished. `check_elm_job` reports an ensemble
+    job as a build job whenever built_cases.json exists. The history files are
+    the only ground truth, and this reads them.
+
+    RAW SERIES ONLY. Daily means from the native 3-hourly output, fluxes
+    converted to mm/day, states in their own units. No `recharge_fraction`, no
+    `water_budget`, no ratios of any kind — those carry semantics that must not
+    cross this boundary (decision of 2026-08-06), and they stay framework-side.
+
+    columns:   comma-separated subset, e.g. "col_07". Empty means all. With an
+               artifact already present this MERGES, which is how one failed
+               column is redone without re-reading the other sixteen.
+    variables: comma-separated subset of the 15 extracted by default.
+    overwrite: re-read even if 03_results/extracted.json is already there.
+               Without it, an existing artifact is reused untouched.
+
+    Writes 03_results/extracted.json — {metadata, data}, one date list per
+    column shared by its variables, layered variables keeping their soil
+    layers. Returns a SUMMARY and the path; the series never travel inline.
+    """
+    from extract import extract_run          # src/ is on sys.path (line 137)
+    cols = [c.strip() for c in columns.split(",") if c.strip()]
+    vars_ = [v.strip().upper() for v in variables.split(",") if v.strip()]
+    try:
+        out = extract_run(run_dir, columns=cols or None,
+                          variables=vars_ or None, overwrite=bool(overwrite))
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False,
+                           "error": f"{type(e).__name__}: {str(e)[:300]}"},
+                          indent=2)
+    return json.dumps(out, indent=2)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # MODEL vs OBSERVATIONS
 # ─────────────────────────────────────────────────────────────────────
 HYDRO_SUMMARY = "hydro_summary.json"
-COMPARISON = "comparison.json"
+# The comparison's own file name lives in the compare package (compare.FILENAME)
+# — one name, next to the code that writes it.
+
+
+def _rows_from_extracted(payload: Dict[str, Any]) -> List[Dict]:
+    """extracted.json -> the row shape model_series reads.
+
+    One date list per column becomes a `daily` block per variable, which is the
+    shape the comparison has always spoken. Layered variables (SOILLIQ, H2OSOI)
+    are SKIPPED: their values are one row per day per soil layer, no SPEC
+    compares them, and summing them as if they were scalars would be silent
+    nonsense rather than an error.
+    """
+    cols = (payload.get("metadata") or {}).get("columns") or {}
+    rows: List[Dict] = []
+    for name, block in (payload.get("data") or {}).items():
+        dates = block.get("dates") or []
+        variables = {}
+        for var, v in (block.get("variables") or {}).items():
+            if "n_layers" in v:
+                continue
+            variables[var] = {"daily": {"dates": dates,
+                                        "values": v.get("values"),
+                                        "units": v.get("units")}}
+        m = cols.get(name) or {}
+        rows.append({"case_name": name, "variables": variables,
+                     **{k: m.get(k) for k in
+                        ("lat", "lon", "elevation_m", "pinned", "station_id",
+                         "station_variable", "forcing_start", "forcing_end")}})
+    return rows
 
 
 def _extracted_rows(rd: Path) -> tuple:
-    """The per-column daily series, reused from disk when they are already there.
+    """The per-column daily series. Returns (rows, how).
 
-    Returns (rows, how). Reading 19 columns of history NetCDF is the expensive
-    part of any comparison, and the extract stage has usually already done it —
-    so this checks for a usable hydro_summary.json first and only opens NetCDF
-    when there is not one. Same reuse-if-valid shape as job A's built_cases
-    check, and valid means the same thing there and here: the artefact exists
-    AND still contains what the next step needs, which for this is the `daily`
-    blocks. A summary written before daily series existed parses fine and
-    compares nothing, so its mere presence is not enough.
+    ONE EXTRACTOR, AND IT IS extract_elm_output (2026-08-11). This used to read
+    hydro_summary.json or, failing that, open the NetCDF itself — a second
+    implementation of extraction living inside the comparison, with its own
+    variable list, its own spin-up handling and its own idea of what a column
+    is. Two extractors in one tree is one too many: they drifted the same
+    afternoon extract.py gained QSNOMELT and H2OSOI.
+
+    Extraction is not silently a side effect of comparing, either. If the
+    artefact is missing this CALLS the tool, and says so in `how`, so the
+    caller can see that reading NetCDF happened rather than wondering why one
+    comparison took six minutes and the next took twenty seconds.
     """
-    summ = rd / "04_analysis" / HYDRO_SUMMARY
-    if summ.is_file():
-        try:
-            rows = json.loads(summ.read_text()).get("experiments") or []
-            if isinstance(rows, dict):
-                rows = list(rows.values())
-            has_daily = any(
-                ((v or {}).get("daily") or {}).get("values")
-                for r in rows for v in (r.get("variables") or {}).values())
-            if rows and has_daily:
-                return rows, f"reused {HYDRO_SUMMARY} ({len(rows)} column(s))"
-        except Exception:                                       # noqa: BLE001
-            pass                        # fall through and read the NetCDF
-
-    built = rd / "01_inputs" / BUILT_CASES
-    if not built.is_file():
-        return [], f"no {HYDRO_SUMMARY} with daily series and no {BUILT_CASES}"
-    cases = json.loads(built.read_text()).get("cases") or []
-    exps = [{"case_name": c.get("case_name"), "case_dir": c.get("case_dir")}
-            for c in cases if c.get("case_dir")]
-    if not exps:
-        return [], f"{BUILT_CASES} names no case directories"
-    from elm_results_analyzer import ELMResultsAnalyzer
-    an = ELMResultsAnalyzer(experiments=exps,
-                            analysis_dir=str(rd / "04_analysis"))
-    an.extract_all()
-    res = an.results
-    rows = list(res.values()) if isinstance(res, dict) else list(res or [])
-    return rows, f"read {len(rows)} column(s) of history files"
+    from extract import EXTRACTED, RESULTS_DIR, extract_run
+    art = rd / RESULTS_DIR / EXTRACTED
+    how = f"reused {RESULTS_DIR}/{EXTRACTED}"
+    if not art.is_file():
+        res = extract_run(str(rd))
+        if not res.get("ok"):
+            return [], (f"nothing to compare: {res.get('error')}")
+        how = (f"ran extract_elm_output — {res.get('n_ok')} of "
+               f"{res.get('n_columns')} column(s)")
+    try:
+        payload = json.loads(art.read_text())
+    except Exception as e:                                      # noqa: BLE001
+        return [], f"unreadable {RESULTS_DIR}/{EXTRACTED}: {e}"
+    rows = _rows_from_extracted(payload)
+    return rows, f"{how} ({len(rows)} column(s))"
 
 
 @mcp.tool()
 @_stdout_to_stderr
 def compare_to_obs(run_dir: str,
-                   observations_csv: str = "",
-                   observations_meta: str = "",
-                   observables: str = "",
-                   references_json: str = "") -> str:
+                   observations_json: str = "",
+                   observables: str = "") -> str:
     """Model against observations for this study. MEASUREMENTS ONLY.
 
     Compares each column's daily series to the observations the caller supplies,
     for any of four observables:
 
         swe          H2OSNO                  vs snow pillow      mm
-        wtd          ZWT                     vs well             m below surface
+        water_table  ZWT                     vs well             m below surface
         streamflow   QOVER + QDRAI           vs gauge            mm/day
         et           QSOIL + QVEGE + QVEGT   vs flux tower       mm/day
 
-    RETURNS NUMBERS, NOT VERDICTS. Paired series, per-station metrics (bias,
-    MAE, RMSE, r, NSE, KGE), and diagnostics about the pairing itself: how many
-    pairs, over which window, and how much of the observation was actually
-    measured rather than gap-filled. It does not say whether the model is good.
-    That reading is the caller's, and it needs the diagnostics to make it.
+    RETURNS NUMBERS, NOT VERDICTS. Per-station metrics (bias, MAE, RMSE, r,
+    NSE, KGE) and diagnostics about the matching itself: how many days, over
+    which window, and how much of the observation was actually measured rather
+    than gap-filled. It does not say whether the model is good. That reading is
+    the caller's, and it needs the diagnostics to make it.
+
+    MATCHED FIRST, THEN COMPARED. swe, water_table and et each match ONE column
+    to ONE
+    station — on elevation for snow, on distance for the rest — and compare
+    only those. Comparing everything against everything and choosing afterwards
+    leaves every discarded comparison in the record, where the flattering one is
+    always available.
+
+    STREAMFLOW MATCHES NOTHING, on purpose. A gauge measures an AREA, not a
+    point, so there is no nearest column to find; the ensemble mean over every
+    column stands against each in-basin gauge, which is the basin-aggregate
+    comparison the planner has always specified. Its record carries `gauges`
+    rather than `pairs`.
 
     EVERY COMPARISON HERE IS CONTEXT, NOT A SKILL CLAIM. Decided 2026-08-10.
-    It is what makes streamflow admissible: a 1-D column produces point runoff
-    and a gauge measures routed discharge over a basin, so they are not
-    co-located and no metric between them scores the model — but the hydrograph
-    shape is still worth seeing. Each record carries `model_comparand`,
-    `obs_quantity` and `colocated` so a reader can see what was put beside what.
+    It is what makes streamflow admissible: a mean over sampled columns is not
+    routed discharge, so no metric between them scores the model — but the
+    hydrograph shape and the timing are worth seeing. Each record carries
+    `model_comparand`, `obs_quantity` and `colocated` so a reader can see what
+    was put beside what.
 
-    observations_csv: long format, defaults to <run_dir>/04_analysis/
-        observations.csv. Columns: station_id,variable,time,value,quality.
-        `quality` is load-bearing — measured 2026-08-10 at US-NR1, gap-filled
-        annual ET is 464 mm against 89 mm from the measured half-hours alone,
-        because only 36% of that year was observed. Both are true; they are not
-        the same claim, and a table without provenance cannot tell them apart.
+    AN OBSERVABLE WITH NO STATION STILL REPORTS. Most basins have no flux tower
+    and many have no recorder well, and what the model itself did is true
+    regardless: where each column's water left (over the surface or through the
+    soil), which water tables never moved, where the ET came from, and where
+    the basin's water table sits against Fan and ParFlow CONUS2. Those come
+    back beside the reason there was nothing to compare, never instead of it.
 
-    observations_meta: JSON list, defaults to <run_dir>/04_analysis/
-        observations_meta.json. One entry per (station_id, variable) with units,
-        lat, lon, elevation_m, source, in_basin and licence.
+    observations_json: the run's reception.json, which is where the observations
+        already live — reception queries the four data servers once, after the
+        period is fixed, and persists the whole payload (streamflow, water
+        table, SWE, ET; every station with coordinates and daily series) under
+        `observations`. Defaults to <run_dir>/reception.json. TO REFRESH THE
+        OBSERVATIONS, RE-RUN RECEPTION: it is the component that reaches
+        outside, and routing the refresh through it is what keeps the numbers a
+        run is judged against identical to the ones its brief was written from.
+
+        Point this at another run's reception.json to compare these columns
+        against that domain's observations.
 
     observables: comma-separated subset, or empty for all four.
-
-    references_json: path to per-column static priors for the water table,
-        {"col_01": {"fan": 12.3, "parflow_clm": 10.1}, ...}. A well MEASURES;
-        Fan 2013 is an equilibrium surface fitted to observations; ParFlow-CLM
-        is a simulated steady state. They answer different questions, so each
-        is differenced against the model separately and none is called truth.
-        Ignored by the other three observables.
 
     Writes 04_analysis/comparison.json and a figure per observable, and returns
     a SUMMARY plus their paths — the full record is per station per column per
@@ -873,17 +1083,17 @@ def compare_to_obs(run_dir: str,
     if not rd.is_dir():
         return json.dumps({"ok": False, "error": f"no such run dir: {rd}"})
     adir = rd / "04_analysis"
-    obs_csv = Path(observations_csv or (adir / "observations.csv"))
-    obs_meta = Path(observations_meta or (adir / "observations_meta.json"))
-    if not obs_csv.is_file():
+    obs_path = Path(observations_json or (rd / "reception.json"))
+    if not obs_path.is_file():
         return json.dumps({
             "ok": False,
-            "error": f"no observation table at {obs_csv}. This server compares "
-                     f"what it is given; gathering observations is the "
-                     f"caller's job.",
-            "expected_columns": ["station_id", "variable", "time", "value",
-                                 "quality"],
-            "expected_variables": ["swe", "wtd", "streamflow", "et"]}, indent=2)
+            "error": f"no observations at {obs_path}. This server compares what "
+                     f"it is given; GATHERING observations is reception's job, "
+                     f"and reception persists them under `observations` in its "
+                     f"reception.json. Re-run reception for this domain and "
+                     f"period, then call this again.",
+            "expected_blocks": ["streamflow", "water_table", "swe", "et"]},
+            indent=2)
 
     rows, how = _extracted_rows(rd)
     if not rows:
@@ -894,60 +1104,28 @@ def compare_to_obs(run_dir: str,
 
     import compare as _cmp
     want = [s.strip().lower() for s in observables.split(",") if s.strip()]
-    refs = None
-    if references_json:
-        rp = Path(references_json)
-        if not rp.is_file():
-            return json.dumps({"ok": False,
-                               "error": f"no references file at {rp}"})
-        refs = json.loads(rp.read_text())
     try:
-        out = _cmp.compare_all(rows, str(obs_csv),
-                               str(obs_meta) if obs_meta.is_file() else "",
-                               observables=want or None,
-                               figure_dir=str(adir), references=refs)
+        # COMPARE, DRAW, WRITE, SUMMARISE — one call, in the package (2026-08-12).
+        # This file used to do those four itself, which made it a second reader
+        # of a shape only that package defines: the summary loop broke on a
+        # KeyError the moment every observable matched first and stopped nesting
+        # columns under a station, and nothing over there could have known. The
+        # Analyzer's step 1 now calls the same function, so the two entry points
+        # cannot drift.
+        done = _cmp.compare_run(rows, str(obs_path), str(adir),
+                                observables=want or None)
     except Exception as e:                                      # noqa: BLE001
         return json.dumps({"ok": False, "model_rows": how,
                            "error": f"{type(e).__name__}: {e}"[:300]}, indent=2)
 
-    adir.mkdir(parents=True, exist_ok=True)
-    (adir / COMPARISON).write_text(json.dumps(out, indent=2, default=str))
-
-    # The summary: enough to act on, small enough to travel.
-    summary = {}
-    for name, rec in out["observables"].items():
-        if rec.get("error"):
-            summary[name] = {"error": rec["error"]}
-            continue
-        best = []
-        for e in rec.get("pairs") or []:
-            want_col = e.get("assigned_column")
-            col = next((c for c in e["columns"]
-                        if c.get("n_pairs") and c["case_name"] == want_col),
-                       next((c for c in e["columns"] if c.get("n_pairs")), None))
-            if col:
-                best.append({"station_id": e["station_id"],
-                             "column": col["case_name"],
-                             "n_pairs": col["n_pairs"],
-                             "overlap": col.get("overlap"),
-                             "frac_measured": col["obs_quality"]["frac_measured"],
-                             **{k: col["metrics"].get(k)
-                                for k in ("bias", "rmse", "nse", "kge")}})
-        summary[name] = {"units": rec["units"], "colocated": rec["colocated"],
-                         "n_stations": rec["n_stations"],
-                         "n_columns": rec["n_columns_with_series"],
-                         "n_pairs_total": rec.get("n_pairs_total"),
-                         "matched_on": rec.get("assignment", {}).get("matched_on"),
-                         "unpaired_stations": (rec.get("assignment", {})
-                                               .get("unpaired") or None),
-                         "assigned_column_per_station": best}
+    out = done["comparison"]
     return json.dumps({
         "ok": True,
         "model_rows": how,
         "observation_rows_dropped": out.get("n_observation_rows_dropped"),
-        "comparison_json": str(adir / COMPARISON),
-        "figures": out.get("figures"),
-        "summary": summary,
+        "comparison_json": done["path"],
+        "figures": done["figures"],
+        "summary": done["summary"],
         "note": out.get("note"),
     }, indent=2, default=str)
 

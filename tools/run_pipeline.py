@@ -149,8 +149,21 @@ def main():
     print("-" * 72)
     rx = LLMReceptionAgent(args.reception_model, clients, verbose=not args.quiet,
                            max_rounds=args.max_rounds, interactive=args.interactive)
-    rec = rx.process(request)
+    # out_dir is where reception's GeoTIFF of the modelled water table goes,
+    # beside the reception.json written just below.
+    rec = rx.process(request, run_dir=out_dir)
     brief = rec["brief"]
+    # THE WHOLE PACKAGE, in the coordinator's own format (2026-08-12). This
+    # wrote only the brief and the trace, which threw away everything reception
+    # had just fetched — every station, every series, the provenance, and the
+    # record of the water-table raster sitting in this very directory. That made
+    # the dry path useless for checking what reception gathered, which is most
+    # of what reception does. `trace` and `raw` stay out for the same reason the
+    # coordinator leaves them out: they are the transcript, not the result, and
+    # the trace is written beside this anyway.
+    (out_dir / "reception.json").write_text(json.dumps(
+        {k: v for k, v in rec.items() if k not in ("trace", "raw")},
+        indent=2, default=str))
     (out_dir / "reception_brief.json").write_text(json.dumps(brief, indent=2))
     (out_dir / "reception_trace.json").write_text(json.dumps(rec["trace"], indent=2))
     print(f"\nreception: intent={brief.get('intent')} "

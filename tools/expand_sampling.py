@@ -191,7 +191,36 @@ STATION_SOURCES = (("streamflow", "stations"),
 #
 # Streamflow validation is NOT dropped. It stays a basin-aggregate comparison
 # against the ensemble; it simply stops costing a column.
-PINNABLE_VARIABLES = ("swe", "water_table", "et")
+#
+# THESE ARE OBSERVABLE NAMES, and they are the SAME NAMES the comparison uses
+# (compare/*.py SPEC.name): swe, water_table, streamflow, et. That was not true
+# until 2026-08-13 — the comparison called the water table "wtd" while the
+# sampler wrote "water_table" into every pinned column's `station_variable`, so
+# pair_stations compared the two spellings, found them unequal, and silently
+# refused every well pin ever designed. One vocabulary; a pin that is refused
+# is refused for a reason someone can read.
+PINNABLE_VARIABLES = ("swe", "et")
+
+# WATER TABLE LEFT THIS LIST 2026-08-12, by the user's decision, and was
+# replaced by the Fan anchors below. What pinning to a recorder well bought,
+# measured on brandywine_2010: four wells pinned, three of them snapped onto ONE
+# gridcell by the warm start, so three IDENTICAL ELM cases were built and run
+# and the comparison reported three NSEs — -1.9, -88.6, -757.4 — against one
+# model series. The wells were a piezometer nest: twelve of them in that cell,
+# 0.42 m to 36.32 m depth to water, because nine are screened in the confined
+# Potomac Formation 135-701 m down and one in the surficial Columbia aquifer.
+#
+# It also almost never applies. Naches has no recorder well in any year, and of
+# the thirteen chain-eval basins most have none, so the scheme spent columns in
+# the rare basin and did nothing in the common one.
+#
+# The trade is stated plainly: a Fan anchor CANNOT be paired day against day,
+# because Fan is one long-term mean per site (1927-2009). It is a DESIGN
+# anchor — it puts a column where the water table is documented, so the column
+# can be interpreted — not a validation pairing. Recorder wells are still
+# fetched and still compared; they simply stop costing columns.
+FAN_ANCHORS = 2                 # columns anchored at documented water tables
+FAN_ANCHOR_MIN_SEPARATION_KM = 1.0      # the well-cluster radius reception uses
 
 
 def _station_index(reception):
@@ -216,6 +245,92 @@ def _station_index(reception):
                              "in_basin": rec.get("in_basin"),
                              "station_elevation_m": rec.get("elevation_m")}
     return idx
+
+
+def _fan_anchors(reception, n=FAN_ANCHORS):
+    """One or two columns placed where the long-term water table is documented.
+
+    NOT A VALIDATION PIN, and the record says so. Fan et al. 2013 is one mean
+    per site over 1927-2009 — reception labels it "long-term mean, one value per
+    site" — so no simulated year can be paired against it day by day. What it
+    gives is a column whose water table has a DOCUMENTED value to be read
+    against: "this column sits where the long-term water table is 3.4 m" is a
+    statement about representativeness, which is what the sampling is for.
+
+    WHY FAN AND NOT THE RECORDER WELLS: coverage. Naches has 299 Fan sites and
+    zero recorder wells; Brandywine has 421 against 21. A design rule that only
+    works in the rare basin is not a design rule.
+
+    WHICH SITES. Two, chosen to be interpretable rather than convenient:
+
+      the MEDIAN in-basin depth — the typical water table for this watershed;
+      the SHALLOW end (10th percentile) — because below ELM's 3.8 m active soil
+          the model DIAGNOSES a water table instead of simulating one, and at
+          Naches that was 16 of 16 columns. If any column is to be placed where
+          the model can actually simulate the thing, this is the one.
+
+    They are dropped to one when they land within FAN_ANCHOR_MIN_SEPARATION_KM
+    of each other — the same radius reception clusters wells at, and for the
+    same reason: two columns in one gridcell are one column and two ELM runs.
+    """
+    if n <= 0:
+        return []
+    obs = (reception or {}).get("observations") or {}
+    sites = [w for w in ((obs.get("water_table_static") or {}).get("wells") or [])
+             if w.get("in_basin") is not False
+             and w.get("wtd_m") is not None
+             and w.get("lat") is not None and w.get("lon") is not None]
+    if not sites:
+        print("   ⚠️  no in-basin Fan site to anchor a column at — the design "
+              "gets no water-table anchor. This is a coverage fact, not a "
+              "failure; the comparison's Fan distribution does not need one.")
+        return []
+
+    ranked = sorted(sites, key=lambda w: float(w["wtd_m"]))
+    picks, seen = [], []
+    for label, idx in (("median in-basin Fan depth", len(ranked) // 2),
+                       ("shallow end, 10th percentile", len(ranked) // 10)):
+        if len(picks) >= n:
+            break
+        w = ranked[idx]
+        if any(_haversine_km(w["lat"], w["lon"], s["lat"], s["lon"])
+               <= FAN_ANCHOR_MIN_SEPARATION_KM for s in seen):
+            continue
+        seen.append(w)
+        # THE DEPTH ITSELF DOES NOT TRAVEL, and that is deliberate (user's
+        # instruction, 2026-08-12). _place_pinned copies every field of this
+        # record onto the column, columns.json carries it into the analyzer, and
+        # a number labelled "the water table here is 11.66 m" sitting beside a
+        # modelled ZWT is a prior handed to whatever reads it next — including
+        # an LLM asked to interpret the run. Fan chose WHERE this column goes;
+        # it must not also suggest what the answer should be.
+        #
+        # So the record is exactly the shape every other pin has: an id, the
+        # variable, coordinates. The site id keeps the choice traceable — the
+        # value is one lookup away for a person, and absent for a process.
+        picks.append({
+            "station_id": f"FAN-{w.get('id')}",
+            # DELIBERATELY NOT "water_table". The comparison honours a pin only
+            # for the observable named here, and a Fan anchor must never be
+            # force-paired to a recorder well: they are different quantities
+            # measured decades apart.
+            "station_variable": "water_table_static",
+            "station_name": w.get("name"),
+            "lat": float(w["lat"]), "lon": float(w["lon"]),
+            "in_basin": w.get("in_basin"),
+            "station_elevation_m": None})
+        print(f"   ⚓ Fan anchor FAN-{w.get('id')} at {w['wtd_m']} m ({label}) — "
+              f"placement only; the depth is not written to the column")
+    return picks
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    import math
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    h = (math.sin(dp / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
+    return 2 * 6371.0 * math.asin(math.sqrt(h))
 
 
 def _pinned_from_plan(plan, reception):
@@ -294,9 +409,24 @@ def _pinned_from_plan(plan, reception):
         print(f"   ⚠️  not pinning {len(dropped)} station(s) a 1-D column cannot "
               f"be co-located with: "
               f"{[(d['station_id'], d['station_variable']) for d in dropped]}")
-        print(f"   ⚠️  A gauge integrates and routes an upstream area; this model "
-              f"has no lateral transport. Those variables stay as "
-              f"basin-aggregate comparisons against the ensemble.")
+        # ONE REASON PER VARIABLE. This printed the gauge argument — "integrates
+        # and routes an upstream area" — for whatever was dropped, which after
+        # water_table left the list meant recorder wells were refused with an
+        # explanation about rivers.
+        why = {
+            "streamflow": ("a gauge integrates and routes an upstream area and "
+                           "this model has no lateral transport, so no column "
+                           "produces what it measures. Streamflow stays a "
+                           "basin-aggregate comparison against the ensemble."),
+            "water_table": ("recorder wells stopped costing columns 2026-08-12. "
+                            "They cluster — twelve in one gridcell at "
+                            "Brandywine, spanning two aquifers — and most "
+                            "basins have none. The design is anchored at Fan "
+                            "sites instead; the wells are still fetched and "
+                            "still compared, on distance."),
+        }
+        for var in sorted({d["station_variable"] for d in dropped}):
+            print(f"   ⚠️  {var}: {why.get(var, 'not a quantity a 1-D column produces at a point.')}")
 
     # And drop what sits outside the watershed. Reception tags every station
     # against the WBD polygon (`in_basin`); the tag is absent only when there was
@@ -309,7 +439,14 @@ def _pinned_from_plan(plan, reception):
         print(f"   ⚠️  Observations are fetched for the bounding box, which is "
               f"larger than the basin. A column out there is forced and soiled "
               f"from ground the study does not model.")
-    return keep
+
+    # THE FAN ANCHORS ARE THE SAMPLER'S, NOT THE PLANNER'S. The planner is never
+    # shown the Fan compilation (decided 2026-08-12: "it's okay the planner
+    # doesn't learn Fan exists"), and it should not be — where to put a column
+    # so the ensemble is interpretable is a design question, and the design is
+    # this file's job. They are appended after the planner's pins so a budget
+    # squeeze in expand() drops an anchor before a station the planner asked for.
+    return keep + _fan_anchors(reception)
 
 
 def _place_pinned(clients, pinned, bands, pts):

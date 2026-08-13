@@ -207,39 +207,42 @@ class ELMExpManager(ExperimentManagerBase):
 									"note": "TOTAL precipitation: rain + snow"},
 		"rainfall_mm_yr":          {"units": "mm/yr", "from": ["RAIN"]},
 		"snowfall_mm_yr":          {"units": "mm/yr", "from": ["SNOW"]},
-		"annual_runoff_mm_yr":     {"units": "mm/yr", "from": ["QOVER"],
-									"note": "SURFACE runoff only. QDRAI "
-											"(subsurface drainage) is NOT "
-											"included, so this is not the "
-											"streamflow-comparable total"},
-		"annual_recharge_mm_yr":   {"units": "mm/yr", "from": ["QCHARGE"]},
-		# NOT fractions of precipitation. Both denominators are
-		# (QCHARGE + QOVER): these say how the drainage SPLITS between
-		# recharge and runoff, and they sum to 1 by construction even when
-		# both terms are ~0. Reading them as runoff/P is wrong by a factor
-		# of P/(QCHARGE+QOVER) — on the 2019 Gunnison run that made columns
-		# draining ~0 mm/yr report recharge_fraction = 1.00.
-		"runoff_fraction":         {"units": "1",
-									"from": ["QOVER", "QCHARGE"],
-									"note": "QOVER / (QCHARGE + QOVER) — the "
-											"recharge-vs-runoff SPLIT, not a "
-											"fraction of precipitation"},
-		"recharge_fraction":       {"units": "1",
-									"from": ["QCHARGE", "QOVER"],
-									"note": "QCHARGE / (QCHARGE + QOVER) — the "
-											"recharge-vs-runoff SPLIT, not a "
-											"fraction of precipitation"},
-		"recharge_to_runoff_ratio": {"units": "1", "from": ["QCHARGE", "QOVER"]},
-		"precip_total_mm_yr":      {"units": "mm/yr", "from": ["RAIN", "SNOW"],
-									"note": "water-budget total; "
-											"precip_mm_yr is the same sum"},
-		"water_budget":            {"units": "mm/yr", "from": ["RAIN", "SNOW",
-															   "QOVER", "QDRAI",
-															   "QCHARGE", "TWS"]},
+		# FIVE ENTRIES WENT ON 2026-08-13, and the note each of them needed is
+		# the reason. `runoff_fraction` and `recharge_fraction` were the
+		# recharge-vs-runoff SPLIT, denominator (QCHARGE + QOVER), and needed a
+		# paragraph here saying they were not fractions of precipitation —
+		# because the name says they are. `recharge_to_runoff_ratio` reached
+		# 4,288,570 on a column with no runoff. `precip_total_mm_yr` was
+		# `precip_mm_yr` under a second name. `annual_runoff_mm_yr` and
+		# `annual_recharge_mm_yr` duplicated the water-budget terms at a
+		# different rounding.
+		#
+		# Everything they answered is in `water_budget`, where every term
+		# carries `_frac_of_P` and the denominator is IN THE NAME. A catalogue
+		# entry that has to warn the reader what its key does not mean is a key
+		# that should be renamed, not documented.
+		"water_budget":            {"units": "mm/yr and fractions of P",
+									"from": ["RAIN", "SNOW", "QOVER", "QDRAI",
+											 "QCHARGE", "QINFL", "QSOIL",
+											 "QVEGE", "QVEGT", "TWS"],
+									"note": "each term as <name>_mm_yr AND "
+											"<name>_frac_of_P. recharge is "
+											"INTERNAL to TWS, not an export — "
+											"see recharge_is_internal. "
+											"unaccounted_mm_yr is what the "
+											"balance cannot place, and it is "
+											"0-14% of P on real runs"},
 		"water_table_depth_m":     {"units": "m", "from": ["ZWT"],
 									"note": "positive downward from the surface"},
-		"peak_swe_mm":             {"units": "mm", "from": ["H2OSNO"]},
+		"peak_swe_modelled_mm":    {"units": "mm", "from": ["H2OSNO"],
+									"note": "MODELLED peak. `peak_swe_mm` "
+											"elsewhere is the OBSERVED peak at "
+											"a snow pillow — different thing"},
 		"tws_seasonal_range_mm":   {"units": "mm", "from": ["TWS"]},
+		"n_days_in_record":        {"units": "days", "from": [],
+									"note": "every mm/yr above is a daily rate "
+											"x 365.25, so a short record is an "
+											"EXTRAPOLATION by 365.25/this"},
 	}
 
 	def _couple(self, plan, config):
@@ -734,9 +737,11 @@ exit $?
 					# Without these the caveat cannot tell an equilibrated,
 					# self-consistent state from the mismatch that made year
 					# one a relaxation — and it defaulted to warning about both.
-					warm_source   = ((cfg.get("warm_start") or {}).get("source")
-									 if isinstance(cfg.get("warm_start"), dict)
-									 else cfg.get("warm_start")) or "conus",
+					# ALWAYS "conus" — there is one warm start (2026-08-12).
+					# This used to dig a `source` out of the config, which by
+					# then could be True, a dict, or a string; with one source
+					# the question is answered here instead of re-derived.
+					warm_source   = "conus",
 					soil_source   = "conus",   # warm start is required; the
 					# donor's surfdata is always what ELM runs on
 				),
