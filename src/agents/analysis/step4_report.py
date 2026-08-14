@@ -62,6 +62,62 @@ def _llm_accounting() -> Dict[str, Any]:
                 not r.get("label") for r in USAGE_LOG) else None}
 
 
+def _slurm_elapsed(run_dir) -> Dict[str, Any]:
+    """The ensemble job's wall time, asked of the scheduler that ran it.
+
+    NEITHER FILE IN THE RUN DIRECTORY HOLDS THIS. RUN_SUMMARY.json's
+    `total_runtime_seconds` times the FRAMEWORK PROCESS, not the model: since
+    the ensemble was detached into SLURM job A, the submitting call returns in
+    about three seconds and a later --finalize measures its own tail. On
+    2026-08-13 that field read 593.8 s for a study whose ELM compute was
+    18 m 23 s, and nothing said the two were different quantities.
+
+    The run state records job A's id at the build_cases stage, so the honest
+    source is sacct. Absent scheduler, absent id, or a job the accounting has
+    already rolled off — all return {} and the caller reports what it has.
+    """
+    import subprocess
+    try:
+        st = json.loads((Path(run_dir) / "run_state.json").read_text())
+    except Exception:                                           # noqa: BLE001
+        return {}
+    bc = (st.get("stages") or {}).get("build_cases") or {}
+    # job_id_a is the job that BUILT AND RAN. `job_id` is whatever the
+    # framework polls, which is job B when one was submitted — B is the
+    # reporter and its 40 seconds are not the ensemble's runtime. Runs from
+    # before 2026-08-13 carry only `job_id`, and for those this reports
+    # nothing rather than reporting B's clock as the model's.
+    jid = bc.get("job_id_a")
+    if not jid:
+        return {"note": "no ensemble job id recorded — this run predates "
+                        "job_id_a (2026-08-13), and the id it does carry is "
+                        "the reporting job's"}
+    try:
+        out = subprocess.run(
+            ["sacct", "-j", str(jid), "-X", "-n", "-P",
+             "--format=JobID,JobName,Elapsed,State"],
+            capture_output=True, text=True, timeout=30).stdout
+    except Exception:                                           # noqa: BLE001
+        return {}
+    for line in out.splitlines():
+        parts = line.split("|")
+        if len(parts) < 4:
+            continue
+        job, name, elapsed, state = parts[0], parts[1], parts[2], parts[3]
+        # job A is the one that built and ran; job B reports on it
+        if not name.endswith("_A"):
+            continue
+        try:
+            h, m, s = elapsed.split(":")
+            d, _, h = h.rpartition("-")
+            secs = int(h) * 3600 + int(m) * 60 + int(s) + int(d or 0) * 86400
+        except ValueError:
+            return {}
+        return {"job_id": job, "job_name": name, "elapsed": elapsed,
+                "seconds": secs, "state": state, "source": "sacct"}
+    return {}
+
+
 def _compute_accounting(run_dir) -> Dict[str, Any]:
     """The ensemble's runtime, from the manager's own records.
 
@@ -102,7 +158,7 @@ def _compute_accounting(run_dir) -> Dict[str, Any]:
         per = [e.get("runtime_seconds") for e in exps
                if isinstance(e, dict) and isinstance(e.get("runtime_seconds"),
                                                      (int, float))]
-        return {"total_runtime_seconds": d.get("total_runtime_seconds"),
+        return {"framework_seconds": d.get("total_runtime_seconds"),
                 "start_time": d.get("start_time"), "end_time": d.get("end_time"),
                 "columns_total": d.get("experiments_total"),
                 "columns_succeeded": d.get("experiments_success"),
@@ -125,7 +181,8 @@ def _compute_accounting(run_dir) -> Dict[str, Any]:
                if isinstance(c, dict)
                and isinstance(c.get("runtime_seconds"), (int, float))]
         return {"source": "experiment.json (run summary not yet written)",
-                "total_runtime_seconds": round(sum(per), 1) if per else None,
+                "framework_seconds": None,
+                "model_seconds": round(sum(per), 1) if per else None,
                 "columns_total": d.get("columns_total"),
                 "columns_succeeded": d.get("columns_succeeded"),
                 "columns_failed": (
@@ -205,7 +262,14 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
 
         "cost": {
             "llm": _llm_accounting(),
-            "compute": _compute_accounting(run_dir),
+            # THREE DIFFERENT QUANTITIES, NAMED APART. `ensemble` is the model
+            # actually running, from the scheduler; `framework_seconds` is this
+            # process's own wall time, which for a detached run is the tail and
+            # not the science. They were one field called
+            # `total_runtime_seconds` and it reported the second while reading
+            # as the first.
+            "compute": {**_compute_accounting(run_dir),
+                        "ensemble": _slurm_elapsed(run_dir) or None},
         },
     }
 
@@ -233,7 +297,8 @@ def summary(report: Dict[str, Any]) -> str:
         f"llm      : {llm.get('calls')} calls, "
         f"{(llm.get('prompt_tokens') or 0) + (llm.get('completion_tokens') or 0)} "
         f"tokens, {llm.get('seconds')} s",
-        f"compute  : {comp.get('total_runtime_seconds')} s over "
+        f"compute  : {(comp.get('ensemble') or {}).get('elapsed') or '?'} "
+        f"({(comp.get('ensemble') or {}).get('job_id') or 'no job id'}) over "
         f"{comp.get('columns_succeeded')}/{comp.get('columns_total')} columns",
     ]
     for step, u in sorted(((cost.get("llm") or {}).get("by_step") or {}).items()):

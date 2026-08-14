@@ -328,7 +328,7 @@ class ExperimentManagerBase:
 	# `llm_input` LEFT THE CONTRACT 2026-08-13. It carried a prompt payload the
 	# ELM results object packed for the deleted report agent; a stage boundary
 	# is a place to hand over MEASUREMENTS, and nothing else consumed it.
-	EXTRACT_KEYS = ("rows", "units", "extra_summary")
+	EXTRACT_KEYS = ("rows", "units", "extra_summary", "spinup_dropped")
 
 	@staticmethod
 	def _as_extract(obj: Any) -> Dict[str, Any]:
@@ -360,7 +360,8 @@ class ExperimentManagerBase:
 		# exactly this and the fix was not carried to its sibling here.
 		return {"rows": ExperimentManagerBase._extract_rows(obj),
 				"units": units,
-				"extra_summary": getattr(obj, "extra_summary", None) or {}}
+				"extra_summary": getattr(obj, "extra_summary", None) or {},
+				"spinup_dropped": getattr(obj, "spinup_dropped", None) or {}}
 
 	@staticmethod
 	def _extract_rows(res: Any) -> List[Dict]:
@@ -396,7 +397,8 @@ class ExperimentManagerBase:
 			return None
 		return {"rows": rows,
 				"units": dict(d.get("variable_units") or {}),
-				"extra_summary": d.get("extra_summary") or {}}
+				"extra_summary": d.get("extra_summary") or {},
+				"spinup_dropped": d.get("spinup_dropped") or {}}
 
 	def execute_plan(self,
 					 experiment_plan: Dict[str, Any],
@@ -1250,6 +1252,18 @@ class ExperimentManagerBase:
 		# assumed to make it runnable. It reached the written report but not
 		# the package, so an Analyzer reading only this file would have
 		# stated conclusions with none of the caveats attached.
+		# WHAT THE WARM-START TRIM REMOVED. A series that does not start where
+		# the simulation did must say so — a reader comparing this to a gauge
+		# record needs to know the first fortnight is missing. It was computed
+		# at extraction and then went nowhere: step 4 has always read
+		# `ctx.data["spinup_dropped"]` and always found None, because nothing
+		# put it in the package. Wired 2026-08-13; both runs that day dropped
+		# 14 days per column and neither report said so.
+		drop = (results.get("spinup_dropped") if isinstance(results, dict)
+				else getattr(results, "spinup_dropped", None)) or {}
+		if drop:
+			out["spinup_dropped"] = drop
+
 		extra = (results.get("extra_summary") if isinstance(results, dict)
 				 else getattr(results, "extra_summary", None)) or {}
 		for k in ("limitations", "assumptions_ledger"):

@@ -352,7 +352,15 @@ class ELMExpManager(ExperimentManagerBase):
 		job_b = self._submit_job_b(job_a, config, email)
 		if email:
 			print(f"   ✉  {email} will be mailed when job B lands")
+		# BOTH IDS. `job_id` is what the framework POLLS — job B when there is
+		# one, because B ending means the study is over. But B is the reporter;
+		# A is the job that built and ran the columns, and its id was dropped
+		# here and recorded nowhere else, so the run state named B's id beside
+		# A's log and nothing could say how long the model actually took.
+		# Measured 2026-08-13: the only runtime any artifact carried was the
+		# framework's own 593.8 s tail against an 18 m 23 s ensemble.
 		return Pending(job_b or job_a, n_cases=len(experiments or []),
+					   job_id_a=job_a, job_id_b=job_b or None,
 					   log=out.get("log_path"), via="mcp", scope="study",
 					   notify=email or None)
 
@@ -416,7 +424,14 @@ cd {fw}
 # 2026-08-13, once the Analyzer had been verified end to end on both archived
 # studies. IDEAS_RUN_ANALYSIS=0 still defers it.
 if [ "${{IDEAS_RUN_ANALYSIS:-1}}" = "1" ]; then
-  {sys.executable} workflow.py --resume {self.run_dir}
+  # --finalize, NOT --resume. This runs INSIDE job B, so --resume polls the
+  # scheduler, finds this very job active, and stops one line short of the
+  # analysis it was submitted to produce — "Job <B> is still running, N
+  # column(s) queued", exit 1, 40 seconds. finalize_run exists precisely for
+  # this and its docstring describes the failure; the template just never used
+  # it. Observed on 773411 and 773413 (2026-08-13), both after job A had
+  # COMPLETED and the output was on disk.
+  {sys.executable} workflow.py --finalize {self.run_dir}
   {sys.executable} tools/notify_study.py {self.run_dir}
 else
   {sys.executable} tools/notify_study.py {self.run_dir} --deferred
@@ -798,7 +813,7 @@ exit $?
 				  f"{e}) — experiment.json will carry no limitations")
 
 		from extract import VARIABLE_UNITS, extract_run
-		from column_rows import build_rows
+		from column_rows import build_rows, spinup_dropped
 
 		res = extract_run(str(self.run_dir), overwrite=True)
 		if not res.get("ok"):
@@ -814,12 +829,23 @@ exit $?
 		rows = build_rows(self.run_dir)
 		print(f"   ✓ {len(rows)} row(s) built from the artifact")
 
+		# READ OFF THE ARTIFACT, not remembered from the extraction pass — the
+		# same rule as the rows. It travels in the stage contract so the base
+		# can fold it into experiment.json, where step 4 has always looked for
+		# it and never found it.
+		drop = spinup_dropped(self.run_dir)
+		if drop:
+			print(f"   ✓ warm-start trim recorded: {drop['days']} d, "
+				  f"{drop['timesteps_dropped']} timestep(s), "
+				  f"from {drop['from']} to {drop['to']}")
+
 		# THE STAGE'S OUTPUT IS DATA — a plain dict in the contract's shape, not
 		# a live object the base has to read with getattr. That was the last
 		# holdout, and it is what makes this stage crossable by a tool call.
 		return {"rows": list(rows.values()),
 				"units": dict(VARIABLE_UNITS),
-				"extra_summary": honesty}
+				"extra_summary": honesty,
+				"spinup_dropped": drop}
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 4d — ONE-WAY ELM → PFLOTRAN COUPLING
