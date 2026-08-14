@@ -37,7 +37,7 @@ Without this a reader cannot tell an answer that cost one LLM call from one
 that cost six, or a 19-column ensemble from a 200-column one.
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -93,8 +93,18 @@ def _slurm_elapsed(run_dir) -> Dict[str, Any]:
                         "job_id_a (2026-08-13), and the id it does carry is "
                         "the reporting job's"}
     try:
+        # -S IS NOT OPTIONAL. sacct's default start time is MIDNIGHT TODAY, so
+        # a job that ran last night is invisible to a plain `sacct -j <id>` —
+        # it returns nothing and says nothing. That is exactly the case for a
+        # study submitted in the evening whose job B lands after midnight,
+        # which is how this was found: 773420 reported COMPLETED at 23:47 and
+        # was gone from an unqualified query eleven minutes later.
+        #
+        # 30 days back, which is longer than any run here and still inside
+        # what the accounting database keeps.
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
         out = subprocess.run(
-            ["sacct", "-j", str(jid), "-X", "-n", "-P",
+            ["sacct", "-j", str(jid), "-S", since, "-X", "-n", "-P",
              "--format=JobID,JobName,Elapsed,State"],
             capture_output=True, text=True, timeout=30).stdout
     except Exception:                                           # noqa: BLE001

@@ -501,6 +501,12 @@ def load(run_dir: str) -> AnalysisContext:
         "boundary":          experiment.get("boundary"),
         "grid":              experiment.get("grid"),
         "bands":             experiment.get("bands"),
+        # WHAT THE WARM-START TRIM REMOVED. This dict is a WHITELIST, so a key
+        # the manager adds to experiment.json reaches step 4 only if it is
+        # named here — and step 4 has read ctx.data["spinup_dropped"] since it
+        # was written. The value was wired into the package on 2026-08-13 and
+        # still arrived as None, because it was dropped one layer later, here.
+        "spinup_dropped":    experiment.get("spinup_dropped"),
         # Observations come from RECEPTION, which fetched them once the period
         # was fixed. The Analyzer does not re-fetch: a second fetch can
         # disagree with the first, and then the run's own record is not what
