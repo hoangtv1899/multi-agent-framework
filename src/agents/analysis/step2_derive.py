@@ -132,7 +132,6 @@ DRIVERS = {
     "elevation_m":   (lambda r: _num(r.get("elevation_m")), "m"),
     "precip_mm_yr":  (lambda r: _num((r.get("metrics") or {}).get("precip_mm_yr")),
                       "mm/yr"),
-    "fan_wtd_m":     (lambda r: _num(r.get("fan_wtd_m")), "m"),
     "band":          (lambda r: _num(r.get("band")), "1"),
     "clay_max_pct":  (_clay_max_pct,   "%"),
     "sand_max_pct":  (_sand_max_pct,   "%"),
@@ -145,6 +144,21 @@ DRIVERS = {
 KNOWN_UNAVAILABLE = {
     "ksat_min_ums": "not in CONUS-1km; needs a pedotransfer function from "
                     "sand/clay/organic",
+    # STRUCTURALLY ABSENT, not thinly sampled. `fan_wtd_m` was a live driver
+    # until 2026-08-07, when Fan left the sampler and its producer went with
+    # it — the reasoning being that the water-table prior belongs to whoever
+    # needs it (PFLOTRAN sizes its domain from it; ELM only displayed it), and
+    # nothing fetches it for ELM. It is written by nothing in the tree today,
+    # and `wtd_prior_m`, the name it was renamed to on 2026-08-12, has no
+    # producer either.
+    #
+    # It was in DRIVERS until 2026-08-13, where it reported "fewer than 3
+    # columns had a value" — true, and misleading: that phrasing says a driver
+    # that is sometimes available happened to be thin here. Named as absent,
+    # with the reason, which is what this block is for.
+    "wtd_prior_m": "no producer since 2026-08-07 (Fan left the sampler); the "
+                   "water-table prior is fetched by the consumer that needs "
+                   "it, and nothing fetches it for ELM",
 }
 
 

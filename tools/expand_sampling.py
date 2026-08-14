@@ -967,22 +967,21 @@ def plot_columns(res, out_path, forcing_year=None):
     # The marker used to encode top soil texture. Soil is no longer known at
     # sampling time — it comes from the warm-start donor gridcell — so encoding
     # it here would have meant drawing a dataset the run does not use.
-    a = ax[1, 0]
-    plotted = False
-    for c in cols:
-        y = c.get("fan_wtd_m")
-        if y is None:
-            continue
-        a.scatter(c["elevation_m"], y, color=bcolor(c["band"]),
-                  marker="o", s=85, edgecolor="k", linewidth=0.4)
-        plotted = True
-    a.set_title("Fan water-table depth vs elevation")
-    a.set_xlabel("elevation (m)"); a.set_ylabel("Fan WTD (m below surface)")
-    if not plotted:
-        a.text(0.5, 0.5, "no Fan WTD values", transform=a.transAxes, ha="center")
+    # THE FAN WATER-TABLE PANEL IS GONE (2026-08-13, the user's call: "we don't
+    # need to include the Fan in that figure").
+    #
+    # It read `c["fan_wtd_m"]`, and the producer of that field was deleted on
+    # 2026-08-07 when Fan left the sampler — selection is elevation-only, and
+    # the reasoning was that the water table belongs to whoever needs it,
+    # fetched where that decision is made. The removal took the writer and left
+    # this reader, so the panel printed "no Fan WTD values" on every run from
+    # then on. `fan_wtd_m` is written by nothing in the tree today.
+    #
+    # The bottom row is now two panels; the third cell is removed rather than
+    # left as an empty frame.
 
     # P4 — columns per band
-    a = ax[1, 1]
+    a = ax[1, 0]
     labels = [f"{b['elev_lo_m']}-{b['elev_hi_m']}" for b in bands]
     a.bar(range(nb), [b["allocated"] for b in bands],
           color=[bcolor(b["band"]) for b in bands], edgecolor="k")
@@ -1013,7 +1012,7 @@ def plot_columns(res, out_path, forcing_year=None):
         a.text(0.5, 0.5, "no soil profiles", transform=a.transAxes, ha="center")
 
     # P6 — forcing coverage: NLDAS annual precip vs elevation (12 km cells)
-    a = ax[1, 2]
+    a = ax[1, 1]
     if forcing_year:
         try:
             pr = nldas_annual_precip(cols, forcing_year)
@@ -1030,6 +1029,11 @@ def plot_columns(res, out_path, forcing_year=None):
         a.text(0.5, 0.5, "pass --forcing-year to preview\nthe NLDAS precip gradient",
                transform=a.transAxes, ha="center", fontsize=9, color="0.4")
         a.set_title("Forcing sampled (NLDAS)")
+
+    # The bottom-right cell held the Fan panel and now holds nothing. Removed
+    # rather than left as an empty framed box with ticks, which reads as a
+    # panel whose data failed to load — which is exactly what it used to be.
+    fig.delaxes(ax[1, 2])
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(out_path, dpi=300)

@@ -1034,18 +1034,37 @@ class ExperimentManagerBase:
 		(self.input_dir / "columns.json").write_text(json.dumps(res, indent=2))
 		(self.run_dir  / "columns.json").write_text(json.dumps(res, indent=2))
 
-		# The sampling-design figure: domain map + watershed outline,
-		# hypsometry with band edges, soil configs, Fan WTD vs elevation,
-		# per-band allocation, NLDAS precip gradient. Same function
-		# tools/expand_sampling.py --plot uses; forcing_year populates the
-		# precip-vs-elevation panel that is otherwise blank.
+		# THE SAMPLING-DESIGN FIGURE, drawn by the styled renderer (2026-08-13).
+		#
+		# Six panels: the columns over a hillshade, forcing against donor
+		# elevation, the initial soil water read out of each finidat, and the
+		# three soil profiles the model was handed. Every one from POST-warm-
+		# start values, which is why it runs here, after _refine_columns has
+		# snapped the columns and written warmstart/.
+		#
+		# WHAT IT REPLACES. expand_sampling.plot_columns, a 2x3 with its own
+		# rcParams: 15 pt titles on a 17.5-inch canvas, which is about 6 pt on
+		# the page and under every journal's floor. One of its six panels read
+		# `fan_wtd_m`, a field whose producer was deleted on 2026-08-07 when
+		# Fan left the sampler — so that panel printed "no Fan WTD values" on
+		# every run for a fortnight. This renderer has no Fan panel at all
+		# (decided 2026-08-13) and imports tools/figstyle.py, which is the one
+		# place that decides printed sizes.
 		try:
-			png = exp.plot_columns(
-				res, str(self.run_dir / "sampling_design.png"),
-				forcing_year = yr_start)
+			psd = _load_tool("plot_sampling_design")
+			png = psd.render_run(
+				self.run_dir,
+				reception = self.run_dir / "reception.json",
+				year      = yr_start,
+				out       = self.run_dir / "sampling_design.png")
 			print(f"✓ sampling design → {Path(png).name}")
-		except Exception as e:
-			print(f"   ⚠️  sampling_design.png failed ({e}) — non-fatal")
+		except Exception as e:                                  # noqa: BLE001
+			# NON-FATAL, and it names the exception TYPE. A figure is not worth
+			# a finished materialize, but "failed (foo)" reads as a data
+			# problem whatever went wrong — and a swallowed NameError cost a
+			# whole payload earlier today.
+			print(f"   ⚠️  sampling_design.png failed "
+				  f"({type(e).__name__}: {e}) — non-fatal")
 
 		executable = self._to_run_plan(plan, columns, config, refine)
 		merged     = {**plan, **executable}

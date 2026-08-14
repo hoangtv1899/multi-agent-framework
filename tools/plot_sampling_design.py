@@ -209,26 +209,59 @@ def _map_axes(fig, cell, extent, basemap=True):
     return ax
 
 
+# The CLI's defaults, in one place so the programmatic entry point below and
+# `--help` cannot drift apart.
+DEFAULTS = {"reception": "", "year": 0, "out": "", "title": "",
+            "soil_vars": "sand_pct,clay_pct,organic_kg_m3",
+            "no_basemap": False, "width": figstyle.WIDTH["double"], "font": 8.0}
+
+
+def render_run(run_dir, **kw):
+    """Draw the figure for a run directory. The pipeline's entry point.
+
+    Exists so the Experiment Manager can call this renderer directly instead of
+    shelling out. Before 2026-08-13 it could not: everything lived inside
+    main(), so the manager drew its own 2x3 from expand_sampling.plot_columns —
+    a figure with its own rcParams, a title at 15 pt on a 17.5-inch canvas
+    (about 6 pt on the page), and a panel reading `fan_wtd_m`, a field whose
+    producer was removed on 2026-08-07. This one is the styled twin nothing
+    ever called.
+    """
+    from types import SimpleNamespace
+    opts = dict(DEFAULTS, **kw)
+    opts["run_dir"] = str(run_dir)
+    for k in ("reception", "out", "title"):
+        opts[k] = str(opts[k] or "")
+    return render(SimpleNamespace(**opts))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
-    ap.add_argument("--reception", default="")
-    ap.add_argument("--year", type=int, default=0)
-    ap.add_argument("--out", default="")
-    ap.add_argument("--title", default="")
-    ap.add_argument("--soil-vars", default="sand_pct,clay_pct,organic_kg_m3",
+    ap.add_argument("--reception", default=DEFAULTS["reception"])
+    ap.add_argument("--year", type=int, default=DEFAULTS["year"])
+    ap.add_argument("--out", default=DEFAULTS["out"])
+    ap.add_argument("--title", default=DEFAULTS["title"])
+    ap.add_argument("--soil-vars", default=DEFAULTS["soil_vars"],
                     help=f"1-3 of {', '.join(sorted(SOIL_VARS))}")
     ap.add_argument("--no-basemap", action="store_true")
-    ap.add_argument("--width", type=float, default=figstyle.WIDTH["double"],
+    ap.add_argument("--width", type=float, default=DEFAULTS["width"],
                     help="printed width in inches (the canvas IS the page)")
-    ap.add_argument("--font", type=float, default=8.0,
+    ap.add_argument("--font", type=float, default=DEFAULTS["font"],
                     help="body text size in points, on the page")
     a = ap.parse_args()
+    a.run_dir = a.run_dir
+    a.soil_vars = a.soil_vars
+    print(f"saved {render(a)}")
 
+
+def render(a):
+    """Draw it. `a` carries the CLI's fields; see DEFAULTS."""
     soil_vars = [v.strip() for v in a.soil_vars.split(",") if v.strip()]
     bad = [v for v in soil_vars if v not in SOIL_VARS]
     if bad or not 1 <= len(soil_vars) <= 3:
-        ap.error(f"--soil-vars takes 1-3 of {sorted(SOIL_VARS)}, got {soil_vars}")
+        raise ValueError(
+            f"soil_vars takes 1-3 of {sorted(SOIL_VARS)}, got {soil_vars}")
 
     import matplotlib
     matplotlib.use("Agg")
@@ -384,15 +417,22 @@ def main():
         Line2D([], [], ls="", marker=".", color="0.45", ms=ms,
                label="DEM sample"),
     ], loc="outside lower center", ncol=3, frameon=False)
-    d = cj.get("sampling_design") or {}
+    # COUNTED FROM THE COLUMNS, not read off a summary block. This used to read
+    # cj["sampling_design"]["n_pinned"], which the MCP's elm_columns.json does
+    # not carry — `sampling_design` is null there — so the title said "0 pinned,
+    # 0 stratified" while panel (a) drew four stars from the same file's
+    # `pinned` flags. The columns are the authority and are always present;
+    # anything derivable from them is derived here.
+    n_pin = int(pin.sum())
     fig.suptitle(a.title or
                  f"{name}{f' {a.year}' if a.year else ''} — {len(cols)} columns "
-                 f"({d.get('n_pinned', 0)} pinned, {d.get('n_stratified', 0)} stratified)",
+                 f"({n_pin} pinned at a station, {len(cols) - n_pin} stratified)",
                  fontsize=a.font + 2)
     _check_titles(fig)
     out = Path(a.out) if a.out else rd / "sampling_design.png"
     fig.savefig(out)
-    print(f"saved {out}")
+    plt.close(fig)          # the manager draws in-process; do not leak figures
+    return out
 
 
 if __name__ == "__main__":
