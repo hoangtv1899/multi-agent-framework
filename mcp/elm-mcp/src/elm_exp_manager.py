@@ -409,9 +409,13 @@ class ELMExpManager(ExperimentManagerBase):
 #SBATCH -o {self.run_dir}/ensemble_B.log
 {mail}
 cd {fw}
-# The analysis is DEFERRED while the Analyzer is redesigned; job B reports what
-# the ensemble did and stops. Set IDEAS_RUN_ANALYSIS=1 to run the tail here.
-if [ "${{IDEAS_RUN_ANALYSIS:-0}}" = "1" ]; then
+# JOB B RUNS THE ANALYSIS. It was deferred while the Analyzer was rebuilt, and
+# the default stayed 0 long after — so every run since has stopped at the
+# ensemble and been finished by hand, while SLURM recorded job B as FAILED in
+# 2 s (notify_study exits non-zero on an incomplete study). Default flipped
+# 2026-08-13, once the Analyzer had been verified end to end on both archived
+# studies. IDEAS_RUN_ANALYSIS=0 still defers it.
+if [ "${{IDEAS_RUN_ANALYSIS:-1}}" = "1" ]; then
   {sys.executable} workflow.py --resume {self.run_dir}
   {sys.executable} tools/notify_study.py {self.run_dir}
 else

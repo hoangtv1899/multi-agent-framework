@@ -215,10 +215,32 @@ class WorkflowCoordinator:
 		# The coordinator still owns the directory and reception still only ever
 		# PRODUCES. An unused directory is removed a few lines down, so a
 		# clarification leaves nothing behind.
+		# THE NAME MUST BE UNIQUE, and a one-second timestamp is not.
+		#
+		# Two studies launched in the same second got the SAME directory —
+		# `exist_ok=True` adopts whatever is already there — and then overwrote
+		# each other's reception.json, strategy.json and columns.json while both
+		# were running. One died in materialize against the other's columns and
+		# the survivor's directory held a mixture of the two. Neither failure
+		# named the collision: what surfaced was a warm start with no donors for
+		# columns the OTHER study had sampled.
+		#
+		# mkdir(exist_ok=False) in a loop, so the FILESYSTEM decides who wins
+		# rather than a check-then-create that races just as badly.
 		from datetime import datetime as _dt
-		run_dir = (Path(output_dir or self.default_output_dir)
-				   / f"{self.model}_run_{_dt.now():%Y%m%d_%H%M%S}")
-		run_dir.mkdir(parents=True, exist_ok=True)
+		base = Path(output_dir or self.default_output_dir)
+		stamp = f"{_dt.now():%Y%m%d_%H%M%S}"
+		for suffix in ("", *(f"_{i}" for i in range(2, 100))):
+			run_dir = base / f"{self.model}_run_{stamp}{suffix}"
+			try:
+				run_dir.mkdir(parents=True, exist_ok=False)
+				break
+			except FileExistsError:
+				continue
+		else:
+			raise RuntimeError(
+				f"could not mint a run directory under {base} — 99 names "
+				f"already taken for {stamp}")
 
 		# Step 1 — Reception
 		#
