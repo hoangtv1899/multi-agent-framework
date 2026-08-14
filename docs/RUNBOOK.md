@@ -43,13 +43,20 @@ RD=workflow_outputs/pipeline_<TIMESTAMP>      # paste the dir it printed
 Produces `reception_brief.json`, `plan.json` (incl. the **`feasibility`** verdict).
 **Debug:** `python3 -m json.tool $RD/plan.json` — check `feasibility`, `sampling_strategy`, `requires_capabilities`.
 
-### 2 · Materialize + 🖼 the PLANNING plot  *(login, ~1–2 min)*
+### 2 · Materialize  *(login, ~1–2 min)*
 ```bash
-python3 tools/expand_sampling.py --run-dir $RD --plot
+python3 tools/expand_sampling.py --run-dir $RD
 ```
-→ `$RD/columns.json` (real lat/lon + soil per column) **and `$RD/sampling_design.png`**
-(terrain map + watershed outline + elevation bands + Fan water-table + columns-per-band).
-*First call hits the terrain MCP; re-running `--plot` later is a free pure-read.*
+→ `$RD/columns.json` (real lat/lon per column)
+
+The design figure is NOT drawn here any more. It shows post-warm-start values —
+the snapped coordinates, the donor gridcell's soil, the initial soil water read
+out of each finidat — none of which exist until step 3 builds the inputs. It
+appears then, as `$RD/sampling_design.png`: the columns over a hillshade, NLDAS
+forcing against donor elevation, the initial soil water, and the sand / clay /
+organic profiles the model was handed.
+
+*The first call hits the terrain MCP; re-running it is a free pure-read.*
 
 ### 3 · Adapter — columns → executable plan  *(login, instant)*
 ```bash
@@ -117,7 +124,8 @@ python3 tools/analyze_run.py  --run-dir $SW --cases-file cases.json --plan-file 
 | step | command | figure | what it verifies |
 |------|---------|--------|------------------|
 | 1 plan | `python3 -m json.tool $RD/plan.json` | — (text) | feasibility verdict, sampling strategy, required capabilities |
-| 2 materialize | `expand_sampling.py --run-dir $RD --plot` | `sampling_design.png` | where the columns landed — bands, watershed, water table |
+| 2 materialize | `expand_sampling.py --run-dir $RD` | `columns.json` | where the columns landed — bands, watershed |
+| 3 build inputs | (the elm MCP draws it) | `sampling_design.png` | the ensemble ELM will integrate: snapped positions, donor soil, initial soil water |
 | 4 build | `plot_columns.py --run-dir $RD --surfaces` | `04_analysis/debug_surfaces.png` | **each column got a distinct, correct soil** (before you run) |
 | 5 run | `plot_columns.py --run-dir $RD --timeseries` | `04_analysis/debug_timeseries.png` | runs produced sensible, differentiated dynamics |
 | 6 analyze | `analyze_run.py --run-dir $RD --plot` | `04_analysis/elevation_gradient.png`, `soil_control.png` | the science result + honest driver attribution |

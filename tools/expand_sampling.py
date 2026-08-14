@@ -719,7 +719,7 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PLOTTING (--plot) — illustration of the sampling design
+# FORCING LOOKUP — used by the model server's design figure
 # ─────────────────────────────────────────────────────────────────────────────
 
 # NOTE (Compy): this directory exists but is currently empty — the ctsmforc
@@ -854,191 +854,17 @@ def nldas_annual_precip(cols, year):
     return tot
 
 
-def plot_columns(res, out_path, forcing_year=None):
-    """Render a 2x2 illustration of the sampling design from an expand() result.
+# plot_columns() WAS HERE and is deleted (2026-08-13).
+#
+# It drew sampling_design.png as a 2x3 with its own rcParams — 15 pt titles on
+# a 17.5-inch canvas, about 6 pt once printed — and one of its panels read
+# `fan_wtd_m`, a field whose producer this module lost on 2026-08-07 when Fan
+# left the sampler. The figure now belongs to the model server that knows what
+# the columns became: mcp/elm-mcp/src/sampling_design.py, drawn from
+# POST-warm-start values, which is the ensemble ELM integrates rather than the
+# one that was sampled. See ELMExpManager._draw_design.
 
-    Purpose-built for the spatial sampling layer (NOT the ELM-case domain plots
-    per-column setup figures, which draw one configured column each).
-    """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import numpy as np
 
-    cols = res.get("columns", [])
-    bands = res.get("bands", [])
-    bbox = res.get("bbox", {})
-    grid = res.get("grid", [])
-    nb = max(len(bands), 1)
-    bcols = plt.cm.viridis(np.linspace(0.12, 0.9, nb))
-
-    def bcolor(b):
-        return bcols[min(max(int(b) - 1, 0), nb - 1)]
-
-    fig, ax = plt.subplots(2, 3, figsize=(17.5, 9))
-    fig.suptitle(f"Sampling design: {res.get('n_columns')} columns",
-                 fontsize=15, fontweight="bold")
-
-    # P1 — domain map: terrain background + watershed outline + sample points
-    a = ax[0, 0]
-    if grid and len(grid) >= 4:
-        glon = [g["lon"] for g in grid]
-        glat = [g["lat"] for g in grid]
-        gelev = [g["elevation_m"] for g in grid]
-        try:
-            tcf = a.tricontourf(glon, glat, gelev, levels=12, cmap="terrain", alpha=0.85)
-            fig.colorbar(tcf, ax=a, shrink=0.75, label="elevation (m)")
-        except Exception:
-            a.scatter(glon, glat, c=gelev, cmap="terrain", s=12)
-    elif grid:
-        a.scatter([g["lon"] for g in grid], [g["lat"] for g in grid], s=9, c="0.82")
-    for ring in res.get("boundary", []):          # actual watershed polygon (WBD)
-        a.plot([p[0] for p in ring], [p[1] for p in ring],
-               color="navy", lw=1.8, zorder=4)
-    for c in cols:
-        a.scatter(c["lon"], c["lat"], s=85, color=bcolor(c["band"]),
-                  edgecolor="white", linewidth=1.0, zorder=5)
-    if bbox:
-        mlat = (bbox["min_lat"] + bbox["max_lat"]) / 2
-        a.set_aspect(1.0 / max(np.cos(np.radians(mlat)), 1e-3))
-    a.set_title("Sample points over domain (terrain + watershed)")
-    a.set_xlabel("lon"); a.set_ylabel("lat")
-
-    # scale bar + north arrow (publication map furniture)
-    if bbox:
-        import math
-        mlat = (bbox["min_lat"] + bbox["max_lat"]) / 2
-        km_per_deg = 111.32 * math.cos(math.radians(mlat))
-        bar_km = 20
-        bar_deg = bar_km / km_per_deg
-        x0 = bbox["min_lon"] + 0.05 * (bbox["max_lon"] - bbox["min_lon"])
-        y0 = bbox["min_lat"] + 0.045 * (bbox["max_lat"] - bbox["min_lat"])
-        a.plot([x0, x0 + bar_deg], [y0, y0], color="k", lw=2.5,
-               solid_capstyle="butt", zorder=6)
-        a.text(x0 + bar_deg / 2, y0 + 0.012, f"{bar_km} km", ha="center",
-               fontsize=7.5, zorder=6)
-        xn = bbox["min_lon"] + 0.07 * (bbox["max_lon"] - bbox["min_lon"])
-        yn = bbox["max_lat"] - 0.12 * (bbox["max_lat"] - bbox["min_lat"])
-        a.annotate("N", xy=(xn, yn + 0.05), xytext=(xn, yn), zorder=6,
-                   ha="center", fontsize=9, fontweight="bold",
-                   arrowprops=dict(arrowstyle="-|>", color="k", lw=1.5))
-
-    # locator inset (cartopy, optional — skipped gracefully if unavailable)
-    if bbox:
-        try:
-            import cartopy.crs as ccrs
-            import cartopy.feature as cfeature
-            ins = a.inset_axes([0.72, 0.02, 0.27, 0.27],
-                               projection=ccrs.PlateCarree())
-            ins.set_extent([-125, -110, 41, 50], crs=ccrs.PlateCarree())
-            ins.add_feature(cfeature.STATES.with_scale("50m"),
-                            edgecolor="0.5", linewidth=.4, facecolor="0.95")
-            ins.add_feature(cfeature.COASTLINE.with_scale("50m"), linewidth=.5)
-            ins.plot([bbox["min_lon"], bbox["max_lon"], bbox["max_lon"],
-                      bbox["min_lon"], bbox["min_lon"]],
-                     [bbox["min_lat"], bbox["min_lat"], bbox["max_lat"],
-                      bbox["max_lat"], bbox["min_lat"]],
-                     color="#b91c1c", lw=1.2, transform=ccrs.PlateCarree())
-        except Exception as e:
-            print(f"  (locator inset skipped: {str(e)[:60]})")
-    a.legend(handles=[plt.Line2D([], [], marker="o", ls="", color=bcolor(b["band"]),
-                                 markeredgecolor="white",
-                                 label=f"band {b['band']}: {b['elev_lo_m']}-{b['elev_hi_m']} m")
-                      for b in bands], fontsize=8, loc="best", framealpha=0.9)
-
-    # P2 — elevation hypsometry + bands
-    a = ax[0, 1]
-    if grid:
-        a.hist([g["elevation_m"] for g in grid], bins=25, color="0.78",
-               edgecolor="white")
-    for b in bands:
-        a.axvline(b["elev_lo_m"], color="0.4", ls="--", lw=0.8)
-    if bands:
-        a.axvline(bands[-1]["elev_hi_m"], color="0.4", ls="--", lw=0.8)
-    ymax = a.get_ylim()[1]
-    for c in cols:
-        a.plot([c["elevation_m"], c["elevation_m"]], [0, ymax * 0.12],
-               color=bcolor(c["band"]), lw=1.5)
-    a.set_title("Elevation distribution + bands (ticks = columns)")
-    a.set_xlabel("elevation (m)"); a.set_ylabel("DEM grid count")
-
-    # P3 — elevation vs Fan WTD
-    #
-    # The marker used to encode top soil texture. Soil is no longer known at
-    # sampling time — it comes from the warm-start donor gridcell — so encoding
-    # it here would have meant drawing a dataset the run does not use.
-    # THE FAN WATER-TABLE PANEL IS GONE (2026-08-13, the user's call: "we don't
-    # need to include the Fan in that figure").
-    #
-    # It read `c["fan_wtd_m"]`, and the producer of that field was deleted on
-    # 2026-08-07 when Fan left the sampler — selection is elevation-only, and
-    # the reasoning was that the water table belongs to whoever needs it,
-    # fetched where that decision is made. The removal took the writer and left
-    # this reader, so the panel printed "no Fan WTD values" on every run from
-    # then on. `fan_wtd_m` is written by nothing in the tree today.
-    #
-    # The bottom row is now two panels; the third cell is removed rather than
-    # left as an empty frame.
-
-    # P4 — columns per band
-    a = ax[1, 0]
-    labels = [f"{b['elev_lo_m']}-{b['elev_hi_m']}" for b in bands]
-    a.bar(range(nb), [b["allocated"] for b in bands],
-          color=[bcolor(b["band"]) for b in bands], edgecolor="k")
-    for i, b in enumerate(bands):
-        a.text(i, b["allocated"] + 0.04, f"{b['allocated']}\n/{b['grid_points']} pts",
-               ha="center", va="bottom", fontsize=8)
-    a.set_xticks(range(nb)); a.set_xticklabels(labels, rotation=20, fontsize=8)
-    a.set_ylabel("columns allocated"); a.set_title("Columns per elevation band")
-
-    # P5 — soil coverage: clay vs organic for the soil the run actually uses
-    #
-    # Drawn from the DONOR profile. _refine_columns runs before this figure, so
-    # by now soil_profile holds the warm-start donor's own soil rather than
-    # anything queried at sampling time — which is what the panel always wanted
-    # to show and, before the SSURGO fetch was removed, could not guarantee.
-    a = ax[0, 2]
-    plotted = False
-    for c in cols:
-        clay, org = _soil_cov(c)
-        if clay is None or org is None:
-            continue
-        a.scatter(org, clay, color=bcolor(c["band"]),
-                  marker="o", s=85, edgecolor="k", linewidth=0.4)
-        plotted = True
-    a.set_xlabel("max organic (kg/m3)"); a.set_ylabel("max clay (%)")
-    a.set_title("Soil sampled (CONUS 1 km donor)")
-    if not plotted:
-        a.text(0.5, 0.5, "no soil profiles", transform=a.transAxes, ha="center")
-
-    # P6 — forcing coverage: NLDAS annual precip vs elevation (12 km cells)
-    a = ax[1, 1]
-    if forcing_year:
-        try:
-            pr = nldas_annual_precip(cols, forcing_year)
-            for c in cols:
-                a.scatter(c["elevation_m"], pr[c["id"]], color=bcolor(c["band"]),
-                          s=85, edgecolor="k", linewidth=0.4)
-            a.set_title(f"Forcing sampled: NLDAS precip {forcing_year} (12 km)")
-            a.set_xlabel("elevation (m)"); a.set_ylabel("annual precip (mm/yr)")
-        except Exception as e:
-            a.text(0.5, 0.5, f"NLDAS preview unavailable\n{str(e)[:60]}",
-                   transform=a.transAxes, ha="center", fontsize=9)
-            a.set_title("Forcing sampled (NLDAS)")
-    else:
-        a.text(0.5, 0.5, "pass --forcing-year to preview\nthe NLDAS precip gradient",
-               transform=a.transAxes, ha="center", fontsize=9, color="0.4")
-        a.set_title("Forcing sampled (NLDAS)")
-
-    # The bottom-right cell held the Fan panel and now holds nothing. Removed
-    # rather than left as an empty framed box with ticks, which reads as a
-    # panel whose data failed to load — which is exactly what it used to be.
-    fig.delaxes(ax[1, 2])
-
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-    fig.savefig(out_path, dpi=300)
-    plt.close(fig)
-    return out_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1118,10 +944,6 @@ def main():
                     help="stratified columns per band (overrides plan.sampling.per_band)")
     ap.add_argument("--no-pin", action="store_true",
                     help="skip station pinning (stratified columns only)")
-    ap.add_argument("--plot", action="store_true",
-                    help="render sampling_design.png (domain map, hypsometry, WTD vs elev, allocation)")
-    ap.add_argument("--forcing-year", type=int, default=None,
-                    help="add an NLDAS precip-vs-elevation forcing-coverage panel for this year")
     args = ap.parse_args()
 
     out_dir = Path(args.run_dir) if args.run_dir else Path(".")
@@ -1189,10 +1011,11 @@ def main():
         print(f"\nSaved {res['n_columns']} columns -> {out}")
 
     _print_table(res)
-    if args.plot:
-        png = plot_columns(res, str(out_dir / "sampling_design.png"),
-                           forcing_year=args.forcing_year)
-        print(f"Saved plot -> {png}")
+    # --plot IS GONE (2026-08-13). The design figure is drawn by the model
+    # server, from post-warm-start values, and cannot be drawn at this point in
+    # the sequence: nothing has been snapped yet and there is no finidat to
+    # read. It appears after the inputs are built — see
+    # ELMExpManager._draw_design.
     print()
 
 

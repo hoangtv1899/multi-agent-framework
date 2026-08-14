@@ -18,7 +18,19 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# THREE THINGS THIS REACHES BACK FOR, and none of them is framework LOGIC:
+#   figstyle          house style — the printed width and point sizes
+#   expand_sampling   nldas_annual_precip, forcing shared with PFLOTRAN
+#   core.basemap      the hillshade tiles, shared with compare/'s column maps
+#
+# The precedent is compare/_common.py, which already resolves core.basemap this
+# way for exactly the same reason. Presentation policy is neither ELM knowledge
+# nor framework logic, and duplicating it per server is how two houses' styles
+# start to drift.
+_FW = Path(__file__).resolve().parents[3]           # multi-agent-framework/
+for _d in (_FW / "tools", _FW / "src"):
+    if str(_d) not in sys.path:
+        sys.path.insert(0, str(_d))
 
 import figstyle                                              # noqa: E402
 
@@ -190,10 +202,7 @@ def _basemap(ax, extent, tiles=None, max_tiles=None):
     drift from the one that draws the design. This is the same function it
     always was, one import further away.
     """
-    import sys
-    from pathlib import Path as _P
-    sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "src"))
-    from core.basemap import paste
+    from core.basemap import paste          # framework src is on sys.path above
     return paste(ax, extent, tiles=tiles, max_tiles=max_tiles)
 
 

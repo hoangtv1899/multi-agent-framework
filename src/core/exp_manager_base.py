@@ -884,6 +884,20 @@ class ExperimentManagerBase:
 		"""
 		return {}
 
+	def _draw_design(self, res: Dict[str, Any], config: Dict[str, Any]) -> None:
+		"""Draw the sampling-design figure, if this backend has one.
+
+		A NO-OP HERE ON PURPOSE. The figure is model knowledge: ELM's shows the
+		initial soil water read out of each column's finidat and the donor
+		gridcell's soil profile, neither of which the base can know about. It
+		used to be drawn here from tools/expand_sampling.plot_columns, which is
+		why the base was importing a plotter and why the figure described the
+		columns as SAMPLED rather than as RUN.
+
+		Called after columns.json is persisted, so a backend can read it.
+		"""
+		return None
+
 	def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
 		raise NotImplementedError(
 			f"{type(self).__name__} must turn columns into an executable plan")
@@ -1034,30 +1048,11 @@ class ExperimentManagerBase:
 		(self.input_dir / "columns.json").write_text(json.dumps(res, indent=2))
 		(self.run_dir  / "columns.json").write_text(json.dumps(res, indent=2))
 
-		# THE SAMPLING-DESIGN FIGURE, drawn by the styled renderer (2026-08-13).
-		#
-		# Six panels: the columns over a hillshade, forcing against donor
-		# elevation, the initial soil water read out of each finidat, and the
-		# three soil profiles the model was handed. Every one from POST-warm-
-		# start values, which is why it runs here, after _refine_columns has
-		# snapped the columns and written warmstart/.
-		#
-		# WHAT IT REPLACES. expand_sampling.plot_columns, a 2x3 with its own
-		# rcParams: 15 pt titles on a 17.5-inch canvas, which is about 6 pt on
-		# the page and under every journal's floor. One of its six panels read
-		# `fan_wtd_m`, a field whose producer was deleted on 2026-08-07 when
-		# Fan left the sampler — so that panel printed "no Fan WTD values" on
-		# every run for a fortnight. This renderer has no Fan panel at all
-		# (decided 2026-08-13) and imports tools/figstyle.py, which is the one
-		# place that decides printed sizes.
+		# The design figure is the BACKEND's — see _draw_design. It runs here,
+		# after columns.json is persisted, so the backend can read what was
+		# written rather than be handed it.
 		try:
-			psd = _load_tool("plot_sampling_design")
-			png = psd.render_run(
-				self.run_dir,
-				reception = self.run_dir / "reception.json",
-				year      = yr_start,
-				out       = self.run_dir / "sampling_design.png")
-			print(f"✓ sampling design → {Path(png).name}")
+			self._draw_design(res, config)
 		except Exception as e:                                  # noqa: BLE001
 			# NON-FATAL, and it names the exception TYPE. A figure is not worth
 			# a finished materialize, but "failed (foo)" reads as a data

@@ -227,7 +227,7 @@ GROUPS = [
             ref("Farthest-point selection so points spread rather than clump.", "tools/expand_sampling.py", "_farthest_point_select"),
             ref("Pin columns at eligible stations.", "tools/expand_sampling.py", "_pinned_from_plan"),
             ref("Write <code>columns.json</code> — a <b>temporary input</b> to the MCP, not the final record.", "tools/expand_sampling.py", "expand")],
-   "files": f("tools/expand_sampling.py", "tools/plot_sampling_design.py",
+   "files": f("tools/expand_sampling.py", "mcp/elm-mcp/src/sampling_design.py",
               "tools/figstyle.py")},
   {"n": "Build inputs", "side": "srv", "sum": "One call: six steps, ending in case_inputs.json.",
    "flow": [ref("<b>Warm start</b> — subset the CONUS restart per column, <b>snapping each to its donor gridcell</b>.", "mcp/elm-mcp/src/inputs.py", "warm_start"),

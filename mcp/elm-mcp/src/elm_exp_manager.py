@@ -186,6 +186,31 @@ class ELMExpManager(ExperimentManagerBase):
 		print(f"✓ {out['n_cases']} case input(s) built via the elm MCP")
 		return {"mcp_inputs": out}
 
+	def _draw_design(self, res: Dict[str, Any], config: Dict[str, Any]) -> None:
+		"""sampling_design.png — what ELM will actually integrate.
+
+		Six panels: the columns over a hillshade, NLDAS forcing against donor
+		elevation, the initial soil water read out of each column's finidat, and
+		the sand / clay / organic profiles the donor gridcell handed over. Every
+		value is POST-warm-start, which is why this can only run after
+		_refine_columns — the snap moves every column and swaps its soil.
+
+		IT LIVES HERE BECAUSE IT IS ELM KNOWLEDGE. Reading a finidat and knowing
+		what a donor gridcell is are this server's business; docs/ELM_MCP_PLAN.md
+		said so on 2026-08-07 and listed the figure among the input tool's
+		returns, but `plots.sampling_design` was never written and the framework
+		kept drawing its own from tools/expand_sampling.plot_columns — unstyled,
+		and describing the columns as SAMPLED rather than as run. Moved
+		2026-08-13; that plotter is deleted.
+		"""
+		import sampling_design
+		png = sampling_design.render_run(
+			self.run_dir,
+			reception = self.run_dir / "reception.json",
+			year      = int((config or {}).get("yr_start", 0) or 0),
+			out       = self.run_dir / "sampling_design.png")
+		print(f"✓ sampling design → {Path(png).name}")
+
 	def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
 		"""The plan the MCP already built, handed back.
 
