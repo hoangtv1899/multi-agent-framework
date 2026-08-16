@@ -15,10 +15,11 @@ knew `n_bands` and `n_columns` and ignored `per_band`, `n_validation` and
 
 The contract being checked is the planner's own, stated in planner.txt:
 
-    n_columns = n_bands * per_band + n_validation
+    n_columns = n_bands * per_band + n_validation + 2
 
     `n_validation` is the number of columns PINNED to observation stations.
-    The sampler will place a column at each pinned station.
+    The sampler will place a column at each pinned station. The + 2 is the
+    sampler's own water-table anchors, which it places whatever the plan says.
 
 Every check is deterministic and reads only what the two stages emitted. No
 compute is submitted; the cost is LLM calls plus MCP fetches on a login node.
@@ -38,11 +39,25 @@ sys.path.insert(0, str(ROOT / "tests"))
 from reception_cases import CASES                              # noqa: E402
 
 
+def pin_rules(clients):
+    """What a column may be pinned to, asked of the model server.
+
+    THE HARNESS HAS TO APPLY THE SAMPLER'S OWN TEST, or it scores the pipeline
+    against a rule the pipeline no longer follows — which it did on 2026-08-08,
+    failing four basins for doing the right thing. That is exactly why this asks
+    the server rather than keeping its own copy: a third statement of the rule
+    is a third thing to go stale.
+    """
+    import expand_sampling as _exp
+    return _exp.pinning_rules(
+        clients["elm"].call_tool_json("describe_elm_capabilities", {}) or {})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CHECKS — each returns (ok, detail). A check that cannot run returns None.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def check_chain(plan, reception, res, pinned):
+def check_chain(plan, reception, res, pinned, rules):
     """What the planner asked for, against what the sampler built."""
     out = []
 
@@ -64,8 +79,12 @@ def check_chain(plan, reception, res, pinned):
 
     # The planner's own arithmetic, from planner.txt.
     if None not in (nb, pb, nv, nc):
-        add("plan.n_columns_arithmetic", nc == nb * pb + nv,
-            f"{nb}*{pb}+{nv} = {nb * pb + nv}, plan says {nc}")
+        # + 2 FOR THE SAMPLER'S WATER-TABLE ANCHORS. This check omitted them
+        # and so failed every correct site plan: naches scored 5*3+2 = 17
+        # against a plan of 19 that was right. planner.txt has carried the + 2
+        # since the anchors were added; the harness had not.
+        add("plan.n_columns_arithmetic", nc == nb * pb + nv + 2,
+            f"{nb}*{pb}+{nv}+2 = {nb * pb + nv + 2}, plan says {nc}")
 
     # A `comparison: "unavailable"` entry names stations the planner has already
     # ruled out, so they are not candidates for a column. Counting them against
@@ -104,7 +123,7 @@ def check_chain(plan, reception, res, pinned):
              or {}).get("values_available", False)
     idx = _exp._station_index(reception)
     pinnable = [k for k, v in idx.items()
-                if v["station_variable"] in _exp.PINNABLE_VARIABLES
+                if v["station_variable"] in rules["pinnable"]
                 and v.get("in_basin") is not False
                 and (et_ok or v["station_variable"] != "et")]
     if pinnable:
@@ -198,7 +217,7 @@ def run_case(case, clients, models, verbose=False):
 
     # Raises when the plan names a station reception never fetched. That is the
     # designed behaviour and a genuine result for this case, not a harness bug.
-    pinned = exp._pinned_from_plan(plan, reception)
+    pinned = exp._pinned_from_plan(plan, reception, pin_rules(clients))
 
     # Reception already fetched the DEM grid at the sampler's own resolution
     # (data_gather.GRID_N = 120) and clipped it to the WBD polygon, so reuse its
@@ -257,7 +276,7 @@ def replay(d: Path, clients):
         stub = {**clients, "terrain": _GridStub(clients["terrain"], pts)}
         res, pinned, err = None, [], None
         try:
-            pinned = exp._pinned_from_plan(plan, rec)
+            pinned = exp._pinned_from_plan(plan, rec, pin_rules(clients))
             bbox = exp._bbox_from_brief(rec.get("brief") or {})
             res = exp.expand(stub, bbox, exp._n_from_plan(plan),
                              exp._n_bands_from_plan(plan) or 4,
@@ -269,7 +288,7 @@ def replay(d: Path, clients):
         except Exception as e:                                 # noqa: BLE001
             err = f"{type(e).__name__}: {e}"
 
-        checks = check_chain(plan, rec, res, pinned)
+        checks = check_chain(plan, rec, res, pinned, pin_rules(clients))
         n_ok = sum(1 for x in checks if x["ok"] or x.get("note"))
         bad = [x["check"] for x in checks if not (x["ok"] or x.get("note"))]
         (d / f"{cid}.replay.json").write_text(json.dumps(
@@ -361,7 +380,8 @@ def main():
             err = f"{type(e).__name__}: {e}"
         el = time.time() - t0
 
-        checks = check_chain(plan or {}, rec or {}, res, pinned) if plan else []
+        checks = (check_chain(plan or {}, rec or {}, res, pinned,
+                              pin_rules(clients)) if plan else [])
         (out / f"{c['id']}.json").write_text(json.dumps({
             "case": c,
             "reception": {k: v for k, v in (rec or {}).items()

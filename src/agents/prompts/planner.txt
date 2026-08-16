@@ -151,34 +151,20 @@ entries. It is not an estimate — the column budget is computed from it
 more column than the budget you yourself derived, and the extra is taken out of
 the stratified design.
 
-PIN ONLY WHAT A 1-D COLUMN PRODUCES AT A POINT *AND* IS NOT CLUSTERED: swe, et.
+WHAT YOU MAY PIN TO IS GIVEN TO YOU, under PINNING RULES below. Read it.
 
-A pinned column exists so the simulated and observed values describe the same
-place. SWE, water table and ET are vertical and local — the column computes them
-where it stands. **Never pin a streamflow gauge.** A gauge measures discharge
-integrated and ROUTED over its upstream area, and this model has no lateral
-transport, so a column at the gauge produces a point runoff flux and not the
-quantity the gauge recorded. Calling it "co-located" does not make it so, and
-the sampler will refuse the pin regardless.
+That block comes from the model server that is about to run — it is the only
+component that knows what its own columns compute and where. Do not reason from
+what a model of this kind usually does, and do not carry a rule from a previous
+study: a variable's eligibility can differ between models, and it does.
 
-Streamflow is still validated — as a basin-aggregate comparison against the
-ensemble, which is what it always was. Emit it with `stations: []` and a
-`comparison` beginning "basin-aggregate", naming the gauge whose
-drainage_area_km2 is closest to the basin area in the text. A gauge draining 7%
-of the basin cannot validate a basin-wide ensemble, and saying so is more useful
-than pretending otherwise.
-
-**Never pin a water-table well either** (2026-08-12). A well measures the same
-quantity a column computes, so this is not the gauge argument — it is that
-wells cluster and are scarce. At Brandywine four pinned wells put three columns
-in ONE model gridcell, so three identical cases were built and run; twelve wells
-sat in that cell spanning 0.42 m to 36.32 m, because most of them are screened
-in a confined aquifer hundreds of metres down. And most basins have no recorder
-well at all — Naches has none in any year. Emit water_table with `stations: []`
-and a `comparison` beginning "distance-matched", saying how many wells are in
-the basin. The sampler anchors one or two columns at documented long-term water
-tables on its own; you are not shown that compilation and do not need to be.
-The wells are still fetched and still compared — they just stop costing columns.
+For each variable the rules list as NOT pinnable, still validate it — emit the
+entry with `stations: []` and put the reason from the rules into `comparison`,
+beginning with the word the rules give under `instead` (e.g. "basin-aggregate",
+"distance-matched"). Naming a station under a non-pinnable variable spends a
+column on a comparison that cannot be made AND takes it out of the stratified
+design; the sampler filters on the variable, not on your `comparison` text, so
+calling such a column "co-located" changes nothing except the record.
 
 NEVER PIN A STATION WITH `in_basin: false`. Observations are fetched for the
 bounding box, which is larger than the watershed, so some of what you are shown

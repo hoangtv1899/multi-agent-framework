@@ -122,7 +122,14 @@ class WorkflowCoordinator:
 			mcp_clients = mcp_clients,
 			interactive = interactive_reception,
 		)
-		self.planner  = Planner(model=planner_model)
+		# WHAT THE PLANNER MAY PIN TO COMES FROM THE MODEL SERVER, asked once
+		# here because this is where the backend is known and the clients are
+		# held. Not fatal if it is missing: the sampler asks the same server for
+		# the same answer and refuses to place a column without it, so a plan
+		# made without the rules cannot quietly reach compute.
+		self.planner = Planner(model=planner_model,
+							   pinning=self._pinning_block(mcp_clients))
+
 		# NO ANALYZER OBJECT. The Analyzer is not an agent this class holds; it
 		# is a box that runs over a finished run directory, constructed where it
 		# is used (execute_plan stage 4c, and _workflow_analyze_existing).
@@ -138,6 +145,41 @@ class WorkflowCoordinator:
 			'last_focus':    None,
 		}
 	
+	def _pinning_block(self, mcp_clients: dict) -> Optional[dict]:
+		"""The model server's own account of what a column may be pinned to.
+
+		ASKED OF THE BACKEND THAT WILL RUN, not of a name this file knows. The
+		manager class carries MCP_NAME and CAPABILITIES_TOOL for exactly this,
+		so adding a second model does not add a branch here.
+
+		Returns None and says so rather than raising: the planner without the
+		block writes a plan, and the sampler — which asks the same server the
+		same question — refuses to place a column without it. Failing at the
+		later point is better than failing at the earlier one, because the
+		later point is where a wrong answer would start costing compute.
+		"""
+		from core import backends
+		try:
+			cls = backends.get(self.model)
+			client = (mcp_clients or {}).get(getattr(cls, "MCP_NAME", None))
+			tool = getattr(cls, "CAPABILITIES_TOOL", None)
+			if client is None or not tool:
+				raise RuntimeError(
+					f"no live {getattr(cls, 'MCP_NAME', '?')!r} client"
+					if not tool else f"{self.model} declares no capabilities tool")
+			block = (client.call_tool_json(tool, {}) or {}).get("pinning")
+			if not block:
+				raise RuntimeError(f"{tool} reported no `pinning` block")
+			names = [e.get("variable") for e in (block.get("pinnable") or [])]
+			print(f"✓ pinning rules from {self.model}: {', '.join(names)}")
+			return block
+		except Exception as e:                                  # noqa: BLE001
+			print(f"⚠️  could not read the pinning rules from the {self.model} "
+				  f"server ({e}) — the planner will not be told what it may "
+				  f"pin to, and the sampler will refuse to place a pinned "
+				  f"column until it can ask.")
+			return None
+
 	# ═════════════════════════════════════════════════════════
 	# MAIN ENTRY POINT
 	# ═════════════════════════════════════════════════════════

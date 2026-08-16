@@ -730,6 +730,47 @@ class ExperimentManagerBase:
 	# the same job — two backends, two conventions, and a third would have
 	# invented a third. None of it knows what a column is.
 	MCP_NAME: Optional[str] = None      # the server this backend drives
+	# THE TOOL THAT REPORTS WHAT THE MODEL CAN DO. Named per backend for the
+	# same reason MCP_NAME is: the framework must not know that ELM's is called
+	# describe_elm_capabilities. Its `pinning` block decides which observables a
+	# column may be pinned to, which used to be a literal tuple in the sampler
+	# and prose in planner.txt — one rule stated twice, neither aware of which
+	# model was about to run.
+	CAPABILITIES_TOOL: Optional[str] = None
+
+	def _pinning_rules(self, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""What a column of THIS model may be pinned to, from its own server.
+
+		Raises rather than falling back. A default here would be ELM's answer
+		wearing whatever model happened to be running, which is the failure the
+		capability call exists to remove — and a study that pins the wrong
+		stations is not obviously wrong when you read it.
+		"""
+		exp = _load_tool("expand_sampling")
+		client = self._mcp(config)
+		if not self.MCP_NAME or not self.CAPABILITIES_TOOL:
+			# The PFLOTRAN backends are here today: neither declares a server
+			# to ask, so a pinned site run under them stops at this line. That
+			# is the intended trade — before, they silently borrowed ELM's
+			# tuple, which is a wrong design nobody could see in the record.
+			why = (f"the {self.MCP_NAME or type(self).__name__} backend "
+				   f"declares no MCP_NAME/CAPABILITIES_TOOL, so there is no "
+				   f"server to ask. Add both, and a `pinning` block to that "
+				   f"server's capability report")
+		elif client is None:
+			why = (f"no {self.MCP_NAME!r} client in config['mcp_clients'] — "
+				   f"pass one, or set config['run_via_mcp']=False only if this "
+				   f"study pins nothing")
+		else:
+			why = None
+		if why:
+			raise RuntimeError(
+				f"{type(self).__name__} cannot ask its model server what a "
+				f"column may be pinned to: {why}. The pinning rules come from "
+				f"the server that owns them.")
+		return exp.pinning_rules(
+			self._mcp_call(client, self.CAPABILITIES_TOOL, {}))
+
 	def _mcp(self, config: Dict[str, Any]):
 		"""The elm MCP client, or None to run locally."""
 		if not (config or {}).get("run_via_mcp", True):
@@ -1079,7 +1120,9 @@ class ExperimentManagerBase:
 		# reception actually fetched, and raising when the two disagree — see
 		# expand_sampling._pinned_from_plan for why a miss is not survivable.
 		reception = config.get("reception") or {}
-		pinned = exp._pinned_from_plan(strategy, reception) if reception else []
+		pinned = (exp._pinned_from_plan(strategy, reception,
+										self._pinning_rules(config))
+				  if reception else [])
 		if not reception and (strategy.get("validation") or []):
 			print("   ⚠️  the strategy names validation stations but no reception "
 				  "was passed — NO column will be pinned, and no variable can be "

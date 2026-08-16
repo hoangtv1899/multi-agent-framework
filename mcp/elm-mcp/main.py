@@ -362,6 +362,82 @@ def _does_not(names: set) -> List[Dict[str, Any]]:
     return out
 
 
+def _pinning() -> Dict[str, Any]:
+    """Which observed variables a column of THIS model may be pinned to.
+
+    A pinned column exists so a simulated value and an observed one describe
+    the SAME place. Whether that is possible is a fact about the model — what
+    it computes, and where — so it is answered here rather than asserted by a
+    prompt or by a tuple in the sampler. It was in both, in two vocabularies,
+    and neither knew what ELM is.
+
+    THAT MATTERS NOW BECAUSE THERE IS ABOUT TO BE A SECOND MODEL. "This model
+    has no lateral transport" is true of a 1-D ELM column and false of a 3-D
+    PFLOTRAN domain, so a rule frozen into planner.txt would either be copied
+    for the second server or silently govern it.
+
+    `reason` is required on every entry, pinnable or not, and it must say WHOSE
+    fact it is. A design decision dressed as physics is the failure this
+    replaces: the water table was excluded because recorder wells cluster and
+    are scarce, which is a property of the observation network, and reading it
+    in a list of model limits invited the conclusion that ELM cannot compute a
+    water table at a point. It can.
+
+    THE NAMES ARE THE COMPARISON'S NAMES (compare/*.py SPEC.name), because a
+    pin is honoured only for the observable it names. When the sampler wrote
+    "water_table" and the comparison read "wtd", pair_stations compared the two
+    spellings, found them unequal, and silently refused every well pin ever
+    designed.
+    """
+    return {
+        "model": "1-D ELM column, no lateral transport",
+        "vocabulary": "compare/*.py SPEC.name — the comparison honours a pin "
+                      "only for the observable named here",
+        "pinnable": [
+            {"variable": "swe",
+             "reason": "vertical and local — the column computes snow water "
+                       "equivalent where it stands, and a pillow measures it "
+                       "where it stands",
+             "basis": "model"},
+            {"variable": "et",
+             "reason": "vertical and local — the column's evapotranspiration "
+                       "is a flux through the surface above it",
+             "basis": "model"},
+        ],
+        "not_pinnable": [
+            {"variable": "streamflow",
+             "reason": "a gauge measures discharge integrated and ROUTED over "
+                       "its upstream area, and this model has no lateral "
+                       "transport, so a column at the gauge produces a point "
+                       "runoff flux and never the quantity the gauge "
+                       "recorded. Structural: true of every gauge in every "
+                       "basin, which is why it cannot be waived by calling a "
+                       "column co-located",
+             "basis": "model",
+             "instead": "basin-aggregate comparison against the ensemble — "
+                        "still validated, it simply stops costing a column"},
+            {"variable": "water_table",
+             # NOT A MODEL LIMIT, AND IT MUST NOT READ AS ONE. ELM computes ZWT
+             # at the column. This is a standing decision about how columns are
+             # spent, and it is reported here only because this report is the
+             # single source the planner and the sampler both read.
+             "reason": "excluded by a standing design decision (2026-08-12), "
+                       "NOT by the model — an ELM column does compute a water "
+                       "table where it stands",
+             "basis": "design decision",
+             # SAYS WHAT THE COMPARISON BECOMES, AND NOTHING ABOUT THE BUDGET.
+             # An earlier wording here added "columns are spent on placement at
+             # documented water tables instead". True, but planner.txt already
+             # owns that arithmetic — `n_columns = n_bands*per_band +
+             # n_validation + 2`, where the 2 is the sampler's water-table
+             # anchors — and a capability report that restates a budget rule is
+             # a second place for it to drift.
+             "instead": "distance-matched — recorder wells are still fetched "
+                        "and still compared; they simply do not cost a column"},
+        ],
+    }
+
+
 def _workflow() -> List[Dict[str, Any]]:
     """The tools in the order a study uses them, with why each exists.
 
@@ -523,6 +599,13 @@ def describe_elm_capabilities() -> str:
         # FIRST, so anything missing from it effectively does not exist, and
         # the omission looks like an absent capability rather than a stale doc.
         "workflow": wf,
+
+        # WHAT A COLUMN OF THIS MODEL MAY BE COMPARED AGAINST AT A POINT. The
+        # planner reads it to decide which stations to name, and the sampler
+        # reads the same answer to enforce it — one source, so the two cannot
+        # drift into disagreeing about what a pin means.
+        "pinning": _pinning(),
+
         "inputs_expected": {
             "file": f"<run_dir>/01_inputs/{CASE_INPUTS}",
             "shape": "[{case_name, runtime_config: {FSURDAT, FINIDAT, "

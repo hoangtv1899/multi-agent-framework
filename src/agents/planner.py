@@ -40,7 +40,7 @@ a justified integer and justification is not a constraint.
 """
 import json
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from agents.llm_agent import SimpleLLMClient
 from agents.prompts import load_prompt
@@ -62,17 +62,39 @@ def _summary_for_prompt(reception: Dict[str, Any]) -> Dict[str, Any]:
 class Planner:
     """reception.json -> planner.json."""
 
-    def __init__(self, model: str = "claude-opus-4-8-project"):
+    def __init__(self, model: str = "claude-opus-4-8-project",
+                 pinning: Optional[Dict[str, Any]] = None):
+        """`pinning` is the model server's own `pinning` block.
+
+        WHICH STATIONS MAY BE PINNED IS THE MODEL'S ANSWER, and it used to be
+        frozen into planner.txt as prose about 1-D columns and lateral
+        transport. That was true of ELM and would have been false of the next
+        backend, which is a wrong plan rather than a missing one — the study
+        still runs, and spends columns on comparisons that cannot be made.
+
+        Passed in rather than fetched here because the caller already holds the
+        MCP clients and knows which backend it is about to drive; the planner
+        does not, and giving it a client to guess with would put the same
+        knowledge back one layer down.
+        """
         self.llm = SimpleLLMClient(model=model)
         self.system = load_prompt("planner")
+        self.pinning = pinning
 
     def plan(self, reception: Dict[str, Any]) -> Dict[str, Any]:
         payload = _summary_for_prompt(reception)
+        system = self.system
+        if self.pinning:
+            system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                       "━━━━━━\nPINNING RULES — from the model server that "
+                       "will run this study\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                       "━━━━━━━━━━━━━━━━━━━━━━━\n"
+                       + json.dumps(self.pinning, indent=1, default=str))
         raw = self.llm.ask(
             [{"role": "user",
               "content": json.dumps(payload, indent=1, default=str)
                          + "\n\nEmit ONLY the JSON."}],
-            system_message=self.system)
+            system_message=system)
         return self._parse(raw)
 
     @staticmethod

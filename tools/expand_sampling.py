@@ -26,6 +26,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, Dict
 
 sys.path.insert(0, "src")
 from core.mcp_manager import MCPManager
@@ -162,63 +163,67 @@ STATION_SOURCES = (("streamflow", "stations"),
                    ("swe", "stations"),
                    ("et", "towers"))
 
-# WHAT A 1-D COLUMN CAN BE PINNED TO.
+# WHAT A COLUMN CAN BE PINNED TO IS THE MODEL SERVER'S ANSWER, NOT THIS FILE'S.
 #
 # A pinned column exists so a simulated value and an observed one describe the
-# SAME place. That only works for a quantity the column actually produces at a
-# point. SWE, water table and ET are vertical and local — the column computes
-# them where it stands, and an instrument measures them where it stands.
+# SAME place, and whether that is possible depends on what the model computes
+# and where. This module used to hold the answer as a literal tuple while
+# planner.txt held the same answer as prose — two statements of one rule, in two
+# vocabularies, neither of which knew which model was about to run. "This model
+# has no lateral transport" is true of a 1-D ELM column and false of a 3-D
+# PFLOTRAN domain, so the frozen version was a bug waiting on a second backend.
 #
-# Streamflow is not. A gauge measures discharge integrated and ROUTED over its
-# upstream area, and this framework runs 1-D columns with no lateral transport,
-# so a column at the gauge's coordinates produces a point runoff flux, never the
-# thing the gauge recorded. Putting a column there buys nothing the ensemble
-# mean does not already give.
+# The rules now come from the server's capability report and are passed in. What
+# they are FOR has not changed, and is worth keeping: on the 13-basin chain run
+# of 2026-08-07, 14 of 40 pinned columns went to stream gauges. Eight were under
+# the planner's own "basin-aggregate" label — it knew — and the rest were
+# labelled "co-located", which for a gauge cannot be true. brandywine_2010 put
+# four gauge pins all in band 1, giving that band 7 of the basin's 13 columns
+# for a third of the elevation range: gauges sit on rivers, so gauge pins sit in
+# valleys, so the ensemble tilts downhill.
 #
-# Measured on the 13-basin chain run, 2026-08-07: 14 of 40 pinned columns went
-# to gauges. Eight were under the planner's own "basin-aggregate" label — it
-# knew — and the rest were labelled "co-located", which for a gauge cannot be
-# true. brandywine_2010 is the clearest: four gauge pins, all in band 1, giving
-# that band 7 of the basin's 13 columns for a third of the elevation range.
-# Gauges sit on rivers, so gauge pins sit in valleys, so the ensemble tilts
-# downhill.
-#
-# Filtering on the variable rather than on the planner's `comparison` string is
-# deliberate: brandywine called all four "co-located", so a string filter would
-# have caught none of them. The reason is structural — true of every gauge in
-# every basin — which makes it the sampler's to enforce, not the planner's to
-# remember.
-#
-# Streamflow validation is NOT dropped. It stays a basin-aggregate comparison
-# against the ensemble; it simply stops costing a column.
-#
-# THESE ARE OBSERVABLE NAMES, and they are the SAME NAMES the comparison uses
-# (compare/*.py SPEC.name): swe, water_table, streamflow, et. That was not true
-# until 2026-08-13 — the comparison called the water table "wtd" while the
-# sampler wrote "water_table" into every pinned column's `station_variable`, so
-# pair_stations compared the two spellings, found them unequal, and silently
-# refused every well pin ever designed. One vocabulary; a pin that is refused
-# is refused for a reason someone can read.
-PINNABLE_VARIABLES = ("swe", "et")
+# FILTERING ON THE VARIABLE, not on the planner's `comparison` string, is what
+# makes that survivable — brandywine called all four "co-located", so a string
+# filter would have caught none of them.
+def pinning_rules(capabilities: Dict[str, Any]) -> Dict[str, Any]:
+    """A model server's `pinning` block, in the shape the filter needs.
 
-# WATER TABLE LEFT THIS LIST 2026-08-12, by the user's decision, and was
-# replaced by the Fan anchors below. What pinning to a recorder well bought,
-# measured on brandywine_2010: four wells pinned, three of them snapped onto ONE
-# gridcell by the warm start, so three IDENTICAL ELM cases were built and run
-# and the comparison reported three NSEs — -1.9, -88.6, -757.4 — against one
-# model series. The wells were a piezometer nest: twelve of them in that cell,
-# 0.42 m to 36.32 m depth to water, because nine are screened in the confined
-# Potomac Formation 135-701 m down and one in the surficial Columbia aquifer.
-#
-# It also almost never applies. Naches has no recorder well in any year, and of
-# the thirteen chain-eval basins most have none, so the scheme spent columns in
-# the rare basin and did nothing in the common one.
-#
-# The trade is stated plainly: a Fan anchor CANNOT be paired day against day,
-# because Fan is one long-term mean per site (1927-2009). It is a DESIGN
-# anchor — it puts a column where the water table is documented, so the column
-# can be interpreted — not a validation pairing. Recorder wells are still
-# fetched and still compared; they simply stop costing columns.
+    Returns {model, pinnable: frozenset, why_not: {variable: reason}}.
+
+    RAISES when the block is absent. There is deliberately no built-in default:
+    a fallback tuple here is exactly what this replaced, and one that engages
+    silently would restate ELM's answer for whatever model actually ran.
+
+    THE NAMES ARE THE COMPARISON'S NAMES (compare/*.py SPEC.name), which the
+    server states in `vocabulary`. That agreement is not decorative: when the
+    sampler wrote "water_table" and the comparison read "wtd", pair_stations
+    compared the two spellings, found them unequal, and silently refused every
+    well pin ever designed.
+    """
+    block = ((capabilities or {}).get("pinning")
+             if "pinning" in (capabilities or {}) else capabilities) or {}
+    pinnable = [e.get("variable") for e in (block.get("pinnable") or [])
+                if e.get("variable")]
+    if not pinnable:
+        raise RuntimeError(
+            "the model server's capability report carries no `pinning."
+            "pinnable` — the sampler cannot decide what a column may be pinned "
+            "to, and guessing is what this replaced. Check that the backend's "
+            "CAPABILITIES_TOOL names a tool that reports a `pinning` block.")
+    return {
+        "model": block.get("model"),
+        "pinnable": frozenset(pinnable),
+        "why_not": {e["variable"]: e.get("reason") or "no reason given"
+                    for e in (block.get("not_pinnable") or [])
+                    if e.get("variable")},
+    }
+
+
+# COLUMNS PLACED AT DOCUMENTED WATER TABLES. Not a pin and not a validation
+# pairing: a Fan value is one long-term mean per site (1927-2009), so it cannot
+# be paired day against day. It puts a column where the water table is known, so
+# the column can be interpreted. Recorder wells are still fetched and still
+# compared; they simply do not cost columns.
 FAN_ANCHORS = 2                 # columns anchored at documented water tables
 FAN_ANCHOR_MIN_SEPARATION_KM = 1.0      # the well-cluster radius reception uses
 
@@ -333,8 +338,12 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     return 2 * 6371.0 * math.asin(math.sqrt(h))
 
 
-def _pinned_from_plan(plan, reception):
+def _pinned_from_plan(plan, reception, rules):
     """Stations the planner asked for a column at, resolved to coordinates.
+
+    `rules` is pinning_rules(<the model server's capability report>) — which
+    observables a column of the model that is about to run may be pinned to.
+    Required, and deliberately not defaulted: see pinning_rules.
 
     Reads `plan["validation"]`, whose entries look like
 
@@ -398,35 +407,25 @@ def _pinned_from_plan(plan, reception):
             f"silently — fix reception's fetch, or drop the station from "
             f"strategy.validation.")
 
-    # Drop what a 1-D column cannot be co-located with. The variable comes from
-    # WHICH LIST RECEPTION FOUND THE STATION IN, not from the plan's claim about
-    # it, so a mislabelled entry is filtered on what the station actually is.
-    keep = [idx[s] for s in wanted
-            if idx[s]["station_variable"] in PINNABLE_VARIABLES]
+    # Drop what a column of THIS model cannot be co-located with. The variable
+    # comes from WHICH LIST RECEPTION FOUND THE STATION IN, not from the plan's
+    # claim about it, so a mislabelled entry is filtered on what the station
+    # actually is.
+    pinnable, why = rules["pinnable"], rules["why_not"]
+    keep = [idx[s] for s in wanted if idx[s]["station_variable"] in pinnable]
     dropped = [idx[s] for s in wanted
-               if idx[s]["station_variable"] not in PINNABLE_VARIABLES]
+               if idx[s]["station_variable"] not in pinnable]
     if dropped:
-        print(f"   ⚠️  not pinning {len(dropped)} station(s) a 1-D column cannot "
+        print(f"   ⚠️  not pinning {len(dropped)} station(s) this model cannot "
               f"be co-located with: "
               f"{[(d['station_id'], d['station_variable']) for d in dropped]}")
-        # ONE REASON PER VARIABLE. This printed the gauge argument — "integrates
-        # and routes an upstream area" — for whatever was dropped, which after
-        # water_table left the list meant recorder wells were refused with an
+        # ONE REASON PER VARIABLE, and the reason comes from the server that
+        # owns it. This used to print the gauge argument — "integrates and
+        # routes an upstream area" — for whatever was dropped, so after the
+        # water table left the list recorder wells were refused with an
         # explanation about rivers.
-        why = {
-            "streamflow": ("a gauge integrates and routes an upstream area and "
-                           "this model has no lateral transport, so no column "
-                           "produces what it measures. Streamflow stays a "
-                           "basin-aggregate comparison against the ensemble."),
-            "water_table": ("recorder wells stopped costing columns 2026-08-12. "
-                            "They cluster — twelve in one gridcell at "
-                            "Brandywine, spanning two aquifers — and most "
-                            "basins have none. The design is anchored at Fan "
-                            "sites instead; the wells are still fetched and "
-                            "still compared, on distance."),
-        }
         for var in sorted({d["station_variable"] for d in dropped}):
-            print(f"   ⚠️  {var}: {why.get(var, 'not a quantity a 1-D column produces at a point.')}")
+            print(f"   ⚠️  {var}: {why.get(var, 'not a quantity this model produces at a point.')}")
 
     # And drop what sits outside the watershed. Reception tags every station
     # against the WBD polygon (`in_basin`); the tag is absent only when there was
