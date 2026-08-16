@@ -168,12 +168,43 @@ class TestSoilSource:
         src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_surface_generator.py").read_text()
         assert "if soil_source not in ('profile', 'conus')" in src
 
-    def test_the_builder_always_keeps_donor_soil(self):
-        """Warm start is required, so a CONUS-subset template is always present
-        and there is no second branch for the two decisions to drift between."""
+    def test_the_builder_keeps_donor_soil_unless_the_soil_is_the_experiment(self):
+        """Donor soil on a site run; the PRESCRIBED profile on a sweep.
+
+        REWRITTEN 2026-08-15, and the old assertion was load-bearing until that
+        day. It pinned `veg_source, soil_source = 'template', 'conus'` as a
+        single unbranched line, on the premise that a warm start is always
+        present — so there was no second case for the two decisions to drift
+        between. Conceptual runs now start COLD, which retires that premise.
+
+        The branch it forbade turned out to be the bug it was hiding. 'conus'
+        means "ignore mcp_data and keep the template's soil", which is right
+        when the warm start's moisture is equilibrated against the donor's own
+        soil — and exactly wrong for a texture sweep, whose entire content is
+        the profile in mcp_data. Every sweep before this fix wrote 24% clay
+        into the surfdata for designs whose levels were 5% and 55%, while
+        columns.json reported the levels faithfully.
+
+        So the invariant is no longer "one line" but "two cases and no third":
+        vegetation NEVER branches, soil branches on exactly one condition.
+        """
         src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_experiment_builder.py").read_text()
-        assert "veg_source, soil_source = 'template', 'conus'" in src
+        # Vegetation still never branches — that half of the old rule stands.
+        assert "veg_source = 'template'" in src
+        # Soil branches on the prescribed flag, and on nothing else.
+        assert "soil_source = 'profile' if prescribed_soil else 'conus'" in src
         assert "else 'ssurgo'" not in src
+
+    def test_a_prescribed_profile_that_reached_no_surface_is_fatal(self):
+        """A sweep with no gradient in it must not build.
+
+        Surface generation is wrapped in try/except and only logs, so before
+        this the failure left FSURDAT unset and the wrapper fell back to the
+        one fixed station surfdata: four columns, one soil, and a clay gradient
+        reported from labels alone.
+        """
+        src = (ROOT / "mcp" / "elm-mcp" / "src" / "elm_experiment_builder.py").read_text()
+        assert "SOIL_SOURCE') == 'prescribed' and not runtime_config.get('FSURDAT')" in src
 
     def test_the_cache_key_separates_the_two_soils(self):
         """Without this a column's swept-soil and donor-soil surfaces would

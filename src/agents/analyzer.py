@@ -88,18 +88,41 @@ class Analyzer:
             status["error"] = str(e)
             return status
 
-        # NOTHING TO ANALYSE IS NOT A REASON TO CALL AN LLM. A run directory
-        # with no columns — empty, half-written, or one whose extraction failed
-        # — used to fall straight through into steps 2 and 3, which spent real
-        # API calls to discover there was no data. Checked here because it is
-        # the first point that knows.
-        if not ctx.columns:
-            self._say("   ⚠️  no columns in this run — nothing to analyse")
+        # NOTHING TO ANALYSE IS NOT A REASON TO CALL AN LLM. This used to check
+        # only `ctx.columns`, which caught the empty run directory it was
+        # written for and nothing else: a run WITH columns whose series were
+        # all withheld reached step 2, spent a model call on five figure
+        # specifications, and discovered the absence one subprocess at a time.
+        # ctx.preflight() answers the general question — is there a frame here
+        # at all — before anything is spent on the answer.
+        from agents.analysis.step2_investigate import preflight_of
+        pre = preflight_of(ctx)
+        if pre.get("blocked"):
+            self._say(f"   ⚠️  {pre['blocked']}")
+            self._say("   ⏭  skipping steps 1-3 — no model call can help")
             status["steps"]["compare"] = False
             status["steps"]["investigate"] = False
             status["steps"]["interpret"] = False
-            status["steps"]["report"] = False
-            status["error"] = "no columns"
+            status["preflight"] = pre["blocked"]
+            # STILL WRITE THE REPORT. "This run cannot be investigated, and
+            # here is what it contains" is a result, and it is the one a reader
+            # who opens the directory tomorrow needs. Returning early left them
+            # a run with no boundary file and no account of why.
+            try:
+                from agents.analysis import step4_report
+                report = step4_report.build(
+                    ctx, {}, {}, {}, self.run_dir, rounds=[],
+                    stopped_because="preflight", steps=status["steps"],
+                    preflight=pre)
+                status["report"] = step4_report.write(report, self.analysis_dir)
+                status["verdict"] = report.get("verdict")
+                status["steps"]["report"] = True
+                if self.verbose:
+                    self._say("\n" + step4_report.summary(report))
+            except Exception as e:                              # noqa: BLE001
+                self._say(f"   ⚠️  step 4 report failed: {e}")
+                status["steps"]["report"] = False
+            status["error"] = pre["blocked"]
             status["seconds"] = round(time.time() - t0, 1)
             return status
 
@@ -149,9 +172,15 @@ class Analyzer:
         # ── step 4 ───────────────────────────────────────────────────────
         try:
             from agents.analysis import step4_report
+            # THE STEP RECORD CROSSES THE BOUNDARY. Until now `status["steps"]`
+            # was returned to the caller and never written down, so a run whose
+            # steps 2-3 raised produced an analysis.json indistinguishable from
+            # one that ran fine and concluded nothing — same null verdict, same
+            # empty claims list, no field anywhere naming the failure.
             report = step4_report.build(
                 ctx, comparison, investigation or {}, interpretation or {},
-                self.run_dir, rounds=rounds, stopped_because=stopped)
+                self.run_dir, rounds=rounds, stopped_because=stopped,
+                steps=status["steps"], preflight=pre)
             path = step4_report.write(report, self.analysis_dir)
             self._say("✓ step 4  report → " + str(Path(path).name))
             if self.verbose:

@@ -92,6 +92,33 @@ def compare_all(ctx, out_dir, draw: bool = True) -> Dict[str, Any]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # A CONTROLLED SWEEP HAS NOTHING TO COMPARE AGAINST, and that is the
+    # design rather than a missing fetch. Checked before the model lookup
+    # because it is a property of the STUDY, not of the backend.
+    #
+    # Without this the sweep ran the full comparison and wrote four figures —
+    # streamflow, SWE, ET, water table — against observations that were never
+    # gathered, because reception does not gather them for a sweep. Four empty
+    # panels are not a null result; they are an invitation to read the absence
+    # as a failed validation, on a study that never claimed one.
+    #
+    # Reuses the `skipped` shape rather than inventing a second one: downstream
+    # already knows that a record carrying `skipped` was not attempted, which
+    # is precisely the statement being made.
+    arche = str((ctx.data or {}).get("archetype")
+                or ((ctx.plan or {}).get("archetype") if ctx.plan else "")
+                or "").strip().lower()
+    if arche == "conceptual":
+        return {"observables": {}, "summary": {}, "caveats": [], "findings": [],
+                "figures": {},
+                "skipped": "a controlled sweep is compared against nothing: it "
+                           "has no basin, and no observations were fetched for "
+                           "it. Absence here is the design — the study asks "
+                           "how the model responds to a factor, not how the "
+                           "model compares to a measurement. See the "
+                           "conceptual_no_observations caveat, which is "
+                           "blocking on every quantitative claim."}
+
     model = str((ctx.data or {}).get("model") or "").lower() or "elm"
     mod_name = _COMPARE_MODULE.get(model)
     if mod_name is None:

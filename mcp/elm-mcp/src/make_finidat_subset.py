@@ -184,13 +184,6 @@ def plan_subset(d, lat, lon):
             "n_pft":      sl["pft"][1] - sl["pft"][0]}
 
 
-def _local_map(d, index_var, level, sl):
-    """Global 1-based ids of `level` within this gridcell -> local 1-based."""
-    import numpy as np
-    lo, hi = sl[level]
-    return {gid: i + 1 for i, gid in enumerate(range(lo + 1, hi + 1))}
-
-
 def write_subset(conus_restart, lat, lon, out_path, quiet=False):
     """Write a single-gridcell finidat; returns a provenance dict."""
     import netCDF4

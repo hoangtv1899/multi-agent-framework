@@ -70,19 +70,31 @@ LAYER_DEPTH_VAR = 'ZSOI'              # (levgrnd,) node depth, time-invariant
 LAYER_THICKNESS_VAR = 'DZSOI'         # (levgrnd,) layer thickness, likewise
 
 # ─────────────────────────────────────────────────────────────────────
-# WARM-START RELAXATION
+# THE START-UP TRANSIENT
 # ─────────────────────────────────────────────────────────────────────
-# A warm start inherits storage from the CONUS spin-up, and that state is not in
-# equilibrium with THIS domain's forcing. The column drains hard while it
-# settles and the transient is enormous — measured on the 2019 Upper Gunnison
-# run, column-mean QOVER+QDRAI was 45.82 mm/day on day 1 against a 0.179 mm/day
-# Feb-Jun baseline, 256x. Averaging that into an annual number is not a
-# measurement of anything.
+# Every run begins somewhere other than equilibrium, and the opening stretch
+# reports the initial state rather than the physics. It is dropped BEFORE any
+# statistic, so the series and anything computed from it agree about what
+# period they cover. The cost is that the record no longer starts on 1 January,
+# which is why `date_range` travels with every column.
 #
-# Dropped BEFORE any statistic, so the series and anything computed from it
-# agree about what period they cover. The cost is that the record no longer
-# starts on 1 January, which is why `date_range` travels with every column.
+# HOW LONG DEPENDS ON HOW THE RUN STARTED, and the two are orders of magnitude
+# apart. One number for both was wrong for whichever it was not written for.
+#
+# WARM — storage inherited from the CONUS spin-up, not in equilibrium with THIS
+# domain's forcing. The column drains hard for a fortnight while it settles:
+# measured on the 2019 Upper Gunnison run, column-mean QOVER+QDRAI was 45.82
+# mm/day on day 1 against a 0.179 mm/day Feb-Jun baseline, 256x. Two weeks
+# covers it because the state being corrected is already roughly right.
 SPINUP_DAYS = 14
+# COLD — the model starts from its own defaults and has to BUILD storage, which
+# is not a correction but a filling. Measured on the 4-column 1995-2004 Naches
+# conceptual sweep: QDRAI was exactly 0.0 for the whole of 1995 and only reached
+# a steady 445.9 mm/yr from 1996, with the water table still travelling 8.80 ->
+# 5.87 -> 4.09 m over the first three years. A 14-day trim leaves all of that in
+# the average. One year is the shortest defensible cut and still not generous —
+# the deep column keeps moving after it, which `no_spinup` says in the caveats.
+COLD_START_DAYS = 365
 
 HISTORY_GLOB = 'run/*.elm.h0.*.nc'
 
@@ -182,8 +194,31 @@ def _drop_partial_days(ds) -> Tuple[Any, List[str]]:
     return ds.isel(time=keep), short
 
 
+# THE LEAST RECORD WORTH KEEPING, in days.
+#
+# A JUDGEMENT, NOT A MEASUREMENT — unlike the two trim lengths above, which
+# come from the transients they were sized against. The reasoning is that below
+# a month a daily series of water fluxes says nothing anyone would report: it
+# is a stub, not a result. Nothing was measured to land on thirty rather than
+# twenty or sixty, and it has never bound on a real run — every run so far is
+# either comfortably longer than its window or, like the 1995 fixture, shorter
+# than it by a whole year. It decides what happens to a conceptual run between
+# roughly twelve and fourteen months long, and that run has not happened yet.
+MIN_KEPT_DAYS = 30
+
+
 def _drop_spinup(ds, days: int) -> Tuple[Any, int]:
-    """Trim the first `days` of record. Returns (ds, n_timesteps_dropped)."""
+    """Trim the first `days` of record. Returns (ds, n_timesteps_dropped).
+
+    A TRIM THAT WOULD CONSUME THE RUN IS NOT APPLIED. Refusing only the case
+    that leaves literally nothing was not enough once the cold-start trim went
+    to a year: the 4-column 1995 fixture runs 1 Jan to 1 Jan, so a 365-day
+    window left the single timestep at 1996-01-01, the partial-day drop then
+    removed that, and four columns that had run perfectly well came back as
+    `no requested variable had values`. Losing the whole series and gaining no
+    equilibration is strictly worse than keeping a transient series and saying
+    it is one — which is what `spinup_days_requested` in the meta then does.
+    """
     if not days or ds is None or 'time' not in getattr(ds, 'dims', ()):
         return ds, 0
     t = np.asarray(ds['time'].values)
@@ -191,9 +226,8 @@ def _drop_spinup(ds, days: int) -> Tuple[Any, int]:
         return ds, 0
     start = np.datetime64(str(t[0])[:10]) + np.timedelta64(int(days), 'D')
     keep = np.asarray([np.datetime64(str(x)[:10]) >= start for x in t])
-    if not keep.any():
-        # A record shorter than the window: keep all of it rather than return
-        # nothing. A short run is a finding; an empty series is a bug.
+    kept_days = len({str(x)[:10] for x, k in zip(t, keep) if k})
+    if kept_days < MIN_KEPT_DAYS:
         return ds, 0
     return ds.isel(time=keep), int((~keep).sum())
 
@@ -356,6 +390,12 @@ def extract_column(case_dir: str,
             'date_range': [dates[0], dates[-1]] if dates else None,
             'record_start': record_start,
             'n_timesteps_dropped_spinup': dropped,
+            # ASKED FOR, alongside what was actually removed. `_drop_spinup`
+            # keeps a record shorter than the window rather than returning an
+            # empty series — correct, but it made "0 dropped" ambiguous between
+            # "no trim was wanted" and "a year was wanted and the run is 351
+            # days long, so the whole transient is still in here".
+            'spinup_days_requested': int(spinup_days or 0),
             # Named, not just counted: a reader comparing this series to a
             # gauge record has to know which calendar days are absent and why.
             'partial_days_dropped': partial,
@@ -417,8 +457,86 @@ def _identity(rd: Path) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def initialisation(run_dir) -> str:
+    """'warm' | 'cold' | 'mixed' | 'unknown' — how the cases were STARTED.
+
+    Read off FINIDAT in case_inputs.json for the same reason `_identity` reads
+    coordinates there: that file is what the cases were BUILT from, so it is
+    what the model actually ran with. A design that asked for a cold start and
+    a case that was handed a restart file disagree, and the case wins.
+
+    columns.json's `warm_start` flag is the fallback, not the source. It is the
+    request; FINIDAT is the outcome. The two were out of step for a whole
+    afternoon on 2026-08-15 — the flag never crossed the MCP wire, so every
+    record said cold while every case carried a restart.
+    """
+    rd = Path(run_dir)
+    spec = rd / '01_inputs' / 'case_inputs.json'
+    if spec.is_file():
+        try:
+            cases = json.loads(spec.read_text()) or []
+            flags = [bool((c.get('runtime_config') or {}).get('FINIDAT'))
+                     for c in cases if isinstance(c, dict)]
+            if flags:
+                return 'warm' if all(flags) else 'cold' if not any(flags) \
+                    else 'mixed'
+        except Exception:                                       # noqa: BLE001
+            pass
+    for name in ('01_inputs/elm_columns.json', 'columns.json'):
+        f = rd / name
+        if not f.is_file():
+            continue
+        try:
+            raw = json.loads(f.read_text())
+            cols = raw if isinstance(raw, list) else (raw.get('columns') or [])
+            flags = [bool(c.get('warm_start')) for c in cols
+                     if isinstance(c, dict) and 'warm_start' in c]
+            if flags:
+                return 'warm' if all(flags) else 'cold' if not any(flags) \
+                    else 'mixed'
+        except Exception:                                       # noqa: BLE001
+            pass
+    return 'unknown'
+
+
+def resolve_spinup(run_dir, spinup_days: Optional[int] = None
+                   ) -> Tuple[int, str, str]:
+    """(days, basis, reason) — the trim this run needs, and why.
+
+    ONE RULE FOR EVERY RUN. A site study and a conceptual sweep get the same
+    treatment because the question the trim answers is the same one — how long
+    does this column report its initial state rather than its physics — and the
+    answer turns on how it was started, not on what kind of study it belongs to.
+
+    An explicit `spinup_days` still wins, so a caller who has measured the
+    transient on the run in front of them is not overruled by a default.
+    """
+    init = initialisation(run_dir)
+    if spinup_days is not None:
+        return int(spinup_days), init, 'trim set by the caller'
+    if init == 'warm':
+        return SPINUP_DAYS, init, (
+            'warm-start relaxation; storage inherited from the CONUS spin-up '
+            'is not in equilibrium with this domain\'s forcing')
+    if init == 'cold':
+        return COLD_START_DAYS, init, (
+            'cold-start transient; the model builds storage from its own '
+            'defaults and slow states take years, not days, to settle')
+    if init == 'mixed':
+        # The longer cut, so no column keeps its transient. Trimming the warm
+        # columns by a year costs record; leaving the cold ones untrimmed puts
+        # a filling transient into an average that is compared across columns.
+        return COLD_START_DAYS, init, (
+            'some columns warm-started and some cold-started; the longer '
+            'cold-start trim is applied to all so the columns stay comparable')
+    return SPINUP_DAYS, init, (
+        'initialisation could not be read from the run directory; the '
+        'warm-start trim is assumed')
+
+
 def write_extracted(run_dir, cols_meta: Dict[str, Any], data: Dict[str, Any],
-                    want_vars: List[str], spinup_days: int) -> Path:
+                    want_vars: List[str], spinup_days: int,
+                    spinup_basis: str = None, spinup_reason: str = None) -> Path:
     """Write 03_results/extracted.json. THE artifact, and the only writer.
 
     Called by extract_run and by ELMResultsAnalyzer, because both extract the
@@ -445,6 +563,11 @@ def write_extracted(run_dir, cols_meta: Dict[str, Any], data: Dict[str, Any],
             'run_dir': str(rd),
             'variables_requested': want_vars,
             'spinup_days': spinup_days,
+            # WHY THAT MANY DAYS, not just how many. 14 and 365 mean opposite
+            # things about the run, and a reader who sees only the number has
+            # to guess which one they are holding.
+            'spinup_basis': spinup_basis or initialisation(run_dir),
+            'spinup_reason': spinup_reason,
             'n_columns': len(cols_meta),
             'columns': cols_meta,
             'failed': failed,
@@ -466,7 +589,7 @@ def write_extracted(run_dir, cols_meta: Dict[str, Any], data: Dict[str, Any],
 def extract_run(run_dir: str,
                 columns: Optional[List[str]] = None,
                 variables: Optional[List[str]] = None,
-                spinup_days: int = SPINUP_DAYS,
+                spinup_days: Optional[int] = None,
                 overwrite: bool = False) -> Dict[str, Any]:
     """Every column's daily series into 03_results/extracted.json.
 
@@ -481,6 +604,9 @@ def extract_run(run_dir: str,
     artifact and no `columns` -> reuse it untouched; artifact and `columns`
     -> extract those and MERGE, which is how one failed column is redone
     without re-reading sixteen good ones.
+
+    `spinup_days` defaults to None, meaning READ IT OFF THE RUN — see
+    resolve_spinup. Passing a number overrides that for every column.
     """
     rd = Path(run_dir).resolve()
     out_path = rd / RESULTS_DIR / EXTRACTED
@@ -506,6 +632,7 @@ def extract_run(run_dir: str,
     unknown = [c for c in want_cols if c not in cases]
     want_cols = [c for c in want_cols if c in cases]
     want_vars = list(variables or TARGET_VARIABLES)
+    spinup_days, spinup_basis, spinup_reason = resolve_spinup(rd, spinup_days)
 
     existing: Dict[str, Any] = {}
     if out_path.is_file() and not overwrite:
@@ -543,7 +670,8 @@ def extract_run(run_dir: str,
              for c, m in cols_meta.items() if m.get('empty_variables')]
     ranges = [m['date_range'] for m in cols_meta.values() if m.get('date_range')]
 
-    write_extracted(rd, cols_meta, data, want_vars, spinup_days)
+    write_extracted(rd, cols_meta, data, want_vars, spinup_days,
+                    spinup_basis, spinup_reason)
 
     summary: Dict[str, Any] = {
         'ok': True, 'reused': False,
@@ -551,6 +679,8 @@ def extract_run(run_dir: str,
         'n_columns': len(cols_meta), 'n_ok': len(ok_cols),
         'n_failed': len(failed),
         'variables': want_vars,
+        'spinup_days': spinup_days,
+        'spinup_basis': spinup_basis,
         'period': ([min(r[0] for r in ranges), max(r[1] for r in ranges)]
                    if ranges else None),
         'size_mb': round(out_path.stat().st_size / 1e6, 2),

@@ -135,592 +135,2371 @@
   ul{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:6px;}
   a{color:var(--accent);}
   :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  /* ── added for the reference rewrite ───────────────────────────── */
+  h4{font-family:var(--sans);font-size:.92rem;font-weight:600;color:var(--ink);
+     margin:6px 0 0;}
+  .toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.82rem;
+       font-family:var(--mono);padding-bottom:4px;}
+  .toc a{text-decoration:none;border-bottom:1px solid transparent;}
+  .toc a:hover{border-bottom-color:var(--accent);}
+  section{scroll-margin-top:20px;}
+
+  .notation{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:.82rem;
+            list-style:none;padding:0;color:var(--ink-2);}
+  .notation li{display:flex;align-items:center;gap:7px;}
+  .notation span{width:24px;height:14px;flex:none;display:inline-block;}
+  .n-file{border:1.4px solid var(--ink-2);border-left-width:4px;}
+  .n-mem{border:1.4px dashed var(--ink-2);}
+  .n-code{border:1.8px solid var(--ink-2);}
+  .n-llm{border:1.8px solid #2E8C99;}
+  .n-gate{border:1.8px solid #C0563F;transform:skewX(-18deg);}
+
+  .stepcard{background:var(--panel);border:1px solid var(--rule);
+            border-radius:6px;padding:20px 24px;
+            display:flex;flex-direction:column;gap:12px;}
+  .stepcard>h3{font-family:var(--sans);font-size:1.02rem;
+               padding-bottom:8px;border-bottom:1px solid var(--rule);}
+  table.spec th{width:150px;text-transform:none;font-family:var(--sans);
+                font-size:.82rem;letter-spacing:0;color:var(--ink-3);
+                border-bottom:1px solid var(--rule);vertical-align:top;
+                font-weight:400;}
+  table.spec td{font-size:.86rem;}
+  td.warn th,th.warn{color:var(--block);}
+  .mark{background:var(--qual-soft);color:var(--qual);
+        padding:.05em .3em;border-radius:3px;}
+  pre{background:var(--panel-2);border:1px solid var(--rule);border-radius:5px;
+      padding:12px 16px;overflow-x:auto;font-size:.8rem;
+      font-family:var(--mono);color:var(--ink-2);margin:0;line-height:1.5;}
+  .sub{font-size:.8rem;color:var(--ink-3);}
+  .lineage{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media (max-width:640px){.lineage{grid-template-columns:1fr;}}
+  .lineage>div{background:var(--panel);border:1px solid var(--rule);
+               border-radius:6px;padding:16px 20px;}
+  .lineage ol{margin:8px 0 0;padding-left:1.2em;font-size:.84rem;
+              display:flex;flex-direction:column;gap:5px;color:var(--ink-2);}
+  .lineage h4{margin:0;}
+  dl.gloss{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 20px;
+           font-size:.9rem;}
+  @media (max-width:640px){dl.gloss{grid-template-columns:1fr;gap:2px 0;}
+                           dl.gloss dd{margin-bottom:10px;}}
+  dl.gloss dt{font-family:var(--mono);font-size:.82rem;color:var(--ink);
+              white-space:nowrap;}
+  dl.gloss dd{margin:0;color:var(--ink-2);}
+  td.r-raise{color:var(--block);font-weight:600;}
+  td.r-warn,td.r-retry{color:var(--qual);font-weight:600;}
+  td.r-skip{color:var(--ctx);font-weight:600;}
+  ol.defects{margin:0;padding-left:1.2em;display:flex;flex-direction:column;
+             gap:10px;color:var(--ink-2);}
 </style>
 
 <div class="wrap">
 
+
 <header>
-  <span class="eyebrow">IDEAS · fourth box</span>
-  <h1>How the Analyzer reaches a conclusion</h1>
-  <p>Five steps over one finished run directory. Two of them call a model; the
-     other three are code, and the code is what decides whether the model's
-     sentences survive.</p>
+  <span class="eyebrow">IDEAS · the fourth box</span>
+  <h1>Analyzer Walkthrough</h1>
+  <p>How a finished simulation directory becomes <code>analysis.json</code>:
+     five steps, three of them plain code, two of them a language model whose
+     output is checked by code before it is kept — and one gate between the
+     first two that decides whether asking a model is worth anything at all.</p>
   <div class="meta">
     <span>src/agents/analyzer.py</span>
-    <span>revised + verified 2026-08-13, 16:40</span>
-    <span>naches_1979 · brandywine_2010</span>
+    <span>src/agents/analysis/</span>
+    <span>verified against the code 2026-08-14</span>
   </div>
 </header>
 
-<section>
-  <span class="eyebrow">The shape</span>
-  <h2>Where the numbers come from, and where they are allowed to go</h2>
-  <p>Every step takes the context plus what earlier steps returned, and returns
-     data. <strong>Step 0 is the only step that opens a boundary file</strong> —
-     that is what lets any later step be re-run alone against an archived study,
-     months after the compute is gone.</p>
+<nav class="toc">
+  <a href="#s1">1 · In plain language</a>
+  <a href="#s2">2 · Scope and boundaries</a>
+  <a href="#s3">3 · End-to-end workflow</a>
+  <a href="#s4">4 · Step by step</a>
+  <a href="#s5">5 · Artifact lineage</a>
+  <a href="#s6">6 · Submodule map</a>
+  <a href="#s7">7 · Key and schema contracts</a>
+  <a href="#s8">8 · Failure paths</a>
+  <a href="#s9">9 · Current guarantees</a>
+  <a href="#s10">10 · Glossary</a>
+  <a href="#a1">Appendix A · Design history</a>
+  <a href="#a2">Appendix B · Key-contract audit</a>
+  <a href="#a3">Appendix C · Change log</a>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════ 1 ══ -->
+<section id="s1">
+  <span class="eyebrow">1</span>
+  <h2>In plain language</h2>
+  <p>The Analyzer reads one finished run directory and writes one file that
+     answers the user's question. It receives three <strong>JSON files written
+     by earlier stages</strong> — what was asked, what was designed, and what
+     the simulation produced — and it produces
+     <code>04_analysis/analysis.json</code>: an answer in a few sentences, a
+     list of individual claims each pointing at the number it rests on, the
+     figures, the constraints those claims are subject to, and what the run
+     cost. Beside it, <code>analysis.pptx</code> lays the same content out as
+     slides — a rendering of that file, never a second one.</p>
+  <p>Every report also says <strong>what kind of result it is</strong>, before
+     it says anything else: the question was answered, or nothing survived the
+     checks, or the evidence was too thin, or something broke. Those are four
+     different outcomes and only one of them is a fault, so the file names
+     which — a reader should never have to infer a crash from a missing
+     field.</p>
+  <p>Two of the five steps call a language model. The model chooses
+     <em>which</em> figures answer the question and writes the Python that draws
+     them (step 2), and then reads the results and writes the conclusions
+     (step 3). <strong>Everything else is ordinary code</strong>: loading the
+     files, running the model-vs-observation comparison, executing the
+     generated scripts in a subprocess, checking every claim against the
+     evidence it cites, and assembling the output. No number in the final file
+     is produced by a language model — the model names numbers, and code
+     verifies each one appears in the data it was taken from, discarding the
+     claim if it does not.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 2 ══ -->
+<section id="s2">
+  <span class="eyebrow">2</span>
+  <h2>Scope and boundaries</h2>
+  <p>The framework is four stages in sequence — Reception, Planner, Experiment
+     Manager, Analyzer. Each writes one <strong>boundary artifact</strong>: a
+     JSON file that is the entire interface to the next stage. The Analyzer is
+     the fourth.</p>
+
+  <table>
+    <thead><tr><th>The Analyzer owns</th><th>The Analyzer does not own</th></tr></thead>
+    <tbody>
+      <tr><td>Loading the three boundary artifacts and splitting them into
+              question, evidence and constraints</td>
+          <td><strong>Fetching observations.</strong> Reception fetches them
+              once, when the simulated period is fixed, and stores them in
+              <code>reception.json</code>. The Analyzer reads that copy and
+              never re-fetches.</td></tr>
+      <tr><td>Deciding which comparisons and figures the question needs</td>
+          <td><strong>Reading native simulation output.</strong> No NetCDF, no
+              HDF5, no PFLOTRAN <code>.h5</code>. A backend extractor turns
+              those into <code>03_results/extracted.json</code>.</td></tr>
+      <tr><td>Executing generated analysis code and validating its output</td>
+          <td><strong>Knowing what an ELM variable means.</strong> The
+              model-vs-observation comparison lives in the ELM server's
+              <code>compare</code> package, because it needs to know that
+              H2OSNO is snow and how deep ELM's soil column goes.</td></tr>
+      <tr><td>Auditing the interpretation and writing
+              <code>analysis.json</code></td>
+          <td><strong>Deciding whether the run succeeded.</strong> That is the
+              Experiment Manager's judgement. A run where every column finished
+              is a manager success even if every column drains twice its
+              precipitation.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Is <code>analysis.json</code> the single authoritative output?</h3>
+  <p><strong>Yes, and it is written in exactly one place.</strong> Searching
+     the repository, the only writer is
+     <code>step4_report.write()</code>; <code>run_layout.py</code> registers
+     <code>analysis.json</code> as the Analyzer's boundary artifact, and
+     <code>ExperimentManagerBase</code> records its path under
+     <code>artifacts.analysis_report</code> without opening it. No later stage
+     reads it, rewrites it, or passes it to a model.</p>
+  <p class="rule-note"><strong>Nuance worth knowing.</strong> Re-running the
+     Analyzer over the same directory <em>overwrites</em>
+     <code>analysis.json</code>, and the intermediate files
+     (<code>comparison.json</code>, <code>investigation.json</code>,
+     <code>interpretation.json</code>) are overwritten each round as well. The
+     file is authoritative for one execution; it is not a versioned history.
+     Nothing enforces that a second execution agrees with the first.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 3 ══ -->
+<section id="s3">
+  <span class="eyebrow">3</span>
+  <h2>End-to-end workflow</h2>
+
+  <ul class="notation">
+    <li><span class="n-file"></span> file on disk</li>
+    <li><span class="n-mem"></span> in-memory object</li>
+    <li><span class="n-code"></span> deterministic code</li>
+    <li><span class="n-llm"></span> language-model call</li>
+    <li><span class="n-gate"></span> validation gate</li>
+  </ul>
 
   <figure>
     <div class="scroll">
-      <svg viewBox="0 0 860 400" role="img" aria-label="Dataflow through the Analyzer: three boundary files enter step 0, which splits them into plan, data and caveats; step 1 calls the ELM server's compare package and turns the measurements into citable findings; step 2 asks a model for figures which pandas computes; step 3 judges and a code audit strikes unsupported claims, with one loop back to step 2; step 4 writes analysis.json.">
+      <svg viewBox="0 0 900 830" role="img" aria-label="Execution flow. extracted.json is read by the Experiment Manager, which writes experiment.json. Step 0 reads reception.json, strategy.json and experiment.json and returns an in-memory context split into plan, data and caveats. A preflight gate then asks whether any frame holds data; if none does, steps 1 to 3 are skipped entirely and control passes straight to step 4, which still writes a report. Otherwise step 1 calls the ELM server's compare package and writes comparison.json plus five figures. Step 2 asks a language model for figure specifications, runs each as a subprocess through a validation gate, and writes investigation.json, an investigation plan in Markdown, and up to five figures. Step 3 asks a language model to interpret, then a code audit strikes unsupported claims and writes interpretation.json; if the verdict is insufficient it sends step 2 back once. Step 4 assembles analysis.json, carrying one of four statuses, and renders the same dictionary a second time as analysis.pptx.">
         <defs>
-          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5"
+          <marker id="w-ar" viewBox="0 0 10 10" refX="9" refY="5"
                   markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
           </marker>
-          <marker id="ar-a" viewBox="0 0 10 10" refX="9" refY="5"
+          <marker id="w-gate" viewBox="0 0 10 10" refX="9" refY="5"
                   markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0 0 L10 5 L0 10 z" fill="#0E6E7A"/>
+            <path d="M0 0 L10 5 L0 10 z" fill="#C0563F"/>
           </marker>
         </defs>
 
-        <!-- inputs -->
-        <text x="20" y="30" font-family="ui-monospace,monospace" font-size="11" fill="currentColor">reception.json</text>
-        <text x="20" y="48" font-family="ui-monospace,monospace" font-size="11" fill="currentColor">strategy.json</text>
-        <text x="20" y="66" font-family="ui-monospace,monospace" font-size="11" fill="currentColor">experiment.json</text>
-        <line x1="128" y1="48" x2="176" y2="48" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+        <!-- ── upstream ─────────────────────────────────────── -->
+        <text x="12" y="16" font-size="10" font-family="ui-monospace,monospace"
+              fill="currentColor" opacity=".7">UPSTREAM STAGES</text>
 
-        <!-- step 0 -->
-        <rect x="180" y="20" width="120" height="56" rx="4" fill="none" stroke="currentColor" stroke-width="1.4"/>
-        <text x="240" y="43" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">step 0</text>
-        <text x="240" y="60" text-anchor="middle" font-size="11" fill="currentColor">context</text>
+        <rect x="12" y="26" width="150" height="40" fill="none"
+              stroke="currentColor" stroke-width="1.3"/>
+        <line x1="19" y1="26" x2="19" y2="66" stroke="currentColor" stroke-width="1.3"/>
+        <text x="90" y="43" text-anchor="middle" font-size="10.5"
+              font-family="ui-monospace,monospace" fill="currentColor">extracted.json</text>
+        <text x="90" y="58" text-anchor="middle" font-size="9.5"
+              fill="currentColor" opacity=".75">backend extractor</text>
 
-        <!-- three-way split -->
-        <text x="330" y="30" font-size="11" fill="currentColor">plan</text>
-        <text x="330" y="52" font-size="11" fill="currentColor">data</text>
-        <text x="330" y="74" font-size="11" fill="currentColor">caveats</text>
-        <line x1="300" y1="48" x2="322" y2="26" stroke="currentColor" stroke-width="1"/>
-        <line x1="300" y1="48" x2="322" y2="48" stroke="currentColor" stroke-width="1"/>
-        <line x1="300" y1="48" x2="322" y2="70" stroke="currentColor" stroke-width="1"/>
+        <line x1="162" y1="46" x2="212" y2="46" stroke="currentColor"
+              stroke-width="1.3" marker-end="url(#w-ar)"/>
+        <text x="187" y="38" text-anchor="middle" font-size="9" fill="currentColor">rows</text>
 
-        <!-- step 1 -->
-        <rect x="180" y="120" width="240" height="72" rx="4" fill="none" stroke="currentColor" stroke-width="1.4"/>
-        <text x="300" y="145" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">step 1 · compare</text>
-        <text x="300" y="163" text-anchor="middle" font-size="11" fill="currentColor">citable findings</text>
-        <text x="300" y="180" text-anchor="middle" font-size="11" fill="currentColor">5 figures</text>
-        <line x1="240" y1="76" x2="240" y2="116" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+        <rect x="216" y="26" width="150" height="40" fill="none"
+              stroke="currentColor" stroke-width="1.3"/>
+        <line x1="223" y1="26" x2="223" y2="66" stroke="currentColor" stroke-width="1.3"/>
+        <text x="294" y="43" text-anchor="middle" font-size="10.5"
+              font-family="ui-monospace,monospace" fill="currentColor">experiment.json</text>
+        <text x="294" y="58" text-anchor="middle" font-size="9.5"
+              fill="currentColor" opacity=".75">Experiment Manager</text>
+
+        <rect x="420" y="26" width="140" height="40" fill="none"
+              stroke="currentColor" stroke-width="1.3"/>
+        <line x1="427" y1="26" x2="427" y2="66" stroke="currentColor" stroke-width="1.3"/>
+        <text x="494" y="43" text-anchor="middle" font-size="10.5"
+              font-family="ui-monospace,monospace" fill="currentColor">reception.json</text>
+        <text x="494" y="58" text-anchor="middle" font-size="9.5"
+              fill="currentColor" opacity=".75">Reception</text>
+
+        <rect x="580" y="26" width="140" height="40" fill="none"
+              stroke="currentColor" stroke-width="1.3"/>
+        <line x1="587" y1="26" x2="587" y2="66" stroke="currentColor" stroke-width="1.3"/>
+        <text x="654" y="43" text-anchor="middle" font-size="10.5"
+              font-family="ui-monospace,monospace" fill="currentColor">strategy.json</text>
+        <text x="654" y="58" text-anchor="middle" font-size="9.5"
+              fill="currentColor" opacity=".75">Planner</text>
+
+        <path d="M294 66 L294 92 L360 92" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <path d="M494 66 L494 92 L400 92" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <path d="M654 66 L654 92 L410 92" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <line x1="380" y1="92" x2="380" y2="112" stroke="currentColor"
+              stroke-width="1.4" marker-end="url(#w-ar)"/>
+
+        <!-- ── step 0 ───────────────────────────────────────── -->
+        <rect x="250" y="116" width="260" height="46" fill="none"
+              stroke="currentColor" stroke-width="1.6"/>
+        <text x="380" y="136" text-anchor="middle" font-size="12"
+              font-weight="600" fill="currentColor">step 0 · context</text>
+        <text x="380" y="152" text-anchor="middle" font-size="10"
+              font-family="ui-monospace,monospace" fill="currentColor">step0_context.load()</text>
+
+        <line x1="380" y1="162" x2="380" y2="184" stroke="currentColor"
+              stroke-width="1.4" marker-end="url(#w-ar)"/>
+
+        <!-- ctx (memory) -->
+        <rect x="216" y="188" width="328" height="56" fill="none"
+              stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 3"/>
+        <text x="228" y="206" font-size="11" font-weight="600"
+              fill="currentColor">ctx</text>
+        <text x="272" y="206" font-size="9.5" fill="currentColor" opacity=".75">AnalysisContext — in memory, never written</text>
+        <text x="240" y="228" font-size="10" font-family="ui-monospace,monospace" fill="currentColor">plan</text>
+        <text x="240" y="240" font-size="8.5" fill="currentColor" opacity=".7">the question</text>
+        <text x="345" y="228" font-size="10" font-family="ui-monospace,monospace" fill="currentColor">data</text>
+        <text x="345" y="240" font-size="8.5" fill="currentColor" opacity=".7">the only numbers</text>
+        <text x="455" y="228" font-size="10" font-family="ui-monospace,monospace" fill="currentColor">caveats</text>
+        <text x="455" y="240" font-size="8.5" fill="currentColor" opacity=".7">the limits</text>
+
+        <!-- preflight gate -->
+        <line x1="544" y1="216" x2="604" y2="216" stroke="#C0563F" stroke-width="1.3"/>
+        <polygon points="670,188 606,216 670,244 734,216" fill="none"
+                 stroke="#C0563F" stroke-width="1.6"/>
+        <text x="670" y="211" text-anchor="middle" font-size="9"
+              font-weight="600" fill="#C0563F">preflight:</text>
+        <text x="670" y="223" text-anchor="middle" font-size="8.5" fill="#C0563F">is any frame here?</text>
+
+        <path d="M734 216 L800 216 L800 673 L518 673" fill="none"
+              stroke="#C0563F" stroke-width="1.4" stroke-dasharray="5 3"
+              marker-end="url(#w-gate)"/>
+        <text x="808" y="430" font-size="9" fill="#C0563F">no —</text>
+        <text x="808" y="442" font-size="9" fill="#C0563F">skip 1&#8211;3,</text>
+        <text x="808" y="454" font-size="9" fill="#C0563F">still</text>
+        <text x="808" y="466" font-size="9" fill="#C0563F">report</text>
+
+        <line x1="380" y1="244" x2="380" y2="268" stroke="currentColor"
+              stroke-width="1.4" marker-end="url(#w-ar)"/>
+
+        <!-- ── step 1 ───────────────────────────────────────── -->
+        <rect x="250" y="272" width="260" height="46" fill="none"
+              stroke="currentColor" stroke-width="1.6"/>
+        <text x="380" y="292" text-anchor="middle" font-size="12"
+              font-weight="600" fill="currentColor">step 1 · compare</text>
+        <text x="380" y="308" text-anchor="middle" font-size="10"
+              font-family="ui-monospace,monospace" fill="currentColor">step1_compare.compare_all()</text>
 
         <!-- ELM server -->
-        <rect x="470" y="120" width="150" height="72" rx="4" fill="none" stroke="#0E6E7A" stroke-width="1.4" stroke-dasharray="5 3"/>
-        <text x="545" y="145" text-anchor="middle" font-size="12" font-weight="600" fill="#0E6E7A">ELM server</text>
-        <text x="545" y="163" text-anchor="middle" font-size="11" fill="#0E6E7A">compare package</text>
-        <text x="545" y="180" text-anchor="middle" font-size="11" fill="#0E6E7A">measures only</text>
-        <line x1="420" y1="146" x2="466" y2="146" stroke="#0E6E7A" stroke-width="1.4" marker-end="url(#ar-a)"/>
-        <line x1="466" y1="170" x2="424" y2="170" stroke="#0E6E7A" stroke-width="1.4" marker-end="url(#ar-a)"/>
-        <text x="443" y="139" text-anchor="middle" font-size="9.5" fill="#0E6E7A">rows</text>
-        <text x="443" y="188" text-anchor="middle" font-size="9.5" fill="#0E6E7A">numbers</text>
+        <rect x="580" y="266" width="180" height="58" fill="none"
+              stroke="#2E8C99" stroke-width="1.4" stroke-dasharray="7 3"/>
+        <text x="670" y="286" text-anchor="middle" font-size="11"
+              font-weight="600" fill="#2E8C99">ELM server</text>
+        <text x="670" y="301" text-anchor="middle" font-size="9.5" fill="#2E8C99">compare package</text>
+        <text x="670" y="315" text-anchor="middle" font-size="9" fill="#2E8C99">measures, never grades</text>
+        <line x1="510" y1="286" x2="576" y2="286" stroke="#2E8C99" stroke-width="1.3"/>
+        <line x1="576" y1="306" x2="514" y2="306" stroke="#2E8C99" stroke-width="1.3" marker-end="url(#w-ar)"/>
 
-        <!-- step 2 -->
-        <rect x="180" y="236" width="240" height="66" rx="4" fill="none" stroke="currentColor" stroke-width="1.4"/>
-        <text x="300" y="260" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">step 2 · investigate</text>
-        <text x="300" y="277" text-anchor="middle" font-size="11" fill="currentColor">a model writes the code</text>
-        <text x="300" y="293" text-anchor="middle" font-size="11" fill="currentColor">pandas computes it</text>
-        <line x1="300" y1="192" x2="300" y2="232" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
-        <text x="308" y="216" font-size="9.5" fill="currentColor">what was measured + caveats</text>
+        <!-- comparison.json -->
+        <rect x="30" y="266" width="170" height="58" fill="none"
+              stroke="currentColor" stroke-width="1.3"/>
+        <line x1="37" y1="266" x2="37" y2="324" stroke="currentColor" stroke-width="1.3"/>
+        <text x="118" y="285" text-anchor="middle" font-size="10.5"
+              font-family="ui-monospace,monospace" fill="currentColor">comparison.json</text>
+        <text x="118" y="300" text-anchor="middle" font-size="9" fill="currentColor" opacity=".75">4 observable plots</text>
+        <text x="118" y="313" text-anchor="middle" font-size="9" fill="currentColor" opacity=".75">+ 1 station map = 5</text>
+        <line x1="246" y1="295" x2="204" y2="295" stroke="currentColor"
+              stroke-width="1.3" marker-end="url(#w-ar)"/>
 
-        <!-- step 3 -->
-        <rect x="180" y="330" width="240" height="52" rx="4" fill="none" stroke="currentColor" stroke-width="1.4"/>
-        <text x="300" y="352" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">step 3 · interpret</text>
-        <text x="300" y="369" text-anchor="middle" font-size="11" fill="currentColor">model judges · code audits</text>
-        <line x1="300" y1="302" x2="300" y2="326" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+        <line x1="380" y1="318" x2="380" y2="348" stroke="currentColor"
+              stroke-width="1.4" marker-end="url(#w-ar)"/>
+
+        <!-- ── step 2 ───────────────────────────────────────── -->
+        <rect x="216" y="352" width="328" height="122" fill="none"
+              stroke="currentColor" stroke-width="1.6"/>
+        <text x="380" y="372" text-anchor="middle" font-size="12"
+              font-weight="600" fill="currentColor">step 2 · investigate</text>
+
+        <rect x="236" y="382" width="132" height="38" fill="none"
+              stroke="#2E8C99" stroke-width="1.5"/>
+        <text x="302" y="398" text-anchor="middle" font-size="10"
+              font-weight="600" fill="#2E8C99">propose()</text>
+        <text x="302" y="411" text-anchor="middle" font-size="8.5" fill="#2E8C99">model writes specs + code</text>
+
+        <line x1="368" y1="401" x2="388" y2="401" stroke="currentColor"
+              stroke-width="1.3" marker-end="url(#w-ar)"/>
+
+        <rect x="392" y="382" width="132" height="38" fill="none"
+              stroke="currentColor" stroke-width="1.4"/>
+        <text x="458" y="398" text-anchor="middle" font-size="10"
+              font-weight="600" fill="currentColor">script_runner.run()</text>
+        <text x="458" y="411" text-anchor="middle" font-size="8.5" fill="currentColor">subprocess, 180 s cap</text>
+
+        <path d="M458 420 L458 432 L380 432" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <polygon points="380,424 356,441 380,458 404,441" fill="none"
+                 stroke="#C0563F" stroke-width="1.5"/>
+        <text x="380" y="438" text-anchor="middle" font-size="8.5" fill="#C0563F">result is a dict</text>
+        <text x="380" y="449" text-anchor="middle" font-size="8.5" fill="#C0563F">with n &#8805; 3?</text>
+
+        <!-- step 2 artifacts -->
+        <rect x="580" y="368" width="180" height="72" fill="none"
+              stroke="currentColor" stroke-width="1.3"/>
+        <line x1="587" y1="368" x2="587" y2="440" stroke="currentColor" stroke-width="1.3"/>
+        <text x="675" y="387" text-anchor="middle" font-size="10.5"
+              font-family="ui-monospace,monospace" fill="currentColor">investigation.json</text>
+        <text x="675" y="403" text-anchor="middle" font-size="10.5"
+              font-family="ui-monospace,monospace" fill="currentColor">investigation_plan.md</text>
+        <text x="675" y="419" text-anchor="middle" font-size="9" fill="currentColor" opacity=".75">up to 5 figures</text>
+        <text x="675" y="432" text-anchor="middle" font-size="9" fill="currentColor" opacity=".75">+ the .py that drew each</text>
+        <line x1="544" y1="401" x2="576" y2="401" stroke="currentColor"
+              stroke-width="1.3" marker-end="url(#w-ar)"/>
+
+        <line x1="380" y1="474" x2="380" y2="500" stroke="currentColor"
+              stroke-width="1.4" marker-end="url(#w-ar)"/>
+
+        <!-- ── step 3 ───────────────────────────────────────── -->
+        <rect x="216" y="504" width="328" height="112" fill="none"
+              stroke="currentColor" stroke-width="1.6"/>
+        <text x="380" y="524" text-anchor="middle" font-size="12"
+              font-weight="600" fill="currentColor">step 3 · interpret</text>
+
+        <rect x="248" y="534" width="264" height="34" fill="none"
+              stroke="#2E8C99" stroke-width="1.5"/>
+        <text x="380" y="549" text-anchor="middle" font-size="10"
+              font-weight="600" fill="#2E8C99">interpret() — model reads findings + figures</text>
+        <text x="380" y="561" text-anchor="middle" font-size="8.5" fill="#2E8C99">returns claims, answer, verdict</text>
+
+        <line x1="380" y1="568" x2="380" y2="578" stroke="currentColor" stroke-width="1.3"/>
+        <rect x="248" y="578" width="264" height="30" fill="none"
+              stroke="#C0563F" stroke-width="1.6"/>
+        <text x="380" y="591" text-anchor="middle" font-size="10"
+              font-weight="600" fill="#C0563F">audit() — pure code, no model</text>
+        <text x="380" y="603" text-anchor="middle" font-size="8.5" fill="#C0563F">cites · declared_values · respects</text>
+
+        <rect x="580" y="516" width="180" height="44" fill="none"
+              stroke="currentColor" stroke-width="1.3"/>
+        <line x1="587" y1="516" x2="587" y2="560" stroke="currentColor" stroke-width="1.3"/>
+        <text x="670" y="535" text-anchor="middle" font-size="10.5"
+              font-family="ui-monospace,monospace" fill="currentColor">interpretation.json</text>
+        <text x="670" y="550" text-anchor="middle" font-size="9" fill="currentColor" opacity=".75">kept + struck claims</text>
+        <line x1="544" y1="538" x2="576" y2="538" stroke="currentColor"
+              stroke-width="1.3" marker-end="url(#w-ar)"/>
 
         <!-- loop back -->
-        <path d="M180 356 L140 356 L140 269 L176 269" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar)"/>
-        <text x="134" y="313" text-anchor="end" font-size="9.5" fill="currentColor">insufficient,</text>
-        <text x="134" y="325" text-anchor="end" font-size="9.5" fill="currentColor">once</text>
+        <path d="M216 592 L172 592 L172 413 L212 413" fill="none"
+              stroke="#C0563F" stroke-width="1.4" stroke-dasharray="5 3"
+              marker-end="url(#w-gate)"/>
+        <text x="166" y="496" text-anchor="end" font-size="9" fill="#C0563F">verdict</text>
+        <text x="166" y="507" text-anchor="end" font-size="9" fill="#C0563F">insufficient</text>
+        <text x="166" y="518" text-anchor="end" font-size="9" fill="#C0563F">— once</text>
 
-        <!-- evidence into step 3 -->
-        <path d="M420 158 L640 158 L640 348 L426 348" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
-        <text x="652" y="256" font-size="9.5" fill="currentColor">step 1 findings</text>
-        <text x="652" y="269" font-size="9.5" fill="currentColor">+ figures</text>
+        <line x1="380" y1="616" x2="380" y2="646" stroke="currentColor"
+              stroke-width="1.4" marker-end="url(#w-ar)"/>
 
-        <!-- step 4 -->
-        <rect x="700" y="330" width="140" height="52" rx="4" fill="none" stroke="currentColor" stroke-width="1.4"/>
-        <text x="770" y="352" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">step 4 · report</text>
-        <text x="770" y="369" text-anchor="middle" font-size="11" fill="currentColor">analysis.json</text>
-        <line x1="420" y1="356" x2="696" y2="356" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+        <!-- ── step 4 ───────────────────────────────────────── -->
+        <rect x="250" y="650" width="260" height="46" fill="none"
+              stroke="currentColor" stroke-width="1.6"/>
+        <text x="380" y="670" text-anchor="middle" font-size="12"
+              font-weight="600" fill="currentColor">step 4 · report</text>
+        <text x="380" y="686" text-anchor="middle" font-size="10"
+              font-family="ui-monospace,monospace" fill="currentColor">step4_report.build() + write()</text>
+
+        <line x1="380" y1="696" x2="380" y2="726" stroke="currentColor"
+              stroke-width="1.4" marker-end="url(#w-ar)"/>
+
+        <rect x="250" y="730" width="260" height="52" fill="none"
+              stroke="currentColor" stroke-width="2"/>
+        <line x1="258" y1="730" x2="258" y2="782" stroke="currentColor" stroke-width="2"/>
+        <text x="384" y="751" text-anchor="middle" font-size="12"
+              font-weight="600" font-family="ui-monospace,monospace"
+              fill="currentColor">analysis.json</text>
+        <text x="384" y="769" text-anchor="middle" font-size="9.5"
+              fill="currentColor" opacity=".75">the Analyzer's only boundary artifact</text>
+
+        <text x="560" y="751" font-size="9.5" fill="currentColor" opacity=".75">assembled, never recomputed</text>
+        <text x="560" y="765" font-size="9.5" fill="currentColor" opacity=".75">status: one of four</text>
+
+        <text x="384" y="804" text-anchor="middle" font-size="9.5"
+              fill="currentColor" opacity=".75">&#43; analysis.pptx &#8212; a second rendering of the same dict, never a second report</text>
       </svg>
     </div>
-    <figcaption>Solid arrows are data. The dashed box is the only part that
-      knows what H2OSNO means; everything else in this picture works the same
-      for a PFLOTRAN run.</figcaption>
+    <figcaption><strong>Five figures means four plots plus one map.</strong>
+      Step 1 draws one plot per observable — snow water equivalent, water table,
+      streamflow, evapotranspiration — plus a single map showing the sampled
+      columns against the observation stations. Step 2 adds up to five more, and
+      those are chosen by a model rather than fixed.</figcaption>
   </figure>
+
+  <p><code>extracted.json</code> is drawn above the Analyzer because it is not
+     the Analyzer's input. The backend extractor writes it from the native
+     simulation output; the Experiment Manager reads it, builds one row per
+     column, joins the sampling metadata on, and writes those rows <em>into</em>
+     <code>experiment.json</code>. By the time the Analyzer runs, everything it
+     needs is inside <code>experiment.json</code>, which is why the Analyzer
+     never opens <code>extracted.json</code> and works identically on an
+     archived study whose simulation output has been purged.</p>
 </section>
 
-<section>
-  <span class="eyebrow">Step by step</span>
-  <h2>What each step is allowed to do</h2>
+<!-- ══════════════════════════════════════════════════════ 4 ══ -->
+<section id="s4">
+  <span class="eyebrow">4</span>
+  <h2>Step-by-step execution</h2>
+  <p>The coordinator is <code>Analyzer.run()</code> in
+     <code>src/agents/analyzer.py</code>. It creates <code>04_analysis/</code>,
+     then calls the five steps in order. It decides sequence and nothing else —
+     no step's content is chosen there.</p>
 
-  <div class="step">
-    <div class="step-rail">
-      <span class="step-n">step 0</span>
-      <span class="io"><b>reads</b>reception.json<br>strategy.json<br>experiment.json</span>
-      <span class="io"><b>returns</b>plan · data · caveats</span>
-    </div>
-    <div class="step-body">
-      <h3>Context — split three ways, on purpose</h3>
-      <p><strong>plan</strong> is the question and is never a source of results.
-         <strong>data</strong> is the evidence and is the only place a reported
-         number may come from. <strong>caveats</strong> are neither: they bound
-         what the evidence is allowed to support.</p>
-      <p>It also builds the frames the figure step works in, one per axis
-         combination: <code>df</code> is one value per date,
-         <code>soil</code> is one value per day <em>per layer</em> with each
-         layer's own thickness, and <code>prof</code> is PFLOTRAN's yearly
-         snapshots by depth. Forcing a layered field into the daily frame
-         means dropping an axis, and dropping the layer axis is the bug this
-         split was built after.</p>
-      <p class="rule-note">A variable whose values do not number the same as
-         its dates is <strong>withheld and named</strong> rather than zipped.
-         That check is what stopped <code>H2OSOI</code> entering the frame as
-         the first three weeks of the soil profile wearing a year of dates.</p>
-      <p class="rule-note">Since 2026-08-13 the rows in <code>experiment.json</code>
-         are themselves built from <code>03_results/extracted.json</code> rather
-         than in the same pass that opened the NetCDF. So a number in the report
-         traces back through step 0 to a file that outlives the scratch
-         filesystem the model wrote to — which is the property the rest of this
-         page depends on and did not previously have.</p>
-    </div>
-  </div>
+  <!-- ─────────────────────────── step 0 ─────────────────────────── -->
+  <div class="stepcard">
+    <h3>Step 0 — Context</h3>
+    <table class="spec">
+      <tr><th>Purpose</th><td>Read the three upstream boundary artifacts and split them into the question, the evidence, and the limits on inference.</td></tr>
+      <tr><th>Implemented in</th><td><code>src/agents/analysis/step0_context.py</code></td></tr>
+      <tr><th>Entry function</th><td><code>load(run_dir) → AnalysisContext</code></td></tr>
+      <tr><th>Called by</th><td><code>Analyzer.run()</code>; also directly by anyone re-running a later step alone</td></tr>
+      <tr><th>Reads from disk</th><td><code>reception.json</code>, <code>strategy.json</code>, <code>experiment.json</code>, resolved through <code>core.run_layout</code>. <strong>This is the only step that opens a boundary artifact.</strong></td></tr>
+      <tr><th>In-memory inputs</th><td>none — a run directory path</td></tr>
+      <tr><th>Functions called</th><td><code>_read()</code>, <code>_caveats()</code>, <code>_station_ids()</code>, <code>_EXPERIMENT.take()</code> (a <code>KeySet</code>)</td></tr>
+      <tr><th>Model involvement</th><td><strong>None.</strong></td></tr>
+      <tr><th>Returns</th><td><code>AnalysisContext</code> — an in-memory object with <code>plan</code>, <code>data</code>, <code>caveats</code>, <code>sources</code>, the frame builders <code>series()</code>, <code>soil()</code>, <code>profiles()</code>, and two questions about the run as a whole: <code>preflight()</code> and <code>planned_vs_actual()</code></td></tr>
+      <tr><th>Writes</th><td><strong>Nothing.</strong></td></tr>
+      <tr><th>Validation</th><td><code>_EXPERIMENT.take()</code> raises if <code>experiment.json</code> carries a top-level key the list neither keeps nor drops. <code>series()</code> refuses any variable whose value count does not match its date count, and records why in <code>series_withheld</code>.</td></tr>
+      <tr><th>Failure behavior</th><td>Missing <code>experiment.json</code> raises <code>FileNotFoundError</code> with the reason. <code>Analyzer.run()</code> catches it and <strong>ends the box</strong> — this is the one failure that stops everything, because no later step has an input without it.</td></tr>
+      <tr><th>Retry</th><td>None.</td></tr>
+      <tr><th>Consumers</th><td>Steps 1, 2, 3 and 4 all take <code>ctx</code>.</td></tr>
+    </table>
 
-  <div class="step">
-    <div class="step-rail">
-      <span class="step-n">step 1</span>
-      <span class="io"><b>reads</b>ctx only</span>
-      <span class="io"><b>writes</b>comparison.json<br>4 figures + map</span>
-      <span class="io"><b>caveats</b>none</span>
-    </div>
-    <div class="step-body">
-      <h3>Compare — the server measures, this step makes it citable</h3>
-      <p>The measuring belongs to the model's own server, chosen from the run
-         rather than assumed: ELM's <code>compare</code> package handles swe,
-         water_table, streamflow and et — each matched then compared, returning
-         bias, RMSE, NSE, KGE and the diagnostics about the matching itself. It
-         offers no verdict, deliberately. A backend with no comparison
-         registered gets told so; it does not get ELM's.</p>
-      <p>It turns those numbers into <strong>findings step 3 may cite</strong>,
-         one per observable, carrying its figure. Without them a sentence about
-         an observation had nothing to cite and the audit struck it — the
-         interpreter could describe the model and was forbidden to say how it
-         compared.</p>
-      <p class="rule-note"><strong>It derives no caveats, as of 2026-08-13.</strong>
-         It used to add eight, including four blocking. Each restated as a
-         verdict a measurement the summary already carried —
-         <code>below_active_soil</code>, <code>onset_censored_columns</code>,
-         <code>gauges_exceeding_modelled_domain</code> — so the step was
-         measuring <em>and</em> ruling on the measurement, which is the one
-         thing its own docstring says it does not do. Understanding what the
-         scope and the model choice permit belongs to whoever interprets.</p>
-      <p class="rule-note">Streamflow matches nothing. A gauge measures an area,
-         so the ensemble mean stands against each gauge as context, and no
-         metric between them scores the model.</p>
-    </div>
-  </div>
-
-  <div class="step">
-    <div class="step-rail">
-      <span class="step-n">step 2</span>
-      <span class="io"><b>reads</b>ctx + step 1</span>
-      <span class="io"><b>writes</b>investigation.json<br>up to 5 figures</span>
-      <span class="io"><b>driven by</b>step 3</span>
-    </div>
-    <div class="step-body">
-      <span class="llm">1 model call per round · then N subprocesses</span>
-      <h3>Investigate — the model decides, the machine computes</h3>
-      <p><strong>This step is where the arithmetic happens.</strong> The model is
-         shown the question, the variable catalogue, the caveats and what the
-         comparison measured; it returns figure specs <em>with Python</em>. Step
-         2 then runs each script itself, in its own subprocess through
-         <code>script_runner</code> — a real timeout and crash isolation, which
-         <code>exec()</code> in-process cannot give. Each script must assign a
-         <code>result</code> dict and an <code>n</code>; a result with
-         <code>n</code> under 3 is rejected.</p>
-      <p>So two different actors work in this one step, and separating them is
-         the whole point: <strong>the model produces no number and the machine
-         makes no judgement</strong>. That is what lets step 3 check a claim
-         against the data it came from. Nothing here concludes anything.</p>
-      <p class="rule-note">There is no step-2 call in <code>Analyzer.run()</code>.
-         Step 3 owns the loop — <code>investigate_and_interpret</code> runs step
-         2, judges it, and may run it once more. The two are one bounded
-         exchange rather than two stages, because the thing being bounded is
-         how many times the reviewer may ask for more.</p>
-    </div>
-  </div>
-
-  <div class="step">
-    <div class="step-rail">
-      <span class="step-n">step 3</span>
-      <span class="io"><b>reads</b>ctx + steps 1, 2</span>
-      <span class="io"><b>writes</b>interpretation.json</span>
-    </div>
-    <div class="step-body">
-      <span class="llm">1 model call per round · sees the figures</span>
-      <h3>Interpret — the model judges, code audits the judgement</h3>
-      <p>It computes nothing of its own: a number with no finding behind it
-         cannot be checked against anything. It looks at the figures as images,
-         which is how it caught a soil-water trace that collapsed to zero every
-         fortnight — the fortnight being fifteen soil layers, cycling.</p>
-      <p>Then it returns a verdict. <strong>Insufficient sends step 2 back
-         once</strong>, with specific feedback; the second round's verdict
-         stands whatever it says.</p>
-    </div>
-  </div>
-
-  <div class="step">
-    <div class="step-rail">
-      <span class="step-n">step 4</span>
-      <span class="io"><b>reads</b>everything</span>
-      <span class="io"><b>writes</b>analysis.json</span>
-    </div>
-    <div class="step-body">
-      <h3>Report — assemble, recompute nothing</h3>
-      <p>Each surviving claim carries its evidence: the figure a reader can
-         look at and the script that produced the numbers. Struck claims travel
-         too, with the reason — deleting them would make the report look like
-         the reviewer never disagreed with anything.</p>
-      <p>It also records what the answer <em>cost</em>: LLM tokens and seconds
-         per step, the ensemble's compute, and how many rounds ran and why it
-         stopped. An answer that took one call and one that took six read the
-         same otherwise.</p>
-      <p class="rule-note">As of 2026-08-13 this is the only report the
-         framework produces. Until that morning a second interpreter ran
-         <em>after</em> this one on the chat path and printed its own answer
-         instead — over a payload with the comparison, the caveats and the
-         figures stripped out. Everything on this page describes the pipeline;
-         what a user actually read was the other thing. The coordinator now
-         prints <code>analysis.json</code>.</p>
-    </div>
-  </div>
-</section>
-
-<section>
-  <span class="eyebrow">Where it sits</span>
-  <h2>What the Analyzer is not allowed to do</h2>
-  <p>Three of these were enforced by deleting code rather than by adding a
-     rule, which is the only enforcement that cannot be argued around later.</p>
-  <table>
-    <thead><tr><th>not this</th><th>because</th></tr></thead>
-    <tbody>
-      <tr><td>Reach outside for data</td>
-          <td>Reception is the only component that does. Step 1 compares against
-              observations already fetched and persisted in
-              <code>reception.json</code>; refreshing them means re-running
-              reception.</td></tr>
-      <tr><td>Read the model's output format</td>
-          <td>The ELM server reads history files and publishes
-              <code>extracted.json</code>. The Analyzer reads the package, and
-              works identically over a PFLOTRAN run.</td></tr>
-      <tr><td>Take a second opinion</td>
-          <td>One interpreter, whose claims the audit can strike. Two produce
-              two answers and no way to choose between them.</td></tr>
-      <tr><td>Let the server pick the subject</td>
-          <td>The extractor measured; it does not also nominate which variables
-              matter. A <code>focus_variables</code> block that did exactly
-              that was deleted with the second interpreter it was written
-              for.</td></tr>
-    </tbody>
-  </table>
-</section>
-
-<section>
-  <span class="eyebrow">The audit</span>
-  <h2>Three mechanical checks, and what they caught</h2>
-  <p>These run in code, with no model in the loop, because a prompt cannot be
-     verified after the fact. This is where every caveat raised upstream
-     finally binds.</p>
-
-  <table>
-    <thead><tr><th>check</th><th>rule</th><th>what it stops</th></tr></thead>
-    <tbody>
-      <tr><td class="id">cites</td>
-          <td>the claim names a finding that exists</td>
-          <td>a sentence with no evidence behind it</td></tr>
-      <tr><td class="id">no_new</td>
-          <td>every value the claim <em>declares</em> appears in that finding</td>
-          <td>a rounded, restated or invented number — 31 for 31.4 breaks the
-              trace back to the data</td></tr>
-      <tr><td class="id">respects</td>
-          <td>a claim inside a blocking caveat's scope carries its id</td>
-          <td>an unrespected caveat looking exactly like a respected one</td></tr>
-    </tbody>
-  </table>
-
-  <h3 style="margin-top:6px;">What the audit caught, and what it revealed</h3>
-  <p>On the 2026-08-13 verification runs the audit struck <strong>9 of 14
-     claims</strong>. Every struck value turned out to be a real measurement
-     from that run, cited under the wrong id — so the audit was right fourteen
-     times out of fourteen, and the failure was upstream of it.</p>
-
-  <div class="quote">
-    <span class="said">"Against the two co-located SNOTEL pillows, modelled SWE
-      is biased low but tracks the seasonal shape…"</span>
-    <span class="why">Struck: declared −85.8531, 196.9291, 0.2867 and 0.4612
-      while citing <code>swe_snotel_validation</code>. Those four numbers live
-      in <code>compare_swe</code>. The claim named the finding whose
-      <em>subject</em> matched, not the one its numbers came from.</span>
-  </div>
-
-  <p>Tracing all 15 struck values: <strong>8 sat in a
-     <code>compare_*</code> finding</strong>, 6 in a different step-2 finding,
-     1 nowhere. Two causes, both in how the evidence was shown rather than in
-     the rule:</p>
-  <table>
-    <thead><tr><th>cause</th><th>measured</th><th>fixed by</th></tr></thead>
-    <tbody>
-      <tr><td>Step 1's findings were rendered as a prose block while step 2's
-              were listed with ids — though the audit accepts both.</td>
-          <td>8 of 15 values</td>
-          <td>one uniform <code>FINDINGS:</code> list holding exactly what the
-              audit accepts. The verification asserts
-              ids-shown&nbsp;=&nbsp;ids-accepted.</td></tr>
-      <tr><td>A silent 700-character cap on each result. The model was shown a
-              fifth of a finding and told to quote from it exactly.</td>
-          <td><code>partition_fractions_vs_elevation</code> held 324 numbers;
-              292 were behind the cut. 5 of 10 findings truncated.</td>
-          <td>cap raised to 6,000 — nothing measured is cut — and when it does
-              cut it says so and forbids quoting from that finding.</td></tr>
-    </tbody>
-  </table>
-
-  <p class="rule-note">Re-running step 3 alone over the <em>same</em> step-2
-     findings, so only the prompt differed:
-     <strong>Naches 3 kept / 5 struck → 11 kept / 0 struck</strong>;
-     <strong>Brandywine 2 / 4 → 9 / 1</strong>. The one survivor is a
-     <code>respects</code> strike, not a misattribution — a water-table claim
-     that did not carry <code>limitation_structural_3</code>. Cost: about 1,300–1,700
-     extra prompt tokens against per-run totals of 40–78k.</p>
-</section>
-
-<section>
-  <span class="eyebrow">What binds a claim</span>
-  <h2>What a caveat is, and where the surviving ones come from</h2>
-  <p>A caveat is a <strong>record, not a sentence</strong> — five fields, so it
-     can be checked. An unrespected caveat written as prose looks exactly like a
-     respected one.</p>
-  <pre style="background:var(--panel);border:1px solid var(--rule);border-radius:6px;
-              padding:14px 18px;overflow-x:auto;font-size:.82rem;
-              font-family:var(--mono);color:var(--ink-2);margin:0;">{"id": "limitation_structural_2",
- "severity": "blocking",
- "statement": "Local runoff generation on a 1 m² column, not routed discharge…",
+    <h4>plan, data, caveats — what each is for</h4>
+    <p><strong><code>plan</code> is the question.</strong> The user's request,
+       the basin, the simulated years, the sampling design, the feasibility
+       verdict. A later step reads it to know what is being asked.
+       <em>It is never a source of numbers.</em> A figure count or a column
+       count that appears only in <code>plan</code> is a statement of intent —
+       what was designed — and the run may not have delivered it.</p>
+    <p><strong><code>data</code> is the evidence.</strong> The per-column rows
+       with their daily series and metrics, the ensemble-level blocks, the
+       units, and the observations Reception fetched. This is the only place a
+       reported number may come from, and step 3's audit enforces it: a value a
+       claim declares must appear in the finding it cites, and every finding is
+       computed from <code>data</code>.</p>
+    <p><strong><code>caveats</code> are the limits.</strong> Not intent, not
+       evidence — they say what the evidence is <em>not allowed to support</em>.
+       Every caveat is a five-field record, which is what makes it checkable:</p>
+    <pre>{"id":         "limitation_structural_2",
+ "severity":   "blocking",
+ "statement":  "Local runoff generation on a 1 m² column, not routed discharge…",
  "applies_to": "any comparison against a stream gauge",
- "source": "experiment.json:limitations"}</pre>
-  <p>Severity is what the caveat <em>does</em> to a claim, not how bad it sounds.
-     <span class="pill p-block">blocking</span> — the claim must not be made, or
-     must carry the id, and this is the only one the audit enforces.
-     <span class="pill p-qual">qualify</span> — may be made, stated with this
-     attached. <span class="pill p-ctx">context</span> — worth knowing,
-     constrains nothing by itself.</p>
-  <p><code>applies_to</code> is not decoration: step 3 matches a claim's own
-     words against it. Scope wording that names the <em>subject</em> ("recharge,
-     drainage and any water-table claim") works; wording that names the
-     <em>machinery</em> ("the water_table comparison") does not.</p>
+ "source":     "experiment.json:limitations"}</pre>
+    <p>Severity is what the caveat <em>does</em>, not how serious it sounds.
+       <span class="pill p-block">blocking</span> — the claim must not be made,
+       or must carry the id; this is the only severity the audit enforces.
+       <span class="pill p-qual">qualify</span> and
+       <span class="pill p-ctx">context</span> travel to the report and
+       constrain nothing mechanically.</p>
+    <p><code>applies_to</code> is the field the audit matches against, not the
+       statement. Scope wording that names the <em>subject</em> ("recharge,
+       drainage and any water-table claim") works; wording that names the
+       <em>machinery</em> ("the water_table comparison") does not.</p>
 
-  <h3 style="margin-top:10px;">One producer now, not three</h3>
-  <p>As of 2026-08-13 caveats come from <strong>step 0 alone</strong> — read out
-     of <code>experiment.json</code>, where the Experiment Manager put them.
-     They say what the study's scope and the model choices allow, which is what
-     a caveat was for. On both runs: 14, of which 5 blocking.</p>
+    <h4>Why <code>df</code>, <code>soil</code> and <code>prof</code> are three frames</h4>
+    <p>Each holds a different combination of axes, and merging them would mean
+       dropping one.</p>
+    <table>
+      <thead><tr><th>frame</th><th>built by</th><th>one row is</th><th>columns</th></tr></thead>
+      <tbody>
+        <tr><td class="id">df</td><td><code>ctx.series()</code></td><td>one value per date per column</td>
+            <td><code>date · entity · variable · value · units · source</code></td></tr>
+        <tr><td class="id">soil</td><td><code>ctx.soil()</code></td><td>one value per date per <em>layer</em> per column</td>
+            <td>adds <code>layer · depth_m · thickness_m · depth_top_m · depth_bottom_m</code></td></tr>
+        <tr><td class="id">prof</td><td><code>ctx.profiles()</code></td><td>one value per output time per depth</td>
+            <td><code>entity · time_y · depth_m · variable · value · units · source</code></td></tr>
+      </tbody>
+    </table>
+    <p><strong>An axis mismatch, in one example.</strong> A 15-layer column
+       simulated for a year has 352 dates and 5,280 SOILLIQ values — one per day
+       per layer. Pairing those two lists directly does not fail; it stops at
+       the shorter one, producing 352 values that are actually the first 23 days
+       of the soil profile, labelled with a year of dates. Every check passes:
+       the column exists, the dates are real, the units are right.
+       <code>series()</code> therefore <strong>refuses</strong> any variable
+       whose counts disagree, and records the reason in
+       <code>series_withheld</code>, which step 2's brief prints. A
+       depth-resolved variable is not an error — it is routed to
+       <code>soil</code>, where the layer axis survives.</p>
+    <p>A mean over <code>soil</code> must be weighted by
+       <code>thickness_m</code>. ELM's layers span 1.75 cm to 13.85 m, so an
+       unweighted mean reports the bedrock.
+       <span class="mark">Documented in the prompt and the module docstring;
+       not mechanically enforced.</span></p>
+  </div>
+
+  <!-- ──────────────────── the preflight gate ────────────────────── -->
+  <div class="stepcard">
+    <h3>Between 0 and 1 — the preflight gate</h3>
+    <p>Not a step. One question asked once, after the context is built and
+       before anything is spent on it: <em>is there anything here to
+       analyse?</em></p>
+    <table class="spec">
+      <tr><th>Implemented in</th><td><code>AnalysisContext.preflight()</code> in <code>step0_context.py</code>, reached through <code>step2_investigate.preflight_of(ctx)</code></td></tr>
+      <tr><th>Called by</th><td><code>Analyzer.run()</code>, immediately after step 0; and again by step 2 for its own filter and brief</td></tr>
+      <tr><th>Returns</th><td><code>frames · variables · withheld · feasibility · unmet_plan_targets · n_columns · blocked</code></td></tr>
+      <tr><th>Model involvement</th><td><strong>None.</strong></td></tr>
+      <tr><th>Effect when <code>blocked</code></th><td>Steps 1, 2 and 3 are skipped and recorded as <code>False</code>. Step 4 <strong>still runs</strong> and writes a report with status <code>insufficient_evidence</code>.</td></tr>
+    </table>
+    <p><code>blocked</code> is set in exactly two cases, both about the run
+       rather than the science: the run packaged no columns at all, or no
+       column produced a series, a soil layer or a depth profile — meaning
+       every script step 2 could write would fail on the same missing frame.
+       Anything subtler than that is not the gate's business.</p>
+    <p><strong>Why it exists.</strong> Before it, a run whose columns carried
+       no usable series still reached step 2, spent a model call on five figure
+       specifications, and learned the frames were empty one subprocess at a
+       time. One earlier study spent both rounds and four model calls to
+       establish that the field it needed was in no frame. The information was
+       available the moment step 0 returned.</p>
+    <p><strong>The gate does not judge the science.</strong> It reports what
+       the packaged run contains. Whether the contents answer the user's
+       question is step 3's to say, and a run that passes preflight can still
+       end at <code>insufficient_evidence</code> for entirely different
+       reasons.</p>
+    <p>Three consumers share the one computation. The gate uses
+       <code>blocked</code>; step 2's variable filter uses
+       <code>variables</code> to refuse a proposed figure whose variables are
+       in no frame; step 2's brief prints <code>withheld</code> so the model
+       proposes what exists. <code>feasibility</code> and
+       <code>unmet_plan_targets</code> carry the Planner's own verdict and
+       <code>planned_vs_actual()</code>'s check of it into the same record —
+       both were computed and read by nothing before this gate was written.</p>
+    <p class="mark"><strong>Fails open.</strong>
+       <code>preflight_of()</code> catches any exception and returns an empty
+       dict, so a fault in the gate cannot block a run that would otherwise
+       have worked. The one consequence is that step 2's variable filter turns
+       itself off when the inventory is empty — <code>can_filter =
+       bool(have)</code> — because an empty inventory means <em>not
+       measured</em>, not <em>nothing exists</em>, and treating those as the
+       same thing once refused every figure in a healthy run.</p>
+  </div>
+
+  <!-- ─────────────────────────── step 1 ─────────────────────────── -->
+  <div class="stepcard">
+    <h3>Step 1 — Compare</h3>
+    <table class="spec">
+      <tr><th>Purpose</th><td>Measure the simulation against the observations Reception fetched, and turn each measurement into evidence a later step may cite.</td></tr>
+      <tr><th>Implemented in</th><td><code>src/agents/analysis/step1_compare.py</code>; the comparisons themselves in <code>mcp/elm-mcp/src/compare/</code></td></tr>
+      <tr><th>Entry function</th><td><code>compare_all(ctx, out_dir, draw=True) → dict</code></td></tr>
+      <tr><th>Called by</th><td><code>Analyzer.run()</code></td></tr>
+      <tr><th>Reads from disk</th><td>Nothing itself. It passes <code>ctx.sources["reception"]</code> — a path — to the compare package, which opens it.</td></tr>
+      <tr><th>In-memory inputs</th><td><code>ctx.columns</code> (the rows), <code>ctx.data["model"]</code> (which backend's comparison to use)</td></tr>
+      <tr><th>Functions called</th><td><code>compare.compare_run()</code> in the ELM server; locally <code>as_findings()</code>, <code>format_comparison()</code>, <code>_n()</code></td></tr>
+      <tr><th>Model involvement</th><td><strong>None.</strong></td></tr>
+      <tr><th>Returns</th><td><code>dict</code> with <code>observables · summary · domain · note · caveats · findings · figures</code></td></tr>
+      <tr><th>Writes</th><td><code>04_analysis/comparison.json</code>, plus <code>compare_swe.png</code>, <code>compare_water_table.png</code>, <code>compare_streamflow.png</code>, <code>compare_et.png</code>, <code>comparison_spatial_map.png</code></td></tr>
+      <tr><th>Validation</th><td>The backend must be registered in <code>_COMPARE_MODULE</code>. An unregistered backend returns a record carrying <code>skipped</code> with the reason — not four empty comparisons.</td></tr>
+      <tr><th>Failure behavior</th><td>A missing <code>reception.json</code> raises. An unimportable compare package raises <code>RuntimeError</code> naming the path. <code>Analyzer.run()</code> catches either, marks the step failed, and <strong>continues</strong> to steps 2–4 with <code>comparison = {}</code>.</td></tr>
+      <tr><th>Retry</th><td>None.</td></tr>
+      <tr><th>Consumers</th><td>Step 2 (as context), step 3 (its findings are citable alongside step 2's), step 4 (figures + caveats)</td></tr>
+    </table>
+
+    <h4>Which parts of <code>ctx</code> it uses</h4>
+    <p>Exactly three: <code>ctx.data["model"]</code> to choose the comparison
+       package, <code>ctx.columns</code> for the rows, and
+       <code>ctx.sources["reception"]</code> for the observation file's path. It
+       does not read <code>ctx.plan</code> or <code>ctx.caveats</code>.</p>
+
+    <h4>The four observables and the map</h4>
+    <table>
+      <thead><tr><th>observable</th><th>compared against</th><th>alignment</th><th>what the plot shows</th></tr></thead>
+      <tbody>
+        <tr><td class="id">swe</td><td>SNOTEL snow pillows</td>
+            <td>one column matched to one station, then compared</td>
+            <td>modelled and observed snow water equivalent through the year</td></tr>
+        <tr><td class="id">water_table</td><td>USGS recorder wells</td>
+            <td>one column matched to one well</td>
+            <td>depths on a log axis, with a count of columns below the 3.8 m active soil base</td></tr>
+        <tr><td class="id">streamflow</td><td>USGS stream gauges</td>
+            <td><strong>no matching</strong> — the ensemble mean stands against each gauge</td>
+            <td>hydrograph shape, plus the drainage-area mismatch stated in orders of magnitude</td></tr>
+        <tr><td class="id">et</td><td>AmeriFlux towers</td>
+            <td>one column matched to one tower</td>
+            <td>metrics computed twice — measured half-hours only, and all pairs including gap-filled</td></tr>
+        <tr><td class="id">map</td><td>—</td><td>—</td>
+            <td>columns as points, stations coloured by observable and ringed when matched</td></tr>
+      </tbody>
+    </table>
+    <p>Streamflow is not matched because a gauge measures an integrated,
+       routed catchment and a column is 1 m² of unrouted local generation.
+       The comparison is reported with <code>colocated = false</code> and no
+       metric there scores the simulation.</p>
+
+    <h4>When a comparison cannot be made</h4>
+    <p>It returns a record saying so, and that record is still a finding. "No
+       gauge inside the basin had daily records that year" is a fact about the
+       basin; reporting it as an empty comparison would make it look like a
+       failed query. <strong>The comparison never returns a verdict</strong> —
+       "bias = −85.9 mm" is in the record, "the model underestimates snow" is
+       not. <code>comparison["caveats"]</code> is present and always empty:
+       archived runs written before this step stopped deriving caveats have
+       real entries there, and dropping the key would make old and new records
+       differently shaped.</p>
+  </div>
+
+  <!-- ─────────────────────────── step 2 ─────────────────────────── -->
+  <div class="stepcard">
+    <h3>Step 2 — Investigate</h3>
+    <table class="spec">
+      <tr><th>Purpose</th><td>Decide which figures answer the user's question, write the code that draws them, run it, and keep only the results that pass validation.</td></tr>
+      <tr><th>Implemented in</th><td><code>src/agents/analysis/step2_investigate.py</code>, executing through <code>src/agents/analysis/script_runner.py</code></td></tr>
+      <tr><th>Entry function</th><td><code>investigate(ctx, out_dir, step1, model, client, feedback, round_no) → dict</code></td></tr>
+      <tr><th>Called by</th><td><code>step3_interpret.investigate_and_interpret()</code> — <em>not</em> by <code>Analyzer.run()</code> directly</td></tr>
+      <tr><th>Reads from disk</th><td>Nothing.</td></tr>
+      <tr><th>In-memory inputs</th><td><code>ctx</code> (all three parts, plus the frames), the step-1 record, and <code>feedback</code> from step 3 on round 2</td></tr>
+      <tr><th>Functions called</th><td><code>context_brief()</code>, <code>propose()</code>, <code>_parse()</code>, <code>script_runner.run()</code>, <code>_blocked_by()</code>, <code>render_plan_md()</code></td></tr>
+      <tr><th>Model involvement</th><td><strong>One call per round</strong>, in <code>propose()</code>. Default model <code>claude-opus-5-project</code>; the client is labelled <code>step2_investigate</code> so step 4 can attribute the spend.</td></tr>
+      <tr><th>Returns</th><td><code>dict</code> with <code>round · notes · reasoning · findings · caveats · figures · plan_md · n_proposed · n_succeeded · responded_to_feedback</code></td></tr>
+      <tr><th>Writes</th><td><code>04_analysis/investigation.json</code>, <code>04_analysis/investigation_plan.md</code>, <code>04_analysis/step2_round&lt;n&gt;_prompt.txt</code> and <code>_reply.txt</code>, and per accepted figure <code>&lt;id&gt;.png</code> + <code>&lt;id&gt;.py</code></td></tr>
+      <tr><th>Validation</th><td>Six guards in the runner (below), plus id de-duplication and a hard cap of <code>MAX_PLOTS = 5</code> specs per round.</td></tr>
+      <tr><th>Failure behavior</th><td>A figure that fails becomes a <span class="pill p-ctx">context</span> caveat carrying the error text. The step continues with the others. It never raises for a bad script.</td></tr>
+      <tr><th>Retry</th><td>No retry of an individual script. The whole round may be re-run once — see step 3.</td></tr>
+      <tr><th>Consumers</th><td>Step 3 (findings, plan document, failure caveats), step 4 (figures, caveats, the plan's path)</td></tr>
+    </table>
+
+    <h4>What the model receives</h4>
+    <p><code>context_brief(ctx, step1)</code> builds it deterministically, so it
+       can be asserted on in a test without an API call. It contains: the
+       user's question; the run's shape; a catalogue of the variables actually
+       present in the frames <em>with the units they carry in the frame</em>;
+       the derived metrics and what each is computed from; which variables were
+       withheld and why; the blocking caveats quoted with their
+       <code>applies_to</code> scope; and step 1's measurements rendered by
+       <code>format_comparison()</code>.</p>
+    <p class="rule-note">The units come from the frame, not from
+       <code>ctx.data["variable_units"]</code>. Both maps are correct about
+       their own subject — the second describes the <em>raw</em> ELM variable
+       (QOVER in mm/s) while the frame holds daily values already converted to
+       mm/day. Printing the raw map under a heading about the frame is what once
+       led to a plot of 1.1 × 10⁶ mm/yr of runoff.</p>
+
+    <h4>What it produces, and how that is executed</h4>
+    <p>The model returns JSON, not prose: <code>reasoning</code>,
+       <code>notes</code>, and a list of figure specifications each with
+       <code>id</code>, <code>question</code>, <code>why</code>,
+       <code>scale</code>, <code>variables</code> and <code>code</code> — a
+       Python snippet. <strong>The model produces no numbers.</strong> Every
+       value in every finding is computed by pandas inside the executed script.
+       That is what makes step 3's audit possible: a claim can be checked
+       against the data it came from only if the data was computed by something
+       other than the thing making the claim.</p>
+
+    <h4>The execution boundary — what the generated code can actually do</h4>
+    <p>This is the one place in the framework where model-authored code runs. It
+       is worth being exact about the trust model.</p>
+    <table>
+      <thead><tr><th>property</th><th>current behavior</th></tr></thead>
+      <tbody>
+        <tr><td>Process</td><td>A separate <code>subprocess.run([sys.executable, script])</code>, never <code>exec()</code>. A hang or a native-extension crash cannot take the Analyzer with it.</td></tr>
+        <tr><td>Timeout</td><td><code>DEFAULT_TIMEOUT_S = 180</code>. Enforced by the subprocess, so it interrupts C-level pandas calls that <code>SIGALRM</code> would not.</td></tr>
+        <tr><td>Working directory</td><td>A fresh <code>tempfile.mkdtemp()</code>. All paths handed in are resolved to absolute first.</td></tr>
+        <tr><td>Bound names</td><td><code>df</code>, <code>prof</code>, <code>soil</code>, <code>columns</code>, <code>caveats</code>, <code>plt</code>, <code>np</code>, <code>pd</code>, <code>out_path</code> — delivered by pickling a payload the runner assembles.</td></tr>
+        <tr><td>Environment</td><td>An <strong>allowlist</strong> — <code>_child_env()</code>. Roughly 19 of 93 variables survive: <code>PATH</code>, <code>HOME</code>, the Python and conda paths, the geospatial stack's configuration. Everything else is dropped, so the USGS key, AmeriFlux credentials and HydroFrame PIN this deployment exports never reach a figure script. Deny by default, because a denylist only blocks the secrets someone remembered.</td></tr>
+        <tr><td>Resource ceilings</td><td><code>_limits()</code>, applied between fork and exec: 8&nbsp;GB address space, 300 CPU seconds, 512&nbsp;MB per file, no core dump. Each turns a runaway into a clean non-zero exit the caller reports as a caveat.</td></tr>
+        <tr><td>Scope guardrail</td><td><code>inspect_code()</code> parses the script with <code>ast</code> and refuses one that imports <code>subprocess</code>, <code>socket</code>, <code>requests</code> and friends, or calls <code>eval</code>/<code>exec</code>/<code>os.system</code>. Parsed, not regex-matched: <code>import subprocess</code> inside a string literal is not an import.</td></tr>
+        <tr><td class="warn">Still not a sandbox</td><td><span class="mark"><strong>Network access is not blocked</strong> — that needs namespaces or root. The proxy variables point at a dead port, which stops the libraries that honour them and nothing else; the real protection is that a script reaching the network has no credentials to authenticate with. Filesystem reads outside the run directory are not blocked, and the AST check is trivially bypassed by anything trying to. <strong>The threat model is carelessness, not malice.</strong></span></td></tr>
+      </tbody>
+    </table>
+
+    <h4>How numeric output is validated</h4>
+    <p>The script must assign a dict named <code>result</code>. Six guards run
+       in order, and each returns a reason rather than raising:</p>
+    <table>
+      <thead><tr><th>#</th><th>guard</th><th>rejected when</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>process exit</td><td>non-zero return code — the last stderr line is the reason</td></tr>
+        <tr><td>2</td><td><code>result</code> exists</td><td>the script never assigned it</td></tr>
+        <tr><td>3</td><td>serialisable</td><td><code>result</code> is not JSON-serialisable</td></tr>
+        <tr><td>4</td><td>shape</td><td><code>result</code> is not a dict</td></tr>
+        <tr><td>5</td><td><code>n</code></td><td>no numeric <code>n</code>, or <code>n &lt; MIN_N</code> (3)</td></tr>
+        <tr><td>6</td><td>figure</td><td><code>out_path</code> missing, or smaller than 3,000 bytes</td></tr>
+      </tbody>
+    </table>
+    <p>Guard 5 is the reason this file exists. A filter that matches nothing, a
+       merge on a misaligned key, or a <code>.dropna()</code> that removes
+       everything all return a clean, plausible, empty answer. Requiring the
+       script to state how many data points its claim rests on turns that from a
+       silent gap into a recorded failure.</p>
+
+    <h4>Reproducibility</h4>
+    <p>Each accepted figure leaves three things in <code>04_analysis/</code>:
+       the PNG, the <strong>complete executable script</strong> (preamble that
+       loads the payload, the generated body, postamble that writes the result)
+       and the finding in <code>investigation.json</code> carrying the numbers,
+       <code>n</code>, a <code>script_sha256</code> of the generated body, and
+       paths to both. <strong>A reviewer can open the <code>.py</code> and run
+       it</strong> — the preamble uses the pickled payload while it exists and
+       otherwise rebuilds it from the run directory, taking the same path step 0
+       takes. The hash covers the generated body rather than the assembled file,
+       because the preamble embeds temporary paths that differ between two runs
+       of the same analysis.</p>
+
+    <h4>The exchange, verbatim</h4>
+    <p><code>script_runner.save_exchange()</code> writes what the model was
+       shown and what it said, unparsed, as
+       <code>step2_round&lt;n&gt;_prompt.txt</code> and
+       <code>step2_round&lt;n&gt;_reply.txt</code>. Step 3 does the same under
+       <code>step3_</code>. Neither survived before; the reply came back from
+       <code>propose()</code> as <code>raw</code> and was dropped once parsed.
+       Two questions about a finished run therefore had no answer:</p>
+    <ul>
+      <li><strong>"Five figures were proposed and four appeared — what
+          happened to the fifth?"</strong> The four that parsed are on record.
+          One mangled on the way in left no trace it was ever proposed.</li>
+      <li><strong>"Did the parser change what the model meant?"</strong>
+          <code>_parse()</code> repairs replies that are not quite valid JSON —
+          escaping raw newlines inside generated Python, stripping comments.
+          Usually right. When it is wrong, the original was already gone.</li>
+    </ul>
+    <p>The <em>prompt</em> is kept for a specific reason, not for symmetry.
+       The worst defect this pipeline has had was a silent 700-character cap on
+       each finding: the model was shown a fifth of a result and told to quote
+       from it exactly, and the audit then struck nine of fourteen true claims.
+       Nobody could see that, because nobody could see what had been sent.</p>
+    <p>Saving both is also what makes an end-to-end test possible without
+       calling a model — a recorded reply replays identically and for nothing.
+       <code>tools/show_prompt.py --run-dir &lt;dir&gt; --step 2|3|both</code>
+       rebuilds the same prompts read-only, without running a comparison or
+       spending a call, for anyone who wants to read one before a run rather
+       than after.</p>
+    <p>Never fatal: a run that produced figures is not lost because a log could
+       not be written.</p>
+
+    <h4>The plan document</h4>
+    <p><code>render_plan_md()</code> writes
+       <code>investigation_plan.md</code> after the figures have run, so each
+       step carries its <em>outcome</em> rather than its intention. It is
+       rendered from the same structured record as
+       <code>investigation.json</code> and so cannot disagree with it; the only
+       model-authored prose in it is <code>reasoning</code> and each figure's
+       <code>why</code>, both attributed. Step 3 reads this file.</p>
+  </div>
+
+  <!-- ─────────────────────────── step 3 ─────────────────────────── -->
+  <div class="stepcard">
+    <h3>Step 3 — Interpret and audit</h3>
+    <table class="spec">
+      <tr><th>Purpose</th><td>Judge what the findings mean, then remove every claim that the evidence does not support.</td></tr>
+      <tr><th>Implemented in</th><td><code>src/agents/analysis/step3_interpret.py</code></td></tr>
+      <tr><th>Entry functions</th><td><code>interpret(ctx, comparison, investigation, out_dir, …)</code> for one pass; <code>investigate_and_interpret(ctx, out_dir, comparison, …)</code> for the bounded loop</td></tr>
+      <tr><th>Called by</th><td><code>Analyzer.run()</code> calls the loop, which calls step 2 and then <code>interpret()</code></td></tr>
+      <tr><th>Reads from disk</th><td>The figure PNGs (to attach as images) and <code>investigation_plan.md</code>.</td></tr>
+      <tr><th>In-memory inputs</th><td><code>ctx</code>, the step-1 record, the step-2 record</td></tr>
+      <tr><th>Functions called</th><td><code>review_brief()</code>, <code>_plan_text()</code>, <code>_render_result()</code>, <code>_content()</code>, <code>_encoded()</code>, <code>_parse()</code>, <code>audit()</code>, <code>required_caveats()</code>, <code>run_facts()</code>, <code>_flatten_numbers()</code></td></tr>
+      <tr><th>Model involvement</th><td><strong>One call per round</strong>, in <code>interpret()</code>. The figures are attached as images, downscaled to <code>MAX_IMAGE_PX = 1568</code> on the long edge.</td></tr>
+      <tr><th>Returns</th><td><code>dict</code> with <code>answer · verdict · feedback · claims · struck · audit · round</code></td></tr>
+      <tr><th>Writes</th><td><code>04_analysis/interpretation.json</code>, <code>04_analysis/step3_round&lt;n&gt;_prompt.txt</code> and <code>_reply.txt</code></td></tr>
+      <tr><th>Validation</th><td><code>audit()</code> — a pure function, no API call, fully unit-tested.</td></tr>
+      <tr><th>Failure behavior</th><td>A verdict that is neither <code>"sufficient"</code> nor <code>"insufficient"</code> is forced to <code>"insufficient"</code>: an unparseable verdict is not a pass. A raise anywhere here is caught by <code>Analyzer.run()</code>, which marks steps 2 and 3 failed and still runs step 4.</td></tr>
+      <tr><th>Retry</th><td>See "insufficient, once" below.</td></tr>
+      <tr><th>Consumers</th><td>Step 4.</td></tr>
+    </table>
+
+    <h4>What the interpreter receives</h4>
+    <p><code>review_brief()</code> assembles, in this order: the user's
+       question; the blocking caveats with their scopes; <strong>step 2's plan
+       document in full</strong> (capped at <code>PLAN_CAP = 8000</code>
+       characters); then one <code>FINDINGS:</code> list holding step 2's
+       findings and step 1's comparison findings <em>in the same shape</em>;
+       then any figures that failed. The figures themselves are attached as
+       images alongside the text.</p>
+    <p>The one-list rule is structural: <strong>whatever the audit will accept
+       is shown in one shape, under the id that has to be named.</strong> Each
+       finding's <code>result</code> is rendered whole if it fits
+       <code>RESULT_CAP = 6000</code> characters; when it must cut, it says so
+       and forbids quoting numbers from that finding.</p>
+
+    <h4>The schema of a candidate finding</h4>
+    <pre>{"id":         "annual_water_budget_by_elevation",   # what a claim must cite
+ "question":   "How do annual fluxes vary with elevation?",
+ "scale":      "overall" | "places",
+ "variables":  ["QOVER", "QDRAI", "QCHARGE"],
+ "result":     { … the numbers pandas computed …, "n": 9477 },
+ "figure":     "/…/04_analysis/annual_water_budget_by_elevation.png",
+ "script":     "/…/04_analysis/annual_water_budget_by_elevation.py",
+ "n":          9477,
+ "blocked_by": ["limitation_structural_1"]}   # computed, not model-declared</pre>
+    <p><code>blocked_by</code> is filled by <code>_blocked_by()</code>, which
+       matches a figure's <code>variables</code> against each blocking caveat's
+       <code>applies_to</code> field — case-sensitively, on word boundaries, and
+       against <code>applies_to</code> only. Case matters because ELM variable
+       names collide with ordinary English: matching <code>SNOW</code>
+       case-insensitively tagged every precipitation figure with a snow caveat.
+       Step 1's findings use the same schema with ids of the form
+       <code>compare_&lt;observable&gt;</code>.</p>
+
+    <h4>What the audit checks — the three rules, by name</h4>
+    <p>Each is a function, applied in this order; the first to object wins, and
+       a claim that passes all three is kept. A struck claim carries
+       <code>struck_by</code> — one of <code>AUDIT_RULES</code> — beside the
+       prose reason, so strikes can be counted per rule without parsing
+       English.</p>
+    <table>
+      <thead><tr><th>rule</th><th>function</th><th>what it requires</th>
+                 <th>proves</th><th>does not prove</th></tr></thead>
+      <tbody>
+        <tr><td class="id">cites</td>
+            <td><code>rule_cites()</code></td>
+            <td><code>finding_id</code> names a finding that exists</td>
+            <td>there is evidence behind the sentence, and it can be located</td>
+            <td>that the finding supports the sentence</td></tr>
+        <tr><td class="id">declared_values</td>
+            <td><code>rule_declared_values()</code></td>
+            <td>every entry of the claim's <code>values</code> list appears in
+                that finding's <code>result</code></td>
+            <td>no fabricated measurement survives</td>
+            <td>that the number means what the sentence says — a value used
+                with the wrong variable, unit, period or sign passes</td></tr>
+        <tr><td class="id">respects</td>
+            <td><code>rule_respects()</code></td>
+            <td>a claim whose own text is about a blocking caveat's subject
+                carries that caveat's id</td>
+            <td>a claim inside a forbidden scope acknowledges it explicitly</td>
+            <td>that the acknowledgement is meaningful — carrying the id
+                satisfies the rule</td></tr>
+      </tbody>
+    </table>
+    <p class="rule-note">The names used to exist only in prose. A reviewer sent
+       to find the function implementing <code>no_new</code> found three
+       anonymous blocks inside <code>audit()</code> and no such name anywhere in
+       the source. They are functions now, and <code>no_new</code> is gone as a
+       name because it described the rule this one <em>replaced</em> — a scan of
+       the sentence for any number not in the finding, which needed six
+       exemptions in a row and still struck correct claims.</p>
+    <p>Three deliberate exemptions widen "appears in that finding":
+       <code>run_facts(ctx)</code> allows the column count and the simulated
+       years, which are facts of record; every finding's own <code>n</code> is
+       allowed; and anything matching <code>_YEARLIKE</code> passes.</p>
+
+    <h4>The audit map — every check on the path, and which layer it belongs to</h4>
+    <p>Four distinct layers guard four distinct failures. Confusing them is easy
+       and consequential: a schema check cannot catch a bad sentence, and the
+       claim audit cannot catch a value that went missing three stages
+       earlier.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>check</th><th>layer</th><th>function</th><th>file</th>
+                 <th>input</th><th>rule</th><th>on failure</th><th>tests</th></tr></thead>
+      <tbody>
+        <tr><td class="id">unclassified key</td>
+            <td>evidence boundary</td>
+            <td><code>KeySet.check()</code></td><td>core/keyset.py</td>
+            <td>a producer's dict</td>
+            <td>every key is either kept or explicitly dropped</td>
+            <td class="r-raise">raises, naming key + artifact + list</td>
+            <td><span class="mark">none yet</span></td></tr>
+        <tr><td class="id">required summary keys</td>
+            <td>evidence boundary</td>
+            <td><code>validate_run_summary()</code></td><td>core/model_agent_base.py</td>
+            <td>a model agent's summary</td>
+            <td>four keys present; <code>status</code> is one of three values</td>
+            <td class="r-raise">raises</td>
+            <td><code>test_analyzer_wiring.py</code></td></tr>
+        <tr><td class="id">unknown runtime key</td>
+            <td>evidence boundary</td>
+            <td><code>GeneratedELMAgent.__init__()</code></td><td>elm-mcp/src/elm_wrapper.py</td>
+            <td>the planner's <code>runtime_config</code></td>
+            <td>every key is in <code>RUNTIME_KEYS</code></td>
+            <td class="r-raise">raises before the case is built</td>
+            <td><code>test_elm_wrapper.py::TestAnUnknownRuntimeKeyIsRefused</code></td></tr>
+        <tr><td class="id">axis mismatch</td>
+            <td>evidence boundary</td>
+            <td><code>_build_series()</code></td><td>analysis/step0_context.py</td>
+            <td>a packaged variable block</td>
+            <td>value count equals date count</td>
+            <td class="r-skip">withholds the variable, records why</td>
+            <td><code>test_analysis_step0.py</code></td></tr>
+        <tr><td class="id">nothing to analyse</td>
+            <td>feasibility</td>
+            <td><code>preflight()</code></td><td>analysis/step0_context.py</td>
+            <td>the whole context</td>
+            <td>at least one frame exists</td>
+            <td class="r-skip">skips steps 1–3 before any model call</td>
+            <td><code>test_analyzer_wiring.py::TestPreflightStopsBeforeTheModelIsAsked</code></td></tr>
+        <tr><td class="id">absent variable</td>
+            <td>feasibility</td>
+            <td>the filter in <code>investigate()</code></td><td>analysis/step2_investigate.py</td>
+            <td>a proposed figure's <code>variables</code></td>
+            <td>at least one named variable is in a frame</td>
+            <td class="r-skip">refuses the figure before running it; records why</td>
+            <td><code>test_analysis_step2.py::TestAFigureIsRefusedBeforeItCostsASubprocess</code></td></tr>
+        <tr><td class="id">empty result</td>
+            <td>computation result</td>
+            <td><code>script_runner.run()</code></td><td>analysis/script_runner.py</td>
+            <td>the executed script's <code>result</code></td>
+            <td>a dict with numeric <code>n</code> ≥ 3, and a figure on disk;
+                preceded by <code>inspect_code()</code> and the resource ceilings</td>
+            <td class="r-skip">returns a reason; becomes a caveat</td>
+            <td><code>test_analysis_step2.py</code></td></tr>
+        <tr><td class="id">cites</td>
+            <td><strong>claim audit</strong></td>
+            <td><code>rule_cites()</code></td><td>analysis/step3_interpret.py</td>
+            <td>a candidate claim</td>
+            <td><code>finding_id</code> exists</td>
+            <td class="r-skip">struck, <code>struck_by="cites"</code></td>
+            <td><code>test_analysis_step3.py::test_a_claim_citing_no_real_finding_is_struck</code></td></tr>
+        <tr><td class="id">declared_values</td>
+            <td><strong>claim audit</strong></td>
+            <td><code>rule_declared_values()</code></td><td>analysis/step3_interpret.py</td>
+            <td>a candidate claim + its finding</td>
+            <td>declared values are in the finding, or are facts of record</td>
+            <td class="r-skip">struck, <code>struck_by="declared_values"</code></td>
+            <td><code>…::test_a_declared_value_absent_from_the_finding_is_struck</code></td></tr>
+        <tr><td class="id">respects</td>
+            <td><strong>claim audit</strong></td>
+            <td><code>rule_respects()</code></td><td>analysis/step3_interpret.py</td>
+            <td>a candidate claim + its finding + the caveats</td>
+            <td>a claim in a blocking scope carries the id</td>
+            <td class="r-skip">struck, <code>struck_by="respects"</code></td>
+            <td><code>…::test_a_claim_about_a_caveats_subject_must_carry_it</code></td></tr>
+        <tr><td class="id">caveat scope match</td>
+            <td>claim audit (helper)</td>
+            <td><code>required_caveats()</code> → <code>_scope_terms()</code></td>
+            <td>analysis/step3_interpret.py</td>
+            <td>claim text + the figure's <code>blocked_by</code></td>
+            <td>word-boundary match on <code>applies_to</code> only;
+                uppercase tokens matched case-sensitively</td>
+            <td class="r-skip">narrows which caveats the claim owes</td>
+            <td><code>…::TestCaveatScopeMatching</code></td></tr>
+        <tr><td class="id">verdict is a verdict</td>
+            <td>report</td>
+            <td><code>interpret()</code></td><td>analysis/step3_interpret.py</td>
+            <td>the model's reply</td>
+            <td>one of two literal strings</td>
+            <td class="r-warn">forced to <code>insufficient</code></td>
+            <td><code>…::test_an_unparseable_verdict_is_not_a_pass</code></td></tr>
+        <tr><td class="id">what kind of result</td>
+            <td>report</td>
+            <td><code>_status()</code></td><td>analysis/step4_report.py</td>
+            <td>step record + verdict + preflight</td>
+            <td>a crash, a skip and a conclusion are different outcomes</td>
+            <td class="r-skip">sets <code>status</code></td>
+            <td><code>test_analysis_step4.py::TestAFailedRunIsNotAnInconclusiveOne</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="rule-note"><strong>There is no final schema validation of
+       <code>analysis.json</code>.</strong> It is written with
+       <code>json.dumps</code> and nothing checks its shape on the way out.
+       <span class="mark">Intended but not enforced.</span></p>
+
+    <h4>What the audit does not check</h4>
+    <ul>
+      <li><strong>Numbers written in prose.</strong> Only the claim's declared
+          <code>values</code> list is audited. A number that appears in the
+          sentence but not in <code>values</code> is not checked.</li>
+      <li><strong>Whether the sentence is true.</strong> The audit can stop a
+          fabricated measurement. It cannot stop a false statement built out of
+          real numbers.</li>
+      <li><strong>Whether the right number was used.</strong> A value that is
+          genuinely in the cited finding passes even if the claim attaches it to
+          the wrong variable, unit, period, location or sign.</li>
+      <li><strong>Whether the figure supports the claim.</strong> The images are
+          shown to the model; nothing compares a claim to the pixels.</li>
+      <li><strong>Non-blocking caveats.</strong>
+          <span class="pill p-qual">qualify</span> and
+          <span class="pill p-ctx">context</span> caveats travel to the report
+          and bind nothing.</li>
+      <li><strong>The answer paragraph.</strong> Only <code>claims</code> are
+          audited — see step 4.</li>
+    </ul>
+
+    <h4>What happens to rejected claims</h4>
+    <p>They are not deleted. Each moves to <code>struck</code> with a
+       <code>struck_because</code> sentence and a <code>struck_by</code>
+       naming which of the three rules fired, and step 4 carries them into
+       <code>analysis.json</code> under <code>withheld</code>. A claim that was
+       made and rejected is evidence about the run.</p>
+
+    <h4>"Insufficient, once"</h4>
+    <p><code>investigate_and_interpret()</code> loops at most
+       <code>MAX_ROUNDS = 2</code> times. Each pass is
+       <strong>a full new investigation</strong>, not a retry of the
+       interpretation: step 2 is called again with step 3's
+       <code>feedback</code>, proposes a revised figure set, and runs it; then
+       step 3 interprets afresh. So a second round costs one step-2 model call,
+       one subprocess per figure, and one step-3 model call.</p>
+    <p>The loop stops early on <code>"sufficient"</code>, and also on
+       <code>"insufficient"</code> with no actionable feedback — there is
+       nothing to send back. If round 2 is still insufficient, that verdict
+       stands and is reported. "This experiment cannot answer the question" is a
+       result, not a failure, and step 4 files it as
+       <code>insufficient_evidence</code> rather than as a malfunction.</p>
+
+    <h4>What each round records, including when it went backwards</h4>
+    <p>Every pass appends one entry to <code>rounds</code>:
+       <code>round · n_proposed · n_succeeded · verdict · n_claims ·
+       n_struck · n_claims_kept · feedback · finding_ids</code>. From round 2
+       on, two more appear when they apply:</p>
+    <ul>
+      <li><code>findings_dropped_from_previous_round</code> — ids the earlier
+          round produced that this one no longer has. A revision is allowed to
+          replace evidence, but a reader comparing the two rounds should not
+          have to diff the id lists by hand to notice.</li>
+      <li><code>regressed</code> — a sentence recording that this round kept
+          <em>fewer</em> claims than the last. It is <strong>not
+          corrected</strong>: the reviewer judged this round's evidence and
+          that judgement stands. It is recorded because an extra round that
+          cost claims rather than earning them is a fact about the run, and
+          <code>investigate_and_interpret()</code> surfaces the list as
+          <code>regressed_rounds</code>.</li>
+    </ul>
+  </div>
+
+  <!-- ─────────────────────────── step 4 ─────────────────────────── -->
+  <div class="stepcard">
+    <h3>Step 4 — Report</h3>
+    <table class="spec">
+      <tr><th>Purpose</th><td>Assemble everything into <code>analysis.json</code>, and say what kind of result it is.</td></tr>
+      <tr><th>Implemented in</th><td><code>src/agents/analysis/step4_report.py</code>; the deck in <code>src/agents/analysis/step4_slides.py</code></td></tr>
+      <tr><th>Entry functions</th><td><code>build(ctx, comparison, investigation, interpretation, run_dir, rounds, stopped_because, steps, preflight) → dict</code>, then <code>write(report, out_dir, slides=True) → path</code>; <code>summary(report)</code> renders the terminal digest</td></tr>
+      <tr><th>Called by</th><td><code>Analyzer.run()</code> — from the normal path, and again from the preflight branch, which is why <code>build()</code> tolerates empty records for steps 1–3</td></tr>
+      <tr><th>Reads from disk</th><td><code>RUN_SUMMARY.json</code> for compute accounting, falling back to <code>experiment.json</code> during a live run; <code>sacct</code> for the scheduler's elapsed time</td></tr>
+      <tr><th>In-memory inputs</th><td>All four prior records, plus two the coordinator holds and used to discard at the boundary: <code>steps</code> (which stages completed) and <code>preflight</code></td></tr>
+      <tr><th>Model involvement</th><td><strong>None.</strong></td></tr>
+      <tr><th>Returns</th><td>the report <code>dict</code></td></tr>
+      <tr><th>Writes</th><td><code>04_analysis/analysis.json</code>, and beside it <code>04_analysis/analysis.pptx</code></td></tr>
+      <tr><th>Validation</th><td>None of its own — it publishes what the audit already decided. <code>_status()</code> classifies rather than validates.</td></tr>
+      <tr><th>Failure behavior</th><td>A raise in <code>build()</code> is caught by <code>Analyzer.run()</code> and recorded; the run ends with no boundary artifact. A failure in the <em>deck</em> cannot cost the run its result — see below.</td></tr>
+      <tr><th>Retry</th><td>None.</td></tr>
+      <tr><th>Consumers</th><td>A person, a paper, or a later tool. No framework stage reads it.</td></tr>
+    </table>
+
+    <h4>How audited findings become the output</h4>
+    <p><code>build()</code> is pure: it computes and concludes nothing. Step 2
+       computed, step 3 concluded, and step 3's audit already decided which
+       claims survived. Each kept claim is emitted with the finding it cites,
+       the values it declared, its caveat ids, its <code>n</code>, and the paths
+       to its figure and script — so every sentence in the file carries its own
+       provenance.</p>
+
+    <h4>The four statuses</h4>
+    <p>Every report carries a <code>status</code> before it carries an answer.
+       A reader — or a dashboard, or a mailer — that branches on
+       <code>verdict</code> alone cannot tell a crash from a conclusion,
+       because <strong>a crash has no verdict at all</strong>: the field is
+       simply absent, and absent read as "inconclusive" files a malfunction as
+       a scientific judgement.</p>
+    <table>
+      <thead><tr><th>status</th><th>constant</th><th>means</th><th>set when</th></tr></thead>
+      <tbody>
+        <tr><td class="id">supported</td><td><code>SUPPORTED</code></td>
+            <td>it ran, concluded, and at least one claim survived the audit</td>
+            <td>no step failed, verdict is <code>sufficient</code>, and <code>n_claims &gt; 0</code></td></tr>
+        <tr><td class="id">no_supported_claims</td><td><code>NO_CLAIMS</code></td>
+            <td>it concluded, and the audit kept nothing</td>
+            <td>as above with <code>n_claims == 0</code></td></tr>
+        <tr><td class="id">insufficient_evidence</td><td><code>INSUFFICIENT</code></td>
+            <td>it looked, and judged the evidence too thin. <strong>A result, not a malfunction.</strong></td>
+            <td>preflight blocked the run, <em>or</em> the interpreter's final verdict was not <code>sufficient</code></td></tr>
+        <tr><td class="id">analysis_failed</td><td><code>FAILED</code></td>
+            <td>a stage did not run to completion</td>
+            <td>any entry in <code>steps</code> is <code>False</code>, or there is no verdict and no explanation</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Order matters, and the preflight check comes first.</strong> A
+       blocked run marks steps 1–3 <code>False</code> because they did not run
+       — but they did not run because the run was inspected and found to hold
+       nothing, which is a finding about the evidence. Checking
+       <code>preflight</code> before <code>steps</code> is what stops "we
+       looked, and there is nothing here" from being filed as "we broke".</p>
+    <p>When no <code>steps</code> record is passed at all, any run without a
+       verdict is reported as <code>analysis_failed</code> — the safe direction
+       to be wrong in, since it never dresses a crash as a judgement.</p>
+    <p class="mark">The review brief proposed a fifth status,
+       <code>partially_supported</code>. It is <strong>not implemented</strong>:
+       nothing in the pipeline currently distinguishes a partial answer from a
+       complete one, and a status no code can assign is a status that would
+       always read as absent. <code>no_supported_claims</code> occupies the
+       nearby ground — the run concluded, but nothing survived.</p>
+
+    <h4>What the file records about the run itself</h4>
+    <p><code>provenance</code> carries what the coordinator knew and used to
+       throw away at the boundary: <code>steps</code> and
+       <code>failed_steps</code> (which stages completed);
+       <code>preflight</code> (what the run contained, decided before any model
+       was asked — on a blocked run this is the entire account of why nothing
+       was investigated); <code>rounds</code> and
+       <code>stopped_because</code>; <code>investigation_plan</code>, the path
+       to the Markdown plan step 2 wrote and step 3 reviewed against; and
+       <code>audit</code>, step 3's own tally. A reader opening the directory
+       six months later gets the same account the terminal gave on the
+       night.</p>
+    <p><code>cost.llm</code> reports <code>measured</code> alongside the
+       totals, and splits the Analyzer's own spend out under
+       <code>analyzer</code> using <code>ANALYZER_LABELS</code> — the two
+       client labels <code>step2_investigate</code> and
+       <code>step3_interpret</code>. <code>unattributed</code> is what is left
+       after every label is subtracted, computed by summing the labelled calls
+       rather than by asking for a filtered total: <code>usage_totals(None)</code>
+       means <em>no filter</em>, so the earlier version returned the grand
+       total and reported every run as entirely unattributed.</p>
+
+    <h4>Can unaudited text enter the output?</h4>
+    <p><strong>Yes, in one field, and it is worth knowing which.</strong>
+       <code>answer</code> is the model's 2–4 sentence summary, copied verbatim
+       from step 3 and <span class="mark">not audited</span> — the audit
+       operates on <code>claims</code>, not on <code>answer</code>. In practice
+       the answer restates the claims, but nothing enforces that. Everything
+       else in the file is either an audited claim, a struck claim with its
+       reason, a caveat record, a figure path, or a measured cost.</p>
+
+    <h4>The slide deck — a second rendering, not a second report</h4>
+    <p><code>write()</code> writes <code>analysis.json</code> <strong>first and
+       always</strong>, then calls <code>step4_slides.build(report, out_dir)</code>
+       with the same dict and returns the JSON's path — because that is the
+       boundary artifact every caller means by "the report". A failure in the
+       presentation layer therefore cannot cost the run its result.</p>
+    <p><code>step4_slides.py</code> reads the report and lays it out.
+       <strong>Nothing there computes, rounds, re-words or omits a
+       number.</strong> A deck that disagreed with the file it came from would
+       be the worst artifact in the run, because the deck is what gets
+       presented while the file is what gets checked. Concretely: no claim
+       appears without the finding id it rests on, struck claims travel with
+       <code>struck_by</code> and the reason, caveats are quoted rather than
+       summarised, and a run whose status is not <code>supported</code> says so
+       on the title slide instead of opening with an answer it has not
+       earned.</p>
+    <p><code>python-pptx</code> is optional. It is installed in the
+       <code>ideas</code> environment, but a run without it must still finish —
+       <code>build()</code> returns <code>None</code> and prints why, and
+       <code>analysis.json</code> is unaffected.</p>
+
+    <h4>How it is presented</h4>
+    <p><code>Analyzer.run()</code> prints <code>step4_report.summary(report)</code>
+       to the terminal — verdict, claim counts, rounds and cost — and returns a
+       status dict containing the report's path. The status is what the
+       Experiment Manager sees. Nothing downstream can replace or rewrite
+       <code>analysis.json</code>; the only way it changes is a fresh Analyzer
+       execution overwriting it.</p>
+    <p><strong>A submitted run has no report yet, and says so.</strong> When
+       the Experiment Manager queues an ensemble instead of running it,
+       <code>workflow.py</code> prints how many columns were queued and names
+       both scheduler jobs — the one that builds and runs, and the dependent
+       one that runs <code>workflow.py --finalize</code> afterwards. It does
+       <em>not</em> print an execution tally, a skipped-report line, or a
+       completion tick, because at that moment nothing has run: a run reporting
+       <code>0/19 succeeded</code> before its jobs started reads as nineteen
+       failures.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 5 ══ -->
+<section id="s5">
+  <span class="eyebrow">5</span>
+  <h2>Artifact and data lineage</h2>
+
+  <div class="scroll">
   <table>
-    <thead><tr><th>source</th><th>n</th><th>what it says</th></tr></thead>
+    <thead><tr><th>artifact / object</th><th>kind</th><th>producer</th><th>consumer</th>
+               <th>required fields</th><th>persists?</th><th>validation</th></tr></thead>
     <tbody>
-      <tr><td class="id">experiment.json:limitations</td><td>8</td>
-          <td>Structural and configuration limits of the run design — a 1 m²
-              unrouted column, a one-year record, a warm start whose inherited
-              storage is not in equilibrium with this basin's forcing.</td></tr>
-      <tr><td class="id">experiment.json:assumptions_ledger</td><td>6</td>
-          <td>What the planner and the expander assumed to make the study
-              runnable, each tagged with who assumed it — reception, the user,
-              a default, or the sampler.</td></tr>
-      <tr><td class="id">step2_investigate</td><td>0–1</td>
-          <td>One kind only: a planned figure that failed to produce a usable
-              result. <span class="pill p-ctx">context</span>.</td></tr>
+      <tr><td class="id">03_results/extracted.json</td><td>file</td>
+          <td>backend extractor (<code>extract.extract_run</code>)</td>
+          <td>Experiment Manager only — <strong>never the Analyzer</strong></td>
+          <td><code>metadata.columns[*]</code>, <code>data[*].variables</code></td>
+          <td>yes</td>
+          <td><code>_IDENTITY</code> raises on an unclassified metadata key</td></tr>
+
+      <tr><td class="id">reception.json</td><td>file</td><td>Reception</td>
+          <td>step 0 (question, observations); step 1 passes its <em>path</em> to the compare package</td>
+          <td><code>user_request</code>, <code>observations</code>, <code>brief.run_settings</code></td>
+          <td>yes</td><td>absent → <code>plan</code> fields are None; step 1 raises</td></tr>
+
+      <tr><td class="id">strategy.json</td><td>file</td><td>Planner</td><td>step 0</td>
+          <td><code>archetype</code>, <code>sampling</code>, <code>validation</code>, <code>feasibility</code>, <code>goals</code></td>
+          <td>yes</td><td>absent → those <code>plan</code> fields are None; not fatal</td></tr>
+
+      <tr><td class="id">experiment.json</td><td>file</td><td>Experiment Manager</td><td>step 0</td>
+          <td><code>columns</code>, <code>columns_total</code>, <code>columns_succeeded</code>, <code>model</code>, <code>variable_units</code>, <code>field_semantics</code>, <code>limitations</code>, <code>assumptions_ledger</code></td>
+          <td>yes</td>
+          <td><strong>absent → the Analyzer stops.</strong> <code>_EXPERIMENT</code> raises on an unclassified top-level key</td></tr>
+
+      <tr><td class="id">ctx</td><td>memory</td><td><code>step0_context.load()</code></td>
+          <td>steps 1–4</td><td><code>plan</code>, <code>data</code>, <code>caveats</code>, <code>sources</code></td>
+          <td><strong>no</strong></td><td>rebuilt from disk on every entry</td></tr>
+
+      <tr><td class="id">ctx.plan</td><td>memory</td><td>step 0, from reception + strategy</td>
+          <td>steps 2, 3 (as the question)</td>
+          <td><code>question</code>, <code>domain</code>, <code>period</code>, <code>archetype</code>, <code>goals</code>, <code>sampling</code>, <code>validation</code>, <code>feasibility</code>, <code>initialization</code></td>
+          <td>no</td><td>none — <strong>never a numeric source</strong></td></tr>
+
+      <tr><td class="id">ctx.data</td><td>memory</td><td>step 0, from experiment + reception</td>
+          <td>steps 1, 2, 3, 4</td>
+          <td>10 keys from <code>experiment.json</code> + <code>observations</code></td>
+          <td>no</td><td><code>KeySet</code> assertion; see §7</td></tr>
+
+      <tr><td class="id">ctx.caveats</td><td>memory</td><td><code>_caveats()</code></td>
+          <td>steps 2, 3, 4 and the generated scripts</td>
+          <td><code>id</code>, <code>severity</code>, <code>statement</code>, <code>applies_to</code>, <code>source</code> — all five, always</td>
+          <td>no (copied into <code>analysis.json</code>)</td>
+          <td>uniform shape asserted by <code>test_every_caveat_has_the_same_five_fields</code></td></tr>
+
+      <tr><td class="id">comparison.json</td><td>file</td><td>step 1</td>
+          <td>steps 2, 3, 4</td>
+          <td><code>observables</code>, <code>summary</code>, <code>findings</code>, <code>figures</code>, <code>caveats</code> (always <code>[]</code>)</td>
+          <td>yes, overwritten per execution</td>
+          <td>backend must be registered, else <code>skipped</code></td></tr>
+
+      <tr><td class="id">investigation.json</td><td>file</td><td>step 2</td>
+          <td>steps 3, 4</td>
+          <td><code>findings</code>, <code>caveats</code>, <code>n_proposed</code>, <code>n_succeeded</code>, <code>round</code>, <code>plan_md</code></td>
+          <td>yes, overwritten per round</td>
+          <td>the six runner guards</td></tr>
+
+      <tr><td class="id">investigation_plan.md</td><td>file</td><td>step 2</td><td>step 3</td>
+          <td>—</td><td>yes, overwritten per round</td>
+          <td>rendered from <code>investigation.json</code>, so it cannot disagree with it</td></tr>
+
+      <tr><td class="id">figures + scripts</td><td>files</td>
+          <td>step 1 (5 fixed), step 2 (≤5 chosen)</td>
+          <td>step 3 as images; step 4 as paths</td>
+          <td>—</td><td>yes</td>
+          <td>a step-2 PNG under 3,000 bytes is rejected as no figure</td></tr>
+
+      <tr><td class="id">interpretation.json<br><span class="sub">the audited findings</span></td>
+          <td>file</td><td>step 3</td><td>step 4</td>
+          <td><code>claims</code> (kept), <code>struck</code>, <code>answer</code>, <code>verdict</code>, <code>audit</code></td>
+          <td>yes, overwritten per round</td>
+          <td><code>audit()</code> — three checks, pure, unit-tested</td></tr>
+
+      <tr><td class="id">step2_round&lt;n&gt;_prompt.txt<br>step2_round&lt;n&gt;_reply.txt<br>step3_round&lt;n&gt;_*.txt</td>
+          <td>files</td><td><code>script_runner.save_exchange()</code></td>
+          <td>a person, or a replay test — <strong>no framework stage</strong></td>
+          <td>—</td><td>yes, one pair per step per round</td>
+          <td>none — written verbatim and unparsed, which is the point</td></tr>
+
+      <tr><td class="id">preflight record</td><td>memory, then copied into <code>analysis.json</code></td>
+          <td><code>ctx.preflight()</code></td>
+          <td><code>Analyzer.run()</code> (the gate), step 2 (filter + brief), step 4 (provenance)</td>
+          <td><code>frames</code>, <code>variables</code>, <code>withheld</code>, <code>feasibility</code>, <code>unmet_plan_targets</code>, <code>n_columns</code>, <code>blocked</code></td>
+          <td>only as part of <code>provenance</code></td>
+          <td>none — <code>preflight_of()</code> fails open, returning <code>{}</code></td></tr>
+
+      <tr><td class="id">analysis.json</td><td>file</td><td>step 4</td>
+          <td>a person; no framework stage</td>
+          <td><code>status</code>, <code>answer</code>, <code>verdict</code>, <code>claims</code>, <code>withheld</code>, <code>caveats</code>, <code>figures</code>, <code>provenance</code>, <code>cost</code></td>
+          <td>yes — the boundary artifact</td>
+          <td>none of its own; publishes what the audit decided. <code>_status()</code> classifies the outcome</td></tr>
+
+      <tr><td class="id">analysis.pptx</td><td>file</td><td><code>step4_slides.build()</code></td>
+          <td>a person</td>
+          <td>—</td>
+          <td>yes, when <code>python-pptx</code> is importable</td>
+          <td>none — it renders <code>analysis.json</code>'s own dict and may not alter a value</td></tr>
     </tbody>
   </table>
-  <p class="rule-note">Step 1's eight are gone. Every one of them restated a
-     number the summary already carried — and the interpreter reads that summary,
-     which is <strong>43% of its brief against the caveats' 24%</strong>. What
-     was lost is enforcement, not information.</p>
-</section>
+  </div>
 
-<section>
-  <span class="eyebrow">Evidence</span>
-  <h2>Two runs, re-run end to end on 2026-08-13</h2>
-  <p>Both studies were replayed on copies from the extraction stage onward —
-     history files re-read, rows rebuilt, packaged, then all five Analyzer
-     steps. Nothing here is quoted from an earlier pass.</p>
-  <div class="runs">
-    <div class="run">
-      <h3>Naches · 1979 · 17 columns</h3>
-      <span class="verdict v-no">insufficient</span>
-      <dl>
-        <dt>caveats</dt><dd>14 &nbsp;(5 blocking)</dd>
-        <dt>from step 1</dt><dd>0</dd>
-        <dt>figures</dt><dd>5 compare + 5 investigate</dd>
-        <dt>claims</dt><dd>11 kept · 0 struck</dd>
-        <dt>rounds</dt><dd>2</dd>
-        <dt>model</dt><dd>4 calls · 78k tok · 298 s</dd>
-      </dl>
-      <p style="font-size:.86rem;margin:0;"><strong>It completes.</strong> Its
-         previous run recorded <code>analyze: failed — investigate,
-         interpret</code>: one call, verdict <code>None</code>, zero claims.
-         Still <em>insufficient</em>, but now that is a statement about the
-         experiment's reach rather than a stage that fell over.</p>
+  <h3>Tracing a number backwards</h3>
+  <p>Every number in <code>analysis.json</code> reaches disk by one of two
+     paths, and they never merge.</p>
+
+  <div class="lineage">
+    <div>
+      <h4>A simulation value</h4>
+      <ol>
+        <li><code>claims[i].values[j]</code> in <code>analysis.json</code></li>
+        <li>→ <code>claims[i].finding_id</code> names a finding</li>
+        <li>→ that finding's <code>result</code> in <code>investigation.json</code>, which contains the value (the audit guarantees this)</li>
+        <li>→ the finding's <code>script</code> — the exact Python that computed it</li>
+        <li>→ the script read <code>df</code> / <code>soil</code> / <code>prof</code>, built by <code>ctx.series()</code> etc.</li>
+        <li>→ from <code>experiment.json → columns[*].variables[var].daily</code></li>
+        <li>→ written by the Experiment Manager from <code>03_results/extracted.json</code></li>
+        <li>→ written by the backend extractor from the native simulation output</li>
+      </ol>
     </div>
-    <div class="run">
-      <h3>Brandywine · 2010 · 13 columns</h3>
-      <span class="verdict v-ok">sufficient</span>
-      <dl>
-        <dt>caveats</dt><dd>14 &nbsp;(5 blocking)</dd>
-        <dt>from step 1</dt><dd>0</dd>
-        <dt>figures</dt><dd>5 compare + 5 investigate</dd>
-        <dt>claims</dt><dd>9 kept · 1 struck</dd>
-        <dt>rounds</dt><dd>1</dd>
-        <dt>model</dt><dd>2 calls · 41k tok · 150 s</dd>
-      </dl>
-      <p style="font-size:.86rem;margin:0;">Was <em>insufficient</em> over two
-         rounds and 79k tokens. Now sufficient in one, at half the cost — and
-         its answer opens by quoting <code>below_active_soil</code>
-         unprompted, which is the whole case for removing step 1's caveats.</p>
+    <div>
+      <h4>An observation value</h4>
+      <ol>
+        <li><code>claims[i].values[j]</code> in <code>analysis.json</code></li>
+        <li>→ <code>finding_id</code> is <code>compare_&lt;observable&gt;</code></li>
+        <li>→ that finding's <code>result</code> in <code>comparison.json</code></li>
+        <li>→ computed by <code>mcp/elm-mcp/src/compare/&lt;observable&gt;.py</code></li>
+        <li>→ which read the stations out of <code>reception.json</code></li>
+        <li>→ fetched once by Reception from the external service (USGS, SNOTEL, AmeriFlux) when the period was fixed</li>
+      </ol>
+      <p class="sub">The Analyzer never re-fetches. A second fetch can disagree
+         with the first, and then the run's own record is not what was compared
+         against.</p>
     </div>
   </div>
-  <p class="rule-note">The claim counts are from a second step-3 pass over the
-     <em>same</em> step-2 findings, isolating the prompt fix described below.
-     The first pass through the full pipeline gave 3 kept / 5 struck and 2 kept
-     / 4 struck — see that section for why.</p>
+  <p class="rule-note">The two paths are distinguishable in the final file
+     without following them: an observation number lives in a
+     <code>compare_*</code> finding, a simulation number in a step-2 finding.
+     Confusing the two is the single commonest way a true sentence gets struck,
+     which is why step 3's prompt says so explicitly.</p>
 </section>
 
-<section>
-  <span class="eyebrow">For review</span>
-  <h2>Seven things I would question</h2>
-
-  <div class="open">
-    <h3 style="text-decoration:line-through;opacity:.6;">The citation rule
-        strikes true sentences</h3>
-    <p><strong>Resolved 2026-08-13.</strong> It was never the rule. The brief
-       showed step 1's evidence in one shape and step 2's in another, and cut
-       every result at 700 characters — so the model was quoting from evidence
-       it could only partly see, under ids it had no uniform list of. Showing it
-       exactly what the audit accepts took the strike rate from 9 of 14 to 1 of
-       21. The remaining strike is a caveat the claim genuinely owed.</p>
-  </div>
-
-  <div class="open">
-    <h3>The audit now has five generic caveats and no run-specific ones</h3>
-    <p>Removing step 1's caveats was right — they restated measurements the
-       interpreter could already see, and they were never shown to it as rules,
-       only used to strike it afterwards. But it leaves
-       <code>limitations.py</code> as the sole source of anything
-       <span class="pill p-block">blocking</span>, and its five entries are the
-       same on every run. Nothing run-specific can bind any more.</p>
-    <p>Whether that matters is an empirical question, and the run to answer it
-       is Naches: sixteen of sixteen columns sit below the active soil, and
-       the interpreter is now trusted to notice that in
-       <code>below_active_soil</code> and reason accordingly rather than being
-       struck for missing it.</p>
-  </div>
-
-  <div class="open">
-    <h3>Two rounds is the whole budget</h3>
-    <p>Brandywine spent both and still returned insufficient — correctly, and
-       for a reason knowable at step 0: the field it needed was not in any
-       frame. Four model calls to discover a packaging defect. The catalogue
-       now names what is absent and why, which is the cheap half of the fix;
-       the expensive half would be refusing a figure the frames cannot
-       support before a model is asked to write it.</p>
-  </div>
-
-  <div class="open">
-    <h3>A refused pin looked exactly like a column that was never pinned</h3>
-    <p>Three separate breaks had to be repaired before a designed pin survived
-       to the comparison: a spelling gap between the sampler and the Spec, a
-       join that dropped the three pin fields, and the fact that neither
-       failure printed anything. Nothing in the record distinguished "no pin
-       was designed" from "the pin was silently discarded" — worth a
-       diagnostic of its own, since the same shape will recur.</p>
-  </div>
-
-  <div class="open">
-    <h3>The same shape recurred twice more the same day</h3>
-    <p>A capability probe tested <code>row["soil"]["clay_max_pct"]</code>, a
-       field null on <strong>100% of columns across every run ever packaged</strong>,
-       while <code>soil_profile</code> beside it was complete. So the soil
-       figures were never offered, on any run, and nothing said so. Separately,
-       three standalone CLIs were still asking for four metric names that had
-       been renamed hours earlier — their driver tables would have come back
-       nearly empty and looked like a measured result.</p>
-    <p>Both are the failure this page keeps describing: <strong>a null that
-       means "not computed" rendering identically to one that means "computed
-       as nothing."</strong> The fix in both cases was to make the absent case
-       say its own name — <code>responses.unmeasured</code> now carries a reason
-       per response, the way the drivers already did.</p>
-  </div>
-
-  <div class="open">
-    <h3 style="text-decoration:line-through;opacity:.6;">Naches has never
-        produced an interpretation</h3>
-    <p><strong>It does now</strong> — all five steps, 11 claims, verdict
-       <em>insufficient</em>. What made the earlier attempt fail is still
-       unknown; it did not recur on a clean replay, so it was most likely a
-       transient rather than a defect, and I am recording that as a guess
-       rather than a diagnosis.</p>
-  </div>
-
-  <div class="open">
-    <h3>The verification found the bug that verification exists to find</h3>
-    <p>Re-running the extract stage surfaced a stale variable left by an earlier
-       refactor: the honesty payload was assigned to a name that no longer
-       existed, the <code>NameError</code> was swallowed by a bare
-       <code>except Exception</code>, and it printed
-       <em>"limitations payload unavailable"</em> — which reads as a run with no
-       limitations rather than as code that did not run.</p>
-    <p>Since step 1 stopped deriving caveats that morning, that payload is the
-       <strong>only</strong> source of anything blocking. Every future run would
-       have had an interpreter with no constraints at all, announced as a
-       warning. The handler now raises on a code fault and warns only on
-       genuinely absent input — but the general shape, <em>a bare except
-       turning a bug into a data condition</em>, is worth hunting elsewhere.</p>
-  </div>
-</section>
-
-<section>
-  <span class="eyebrow">New evidence</span>
-  <h2>The soil control, now that both studies carry it</h2>
-  <p>Each column records which NLDAS-2 forcing cell it fell in. Columns sharing
-     a cell <strong>got the same weather</strong>, so a difference between them
-     is soil or terrain — the one comparison that separates the two in a
-     spatial ensemble, where wetter columns are also higher and steeper.</p>
-  <p>Both fields were added at input time on 2026-08-13 and backfilled into the
-     two existing studies. Neither reaches the model, so no re-run was needed.
-     Naches had no soil control before; it has three groups.</p>
-
+<!-- ══════════════════════════════════════════════════════ 6 ══ -->
+<section id="s6">
+  <span class="eyebrow">6</span>
+  <h2>Submodule map</h2>
+  <div class="scroll">
   <table>
-    <thead><tr><th>forcing cell</th><th>column</th><th>clay</th>
-               <th>recharge</th><th>runoff</th></tr></thead>
+    <thead><tr><th>symbol</th><th>file</th><th>responsibility</th><th>in</th><th>out</th>
+               <th>calls</th><th>called by</th><th>must not</th></tr></thead>
     <tbody>
-      <tr><td class="id" rowspan="2">Naches (176, 30)</td>
-          <td class="id">col_12</td><td>6.5–8.0%</td><td>485.5</td><td>0.6</td></tr>
-      <tr><td class="id">col_06</td><td>8.9–13.5%</td><td>394.2</td><td>129.5</td></tr>
-      <tr><td class="id" rowspan="2">Naches (174, 31)</td>
-          <td class="id">col_07</td><td>6.3–9.7%</td><td>255.0</td><td>98.1</td></tr>
-      <tr><td class="id">col_04</td><td>11.4–15.8%</td><td>124.3</td><td>5.3</td></tr>
-      <tr><td class="id" rowspan="2">Brandywine (119, 393)</td>
-          <td class="id">col_13</td><td>16.0–24.8%</td><td>203.2</td><td>17.8</td></tr>
-      <tr><td class="id">col_03</td><td>23.8–26.5%</td><td>94.9</td><td>144.7</td></tr>
-      <tr><td class="id" rowspan="2">Brandywine (118, 395)</td>
-          <td class="id">col_06</td><td>17.5–22.6%</td><td>187.6</td><td>144.5</td></tr>
-      <tr><td class="id">col_09</td><td>23.7–27.3%</td><td>—</td><td>790.4</td></tr>
+      <tr><td class="id">Analyzer</td><td>agents/analyzer.py</td>
+          <td>order the five steps; catch each one's failure</td>
+          <td>run_dir, config</td><td>status dict</td>
+          <td>all five steps</td><td>Experiment Manager, workflow.py</td>
+          <td>decide any step's content</td></tr>
+
+      <tr><td class="id">AnalysisContext</td><td>analysis/step0_context.py</td>
+          <td>hold plan/data/caveats; build the three frames on demand</td>
+          <td>the three artifacts, parsed</td><td>itself</td>
+          <td>pandas</td><td>every step</td>
+          <td>open a file after construction</td></tr>
+
+      <tr><td class="id">load()</td><td>analysis/step0_context.py</td>
+          <td>read the artifacts, split three ways</td>
+          <td>run_dir</td><td><code>AnalysisContext</code></td>
+          <td><code>_read</code>, <code>_caveats</code>, <code>_EXPERIMENT.take</code></td>
+          <td><code>Analyzer.run</code></td><td>fetch anything external</td></tr>
+
+      <tr><td class="id">_caveats()</td><td>analysis/step0_context.py</td>
+          <td>turn limitations, the assumptions ledger and the strategy check into uniform records</td>
+          <td>experiment, reception</td><td><code>list[dict]</code></td>
+          <td><code>add()</code></td><td><code>load</code></td>
+          <td>emit a record missing any of the five fields</td></tr>
+
+      <tr><td class="id">series() · soil() · profiles()</td><td>analysis/step0_context.py</td>
+          <td>build the tidy frames; withhold any variable whose axes do not line up</td>
+          <td><code>ctx.columns</code></td><td>DataFrame or <code>None</code></td>
+          <td>pandas</td><td>step 2, the script runner</td>
+          <td>pair value and date lists of unequal length</td></tr>
+
+      <tr><td class="id">preflight()</td><td>analysis/step0_context.py</td>
+          <td>say what the run contains, before anything is spent on it</td>
+          <td><code>ctx</code>'s own frames + plan</td>
+          <td><code>{frames, variables, withheld, feasibility, unmet_plan_targets, n_columns, blocked}</code></td>
+          <td><code>_frame</code>, <code>planned_vs_actual</code></td>
+          <td><code>Analyzer.run</code> via <code>preflight_of</code>; step 2's filter and brief</td>
+          <td>judge the science, or call a model</td></tr>
+
+      <tr><td class="id">preflight_of()</td><td>analysis/step2_investigate.py</td>
+          <td>reach <code>preflight()</code> without letting a fault in it stop a healthy run</td>
+          <td><code>ctx</code></td><td>the record, or <code>{}</code> on any exception</td>
+          <td><code>ctx.preflight</code></td>
+          <td><code>Analyzer.run</code>, <code>context_brief</code>, <code>investigate</code></td>
+          <td>propagate an exception, or let an empty inventory read as "nothing exists"</td></tr>
+
+      <tr><td class="id">planned_vs_actual()</td><td>analysis/step0_context.py</td>
+          <td>report validation targets the design named but the run did not deliver</td>
+          <td>plan + data</td><td><code>list[dict]</code></td><td>—</td>
+          <td><code>preflight()</code>, as <code>unmet_plan_targets</code></td>
+          <td>treat a plan target as evidence</td></tr>
+
+      <tr><td class="id">compare_all()</td><td>analysis/step1_compare.py</td>
+          <td>resolve the backend's comparison package and call it</td>
+          <td><code>ctx</code>, out_dir</td><td>the comparison record</td>
+          <td><code>compare.compare_run</code>, <code>as_findings</code></td>
+          <td><code>Analyzer.run</code></td>
+          <td>import ELM's package for a non-ELM run</td></tr>
+
+      <tr><td class="id">as_findings()</td><td>analysis/step1_compare.py</td>
+          <td>turn each observable's summary into a citable finding</td>
+          <td>summary, figures</td><td><code>list[dict]</code></td><td>—</td>
+          <td><code>compare_all</code></td><td>add a verdict</td></tr>
+
+      <tr><td class="id">format_comparison()</td><td>analysis/step1_compare.py</td>
+          <td>render the measurements for step 2's brief</td>
+          <td>summary</td><td><code>str</code></td><td><code>_fmt</code>, <code>_clip</code></td>
+          <td>step 2's <code>context_brief</code></td><td>print counts in place of numbers</td></tr>
+
+      <tr><td class="id">split_by_basin() · plot_grid()</td><td>analysis/step1_geo.py</td>
+          <td>inside/outside the watershed polygon; the shared figure grid</td>
+          <td>points, rings</td><td>lists, a PNG</td><td>matplotlib</td>
+          <td>the compare package</td><td>recompute <code>in_basin</code></td></tr>
+
+      <tr><td class="id">context_brief()</td><td>analysis/step2_investigate.py</td>
+          <td>build step 2's prompt deterministically</td>
+          <td><code>ctx</code>, step 1</td><td><code>str</code></td>
+          <td><code>_frame_units</code>, <code>_variable_catalog</code>, <code>format_comparison</code></td>
+          <td><code>propose</code>, tests</td>
+          <td>show raw-variable units as frame units</td></tr>
+
+      <tr><td class="id">propose()</td><td>analysis/step2_investigate.py</td>
+          <td>ask the model for figure specs; cap and de-duplicate</td>
+          <td><code>ctx</code>, step 1, feedback</td>
+          <td><code>{reasoning, notes, figures, raw}</code></td>
+          <td><code>SimpleLLMClient</code>, <code>_parse</code></td>
+          <td><code>investigate</code></td><td>return more than <code>MAX_PLOTS</code></td></tr>
+
+      <tr><td class="id">investigate()</td><td>analysis/step2_investigate.py</td>
+          <td>run each spec, keep what passes, record what did not</td>
+          <td><code>ctx</code>, out_dir, step 1</td><td>the investigation record</td>
+          <td><code>propose</code>, <code>script_runner.run</code>, <code>_blocked_by</code>, <code>render_plan_md</code></td>
+          <td>the round loop</td><td>drop a failed figure silently</td></tr>
+
+      <tr><td class="id">_blocked_by()</td><td>analysis/step2_investigate.py</td>
+          <td>tag a figure with the blocking caveats scoped to its variables</td>
+          <td>variables, caveats</td><td><code>list[str]</code></td><td>—</td>
+          <td><code>investigate</code></td>
+          <td>match the caveat's <code>statement</code>, or match case-insensitively</td></tr>
+
+      <tr><td class="id">render_plan_md()</td><td>analysis/step2_investigate.py</td>
+          <td>write the round as a readable plan with measured outcomes</td>
+          <td>spec, findings, caveats</td><td><code>str</code></td><td>—</td>
+          <td><code>investigate</code></td>
+          <td>claim an outcome not present in <code>findings</code></td></tr>
+
+      <tr><td class="id">script_runner.run()</td><td>analysis/script_runner.py</td>
+          <td>execute generated code in a subprocess and validate its result</td>
+          <td>code, <code>ctx</code>, out_path</td>
+          <td><code>{ok, result, figure, script_path, error}</code></td>
+          <td><code>subprocess</code>, <code>_payload</code>, <code>_to_daily_rates</code></td>
+          <td>step 2 (and step 3, if it ever re-runs a script)</td>
+          <td>raise; rescale any value</td></tr>
+
+      <tr><td class="id">inspect_code()</td><td>analysis/script_runner.py</td>
+          <td>parse a generated script with <code>ast</code> and object to what is out of scope for a figure</td>
+          <td>the generated body</td><td><code>list[str]</code> of reasons; empty is fine</td>
+          <td><code>ast</code></td><td><code>run</code></td>
+          <td>be mistaken for a security boundary — see the execution table</td></tr>
+
+      <tr><td class="id">save_exchange()</td><td>analysis/script_runner.py</td>
+          <td>write the prompt and the raw reply beside the run</td>
+          <td>step name, round, prompt, reply</td><td><code>{prompt: path, reply: path}</code></td>
+          <td>—</td><td>steps 2 and 3</td>
+          <td>parse, trim or reformat either one; raise when the write fails</td></tr>
+
+      <tr><td class="id">review_brief()</td><td>analysis/step3_interpret.py</td>
+          <td>show the reviewer exactly what the audit will accept</td>
+          <td><code>ctx</code>, comparison, investigation</td><td><code>str</code></td>
+          <td><code>_plan_text</code>, <code>_render_result</code></td>
+          <td><code>interpret</code></td>
+          <td>render step 1's and step 2's findings in different shapes</td></tr>
+
+      <tr><td class="id">audit() · rule_cites() ·<br>rule_declared_values() ·<br>rule_respects()</td><td>analysis/step3_interpret.py</td>
+          <td>apply the three rules in order; strike every claim the evidence does not support</td>
+          <td>claims, findings, caveats, facts</td>
+          <td><code>{kept, struck, n_claims, n_struck}</code></td>
+          <td><code>required_caveats</code>, <code>_flatten_numbers</code></td>
+          <td><code>interpret</code>, tests</td>
+          <td>call a model, or read a file</td></tr>
+
+      <tr><td class="id">required_caveats()</td><td>analysis/step3_interpret.py</td>
+          <td>narrow a figure's candidate caveats to the ones this claim is about</td>
+          <td>claim text, candidates</td><td><code>list[str]</code></td>
+          <td><code>_scope_terms</code></td><td><code>audit</code></td>
+          <td>require a caveat outside the figure's candidates</td></tr>
+
+      <tr><td class="id">investigate_and_interpret()</td><td>analysis/step3_interpret.py</td>
+          <td>the bounded step 2 ↔ step 3 loop</td>
+          <td><code>ctx</code>, out_dir, comparison</td>
+          <td><code>{investigation, interpretation, rounds, n_rounds, stopped_because}</code></td>
+          <td><code>step2.investigate</code>, <code>interpret</code></td>
+          <td><code>Analyzer.run</code></td>
+          <td>exceed <code>MAX_ROUNDS</code></td></tr>
+
+      <tr><td class="id">build() · write() · summary()</td><td>analysis/step4_report.py</td>
+          <td>assemble, persist, and print a receipt</td>
+          <td>all four records, plus <code>steps</code> and <code>preflight</code></td>
+          <td>the report dict; a path; a string</td>
+          <td><code>_status</code>, <code>_llm_accounting</code>, <code>_slurm_elapsed</code>, <code>step4_slides.build</code></td>
+          <td><code>Analyzer.run</code>, from both its normal and its preflight path</td>
+          <td>recompute any number, or print a struck claim as kept</td></tr>
+
+      <tr><td class="id">_status()</td><td>analysis/step4_report.py</td>
+          <td>decide which of the four kinds of outcome this run is</td>
+          <td><code>steps</code>, interpretation, claim count, <code>preflight</code></td>
+          <td>one of <code>SUPPORTED · NO_CLAIMS · INSUFFICIENT · FAILED</code></td>
+          <td>—</td><td><code>build</code>, tests</td>
+          <td>read a missing verdict as a scientific judgement</td></tr>
+
+      <tr><td class="id">step4_slides.build()</td><td>analysis/step4_slides.py</td>
+          <td>lay the finished report out as a deck</td>
+          <td>the report dict</td><td>a path, or <code>None</code> with a printed reason</td>
+          <td><code>python-pptx</code> (optional import), <code>PIL</code></td>
+          <td><code>step4_report.write</code></td>
+          <td>compute, round, re-word or omit any value in the report</td></tr>
+
+      <tr><td class="id">KeySet</td><td>core/keyset.py</td>
+          <td>declare what a copy keeps and what it drops; raise on anything else</td>
+          <td>a source mapping</td><td>the kept keys</td><td>—</td>
+          <td>step 0, the Experiment Manager, the ELM server</td>
+          <td>drop an unclassified key in silence</td></tr>
     </tbody>
   </table>
-  <p style="font-size:.86rem;">mm/yr. Less clay, more recharge — in all four
-     pairs, across two basins and two years. The Brandywine (118, 395) pair is
-     the sharpest: same rain, and the clayey column sends <strong>790 mm to
-     surface runoff against 144</strong>. Its recharge is not zero but
-     <em>absent</em> — QCHARGE was not written for that column, and the dash
-     says so rather than implying none occurred.</p>
-  <p style="font-size:.86rem;">A fifth Naches group, cell (173, 34), holds three
-     columns whose recharge is 0.7, −1.6 and absent. That is the dead-column
-     cluster, whose water tables sit outside the range ELM's own soil column
-     covers — not a soil signal, and the caveat that fires on it says so.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 7 ══ -->
+<section id="s7">
+  <span class="eyebrow">7</span>
+  <h2>Key and schema contracts</h2>
+  <p>Nine named key lists sit on the path from simulation output to
+     <code>analysis.json</code>. They are not all the same kind of thing, and
+     treating them as one kind is how several of them went wrong. Four
+     categories:</p>
+  <table>
+    <thead><tr><th>category</th><th>meaning</th><th>unknown key</th></tr></thead>
+    <tbody>
+      <tr><td class="id">whitelist / filter</td>
+          <td>selects what crosses a boundary; anything unselected is left behind</td>
+          <td><strong>rejected</strong> — raises</td></tr>
+      <tr><td class="id">required-field set ("floor")</td>
+          <td>names a minimum a producer must supply; extras are fine</td>
+          <td>retained</td></tr>
+      <tr><td class="id">pass-through contract</td>
+          <td>names the expected keys but copies everything</td>
+          <td>retained</td></tr>
+      <tr><td class="id">module-local grouping</td>
+          <td>an alias table; producer and consumer are the same file</td>
+          <td>no boundary to cross</td></tr>
+    </tbody>
+  </table>
+
+  <div class="scroll">
+  <table>
+    <thead><tr><th>contract</th><th>category</th><th>producer → consumer</th>
+               <th>keys</th><th>unknown key</th><th>enforced at</th>
+               <th>missing / misspelled</th><th>tests</th></tr></thead>
+    <tbody>
+      <tr><td class="id">ctx.data<br><span class="sub">_EXPERIMENT</span></td>
+          <td>whitelist</td>
+          <td><code>experiment.json</code> → steps 1–4</td>
+          <td>10 keep · 10 drop</td>
+          <td>raises</td>
+          <td><code>step0_context.py</code>, in <code>load()</code></td>
+          <td>a kept key that is absent arrives as <code>None</code>; a misspelt producer key raises and names it</td>
+          <td><span class="mark">none yet</span></td></tr>
+
+      <tr><td class="id">COLUMN_METADATA</td><td>whitelist</td>
+          <td><code>columns.json</code> → the packaged row</td>
+          <td>14 keep (2 optional) · 7 drop</td>
+          <td>raises</td>
+          <td><code>exp_manager_base._merge_column_metadata</code></td>
+          <td>absent kept key leaves the row's value untouched; never-seen keys are reported after packaging</td>
+          <td><span class="mark">none yet</span></td></tr>
+
+      <tr><td class="id">_IDENTITY</td><td>whitelist</td>
+          <td><code>extracted.json</code> metadata → the row's identity</td>
+          <td>10 keep · 13 drop</td>
+          <td>raises</td>
+          <td><code>column_rows.build_rows</code></td>
+          <td>absent key arrives as <code>None</code></td>
+          <td><span class="mark">none yet</span></td></tr>
+
+      <tr><td class="id">CASE_KEYS</td><td>whitelist</td>
+          <td>builder experiment dicts → <code>case_inputs.json</code></td>
+          <td>16 keep · 2 drop</td>
+          <td>raises</td>
+          <td><code>inputs.serialise_case_inputs</code></td>
+          <td>an absent key is <em>omitted</em> from the row rather than written null</td>
+          <td><span class="mark">none yet</span></td></tr>
+
+      <tr><td class="id">RUNTIME_KEYS</td><td>whitelist</td>
+          <td>the planner's <code>runtime_config</code> → an ELM case</td>
+          <td>13</td>
+          <td><strong>raises</strong></td>
+          <td><code>elm_wrapper.GeneratedELMAgent.__init__</code></td>
+          <td>a misspelt key raises before the case is built. <strong>This was a warning-and-drop until 2026-08-14</strong>, which meant a misspelt <code>STOP_OPTION</code> built a case that ran the wrong length with the default in its place.</td>
+          <td><span class="mark">none — <code>tests/test_elm_wrapper.py</code> does not import (see change log)</span></td></tr>
+
+      <tr><td class="id">EXTRACT_KEYS</td><td>pass-through</td>
+          <td>a backend's <code>_extract</code> → the manager</td>
+          <td>4 named</td><td>retained</td>
+          <td><code>exp_manager_base._as_extract</code></td>
+          <td>an absent key becomes <code>None</code>; nothing raises</td>
+          <td><code>test_extract_contract.py</code></td></tr>
+
+      <tr><td class="id">REQUIRED_SUMMARY_KEYS</td><td>floor</td>
+          <td>a model agent's <code>get_run_summary()</code> → the manager</td>
+          <td>4 required</td><td>retained</td>
+          <td><code>model_agent_base.validate_run_summary</code></td>
+          <td><strong>missing raises</strong> <code>ValueError</code> naming the keys; <code>status</code> is additionally checked against three allowed values</td>
+          <td><code>test_analyzer_wiring.py</code> (row shape)</td></tr>
+
+      <tr><td class="id">_PCT_KEYS</td><td>module-local</td>
+          <td>soil-property aliases inside <code>elm_surface_generator.py</code></td>
+          <td>4 groups</td><td>n/a</td><td>—</td>
+          <td>an unmatched alias falls back to <code>&lt;name&gt;_pct</code></td>
+          <td>covered incidentally by surface tests</td></tr>
+
+      <tr><td class="id">_VALUE_KEYS</td><td>module-local</td>
+          <td>observation-value aliases inside <code>compare/_common.py</code></td>
+          <td>5</td><td>n/a</td><td>—</td>
+          <td>no alias matches → the value is <code>None</code></td>
+          <td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="rule-note"><strong>The whitelists reject rather than drop, as of
+     2026-08-14.</strong> A key that a producer writes and a list neither keeps
+     nor drops raises immediately, naming the key, the artifact it came from,
+     and the file the list lives in. The mirror case — a list naming a key no
+     producer writes — is reported at the end of packaging rather than raised,
+     because a key can be legitimately absent on one run.
+     <code>IDEAS_KEYSET_STRICT=0</code> downgrades the raise to a warning.
+     Counts and the audit that produced them are in
+     <a href="#a2">Appendix B</a>.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 8 ══ -->
+<section id="s8">
+  <span class="eyebrow">8</span>
+  <h2>Failure paths</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>failure</th><th>where</th><th>response</th><th>what the run produces</th></tr></thead>
+    <tbody>
+      <tr><td>Missing <code>experiment.json</code></td><td>step 0</td>
+          <td class="r-raise">raises</td>
+          <td><strong>the Analyzer stops.</strong> No later step has an input</td></tr>
+      <tr><td>Missing <code>reception.json</code> or <code>strategy.json</code></td><td>step 0</td>
+          <td class="r-skip">skips</td>
+          <td>the corresponding <code>plan</code> fields are <code>None</code>; step 1 then raises for the missing observations and is caught</td></tr>
+      <tr><td>Malformed JSON in any artifact</td><td>step 0 <code>_read()</code></td>
+          <td class="r-skip">skips</td>
+          <td>treated as absent. <span class="mark">A corrupt <code>experiment.json</code> is therefore reported as "not packaged" rather than "unreadable" — the two are indistinguishable in the message.</span></td></tr>
+      <tr><td>Producer wrote a key no list names</td><td>step 0, the manager, the extractor</td>
+          <td class="r-raise">raises</td>
+          <td>names the key, the artifact and the list's file</td></tr>
+      <tr><td>Model agent summary missing a required key</td><td><code>validate_run_summary</code></td>
+          <td class="r-raise">raises</td>
+          <td><code>ValueError</code> listing what is missing</td></tr>
+      <tr><td>Unknown or misspelled runtime key</td><td><code>GeneratedELMAgent.__init__</code></td>
+          <td class="r-raise">raises</td>
+          <td>the case is never built. <strong>Verified: it does not fall back to the default.</strong></td></tr>
+      <tr><td>Value count ≠ date count for a variable</td><td><code>ctx.series()</code></td>
+          <td class="r-skip">skips + records</td>
+          <td>the variable stays out of <code>df</code>; <code>series_withheld</code> holds the reason and step 2's brief prints it</td></tr>
+      <tr><td>Depth-resolved variable in a daily frame</td><td><code>ctx.series()</code></td>
+          <td class="r-skip">routed</td>
+          <td>goes to <code>soil</code> instead, layer axis intact — not a failure</td></tr>
+      <tr><td>No columns in the run, <em>or</em> no frame at all (<code>df</code>, <code>soil</code>, <code>prof</code> all empty)</td>
+          <td>the preflight gate, <code>ctx.preflight()</code></td>
+          <td class="r-skip">skips 1–3, still reports</td>
+          <td>steps 1–3 are skipped <strong>before any model call</strong> and marked <code>False</code>; <strong>step 4 still runs</strong> and writes <code>analysis.json</code> with status <code>insufficient_evidence</code>, an <code>answer</code> naming the reason, and the whole preflight record under <code>provenance</code></td></tr>
+      <tr><td>No frame at all, reached anyway (preflight failed open)</td>
+          <td><code>script_runner.run()</code></td>
+          <td class="r-skip">refuses</td><td>every figure fails with that reason; each becomes a caveat. This is the path preflight exists to make rare, not to replace</td></tr>
+      <tr><td>Proposed figure names only variables that are in no frame</td>
+          <td>step 2's filter</td>
+          <td class="r-skip">refuses before running</td>
+          <td>recorded as a caveat naming the missing variables. <strong>Turns itself off when the inventory is empty</strong> — <code>can_filter = bool(have)</code> — because empty means <em>not measured</em>, not <em>nothing exists</em></td></tr>
+      <tr><td>Backend has no comparison package</td><td>step 1</td>
+          <td class="r-skip">skips</td>
+          <td>a record carrying <code>skipped</code> and the reason — not four empty comparisons</td></tr>
+      <tr><td>Comparison raises</td><td>step 1</td><td class="r-warn">warns</td>
+          <td>caught by <code>Analyzer.run()</code>; steps 2–4 continue with <code>comparison = {}</code></td></tr>
+      <tr><td>No observations for an observable</td><td>the compare package</td>
+          <td class="r-skip">records</td>
+          <td>a finding saying so. Absence is a fact about the basin, not a failed query</td></tr>
+      <tr><td>Generated script imports subprocess, socket or requests</td>
+          <td><code>inspect_code()</code></td>
+          <td class="r-skip">refuses before running</td>
+          <td>returns <code>ok=False</code> naming the import; never executed</td></tr>
+      <tr><td>Generated script exceeds memory, CPU or file-size ceiling</td>
+          <td><code>_limits()</code></td>
+          <td class="r-skip">killed, then recorded</td>
+          <td>non-zero exit; the caller turns the reason into a caveat</td></tr>
+      <tr><td>Generated script crashes, hangs, or returns nothing</td>
+          <td><code>script_runner.run()</code></td>
+          <td class="r-skip">skips + records</td>
+          <td>returns <code>ok=False</code> with a reason; step 2 turns it into a <span class="pill p-ctx">context</span> caveat and continues with the others</td></tr>
+      <tr><td>Script result has <code>n &lt; 3</code> or no <code>n</code></td>
+          <td><code>script_runner.run()</code></td>
+          <td class="r-skip">rejects</td>
+          <td>same as above — a plausible empty answer does not become a finding</td></tr>
+      <tr><td>Model reply is not parseable JSON</td><td>steps 2 and 3 <code>_parse()</code></td>
+          <td class="r-raise">raises after deterministic repair</td>
+          <td>tries fenced-block extraction, then comment-stripping and newline-escaping. No self-repair model call. Caught one level up, marking the step failed</td></tr>
+      <tr><td>Model timeout or transport error</td><td>steps 2 and 3</td>
+          <td class="r-warn">warns</td>
+          <td><span class="mark">no explicit timeout is set on the LLM client in these steps; a transport error propagates and is caught by <code>Analyzer.run()</code>, which marks steps 2–3 failed and still runs step 4</span></td></tr>
+      <tr><td>Claim cites a finding that does not exist</td><td><code>rule_cites()</code></td>
+          <td class="r-skip">strikes</td><td>moved to <code>struck</code> with the reason; reported under <code>withheld</code></td></tr>
+      <tr><td>Claim declares a value not in its finding</td><td><code>rule_declared_values()</code></td>
+          <td class="r-skip">strikes</td><td>same</td></tr>
+      <tr><td>Claim omits a blocking caveat it is about</td><td><code>rule_respects()</code></td>
+          <td class="r-skip">strikes</td><td>same</td></tr>
+      <tr><td>Verdict is neither value</td><td><code>interpret()</code></td>
+          <td class="r-warn">forced</td><td>treated as <code>"insufficient"</code> — an unparseable verdict is not a pass</td></tr>
+      <tr><td>Evidence judged insufficient</td><td>the round loop</td>
+          <td class="r-retry">retries once</td>
+          <td>a full new investigation with step 3's feedback; at most two rounds total. Still insufficient → that verdict is the reported result</td></tr>
+      <tr><td>Insufficient with no actionable feedback</td><td>the round loop</td>
+          <td class="r-skip">stops early</td><td>nothing to send back</td></tr>
+      <tr><td>Any step recorded <code>False</code> by the coordinator</td><td><code>_status()</code></td>
+          <td class="r-warn">classifies</td>
+          <td>status is <code>analysis_failed</code>, and <code>provenance.failed_steps</code> names which. A crash is never filed as a scientific judgement</td></tr>
+      <tr><td>Step 4 was given no <code>steps</code> record</td><td><code>_status()</code></td>
+          <td class="r-warn">classifies conservatively</td>
+          <td>any run without a verdict becomes <code>analysis_failed</code> — the safe direction to be wrong in</td></tr>
+      <tr><td>Report assembly raises</td><td>step 4</td><td class="r-warn">warns</td>
+          <td>status records <code>report: false</code>; <strong>no boundary artifact is written</strong></td></tr>
+      <tr><td><code>python-pptx</code> not installed, or the deck fails to save</td>
+          <td><code>step4_slides.build()</code> / <code>step4_report.write()</code></td>
+          <td class="r-skip">skips</td>
+          <td>prints the reason and returns <code>None</code>. <strong><code>analysis.json</code> is already on disk and unaffected</strong> — the JSON is written first, always</td></tr>
+      <tr><td>The prompt or reply log cannot be written</td>
+          <td><code>save_exchange()</code></td>
+          <td class="r-warn">warns</td>
+          <td>the run stands and keeps its figures; only that round cannot be replayed</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 9 ══ -->
+<section id="s9">
+  <span class="eyebrow">9</span>
+  <h2>Current guarantees</h2>
+  <p>Split into what code enforces and what is currently only an intention.
+     The difference matters: an intention holds until someone changes a prompt.</p>
+
+  <h3>Enforced</h3>
+  <table>
+    <thead><tr><th>guarantee</th><th>enforced by</th><th>test</th></tr></thead>
+    <tbody>
+      <tr><td>A declared measurement absent from the cited finding is removed</td>
+          <td><code>rule_declared_values()</code></td>
+          <td><code>test_analysis_step3.py::test_a_declared_value_absent_from_the_finding_is_struck</code></td></tr>
+      <tr><td>A claim citing a finding that does not exist is removed</td>
+          <td><code>rule_cites()</code></td>
+          <td><code>…::test_a_claim_citing_no_real_finding_is_struck</code></td></tr>
+      <tr><td>A claim about a blocking caveat's subject must carry its id</td>
+          <td><code>rule_respects()</code> + <code>required_caveats()</code></td>
+          <td><code>…::test_a_claim_about_a_caveats_subject_must_carry_it</code></td></tr>
+      <tr><td>A claim <em>not</em> about that subject does not owe the caveat</td>
+          <td><code>required_caveats()</code></td>
+          <td><code>…::test_a_claim_NOT_about_that_subject_does_not_owe_it</code></td></tr>
+      <tr><td>Only <span class="pill p-block">blocking</span> caveats bind</td>
+          <td><code>rule_respects()</code></td>
+          <td><code>…::test_context_caveats_do_not_block</code></td></tr>
+      <tr><td>Only claims the audit kept appear in the report</td>
+          <td><code>step4_report.build()</code></td>
+          <td><code>test_analysis_step4.py::test_only_claims_the_audit_kept_are_reported</code></td></tr>
+      <tr><td>Struck claims travel with their reason</td>
+          <td><code>step4_report.build()</code></td>
+          <td><code>…::test_struck_claims_travel_with_their_reason</code></td></tr>
+      <tr><td><code>plan</code> carries no results</td><td><code>step0_context.load()</code></td>
+          <td><code>test_analysis_step0.py::test_plan_carries_no_results</code></td></tr>
+      <tr><td>Observations come from <code>reception.json</code>, never a re-fetch</td>
+          <td><code>step0_context.load()</code></td>
+          <td><code>…::test_observations_come_from_reception_not_a_refetch</code></td></tr>
+      <tr><td>Every caveat has the same five fields</td><td><code>_caveats()</code></td>
+          <td><code>…::test_every_caveat_has_the_same_five_fields</code></td></tr>
+      <tr><td>Structural limitations block rather than qualify</td><td><code>_caveats()</code></td>
+          <td><code>…::test_structural_limitations_block_rather_than_qualify</code></td></tr>
+      <tr><td>A variable whose axes do not line up stays out of <code>df</code></td>
+          <td><code>ctx.series()</code></td>
+          <td><code>…::test_no_series_returns_none_not_an_empty_frame</code>, <code>…::test_tidy_long_frame</code></td></tr>
+      <tr><td>A result below the floor, or with no <code>n</code>, is refused</td>
+          <td><code>script_runner.run()</code></td>
+          <td><code>test_analysis_step2.py::test_a_result_below_the_floor_is_refused</code>, <code>…::test_a_result_without_n_is_refused</code></td></tr>
+      <tr><td>A failing script returns a reason rather than raising</td>
+          <td><code>script_runner.run()</code></td>
+          <td><code>…::test_a_raising_script_returns_a_reason_not_an_exception</code></td></tr>
+      <tr><td>The generated script is saved for provenance</td>
+          <td><code>script_runner.run()</code></td>
+          <td><code>…::test_the_script_is_saved_for_provenance</code></td></tr>
+      <tr><td>A saved script re-runs after its payload is deleted</td>
+          <td><code>script_runner._PREAMBLE</code> fallback</td>
+          <td><code>test_analysis_step2.py::TestASavedScriptCanBeReRun</code></td></tr>
+      <tr><td>Credentials in the environment do not reach a generated script</td>
+          <td><code>_child_env()</code></td>
+          <td><code>…::TestCredentialsDoNotReachTheChild</code></td></tr>
+      <tr><td>Memory, CPU and file-size ceilings are applied to the child</td>
+          <td><code>_limits()</code></td>
+          <td><code>…::TestTheResourceCeilings</code></td></tr>
+      <tr><td>A script importing subprocess/socket/requests is refused unrun</td>
+          <td><code>inspect_code()</code></td>
+          <td><code>…::TestTheScopeGuardrail</code></td></tr>
+      <tr><td>The runner never rescales the frame's values</td>
+          <td><code>_to_daily_rates()</code></td>
+          <td><code>…::test_the_runner_never_rescales_the_frame</code></td></tr>
+      <tr><td>At most five figures per round; duplicate ids dropped</td>
+          <td><code>propose()</code></td>
+          <td><code>…::test_more_than_five_figures_are_cut</code>, <code>…::test_duplicate_ids_are_dropped_not_overwritten</code></td></tr>
+      <tr><td>At most two rounds</td><td><code>investigate_and_interpret()</code></td>
+          <td><code>test_analysis_step3.py::test_max_rounds_is_two</code>, <code>…::test_it_revises_once_then_stops</code></td></tr>
+      <tr><td>An unparseable verdict is not a pass</td><td><code>interpret()</code></td>
+          <td><code>…::test_an_unparseable_verdict_is_not_a_pass</code></td></tr>
+      <tr><td>All five steps run in dependency order and write the boundary artifact</td>
+          <td><code>Analyzer.run()</code></td>
+          <td><code>test_analyzer_wiring.py::test_all_five_run_in_dependency_order</code>, <code>…::test_it_writes_the_boundary_file</code></td></tr>
+      <tr><td>A failed step 1, step 2–3 or step 4 does not abort the box; a failed step 0 does</td>
+          <td><code>Analyzer.run()</code></td>
+          <td><code>…::test_a_failed_comparison_still_reaches_the_report</code>, <code>…::test_a_failed_context_ends_the_box</code></td></tr>
+
+      <tr><td><strong>A crashed run and an inconclusive one are distinguishable without reading the verdict</strong></td>
+          <td><code>_status()</code></td>
+          <td><code>test_analysis_step4.py::TestAFailedRunIsNotAnInconclusiveOne::test_the_two_are_distinguishable_without_reading_the_verdict</code>, <code>…::test_a_crash_is_not_read_as_a_verdict</code></td></tr>
+      <tr><td>A run with no <code>steps</code> record is treated as failed, not inconclusive</td>
+          <td><code>_status()</code></td>
+          <td><code>…::test_a_missing_step_record_is_treated_as_a_failure</code></td></tr>
+      <tr><td>A sufficient verdict with nothing surviving the audit gets its own status</td>
+          <td><code>_status()</code></td>
+          <td><code>…::test_sufficient_with_nothing_surviving_the_audit_is_its_own_status</code></td></tr>
+      <tr><td>Which steps ran is persisted, and the receipt names the failed ones</td>
+          <td><code>step4_report.build()</code>, <code>summary()</code></td>
+          <td><code>…::test_which_steps_ran_is_persisted</code>, <code>…::test_the_receipt_names_the_failed_steps</code></td></tr>
+
+      <tr><td><strong>Preflight stops the run before any model is asked</strong></td>
+          <td><code>Analyzer.run()</code> + <code>preflight_of()</code></td>
+          <td><code>test_analyzer_wiring.py::TestPreflightStopsBeforeTheModelIsAsked::test_no_model_call_is_made</code></td></tr>
+      <tr><td>A blocked run still gets a report, and its answer says why rather than being null</td>
+          <td><code>Analyzer.run()</code>, <code>step4_report.build()</code></td>
+          <td><code>…::test_the_report_is_still_written</code>, <code>…::test_the_answer_says_why_rather_than_being_null</code></td></tr>
+      <tr><td>A deliberate skip is reported as inconclusive, not as a crash</td>
+          <td><code>_status()</code> checking <code>preflight</code> first</td>
+          <td><code>…::test_a_deliberate_skip_is_not_a_crash</code></td></tr>
+      <tr><td>A fault in preflight cannot stop a healthy run</td>
+          <td><code>preflight_of()</code></td>
+          <td><code>test_analysis_step2.py::TestPreflightFailsOpen::test_a_preflight_that_raises_is_not_fatal</code>, <code>…::test_a_context_without_preflight_returns_empty</code></td></tr>
+      <tr><td>An empty variable inventory does not refuse every figure</td>
+          <td><code>can_filter = bool(have)</code> in step 2</td>
+          <td><code>test_analysis_step2.py</code> — the context-without-<code>preflight()</code> pin</td></tr>
+
+      <tr><td>Model spend is reported as unmeasured rather than zero</td>
+          <td><code>_llm_accounting()</code></td>
+          <td><code>test_analysis_step4.py::TestZeroCostMeansUnmeasuredNotFree</code></td></tr>
+      <tr><td><code>unattributed</code> is the unlabelled remainder, not the grand total</td>
+          <td><code>_llm_accounting()</code></td>
+          <td><code>…::test_unattributed_is_the_unlabelled_remainder_not_everything</code>, <code>…::test_the_analyzers_spend_excludes_the_rest_of_the_pipeline</code></td></tr>
+
+      <tr><td><strong>The deck cannot disagree with the file it renders</strong></td>
+          <td><code>step4_slides.build()</code></td>
+          <td><code>test_analysis_step4.py::TestTheSlideDeckIsARenderingNotASecondReport::test_the_answer_appears_verbatim</code>, <code>…::test_every_claim_carries_the_finding_it_rests_on</code>, <code>…::test_blocking_caveats_are_quoted_not_summarised</code></td></tr>
+      <tr><td>A failed run says so on the title slide instead of opening with an answer</td>
+          <td><code>step4_slides._STATUS_LINE</code></td>
+          <td><code>…::test_a_failed_run_says_so_on_the_title_slide</code></td></tr>
+      <tr><td>Struck claims travel to the deck with the rule that struck them</td>
+          <td><code>step4_slides.build()</code></td>
+          <td><code>…::test_struck_claims_travel_with_the_rule_that_struck_them</code></td></tr>
+      <tr><td><code>analysis.json</code> is written even when the deck cannot be</td>
+          <td><code>step4_report.write()</code></td>
+          <td><code>…::test_the_json_is_written_even_if_the_deck_cannot_be</code>, <code>…::test_slides_can_be_turned_off</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Intentions, not guarantees</h3>
+  <table>
+    <thead><tr><th>property</th><th>status</th></tr></thead>
+    <tbody>
+      <tr><td><strong>The Analyzer does not parse backend-native output</strong></td>
+          <td>True by inspection — no <code>netCDF4</code>, <code>xarray</code> or <code>h5py</code> import exists anywhere under <code>src/agents/analysis/</code>. <span class="mark">No test enforces it; a future import would not be caught.</span></td></tr>
+      <tr><td><strong><code>analysis.json</code> is the sole user-visible conclusion</strong></td>
+          <td>True by inspection — one writer, no framework reader. <span class="mark">Not asserted anywhere. Re-running overwrites it.</span></td></tr>
+      <tr><td><strong>The <code>answer</code> paragraph restates the audited claims</strong></td>
+          <td><span class="mark">Prompted, not enforced.</span> The audit operates on <code>claims</code>; <code>answer</code> is copied verbatim from the model.</td></tr>
+      <tr><td><strong>No basin totals are reported</strong></td>
+          <td><span class="mark">Prompted only.</span> Step 2's task text forbids summing unrouted columns to a watershed; nothing checks the output for it.</td></tr>
+      <tr><td><strong>Means over <code>soil</code> are thickness-weighted</strong></td>
+          <td><span class="mark">Prompted and documented; not checked.</span></td></tr>
+      <tr><td><strong>Generated code is confined</strong></td>
+          <td><strong>Partly, and the limits are now named.</strong> Process isolation, a wall timeout, memory/CPU/file ceilings, an environment allowlist and an AST scope check are enforced and tested. <span class="mark">Network egress and filesystem reads are not confined</span> — see §4, step 2. Do not call it a sandbox.</td></tr>
+      <tr><td><strong>Figures support the claims that cite them</strong></td>
+          <td><span class="mark">Reviewed by a model, never by code.</span></td></tr>
+      <tr><td><strong>The deck matches the JSON</strong></td>
+          <td><strong>Partly.</strong> Tests pin the answer, the finding ids, the struck reasons and the quoted caveats. <span class="mark">No test compares every rendered value against the report field-by-field</span>, so a future edit to <code>step4_slides.py</code> could still round or reword something untested.</td></tr>
+      <tr><td><strong>A claim's displayed value is the value that was measured</strong></td>
+          <td><strong>Enforced by construction, at a cost.</strong> The audit requires a declared value to appear exactly in the cited finding, so a rounded figure breaks the trace and is struck. The review brief proposed a <code>raw_value</code> / <code>display_value</code> split with deterministic rounding rules. <span class="mark">Not implemented</span> — full precision is what currently reaches both the report and the slides.</td></tr>
+      <tr><td><strong>The audit checks that a claim <em>interprets</em> its finding correctly</strong></td>
+          <td><span class="mark">It does not, and this is the largest known gap.</span> The three rules are a <em>provenance</em> audit: they prove a claim cites a real finding, declares only values that finding contains, and carries the blocking caveats scoped to it. They do not check variable identity, metric identity, units, direction, time period, location, layer, or association versus causation. A claim citing a finding that contains −10 passes whether or not −10 is the right metric for what the sentence says.</td></tr>
+      <tr><td><strong>Inter-step artifacts are versioned and schema-validated</strong></td>
+          <td><span class="mark">Not implemented.</span> <code>analysis.json</code> carries <code>"schema": "analysis/1"</code>; nothing reads it, and no other artifact carries a version. Validation today is the <code>KeySet</code> assertions (§7) and the runner's six guards, which catch unclassified keys and bad results but not a changed field's meaning.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 10 ══ -->
+<section id="s10">
+  <span class="eyebrow">10</span>
+  <h2>Glossary</h2>
+  <dl class="gloss">
+    <dt>boundary artifact</dt>
+    <dd>The single JSON file that is one stage's entire interface to the next —
+        <code>reception.json</code>, <code>strategy.json</code>,
+        <code>experiment.json</code>, <code>analysis.json</code>.</dd>
+
+    <dt>context</dt>
+    <dd>The in-memory <code>AnalysisContext</code> that step 0 builds, holding
+        <code>plan</code>, <code>data</code> and <code>caveats</code>. Never
+        written to disk.</dd>
+
+    <dt>frame</dt>
+    <dd>A tidy pandas DataFrame the generated scripts read. There are three —
+        <code>df</code> (daily), <code>soil</code> (daily per layer) and
+        <code>prof</code> (depth profiles) — because each holds a different
+        combination of axes.</dd>
+
+    <dt>axis</dt>
+    <dd>One dimension a value varies along: time, depth, layer, or column. An
+        "axis mismatch" is pairing two lists that vary along different axes,
+        which produces a plausible-looking frame of mislabelled numbers.</dd>
+
+    <dt>finding</dt>
+    <dd>One computed result with an id, the question it answers, the numbers it
+        produced, how many data points those rest on (<code>n</code>), and the
+        figure and script that made it. The only thing a claim may cite.</dd>
+
+    <dt>caveat</dt>
+    <dd>A five-field record stating a limit on what the evidence may support:
+        <code>id</code>, <code>severity</code>, <code>statement</code>,
+        <code>applies_to</code>, <code>source</code>.</dd>
+
+    <dt>audit</dt>
+    <dd>The pure function in step 3 that checks each claim against the finding
+        it cites and removes the ones that do not hold up. No model is involved.
+        It audits <em>provenance</em> — where a number came from — not whether
+        the sentence around it interprets that number correctly.</dd>
+
+    <dt>candidate claim</dt>
+    <dd>A sentence the interpreter proposes, before the audit has judged it. It
+        names a <code>finding_id</code>, the values it declares, and the caveat
+        ids it carries.</dd>
+
+    <dt>audited claim</dt>
+    <dd>A candidate claim that survived all three rules. Only these reach
+        <code>analysis.json</code>'s <code>claims</code>; the rest go to
+        <code>withheld</code> with <code>struck_by</code> and the reason.</dd>
+
+    <dt>preflight</dt>
+    <dd>One question asked between step 0 and step 1: does this run hold
+        anything to analyse? It reports what the packaged run contains — never
+        whether the contents answer the question — and when it finds nothing it
+        skips steps 1–3 before any model is called.</dd>
+
+    <dt>status</dt>
+    <dd>What <em>kind</em> of result a report is, distinct from what it says:
+        <code>supported</code>, <code>no_supported_claims</code>,
+        <code>insufficient_evidence</code> or <code>analysis_failed</code>. It
+        exists because a crash has no verdict at all, and an absent verdict
+        read as "inconclusive" files a malfunction as a judgement.</dd>
+
+    <dt>floor</dt>
+    <dd>A key list naming the <em>minimum</em> a producer must supply. Extra keys
+        are allowed; missing ones raise.</dd>
+
+    <dt>whitelist</dt>
+    <dd>A key list that <em>selects</em> what crosses a boundary. Here, one that
+        also names what it deliberately leaves, so an unlisted key can raise.</dd>
+
+    <dt>pass-through contract</dt>
+    <dd>A key list that documents the expected keys but copies everything, so
+        nothing can be dropped by it.</dd>
+
+    <dt>identity</dt>
+    <dd>The fields that say <em>which</em> column a row is — its name, place,
+        elevation, forcing period, and whether it was pinned to a station — as
+        opposed to what the column measured.</dd>
+
+    <dt>backend-neutral artifact</dt>
+    <dd>A file whose shape does not depend on which simulator produced it.
+        <code>experiment.json</code> is one, which is why the same Analyzer
+        reads an ELM run and a PFLOTRAN run.</dd>
+
+    <dt>pinned column</dt>
+    <dd>A sampled column placed deliberately at an observation station so the
+        two can be compared, rather than chosen by the elevation-band design.</dd>
+  </dl>
+</section>
+
+<!-- ══════════════════════════════════════════════════ appendix A ══ -->
+<section id="a1">
+  <span class="eyebrow">Appendix A</span>
+  <h2>Design history</h2>
+  <p>Why the current shape is the shape it is. None of this is needed to use
+     the Analyzer; it is here because each item explains a constraint that would
+     otherwise look arbitrary.</p>
+
+  <h3>The Analyzer was inside the Experiment Manager</h3>
+  <p>The manager both ran the simulation and judged it, so "the experiment
+     succeeded" and "the experiment showed something" were decided by the same
+     code. They are different questions. A run whose columns all completed is a
+     manager success even when every column drains twice its precipitation.</p>
+
+  <h3>The comparison moved into the ELM server (2026-08-12)</h3>
+  <p>Step 1 used to own four modules — roughly 1,400 lines that knew H2OSNO from
+     ZWT, what a snow pillow is sited for, and how deep ELM's soil column goes.
+     None of that is backend-neutral, and the Analyzer is the one box that must
+     be. It now lives in <code>mcp/elm-mcp/src/compare/</code>, and step 1 is the
+     caller plus the judgement about what those measurements may support.</p>
+  <p>A registry replaced the hardcoded import shortly after: the file imported
+     ELM's package whatever the run was, so a PFLOTRAN study would have asked
+     ELM's modules for H2OSNO, found nothing, and written four empty records as
+     though the comparison had been made. "We could not look" reported as "there
+     is nothing there" is the exact failure this box exists to avoid.</p>
+
+  <h3>Step 1 stopped deriving caveats (2026-08-13)</h3>
+  <p>It used to add eight per run. Each one restated a measurement the summary
+     already carried — <code>below_active_soil</code>,
+     <code>onset_censored_columns</code>, <code>gauges_exceeding_modelled_domain</code>
+     — so the step was measuring <em>and</em> ruling on its own measurement, and
+     the interpreter's brief was 24% caveats against 43% measurements.
+     Understanding what the scope permits is the interpreter's job. Caveats now
+     have one producer: step 0, reading <code>experiment.json</code>.</p>
+
+  <h3>The citation strike, and what it turned out to be</h3>
+  <p>On the 2026-08-13 verification runs the audit struck 9 of 14 claims. Every
+     struck value was a real measurement from that run, cited under the wrong
+     id — so the audit was right fourteen times out of fourteen and the fault
+     was upstream. Two causes, both in how the evidence was displayed:</p>
+  <ul>
+    <li>Step 1's findings were rendered as a prose block while step 2's were
+        listed with ids, though the audit accepts both. A model writing about
+        snow cited the step-2 finding whose <em>subject</em> matched while
+        quoting numbers that lived in <code>compare_swe</code>. 8 of 15 struck
+        values. Fixed by rendering both in one <code>FINDINGS:</code> list.</li>
+    <li>A silent 700-character cap on each result. One finding held 324 numbers
+        and 292 were behind the cut; 5 of 10 findings were truncated. The model
+        was shown a fifth of a result and told to quote from it exactly. Fixed
+        by raising the cap to 6,000 and saying so when it does cut.</li>
+  </ul>
+  <p>Re-running step 3 alone over the same findings, so only the prompt
+     differed: Naches 3 kept / 5 struck → 11 / 0; Brandywine 2 / 4 → 9 / 1. The
+     survivor was a genuine <code>respects</code> strike.</p>
+
+  <h3>The audit's own worst false positive</h3>
+  <p><code>_blocked_by</code> tags a figure with every caveat scoped to any
+     variable it used, so a five-variable figure inherits five caveats.
+     Enforcing all of them on every claim struck "no observational validation of
+     the water table is possible" for not carrying a caveat scoped to runoff.
+     <code>required_caveats()</code> now narrows the figure's candidates to the
+     ones the claim's own text is actually about.</p>
+  <p>An earlier version matched a caveat's full <code>statement</code> as well
+     as its scope, and struck every claim in a live run: one caveat scoped to
+     the water table mentions QDRAI in passing, so every drainage figure
+     inherited it. An audit that strikes everything is indistinguishable from
+     one that is broken.</p>
+
+  <h3>The recurring failure this whole design is arranged against</h3>
+  <p>A null that means "not computed" rendering identically to one that means
+     "computed as nothing." Four instances, all real:</p>
+  <ul>
+    <li><code>soil_attribution</code> filtered on a key the extraction never
+        populated, returned <code>{}</code>, and its figure simply did not
+        appear — for the entire history of a study, with nothing recording that
+        a planned analysis produced nothing. This is why
+        <code>script_runner</code> requires an <code>n</code>.</li>
+    <li>A capability probe tested <code>row["soil"]["clay_max_pct"]</code>, null
+        on 100% of columns across every run ever packaged, while
+        <code>soil_profile</code> beside it was complete. The soil figures were
+        never offered, on any run.</li>
+    <li>SOILLIQ's 5,280 layer-values were zipped against 352 dates, silently
+        producing 23 days of soil profile relabelled as a year. It surfaced only
+        when a reviewer looked at the figure and said a soil-water trace cannot
+        collapse and rebound every fortnight — the fortnight being the 15
+        layers, cycling.</li>
+    <li>A stale variable name after a refactor raised <code>NameError</code>,
+        which a bare <code>except Exception</code> swallowed and reported as
+        "limitations payload unavailable" — a run with no limitations rather
+        than code that did not run. Since step 1 stopped deriving caveats that
+        same morning, that payload is the only source of anything blocking.</li>
+  </ul>
+
+  <h3>Deleted, and why</h3>
+  <table>
+    <thead><tr><th>what</th><th>when</th><th>why</th></tr></thead>
+    <tbody>
+      <tr><td><code>AnalysisReportAgent</code></td><td>2026-08-13</td>
+          <td>An LLM call inside the MCP server. Steps 3 and 4 do the work now, over the comparison, the caveats and the figures it never carried.</td></tr>
+      <tr><td><code>ELMResultsAnalyzer</code></td><td>2026-08-13</td>
+          <td>A second writer of <code>extracted.json</code>. Replaced by <code>column_rows.build_rows()</code>, which reads what one producer wrote.</td></tr>
+      <tr><td><code>step1_compare_swe/_wtd/_streamflow</code>, <code>step1_maps</code></td><td>2026-08-12</td>
+          <td>Backend knowledge in a backend-neutral box. Moved to the ELM server.</td></tr>
+      <tr><td><code>LLM_ANALYSIS_INPUT.json</code></td><td>2026-08-13</td>
+          <td>A prompt payload for the deleted report agent; four of its fields were already dead.</td></tr>
+      <tr><td>the Fan water-table prior in the design figure</td><td>2026-08-14</td>
+          <td>Its producer left the sampler on 2026-08-07; the panel had been reading a field nothing wrote.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════════════════════════════════════════════ appendix B ══ -->
+<section id="a2">
+  <span class="eyebrow">Appendix B</span>
+  <h2>Key-contract audit</h2>
+  <p>Nine key lists were walked against every artifact on disk on 2026-08-14,
+     after nine values in one week were found to have been computed, written,
+     and then not carried. The expectation was widespread rot. That is not what
+     was there.</p>
+
+  <table>
+    <thead><tr><th>list</th><th>finding</th></tr></thead>
+    <tbody>
+      <tr><td class="id">ctx.data</td>
+          <td><strong>The one real bug.</strong> 10 of 20 keys dropped; 9 genuinely routed to <code>plan</code> or <code>caveats</code>. The tenth was <code>spinup_dropped</code>, which arrived <code>None</code> for six days while the value sat in <code>experiment.json</code> and step 4 waited for it. It was also the only list written as an inline dict rather than a named constant, which is why inspection never caught it.</td></tr>
+      <tr><td class="id">COLUMN_METADATA</td>
+          <td>Dropped <code>elevation_source</code>, which two producers write and nothing reads. Named <code>wtd_prior_m</code>, <code>wtd_prior_source</code> and <code>wtd_prior_uncertainty_m</code> — no producer since 2026-08-07.</td></tr>
+      <tr><td class="id">_IDENTITY</td>
+          <td>Dropped <code>record_start</code> (consumed one level up) and <code>partial_days_dropped</code> (read nowhere).</td></tr>
+      <tr><td class="id">RUNTIME_KEYS</td>
+          <td>Logged a warning and used the <em>default</em> in the key's place. Now raises.</td></tr>
+      <tr><td class="id">CASE_KEYS</td><td><strong>Clean</strong> — exact match both directions.</td></tr>
+      <tr><td class="id">EXTRACT_KEYS · REQUIRED_SUMMARY_KEYS</td>
+          <td>Not filters. One is a pass-through, one a floor already enforced with a raise.</td></tr>
+      <tr><td class="id">_PCT_KEYS · _VALUE_KEYS</td>
+          <td>Module-local — no boundary for a key to vanish across.</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>The lists were not systematically rotten.</strong> Two were exactly
+     clean, two are not filters, two are module-local, and the drops in
+     <code>COLUMN_METADATA</code> and <code>_IDENTITY</code> were all of fields
+     nothing reads. Seven of the nine original bugs clustered in code edited
+     within the previous week; the lists nobody had touched were fine. That is
+     the argument for an assertion rather than for more auditing: re-inspection
+     finds instances, it does not stop the next one.</p>
+
+  <h3>After the change</h3>
+  <table>
+    <thead><tr><th>list</th><th>keep</th><th>optional</th><th>drop</th><th>producer writes</th></tr></thead>
+    <tbody>
+      <tr><td class="id">COLUMN_METADATA</td><td>14</td><td>2</td><td>7</td><td>21</td></tr>
+      <tr><td class="id">_IDENTITY</td><td>10</td><td>0</td><td>13</td><td>23</td></tr>
+      <tr><td class="id">ctx.data</td><td>10</td><td>0</td><td>10</td><td>20</td></tr>
+      <tr><td class="id">CASE_KEYS</td><td>16</td><td>0</td><td>2</td><td>18</td></tr>
+    </tbody>
+  </table>
+  <p>Each list now sums exactly to what its producer writes. Verified over every
+     artifact on disk — 7 <code>columns.json</code> (81 columns), 6
+     <code>extracted.json</code> (80 metadata records), 5
+     <code>experiment.json</code> including one archived PFLOTRAN study: the
+     assertion raises nowhere and the report names nothing. Stripping the joined
+     fields off a 19-column run and re-merging reproduces 19 of 19 rows
+     byte-identical.</p>
+  <p>Three fields remain measured and read by nobody:
+     <code>partial_days_dropped</code>, <code>elevation_source</code>,
+     <code>outside_design_band</code>. All three are now written down as
+     decisions rather than omissions.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════ appendix C ══ -->
+<section id="a3">
+  <span class="eyebrow">Appendix C</span>
+  <h2>Change log for this rewrite</h2>
+
+  <h3>1 · Sections rewritten</h3>
+  <p>All of them. The previous page was organised as an argument — what the
+     Analyzer is not allowed to do, what the audit caught, seven open questions
+     — and assumed the reader already knew the pipeline. This one is organised
+     as a reference: plain-language summary, boundaries, execution flow, a
+     uniform template per step, lineage, submodules, contracts, failure paths,
+     guarantees, glossary. The step-by-step section is new in structure; §5
+     (lineage), §6 (submodule map), §8 (failure paths), §9 (guarantees) and §10
+     (glossary) are new in content.</p>
+
+  <h3>2 · Moved to appendices</h3>
+  <ul>
+    <li>The nine bug narratives, the deleted-component table, and every dated
+        "this used to be" passage → Appendix A.</li>
+    <li>The citation-strike investigation, its 9-of-14 numbers and the two
+        causes → Appendix A.</li>
+    <li>The whitelist walk, its counts, and the verification totals →
+        Appendix B. §7 now states only the current contract.</li>
+  </ul>
+
+  <h3>3 · Removed as obsolete or duplicated</h3>
+  <ul>
+    <li>"Two runs, re-run end to end on 2026-08-13" — a snapshot of two specific
+        runs, reproducible from the archived directories and duplicated in git
+        history.</li>
+    <li>"The soil control, now that both studies carry it" — a scientific result
+        about two basins, not a description of how the Analyzer works. It
+        belongs with the studies.</li>
+    <li>"Seven things I would question" — three were resolved and struck through
+        in place; the rest were open engineering questions, not documentation.
+        The still-live ones are now stated as unenforced properties in §9, where
+        a reader will actually meet them.</li>
+    <li>Repeated restatements of "a null that means not computed renders
+        identically to one that means computed as nothing" — said four times on
+        the old page, now once, in Appendix A.</li>
+  </ul>
+
+  <h3>4 · Claims that could not be verified</h3>
+  <ul>
+    <li><strong>LLM timeout behavior.</strong> Steps 2 and 3 set no explicit
+        timeout on the client. What happens on a hung request depends on
+        <code>SimpleLLMClient</code> and the gateway, which were not traced.</li>
+    <li><strong>Whether <code>answer</code> ever contradicts the kept claims.</strong>
+        Structurally it can; no run was examined for an instance.</li>
+    <li><strong>Whether step 3 ever re-runs a generated script.</strong> The
+        runner's docstring anticipates it; no call site exists today.</li>
+    <li><strong>Two-execution stability.</strong> Nothing asserts that a second
+        Analyzer run over the same directory reaches the same verdict, and it
+        was not measured.</li>
+  </ul>
+
+  <h3>5 · Defects found while verifying, and what happened to them</h3>
+  <table>
+    <thead><tr><th>defect</th><th>status</th></tr></thead>
+    <tbody>
+      <tr><td><strong><code>tests/test_elm_wrapper.py</code> did not import.</strong>
+          It imported <code>elm_results_analyzer</code>, deleted with the
+          downstream-metrics migration, so pytest failed at collection and the
+          whole file had been silently absent from the suite. It held the only
+          tests naming runtime-key handling.</td>
+          <td><strong>Fixed.</strong> Five files failed collection, not one.
+          Two dead files were deleted, two classes removed, the daily-series
+          tests ported onto <code>extract._daily</code> and
+          <code>column_metrics.variable_stats</code>, and
+          <code>test_mcp_tools.py</code> given a module-level skip for the
+          removed Fan server. The suite now collects 861 tests.</td></tr>
+
+      <tr><td><strong>Six step-4 tests failed against the current output shape.</strong>
+          They expected a <code>total_runtime_seconds</code> that had become
+          <code>framework_seconds</code> and <code>model_seconds</code>.</td>
+          <td><strong>Fixed</strong>, with the reason written into the tests:
+          the two quantities were one field that reported the framework's own
+          wall time while reading as the ensemble's.</td></tr>
+
+      <tr><td><strong>A stale comment contradicted the code.</strong>
+          A test comment said the ELM wrapper "logs a warning and drops unknown
+          keys internally."</td>
+          <td><strong>Fixed on the code side, which was the right side.</strong>
+          <code>GeneratedELMAgent.__init__</code> now raises
+          <code>ValueError</code> naming the key and listing
+          <code>RUNTIME_KEYS</code> — because running anyway meant running with
+          the default in the misspelled key's place.</td></tr>
+
+      <tr><td><strong>Malformed and missing artifacts are indistinguishable.</strong>
+          <code>_read()</code> catches every exception and returns the default,
+          so a corrupt <code>experiment.json</code> is reported as "the
+          Experiment Manager has not packaged this run."</td>
+          <td class="warn"><strong>Open.</strong> Now recorded in §8 so a reader
+          meets it rather than discovering it.</td></tr>
+
+      <tr><td><strong>"Sandboxed" overstated what <code>script_runner</code> did.</strong>
+          The module was titled "Sandboxed execution" and provided process
+          isolation and a timeout — not privilege isolation. The environment
+          was inherited whole, including exported credentials.</td>
+          <td><strong>Fixed, in both directions.</strong> Retitled "Constrained
+          execution"; and the constraints named in the title now exist — an
+          environment allowlist, memory/CPU/file ceilings, and an AST scope
+          check. §4 states plainly what is still <em>not</em> confined.</td></tr>
+
+      <tr><td><strong>A saved script was not re-runnable as saved.</strong> Its
+          preamble loaded a pickled payload from a temporary directory the
+          runner deleted in its <code>finally</code> block.</td>
+          <td><strong>Fixed.</strong> The preamble uses the pickle while it
+          exists and otherwise rebuilds the payload from
+          <code>_RUN_DIR</code>, taking the same path step 0 takes. Pinned by
+          <code>TestASavedScriptCanBeReRun</code>.</td></tr>
+
+      <tr><td><strong><code>04_analysis/</code> is never cleaned.</strong>
+          Scripts and figures from earlier executions accumulate beside the
+          current ones; only <code>investigation.json</code> says which belong
+          to this run. One archived directory holds 39 <code>.py</code> files
+          for a round that proposed 5.</td>
+          <td class="warn"><strong>Open, and deliberately not fixed here.</strong>
+          Deleting a previous execution's evidence to tidy a directory is the
+          wrong default; the fix is a per-execution subdirectory, which changes
+          every path in <code>analysis.json</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>6 · What this revision changed</h3>
+  <p>The structure the review brief asked for was already in place. This pass
+     brought the content up to the code as it now stands, after the five
+     implementation items the brief's priority list named:</p>
+  <ul>
+    <li><strong>The preflight gate</strong> — new subsection in §4, a row in
+        §5's lineage table, two rows in §6's submodule map, three rows in §8,
+        four guarantees in §9, and a new branch in the §3 diagram showing the
+        skip path into step 4.</li>
+    <li><strong>The four statuses</strong> — new subsection in §4 under step 4,
+        with the rule that <code>preflight</code> is checked before
+        <code>steps</code>, and an explicit note that the brief's proposed
+        <code>partially_supported</code> was <em>not</em> implemented and
+        why.</li>
+    <li><strong>The slide deck</strong> — <code>step4_slides.py</code> added to
+        §5, §6, §8 and §9, stated throughout as a second rendering of
+        <code>analysis.json</code> rather than a second report.</li>
+    <li><strong>Saved prompts and replies</strong> — new subsection in §4 under
+        step 2, plus lineage and failure rows. This is the prerequisite for
+        replaying a real run's model output without calling a model.</li>
+    <li><strong>Per-round regression records</strong> —
+        <code>findings_dropped_from_previous_round</code> and
+        <code>regressed</code> documented under "insufficient, once".</li>
+    <li><strong>Two corrections.</strong> <code>planned_vs_actual()</code> was
+        listed in §6 as having no production caller; it now has one —
+        <code>preflight()</code> reads it as
+        <code>unmet_plan_targets</code>. And the failure table's "no columns"
+        row said steps 1–4 were skipped; step 4 now runs and writes a
+        report.</li>
+    <li><strong>Three gaps promoted into §9 as explicit non-guarantees</strong>
+        rather than left unsaid: the audit checks provenance and not
+        interpretation; there is no <code>raw_value</code>/<code>display_value</code>
+        split, so rounding still breaks a trace; and inter-step artifacts are
+        not versioned or schema-validated.</li>
+  </ul>
+
+  <h3>7 · Recommended follow-up, in priority order</h3>
+  <ol>
+    <li><strong>Semantic audit rules.</strong> The brief's largest item and
+        still the largest gap — variable identity, metric identity, units and
+        direction. <code>AUDIT_RULES</code> is now an ordered tuple of named
+        functions, so a fourth rule is an addition rather than a rewrite.</li>
+    <li><strong><code>raw_value</code> / <code>display_value</code>.</strong>
+        Would let a claim round without breaking its trace. Touches the claim
+        schema, the audit's value rule, the report and the deck.</li>
+    <li><strong>Versioned schemas at each boundary.</strong>
+        <code>KeySet</code> already answers "is this key classified"; nothing
+        answers "does this field still mean what it meant".</li>
+    <li><strong>A per-execution subdirectory under <code>04_analysis/</code></strong>,
+        which resolves the accumulation defect without deleting evidence.</li>
+    <li><strong>End-to-end replay tests</strong> built on the saved prompt and
+        reply files, which is what saving them made possible.</li>
+  </ol>
 </section>
 
 </div>
+

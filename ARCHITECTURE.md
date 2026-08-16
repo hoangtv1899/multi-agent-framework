@@ -161,7 +161,7 @@ client fails at step 0b rather than quietly running a second implementation.
 | 0 materialize | strategy → real columns via MCP terrain/soil/WTD | framework | `columns.json`, `run_plan.json`, `assumptions.json` |
 | 0b warm start | one call, `build_elm_inputs_from_location`: subset each column's donor gridcell out of the CONUS 1-km restart → per-column `finidat` + surfdata, then surfaces, domains and the case list. Columns snap to the donor and adopt its soil | elm MCP | `warmstart/`, `01_inputs/`, `sampling_design.png` |
 | 1 build_case_inputs | read back what that call wrote — computes nothing | framework | — |
-| 2 build_cases | **JOB A**: one CIME build, then `--keepexe` clones, then every column, as one SLURM job. The framework also submits **JOB B** here (`--dependency=afterany`) and exits | elm MCP + SLURM | `02_setup_plots/column_surfaces.png` |
+| 2 build_cases | **JOB A**: one CIME build, then `--keepexe` clones, then every column, as one SLURM job. The framework also submits **JOB B** here (`--dependency=afterany`) and exits | elm MCP + SLURM | — |
 | 3 run | collect what landed — job A already ran the columns | framework | `03_results/` |
 | 4 analyze | history files → metrics + 5 figures | `04_analysis/` |
 | 4b validate | compare against USGS / SNOTEL observations | `04_analysis/validation.json` |
@@ -269,7 +269,7 @@ Analysis figures: `partitioning` (where P goes, as fractions), `controls`
 (the same quantities mapped over the watershed), `soil_control` (forcing held
 constant) and `wtd_columns`. Validation emits one figure per observable:
 `hydrograph`, `yield`, `water_table`, `swe`, and `context` (not scored). Plus
-`sampling_design.png` (step 0) and `column_surfaces.png` (step 2).
+`sampling_design.png`, drawn by the elm server after the warm start.
 
 **Figures illustrate; text interprets.** Figures render clean — axes, units,
 legend. Every verdict lives in `figure_captions.json` beside them, which is
@@ -329,7 +329,7 @@ and `mcp/elm-mcp/src/`. See `docs/RUNBOOK.md`.
 **Standalone diagnostics.** `tools/scout_watersheds.py` (pre-flight observation
 coverage), `tools/mcp_conus_sweep.py` (MCP coverage), `tools/probe_planner.py`
 (planner quality), `tools/replot.py` (re-plot a finished run),
-`tools/make_soil_sweep.py`.
+`mcp/elm-mcp/scripts/make_soil_sweep.py`.
 
 **The evaluation.** `eval/` is frozen paper provenance — pre-registered suite,
 runner, scorer, raw records. See `docs/paper/REPRODUCIBILITY.md`.

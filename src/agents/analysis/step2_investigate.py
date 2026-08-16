@@ -47,11 +47,25 @@ told to produce five will pad to five — which is fishing with extra steps.
 """
 import json
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agents.analysis import script_runner as _runner   # noqa: E402
 
 FILENAME = "investigation.json"
+
+# THE SAME ROUND, WRITTEN FOR A READER. investigation.json is the machine
+# record: findings, results, script paths. This is the plan behind it — how the
+# user's question was mapped onto ELM variables, which figures were chosen,
+# what each was meant to answer, and what came back. It is RENDERED from the
+# structured record rather than written by the model, so it cannot disagree
+# with investigation.json; the only prose in it is the two fields the model
+# fills in (`reasoning` and each figure's `why`).
+#
+# It goes to step 3 as evidence about the INVESTIGATION, not about the run: a
+# reviewer that sees only the findings cannot tell a thin figure set that is
+# thin because the run is thin from one that is thin because the plan was.
+PLAN_MD = "investigation_plan.md"
 
 MAX_PLOTS = 5
 
@@ -60,6 +74,22 @@ MAX_PLOTS = 5
 # pipeline, so it takes the stronger model rather than inheriting the default.
 DEFAULT_MODEL = "claude-opus-5-project"
 
+
+
+def preflight_of(ctx) -> Dict[str, Any]:
+    """ctx.preflight(), or {} for a context-like object that has none.
+
+    FAILS OPEN, deliberately. Preflight is a diagnostic and a cost saving, not
+    a safety check: with no information the gate does not gate and the filter
+    does not filter, which is exactly the behaviour that existed before it. A
+    context-shaped stub — a test, a standalone CLI, a future backend building
+    its own — must not lose the whole Analyzer to a missing optional method.
+    """
+    fn = getattr(ctx, "preflight", None)
+    try:
+        return fn() if callable(fn) else {}
+    except Exception:                                           # noqa: BLE001
+        return {}
 
 # ─────────────────────────────────────────────────────────────────────
 # THE BRIEF — deterministic, so it can be asserted on without an API call
@@ -228,6 +258,43 @@ def _live_metadata_keys(ctx) -> List[str]:
     return sorted(live)
 
 
+def _treatment_labels(ctx) -> List[str]:
+    """The sweep's factor levels, named, and the instruction to use the names.
+
+    Empty on a site run, which varies nothing deliberately and has no
+    treatments to name.
+
+    WHAT THIS IS FOR. `treatment` is a nested dict, and a script told only that
+    the key exists prints the dict — which on the 2026-08-16 sweep produced
+    four x-axis ticks reading `{'soil_texture': 5, 'prescribed_weather':
+    {'fill': 'scale', 'values': {'PRECTmms': 2.0}}}` and a figure whose bars
+    were squeezed into one corner. The label already exists on the row by then;
+    all that was missing was saying so.
+    """
+    seen: Dict[str, str] = {}
+    for c in ctx.columns:
+        lab = c.get("treatment_label")
+        if lab:
+            seen[str(c.get("case_name") or c.get("scenario_name"))] = str(lab)
+    if not seen:
+        return []
+    out = ["THIS IS A CONTROLLED SWEEP. Each column is one combination of the",
+           "factor levels below. `treatment_label` on the row is the SHORT NAME",
+           "for that combination — use it verbatim for every legend entry, axis",
+           "tick and annotation. Never print the raw `treatment` dict: it is",
+           "nested, it is long, and it wrecks the layout of the figure it labels.",
+           "",
+           "A label is a NAME, not a layout. These names are words, not codes,",
+           "so give them room: rotate the ticks, wrap at the comma, or move them",
+           "into a legend. Two labels that overlap are two labels nobody can",
+           "read, and an annotation printed over a bar hides the bar.",
+           ""]
+    for name, lab in seen.items():
+        out.append(f"    {name:10s} {lab}")
+    out.append("")
+    return out
+
+
 def _elevation_span(ctx):
     es = [c.get("elevation_m") for c in ctx.columns
           if isinstance(c.get("elevation_m"), (int, float))]
@@ -275,7 +342,7 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
         "PER-COLUMN METADATA (keys on each entry of `columns`):",
         "    " + ", ".join(_live_metadata_keys(ctx)),
         "",
-    ]
+    ] + _treatment_labels(ctx)
 
     if blocking:
         lines.append("BLOCKING CAVEATS — a claim of these kinds must NOT be made:")
@@ -287,6 +354,32 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
         lines.append("OTHER CAVEATS — claims may be made, stated with these attached:")
         for c in other[:12]:
             lines.append(f"    [{c.get('id')}] {str(c.get('statement'))[:180]}")
+        lines.append("")
+
+    # WHAT THE PLANNER ALREADY JUDGED, and what the design did not deliver.
+    # Both were computed and then read by nobody: `feasibility` has sat in
+    # ctx.plan since step 0 was written, and planned_vs_actual() had tests and
+    # no production caller. The stage whose job is deciding whether a study can
+    # answer the question published a verdict — "streamflow can only be a
+    # first-order water-balance comparison, the model has no routing" — and the
+    # stage that plans the figures never saw it.
+    pre = preflight_of(ctx)
+    feas = pre.get("feasibility")
+    if isinstance(feas, dict) and feas.get("verdict"):
+        lines += [f"THE PLANNER JUDGED THIS STUDY {str(feas['verdict']).upper()}:",
+                  f"    {feas.get('why')}",
+                  "(This is about the DESIGN, not a result. Do not propose a",
+                  " figure it says the run cannot support.)", ""]
+    elif isinstance(feas, str) and feas:
+        lines += [f"THE PLANNER JUDGED THIS STUDY: {feas}", ""]
+
+    unmet = pre.get("unmet_plan_targets") or []
+    if unmet:
+        lines.append("PLANNED AND NOT DELIVERED — the design named these and "
+                     "the run does not have them:")
+        for c in unmet[:8]:
+            lines.append(f"    {c.get('claim')}: planned {c.get('planned')}, "
+                         f"got {c.get('actual')}  (from {c.get('planned_in')})")
         lines.append("")
 
     # THE NUMBERS, NOT THE COUNTS (2026-08-12). This block used to print how
@@ -350,10 +443,16 @@ containing the numbers it plotted plus an integer `n` = how many data points
 the figure rests on. A result with n below 3, or with no n, is rejected.
 
 Return ONLY JSON:
-{{"notes": "<what you could and could not address, and why>",
+{{"reasoning": "<2-5 sentences: which ELM variables you decided constitute the
+                process the user asked about, and why those and not others.
+                Name anything you considered computing and rejected, with the
+                reason. This is read by the reviewer, so say what you actually
+                decided rather than restating the question.>",
+  "notes": "<what you could and could not address, and why>",
   "figures": [
     {{"id": "snake_case_name",
       "question": "<the question this figure answers>",
+      "why": "<one sentence: what this figure adds that the others do not>",
       "scale": "overall" | "places",
       "variables": ["model variable names used"],
       "code": "<python>"}}
@@ -418,8 +517,82 @@ def propose(ctx, step1=None, model: str = DEFAULT_MODEL,
             continue                         # the earlier figure's PNG
         seen.add(fid)
         kept.append(dict(f, id=fid))
-    return {"notes": spec.get("notes"), "figures": kept[:MAX_PLOTS],
-            "raw": reply}
+    # `prompt` travels back beside `raw` so the caller can write the PAIR.
+    # What the model was shown is half the record: the worst bug this pipeline
+    # has had was a silent cap on the evidence, invisible because nobody could
+    # see what was sent.
+    return {"notes": spec.get("notes"), "reasoning": spec.get("reasoning"),
+            "figures": kept[:MAX_PLOTS], "raw": reply, "prompt": prompt}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# THE PLAN, AS A DOCUMENT
+# ─────────────────────────────────────────────────────────────────────
+def render_plan_md(ctx, spec: Dict[str, Any], findings: List[Dict[str, Any]],
+                   caveats: List[Dict[str, Any]], round_no: int,
+                   feedback=None) -> str:
+    """The round as Markdown: what was planned, why, and what came back.
+
+    DERIVED, NOT DICTATED. Every outcome line is read off the same `findings`
+    and `caveats` this round produced, so the document cannot claim a figure
+    was drawn that was not. The model contributes exactly two prose fields —
+    `reasoning` and each figure's `why` — and both are clearly attributed.
+
+    A proposal that produced nothing still appears, with its error. A plan that
+    lists only what worked is a plan rewritten after the fact.
+    """
+    by_id = {f["id"]: f for f in findings}
+    failed = {c["id"].split(":", 1)[-1]: c for c in caveats
+              if str(c.get("id", "")).startswith("figure_failed:")}
+    figs = spec.get("figures") or []
+
+    L = [f"# Investigation plan — round {round_no}", "",
+         "*Rendered from `investigation.json`. The reasoning and the per-figure "
+         "*why* are the model's words; every outcome below is measured.*", "",
+         "## The question", "",
+         f"> {(ctx.plan or {}).get('question')}", ""]
+
+    if feedback:
+        L += ["## What the reviewer asked for after the previous round", "",
+              f"{feedback}", ""]
+
+    if spec.get("reasoning"):
+        L += ["## How the question was mapped onto the model's variables", "",
+              str(spec["reasoning"]), ""]
+
+    L += [f"## Analysis steps ({len(figs)} proposed, {len(findings)} produced "
+          f"a result)", ""]
+
+    for i, f in enumerate(figs, 1):
+        fid = f.get("id")
+        got = by_id.get(fid)
+        L += [f"### {i}. `{fid}` — {f.get('scale') or 'unspecified scale'}", "",
+              f"**Answers.** {f.get('question')}", ""]
+        if f.get("why"):
+            L += [f"**Why this one.** {f['why']}", ""]
+        v = ", ".join(f"`{x}`" for x in (f.get("variables") or [])) or "—"
+        L += [f"**Model variables read.** {v}", ""]
+        if got:
+            L += [f"**Outcome.** Drew `{Path(got['figure']).name}` "
+                  f"from `{Path(got['script']).name}` "
+                  f"— {got.get('n')} data points.", ""]
+            if got.get("blocked_by"):
+                L += ["**Falls inside a blocking caveat.** "
+                      + ", ".join(f"`{c}`" for c in got["blocked_by"])
+                      + " — a claim from this figure must carry the id.", ""]
+        elif fid in failed:
+            L += [f"**Outcome — no result.** "
+                  f"{failed[fid].get('statement')}", ""]
+        else:
+            L += ["**Outcome — no result**, and no reason was recorded. "
+                  "That is a defect in this renderer's inputs, not a "
+                  "property of the run.", ""]
+
+    if spec.get("notes"):
+        L += ["## What this round could not address", "",
+              str(spec["notes"]), ""]
+
+    return "\n".join(L)
 
 
 def _blocked_by(variables, caveats) -> List[str]:
@@ -475,8 +648,43 @@ def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
     all_caveats = list(ctx.caveats or []) + list((step1 or {}).get("caveats") or [])
     findings, caveats = [], []
 
+    # WHAT THIS RUN ACTUALLY HOLDS, asked once. The filter below refuses a
+    # figure whose variables are in no frame BEFORE spending a subprocess on
+    # it — and, more usefully, says exactly which name was missing. The same
+    # figure failing inside the runner returns "KeyError" from somewhere in
+    # generated pandas, which is a far worse thing to hand to round 2.
+    pre = preflight_of(ctx)
+    withheld = pre.get("withheld") or {}
+    # FAILS OPEN, AND THAT TAKES A LINE TO GET RIGHT. `set(x or [])` collapses
+    # "no inventory available" and "an inventory that is empty" into the same
+    # empty set — and then EVERY figure naming any variable is refused, because
+    # none of them are in it. That is the opposite of the intent, and it is
+    # what a context without preflight() got until this was caught. An absent
+    # or empty inventory means the filter does not know, so it does not judge.
+    have = set(pre.get("variables") or ())
+    can_filter = bool(have)
+
     for f in spec["figures"]:
         fid = f["id"]
+        wanted = [str(v) for v in (f.get("variables") or []) if v]
+        missing = [v for v in wanted if v not in have]
+        if can_filter and wanted and len(missing) == len(wanted):
+            # EVERY variable it named is absent. A figure missing one of five
+            # may still be worth drawing; one missing all of them cannot be.
+            why = "; ".join(f"{v}: {withheld[v]}" for v in missing
+                            if v in withheld) or \
+                  f"not present in any frame of this run"
+            caveats.append({
+                "id": f"figure_failed:{fid}",
+                "severity": "context",
+                "statement": (f"The planned figure '{fid}' "
+                              f"({f.get('question')}) was not run: it reads "
+                              f"{', '.join(missing)}, and {why}. Available "
+                              f"variables: {', '.join(sorted(have)) or 'none'}."),
+                "applies_to": "completeness of the step 2 figure set",
+                "source": "step2_investigate:preflight"})
+            continue
+
         run = _runner.run(f.get("code") or "", ctx,
                           out_dir / f"{fid}.png",
                           script_path=out_dir / f"{fid}.py")
@@ -497,9 +705,26 @@ def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
                 "applies_to": "completeness of the step 2 figure set",
                 "source": "step2_investigate"})
 
+    # THE PLAN, WRITTEN DOWN. Rendered after the figures run, so each step
+    # carries its outcome rather than its intention. Step 3 reads this file —
+    # see review_brief — which is why the path is recorded rather than the text:
+    # step 3 can then be re-run alone against an archived study and still see
+    # what step 2 was trying to do.
+    plan_md = out_dir / PLAN_MD
+    plan_md.write_text(render_plan_md(ctx, spec, findings, caveats,
+                                      round_no, feedback))
+
+    # VERBATIM, BESIDE THE PARSED RECORD. investigation.json holds what the
+    # reply became; these hold what it was. See script_runner.save_exchange.
+    exchange = _runner.save_exchange(out_dir, "step2", round_no,
+                                     spec.get("prompt"), spec.get("raw"))
+
     out = {"round": round_no, "notes": spec.get("notes"),
+           "reasoning": spec.get("reasoning"),
            "findings": findings, "caveats": caveats,
            "figures": [f["figure"] for f in findings],
+           "plan_md": str(plan_md),
+           "exchange": exchange or None,
            "n_proposed": len(spec["figures"]), "n_succeeded": len(findings),
            "responded_to_feedback": feedback or None}
 

@@ -249,3 +249,198 @@ class TestCaveatsBindToTheClaimNotTheFigure:
         assert step3.required_caveats("runoff is high", [], cav) == []
 
 
+
+
+class TestARoundThatDiscardsWorkSaysSo:
+    """A later round REPLACES the investigation wholesale — `investigation` is
+    reassigned and only the last one reaches step 4. A round 2 that drops three
+    of round 1's five findings used to lose them with nothing recording it.
+    The prompt says "keep what worked"; whether it did was unknowable.
+    """
+
+    def _loop(self, monkeypatch, tmp_path, r1_ids, r2_ids, r1_kept, r2_kept):
+        from agents.analysis import step2_investigate as s2
+        seq = iter([
+            {"round": 1, "n_succeeded": len(r1_ids), "caveats": [],
+             "findings": [{"id": i, "n": 9, "result": {}} for i in r1_ids]},
+            {"round": 2, "n_succeeded": len(r2_ids), "caveats": [],
+             "findings": [{"id": i, "n": 9, "result": {}} for i in r2_ids]}])
+        monkeypatch.setattr(s2, "investigate", lambda *a, **k: next(seq))
+        verdicts = iter([("insufficient", r1_kept), ("sufficient", r2_kept)])
+        def fake_interpret(ctx, comparison, investigation, out_dir, **kw):
+            v, kept = next(verdicts)
+            return {"verdict": v, "answer": "a", "feedback": "try again",
+                    "claims": [], "struck": [],
+                    "audit": {"n_claims": kept, "n_struck": 0}}
+        monkeypatch.setattr(step3, "interpret", fake_interpret)
+        return step3.investigate_and_interpret(_ctx(), tmp_path, comparison={})
+
+    def test_findings_dropped_by_a_later_round_are_named(self, monkeypatch,
+                                                         tmp_path):
+        out = self._loop(monkeypatch, tmp_path,
+                         ["a", "b", "c"], ["a"], 3, 4)
+        r2 = out["rounds"][1]
+        assert r2["findings_dropped_from_previous_round"] == ["b", "c"]
+
+    def test_nothing_is_flagged_when_the_round_kept_everything(self, monkeypatch,
+                                                               tmp_path):
+        out = self._loop(monkeypatch, tmp_path,
+                         ["a"], ["a", "b"], 1, 2)
+        assert "findings_dropped_from_previous_round" not in out["rounds"][1]
+
+    def test_a_round_that_kept_fewer_claims_is_recorded_as_a_regression(
+            self, monkeypatch, tmp_path):
+        """Not corrected — the reviewer judged this round's set and that
+        judgement stands — but a reader comparing runs needs to know the extra
+        round cost claims rather than earning them."""
+        out = self._loop(monkeypatch, tmp_path, ["a"], ["a"], 5, 2)
+        assert out["rounds"][1]["regressed"]
+        assert out["regressed_rounds"] == [2]
+
+    def test_an_improving_round_is_not_flagged(self, monkeypatch, tmp_path):
+        out = self._loop(monkeypatch, tmp_path, ["a"], ["a"], 2, 5)
+        assert "regressed" not in out["rounds"][1]
+        assert out["regressed_rounds"] is None
+
+    def test_every_round_records_which_findings_it_produced(self, monkeypatch,
+                                                            tmp_path):
+        out = self._loop(monkeypatch, tmp_path, ["a", "b"], ["c"], 2, 2)
+        assert out["rounds"][0]["finding_ids"] == ["a", "b"]
+        assert out["rounds"][1]["finding_ids"] == ["c"]
+
+
+class TestTheThreeRulesHaveNames:
+    """`cites`, `no_new` and `respects` were labels in the documentation and
+    nowhere in the source. A reviewer sent to find the function implementing
+    `no_new` found three anonymous blocks inside audit() and no such name. Docs
+    pointing at symbols that do not exist are worse than docs with none: the
+    reader concludes the code is elsewhere rather than that the name is fiction.
+    """
+
+    def test_every_rule_named_in_AUDIT_RULES_is_importable(self):
+        for name in step3.AUDIT_RULES:
+            assert callable(getattr(step3, f"rule_{name}", None)), \
+                f"AUDIT_RULES names {name!r} but rule_{name} does not exist"
+
+    def test_a_struck_claim_says_which_rule_struck_it(self):
+        out = step3.audit([{"claim": "x", "finding_id": "nope"}],
+                          {"findings": []}, [])
+        assert out["struck"][0]["struck_by"] == "cites"
+
+    def test_each_rule_is_attributed_correctly(self):
+        findings = {"findings": [{"id": "f1", "n": 9, "result": {"mean": 31.4},
+                                  "blocked_by": ["b1"]}]}
+        caveats = [{"id": "b1", "severity": "blocking",
+                    "applies_to": "runoff (QOVER)", "statement": "unrouted"}]
+        cases = [
+            ({"claim": "x", "finding_id": "ghost"}, "cites"),
+            ({"claim": "x", "finding_id": "f1", "values": [99.9]},
+             "declared_values"),
+            ({"claim": "runoff is high", "finding_id": "f1", "values": []},
+             "respects"),
+        ]
+        for claim, expected in cases:
+            out = step3.audit([claim], findings, caveats)
+            assert out["struck"][0]["struck_by"] == expected, claim
+
+    def test_a_kept_claim_carries_no_rule(self):
+        out = step3.audit(
+            [{"claim": "the mean is 31.4", "finding_id": "f1",
+              "values": [31.4], "caveats": []}],
+            {"findings": [{"id": "f1", "n": 9, "result": {"mean": 31.4}}]}, [])
+        assert out["kept"] and "struck_by" not in out["kept"][0]
+
+    def test_the_rules_run_in_the_declared_order(self):
+        """A claim failing two rules is attributed to the first. Otherwise the
+        reported reason depends on dict ordering."""
+        out = step3.audit(
+            [{"claim": "runoff is 99.9", "finding_id": "ghost", "values": [99.9]}],
+            {"findings": []}, [])
+        assert out["struck"][0]["struck_by"] == step3.AUDIT_RULES[0]
+
+    def test_each_rule_is_callable_on_its_own(self):
+        """They are separable so a reader can test one without the loop."""
+        assert step3.rule_cites({"finding_id": "a"}, {"a": {}}) is None
+        assert step3.rule_cites({"finding_id": "b"}, {"a": {}})
+        assert step3.rule_declared_values(
+            {"values": [1.0]}, {"result": {"x": 1.0}}, set()) is None
+        assert step3.rule_declared_values(
+            {"values": [2.0]}, {"result": {"x": 1.0}}, set())
+        assert step3.rule_respects({"claim": "snow"}, {"blocked_by": []}, [], {}) is None
+
+
+class TestTheModelExchangeIsKept:
+    """What the model was shown and what it said, verbatim, beside the run.
+
+    Neither survived before 2026-08-14: step 2's reply came back as `raw`, was
+    parsed, and dropped when the record was written; step 3 did not keep a name
+    for it. Two questions about a finished run had no answer — "the model
+    proposed five figures and four appeared, what happened to the fifth?" and
+    "did the parser change what the model meant?" — and no end-to-end test
+    could replay a round without paying for a live call.
+    """
+
+    def _interpret(self, tmp_path, reply):
+        class FakeClient:
+            label = None
+            def ask(self, messages):
+                FakeClient.seen = messages
+                return reply
+        inv = {"round": 1, "findings": [{"id": "f1", "n": 9, "question": "q",
+                                         "result": {"mean": 1.0}}],
+               "caveats": [], "figures": [], "notes": "n"}
+        return step3.interpret(_ctx(), {}, inv, tmp_path,
+                               client=FakeClient(), with_images=False), inv
+
+    def test_the_reply_is_saved_verbatim(self, tmp_path):
+        reply = ('```json\n{"claims": [], "answer": "a", '
+                 '"verdict": "sufficient", "feedback": ""}\n```')
+        out, _ = self._interpret(tmp_path, reply)
+        p = Path(out["exchange"]["reply"])
+        assert p.name == "step3_round1_reply.txt"
+        assert p.read_text() == reply, "including the fence the parser strips"
+
+    def test_the_prompt_is_saved_too(self, tmp_path):
+        """The worst bug this pipeline has had was a silent cap on the evidence
+        shown to the model. It was invisible because nobody could see what was
+        sent."""
+        out, _ = self._interpret(
+            tmp_path, '{"claims": [], "answer": "a", "verdict": "sufficient"}')
+        body = Path(out["exchange"]["prompt"]).read_text()
+        assert "FINDINGS" in body and "id: f1" in body
+
+    def test_the_prompt_saved_is_the_text_not_the_images(self, tmp_path):
+        """`content` is the brief plus every figure base64-encoded. Writing
+        that would put tens of megabytes of image bytes in the run directory
+        and tell a reader nothing."""
+        out, _ = self._interpret(
+            tmp_path, '{"claims": [], "answer": "a", "verdict": "sufficient"}')
+        body = Path(out["exchange"]["prompt"]).read_text()
+        assert "base64" not in body and "image_url" not in body
+
+    def test_a_round_can_be_replayed_from_what_was_saved(self, tmp_path):
+        """The point of keeping it: the same reply parses to the same verdict,
+        with no model call and no cost."""
+        reply = ('{"claims": [{"claim": "the mean is 1.0", "finding_id": "f1",'
+                 ' "values": [1.0], "caveats": []}], "answer": "a",'
+                 ' "verdict": "sufficient"}')
+        first, inv = self._interpret(tmp_path, reply)
+        saved = Path(first["exchange"]["reply"]).read_text()
+
+        class Replay:
+            label = None
+            def ask(self, messages):
+                return saved
+        again = step3.interpret(_ctx(), {}, inv, tmp_path,
+                                client=Replay(), with_images=False)
+        assert again["verdict"] == first["verdict"]
+        assert len(again["claims"]) == len(first["claims"]) == 1
+
+    def test_an_unwritable_directory_does_not_lose_the_round(self, tmp_path,
+                                                             monkeypatch):
+        """A run that produced figures is not lost because a log could not be
+        written."""
+        from agents.analysis import script_runner as sr
+        monkeypatch.setattr(Path, "write_text",
+                            lambda *a, **k: (_ for _ in ()).throw(OSError("ro")))
+        assert sr.save_exchange(tmp_path, "step2", 1, "p", "r") == {}

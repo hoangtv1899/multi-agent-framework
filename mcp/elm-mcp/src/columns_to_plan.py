@@ -106,6 +106,17 @@ def columns_to_elm_plan(columns: List[Dict[str, Any]],
             coupler["SUBSTRATE"] = substrate
             if c.get("soil_profile"):
                 coupler["soil_profile"] = c["soil_profile"]
+        # Written weather, when the design asked for it. Absent on every site
+        # run and on any conceptual run that did not, and absence is what makes
+        # the case build take the ordinary NLDAS path.
+        if c.get("weather") is not None:
+            coupler["PRESCRIBED_WEATHER"] = c["weather"]
+        # Carried so the builder knows a failed surface is FATAL here: the
+        # prescribed profile is the experiment, and a column that quietly
+        # falls back to the default surfdata is not a smaller experiment, it
+        # is a different column with the same name.
+        if c.get("soil_source"):
+            coupler["SOIL_SOURCE"] = c["soil_source"]
         m = (finidat_map or {}).get(coupler["EXPERIMENT"])
         if m:
             coupler["FINIDAT"] = m["finidat"] if isinstance(m, dict) else m

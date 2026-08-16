@@ -224,7 +224,7 @@ stdio would mean ~14k points per call. Reading the file avoids that.
 
 ### `build_elm_inputs_conceptual`
 
-**Not new work.** `tools/make_soil_sweep.py` already is it:
+**Not new work.** `mcp/elm-mcp/scripts/make_soil_sweep.py` already is it:
 
 > Controlled SOIL SWEEP — emit an executable ELM plan that varies ONLY soil
 > texture (a clay gradient, sand → clay) at a **SINGLE location**, so forcing,
@@ -813,7 +813,7 @@ step 0 → 4 off their own `experiment.json`, and the interpreter cites
 
 ### Phase 6 — `build_elm_inputs_conceptual`
 
-Promote `tools/make_soil_sweep.py`: change the output shape and add the four
+Promote `mcp/elm-mcp/scripts/make_soil_sweep.py`: change the output shape and add the four
 guards from §5. The CONUS-distribution check is optional and can follow.
 
 **Proof:** a conceptual ensemble runs end-to-end, and `experiment.json` carries

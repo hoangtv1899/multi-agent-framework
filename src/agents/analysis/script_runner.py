@@ -1,14 +1,42 @@
 #!/usr/bin/env python3
 """
-Sandboxed execution for generated analysis scripts
+Constrained execution for generated analysis scripts
 src/agents/analysis/script_runner.py
 
     in   a Python source string + an AnalysisContext
-    out  {ok, result, figure, script, error}  — and the script saved to disk
+    out  {ok, result, figure, script, script_sha256, error}
+         — and the script saved to disk
 
 NOT A PIPELINE STEP, deliberately unnumbered. Running generated code against a
 dataframe is infrastructure, not a stage: step 2 writes the scripts today, and
 if step 3 ever re-runs one to verify a claim it uses this same runner.
+
+WHAT THIS IS NOT — READ THIS BEFORE TRUSTING IT.
+
+This module was called "sandboxed" until 2026-08-14 and it is not a sandbox.
+The script runs as the invoking user, on the real filesystem, with no
+namespace, no seccomp filter and no container. What is enforced:
+
+    process isolation   a segfault in a native extension cannot take the
+                        Analyzer with it
+    a wall timeout      DEFAULT_TIMEOUT_S, enforced by the subprocess, so it
+                        interrupts C-level pandas that SIGALRM would not
+    resource ceilings   address space, CPU seconds, maximum file size, no core
+                        dump — see _limits()
+    an environment      an ALLOWLIST, not the inherited environment. This
+                        deployment exports a USGS API key, AmeriFlux
+                        credentials and a HydroFrame PIN before anything runs;
+                        none of them now reach a figure script
+    a scope guardrail   inspect_code() refuses a script that imports
+                        subprocess, socket, requests and friends, or calls
+                        eval/exec/os.system
+
+What is NOT enforced: network access (blocking sockets needs namespaces or
+root; the proxy variables are pointed at a dead port, which stops the libraries
+that honour them and nothing else), filesystem reads outside the run directory,
+and anything a determined bypass of the AST check would do. THE THREAT MODEL IS
+CARELESSNESS, NOT MALICE — a model doing something out of scope, not a model
+attacking the host. Treat this as running trusted-but-unreviewed code.
 
 WHY A SUBPROCESS AND NOT exec(). Two things exec() in-process cannot give:
 
@@ -18,7 +46,11 @@ WHY A SUBPROCESS AND NOT exec(). Two things exec() in-process cannot give:
     crash isolation  a segfault in a native extension takes the parent with it.
 
 The subprocess also makes the saved script genuinely re-runnable by hand, which
-is the point of keeping it: a reviewer can open the file and execute it.
+is the point of keeping it: a reviewer can open the file and execute it. That
+became true on 2026-08-14 — the preamble had loaded a pickle from a temporary
+directory this module deletes, so every saved script died on a missing file the
+moment its round ended. It now rebuilds the payload from the run directory when
+the pickle is gone.
 
 WHAT THE SCRIPT SEES. A namespace assembled here, and nothing else it did not
 import itself:
@@ -56,14 +88,17 @@ everything. Each returns a clean, plausible, empty answer.
 So an empty or too-small result is NOT a silent skip here. It comes back with
 ok=False and a reason, and the caller turns it into a caveat.
 """
+import ast
+import hashlib
 import json
 import os
+import resource
 import subprocess
 import sys
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Below this a "finding" is not a finding. Matches the threshold step2_derive
 # already used for drivers ("fewer than 3 columns had a value") — with 19
@@ -72,16 +107,226 @@ MIN_N = 3
 
 DEFAULT_TIMEOUT_S = 180
 
+# ─────────────────────────────────────────────────────────────────────
+# THE LIMITS
+# ─────────────────────────────────────────────────────────────────────
+MAX_MEMORY_BYTES = 8 * 1024 ** 3      # 8 GB address space
+MAX_CPU_SECONDS  = 300                 # complements the wall timeout below
+MAX_FILE_BYTES   = 512 * 1024 ** 2     # any single file the script writes
+
+# THE ENVIRONMENT IS AN ALLOWLIST (2026-08-14). It used to be
+# `dict(os.environ, MPLBACKEND="Agg")` — the whole environment, inherited. On
+# this deployment that includes a USGS API key, AmeriFlux credentials and a
+# HydroFrame PIN, all exported by env_compy.sh before anything runs. Generated
+# analysis code reads its data from a pickle and has no business seeing any of
+# them.
+#
+# DENY BY DEFAULT, because a denylist of credential names only blocks the
+# secrets someone remembered. What a pandas/matplotlib script legitimately
+# needs is small and knowable, so that is what it gets. Prefixes cover the
+# families whose exact names vary by machine (CONDA_*, LC_*, the geospatial
+# stack's own configuration).
+_ENV_KEEP = {
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP",
+    "LANG", "TZ", "TERM",
+    "LD_LIBRARY_PATH", "LD_PRELOAD",
+    "PYTHONPATH", "PYTHONHOME", "PYTHONUNBUFFERED", "PYTHONIOENCODING",
+    "MPLBACKEND", "MPLCONFIGDIR", "MATPLOTLIBRC",
+    "OMP_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+}
+_ENV_KEEP_PREFIX = ("LC_", "CONDA_", "PROJ_", "GDAL_", "HDF5_", "NETCDF",
+                    "CARTOPY_", "XDG_")
+
+# WHAT A FIGURE SCRIPT HAS NO REASON TO TOUCH. This is a GUARDRAIL, NOT A
+# SANDBOX — see the module docstring. It catches the careless case (a script
+# that shells out, opens a socket, or writes outside out_path) and it is
+# trivially bypassed by anything trying to. It is here because the realistic
+# failure is a model doing something out of scope, not a model attacking the
+# host, and a refusal naming the import is a far better diagnostic than
+# whatever that import would have done.
+_FORBIDDEN_IMPORTS = {
+    "subprocess", "socket", "shutil", "requests", "urllib", "urllib3",
+    "http", "ftplib", "smtplib", "telnetlib", "paramiko", "ctypes",
+    "multiprocessing", "importlib", "pty", "pickle", "shelve", "marshal",
+}
+_FORBIDDEN_CALLS = {"eval", "exec", "compile", "__import__", "breakpoint",
+                    "input"}
+# `os` and `sys` are allowed — os.path is ordinary in plotting code — but
+# these members of them are not.
+_FORBIDDEN_ATTRS = {
+    "os": {"system", "popen", "spawn", "spawnl", "spawnv", "execv", "execve",
+           "execl", "fork", "forkpty", "remove", "unlink", "rmdir", "removedirs",
+           "rename", "chmod", "chown", "setuid", "setgid", "environ"},
+    "sys": {"exit", "_exit"},
+    "shutil": {"rmtree", "move", "copy", "copytree"},
+}
+
+
+def save_exchange(out_dir, step: str, round_no: int,
+                  prompt: str, reply: str) -> Dict[str, str]:
+    """What the model was shown and what it said, verbatim, beside the run.
+
+    NEITHER SURVIVED BEFORE 2026-08-14. Step 2's reply came back from propose()
+    as `raw`, was parsed, and the original was dropped when the record was
+    written; step 3 did not even keep a name for it. So two questions about a
+    finished run had no answer:
+
+        "the model proposed five figures and four appeared — what happened to
+         the fifth?"      the four that parsed are on record. One that was
+                          mangled on the way in left no trace it was proposed.
+
+        "did the parser change what the model meant?"
+                          _parse() repairs replies that are not quite valid
+                          JSON — escaping raw newlines inside generated Python,
+                          stripping comments. Usually right. When one is wrong
+                          the original is already gone.
+
+    THE PROMPT IS KEPT TOO, and that is not symmetry for its own sake. The
+    worst bug this pipeline has had was a silent 700-character cap on each
+    finding: the model was shown a fifth of a result and told to quote from it
+    exactly, and the audit then struck nine of fourteen true claims. Nobody
+    could see that because nobody could see what was sent.
+
+    Writing these is also what makes an end-to-end test possible without
+    calling a model: a recorded reply replays identically and for nothing,
+    where a live call costs money and answers differently every time.
+
+    Never fatal. A run that produced figures is not lost because a log could
+    not be written.
+    """
+    out: Dict[str, str] = {}
+    try:
+        d = Path(out_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        for kind, body in (("prompt", prompt), ("reply", reply)):
+            if body is None:
+                continue
+            p = d / f"{step}_round{round_no}_{kind}.txt"
+            p.write_text(str(body))
+            out[kind] = str(p)
+    except OSError as e:                                        # noqa: BLE001
+        print(f"   ⚠️  could not save the {step} exchange ({e}) — the run "
+              f"stands, but this round cannot be replayed")
+    return out
+
+
+def inspect_code(code: str) -> List[str]:
+    """Objections to a generated script, as a list of reasons. Empty is fine.
+
+    Parsed with `ast`, not matched with regexes: `import subprocess` inside a
+    string literal or a comment is not an import, and a regex cannot tell.
+    A file that does not parse is reported as one objection, which is a better
+    failure than handing unparseable source to a subprocess.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return [f"the generated code does not parse: {e}"]
+
+    out: List[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                root = a.name.split(".")[0]
+                if root in _FORBIDDEN_IMPORTS:
+                    out.append(f"imports {a.name!r}, which a figure script has "
+                               f"no use for")
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".")[0]
+            if root in _FORBIDDEN_IMPORTS:
+                out.append(f"imports from {node.module!r}, which a figure "
+                           f"script has no use for")
+        elif isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Name) and f.id in _FORBIDDEN_CALLS:
+                out.append(f"calls {f.id}(), which is not analysis")
+            elif (isinstance(f, ast.Attribute)
+                  and isinstance(f.value, ast.Name)
+                  and f.attr in _FORBIDDEN_ATTRS.get(f.value.id, ())):
+                out.append(f"calls {f.value.id}.{f.attr}(), which is not "
+                           f"analysis")
+        elif (isinstance(node, ast.Attribute)
+              and isinstance(node.value, ast.Name)
+              and node.attr in _FORBIDDEN_ATTRS.get(node.value.id, ())):
+            out.append(f"uses {node.value.id}.{node.attr}, which is not "
+                       f"analysis")
+    return sorted(set(out))
+
+
+def _child_env() -> Dict[str, str]:
+    """The environment the script runs in: allowlisted, plus what it needs."""
+    env = {k: v for k, v in os.environ.items()
+           if k in _ENV_KEEP or k.startswith(_ENV_KEEP_PREFIX)}
+    env["MPLBACKEND"] = "Agg"
+    # NOT A NETWORK JAIL, and labelled as such. Blocking sockets needs
+    # namespaces or root, neither of which is available here. Pointing the
+    # proxy variables at a dead port stops the libraries that honour them
+    # (requests, urllib) and does nothing to a raw socket. The real protection
+    # is above: with no credentials in the environment, a script that does
+    # reach the network has nothing to authenticate with.
+    env["http_proxy"] = env["https_proxy"] = "http://127.0.0.1:1"
+    env["HTTP_PROXY"] = env["HTTPS_PROXY"] = "http://127.0.0.1:1"
+    env["no_proxy"] = ""
+    return env
+
+
+def _limits() -> None:
+    """Applied in the child between fork and exec.
+
+    Each is a ceiling the analysis has no legitimate reason to reach, and each
+    turns a hang or a runaway into a clean non-zero exit the caller reports as
+    a caveat. RLIMIT_CPU complements the wall-clock timeout rather than
+    duplicating it: a script blocked on I/O burns wall time and no CPU, and one
+    spinning in C burns both.
+    """
+    for what, limit in ((resource.RLIMIT_AS, MAX_MEMORY_BYTES),
+                        (resource.RLIMIT_CPU, MAX_CPU_SECONDS),
+                        (resource.RLIMIT_FSIZE, MAX_FILE_BYTES),
+                        (resource.RLIMIT_CORE, 0)):
+        try:
+            soft, hard = resource.getrlimit(what)
+            ceiling = limit if hard in (resource.RLIM_INFINITY,) \
+                else min(limit, hard)
+            resource.setrlimit(what, (ceiling, hard))
+        except (ValueError, OSError):
+            # A limit the platform will not set is not a reason to refuse the
+            # run — the timeout and the process boundary still hold.
+            pass
+
+# RE-RUNNABLE AFTER THE FACT (2026-08-14). The payload is a pickle in a
+# temporary directory this module deletes in its `finally`, so a saved script
+# was readable provenance and nothing more: run it tomorrow and it died on a
+# missing file. The point of keeping the script is that a reviewer can execute
+# it, and that was never true.
+#
+# It now falls back to REBUILDING the payload from the run directory — the same
+# path step 0 takes, so a script re-run in a month reads what the figure was
+# drawn from rather than an approximation of it. The pickle stays as the fast
+# path because it is already in hand while the round is running.
 _PREAMBLE = '''\
 import json, pickle, sys
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-with open({payload!r}, "rb") as _f:
-    _ctx = pickle.load(_f)
+_PAYLOAD = {payload!r}
+_RUN_DIR = {run_dir!r}
+_FRAMEWORK = {framework!r}
+
+if Path(_PAYLOAD).is_file():
+    with open(_PAYLOAD, "rb") as _f:
+        _ctx = pickle.load(_f)
+else:
+    # The temporary payload is gone; rebuild it from the run directory.
+    sys.path.insert(0, str(Path(_FRAMEWORK) / "src"))
+    from agents.analysis import step0_context as _s0
+    from agents.analysis import script_runner as _sr
+    _ctx = _sr._payload(_s0.load(_RUN_DIR))
+
 df       = _ctx["df"]
 prof     = _ctx["prof"]
 soil     = _ctx["soil"]
@@ -204,6 +449,17 @@ def run(code: str, ctx, out_path, script_path=None,
     out_path = Path(out_path).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # REFUSED BEFORE IT RUNS. A figure script that shells out or opens a socket
+    # is out of scope whatever it then does, and naming the import is a far
+    # better diagnostic — for the caller's caveat and for round 2's feedback —
+    # than whatever the import would have produced.
+    objections = inspect_code(textwrap.dedent(code))
+    if objections:
+        return {"ok": False,
+                "error": "refused before running — " + "; ".join(objections),
+                "result": None, "figure": None, "script": code,
+                "objections": objections}
+
     payload = _payload(ctx)
     if all(payload[k] is None for k in ("df", "prof", "soil")):
         return {"ok": False,
@@ -219,22 +475,34 @@ def run(code: str, ctx, out_path, script_path=None,
         with open(pkl, "wb") as f:
             pickle.dump(payload, f)
 
-        full = (_PREAMBLE.format(payload=str(pkl), out_path=str(out_path))
+        full = (_PREAMBLE.format(
+                    payload=str(pkl), out_path=str(out_path),
+                    # RESOLVED, for the same reason out_path is: the script
+                    # runs with cwd=tmp, and a relative run_dir stops resolving
+                    # the moment the working directory changes. The entry point
+                    # that matters passes a relative one.
+                    run_dir=str(Path(getattr(ctx, "run_dir", "") or ".")
+                                .resolve()),
+                    framework=str(Path(__file__).resolve().parents[3]))
                 + textwrap.dedent(code).rstrip() + "\n"
                 + _POSTAMBLE.format(result_path=str(res)))
         script_path = (Path(script_path).resolve() if script_path
                        else tmp / "script.py")
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(full)
+        # THE GENERATED BODY, not the assembled file. The preamble
+        # embeds the payload path, the run directory and out_path, all
+        # of which differ between two runs of the SAME analysis — so
+        # hashing the whole file answers "is this the same file" when
+        # the question is "is this the same analysis".
+        digest = hashlib.sha256(
+            textwrap.dedent(code).strip().encode()).hexdigest()[:16]
 
-        # Inherit the env: the analysis stack (pandas, matplotlib, cartopy)
-        # lives in the conda env the Analyzer is already running in, and a
-        # scrubbed environment would just fail to import it.
-        env = dict(os.environ, MPLBACKEND="Agg")
         try:
             proc = subprocess.run([sys.executable, str(script_path)],
                                   capture_output=True, text=True,
-                                  timeout=timeout_s, env=env, cwd=str(tmp))
+                                  timeout=timeout_s, env=_child_env(),
+                                  cwd=str(tmp), preexec_fn=_limits)
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": f"timed out after {timeout_s}s",
                     "result": None, "figure": None, "script": full,
@@ -288,6 +556,11 @@ def run(code: str, ctx, out_path, script_path=None,
 
         return {"ok": True, "error": None, "result": value,
                 "figure": str(out_path), "script": full,
+                # THE SCRIPT THAT PRODUCED THIS RESULT, identified. Two runs of
+                # the same study can now be compared on whether the analysis
+                # was the same analysis, which "it drew a figure with the same
+                # name" does not answer.
+                "script_sha256": digest,
                 "script_path": str(script_path), "stdout": proc.stdout}
     finally:
         for p in (pkl, res):

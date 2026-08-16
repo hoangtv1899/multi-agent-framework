@@ -17,6 +17,7 @@ from typing import Any, Dict
 
 from agents.prompts import load_prompt
 from core.forcing_availability import render_forcing_facts
+from core.sweep_menu import render_sweep_menu
 from agents.tool_loop import ToolLoopAgent
 from core import data_gather as gather
 
@@ -39,6 +40,33 @@ DEFAULT_ALLOWLIST = {
 }
 
 
+def _is_conceptual(brief: Dict[str, Any]) -> bool:
+    """Did reception classify this as a controlled sweep?
+
+    One reading of the field, so the gather gate and the domain drop can never
+    disagree about what this brief is.
+    """
+    return str((brief or {}).get("design_archetype") or "").strip().lower() \
+        == "conceptual"
+
+
+def _drop_domain(brief: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove a basin from a conceptual brief, returning what was removed.
+
+    RETURNED RATHER THAN DISCARDED. Setting it to null and saying nothing would
+    hide a real disagreement — the model both classified the request as a sweep
+    and resolved a watershed for it, and someone reading the run later should
+    be able to see that happened. It is also the fastest way to notice the
+    classifier is mis-reading a whole class of request.
+    """
+    dom = brief.get("domain") or {}
+    had = {k: dom.get(k) for k in ("name", "huc", "bbox") if dom.get(k)}
+    if had:
+        brief["domain"] = None
+        brief["heterogeneity"] = None
+    return had
+
+
 class LLMReceptionAgent:
     """Tool-using reception: request -> framed brief (+ tool trace)."""
 
@@ -52,8 +80,14 @@ class LLMReceptionAgent:
         # Forcing years are read off disk at construction, not asserted in the
         # prompt text: the window is the one hard constraint on a request, and
         # a hardcoded sentence had already drifted 5 years from the filesystem.
+        # TWO FETCHED BLOCKS, NEITHER ASSERTED. The forcing window is read from
+        # the DATM directory; the sweep menu is asked of the model server that
+        # would run it. Both fail soft and say so rather than naming something
+        # they could not verify — an invented year range or an invented factor
+        # both cost a queue slot and produce a study that cannot be built.
         self.system = load_prompt("reception_agentic",
-                                  forcing_facts=render_forcing_facts())
+                                  forcing_facts=render_forcing_facts(),
+                                  sweep_menu=render_sweep_menu(mcp_clients))
         self._clients = mcp_clients or {}
         self.loop = ToolLoopAgent(
             model=model,
@@ -111,6 +145,44 @@ class LLMReceptionAgent:
         bbox = dom.get("bbox") or {}
         period = ((brief.get("run_settings") or {}).get("resolved_period") or {})
         y0, y1 = period.get("yr_start"), period.get("yr_end")
+
+        # ── A CONCEPTUAL REQUEST TOUCHES THE MODEL SERVER AND NOTHING ELSE ──
+        # This used to be true only by luck. The fetch below was gated on
+        # `if bbox:`, so a conceptual study avoided the data servers ONLY
+        # because the model happened to leave `domain` empty — and the prompt
+        # asking it to was the whole enforcement.
+        #
+        # "How does soil texture split rain in the Cascades?" breaks that. A
+        # model can reasonably read it as conceptual AND resolve a domain,
+        # because the user named a region. One bbox and the entire gather
+        # fires: the DEM grid, the gauges, the wells, and two calls to a
+        # university-run server that this project is asked to use sparingly.
+        #
+        # A sweep still needs coordinates — the domain file and the warm start
+        # cannot do without a point — but those live in held_fixed.lat/lon.
+        # A BASIN, with a bounding box and a boundary, is a different thing and
+        # a conceptual brief has no use for one.
+        if _is_conceptual(brief):
+            skipped = _drop_domain(brief)
+            # RECORDED, NOT MERELY ABSENT. A conceptual run ends with
+            # observations == {}; so does a site run where every fetch failed.
+            # Same bytes, opposite meanings. Without this line the Analyzer
+            # cannot tell "there was nothing to compare against, by design"
+            # from "the servers were down", and neither can a reader.
+            prov.append({
+                "tool": None,
+                "args": {"design_archetype": "conceptual"},
+                "fetched_at": None,
+                "ok": True,
+                "error": None,
+                "skipped": ("no observations, no DEM grid and no water table "
+                            "were fetched: a controlled sweep has no basin to "
+                            "fetch them for. This is a decision, not a "
+                            "failure."),
+                "domain_dropped": skipped or None,
+            })
+            pkg["provenance"] = prov
+            return pkg
 
         if bbox:
             pkg["grid"] = gather.gather_grid(

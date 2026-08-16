@@ -374,10 +374,36 @@ def _workflow() -> List[Dict[str, Any]]:
              "does": "this — the workflow, a checked inventory of every "
                      "external dependency, and what this server does NOT do",
              "returns": "DATA"},
+            # ── the conceptual archetype only ────────────────────────────
+            # A site study skips these three entirely: its columns come from
+            # the framework's spatial sampler. A controlled sweep has no basin
+            # to sample, so the columns are DESIGNED, and designing them needs
+            # to know what ELM can be told to vary — which is here.
+            {"step": "1a (sweeps only)", "tool": "describe_conceptual_factors",
+             "does": "the menu for a CONTROLLED SWEEP — what ELM can vary, "
+                     "the ranges that make sense, the fixed soil grid a study "
+                     "does not get to choose, and what cannot be varied at all",
+             "returns": "DATA"},
+            {"step": "1b (sweeps only)", "tool": "check_conceptual_design",
+             "does": "judge a proposed sweep BEFORE compute — what will not "
+                     "build, what will build but is far from anything "
+                     "measured, and facts worth knowing (two levels in one "
+                     "NLDAS cell share their weather exactly, so the sweep "
+                     "would be flat and nothing downstream would say so)",
+             "returns": "DATA; three lists and no severities — this server "
+                        "reports what is true, it does not grade"},
+            {"step": "1c (sweeps only)", "tool": "build_conceptual_columns",
+             "does": "the checked design becomes the same columns.json a "
+                     "sampled run produces — the point where the two "
+                     "archetypes merge and everything below is identical",
+             "returns": "DATA; raises rather than building a partial sweep"},
             {"step": 2, "tool": "build_elm_inputs_from_location",
              "does": "columns (passed as data, or read from "
                      "01_inputs/columns.json) — warm start, donor soil, "
-                     f"surfaces, domains, and 01_inputs/{CASE_INPUTS}",
+                     f"surfaces, domains, and 01_inputs/{CASE_INPUTS}. A "
+                     f"column carrying a PRESCRIBED soil keeps it: the donor "
+                     f"profile is not applied to a controlled sweep, or every "
+                     f"column at one location would get the same soil",
              "returns": "DATA; the SNAPPED columns, which are not the ones "
                         "you passed in"},
             {"step": 3, "tool": "get_column_metadata",
@@ -558,6 +584,7 @@ def build_elm_inputs_from_location(run_dir:         str,
                                    yr_start:        int = 0,
                                    yr_end:          int = 0,
                                    conus_restart:   str = "",
+                                   warm_start:      bool = True,
                                    columns:         Optional[List[Dict]] = None,
                                    ) -> str:
     """Turn sampled column locations into everything ELM needs to run them.
@@ -628,7 +655,36 @@ def build_elm_inputs_from_location(run_dir:         str,
     if yr_start:
         cfg["yr_start"] = yr_start
         cfg["yr_end"] = yr_end or yr_start
-    if conus_restart:
+
+    # THE FLAG HAS TO CROSS THE WIRE, and until 2026-08-15 it could not. Only
+    # `conus_restart` was forwarded — a STRING — so the far side's
+    # config.get("warm_start", True) always saw the default. A conceptual run
+    # that set warm_start=False got a warm build anyway, and because
+    # conceptual.py had already stamped warm_start=False on every column, the
+    # record said cold while the cases carried a FINIDAT each. That is worse
+    # than either alone: a wrong run is recoverable, a wrong run that describes
+    # itself correctly is not.
+    # THE COLUMNS MAY ALREADY SAY. `warm_start` is a tool argument, so a caller
+    # driving this server FROM A RUN DIRECTORY — passing no columns and letting
+    # the file be read — cannot express "cold" through the file at all: the
+    # argument defaults to True and the columns are never consulted. Every
+    # conceptual column carries `warm_start: False`, so the file already knows,
+    # and ignoring it would rebuild exactly the divergence fixed above with the
+    # file path instead of the wire.
+    #
+    # ONLY UNANIMOUS FALSE COUNTS. A mixed list is the case warm_start() calls
+    # fatal — some columns warm on donor soil, others cold on another dataset,
+    # inside one ensemble — so silence from any column leaves the argument in
+    # charge rather than guessing for it.
+    stated = [c.get("warm_start") for c in columns if isinstance(c, dict)]
+    columns_say_cold = bool(stated) and all(s is False for s in stated)
+    if not warm_start or columns_say_cold:
+        cfg["warm_start"] = False
+        if warm_start and columns_say_cold:
+            print(f"cold start: all {len(stated)} column(s) carry "
+                  f"warm_start=False, so the restart is not used even though "
+                  f"the caller did not say so", flush=True)
+    elif conus_restart:
         cfg["warm_start"] = {"conus_restart": conus_restart}
 
     try:
@@ -652,6 +708,77 @@ def build_elm_inputs_from_location(run_dir:         str,
 
     out["next"] = "run_elm_ensemble"
     return json.dumps(out, indent=2, default=str)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# CONTROLLED SWEEPS  (the conceptual archetype)
+# ─────────────────────────────────────────────────────────────────────
+# Three tools in the order a study uses them: ask what can be varied, check the
+# design that comes back, then turn it into columns. The check and the builder
+# share one validation, so a design that clears the check cannot fail the build
+# for a reason the check knew about.
+@mcp.tool()
+@_stdout_to_stderr
+def describe_conceptual_factors() -> str:
+    """What a controlled ELM sweep can vary, and what it cannot.
+
+    Call this BEFORE designing a conceptual study — it is the menu, and a
+    factor that is not on it cannot be built however reasonable it sounds.
+    Derived from this server's own RUNTIME_KEYS rather than written out beside
+    them, so it cannot offer a knob the wrapper would refuse.
+
+    Also states ELM's fixed soil grid, because the commonest misunderstanding
+    in a conceptual soil study is that a study chooses the column depth. It
+    does not.
+    """
+    import conceptual
+    return json.dumps(conceptual.declare(), indent=2)
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def check_conceptual_design(design: dict) -> str:
+    """Will this sweep do what it looks like it does? Ask before spending compute.
+
+    `design` is the sampling block of a factor sweep: a list of factors with
+    their levels, and what the design holds fixed.
+
+    Returns three separate lists rather than a verdict:
+
+        wont_build  arithmetic or buildability failures — turn each into a
+                    question for the user, never a silent correction
+        unusual     it will build, but is far from anything measured. Each
+                    carries a caveat id for the finished study
+        facts       measurements about the design that may be fine or may be
+                    the whole problem
+
+    THIS SERVER DOES NOT GRADE. It reports what is true; how much each thing
+    matters is decided where every other caveat's severity is decided.
+
+    The check worth having is the third kind: two locations that fall in one
+    NLDAS cell share their weather exactly, so the sweep is flat by
+    construction — every column runs, the count is right, and the figures come
+    out on top of each other with nothing downstream reporting it.
+    """
+    import conceptual
+    return json.dumps(conceptual.check(design or {}), indent=2)
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def build_conceptual_columns(design: dict) -> str:
+    """Turn a checked sweep into the same columns.json a sampled run produces.
+
+    THE MERGE POINT between the two archetypes. Everything downstream of this
+    file is identical for a sweep and a site study, because the Experiment
+    Manager does not care why two columns differ.
+
+    Raises on an unbuildable design rather than building part of it: a sweep
+    missing one level is not a smaller sweep, it is a different experiment
+    wearing the same name.
+    """
+    import conceptual
+    return json.dumps(conceptual.as_columns_file(design or {}), indent=2)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -931,6 +1058,14 @@ def extract_elm_output(run_dir:   str,
     converted to mm/day, states in their own units. No `recharge_fraction`, no
     `water_budget`, no ratios of any kind — those carry semantics that must not
     cross this boundary (decision of 2026-08-06), and they stay framework-side.
+
+    THE START-UP TRANSIENT IS TRIMMED BEFORE ANY OF IT, and how much depends on
+    how the run STARTED: a fortnight if the cases carry a restart file, a year
+    if they do not, read off case_inputs.json rather than asked for. The
+    returned summary names both the number and the basis, and a run too short
+    for its own window is trimmed by nothing and says so — see
+    extract.resolve_spinup. The series therefore does not begin on the run's
+    start date, which is why `date_range` travels with every column.
 
     columns:   comma-separated subset, e.g. "col_07". Empty means all. With an
                artifact already present this MERGES, which is how one failed

@@ -45,6 +45,96 @@ def _station_ids(observations: Dict[str, Any]) -> set:
     return ids
 
 
+APPROACHES = ("elevation_bands", "factor_sweep")
+MIN_LEVELS = 2
+
+
+def _factors(sampling: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [f for f in (sampling.get("factors") or []) if isinstance(f, dict)]
+
+
+def _sweep_n_columns(sampling: Dict[str, Any]) -> int:
+    """The factorial the levels imply. 0 when the design is not expressible.
+
+    Deliberately arithmetic and nothing else. Whether `soil_texture` is a real
+    factor, and whether 95% clay can be built, are questions only the model
+    server can answer — see the ELM server's check_conceptual_design. This gate
+    runs without a server and must not pretend otherwise.
+    """
+    fs = _factors(sampling)
+    if not fs:
+        return 0
+    total = 1
+    for f in fs:
+        total *= len(f.get("levels") or ())
+    return total
+
+
+def _sweep_years(sampling: Dict[str, Any]) -> List[Any]:
+    """Years the design carries itself — held fixed, or varied as a factor."""
+    held = (sampling.get("held_fixed") or {}).get("years")
+    if held:
+        return list(held) if isinstance(held, (list, tuple)) else [held]
+    for f in _factors(sampling):
+        if f.get("name") == "forcing_year" and f.get("levels"):
+            return list(f["levels"])
+    return []
+
+
+def _sweep_stops(sampling: Dict[str, Any]) -> List[str]:
+    """What makes a sweep unrunnable, judged without asking a model server."""
+    out: List[str] = []
+    approach = str(sampling.get("approach") or "").strip().lower()
+    if approach and approach not in APPROACHES:
+        out.append(f"sampling.approach is {approach!r}, which is not one of "
+                   f"{list(APPROACHES)} — the manager would not know which "
+                   f"path to take")
+
+    fs = _factors(sampling)
+    if not fs:
+        out.append("a factor sweep with no factors varies nothing — there is "
+                   "no experiment here, only repeated runs")
+        return out
+
+    for f in fs:
+        name = f.get("name") or "(unnamed)"
+        levels = list(f.get("levels") or ())
+        if len(levels) < MIN_LEVELS:
+            out.append(f"factor {name!r} has {len(levels)} level(s) — a sweep "
+                       f"needs at least {MIN_LEVELS}, or it is one run with a "
+                       f"comparison implied and never made")
+        if len(set(map(repr, levels))) != len(levels):
+            out.append(f"factor {name!r} repeats a level — two identical "
+                       f"columns measure the model's determinism, not the "
+                       f"factor")
+
+    # WHOSE WEATHER. A sweep has no study location and still cannot run without
+    # one: ELM reads forcing from a grid cell. Reception is instructed to ask
+    # rather than default this, so its absence here means the conversation did
+    # not finish, not that the design is location-free.
+    held = sampling.get("held_fixed") or {}
+    varies_site = any(f.get("name") == "forcing_site" for f in fs)
+    # STILL REQUIRED WHEN THE WEATHER IS WRITTEN, for a different reason. The
+    # domain file, the warm start's donor gridcell and DATM's nearest-neighbour
+    # match all need a point; what written weather removes is the CLIMATE, not
+    # the coordinates. Saying "ELM reads its weather from a grid cell" to a
+    # design that prescribes the weather would be a false explanation of a
+    # correct refusal, which is worse than no explanation.
+    written = (held.get("weather") is not None
+               or any(f.get("name") == "prescribed_weather" for f in fs))
+    if not varies_site and not (held.get("lat") is not None
+                                and held.get("lon") is not None):
+        out.append(
+            "the design names no coordinates — a sweep has no study location, "
+            + ("but the domain file and the warm start still need a point, so "
+               "held_fixed must say which (the weather is written, so this is "
+               "bookkeeping rather than a scientific choice)"
+               if written else
+               "but ELM still reads its weather from a grid cell, so "
+               "held_fixed must say which"))
+    return out
+
+
 def check(reception: Dict[str, Any],
           strategy: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Compare the two. Returns (report, corrected_strategy).
@@ -62,29 +152,57 @@ def check(reception: Dict[str, Any],
     corrections: List[str] = []
     strategy = dict(strategy or {})
 
+    sampling = dict(strategy.get("sampling") or {})
+
+    # WHICH KIND OF STUDY, decided before any check runs.
+    #
+    # Half the conditions below are about a BASIN — a bbox to sample, a grid
+    # to place columns in. A controlled sweep has neither and is not broken for
+    # lacking them. Before this branch existed the first STOP fired on every
+    # conceptual run ("there is nowhere to sample"), so nothing conceptual
+    # could reach compute at all.
+    #
+    # Two sources agreeing is not required: the archetype is reception's word
+    # and the approach is the planner's, and either alone is enough to know a
+    # basin is not expected. They are cross-checked further down.
+    arche = (strategy.get("archetype") or brief.get("design_archetype") or "")
+    approach = str(sampling.get("approach") or "").strip().lower()
+    is_sweep = (str(arche).strip().lower() == "conceptual"
+                or approach == "factor_sweep")
+
     # ── STOP conditions ─────────────────────────────────────────────────
-    if not dom.get("bbox"):
+    if not is_sweep and not dom.get("bbox"):
         stop.append("reception resolved no bbox — there is nowhere to sample")
-    if not (isinstance(period.get("yr_start"), int)
-            and isinstance(period.get("yr_end"), int)):
+
+    # A SWEEP STILL NEEDS YEARS, from one of two places: reception resolved a
+    # period, or the design varies the year itself. Requiring the first alone
+    # would refuse the very study that makes the year a factor.
+    has_years = (isinstance(period.get("yr_start"), int)
+                 and isinstance(period.get("yr_end"), int))
+    if not has_years and is_sweep:
+        has_years = bool(_sweep_years(sampling))
+    if not has_years:
         stop.append("reception resolved no simulation period — the run has no "
                     "years to force")
 
-    sampling = dict(strategy.get("sampling") or {})
     n = sampling.get("n_columns")
     if not isinstance(n, int) or n < MIN_COLUMNS:
         stop.append(f"strategy gives no usable column count (n_columns={n!r})")
     elif n > MAX_COLUMNS:
         stop.append(f"strategy asks for {n} columns, above the {MAX_COLUMNS} "
                     f"ceiling — each is a separate model case")
-    else:
+    elif not is_sweep:
         # A column is placed AT a grid point, so more columns than points is
         # not a preference the sampler can satisfy. This check only became
-        # possible once reception carried the grid.
+        # possible once reception carried the grid. A sweep places nothing on
+        # a grid — its columns repeat one location on purpose.
         avail = grid.get("n_in_basin")
         if isinstance(avail, int) and avail and n > avail:
             stop.append(f"strategy asks for {n} columns but the basin holds "
                         f"only {avail} grid points")
+
+    if is_sweep:
+        stop.extend(_sweep_stops(sampling))
 
     # ── CORRECTIONS ─────────────────────────────────────────────────────
     known = _station_ids(obs)
@@ -101,6 +219,24 @@ def check(reception: Dict[str, Any],
             if not keep:
                 v["comparison"] = "unavailable — named stations were not fetched"
         fixed_validation.append(v)
+
+    # A SWEEP VALIDATES AGAINST NOTHING, and says so by carrying no entries.
+    # The loop above empties the station list of anything reception did not
+    # fetch — which on a sweep is everything, since nothing was fetched — and
+    # what survives is an entry reading "streamflow: unavailable". That is a
+    # true sentence about a site study whose gauges were missing and a false
+    # one here: no gauge was sought, because there is no basin. Left in, it
+    # becomes a validation the report has to explain away.
+    if is_sweep and fixed_validation:
+        dropped = sorted({str(v.get("variable")) for v in fixed_validation})
+        corrections.append(
+            f"validation: dropped {len(fixed_validation)} entr(y/ies) "
+            f"({', '.join(dropped)}) — a controlled sweep has no basin and "
+            f"fetched no observations, so there was never anything to compare "
+            f"against. Absence here is the design, not a failed lookup.")
+        fixed_validation = []
+        strategy["validation"] = []
+
     if fixed_validation:
         strategy["validation"] = fixed_validation
 
@@ -116,7 +252,28 @@ def check(reception: Dict[str, Any],
     # user's number is authoritative, the run continues, and the correction is
     # recorded in the run so the change is visible afterwards.
     want = (brief.get("run_settings") or {}).get("requested_n_columns")
-    if isinstance(want, int) and want > 0 and isinstance(n, int) and want != n:
+    if is_sweep:
+        # THE USER'S NUMBER CANNOT WIN HERE, and this is the one place the two
+        # archetypes need opposite treatment. A site design can honour "give me
+        # 3 columns" by sampling three points. A sweep's count is the product
+        # of its levels — 7 clay values IS 7 columns — so overwriting it would
+        # leave a design whose stated size disagrees with the experiment it
+        # describes, and the builder would produce a different number again.
+        # Correct the count TO the design instead of the design to the count.
+        factorial = _sweep_n_columns(sampling)
+        if factorial and isinstance(n, int) and n != factorial:
+            corrections.append(
+                f"n_columns: the strategy says {n}, but the factor levels give "
+                f"{factorial} — using {factorial}, which is what the design is")
+            sampling["n_columns"] = factorial
+            strategy["sampling"] = sampling
+            n = factorial
+        if isinstance(want, int) and want > 0 and factorial and want != factorial:
+            corrections.append(
+                f"n_columns: the request asked for {want}, but a sweep's size "
+                f"is its levels ({factorial}) — the request cannot be honoured "
+                f"without changing the factors, so it was not applied")
+    elif isinstance(want, int) and want > 0 and isinstance(n, int) and want != n:
         corrections.append(
             f"n_columns: the request asked for {want}, the strategy designed "
             f"{n} — using the {want} that was asked for")
@@ -124,7 +281,6 @@ def check(reception: Dict[str, Any],
         strategy["sampling"] = sampling
         n = want
 
-    arche = strategy.get("archetype") or (brief.get("design_archetype"))
     if arche and brief.get("design_archetype") and arche != brief["design_archetype"]:
         corrections.append(f"archetype: strategy says {arche!r}, reception "
                            f"said {brief['design_archetype']!r} — using the "
@@ -135,10 +291,26 @@ def check(reception: Dict[str, Any],
         "stop": stop,
         "corrections": corrections,
         "checked": {
+            "approach": approach or ("factor_sweep" if is_sweep
+                                     else "elevation_bands"),
             "domain": dom.get("name") or dom.get("huc"),
             "period": f"{period.get('yr_start')}-{period.get('yr_end')}",
             "n_columns": sampling.get("n_columns"),
-            "grid_points_in_basin": grid.get("n_in_basin"),
+            # None rather than 0 on a sweep: there is no basin to have points
+            # in, and a zero would read as an empty one.
+            "grid_points_in_basin": None if is_sweep else grid.get("n_in_basin"),
+            "factors": [f.get("name") for f in _factors(sampling)] or None,
+            # WHOSE WEATHER, in one word, on the line the user actually reads.
+            # "no basin and no observations" already tells them what a sweep
+            # lacks; without this the one thing that decides whether the result
+            # is bounded by a real cell's climate is visible only inside
+            # columns.json.
+            "weather": (
+                "written" if (
+                    (sampling.get("held_fixed") or {}).get("weather") is not None
+                    or any(f.get("name") == "prescribed_weather"
+                           for f in _factors(sampling)))
+                else "borrowed from the forcing cell") if is_sweep else None,
             "stations_fetched": len(known),
             "stations_pinned": sum(len(v.get("stations") or [])
                                    for v in (strategy.get("validation") or [])),
@@ -153,10 +325,20 @@ def check(reception: Dict[str, Any],
 def render(report: Dict[str, Any]) -> str:
     """One short block for the run log."""
     c = report.get("checked") or {}
-    lines = [f"   domain {c.get('domain')}  period {c.get('period')}  "
-             f"columns {c.get('n_columns')} of {c.get('grid_points_in_basin')} grid points",
-             f"   observations fetched: {c.get('stations_fetched')} station(s), "
-             f"{c.get('stations_pinned')} pinned"]
+    if c.get("approach") == "factor_sweep":
+        # A SWEEP HAS NO BASIN AND NO STATIONS, so the site line would report
+        # None domain, None grid points and 0 pinned — three absences that read
+        # as failures rather than as a different kind of study.
+        lines = [f"   controlled sweep over {', '.join(c.get('factors') or [])}"
+                 f"  period {c.get('period')}  columns {c.get('n_columns')}",
+                 f"   no basin and no observations — by design, not by "
+                 f"omission",
+                 f"   weather: {c.get('weather')}"]
+    else:
+        lines = [f"   domain {c.get('domain')}  period {c.get('period')}  "
+                 f"columns {c.get('n_columns')} of {c.get('grid_points_in_basin')} grid points",
+                 f"   observations fetched: {c.get('stations_fetched')} station(s), "
+                 f"{c.get('stations_pinned')} pinned"]
     for s in report.get("stop") or []:
         lines.append(f"   ✗ STOP: {s}")
     for m in report.get("corrections") or []:

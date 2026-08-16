@@ -54,9 +54,45 @@ from typing   import Any, Dict, List, Optional
 
 sys.path.insert(0, "src")
 
+# The key lists below are KeySets, not tuples: they raise when a producer
+# writes a key they neither keep nor drop, instead of dropping it in silence.
+#
+# IMPORTED AS `core.keyset` EVERYWHERE, including from the MCP. The same file
+# reached by two path roots is two module objects with two distinct exception
+# classes, so `except UnclassifiedKey` in one importer does not catch the one
+# raised in the other. One spelling, one identity.
+from core import keyset                                         # noqa: E402
+from core.keyset import KeySet                                  # noqa: E402
+
 # Used only when neither the caller nor the strategy says. The planner
 # always emits n_bands, so reaching this means the plan was hand-written.
 DEFAULT_BANDS = 4
+
+# The sampling approaches the manager can materialise. `elevation_bands` is the
+# spatial sampler; `factor_sweep` asks the backend for columns instead.
+FACTOR_SWEEP = "factor_sweep"
+
+
+def _is_factor_sweep(strategy: Dict[str, Any],
+					 brief: Optional[Dict[str, Any]] = None) -> bool:
+	"""Is this a controlled sweep rather than a spatial sample?
+
+	TWO SOURCES, EITHER SUFFICIENT. `sampling.approach` is the planner's word
+	and `design_archetype` is reception's, and they are cross-checked in
+	strategy_check rather than here. Requiring both to agree would make a
+	materialize fail on a disagreement the gate has already reported and
+	corrected; requiring neither would send a conceptual design to a sampler
+	that needs a basin.
+
+	Defaults to False on anything unrecognised, so a malformed strategy takes
+	the path that has always existed rather than a new one.
+	"""
+	sampling = (strategy or {}).get("sampling") or {}
+	if str(sampling.get("approach") or "").strip().lower() == FACTOR_SWEEP:
+		return True
+	arche = ((strategy or {}).get("archetype")
+			 or (brief or {}).get("design_archetype") or "")
+	return str(arche).strip().lower() == "conceptual"
 
 
 class Pending:
@@ -884,6 +920,30 @@ class ExperimentManagerBase:
 		"""
 		return {}
 
+	def _build_sweep_columns(self, design: Dict[str, Any],
+							 config: Dict[str, Any]) -> Dict[str, Any]:
+		"""Columns for a CONTROLLED SWEEP, built by the backend that runs them.
+
+		The sibling of _refine_columns, and here for the same reason: what a
+		clay level BECOMES is model knowledge. The base knows a sweep is one
+		column per level combination; only the server knows that a level of 27
+		means a synthetic surface dataset with those percentages in it, and only
+		the server can say whether 27 is buildable at all.
+
+		Returns the same payload expand_sampling.expand() returns — `columns`
+		plus whatever provenance the backend wants to persist beside them —
+		because everything after this point treats the two identically.
+
+		A backend with no sweep support raises, which is the correct answer:
+		it means this model cannot run the study that was designed, and
+		producing a partial one instead would be worse.
+		"""
+		raise NotImplementedError(
+			f"{type(self).__name__} cannot build a controlled sweep. The "
+			f"strategy asked for a factor sweep, which needs this backend to "
+			f"turn factor levels into columns; only the model server knows "
+			f"what a level means.")
+
 	def _draw_design(self, res: Dict[str, Any], config: Dict[str, Any]) -> None:
 		"""Draw the sampling-design figure, if this backend has one.
 
@@ -925,16 +985,27 @@ class ExperimentManagerBase:
 		brief   = config.get("brief") or {}
 		clients = config.get("mcp_clients") or {}
 
-		bbox = exp._bbox_from_brief(brief)
-		if not bbox:
-			raise ValueError(
-				"Cannot materialize sampling: no domain bbox in the reception "
-				"brief, and the plan has no executable payload. Pass "
-				"config['brief'] with domain.bbox, or supply an explicit plan.")
-		if not clients.get("terrain"):
-			raise ValueError(
-				"Cannot materialize sampling: the 'terrain' MCP client is "
-				"required. Pass config['mcp_clients'].")
+		# WHICH KIND OF STUDY, read before anything is required of the inputs.
+		#
+		# The two demands below — a bounding box and the terrain client — are
+		# needs of SPATIAL SAMPLING, not of materialising columns. A controlled
+		# sweep has no basin to clip and no elevation grid to sample, so both
+		# would refuse a design that is complete and correct. Everything from
+		# here to the shared tail is the site path, untouched.
+		strategy_in = config.get("strategy") or plan
+		is_sweep = _is_factor_sweep(strategy_in, brief)
+
+		bbox = None if is_sweep else exp._bbox_from_brief(brief)
+		if not is_sweep:
+			if not bbox:
+				raise ValueError(
+					"Cannot materialize sampling: no domain bbox in the reception "
+					"brief, and the plan has no executable payload. Pass "
+					"config['brief'] with domain.bbox, or supply an explicit plan.")
+			if not clients.get("terrain"):
+				raise ValueError(
+					"Cannot materialize sampling: the 'terrain' MCP client is "
+					"required. Pass config['mcp_clients'].")
 
 		# CHECK FIRST, then read the counts. The order is the whole point.
 		#
@@ -948,6 +1019,45 @@ class ExperimentManagerBase:
 		#
 		# 5e0cfd5 fixed the DETECTION. This is the enforcement.
 		config = self.check(plan, config)
+
+		# ── the sweep path, and it rejoins below at _refine_columns ─────────
+		#
+		# DELIBERATELY AFTER check(). The gate is what corrects the column count
+		# to the factorial the levels imply, refuses a factor with one level,
+		# and stops a design that names no coordinates. Building first and
+		# checking after would spend the build on a design the gate would have
+		# refused — which is the ordering mistake the comment above records for
+		# the site path, made once already.
+		if is_sweep:
+			design = ((config.get("strategy") or plan).get("sampling") or {})
+			print("\n🗺️  STEP 0: Materializing a Controlled Sweep")
+			print("-" * 40)
+			# A SWEEP STARTS COLD, and this is the line that makes it true.
+			# warm_start defaults to True for the site path, and the sweep path
+			# inherited that default silently: every conceptual run so far began
+			# from the CONUS restart, so a study designed to depend on no real
+			# place was handed a real gridcell's water content, and the only
+			# trace was a caveat nobody had chosen. A controlled sweep either
+			# holds the initial state constant or it is not controlled.
+			#
+			# THE COST IS ACCEPTED, NOT HIDDEN: a cold column takes years to
+			# forget ELM's defaults, so a short run reports the initialisation
+			# as much as the soil. That is recorded as a caveat on the finding
+			# rather than fixed with a spin-up.
+			config = dict(config)
+			config["warm_start"] = False
+			names = ", ".join(str(f.get("name"))
+							  for f in (design.get("factors") or []))
+			print(f"   factors: {names or '(none)'}  "
+				  f"N={design.get('n_columns')}  no basin, no sampling")
+			res = self._build_sweep_columns(design, config) or {}
+			columns = res.get("columns") or []
+			if not columns:
+				raise RuntimeError(
+					"The sweep design produced no columns. The backend "
+					"accepted the design and returned nothing, which is a "
+					"failure rather than an empty result.")
+			return self._persist_columns(res, columns, plan, config)
 
 		# From the corrected strategy first, since that is what check() rewrote;
 		# `plan` remains the fallback for a caller that passes no strategy.
@@ -1037,6 +1147,23 @@ class ExperimentManagerBase:
 				"outside the basin; treat the ensemble as a bbox sample."),
 		}
 
+		return self._persist_columns(res, columns, plan, config)
+
+	def _persist_columns(self, res: Dict[str, Any], columns,
+						 plan: Dict[str, Any],
+						 config: Dict[str, Any]) -> Dict[str, Any]:
+		"""Refine, write, draw, and turn columns into an executable plan.
+
+		EXTRACTED SO THE TWO ARCHETYPES SHARE ONE TAIL. Sampled columns and
+		swept columns differ in how they were CHOSEN and in nothing after that:
+		both need the backend's refinement, both are persisted to the same two
+		files, both get the design figure, and both become a run plan the same
+		way. A second copy of this for sweeps would be the place the two paths
+		silently drifted apart.
+
+		Everything below this line is unchanged from when it lived inline.
+		"""
+		brief = config.get("brief") or {}
 		yr_start = int(config.get("yr_start", 1995))
 		yr_end   = int(config.get("yr_end",   yr_start))
 
@@ -1153,20 +1280,6 @@ class ExperimentManagerBase:
 	#                        size, so an unweighted mean over-weights small
 	#                        bands. Without this the weighting silently
 	#                        degrades to a plain average.
-	#   wtd_prior_m          the prior water-table depth — what a column's
-	#                        aquifer is warm-started to (make_warmstart
-	#                        --source prior) and what PFLOTRAN sizes its domain
-	#                        from. It arrives from reception, which is the only
-	#                        component that fetches it; renamed from fan_wtd_m
-	#                        on 2026-08-12 when the source stopped being Fan.
-	#                        The UNCERTAINTY travels with it because for
-	#                        ma_2025 it is often larger than the value itself
-	#                        (col_09: 8.08 m, IQR 41.14 m — the spread of the
-	#                        middle half of the random forest, NOT a standard
-	#                        deviation), and the SOURCE
-	#                        travels with it so a run records which estimate it
-	#                        used instead of leaving it implied by a field name
-	#                        — which is exactly how the old name went stale.
 	#   soil_*               which soil this column actually got, and from
 	#                        where — the soil-attribution figure and any claim
 	#                        that soil explains a gradient rest on it.
@@ -1177,32 +1290,152 @@ class ExperimentManagerBase:
 	#                        produced 19 rows with elevation_m absent — which
 	#                        silently flattens every elevation figure and
 	#                        every gradient claim to a single point.
-	# THE PIN TRAVELS (2026-08-13). `pinned` / `station_id` /
-	# `station_variable` are written into columns.json by the sampler and were
-	# not on this list, so the join dropped them and every packaged row reached
-	# the Analyzer with pinned=None. The comparison then re-derived the pairing
-	# geometrically — which is guessing at an answer the sampler had already
-	# recorded, and it is why a Brandywine run whose columns.json names four
-	# pinned wells reported `n_pinned: 0`.
+	#   pinned, station_id, station_variable
+	#                        which station the sampler put this column on. Off
+	#                        the list, the join dropped them, every row reached
+	#                        the Analyzer with pinned=None, and the comparison
+	#                        re-derived the pairing geometrically — guessing at
+	#                        an answer the sampler had already recorded.
 	#
-	# The MCP path never had this gap: extract.py copies the three fields out
-	# of columns.json itself. So the two paths disagreed about whether a column
-	# was pinned — the same class of split as the two extractors, and invisible
-	# because a refused pin looks exactly like a column that was never pinned.
-	COLUMN_METADATA = ("lat", "lon", "elevation_m",
-					   "band", "band_range_m", "wtd_prior_m",
-					   "wtd_prior_uncertainty_m", "wtd_prior_source",
-					   "pinned", "station_id", "station_variable",
-					   # WHICH FORCING CELL, and WHAT SOIL — two independent
-					   # facts about where the column ended up, both settled at
-					   # input time and neither derivable from the row without
-					   # them. Columns sharing forcing_cell got the same rain, so
-					   # a difference between them is soil or terrain; that
-					   # reading is the reader's to make, and nothing here
-					   # precomputes it.
-					   "forcing_cell", "soil_summary",
-					   "soil_top_texture",
-					   "soil_layers", "soil_source", "soil_profile")
+	# A NAME ON THIS LIST THAT NOTHING PRODUCES IS NOT FREE: it asks for a
+	# capability the pipeline may no longer have, and a key that is absent
+	# looks exactly like a key that is null this time. That is what report()
+	# below exists to catch.
+	COLUMN_METADATA = KeySet(
+		"COLUMN_METADATA",
+		keep = ("lat", "lon", "elevation_m",
+				"band", "band_range_m",
+				"pinned", "station_id", "station_variable",
+				# WHICH FORCING CELL, and WHAT SOIL — two independent facts
+				# about where the column ended up, both settled at input time
+				# and neither derivable from the row without them. Columns
+				# sharing forcing_cell got the same rain, so a difference
+				# between them is soil or terrain; that reading is the
+				# reader's to make, and nothing here precomputes it.
+				"forcing_cell", "soil_summary",
+				"soil_top_texture",
+				"soil_layers", "soil_source", "soil_profile",
+				# ── written by a CONTROLLED SWEEP, absent on a site run ──
+				# WHY THIS COLUMN DIFFERS, which on a sweep is the only thing
+				# that makes it a column rather than a repeat. The Analyzer
+				# groups by it; without it a 4-column sweep is four unlabelled
+				# runs and the design has to be re-derived from soil profiles.
+				"treatment",
+				# The fill spec, when the weather was written rather than taken
+				# from the cell. Carried because "no real climate bounds this
+				# result" is a claim the report makes, and it must rest on
+				# something in the record rather than on the run's reputation.
+				"weather",
+				# Cold or warm. Decides which initialisation caveat applies and
+				# how much of the early record is the start rather than the
+				# soil — extract.resolve_spinup reads it and trims 14 days for
+				# one and a year for the other.
+				"warm_start",
+				# The years THIS column ran. A forcing_year sweep varies them
+				# between columns, so a single run-level period would describe
+				# none of them correctly.
+				"forcing_start", "forcing_end"),
+		# A run that pinned nothing has no column carrying these, and that is
+		# a fact about the design rather than a gap in the list. The sweep keys
+		# are optional for the mirror-image reason: a site run varies nothing
+		# deliberately, so it has no treatment, no written weather and no
+		# per-column years — and a sweep has no band, no station and no DEM
+		# elevation. Neither absence is a hole.
+		optional = ("station_id", "station_variable",
+					"treatment", "weather", "warm_start",
+					"forcing_start", "forcing_end"),
+		drop = {
+			"id": "the join key — _merge_column_metadata matches on it, so "
+				  "carrying it onto the row would restate the row's own name",
+			"station_name": "the pinned station's label. station_id is the "
+							"identifier a reader can look up; a name cannot "
+							"be resolved back to a record",
+			"station_elevation_m": "consumed at sampling time — "
+								   "expand_sampling falls back to it when the "
+								   "terrain server has no elevation for the "
+								   "station, and records the result as "
+								   "elevation_m",
+			"in_basin": "reception's inside-the-divide tag, copied here with "
+						"the rest of the station record. The comparison "
+						"applies it from the observations, which is where it "
+						"was measured",
+			"outside_design_band": "set by warm_start when the snapped donor "
+								   "leaves the band the sampler drew. A "
+								   "sampling-design fact, read by the design "
+								   "figure, not a property of the results",
+			"elevation_source": "WRITTEN BY TWO PRODUCERS AND READ BY NONE "
+								"(inputs.py:260, expand_sampling.py:486). "
+								"Dropped rather than carried because a field "
+								"nobody reads is not provenance, it is weight",
+			"fan_wtd_m": "THE ASSERTION'S FIRST CATCH, and it caught a fossil. "
+						 "Fan's water table left the sampler on 2026-08-07 and "
+						 "was renamed wtd_prior_m on 2026-08-12; the only file "
+						 "on disk still carrying it is one archived Gunnison "
+						 "PFLOTRAN study. Dropped, not kept, because reviving "
+						 "the old name would give the row two spellings of one "
+						 "number — which is how the name went stale the first "
+						 "time",
+		},
+		source = "columns.json -> columns[*]",
+		where  = "src/core/exp_manager_base.py :: COLUMN_METADATA",
+	)
+
+	@staticmethod
+	def _treatment_label(treatment: Any) -> Optional[str]:
+		"""A sweep column's treatment in a few words, fit for an axis tick.
+
+		WHY THE RECORD CARRIES THIS RATHER THAN THE FIGURE DERIVING IT. The
+		treatment is a nested dict, and a generated plotting script handed one
+		with no better option does the only thing it can: prints it. On the
+		2026-08-16 sweep that put
+
+		    {'soil_texture': 5, 'prescribed_weather': {'fill': 'scale',
+		     'values': {'PRECTmms': 2.0}}}
+
+		on four x-axis ticks, and the bars ended up in the top corner of their
+		own canvas with the labels running off the page. The second round wrote
+		its own short names and read fine, so the fix is not to teach the model
+		to shorten — it is to have the name in the record before anyone plots.
+
+		GENERIC OVER THE DICT, not a list of known factors. It reads whatever
+		keys the design put there, so a sweep over a factor nobody has invented
+		yet still gets a label rather than a fallback.
+		"""
+		if not isinstance(treatment, dict) or not treatment:
+			return None
+
+		def num(x):
+			try:
+				f = float(x)
+			except (TypeError, ValueError):
+				return str(x)
+			return str(int(f)) if f == int(f) else f"{f:g}"
+
+		def one(key, val):
+			# `prescribed_` says how the value got there, which the reader of a
+			# tick label does not need; the factor's name is the rest.
+			name = str(key).replace("prescribed_", "").replace("_", " ")
+			if isinstance(val, dict):
+				fill = str(val.get("fill") or "").strip().lower()
+				vals = val.get("values") or {}
+				if fill == "scale" and vals:
+					return ", ".join(f"{k} x{num(v)}" for k, v in vals.items())
+				if fill == "offset" and vals:
+					return ", ".join(
+						f"{k} {'+' if float(v) >= 0 else ''}{num(v)}"
+						for k, v in vals.items())
+				if fill in ("set", "constant", "uniform") and vals:
+					return ", ".join(f"{k} = {num(v)}" for k, v in vals.items())
+				if fill == "copy":
+					return f"{name} as-is"
+				return f"{name} {fill}".strip()
+			if isinstance(val, str):
+				return (f"{name} as-is" if val.strip().lower() == "copy"
+						else f"{name} {val}")
+			return f"{name} {num(val)}"
+
+		parts = [p for p in (one(k, v) for k, v in treatment.items()) if p]
+		return ", ".join(parts) or None
 
 	def _merge_column_metadata(self, rows: List[Dict[str, Any]]) -> None:
 		"""Join the sampling metadata onto the extracted rows, in place.
@@ -1234,9 +1467,22 @@ class ExperimentManagerBase:
 			if not src:
 				missed += 1
 				continue
-			for k in self.COLUMN_METADATA:
+			# ASSERT, THEN COPY. check() raises on a key columns.json carries
+			# that this list neither keeps nor drops — the sampler adding a
+			# field is a decision someone has to make here, not a value that
+			# disappears on the way through. It also records which declared
+			# keys actually turned up, which is what report() reads.
+			self.COLUMN_METADATA.check(src)
+			for k in self.COLUMN_METADATA.keep:
 				if src.get(k) is not None and r.get(k) is None:
 					r[k] = src[k]
+			# DERIVED, not copied, so it is not a COLUMN_METADATA key: nothing
+			# in columns.json carries it. A site run varies nothing and gets no
+			# treatment, so it gets no label either — an absent label means
+			# "this column is not a treatment", which is the truth.
+			label = self._treatment_label(r.get("treatment"))
+			if label:
+				r["treatment_label"] = label
 		if missed:
 			print(f"   ⚠️  {missed} extracted column(s) had no sampling "
 				  f"metadata — experiment.json cannot be area-weighted")
@@ -1266,13 +1512,15 @@ class ExperimentManagerBase:
 		# assumed to make it runnable. It reached the written report but not
 		# the package, so an Analyzer reading only this file would have
 		# stated conclusions with none of the caveats attached.
-		# WHAT THE WARM-START TRIM REMOVED. A series that does not start where
+		# WHAT THE START-UP TRIM REMOVED. A series that does not start where
 		# the simulation did must say so — a reader comparing this to a gauge
-		# record needs to know the first fortnight is missing. It was computed
+		# record needs to know the opening stretch is missing. It was computed
 		# at extraction and then went nowhere: step 4 has always read
 		# `ctx.data["spinup_dropped"]` and always found None, because nothing
 		# put it in the package. Wired 2026-08-13; both runs that day dropped
-		# 14 days per column and neither report said so.
+		# 14 days per column and neither report said so. How long the trim is
+		# depends on how the run started — 14 days warm, a year cold — and it
+		# carries `basis` so the reader knows which of the two they are holding.
 		drop = (results.get("spinup_dropped") if isinstance(results, dict)
 				else getattr(results, "spinup_dropped", None)) or {}
 		if drop:
@@ -1353,6 +1601,15 @@ class ExperimentManagerBase:
 			"model":   self.MODEL,
 			"run_dir": str(self.run_dir),
 			"created": datetime.now().isoformat(timespec="seconds"),
+			# WHICH KIND OF STUDY THIS WAS. Carried because several stages
+			# downstream have to behave differently and were deciding by
+			# looking for a basin — an inference that reads a fetch failure as
+			# a sweep. step1_compare skips on it; the caveat set is chosen by
+			# it. Absent here, the Analyzer compared a controlled sweep against
+			# four observation sets nobody had gathered.
+			"archetype": (str((config.get("strategy") or {}).get("archetype")
+							  or brief.get("design_archetype") or "").strip()
+						  .lower() or None),
 			"domain": {
 				"name": (brief.get("domain") or {}).get("name"),
 				"huc":  (brief.get("domain") or {}).get("huc"),
@@ -1408,6 +1665,13 @@ class ExperimentManagerBase:
 			json.dumps(pkg, separators=(",", ":"), default=str))
 		print(f"✓ experiment.json — {len(ok)}/{len(rows)} column(s) "
 			  f"→ the Analyzer's only input")
+		# THE OTHER HALF OF THE ASSERTION. take() raises when a producer writes
+		# a key no list names; this reports the mirror case — a list naming a
+		# key no producer wrote. It cannot raise: `station_id` is legitimately
+		# absent on every unpinned column. But a name that NEVER appears, on
+		# any column of the run, is asking for a capability the pipeline does
+		# not have, and `wtd_prior_m` did exactly that for a week in silence.
+		keyset.report()
 		return pkg
 
 
@@ -1490,6 +1754,13 @@ class ExperimentManagerBase:
 		summary.update({
 			'status':          'pending',
 			'job_id':          record.get('job_id'),
+			# BOTH IDS, because they mean different things and the caller needs
+			# to say which is which. `job_id` is the one to POLL, which is B
+			# when a job B was chained; A is the one actually simulating. Only
+			# `job_id` used to travel, so every reader downstream could name
+			# the analysis job and none could name the ensemble.
+			'job_id_a':        record.get('job_id_a'),
+			'job_id_b':        record.get('job_id_b'),
 			# WHICH stage is waiting. With build_cases job-shaped as well as run,
 			# "job 770603 is queued" no longer says whether the cases are being
 			# built or the ensemble is being simulated — and those are hours
@@ -1504,12 +1775,29 @@ class ExperimentManagerBase:
 			print(f"   ⚠️  RUN_SUMMARY.json failed ({e}) — the job is still "
 				  f"recorded in {self.STATE_FILE}")
 
+		# WHICH JOB DOES WHICH. `record['job_id']` is what the framework POLLS,
+		# and when a job B was chained that is B — the analysis tail, not the
+		# ensemble. So this line read "19 experiment(s) queued as job 773439"
+		# for a run whose 19 columns were job 773438, and a user checking
+		# squeue for the number they were given saw a 7-minute job where they
+		# expected an 18-minute one. Both ids are on the record; name both.
 		n = summary['experiments_pending']
+		jid_a = record.get('job_id_a')
+		jid_b = record.get('job_id_b')
 		print(f"\n{'=' * 60}")
-		print(f"{self.MODEL.upper()} SUBMITTED: {n} experiment(s) queued as job "
-			  f"{record.get('job_id')}")
-		print(f"Output: {self.run_dir}")
-		print(f"Resume: {summary['resume_command']}")
+		print(f"{self.MODEL.upper()} SUBMITTED — {n} column(s) queued. "
+			  f"NOTHING HAS RUN YET.")
+		if jid_a and jid_b and jid_a != jid_b:
+			print(f"  job {jid_a}   runs the {n} columns")
+			print(f"  job {jid_b}   extracts, packages and analyses them "
+				  f"when {jid_a} finishes")
+		else:
+			print(f"  job {record.get('job_id')}   runs the {n} columns")
+		print(f"Output:  {self.run_dir}")
+		print(f"Answer:  {self.run_dir}/04_analysis/analysis.json  "
+			  f"(when the analysis job finishes)")
+		print(f"Watch:   squeue -u $USER")
+		print(f"If the analysis job never runs: {summary['resume_command']}")
 		print(f"{'=' * 60}\n")
 		return summary
 

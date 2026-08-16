@@ -431,15 +431,57 @@ class WorkflowCoordinator:
 				period       = ((result.get('brief') or {}).get('run_settings') or {}).get('resolved_period'),
 				initialization = ((result.get('brief') or {}).get('run_settings') or {}).get('initialization'),
 			)
-			print(f"✓ Execution: "
-				  f"{run_summary['experiments_success']}/"
-				  f"{run_summary['experiments_total']} "
-				  f"succeeded\n")
+			# QUEUED IS NOT FAILED, AND THIS LINE SAID IT WAS. A detached run
+			# reaches here about three seconds after submitting, when nothing
+			# has executed — and "✓ Execution: 0/19 succeeded" reads as an
+			# ensemble that ran and produced nothing. It is the same failure
+			# the data path keeps having: NOT YET rendering identically to
+			# NOTHING. The manager already knows the difference; it sets
+			# status="pending" and records both job ids.
+			submitted = run_summary.get('status') == 'pending'
+			if submitted:
+				print(f"⏳ Submitted: "
+					  f"{run_summary.get('experiments_pending') or run_summary['experiments_total']}"
+					  f" column(s) queued — nothing has run yet\n")
+			else:
+				print(f"✓ Execution: "
+					  f"{run_summary['experiments_success']}/"
+					  f"{run_summary['experiments_total']} "
+					  f"succeeded\n")
 	
 			self.conversation_context['last_run_dir'] = (
 				run_summary['run_directory']
 			)
 	
+			# NOTHING TO ANALYSE YET IS NOT NOTHING TO ANALYSE. On a detached
+			# run the analysis is job B's, chained behind the ensemble with
+			# --dependency=afterany. Printing "STEP 3: Analyzing Results"
+			# followed by "report skipped — 0/19 columns produced output" told
+			# the user their study had failed, minutes before it succeeded.
+			if submitted:
+				jid_a = run_summary.get('job_id_a')
+				jid_b = run_summary.get('job_id_b') or run_summary.get('job_id')
+				print("📊 STEP 3: Analysis — deferred to the scheduler")
+				print("-" * 50)
+				if jid_b and jid_b != jid_a:
+					print(f"   job {jid_a or '?'} runs the ensemble; job {jid_b} "
+						  f"analyses it when that finishes.")
+				else:
+					print(f"   job {jid_b or jid_a or '?'} is queued.")
+				print(f"   You can close this terminal.\n")
+				return (
+					f"⏳ Submitted — the run is queued, not finished.\n"
+					f"   {run_summary['experiments_total']} column(s) · "
+					f"{run_summary['run_directory']}\n\n"
+					f"   watch    squeue -u $USER\n"
+					f"            tail -f {run_summary['run_directory']}"
+					f"/ensemble_A.log\n"
+					f"   answer   {run_summary['run_directory']}"
+					f"/04_analysis/analysis.json  (written by job "
+					f"{run_summary.get('job_id_b') or run_summary.get('job_id')})\n\n"
+					f"   If the analysis job never runs:\n"
+					f"            {run_summary.get('resume_command')}")
+
 			# Step 3 — Analyze
 			print("📊 STEP 3: Analyzing Results")
 			print("-" * 50)

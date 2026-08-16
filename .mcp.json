@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "elm": {
+      "command": "${IDEAS_PYTHON:-/qfs/people/tran289/.conda/envs/ideas/bin/python3}",
+      "args": ["${IDEAS_FRAMEWORK_DIR:-/qfs/people/tran289/IDEAS/multi-agent-framework}/mcp/elm-mcp/main.py"],
+      "env": {
+        "IDEAS_FRAMEWORK_DIR": "${IDEAS_FRAMEWORK_DIR:-/qfs/people/tran289/IDEAS/multi-agent-framework}",
+        "E3SM_SRC_DIR": "${E3SM_SRC_DIR:-/qfs/people/tran289/E3SM}",
+        "PSCRATCH": "${PSCRATCH:-/compyfs/tran289}",
+        "IDEAS_SLURM_ACCOUNT": "${IDEAS_SLURM_ACCOUNT:-e3sm}",
+        "IDEAS_SLURM_QUEUE": "${IDEAS_SLURM_QUEUE:-short}"
+      }
+    },
+    "PFLOTRAN": {
+      "command": "${PFLOTRAN_MCP_BIN:-/qfs/people/tran289/.conda/envs/ideas/bin/pflotran-mcp}",
+      "args": [],
+      "env": {}
+    }
+  }
+}

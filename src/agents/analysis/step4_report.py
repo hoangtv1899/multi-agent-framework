@@ -44,22 +44,83 @@ from typing import Any, Dict, List, Optional
 FILENAME = "analysis.json"
 
 
-def _llm_accounting() -> Dict[str, Any]:
+# The labels the Analyzer's own steps set on their clients. Named here so the
+# report can say what THIS box spent, separately from what the process spent:
+# Reception and the Planner run in the same process on an end-to-end run and
+# do not label their clients, so `total` is pipeline-wide while `by_step` is
+# Analyzer-only. Those were being read as the same quantity.
+ANALYZER_LABELS = ("step2_investigate", "step3_interpret")
+
+
+def _llm_accounting(expect_calls: bool = False) -> Dict[str, Any]:
     """Tokens and wall time per pipeline step, from the client's usage log.
 
     Reads the module-level registry rather than any client instance, because
     the steps construct their clients internally — step 4 must account for
     spend by objects it never sees.
+
+    WHICH IS WHY IT CAN BE WRONG, AND NOW SAYS SO. USAGE_LOG is a module-level
+    list in THIS process. Assemble the report in a different process from the
+    calls — a step-4 rebuild, a resumed run — and every figure reads zero. The
+    job-B verification run reported `calls: 0` for an analysis that made four,
+    and nothing distinguished that from a run which genuinely called nothing.
+    Worse, zero calls is already the signature of a gateway failure, so the two
+    were indistinguishable in the direction that matters.
+
+    `expect_calls` is the caller saying "an interpretation exists, so the model
+    must have been asked". When that disagrees with an empty log, the numbers
+    are not zero — they are missing, and `measured` says which.
     """
     try:
         from agents.llm_agent import USAGE_LOG, usage_totals
     except Exception:
-        return {}
+        return {"measured": False,
+                "note": "agents.llm_agent could not be imported"}
     labels = sorted({r.get("label") for r in USAGE_LOG if r.get("label")})
-    return {"total": usage_totals(),
-            "by_step": {lab: usage_totals(lab) for lab in labels},
-            "unattributed": usage_totals(None) if any(
-                not r.get("label") for r in USAGE_LOG) else None}
+    by_step = {lab: usage_totals(lab) for lab in labels}
+
+    analyzer = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
+                "seconds": 0.0, "models": []}
+    for lab in ANALYZER_LABELS:
+        t = by_step.get(lab)
+        if not t:
+            continue
+        analyzer["calls"] += t.get("calls") or 0
+        analyzer["prompt_tokens"] += t.get("prompt_tokens") or 0
+        analyzer["completion_tokens"] += t.get("completion_tokens") or 0
+        analyzer["seconds"] += t.get("seconds") or 0.0
+        analyzer["models"] = sorted(set(analyzer["models"])
+                                    | set(t.get("models") or []))
+    analyzer["seconds"] = round(analyzer["seconds"], 2)
+
+    # SUMMED HERE, NOT ASKED OF usage_totals. Its `label=None` means "no
+    # filter", so usage_totals(None) is the whole log — which made this field a
+    # second copy of `total` rather than the unlabelled remainder it is named
+    # for. On an end-to-end run that is the Planner's spend, and it read as the
+    # Analyzer's.
+    bare = [r for r in USAGE_LOG if not r.get("label")]
+    unattributed = ({"calls": len(bare),
+                     "prompt_tokens": sum(r.get("prompt_tokens") or 0 for r in bare),
+                     "completion_tokens": sum(r.get("completion_tokens") or 0
+                                              for r in bare),
+                     "seconds": round(sum(r.get("seconds") or 0.0 for r in bare), 2),
+                     "models": sorted({r.get("model") for r in bare if r.get("model")}),
+                     "note": "spend by steps outside the Analyzer that ran in "
+                             "this process — Reception and the Planner do not "
+                             "label their clients"}
+                    if bare else None)
+
+    measured = bool(USAGE_LOG) or not expect_calls
+    out = {"total": usage_totals(),          # the whole PROCESS, not this box
+           "analyzer": analyzer,             # this box only
+           "by_step": by_step,
+           "unattributed": unattributed,
+           "measured": measured}
+    if not measured:
+        out["note"] = ("this report was assembled in a different process from "
+                       "the model calls, so the spend was not recorded here. "
+                       "The zeros mean UNMEASURED, not free.")
+    return out
 
 
 def _slurm_elapsed(run_dir) -> Dict[str, Any]:
@@ -207,11 +268,66 @@ def _compute_accounting(run_dir) -> Dict[str, Any]:
     return {}
 
 
+# ─────────────────────────────────────────────────────────────────────
+# WHAT KIND OF RESULT THIS IS
+# ─────────────────────────────────────────────────────────────────────
+# Four outcomes, and the point of naming them is that three of them used to
+# render identically. A run whose steps 2-3 raised produced verdict=None and
+# zero claims; so did a run that finished and found nothing to say. Both
+# reached the reader as a thin report, and the only record of the difference
+# lived in the status dict Analyzer.run() RETURNS and never persists.
+SUPPORTED    = "supported"              # it ran, concluded, and claims survived
+NO_CLAIMS    = "no_supported_claims"    # it concluded; the audit kept nothing
+INSUFFICIENT = "insufficient_evidence"  # it ran and judged the evidence too thin
+FAILED       = "analysis_failed"        # a step did not run to completion
+
+
+def _status(steps: Optional[Dict[str, Any]],
+            interpretation: Dict[str, Any],
+            n_claims: int,
+            preflight: Optional[Dict[str, Any]] = None) -> str:
+    """Which of the four this run is.
+
+    `steps` is Analyzer.run()'s own record of which stages completed. It is
+    normally checked FIRST: a run whose interpreter never executed has no
+    verdict to read, and reading the missing verdict as "insufficient" would
+    report a crash as a considered scientific judgement.
+
+    THE ONE EXCEPTION IS A DELIBERATE SKIP. When preflight found no frame to
+    analyse, steps 1-3 are marked False because they did not run — but they
+    did not run because the run was inspected and found to hold nothing, which
+    is a finding about the evidence and not a malfunction. Checking that first
+    is what stops "we looked, and there is nothing here" from being filed as
+    "we broke".
+    """
+    if (preflight or {}).get("blocked"):
+        return INSUFFICIENT
+    failed = [k for k, v in (steps or {}).items() if v is False]
+    if failed:
+        return FAILED
+    verdict = (interpretation or {}).get("verdict")
+    if verdict is None:
+        # No steps were reported failed, yet nothing interpreted. The caller
+        # did not tell us what happened, so this is still not a conclusion.
+        return FAILED
+    if verdict != "sufficient":
+        return INSUFFICIENT
+    return SUPPORTED if n_claims else NO_CLAIMS
+
+
 def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
           interpretation: Dict[str, Any], run_dir,
           rounds: Optional[List[Dict[str, Any]]] = None,
-          stopped_because: str = None) -> Dict[str, Any]:
-    """Assemble analysis.json. Pure — no API call, no recomputation."""
+          stopped_because: str = None,
+          steps: Optional[Dict[str, Any]] = None,
+          preflight: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Assemble analysis.json. Pure — no API call, no recomputation.
+
+    `steps` is the coordinator's per-stage completion record. Passing it is
+    what lets the report distinguish a failure from a finding; omitting it
+    means any run with no verdict is reported as `analysis_failed`, which is
+    the safe direction to be wrong in.
+    """
     plan = ctx.plan or {}
     caveats = list(ctx.caveats or []) + list((comparison or {}).get("caveats") or [])
     caveats += list((investigation or {}).get("caveats") or [])
@@ -237,13 +353,27 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
                        "script": f.get("script"),
                        "variables": f.get("variables")})
 
+    status = _status(steps, interpretation, len(claims), preflight)
+    failed_steps = [k for k, v in (steps or {}).items() if v is False]
+
     return {
         "schema": "analysis/1",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_dir": str(run_dir),
 
         "question": plan.get("question"),
-        "answer": (interpretation or {}).get("answer"),
+        # WHAT KIND OF RESULT THIS IS, before what it says. A reader — or a
+        # mailer, or a dashboard — that branches on `verdict` alone cannot tell
+        # a crash from a conclusion, because a crash has no verdict at all.
+        "status": status,
+        # A BLOCKED RUN STILL ANSWERS. Leaving `answer` null made the one
+        # case a reader most needs a sentence for — nothing was investigated —
+        # the one case with no sentence at all.
+        "answer": ((interpretation or {}).get("answer")
+                   or ((preflight or {}).get("blocked") and
+                       f"This run was not investigated: "
+                       f"{preflight['blocked']}.")
+                   or None),
         "verdict": (interpretation or {}).get("verdict"),
 
         "claims": claims,
@@ -251,6 +381,11 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         # the report look like the reviewer never disagreed with anything.
         "withheld": [{"claim": c.get("claim"),
                       "finding_id": c.get("finding_id"),
+                      # WHICH RULE, beside why. `struck_because` is prose for a
+                      # reader; `struck_by` is one of AUDIT_RULES, so a run-to-
+                      # run comparison can count strikes per rule without
+                      # parsing English.
+                      "struck_by": c.get("struck_by"),
                       "struck_because": c.get("struck_because")}
                      for c in ((interpretation or {}).get("struck") or [])],
 
@@ -262,16 +397,37 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         },
 
         "provenance": {
+            # WHICH STAGES COMPLETED. The coordinator has always known this and
+            # has always thrown it away at the boundary: it lived in the dict
+            # Analyzer.run() returns, which nothing writes down. A reader
+            # opening this file six months later gets the same account the
+            # terminal gave on the night.
+            "steps": dict(steps) if steps else None,
+            "failed_steps": failed_steps or None,
+            # WHAT THE RUN CONTAINED, decided before any model was asked. On a
+            # blocked run this is the entire account of why nothing was
+            # investigated; on a normal run it is the record of what the figure
+            # planner was working from.
+            "preflight": preflight,
             "rounds": rounds or [],
             "stopped_because": stopped_because,
             "n_findings": len(findings),
+            # WHAT STEP 2 SET OUT TO DO, and the document step 3 reviewed it
+            # against. Recorded as a path because it is the same file both
+            # read; a reader following a claim back can see the plan the
+            # figure came from, not only the figure.
+            "investigation_plan": (investigation or {}).get("plan_md"),
             "audit": (interpretation or {}).get("audit"),
             "spinup_dropped": ((ctx.data or {}).get("spinup_dropped")
                                if isinstance(ctx.data, dict) else None),
         },
 
         "cost": {
-            "llm": _llm_accounting(),
+            # An interpretation exists only if the model was asked, so an empty
+            # usage log alongside one means the accounting was lost, not that
+            # the run was free.
+            "llm": _llm_accounting(
+                expect_calls=bool((interpretation or {}).get("verdict"))),
             # THREE DIFFERENT QUANTITIES, NAMED APART. `ensemble` is the model
             # actually running, from the scheduler; `framework_seconds` is this
             # process's own wall time, which for a detached run is the tail and
@@ -284,29 +440,67 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
     }
 
 
-def write(report: Dict[str, Any], out_dir) -> str:
+def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
+    """Write analysis.json, and beside it a deck rendered from the same dict.
+
+    THE JSON IS WRITTEN FIRST AND ALWAYS. The deck is a second rendering of an
+    artifact that is already on disk, so a failure in the presentation layer
+    cannot cost the run its result — and the returned path is the JSON's,
+    because that is the boundary artifact every caller means by "the report".
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     p = out_dir / FILENAME
     p.write_text(json.dumps(report, indent=2, default=str))
+
+    if slides:
+        try:
+            from agents.analysis import step4_slides
+            deck = step4_slides.build(report, out_dir)
+            if deck:
+                print(f"   ✓ slides → {Path(deck).name}")
+        except Exception as e:                                  # noqa: BLE001
+            print(f"   ⚠️  slide deck failed ({e}) — analysis.json stands")
     return str(p)
 
 
 def summary(report: Dict[str, Any]) -> str:
     """A few lines for a terminal. The JSON is the artifact; this is a receipt."""
     cost = report.get("cost") or {}
-    llm = (cost.get("llm") or {}).get("total") or {}
+    llm_all = (cost.get("llm") or {})
+    llm = llm_all.get("analyzer") or llm_all.get("total") or {}
     comp = cost.get("compute") or {}
+    prov = report.get("provenance") or {}
+    # THE RECEIPT LEADS WITH WHAT KIND OF RESULT THIS IS. The terminal line is
+    # what a person actually reads after a run, and it used to print
+    # "verdict: None" for a crash — which looks like a quiet result rather than
+    # two steps that never executed.
+    failed = prov.get("failed_steps")
+    # SKIPPED IS NOT FAILED. When preflight blocked the run, steps 1-3 are
+    # marked False because they did not execute — but they did not execute
+    # because the run was inspected first. Calling that "did not complete"
+    # reads as a malfunction, which is the distinction this whole change
+    # exists to keep.
+    blocked = (prov.get("preflight") or {}).get("blocked")
+    if failed and blocked:
+        why = f"  — skipped ({', '.join(failed)}): {blocked}"
+    elif failed:
+        why = f"  — these steps did not complete: {', '.join(failed)}"
+    else:
+        why = ""
     lines = [
         f"question : {str(report.get('question'))[:96]}",
+        f"status   : {report.get('status')}" + why,
         f"verdict  : {report.get('verdict')}  "
         f"({len(report.get('claims') or [])} claims, "
         f"{len(report.get('withheld') or [])} withheld)",
-        f"rounds   : {len(((report.get('provenance') or {}).get('rounds')) or [])}"
-        f"  ({(report.get('provenance') or {}).get('stopped_because')})",
-        f"llm      : {llm.get('calls')} calls, "
-        f"{(llm.get('prompt_tokens') or 0) + (llm.get('completion_tokens') or 0)} "
-        f"tokens, {llm.get('seconds')} s",
+        f"rounds   : {len(prov.get('rounds') or [])}"
+        f"  ({prov.get('stopped_because')})",
+        (f"llm      : NOT MEASURED — assembled in a different process from "
+         f"the model calls" if llm_all.get("measured") is False else
+         f"llm      : {llm.get('calls')} calls, "
+         f"{(llm.get('prompt_tokens') or 0) + (llm.get('completion_tokens') or 0)} "
+         f"tokens, {llm.get('seconds')} s"),
         f"compute  : {(comp.get('ensemble') or {}).get('elapsed') or '?'} "
         f"({(comp.get('ensemble') or {}).get('job_id') or 'no job id'}) over "
         f"{comp.get('columns_succeeded')}/{comp.get('columns_total')} columns",

@@ -128,6 +128,73 @@ class TestOneFailedStepDoesNotLoseTheRest:
         assert "error" in s
 
 
+class TestTheFailureCrossesTheBoundary:
+    """A step that failed is only a fact of the run if it is WRITTEN DOWN.
+
+    `status["steps"]` was returned to the caller and never persisted, so an
+    analysis.json from a run whose steps 2-3 raised was indistinguishable from
+    one that finished and concluded nothing — same null verdict, same empty
+    claims. The difference lived in a terminal nobody was watching.
+    """
+
+    def test_the_step_record_is_handed_to_the_report(self, tmp_path, monkeypatch):
+        from agents.analysis import step4_report
+        seen = {}
+        _wire(monkeypatch, loop_raises=True)
+
+        def capture(*a, **k):
+            seen.update(k)
+            return {"verdict": None, "cost": {}, "provenance": {}}
+
+        monkeypatch.setattr(step4_report, "build", capture)
+        Analyzer(str(tmp_path), verbose=False).run()
+        assert seen.get("steps"), "step 4 cannot report a failure it is not told about"
+        assert seen["steps"]["investigate"] is False
+
+    def test_a_crashed_loop_writes_analysis_failed(self, tmp_path, monkeypatch):
+        """End to end, through the real builder and the real writer."""
+        from agents.analysis import step0_context, step1_compare, step3_interpret
+        monkeypatch.setattr(step0_context, "load", lambda _rd: _Ctx())
+        monkeypatch.setattr(step1_compare, "compare_all",
+                            lambda ctx, out_dir, **kw: {"figures": {}, "caveats": [],
+                                                        "findings": []})
+
+        def boom(*a, **k):
+            raise RuntimeError("gateway 503")
+
+        monkeypatch.setattr(step3_interpret, "investigate_and_interpret", boom)
+        st = Analyzer(str(tmp_path), verbose=False).run()
+
+        rep = json.loads((tmp_path / "04_analysis" / "analysis.json").read_text())
+        assert rep["status"] == "analysis_failed"
+        assert rep["provenance"]["failed_steps"] == ["investigate", "interpret"]
+        assert st["steps"]["report"] is True, "reporting the failure is still a report"
+
+    def test_a_clean_run_writes_supported(self, tmp_path, monkeypatch):
+        """The same path must not label a healthy run as failed."""
+        from agents.analysis import step0_context, step1_compare, step3_interpret
+        monkeypatch.setattr(step0_context, "load", lambda _rd: _Ctx())
+        monkeypatch.setattr(step1_compare, "compare_all",
+                            lambda ctx, out_dir, **kw: {"figures": {}, "caveats": [],
+                                                        "findings": []})
+        monkeypatch.setattr(step3_interpret, "investigate_and_interpret",
+                            lambda ctx, out_dir, **kw: {
+                                "investigation": {"n_succeeded": 1, "n_proposed": 1,
+                                                  "findings": [{"id": "f1", "n": 9}]},
+                                "interpretation": {"verdict": "sufficient",
+                                                   "answer": "yes",
+                                                   "audit": {"n_claims": 1,
+                                                             "n_struck": 0},
+                                                   "claims": [{"claim": "a",
+                                                               "finding_id": "f1"}]},
+                                "rounds": [{"round": 1}],
+                                "stopped_because": "sufficient", "n_rounds": 1})
+        Analyzer(str(tmp_path), verbose=False).run()
+        rep = json.loads((tmp_path / "04_analysis" / "analysis.json").read_text())
+        assert rep["status"] == "supported"
+        assert rep["provenance"]["failed_steps"] is None
+
+
 class TestTheManagersCallSiteStillBinds:
 
     def test_run_takes_results_and_config(self):
@@ -908,3 +975,60 @@ class TestAnyStageMayHandBackAJobId:
         assert s3["status"] == "completed"
         assert m3.calls.count("poll:run") == 1
         assert "build_cases" not in m3.calls, "a finished build is not rebuilt"
+
+
+class TestPreflightStopsBeforeTheModelIsAsked:
+    """A run with no frame cannot be investigated, and discovering that inside
+    the runner costs a model call plus one subprocess per proposed figure."""
+
+    def _blocked_ctx(self):
+        class C(_Ctx):
+            def preflight(self):
+                return {"frames": {}, "variables": [], "withheld": {},
+                        "feasibility": None, "unmet_plan_targets": [],
+                        "n_columns": 0,
+                        "blocked": "this run packaged no columns, so there is "
+                                   "nothing to investigate"}
+        return C()
+
+    def test_no_model_call_is_made(self, tmp_path, monkeypatch):
+        from agents.analysis import step0_context, step3_interpret
+        called = []
+        monkeypatch.setattr(step0_context, "load",
+                            lambda _rd: self._blocked_ctx())
+        monkeypatch.setattr(step3_interpret, "investigate_and_interpret",
+                            lambda *a, **k: called.append(1))
+        Analyzer(str(tmp_path), verbose=False).run()
+        assert called == [], "steps 2-3 must not run when there is no frame"
+
+    def test_the_report_is_still_written(self, tmp_path, monkeypatch):
+        """Returning early left a run with no boundary file and no account of
+        why — the reader who opens the directory tomorrow gets nothing."""
+        from agents.analysis import step0_context
+        monkeypatch.setattr(step0_context, "load",
+                            lambda _rd: self._blocked_ctx())
+        st = Analyzer(str(tmp_path), verbose=False).run()
+        assert st["steps"]["report"] is True
+        rep = json.loads((tmp_path / "04_analysis" / "analysis.json").read_text())
+        assert rep["provenance"]["preflight"]["blocked"]
+
+    def test_a_deliberate_skip_is_not_a_crash(self, tmp_path, monkeypatch):
+        """Steps 1-3 are marked False because they did not run — but they did
+        not run because the run was inspected and found to hold nothing. That
+        is a finding about the evidence, not a malfunction."""
+        from agents.analysis import step0_context
+        monkeypatch.setattr(step0_context, "load",
+                            lambda _rd: self._blocked_ctx())
+        Analyzer(str(tmp_path), verbose=False).run()
+        rep = json.loads((tmp_path / "04_analysis" / "analysis.json").read_text())
+        assert rep["status"] == "insufficient_evidence"
+        assert rep["status"] != "analysis_failed"
+
+    def test_the_answer_says_why_rather_than_being_null(self, tmp_path,
+                                                        monkeypatch):
+        from agents.analysis import step0_context
+        monkeypatch.setattr(step0_context, "load",
+                            lambda _rd: self._blocked_ctx())
+        Analyzer(str(tmp_path), verbose=False).run()
+        rep = json.loads((tmp_path / "04_analysis" / "analysis.json").read_text())
+        assert rep["answer"] and "nothing to investigate" in rep["answer"]

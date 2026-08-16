@@ -282,7 +282,18 @@ def render(a):
     cj, rings, name = _load(rd, Path(a.reception) if a.reception else None)
     cols = cj["columns"]
     grid = cj.get("grid") or []
-    elev = np.array([c["elevation_m"] for c in cols], float)
+    # A CONCEPTUAL COLUMN HAS NO ELEVATION, and None is deliberate there — zero
+    # is a real elevation and would be believed. Every panel below colours by
+    # elevation, so on a sweep there is nothing to colour by and matplotlib's
+    # norm raises on None - vmin. Falling back to one neutral colour keeps the
+    # figure truthful: the columns really do not differ in elevation, and
+    # inventing a gradient to fill the colourbar would draw a difference that
+    # is not in the run.
+    has_elev = [c.get("elevation_m") for c in cols
+                if isinstance(c.get("elevation_m"), (int, float))]
+    by_elevation = len(has_elev) == len(cols) and len(cols) > 0
+    elev = (np.array([c["elevation_m"] for c in cols], float) if by_elevation
+            else np.zeros(len(cols)))
     lat = np.array([c["lat"] for c in cols], float)
     lon = np.array([c["lon"] for c in cols], float)
     pin = np.array([bool(c.get("pinned")) for c in cols])
@@ -300,6 +311,13 @@ def render(a):
     cmap, vmin, vmax = CMAP, elev.min(), elev.max()
     norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
     sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
+
+    # One accessor for every "colour this column" site, so the no-elevation
+    # case is handled once rather than at each call.
+    NEUTRAL = "#4C6A8A"
+
+    def colour_of(c):
+        return sm.to_rgba(c["elevation_m"]) if by_elevation else NEUTRAL
 
     # Marker AREA scales as the square of the canvas; edges and rules as the
     # canvas, with a floor so nothing drops out of print. The weights are set
@@ -341,7 +359,7 @@ def render(a):
             v, d = values_of(c)
             if v is None:
                 continue
-            ax.plot(v, d, color=sm.to_rgba(c["elevation_m"]),
+            ax.plot(v, d, color=colour_of(c),
                     lw=lw_line * (2.0 if c.get("pinned") else 1.0),
                     alpha=0.95 if c.get("pinned") else 0.7)
             n += 1

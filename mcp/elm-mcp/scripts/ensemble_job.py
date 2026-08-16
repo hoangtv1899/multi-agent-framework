@@ -51,34 +51,21 @@ CASE_INPUTS = "case_inputs.json"
 RESULT_NAME = "built_cases.json"
 
 
-def _plot_setups(case_dirs, rd: Path) -> None:
-    """02_setup_plots/column_surfaces.png — the soil each column ACTUALLY got.
-
-    HERE, and not on the framework side, for a reason that is about ordering
-    rather than ownership: it reads each case's GENERATED FSURDAT through the
-    case's own `run/lnd_in`, which is the only way to see the file ELM will
-    really open — and that file does not exist until the case is built, which
-    happens in this job. It also cross-checks each surface's lat/lon against
-    the case's domain file and shouts if they disagree; that mismatch aborts
-    ELM at init.
-
-    The predecessor drew soil from ELM_CONFIG (which never carries soil — it is
-    per-coupler) and labelled every x-axis "Qian 1948-2004" while the pipeline
-    runs NLDAS: confidently wrong on both counts, which is worse than no figure.
-
-    Non-fatal, and deliberately after built_cases.json is written: a plotting
-    failure must not cost the build its result file.
-    """
-    if not case_dirs:
-        return
-    try:
-        import plot_columns as pc
-        out = rd / "02_setup_plots"
-        out.mkdir(parents=True, exist_ok=True)
-        pc.plot_surfaces(list(case_dirs), str(out / "column_surfaces.png"))
-        print("setup plot -> 02_setup_plots/column_surfaces.png")
-    except Exception as e:                                      # noqa: BLE001
-        print(f"setup plot failed ({type(e).__name__}: {e}) — the build stands")
+# _plot_setups() AND column_surfaces.png DELETED 2026-08-14, by request.
+#
+# It drew the soil each column actually got, read through each case's own
+# `run/lnd_in` — which was the point: that is the FSURDAT ELM will really
+# open, and it does not exist until the case is built, which happens in this
+# job. The figure was a build-time check, and it has been superseded by the
+# post-warm-start sampling_design.png the elm server draws, which shows the
+# soil profile the ensemble integrates from the same donor data.
+#
+# The lat/lon cross-check it also did is NOT lost: a surface whose coordinates
+# disagree with its domain file aborts ELM at init, which the run log reports
+# far more plainly than a figure nobody opened.
+#
+# plot_columns.plot_surfaces() stays — scripts/analyze_run.py still offers it
+# as an on-demand debug figure (04_analysis/debug_surfaces.png).
 
 
 def main(run_dir: str) -> int:
@@ -116,9 +103,16 @@ def main(run_dir: str) -> int:
         builder = ELMExperimentBuilder({})
         builder.experiments = [
             {"case_name": c["case_name"],
+             # prescribed_weather TRAVELS WITH THE CASE, not only with the
+             # adapter that was built in the other process. Dropping it here
+             # would rebuild every case on the real NLDAS cell while
+             # case_inputs.json, columns.json and the run record all said the
+             # weather was written — a whole ensemble answering a different
+             # question with nothing in the logs to say so.
              "elm_agent": ELMAgentAdapter(
                  case_name=c["case_name"],
-                 runtime_config=dict(c["runtime_config"]))}
+                 runtime_config=dict(c["runtime_config"]),
+                 prescribed_weather=c.get("prescribed_weather"))}
             for c in cases
         ]
         print(f"building {len(builder.experiments)} case(s) from "
@@ -135,7 +129,6 @@ def main(run_dir: str) -> int:
 
         for r in rows:
             print(f"  {r['case_name']}: {r['case_dir'] or 'FAILED TO BUILD'}")
-        _plot_setups([r["case_dir"] for r in rows if r["case_dir"]], rd)
         print(f"BUILD_DONE {n_ok}/{len(rows)}")
         return 0 if n_ok else 1
 

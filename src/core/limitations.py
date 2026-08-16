@@ -30,14 +30,67 @@ STRUCTURAL = [
                "that sets real valley water tables is absent; ELM parameterizes "
                "lateral losses (QDRAI) as a local sink but routes nothing between "
                "columns."},
+    # NEEDS_OBSERVATIONS: true only where the caveat is ABOUT a comparison
+    # against measurements. A controlled sweep makes no such comparison, so
+    # these describe a difficulty it does not have — and a caveat that does not
+    # apply is not free. It spends the reader's attention and, worse, teaches
+    # them that the caveat list is padding. The first conceptual run through the
+    # Analyzer carried all five of these, including one about ridgetop SNOTEL
+    # stations, on a study with no stations and written weather.
     {"applies_to": "streamflow validation",
+     "needs_observations": True,
      "caveat": "columns provide no native integrated streamflow; gauge comparisons "
                "use unweighted column means (specific discharge) and are labeled "
                "context-only until routing exists."},
     {"applies_to": "snow (SWE) at stations",
+     "needs_observations": True,
      "caveat": "forcing is a 12 km cell average — ridgetop SNOTEL stations sample "
                "terrain the cell cannot resolve; systematic underestimation at "
                "high-relief stations is expected."},
+]
+
+# ── conceptual: true of a CONTROLLED SWEEP, and of nothing else ─────────────
+# These are not weaker versions of the site caveats. A sweep buys a clean
+# comparison by giving up every external reference, and the reader has to be
+# told what was given up — otherwise "texture changed drainage by 6%" reads as
+# a measurement of soil rather than of this configuration of ELM.
+CONCEPTUAL = [
+    {"key": "conceptual_no_observations",
+     "severity": "blocking",
+     "applies_to": "every quantitative claim",
+     "caveat": "nothing here was compared against a measurement. There is no "
+               "basin and no station: the study says how THIS MODEL responds "
+               "to the factor that was varied, which is a statement about the "
+               "model, not about soil."},
+    {"key": "conceptual_uniform_soil",
+     "severity": "qualify",
+     "applies_to": "soil texture results",
+     "caveat": "the profiles are synthetic and uniform with depth, with organic "
+               "matter and bulk density pinned so texture is the only thing "
+               "moving. That isolation is the method working; it also means "
+               "these are not real soils and no column represents a place."},
+    {"key": "conceptual_cold_start",
+     "severity": "qualify",
+     "applies_to": "early years, drainage and storage",
+     "caveat": "every column starts from the model's own defaults, identically. "
+               "Soil moisture takes YEARS to equilibrate from cold, so early "
+               "time reports the initialisation rather than the soil. The "
+               "columns still differ from each other correctly — they start "
+               "from the same state — but an absolute number from the first "
+               "years is not the factor's answer."},
+    {"key": "conceptual_written_weather",
+     "severity": "qualify",
+     "applies_to": "anything driven by the weather",
+     "caveat": "the weather was WRITTEN rather than taken from a real cell, so "
+               "no real climate bounds the result — and equally, no real "
+               "climate supports it. The coordinates in the record locate the "
+               "domain file, not the study."},
+    {"key": "conceptual_one_climate",
+     "severity": "blocking",
+     "applies_to": "generalisation beyond this forcing",
+     "caveat": "one weather sequence drove every column. Whatever the factor "
+               "did, it did under that sequence; a wetter or drier one may "
+               "reverse the size of the effect and could reverse its sign."},
 ]
 
 # ── configuration: artifacts of this run's setup, fixable by rerunning ──────
@@ -91,7 +144,9 @@ def select_limitations(n_years: int = 1,
                        forcing: str = "nldas",
                        spinup_years: int = 0,
                        warm_source: str = None,
-                       soil_source: str = None) -> dict:
+                       soil_source: str = None,
+                       archetype: str = None,
+                       written_weather: bool = False) -> dict:
     """Pick the catalog entries that apply to a run configuration.
 
     Initialization is ONE state, not a checklist. "No spin-up" and "warm
@@ -128,9 +183,32 @@ def select_limitations(n_years: int = 1,
         cfg.append(next(c for c in CONFIGURATION if c["key"] == "single_year"))
     cfg.append(next(c for c in CONFIGURATION if c["key"] ==
                     ("forcing_12km" if "nldas" in forcing.lower() else "forcing_coarse")))
-    return {
-        "structural": [dict(x, kind="structural") for x in STRUCTURAL],
+    # A SWEEP DROPS THE OBSERVATION CAVEATS AND GAINS ITS OWN. Dropping is not
+    # softening: those entries describe the difficulty of comparing columns to
+    # gauges and stations, and a study that compares against neither does not
+    # have that difficulty. What it has instead is that it compared against
+    # NOTHING, which is the first conceptual entry and is blocking.
+    conceptual = str(archetype or "").strip().lower() == "conceptual"
+    structural = [x for x in STRUCTURAL
+                  if not (conceptual and x.get("needs_observations"))]
+    out = {
+        "structural": [{k: v for k, v in dict(x, kind="structural").items()
+                        if k != "needs_observations"} for x in structural],
         "configuration": [
             {k: v for k, v in dict(x, kind="configuration").items() if k != "key"}
             for x in cfg],
     }
+    if conceptual:
+        keep = list(CONCEPTUAL)
+        # Written weather removes the borrowed climate; saying it is borrowed
+        # anyway would be false. The one-climate caveat still stands either
+        # way — one sequence drove every column however it was made.
+        if not written_weather:
+            keep = [c for c in keep if c["key"] != "conceptual_written_weather"]
+        if (soil_source or "") != "prescribed":
+            keep = [c for c in keep if c["key"] != "conceptual_uniform_soil"]
+        if warm_start:
+            keep = [c for c in keep if c["key"] != "conceptual_cold_start"]
+        out["conceptual"] = [{k: v for k, v in dict(c, kind="conceptual").items()
+                              if k != "key"} for c in keep]
+    return out

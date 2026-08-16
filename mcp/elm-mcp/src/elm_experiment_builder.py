@@ -298,13 +298,41 @@ class ELMExperimentBuilder:
                     # hands it over as the template, so fsurdat and finidat
                     # describe the same gridcell (ELM's check_weights gate).
                     surface_template = coupler.get('SURFACE_TEMPLATE'),
+                    # The column's soil IS the experiment, so mcp_data must be
+                    # mapped onto ELM's levels rather than discarded.
+                    prescribed_soil  = coupler.get('SOIL_SOURCE') == 'prescribed',
                 )
             )
 
+        # A PRESCRIBED SOIL THAT DID NOT REACH ELM IS NOT A WARNING. Surface
+        # generation is wrapped in try/except below and only logs, so a failure
+        # leaves FSURDAT unset and the wrapper falls back to the one fixed
+        # station surfdata. On a site run that is a degraded column; on a
+        # texture sweep it is EVERY column getting the same soil, four runs
+        # that differ in nothing, and a clay gradient reported from labels
+        # alone. Caught here because the sweep is the only caller for whom the
+        # generated surface IS the experiment.
+        if coupler.get('SOIL_SOURCE') == 'prescribed' and not runtime_config.get('FSURDAT'):
+            raise RuntimeError(
+                f"{name}: the prescribed soil profile never became a surface "
+                f"dataset — surface generation failed and FSURDAT is unset, so "
+                f"this column would run on the default station soil and the "
+                f"sweep would have no gradient in it. See the "
+                f"'Surface generation failed' warning above for the cause.")
+
+        # NOT A RUNTIME KEY, deliberately. RUNTIME_KEYS is the set of CIME
+        # variables the wrapper can xmlchange or write into a namelist; a fill
+        # spec is neither. Passing it alongside keeps that validation exact —
+        # adding it to RUNTIME_KEYS would mean excluding it from XML_RUNTIME_KEYS
+        # by hand, and the next key added would inherit the exception.
         adapter = ELMAgentAdapter(
-            case_name      = case_name,
-            runtime_config = runtime_config,
+            case_name          = case_name,
+            runtime_config     = runtime_config,
+            prescribed_weather = coupler.get('PRESCRIBED_WEATHER'),
         )
+        if coupler.get('PRESCRIBED_WEATHER'):
+            logger.info(f"   weather : written "
+                        f"({coupler['PRESCRIBED_WEATHER']})")
         logger.info("   ELMAgentAdapter ready")
 
         return {
@@ -327,6 +355,11 @@ class ELMExperimentBuilder:
             'elevation_m':    coupler.get('elevation_m',
                                           elm_cfg.get('elevation_m')),
             'band':           coupler.get('band'),
+            # Carried as data, not only inside the adapter. case_inputs.json is
+            # what a rebuild reads, and a case rebuilt without this would run on
+            # the real NLDAS cell while every record said the weather was
+            # written — the same class of silent divergence FINIDAT had.
+            'prescribed_weather': coupler.get('PRESCRIBED_WEATHER'),
             'elm_agent':      adapter,
         }
 
@@ -336,7 +369,8 @@ class ELMExperimentBuilder:
                                  soil_config: str,
                                  substrate:   str,
                                  mcp_data:    Dict,
-                                 surface_template: str = None) -> Dict[str, str]:
+                                 surface_template: str = None,
+                                 prescribed_soil: bool = False) -> Dict[str, str]:
         """
         Generate domain + surface files for a given location.
 
@@ -368,13 +402,40 @@ class ELMExperimentBuilder:
             # gridcell's own, at 1 km. Re-extracting it from the 0.5 degree
             # global file would overwrite it with a coarser mixture and break
             # the finidat/fsurdat weight agreement ELM checks.
-            # Warm start is required, so a CONUS-subset template is always
-            # present. Its moisture is equilibrated against that gridcell's own
-            # soil and vegetation; overwriting either makes the inherited state
-            # inconsistent with its own hydraulics and spends year one
-            # relaxing. On a 14-column Naches run that produced five columns
-            # draining MORE than their annual precipitation, one at 2.98x.
-            veg_source, soil_source = 'template', 'conus'
+            # On a SITE run a CONUS-subset template is always present, because
+            # the warm start makes one. Its moisture is equilibrated against
+            # that gridcell's own soil and vegetation; overwriting either makes
+            # the inherited state inconsistent with its own hydraulics and
+            # spends year one relaxing. On a 14-column Naches run that produced
+            # five columns draining MORE than their annual precipitation, one
+            # at 2.98x.
+            #
+            # ON A CONCEPTUAL SWEEP THERE IS NO TEMPLATE, since 2026-08-15:
+            # those runs are cold, so nothing subsets a donor surfdata and
+            # surface_template arrives None. Every column then falls back to
+            # the one fixed SURFACE_TEMPLATE — which is the right outcome for a
+            # sweep rather than a gap, because it holds vegetation IDENTICAL
+            # across columns and leaves texture the only thing moving.
+            # 'conus' MEANS "IGNORE mcp_data AND KEEP THE TEMPLATE'S SOIL", and
+            # that is right for a site run for the reason above: the warm
+            # start's moisture is equilibrated against the donor gridcell's own
+            # soil, so overwriting it leaves the water inconsistent with its
+            # own hydraulics.
+            #
+            # IT IS EXACTLY WRONG FOR A PRESCRIBED SWEEP, and was applied there
+            # anyway until 2026-08-15. A texture sweep's whole content is the
+            # profile in mcp_data; discarding it gave every column the template
+            # soil — 24% clay for a design whose levels were 5% and 55%. The
+            # column record still said `clay=5.0%` because attach_donor_soil's
+            # guard faithfully preserved a profile that then reached nothing,
+            # so every print, figure and JSON agreed on a gradient that existed
+            # in no surface file ELM would open.
+            #
+            # The justification for 'conus' is entirely about inherited water.
+            # A conceptual run is cold, so there is none, and the reason goes
+            # with it.
+            veg_source = 'template'
+            soil_source = 'profile' if prescribed_soil else 'conus'
             surface_gen = ELMSurfaceGenerator(template_path=surface_template)
 
             # native ALWAYS goes through the generator, even with no MCP soil
@@ -383,7 +444,12 @@ class ELMExperimentBuilder:
             # can never match the per-column domain -> ELM aborts at init
             # (surfdata/fatmgrid lon/lat mismatch).
             if soil_config == 'native':
-                # veg_source='conus': pull real per-location vegetation
+                # NOTE the value above is 'template', not 'conus'. This comment
+                # described a veg_source the code stopped passing; left as-is
+                # it read as a claim that vegetation comes per-location from
+                # CONUS_SURFDATA_NC, which it does not.
+                # The original rationale for 'conus', kept because it is why
+                # the option exists: pull real per-location vegetation
                 # (PCT_NAT_PFT/LAI/SAI/HEIGHT) from CONUS_SURFDATA_NC instead
                 # of freezing whatever site the surface template was built
                 # from. Falls back to template vegetation (logged warning)

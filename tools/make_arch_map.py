@@ -60,7 +60,16 @@ def check_ref(r):
     # A prompt file and a shell script have no `def`. Look for the token itself
     # there — the reference still has to point at something that exists, which is
     # the property worth checking; only the definition of "defined" differs.
-    pat = (rf"^\s*(def|class)\s+{re.escape(sym)}\b" if path.endswith(".py")
+    #
+    # A BOUND NAME COUNTS TOO (2026-08-14). The key lists are the clearest
+    # thing to point a reader at for "what does this stage decide to carry",
+    # and every one of them is an ASSIGNMENT — COLUMN_METADATA, _IDENTITY,
+    # CASE_KEYS. Requiring def/class meant the map could not cite the piece of
+    # the design most worth citing, so `NAME =` at the start of a line is
+    # accepted as a definition. Still anchored: a mention inside an expression
+    # or a comment does not match.
+    pat = (rf"^\s*(def|class)\s+{re.escape(sym)}\b|"
+           rf"^\s*{re.escape(sym)}\s*(:[^=\n]+)?=" if path.endswith(".py")
            else re.escape(sym))
     if re.search(pat, body, re.M):
         return None
@@ -193,7 +202,7 @@ GROUPS = [
    "sum": "Parse the request; gather the basin and every nearby station.",
    "flow": [ref("An LLM turns the sentence into a <b>brief</b>: basin, year, what is being asked. <b>Two tools only.</b> Everything else is fetched by code afterwards, because what to fetch is not a decision — with twelve tools the loop spent most of its time choosing them and then summarised a truncated result.", "src/agents/reception_llm.py", "LLMReceptionAgent"),
             ref("Resolve the watershed polygon, then sample an elevation grid inside it. <b>Terrain and nothing else</b> — a function named for the grid returns only the grid.", "src/core/data_gather.py", "gather_grid"),
-            ref("Fetch the observations — gauges, recorder wells, Fan's well means, SNOTEL, flux towers. <b>One calendar period for all five</b>: snow used to be asked for on the water year, which returned months the run never simulated.", "src/core/data_gather.py", "gather_observations"),
+            ref("Fetch the observations — gauges, recorder wells, SNOTEL, flux towers on <b>the run's own years</b> (<code>yr_start-01-01</code> to <code>yr_end-12-31</code>), plus Fan's long-term well means, which carry no period at all. <b>One window for the four dated fetches</b>: snow used to be asked for on the WATER year, Oct 1 to Sep 30, which returned autumn months the run never simulated and left one observable answering a different question from the other four. The window is whole years even when the run starts mid-year — Gunnison began 2019-01-15 — and <code>shared_window()</code> trims to the true overlap at comparison time.", "src/core/data_gather.py", "gather_observations"),
             ref("<b>How complete a record must be is a SHARE of the period</b>, never a fixed count — 90% for a gauge, 30% for a well. 300 days was 82% of a one-year study and 41% of a two-year one, so the bar fell quietly as studies got longer.", "src/core/data_gather.py", "_period_days"),
             ref("<b>Each observation carries the point it was measured at.</b> Read from the record itself, not looked up in a site catalogue — that lookup was capped at 500 of 5,312 wells and cost Naches 236 of 251 well coordinates, so a basin with 56 in-basin wells reported none (fixed 2026-08-11).", "src/core/data_gather.py", "gather_observations"),
             ref("The modelled water table arrives as a <b>GeoTIFF written once</b>, not as values at points. Sampling it per column was 116 requests to a university's server, and could only answer at points the sampler was about to move when it snapped columns to the CONUS grid.", "src/core/static_wtd.py", "sample"),
@@ -227,19 +236,21 @@ GROUPS = [
             ref("Farthest-point selection so points spread rather than clump.", "tools/expand_sampling.py", "_farthest_point_select"),
             ref("Pin columns at eligible stations.", "tools/expand_sampling.py", "_pinned_from_plan"),
             ref("Write <code>columns.json</code> — a <b>temporary input</b> to the MCP, not the final record.", "tools/expand_sampling.py", "expand")],
-   "files": f("tools/expand_sampling.py", "mcp/elm-mcp/src/sampling_design.py",
-              "tools/figstyle.py")},
+   "flag": "Sampling is entirely FRAMEWORK-SIDE. The server never chooses a coordinate — it later SNAPS these to donor gridcells, which moves every one of them, and only then draws what they became. sampling_design.png is filed under Build inputs for that reason.",
+   "files": f("tools/expand_sampling.py")},
   {"n": "Build inputs", "side": "srv", "sum": "One call: six steps, ending in case_inputs.json.",
    "flow": [ref("<b>Warm start</b> — subset the CONUS restart per column, <b>snapping each to its donor gridcell</b>.", "mcp/elm-mcp/src/inputs.py", "warm_start"),
             ref("Donor soil — the column adopts that cell's profile. The restart names its own surfdata and the same indices slice both, so the two cannot disagree.", "mcp/elm-mcp/src/inputs.py", "attach_donor_soil"),
             ref("Run plan, returned to the framework, which persists it.", "mcp/elm-mcp/src/inputs.py", "to_run_plan"),
             ref("Surfaces and domains per column.", "mcp/elm-mcp/src/build_column_inputs.py", "build_all"),
-            ref("Serialise to plain data — <code>runtime_config</code> carries every path the build needs.", "mcp/elm-mcp/src/inputs.py", "serialise_case_inputs"),
-            ref("Write <code>case_inputs.json</code> and <code>elm_columns.json</code>, the final columns.", "mcp/elm-mcp/src/inputs.py", "write_case_inputs")],
+            ref("Serialise to plain data — <code>runtime_config</code> carries every path the build needs. <code>CASE_KEYS</code> keeps 16 and drops 2, and the two it drops are NAMED: the live adapter object (which would serialise as a repr) and runtime_config itself (taken by hand, because it has two possible sources).", "mcp/elm-mcp/src/inputs.py", "serialise_case_inputs"),
+            ref("Write <code>case_inputs.json</code> and <code>elm_columns.json</code>, the final columns.", "mcp/elm-mcp/src/inputs.py", "write_case_inputs"),
+            ref("Draw <code>sampling_design.png</code> — six panels of what ELM will actually integrate, <b>not what was sampled</b>. It runs last because every value is post-snap: the columns moved and their soil was swapped. It lives in the server because reading a <code>finidat</code> and knowing what a donor gridcell is are ELM knowledge; the framework's own version described the columns as SAMPLED and is deleted.", "mcp/elm-mcp/src/elm_exp_manager.py", "_draw_design")],
    "flag": "This is the moment the columns move. Anything drawn from the sampled file shows a run that did not happen.",
    "files": f("mcp/elm-mcp/src/inputs.py", "mcp/elm-mcp/src/make_finidat_subset.py",
               "mcp/elm-mcp/src/build_column_inputs.py",
-              "mcp/elm-mcp/src/elm_surface_generator.py")},
+              "mcp/elm-mcp/src/elm_surface_generator.py",
+              "mcp/elm-mcp/src/sampling_design.py", "tools/figstyle.py")},
   {"n": "Submit A + B", "side": "fw", "sum": "Two sbatch calls, then the framework exits.",
    "flow": [ref("Ask the server for job A — build and run, one job.", "mcp/elm-mcp/main.py", "run_elm_ensemble"),
             ref("Submit <b>job B</b> here, with <code>--dependency=afterany</code> on A. <b>afterany, never afterok</b>: with afterok a failed ensemble means B never runs and no mail is ever sent.", "mcp/elm-mcp/src/elm_exp_manager.py", "_submit_job_b"),
@@ -253,8 +264,7 @@ GROUPS = [
             ref("<code>xmlchange</code> the thirteen CIME keys, write the namelists.", "mcp/elm-mcp/src/elm_wrapper.py", "_configure_case"),
             ref("<code>case.setup</code>, then <code>case.build</code> — about 7½ minutes.", "mcp/elm-mcp/src/elm_wrapper.py", "_build_case"),
             ref("<code>create_clone --keepexe</code> for the rest, seconds each.", "mcp/elm-mcp/src/elm_wrapper.py", "_clone_case"),
-            ref("Write <code>built_cases.json</code>.", "mcp/elm-mcp/scripts/ensemble_job.py", "main"),
-            ref("Draw <code>column_surfaces.png</code> — the soil each column ACTUALLY got, read through the case's own <code>run/lnd_in</code>. It can only happen here: that file does not exist until the case is built.", "mcp/elm-mcp/scripts/ensemble_job.py", "_plot_setups")],
+            ref("Write <code>built_cases.json</code>.", "mcp/elm-mcp/scripts/ensemble_job.py", "main")],
    "flag": "A clone is left BUILD_COMPLETE=FALSE. Harmless today — the run path resolves EXEROOT itself — but the flag is not a usable readiness signal.",
    "files": f("mcp/elm-mcp/scripts/ensemble_job.py", "mcp/elm-mcp/src/elm_wrapper.py",
               "mcp/elm-mcp/src/elm_experiment_builder.py")},
@@ -272,7 +282,8 @@ GROUPS = [
    "files": f("mcp/elm-mcp/src/elm_exp_manager.py", "tools/notify_study.py")},
   {"n": "Extract", "side": "srv", "sum": "History files become rows of numbers.",
    "breach": True, "tag": "being replaced",
-   "flow": [ref("<b>ONE reader of the history files.</b> Daily series per column, layers kept, no derived ratios, written to <code>03_results/extracted.json</code>. Finding the files, opening them and trimming the warm start live here and nowhere else — the results class kept its own copy of all three until 2026-08-13.", "mcp/elm-mcp/src/extract.py", "extract_column"),
+   "flow": [ref("<b>ONE reader of the history files.</b> Daily series per column, layers kept, no derived ratios, written to <code>03_results/extracted.json</code>. Finding the files, opening them and trimming the start-up transient live here and nowhere else — the results class kept its own copy of all three until 2026-08-13.", "mcp/elm-mcp/src/extract.py", "extract_column"),
+            ref("<b>How much of the front is thrown away depends on how the run STARTED</b>, and the two answers are two orders of magnitude apart: 14 days to relax a warm start, a year to build storage from cold. Read off <code>FINIDAT</code> in case_inputs.json — what the case was BUILT with — not the design's <code>warm_start</code> flag, which is only the request and disagreed with the cases for a whole afternoon. One rule for a site study and a conceptual sweep alike: the question is about initialisation, not archetype. A window longer than the record is NOT applied, and the record says so rather than reporting zero dropped.", "mcp/elm-mcp/src/extract.py", "resolve_spinup"),
             ref("<b>A day with one timestep is not a day.</b> ELM stamps a history record at the END of its window, so the final average of 31 December lands on 1 January with an eighth of the sampling — and a daily resample weighted it like any other day. Dropping it is what makes the published series and the raw record agree.", "mcp/elm-mcp/src/extract.py", "_drop_partial_days"),
             ref("<b>EVERY computation is downstream of the extraction</b> (the user's rule, 2026-08-13). Annual means, the water budget and the per-variable reductions are derived from <code>extracted.json</code> and from nothing else — so anyone holding the run directory can recompute them. Computed while the NetCDF was open, they stopped being checkable the moment scratch was purged.", "mcp/elm-mcp/src/column_metrics.py", "column_metrics"),
             ref("Normalise whatever the backend built into the stage's JSON contract — rows, units, extra_summary. <b>Model-AGNOSTIC and shared with PFLOTRAN</b>, which is why it is framework-side and stays there.", "src/core/exp_manager_base.py", "_as_extract"),
@@ -283,8 +294,12 @@ GROUPS = [
               "src/core/exp_manager_base.py")},
   {"n": "Package", "side": "fw", "sum": "Rows become the bundle the Analyzer reads.",
    "flow": [ref("Assemble rows into the standard result shape.", "src/core/exp_manager_base.py", "_package"),
-            ref("Stays in the framework deliberately: that shape is <b>model-independent</b>, so one packaging format serves every model rather than one per server.", "src/core/exp_manager_base.py", "_package")],
-   "files": f("src/core/exp_manager_base.py")}]},
+            ref("<b>Join the sampling metadata onto the rows — and assert first.</b> <code>COLUMN_METADATA</code> keeps 19 keys of columns.json and names the other 7 it deliberately leaves; 7 of the kept ones are OPTIONAL, because a site run has no treatment and a sweep has no elevation band, and neither absence is a hole. A key in neither list is not a decision: it raises, says which key and where the list lives, instead of dropping the value in silence.", "src/core/exp_manager_base.py", "_merge_column_metadata"),
+            ref("<b>A sweep column gets a NAME here.</b> <code>treatment</code> is a nested dict, and a generated plotting script told only that the key exists prints it — which put <code>{'soil_texture': 5, 'prescribed_weather': {'fill': 'scale', ...}}</code> on four x-axis ticks and left the bars in one corner of their own canvas. Derived, not copied: nothing in columns.json carries it, and a site run varies nothing so it gets none.", "src/core/exp_manager_base.py", "_treatment_label"),
+            ref("Stays in the framework deliberately: that shape is <b>model-independent</b>, so one packaging format serves every model rather than one per server.", "src/core/exp_manager_base.py", "_package"),
+            ref("<b>The mirror check, after the file is written.</b> A list may also name a key nothing produces — <code>wtd_prior_m</code> did for a week. That cannot raise, because a key can be legitimately absent on one run, so it is REPORTED at the end of packaging instead.", "src/core/keyset.py", "report")],
+   "flag": "KEEP, DROP, OPTIONAL — the three answers a key list must give. Nine values between 2026-08-07 and 2026-08-13 were computed, written, and then not carried, because a hand-maintained list of names decided what to copy and the new name was not on it. None of them raised. A whitelist that drops in silence is indistinguishable from a whitelist that is right.",
+   "files": f("src/core/exp_manager_base.py", "src/core/keyset.py")}]},
 
  {"name": "ELM MCP", "note": "8 tools · 15 modules · 8 scripts — the whole ELM simulation",
   "steps": [
@@ -306,7 +321,7 @@ GROUPS = [
             ref("Generate each column's surface file from the CONUS surfdata.", "mcp/elm-mcp/src/elm_surface_generator.py", "ELMSurfaceGenerator"),
             ref("Generate each column's domain file.", "mcp/elm-mcp/src/elm_domain_generator.py", "ELMDomainGenerator"),
             ref("Turn columns into the executable plan — one coupler per column, each with its OWN lat/lon.", "mcp/elm-mcp/src/columns_to_plan.py", "columns_to_elm_plan"),
-            ref("Serialise to plain data: <code>runtime_config</code> carries every path the build needs.", "mcp/elm-mcp/src/inputs.py", "serialise_case_inputs"),
+            ref("Serialise to plain data: <code>runtime_config</code> carries every path the build needs. <code>CASE_KEYS</code> raises on an experiment key it neither keeps nor drops, so a field the builder adds cannot vanish between the build and the case file.", "mcp/elm-mcp/src/inputs.py", "serialise_case_inputs"),
             ref("Write <code>case_inputs.json</code> + <code>elm_columns.json</code>, the final columns.", "mcp/elm-mcp/src/inputs.py", "write_case_inputs")],
    "flag": "This is the moment the columns MOVE. Anything drawn from the sampled file afterwards shows a run that did not happen.",
    "files": f("mcp/elm-mcp/src/inputs.py", "mcp/elm-mcp/src/make_finidat_subset.py",
@@ -319,7 +334,7 @@ GROUPS = [
             ref("<code>create_newcase</code> → <code>xmlchange</code> the thirteen CIME keys → namelists.", "mcp/elm-mcp/src/elm_wrapper.py", "_configure_case"),
             ref("<code>case.setup</code>, then <code>case.build</code> — about 7½ minutes for the reference column.", "mcp/elm-mcp/src/elm_wrapper.py", "_build_case"),
             ref("<code>create_clone --keepexe</code> for the rest, seconds each, with a serial retry pass for the known parallel-filesystem race.", "mcp/elm-mcp/src/elm_experiment_builder.py", "build_cases"),
-            ref("Write <code>built_cases.json</code>, then draw <code>column_surfaces.png</code> from each case's GENERATED fsurdat.", "mcp/elm-mcp/scripts/ensemble_job.py", "_plot_setups"),
+            ref("Write <code>built_cases.json</code> — the manifest every later stage resolves case directories through.", "mcp/elm-mcp/scripts/ensemble_job.py", "main"),
             ref("<code>srun</code> every column concurrently, one task each, <code>--exclusive</code> not <code>--exact</code> (Slurm 18.08).", "mcp/elm-mcp/scripts/ensemble_ab.sh", "srun"),
             ref("Count history files rather than trusting the exit code. A column that wrote nothing failed however srun exited.", "mcp/elm-mcp/scripts/ensemble_ab.sh", "N_OK")],
    "flag": "A clone is left BUILD_COMPLETE=FALSE. Harmless today — the run path resolves EXEROOT itself — but the flag is not a usable readiness signal.",
@@ -371,6 +386,8 @@ GROUPS = [
   {"n": "Results + figures", "side": "srv", "sum": "History NetCDFs → rows and plots.",
    "breach": True,
    "flow": [ref("Rows built FROM <code>extracted.json</code> — identity, series and metrics, none of it re-read from NetCDF. Replaced ELMResultsAnalyzer 2026-08-13, which was the second writer of that artifact.", "mcp/elm-mcp/src/column_rows.py", "build_rows"),
+            ref("The row's identity is a DECLARED list: <code>_IDENTITY</code> takes 10 of the artifact's 24 metadata keys and says, for each of the other 14, who reads it instead — <code>record_start</code> at ensemble level, <code>band</code> from columns.json, <code>partial_days_dropped</code> by nobody. It raises if the extractor grows a 25th, and it did: adding <code>spinup_days_requested</code> stopped packaging dead until someone said where it goes.", "mcp/elm-mcp/src/column_rows.py", "_IDENTITY"),
+            ref("<b>What the trim removed, at ENSEMBLE level</b> — one trim per run, because one rule produced it. Carries <code>basis</code> (warm/cold) so a reader knows which of the two numbers they hold, and <code>applied: false</code> with the columns named when the window was longer than the record. That case used to return nothing at all, which said \"no trim was needed\" about the run that needed it most.", "mcp/elm-mcp/src/column_rows.py", "spinup_dropped"),
             ref("Per-column surface and time-series figures.", "mcp/elm-mcp/src/plot_columns.py", "plot_surfaces"),
             ref("Re-plot a finished run without re-running it.", "mcp/elm-mcp/scripts/replot.py", "regenerate_setup_plots"),
             ref("Standalone CLI over the same reader, for a run driven by hand.", "mcp/elm-mcp/scripts/analyze_run.py", "main")],
@@ -419,17 +436,29 @@ GROUPS = [
    "files": f("src/agents/analysis/step1_compare.py")},
   {"n": "Interpret", "side": "fw", "sum": "What the numbers mean, and whether to trust them.",
    "flow": [ref("Build the context: results, assumptions ledger, and the limitations catalogue.", "src/agents/analysis/step0_context.py", "load"),
+            ref("<b>The split is declared, not implied.</b> experiment.json has 20 top-level keys; 10 become <code>data</code> — the only place a reported number may come from — and the other 10 SAY WHERE THEY WENT instead, 4 to <code>plan</code> and 3 to <code>caveats</code>. This is the list that dropped <code>spinup_dropped</code> for six days while the value sat in the file and a reader waited for it in step 4.", "src/agents/analysis/step0_context.py", "_EXPERIMENT"),
             ref("<b>Structural caveats are promoted to blocking</b> — they do not qualify a gauge comparison, they forbid the naive one.", "src/agents/analysis/step0_context.py", "_caveats"),
+            ref("<b>NOTHING TO ANALYSE IS NOT A REASON TO CALL AN LLM.</b> Before step 1, one question: does this run hold any frame at all? A run whose series were all withheld used to reach step 2, spend a model call on five figure specs, and discover the absence one subprocess at a time; one study spent both rounds and four calls to establish that its field was in no frame. When blocked, steps 1-3 are skipped and step 4 STILL WRITES A REPORT — &quot;this run cannot be investigated, and here is what it contains&quot; is the result a reader opening the directory tomorrow needs.", "src/agents/analysis/step0_context.py", "preflight"),
+            ref("<b>The gate fails open, and the filter turns itself off.</b> A fault in preflight must not stop a run that would otherwise work, so <code>preflight_of</code> returns <code>{}</code> on any exception — and step 2's variable filter then treats an empty inventory as NOT MEASURED rather than NOTHING EXISTS. Collapsing those two once refused every figure in a healthy run.", "src/agents/analysis/step2_investigate.py", "preflight_of"),
             ref("An LLM decides which figures answer the user's question and writes the code; pandas computes. It is shown what the comparison MEASURED, not how many rows each record held.", "src/agents/analysis/step2_investigate.py", "context_brief"),
-            ref("<b>The LLM judges; code audits the judgement.</b> Every claim cites a finding — step 2's figures or step 1's comparison — every number it declares must appear in that finding, and a claim inside a blocking caveat's scope must carry the caveat's id or it is struck with the reason.", "src/agents/analysis/step3_interpret.py", "audit")],
+            ref("<b>On a sweep, the factor levels are named and the raw dict is forbidden.</b> Listing <code>treatment</code> as an available key and nothing else left the script to print the dict. Naming the levels was necessary and not sufficient — four 30-character names still collided on horizontal ticks — so the brief also says a label is a NAME, not a layout: rotate, wrap, or move to a legend. With both, round one now lands clean and the Analyzer stops there: 2 LLM calls instead of 4.", "src/agents/analysis/step2_investigate.py", "_treatment_labels"),
+            ref("<b>Constrained, not sandboxed — and it says so.</b> The generated script runs in a subprocess with a wall timeout, memory/CPU/file ceilings, an ENVIRONMENT ALLOWLIST that keeps this deployment's API keys out of it, and an AST check that refuses <code>subprocess</code>, <code>socket</code> or <code>os.system</code> before it runs. Network egress is NOT blocked; the threat model is carelessness, not malice.", "src/agents/analysis/script_runner.py", "inspect_code"),
+            ref("<b>The plan is written down.</b> <code>investigation_plan.md</code> records how the question was mapped onto ELM variables, what each figure was meant to answer, and — rendered AFTER the scripts run — what each one actually returned. Step 3 reads it, so a reviewer judging whether a figure set answers the question knows what it was trying to answer.", "src/agents/analysis/step2_investigate.py", "render_plan_md"),
+            ref("<b>The LLM judges; code audits the judgement.</b> Three named rules in order — <code>rule_cites</code>, <code>rule_declared_values</code>, <code>rule_respects</code>. First to object wins, and the struck claim records WHICH rule fired, not only why.", "src/agents/analysis/step3_interpret.py", "audit"),
+            ref("What each rule PROVES and what it does not: a value genuinely in the cited finding passes even when the claim attaches it to the wrong variable, unit or period. The audit stops a fabricated measurement, not a false sentence built from real numbers.", "src/agents/analysis/step3_interpret.py", "rule_declared_values"),
+            ref("<b>What the model was shown and what it said, verbatim.</b> The reply used to come back as <code>raw</code> and be dropped once parsed, so two questions had no answer: what happened to the fifth proposed figure that never appeared, and did the parser change what the model meant. The PROMPT is kept for a harder reason — the worst defect this pipeline has had was a silent 700-character cap on each finding, which made the model quote from a fifth of a result and cost nine of fourteen true claims. Nobody could see it because nobody could see what was sent.", "src/agents/analysis/script_runner.py", "save_exchange")],
    "files": f("src/agents/analysis/step0_context.py",
-              "src/agents/analysis/step2_investigate.py")},
-  {"n": "Report", "side": "fw", "sum": "The answer, with what is wrong with it attached.",
+              "src/agents/analysis/step2_investigate.py",
+              "src/agents/analysis/script_runner.py")},
+  {"n": "Report", "side": "fw", "sum": "The answer, its status, and what is wrong with it.",
    "flow": [ref("Answer first, leading with the number that answers the question.", "src/agents/analysis/step3_interpret.py", "interpret"),
             ref("A Trust section that must acknowledge the caveats carried this far.", "src/agents/analysis/step3_interpret.py", "interpret"),
-            ref("“This run cannot answer that, and here is what would” is a correct output.", "src/agents/analysis/step4_report.py", "build")],
+            ref("<b>WHAT KIND OF RESULT THIS IS, before what it says.</b> Four statuses — <code>supported</code>, <code>no_supported_claims</code>, <code>insufficient_evidence</code>, <code>analysis_failed</code> — because a crash has NO VERDICT AT ALL, and an absent verdict read as inconclusive files a malfunction as a scientific judgement. The preflight skip is checked FIRST, so &quot;we looked and there is nothing here&quot; is never filed as &quot;we broke&quot;.", "src/agents/analysis/step4_report.py", "_status"),
+            ref("“This run cannot answer that, and here is what would” is a correct output.", "src/agents/analysis/step4_report.py", "build"),
+            ref("<b>A second RENDERING, never a second report.</b> The deck reads the dict <code>analysis.json</code> already holds and lays it out — it may not compute, round, re-word or omit a number, because the deck is what gets presented while the file is what gets checked. The JSON is written FIRST and ALWAYS, so a failure in the presentation layer cannot cost the run its result.", "src/agents/analysis/step4_slides.py", "build")],
    "files": f("src/agents/analysis/step3_interpret.py",
-              "src/agents/analysis/step4_report.py")}]},
+              "src/agents/analysis/step4_report.py",
+              "src/agents/analysis/step4_slides.py")}]},
 ]
 
 CSS = """

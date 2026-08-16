@@ -23,6 +23,11 @@ data/
 # MCP config with absolute paths (use template instead)
 mcp_config.json
 
+# Claude Code: the shared project settings are committed (.claude/settings.json);
+# the per-machine permission allowlist is not — it names one developer's conda
+# paths and grows every session.
+.claude/settings.local.json
+
 # OS files
 .DS_Store
 *.swp

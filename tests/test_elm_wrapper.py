@@ -26,11 +26,17 @@ sys.path.insert(0, "src")
 from core.model_agent_base       import ModelAgentBase, REQUIRED_SUMMARY_KEYS
 from elm_input_agent        import ELMAgentAdapter, ELM_AVAILABLE
 from elm_experiment_builder import ELMExperimentBuilder
-from elm_results_analyzer   import (
-    ELMResultsAnalyzer,
-    TARGET_VARIABLES,
-    VARIABLE_UNITS,
-)
+# ELMResultsAnalyzer was DELETED 2026-08-13 — it was the second writer of
+# 03_results/extracted.json, and two producers of one artifact is the shape of
+# bug that cost a day. Its tests (the old LEVEL 3 block) went with it. Rows are
+# built by mcp/elm-mcp/src/column_rows.py::build_rows now, from the artifact
+# that one producer writes; TARGET_VARIABLES and VARIABLE_UNITS live in
+# mcp/elm-mcp/src/extract.py.
+#
+# THE FILE STOPPED COLLECTING when the module went, so pytest failed at import
+# and every test below — the adapter, the builder, the manager — was silently
+# absent from the suite for a day. A red file is visible; a file that does not
+# collect is not.
 from elm_exp_manager        import ELMExpManager
 
 # ─────────────────────────────────────────────────────────────────────
@@ -327,9 +333,15 @@ class TestELMAdapterImport:
 
             # Adapter passes config straight through; the wrapper's
             # __init__ is responsible for validating it against RUNTIME_KEYS.
+            #
+            # prescribed_weather=None is the SITE PATH, and is asserted rather
+            # than ignored: a design that never mentioned written weather must
+            # reach the wrapper saying so, not saying nothing. A default that
+            # drifted to something else would otherwise be invisible here.
             mock_elm.assert_called_once_with(
                 case_suffix    = 'test_case',
                 runtime_config = config,
+                prescribed_weather = None,
             )
 
     def test_elm_adapter_forwards_unknown_keys_to_wrapper(self):
@@ -340,15 +352,20 @@ class TestELMAdapterImport:
             mock_elm.return_value = MagicMock(is_built=False)
             config = {
                 'STOP_N':      '5',
-                'UNKNOWN_KEY': 'some_value',   # wrapper will log + drop
+                'UNKNOWN_KEY': 'some_value',   # the wrapper will REFUSE it
             }
             ELMAgentAdapter('test_case', runtime_config=config)
 
-            # Adapter doesn't filter — wrapper's __init__ logs a warning
-            # and drops unknown keys internally.
+            # The adapter does not filter; the wrapper's __init__ validates.
+            # It RAISES on an unknown key as of 2026-08-14 — see
+            # TestAnUnknownRuntimeKeyIsRefused below. Until then it logged a
+            # warning and used the DEFAULT in the key's place, so a misspelt
+            # STOP_OPTION built a case that ran the wrong length with the only
+            # evidence a line in a server log.
             mock_elm.assert_called_once_with(
                 case_suffix    = 'test_case',
                 runtime_config = config,
+                prescribed_weather = None,
             )
 
     def test_elm_adapter_run_summary_structure(self):
@@ -551,230 +568,6 @@ class TestELMExperimentBuilder:
             assert call_kwargs is not None
 
 # ─────────────────────────────────────────────────────────────────────
-# LEVEL 3 — ELMResultsAnalyzer
-# ─────────────────────────────────────────────────────────────────────
-
-class TestELMResultsAnalyzer:
-    """Test ELMResultsAnalyzer without real NetCDF files."""
-
-    def test_target_variables_defined(self):
-        """TARGET_VARIABLES contains all expected variables."""
-        assert 'QOVER'   in TARGET_VARIABLES
-        assert 'QCHARGE' in TARGET_VARIABLES
-        assert 'TWS'     in TARGET_VARIABLES
-        assert 'SOILLIQ' in TARGET_VARIABLES
-
-    def test_variable_units_defined(self):
-        """VARIABLE_UNITS has entries for all target variables."""
-        for var in TARGET_VARIABLES:
-            assert var in VARIABLE_UNITS
-
-    def test_empty_result_structure(self, mock_experiments):
-        """_empty_result() returns dict with all required keys."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = mock_experiments,
-                analysis_dir = tmp_dir,
-            )
-            result = analyzer._empty_result(
-                mock_experiments[0],
-                reason='test'
-            )
-
-            assert 'case_name'      in result
-            assert 'scenario_name'  in result
-            assert 'forcing_period' in result
-            assert 'forcing_start'  in result
-            assert 'forcing_end'    in result
-            assert 'status'         in result
-            assert 'reason'         in result
-            assert 'variables'      in result
-            assert 'metrics'        in result
-            assert 'history_files'  in result
-
-    def test_empty_result_status_is_failed(self, mock_experiments):
-        """_empty_result() always has status='failed'."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = mock_experiments,
-                analysis_dir = tmp_dir,
-            )
-            result = analyzer._empty_result(mock_experiments[0])
-            assert result['status'] == 'failed'
-
-    def test_empty_result_variables_are_none(self, mock_experiments):
-        """_empty_result() has None for all target variables."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = mock_experiments,
-                analysis_dir = tmp_dir,
-            )
-            result = analyzer._empty_result(mock_experiments[0])
-            for var in TARGET_VARIABLES:
-                assert result['variables'][var] is None
-
-    def test_analyzer_missing_case_dir(self, mock_experiments):
-        """
-        Analyzer handles experiment with no case_dir gracefully.
-        Should return empty result, not raise.
-        """
-        # Remove case_dir from first experiment
-        experiments_no_dir = []
-        for exp in mock_experiments:
-            exp_copy = exp.copy()
-            exp_copy.pop('case_dir', None)
-            experiments_no_dir.append(exp_copy)
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = experiments_no_dir,
-                analysis_dir = tmp_dir,
-            )
-            # Should not raise
-            results = analyzer.extract_all()
-            # All should be failed
-            for result in results.values():
-                assert result['status'] == 'failed'
-
-    def test_analyzer_missing_run_directory(self, mock_experiments):
-        """
-        Analyzer handles missing run directory gracefully.
-        """
-        # Point case_dir to non-existent path
-        experiments_bad_dir = []
-        for exp in mock_experiments:
-            exp_copy          = exp.copy()
-            exp_copy['case_dir'] = '/nonexistent/path/elm_case'
-            experiments_bad_dir.append(exp_copy)
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = experiments_bad_dir,
-                analysis_dir = tmp_dir,
-            )
-            results = analyzer.extract_all()
-            for result in results.values():
-                assert result['status'] == 'failed'
-
-    def test_llm_input_required_keys(self, mock_experiments):
-        """get_llm_analysis_input() contains all required keys."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = mock_experiments,
-                analysis_dir = tmp_dir,
-            )
-            # Populate with empty results
-            for exp in mock_experiments:
-                analyzer.results[exp['case_name']] = (
-                    analyzer._empty_result(exp)
-                )
-
-            llm_input = analyzer.get_llm_analysis_input()
-
-            assert 'model_type'        in llm_input
-            assert 'experiments'       in llm_input
-            assert 'comparisons'       in llm_input
-            assert 'units'             in llm_input
-            assert 'focus_variables'   in llm_input
-            assert 'file_locations'    in llm_input
-            assert llm_input['model_type'] == 'elm'
-
-    def test_llm_input_focus_variables(self, mock_experiments):
-        """get_llm_analysis_input() includes all 4 focus variables."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = mock_experiments,
-                analysis_dir = tmp_dir,
-            )
-            for exp in mock_experiments:
-                analyzer.results[exp['case_name']] = (
-                    analyzer._empty_result(exp)
-                )
-
-            llm_input    = analyzer.get_llm_analysis_input()
-            focus_vars   = llm_input['focus_variables']
-
-            assert 'QCHARGE' in focus_vars
-            assert 'QOVER'   in focus_vars
-            assert 'TWS'     in focus_vars
-            assert 'SOILLIQ' in focus_vars
-
-    def test_comparisons_require_two_experiments(self,
-                                                  mock_experiments):
-        """
-        _compute_comparisons() returns empty list
-        when fewer than 2 experiments have ok status.
-        """
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = mock_experiments,
-                analysis_dir = tmp_dir,
-            )
-            # Only one experiment with ok status
-            analyzer.results = {
-                'elm_baseline': {
-                    'status':         'ok',
-                    'forcing_period': 'baseline',
-                    'metrics': {
-                        'annual_recharge_mm_yr': 150.0,
-                        'annual_runoff_mm_yr':   50.0,
-                    }
-                }
-            }
-            comparisons = analyzer._compute_comparisons()
-            assert comparisons == []
-
-    def test_comparisons_identify_highest_recharge(self,
-                                                    mock_experiments):
-        """
-        _compute_comparisons() correctly identifies
-        experiment with highest recharge.
-        """
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            analyzer = ELMResultsAnalyzer(
-                experiments  = mock_experiments,
-                analysis_dir = tmp_dir,
-            )
-            # Wet period has highest recharge
-            analyzer.results = {
-                'elm_baseline': {
-                    'status':         'ok',
-                    'forcing_period': 'baseline',
-                    'metrics': {
-                        'annual_recharge_mm_yr': 150.0,
-                        'annual_runoff_mm_yr':    50.0,
-                    }
-                },
-                'elm_wet_period': {
-                    'status':         'ok',
-                    'forcing_period': 'wet',
-                    'metrics': {
-                        'annual_recharge_mm_yr': 280.0,
-                        'annual_runoff_mm_yr':    90.0,
-                    }
-                },
-                'elm_dry_period': {
-                    'status':         'ok',
-                    'forcing_period': 'dry',
-                    'metrics': {
-                        'annual_recharge_mm_yr':  60.0,
-                        'annual_runoff_mm_yr':    20.0,
-                    }
-                },
-            }
-            comparisons = analyzer._compute_comparisons()
-
-            recharge_comp = next(
-                c for c in comparisons
-                if c['metric'] == 'annual_recharge_mm_yr'
-            )
-            assert recharge_comp['highest'] == 'wet'
-            assert recharge_comp['lowest']  == 'dry'
-            assert recharge_comp['difference'] == pytest.approx(
-                220.0, abs=0.1
-            )
-
-# ─────────────────────────────────────────────────────────────────────
 # LEVEL 4 — ELMExpManager
 # ─────────────────────────────────────────────────────────────────────
 
@@ -939,3 +732,49 @@ class TestELMExpManager:
                 end_time        = end_time,
             )
             assert summary['convergence_warnings'] == []
+
+# ─────────────────────────────────────────────────────────────────────
+# AN UNKNOWN RUNTIME KEY IS REFUSED, NOT DROPPED
+# ─────────────────────────────────────────────────────────────────────
+class TestAnUnknownRuntimeKeyIsRefused:
+    """RUNTIME_KEYS is a whitelist over what the planner may override on a
+    case. It used to warn and carry on, which meant the DEFAULT was silently
+    substituted: a case that builds, runs, and simulates the wrong period.
+    """
+
+    def test_an_unknown_key_raises(self):
+        from elm_wrapper import GeneratedELMAgent
+        with pytest.raises(ValueError, match="Unknown runtime key"):
+            GeneratedELMAgent(runtime_config={'NOT_A_REAL_KEY': '1'})
+
+    def test_a_misspelt_key_raises_rather_than_using_the_default(self):
+        """The failure this exists for: STOP_OPTION mistyped once."""
+        from elm_wrapper import GeneratedELMAgent, DEFAULT_RUNTIME
+        with pytest.raises(ValueError) as e:
+            GeneratedELMAgent(runtime_config={'STOP_OPTIN': 'nyears'})
+        assert 'STOP_OPTIN' in str(e.value)
+        assert 'STOP_OPTION' in str(e.value), "say what the allowed keys are"
+        assert DEFAULT_RUNTIME['STOP_OPTION'], "the default it would have used"
+
+    def test_the_error_names_every_bad_key(self):
+        from elm_wrapper import GeneratedELMAgent
+        with pytest.raises(ValueError) as e:
+            GeneratedELMAgent(runtime_config={'A_BAD_KEY': '1', 'B_BAD_KEY': '2'})
+        assert 'A_BAD_KEY' in str(e.value) and 'B_BAD_KEY' in str(e.value)
+
+    def test_a_good_key_still_applies(self):
+        from elm_wrapper import GeneratedELMAgent
+        a = GeneratedELMAgent(runtime_config={'STOP_N': '7'})
+        assert a.runtime_config['STOP_N'] == '7'
+
+    def test_values_are_stringified(self):
+        """xmlchange takes strings; an int here used to reach it as an int."""
+        from elm_wrapper import GeneratedELMAgent
+        a = GeneratedELMAgent(runtime_config={'STOP_N': 7})
+        assert a.runtime_config['STOP_N'] == '7'
+
+    def test_no_config_leaves_the_defaults_intact(self):
+        from elm_wrapper import GeneratedELMAgent, DEFAULT_RUNTIME
+        a = GeneratedELMAgent()
+        assert a.runtime_config == DEFAULT_RUNTIME
+        assert a.runtime_config is not DEFAULT_RUNTIME, "must be a copy"

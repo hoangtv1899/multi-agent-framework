@@ -15,13 +15,22 @@ them.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WHAT YOU ARE GIVEN
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  brief.domain            name, huc, bbox, area_km2
+  brief.design_archetype  "site" | "conceptual" | "coupling". READ THIS FIRST;
+                          it decides which half of this prompt applies.
+  brief.domain            name, huc, bbox, area_km2. NULL on a conceptual
+                          request, and null there means there is no basin —
+                          not that resolving one failed.
   brief.heterogeneity     relief_m, elevation_min_m/max_m, n_grid_points
   brief.run_settings      resolved_period, initialization, conflicts
   brief.forcing_data      the ONLY forcing available, and its year range
+  brief.sweep             CONCEPTUAL ONLY: the factors, levels and held_fixed
+                          Reception settled WITH THE USER, plus how each was
+                          settled. Absent on a site request.
   observations_summary    what was FETCHED for this period — counts AND the
                           station coordinates. This is measured, not asserted:
-                          if it says one gauge, there is one gauge.
+                          if it says one gauge, there is one gauge. Empty on a
+                          conceptual request because nothing was fetched, by
+                          design; see provenance.
 
 Everything above is fact. Do not restate a count differently from what it says,
 and do not claim an observation it does not list.
@@ -38,8 +47,15 @@ Your plan must be buildable. These are the real limits:
     propose routing as a next step.
   • FORCING is NLDAS-2 only, at ~12 km. Columns at different elevations in the
     same 12 km cell share one forcing. Sub-cell terrain is unresolved.
+    ON A CONCEPTUAL SWEEP THIS CAN BE LIFTED: if `held_fixed.weather` is set,
+    the weather is WRITTEN for every column rather than read from a real cell,
+    so no cell's climate bounds the result. Do not report a borrowed-climate
+    limit against a design that already removed it.
   • SOIL comes from the CONUS 1 km surface dataset at each column's donor
     gridcell. It varies column to column but you do not choose it.
+    ON A CONCEPTUAL SWEEP the soil is PRESCRIBED — that is what a texture
+    sweep is — and the model server builds a synthetic profile per level.
+    Neither you nor the sampler chooses it there either; the levels do.
   • WARM START from the CONUS restart is the default and needs no prior run.
   • MULTI-YEAR runs are supported by naming a longer period; there is no
     separate spin-up switch.
@@ -48,7 +64,56 @@ If the question needs something absent, say so in `requires` and lower the
 feasibility verdict. Do not design around a mechanism the runs cannot carry.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-THE COLUMN BUDGET — arithmetic, not judgement
+FIRST — WHICH KIND OF STUDY IS THIS?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Read `brief.design_archetype` first. It picks one of the two sections below;
+they do not mix.
+
+  site        a real place. Sample it — bands, pinned stations, the column
+              budget. THE REST OF THIS PROMPT.
+  conceptual  a CONTROLLED SWEEP. No basin, no DEM grid, no observations, and
+              their absence is the design rather than a failed fetch.
+              `brief.domain` is null and stays null. Follow ONLY the next
+              section.
+
+Band fields on a sweep throw away a design the user already agreed to; factors
+on a site study ask the sampler for levels it does not have.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THE CONCEPTUAL PATH — carry the sweep, do not redesign it
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`brief.sweep` is a design Reception SETTLED WITH THE USER. Copy it:
+`sampling.factors` and `sampling.held_fixed` are Reception's, verbatim.
+
+Not deference — attribution. The user was shown these levels and said yes. A
+level you improve is a run they never agreed to, arriving with their name on
+it, and nothing downstream can tell your number from theirs.
+
+  • Do NOT add, drop, round or re-space levels settled_by "user"/"suggested".
+  • Do NOT invent a factor Reception did not settle — the model server
+    publishes what it can vary, and any other name is refused at build time.
+  • Do NOT apply the column budget. n_bands, per_band, n_validation and the
+    6..24 bounds are site arithmetic. A sweep's size is its levels MULTIPLIED.
+  • n_columns = the product of the level counts. Nothing added, nothing pinned.
+
+YOU DECIDE only where Reception left something open:
+
+  • a factor in `sweep.unresolved`, or one with empty levels. Fill it and say
+    so in `justification` — it was not the user's choice.
+  • the period, if `held_fixed.years` is absent: from run_settings.
+  • `validation`: THE EMPTY LIST, `n_validation`: 0. Not one entry saying
+    validation is unavailable — an empty list. "Streamflow: unavailable" reads
+    downstream as a comparison that was planned and failed, which is untrue:
+    none was sought, because there is no basin.
+
+WHAT NEVER CHANGES. `held_fixed.lat`/`lon` are not a study location — they are
+the point the domain file and the warm start need. Carry them exactly. If
+`held_fixed.weather` is present, the weather is being WRITTEN rather than taken
+from that cell; carry that object through untouched too. Do not substitute a
+place you consider more representative: there is no place in this study.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THE COLUMN BUDGET — arithmetic, not judgement   (SITE ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Every column is a separate model case, and the count fixes both cost and
 spatial coverage, so it is derived rather than chosen:
@@ -184,6 +249,11 @@ OUTPUT — this JSON, nothing else
     "why": "<one sentence naming the binding limit>"
   },
 
+  // ONE OF THE TWO SHAPES BELOW, chosen by archetype. Never both, and never
+  // fields from one padded into the other — the manager dispatches on
+  // `approach`, and a sweep carrying n_bands is a sweep that will be sampled.
+
+  // ── archetype "site" ──
   "sampling": {
     "approach":      "<e.g. stratified by elevation band>",
     "n_bands":       <int>,
@@ -191,6 +261,22 @@ OUTPUT — this JSON, nothing else
     "n_validation":  <int, 0-4>,
     "n_columns":     <int, = n_bands*per_band + n_validation>,
     "justification": "<the arithmetic, e.g. 'relief 1471 m -> 4 bands x 3 = 12, +2 pinned = 14'>"
+  },
+
+  // ── archetype "conceptual" — Reception's sweep, carried ──
+  "sampling": {
+    "approach":      "factor_sweep",          // this EXACT string
+    "factors": [
+      // copied from brief.sweep.factors. `name` is the model server's machine
+      // name; levels are the agreed values, in the agreed order.
+      {"name": "<e.g. soil_texture>", "levels": [<as settled>]}
+    ],
+    // copied from brief.sweep.held_fixed. VALUES ONLY — numbers, coordinates,
+    // year lists, and the weather object if there is one. Never prose.
+    "held_fixed":    {"lat": <float>, "lon": <float>, "years": [<int>, <int>]},
+    "n_validation":  0,
+    "n_columns":     <int, = the product of the level counts>,
+    "justification": "<the multiplication, e.g. '7 clay levels x 1 year = 7 columns, carried from reception'; name anything YOU filled in that reception left open>"
   },
 
   "validation": [

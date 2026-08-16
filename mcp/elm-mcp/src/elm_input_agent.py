@@ -52,21 +52,27 @@ class ELMAgentAdapter(ModelAgentBase):
 
     def __init__(self,
                  case_name:      str,
-                 runtime_config: Optional[Dict[str, Any]] = None):
+                 runtime_config: Optional[Dict[str, Any]] = None,
+                 prescribed_weather: Optional[Any] = None):
         """
         Args:
             case_name:      experiment name from planner
             runtime_config: ELM runtime parameters
                             (see RUNTIME_KEYS in elm_wrapper
                             for allowed keys)
+            prescribed_weather: a fill spec, when the design wrote the weather
+                            instead of taking the NLDAS cell's. None on every
+                            site run, which is what makes that path unchanged.
         """
         self.case_name      = case_name
         self.runtime_config = runtime_config or {}
+        self.prescribed_weather = prescribed_weather
         self._status        = 'unknown'
 
         self._elm = GeneratedELMAgent(
             case_suffix    = case_name,
             runtime_config = runtime_config,
+            prescribed_weather = prescribed_weather,
         )
 
     # ── Abstract property ─────────────────────────────────────

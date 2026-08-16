@@ -26,21 +26,49 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from columns_to_plan import columns_to_elm_plan
 from elm_experiment_builder import ELMExperimentBuilder
 
+# parents[3] is the framework root. keyset imports nothing but the standard
+# library; it is here so this list and the framework's obey one rule.
+_FW = Path(__file__).resolve().parents[3]
+if str(_FW / "src") not in sys.path:
+    sys.path.insert(0, str(_FW / "src"))
+from core import keyset                                        # noqa: E402
+from core.keyset import KeySet                                  # noqa: E402
+
 # Keys of an experiment that are plain data and mean something downstream.
 # LISTED, not "everything except elm_agent": a new object added upstream would
 # otherwise silently become a repr in the case-inputs file.
-CASE_KEYS = (
-    "scenario_index", "scenario_name", "case_name", "forcing_period",
-    "soil_config", "substrate", "forcing_start", "forcing_end", "stop_n",
-    "start_date", "description", "lat", "lon", "elevation_m", "band",
-    "case_dir",
+#
+# And now the list ANSWERS FOR EVERY KEY. The reason this one has stayed
+# correct is that it has exactly two producers, both in this repo; that is not
+# a property the list had, it is luck it kept having. A key the builder adds
+# that nobody classified now stops the build instead of vanishing into it.
+_CASE = KeySet(
+    "CASE_KEYS",
+    keep = ("scenario_index", "scenario_name", "case_name", "forcing_period",
+            "soil_config", "substrate", "forcing_start", "forcing_end",
+            "stop_n", "start_date", "description", "lat", "lon",
+            "elevation_m", "band", "case_dir", "prescribed_weather"),
+    drop = {
+        "elm_agent": "THE OBJECT THIS LIST EXISTS TO STOP. The adapter is a "
+                     "live handle; serialised it becomes a repr string in an "
+                     "artifact meant to be re-read. What the far side needs "
+                     "from it is runtime_config, taken by name below",
+        "runtime_config": "taken explicitly below, off the adapter when the "
+                          "adapter is present and off the experiment when it "
+                          "is not — two sources for one field, which a "
+                          "comprehension cannot express",
+    },
+    source = "ELMExperimentBuilder.build_experiments() -> experiment dicts",
+    where  = "mcp/elm-mcp/src/inputs.py :: CASE_KEYS",
 )
+CASE_KEYS = _CASE.keep
 
 CASE_INPUTS = "case_inputs.json"
 
@@ -175,6 +203,33 @@ def warm_start(run_dir: Path, columns: List[Dict],
     """
     run_dir = Path(run_dir)
     ws = config.get("warm_start", True)
+
+    # COLD ON PURPOSE, and only when asked in so many words. `False` is the one
+    # value that means "do not touch the CONUS restart" — a controlled sweep
+    # sets it, because a study that depends on no real place must not be handed
+    # a real gridcell's water content.
+    #
+    # NOT THE SAME AS THE FAILURE PATH described above. That one produced a
+    # MIXED ensemble from a partial failure and is still fatal. This returns an
+    # empty map for EVERY column, so every column is cold and no comparison
+    # spans two kinds of start.
+    if ws is False:
+        print("\n🧊 STEP 0b: Cold start — no CONUS restart")
+        print("-" * 40)
+        print(f"   {len(columns)} column(s) start from ELM's own defaults.")
+        print("   No donor gridcell, so no snapping, no borrowed soil and no "
+              "borrowed water content.")
+        print("   COST: a cold column takes years to forget those defaults. A "
+              "short run reports")
+        print("   the initialisation as much as the soil — recorded as a "
+              "caveat, not fixed here.")
+        for c in columns:
+            # Stated, not left absent. `elevation_m` is already None on a
+            # conceptual column, and a reader finding no start type at all
+            # cannot tell a cold column from one nobody decided about.
+            c["warm_start"] = False
+        return {}
+
     if isinstance(ws, str):
         ws = {"source": ws}
     elif ws is True:
@@ -310,8 +365,24 @@ def attach_donor_soil(columns: List[Dict], finidat_map: Dict[str, Any]) -> int:
     This is the ONLY soil the run has.
     """
     import make_finidat_subset as fs
-    n = 0
+    n = kept = 0
     for c in columns:
+        # A PRESCRIBED SOIL IS THE EXPERIMENT, AND MUST SURVIVE THIS.
+        #
+        # Everything above is right for a site run, where the profile gathered
+        # at sampling time is characterisation and the donor's is what ELM
+        # runs on. A conceptual sweep inverts that: the soil was CHOSEN, it is
+        # the independent variable, and the columns deliberately sit at one
+        # lat/lon.
+        #
+        # So without this guard every column in a soil sweep receives the SAME
+        # donor profile, the gradient is erased, every column runs, every check
+        # passes, and the analyzer reports a clean n=7 for a sweep with nothing
+        # varying in it. A site column never sets this field and can never
+        # reach this branch.
+        if c.get("soil_source") == "prescribed":
+            kept += 1
+            continue
         entry = finidat_map.get(c.get("id")) or {}
         sd = entry.get("surface_template")
         if not sd or not Path(sd).exists():
@@ -335,6 +406,11 @@ def attach_donor_soil(columns: List[Dict], finidat_map: Dict[str, Any]) -> int:
     if n:
         print(f"   soil for the design/figure taken from the CONUS donor cells "
               f"({n} column(s)) — the dataset the run uses")
+    if kept:
+        # SAID OUT LOUD, because silence here is indistinguishable from the bug
+        # this guard exists to prevent.
+        print(f"   soil KEPT AS PRESCRIBED for {kept} column(s) — a controlled "
+              f"sweep, so the donor's profile is not applied to them")
     return n
 
 
@@ -436,6 +512,10 @@ def serialise_case_inputs(experiments: List[Dict]) -> List[Dict]:
     """
     out = []
     for e in experiments:
+        # check(), not take(): a key that is ABSENT is omitted here rather than
+        # written as null, and write_case_inputs asserts on what is present.
+        # The assertion is about keys the builder wrote, not keys it did not.
+        _CASE.check(e)
         row = {k: e.get(k) for k in CASE_KEYS if k in e}
         rc = getattr(e.get("elm_agent"), "runtime_config", None)
         if isinstance(rc, dict):
@@ -465,6 +545,11 @@ def write_case_inputs(run_dir: Path, rows: List[Dict]) -> Path:
     inputs_dir.mkdir(parents=True, exist_ok=True)
     path = inputs_dir / CASE_INPUTS
     path.write_text(json.dumps(rows, indent=2, default=str))
+    # The build side's own audit. It runs in the SERVER process, so the
+    # framework's report at packaging time never sees these lists — a list
+    # that asks for a key the builder stopped writing has to say so here or
+    # nowhere.
+    keyset.report()
     return path
 
 

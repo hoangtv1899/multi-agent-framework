@@ -82,7 +82,16 @@ class TestTerrainHelpers:
 np = pytest.importorskip("numpy")
 xr = pytest.importorskip("xarray")
 pytest.importorskip("netCDF4")
-fan = _load(MCP / "fan-wtd-mcp" / "main.py", "fan_main")
+# THE FAN SERVER IS GONE (2026-08-07). Its water-table prior left the sampler
+# and the whole mcp/fan-wtd-mcp/ tree went with it, so this module-level load
+# raised FileNotFoundError at COLLECTION — which aborted the entire pytest run,
+# not just this file. Skipped rather than deleted: the sign/mask/time handling
+# below is the reference for any future gridded-prior server.
+_FAN_MAIN = MCP / "fan-wtd-mcp" / "main.py"
+if not _FAN_MAIN.is_file():
+    pytest.skip("mcp/fan-wtd-mcp was removed with the Fan water-table prior",
+                allow_module_level=True)
+fan = _load(_FAN_MAIN, "fan_main")
 
 
 @pytest.fixture

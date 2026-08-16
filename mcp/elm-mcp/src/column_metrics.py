@@ -50,8 +50,10 @@ leave as mm/yr. `TWS`, `H2OSNO` and `ZWT` arrive in their own units and stay.
 
 ANNUALISATION IS AN EXTRAPOLATION, and the record says so. A mean daily rate
 times 365.25 states what a full year at this rate would deliver; the run itself
-is shorter, because 14 days of warm-start relaxation and any partial day have
-been trimmed. `n_days_in_record` travels beside every annual value so the
+is shorter, because the start-up transient and any partial day have been
+trimmed — a fortnight off a warm start, a year off a cold one, which is why the
+factor has to be read off the record rather than assumed. `n_days_in_record`
+travels beside every annual value so the
 factor is visible rather than implied — a 352-day record is a 1.038x
 extrapolation, which is larger than most of the differences anyone argues about.
 """

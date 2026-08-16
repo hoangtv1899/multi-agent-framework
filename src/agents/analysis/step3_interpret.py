@@ -167,14 +167,112 @@ def run_facts(ctx) -> set:
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────
+# THE THREE RULES
+# ─────────────────────────────────────────────────────────────────────
+# NAMED IN CODE, NOT ONLY IN PROSE (2026-08-14). `cites`, `no_new` and
+# `respects` were labels that appeared in the documentation and nowhere in the
+# source — a reviewer sent to find the function implementing `no_new` found
+# three anonymous blocks inside audit() and no such name anywhere. Docs that
+# point at symbols which do not exist are worse than docs with no symbols: the
+# reader concludes the code is elsewhere rather than that the name is fiction.
+#
+# `no_new` is also gone as a NAME, because it described the rule this one
+# replaced: a scan of the sentence for any number not in the finding. That
+# needed six exemptions in a row and still struck correct claims. The rule now
+# checks only what the claim DECLARES as measured, which is a different thing
+# and deserves a different word.
+#
+# Each returns the strike reason, or None to pass. First non-None wins, so the
+# order below is the order a claim is judged in.
+AUDIT_RULES = ("cites", "declared_values", "respects")
+
+
+def rule_cites(claim: Dict[str, Any],
+               by_id: Dict[str, Dict[str, Any]]) -> Optional[str]:
+    """The claim must name a finding that exists.
+
+    PROVES: there is evidence behind the sentence, and it can be located.
+    DOES NOT PROVE: that the finding supports the sentence.
+    """
+    fid = claim.get("finding_id")
+    if fid in by_id:
+        return None
+    return (f"cites finding_id {fid!r}, which step 2 did not produce. A "
+            f"claim with no evidence behind it cannot be checked.")
+
+
+def rule_declared_values(claim: Dict[str, Any],
+                         finding: Dict[str, Any],
+                         allowed: set) -> Optional[str]:
+    """Every value the claim declares as measured must be in that finding.
+
+    THE CLAIM DECLARES ITS MEASUREMENTS; prose numbers are not audited. This
+    replaced a scan of the sentence text, which needed six exemptions in a row
+    — years, identifiers, labels, approximations, run facts, subset counts —
+    each added after it struck a correct claim. There is no reliable way to
+    tell "31.4 mm/yr" from "16 of 19 columns" or "band 2" by looking at the
+    text. Six patches on one rule is the rule being wrong.
+
+    `allowed` widens "in that finding" to facts of record: the column count,
+    the simulated years, and every finding's own `n`. A claim quoting those is
+    quoting the run, not inventing.
+
+    PROVES: no fabricated measurement survives.
+    DOES NOT PROVE: that the number means what the sentence says it means, or
+    that it is the right number for the claim. A value used with the wrong
+    variable, unit, period or sign passes this rule.
+    """
+    have = _flatten_numbers(finding.get("result"))
+    declared = [str(v) for v in (claim.get("values") or [])]
+    invented = [v for v in declared
+                if v not in have and v not in allowed
+                and not _YEARLIKE.match(v)]
+    if not invented:
+        return None
+    return (f"declares {', '.join(invented[:4])} as measured, but "
+            f"finding {claim.get('finding_id')} does not contain it. A value "
+            f"that cannot be traced to the data it came from is not a "
+            f"measurement.")
+
+
+def rule_respects(claim: Dict[str, Any],
+                  finding: Dict[str, Any],
+                  caveats: List[Dict[str, Any]],
+                  blocking: Dict[str, Any]) -> Optional[str]:
+    """A claim about a blocking caveat's subject must carry that caveat's id.
+
+    The FIGURE bounds what is possible (`finding["blocked_by"]`) and the CLAIM
+    decides what applies — see required_caveats(). Only `blocking` severity is
+    enforced; `qualify` and `context` travel to the report and bind nothing.
+
+    PROVES: a claim inside a forbidden scope acknowledges it explicitly.
+    DOES NOT PROVE: that the acknowledgement is meaningful, or that the claim
+    is one the caveat permits at all — carrying the id satisfies this rule.
+    """
+    missing = [cid for cid in required_caveats(
+                   str(claim.get("claim") or ""),
+                   finding.get("blocked_by"), caveats)
+               if cid in blocking and cid not in set(claim.get("caveats") or [])]
+    if not missing:
+        return None
+    return (f"is about {', '.join(missing)}'s subject but does not carry "
+            f"it. An unrespected caveat looks exactly like a respected "
+            f"one, which is why they are records.")
+
+
 def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
           caveats: List[Dict[str, Any]], facts: Optional[set] = None
           ) -> Dict[str, Any]:
     """Check each claim against the evidence it cites. Pure function.
 
-    Returns {kept, struck} where every struck claim carries its reason. Testable
-    with no API call, which is the point: the audit is the part that must not
-    depend on a model behaving well.
+    Returns {kept, struck} where every struck claim carries its reason AND the
+    name of the rule that struck it. Testable with no API call, which is the
+    point: the audit is the part that must not depend on a model behaving well.
+
+    The three rules are `rule_cites`, `rule_declared_values` and
+    `rule_respects`, applied in that order; the first to object wins, and a
+    claim that passes all three is kept.
     """
     by_id = {f["id"]: f for f in (investigation.get("findings") or [])}
     allowed = set(facts or set())
@@ -188,54 +286,22 @@ def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
     for c in claims:
         if not isinstance(c, dict):
             continue
-        fid = c.get("finding_id")
-        text = str(c.get("claim") or "")
 
-        if fid not in by_id:
-            struck.append(dict(c, struck_because=(
-                f"cites finding_id {fid!r}, which step 2 did not produce. A "
-                f"claim with no evidence behind it cannot be checked.")))
-            continue
+        why = rule_cites(c, by_id)
+        rule = "cites"
+        if why is None:
+            finding = by_id[c["finding_id"]]
+            why, rule = rule_declared_values(c, finding, allowed), "declared_values"
+        if why is None:
+            why, rule = rule_respects(c, finding, caveats, blocking), "respects"
 
-        # THE CLAIM DECLARES ITS MEASUREMENTS; prose numbers are not audited.
-        #
-        # This replaces a scan of the sentence. That scan needed six exemptions
-        # in a row — years, identifiers, labels, approximations, run facts,
-        # subset counts — each added after it struck a correct claim, because
-        # there is no reliable way to tell "31.4 mm/yr" from "16 of 19 columns"
-        # or "band 2" by looking at the text. Six patches on one rule is the
-        # rule being wrong.
-        #
-        # So the contract moved: `values` is what the claim ASSERTS as measured,
-        # and only those are checked. A reviewer that quotes a number it did not
-        # take from the finding still fails; one that counts rows in a table it
-        # was shown, or names a band, no longer does. It also makes the check
-        # honest about what it can enforce — nothing here can stop a false
-        # sentence, only a fabricated measurement.
-        have = _flatten_numbers(by_id[fid].get("result"))
-        declared = [str(v) for v in (c.get("values") or [])]
-        invented = [v for v in declared
-                    if v not in have and v not in allowed
-                    and not _YEARLIKE.match(v)]
-        if invented:
-            struck.append(dict(c, struck_because=(
-                f"declares {', '.join(invented[:4])} as measured, but "
-                f"finding {fid} does not contain it. A value that cannot be "
-                f"traced to the data it came from is not a measurement.")))
-            continue
-
-        cited = set(c.get("caveats") or [])
-        missing = [cid for cid in required_caveats(
-                       text, by_id[fid].get("blocked_by"), caveats)
-                   if cid in blocking and cid not in cited]
-        if missing:
-            struck.append(dict(c, struck_because=(
-                f"is about {', '.join(missing)}'s subject but does not carry "
-                f"it. An unrespected caveat looks exactly like a respected "
-                f"one, which is why they are records.")))
-            continue
-
-        kept.append(c)
+        if why is None:
+            kept.append(c)
+        else:
+            # WHICH RULE, not only why. The reason is prose meant for a reader;
+            # `struck_by` is what a test, a dashboard or a run-to-run
+            # comparison can group on without parsing English.
+            struck.append(dict(c, struck_because=why, struck_by=rule))
 
     return {"kept": kept, "struck": struck,
             "n_claims": len(claims), "n_struck": len(struck)}
@@ -265,6 +331,28 @@ def _render_result(result) -> str:
     return (body[:RESULT_CAP] +
             f"  …CUT at {RESULT_CAP} of {len(body)} chars — DO NOT quote "
             f"numbers from this finding; cite one you can read in full")
+
+
+PLAN_CAP = 8000
+
+
+def _plan_text(investigation: Dict[str, Any]) -> str:
+    """Step 2's plan document, or "" when there is none to read.
+
+    Capped like a finding is, and for the same reason: a brief that silently
+    truncates evidence is what taught a model to quote from text it could only
+    partly see. When it cuts, it says so.
+    """
+    p = investigation.get("plan_md")
+    if not p:
+        return ""
+    try:
+        body = Path(p).read_text()
+    except OSError:
+        return ""
+    if len(body) <= PLAN_CAP:
+        return body
+    return body[:PLAN_CAP] + f"\n…CUT at {PLAN_CAP} of {len(body)} chars."
 
 
 def review_brief(ctx, comparison: Dict[str, Any],
@@ -306,9 +394,27 @@ def review_brief(ctx, comparison: Dict[str, Any],
     findings = list(investigation.get("findings") or []) + \
         list(comparison.get("findings") or [])
 
-    lines += ["", "WHAT STEP 2 INVESTIGATED:",
-              f"    {investigation.get('notes')}", "",
-              "FINDINGS — every citable number in this run is below, under the",
+    # STEP 2'S PLAN, IN FULL. This used to be the single `notes` line, which
+    # said what step 2 could not address and nothing about what it chose to do
+    # or why. Judging whether a figure set answers the question means knowing
+    # what it was trying to answer — a thin set is a different judgement when
+    # the run is thin than when the plan was.
+    #
+    # Read from the FILE step 2 wrote, not passed through memory, so step 3 can
+    # be re-run alone against an archived study and see the same thing. Absent
+    # is not an error: a study analysed before 2026-08-14 has no plan document,
+    # and the `notes` line is the fallback it always was.
+    plan_md = _plan_text(investigation)
+    if plan_md:
+        lines += ["", "WHAT STEP 2 PLANNED AND WHY — its own account of how it",
+                  "mapped the question onto the model's variables, with the",
+                  "outcome of each step measured rather than claimed:",
+                  "", plan_md, ""]
+    else:
+        lines += ["", "WHAT STEP 2 INVESTIGATED:",
+                  f"    {investigation.get('notes')}", ""]
+
+    lines += ["FINDINGS — every citable number in this run is below, under the",
               "id you must name. A value not in the finding you cite is struck,",
               "even when it is a real measurement from somewhere else:"]
     for f in findings:
@@ -480,7 +586,17 @@ def interpret(ctx, comparison, investigation, out_dir,
     figures += [p for p in (comparison.get("figures") or {}).values()
                 if isinstance(p, str) and Path(p).is_file()]
     content = _content(brief, figures, with_images)
-    spec = _parse(client.ask([{"role": "user", "content": content}]))
+    reply = client.ask([{"role": "user", "content": content}])
+    spec = _parse(reply)
+
+    # THE BRIEF, NOT `content`. `content` is the brief plus every figure
+    # base64-encoded — tens of megabytes of image bytes that say nothing a
+    # reader can use. The text is the part that decides what the model can
+    # cite, and the part a replayed test needs.
+    from agents.analysis import script_runner as _runner
+    exchange = _runner.save_exchange(
+        out_dir, "step3", investigation.get("round", 1) if investigation else 1,
+        brief, reply)
 
     caveats = list(ctx.caveats or []) + list(comparison.get("caveats") or [])
     result = audit(spec.get("claims") or [], evidence, caveats,
@@ -494,6 +610,7 @@ def interpret(ctx, comparison, investigation, out_dir,
            "feedback": spec.get("feedback") or None,
            "claims": result["kept"], "struck": result["struck"],
            "audit": {k: result[k] for k in ("n_claims", "n_struck")},
+           "exchange": exchange or None,
            "round": investigation.get("round", 1)}
     (out_dir / FILENAME).write_text(json.dumps(out, indent=2, default=str))
     return out
@@ -527,20 +644,47 @@ def investigate_and_interpret(ctx, out_dir, comparison=None,
         interpretation = interpret(ctx, comparison, investigation, out_dir,
                                    model=model, client=client,
                                    with_images=with_images)
-        rounds.append({"round": r,
-                       "verdict": interpretation["verdict"],
-                       "n_findings": investigation["n_succeeded"],
-                       "n_claims": interpretation["audit"]["n_claims"],
-                       "n_struck": interpretation["audit"]["n_struck"],
-                       "feedback": interpretation.get("feedback")})
+        # WHAT THIS ROUND ACTUALLY PRODUCED, by name. A later round REPLACES
+        # the investigation wholesale — `investigation` is reassigned and only
+        # the last one reaches step 4 — so a round 2 that drops three of round
+        # 1's five findings loses them with nothing recording it. The prompt
+        # tells the model "keep what worked"; whether it did was unknowable.
+        ids = sorted(f["id"] for f in (investigation.get("findings") or []))
+        kept_claims = (interpretation["audit"]["n_claims"]
+                       - interpretation["audit"]["n_struck"])
+        entry = {"round": r,
+                 "verdict": interpretation["verdict"],
+                 "n_findings": investigation["n_succeeded"],
+                 "finding_ids": ids,
+                 "n_claims": interpretation["audit"]["n_claims"],
+                 "n_struck": interpretation["audit"]["n_struck"],
+                 "n_claims_kept": kept_claims,
+                 "feedback": interpretation.get("feedback")}
+        if rounds:
+            prev = rounds[-1]
+            dropped = sorted(set(prev["finding_ids"]) - set(ids))
+            if dropped:
+                entry["findings_dropped_from_previous_round"] = dropped
+            # A REVISION THAT MADE IT WORSE. Not corrected here — the reviewer
+            # judged this round's set and that judgement stands — but a reader
+            # comparing two runs needs to know the extra round cost claims
+            # rather than earning them.
+            if kept_claims < prev["n_claims_kept"]:
+                entry["regressed"] = (
+                    f"round {r} kept {kept_claims} claims against round "
+                    f"{prev['round']}'s {prev['n_claims_kept']}")
+        rounds.append(entry)
+
         if interpretation["verdict"] == "sufficient":
             break
         feedback = interpretation.get("feedback")
         if not feedback:                  # insufficient with nothing actionable
             break                         # to say is not worth another round
 
+    regressed = [r_["round"] for r_ in rounds if r_.get("regressed")]
     return {"investigation": investigation, "interpretation": interpretation,
             "rounds": rounds, "n_rounds": len(rounds),
+            "regressed_rounds": regressed or None,
             "stopped_because": ("sufficient"
                                 if interpretation["verdict"] == "sufficient"
                                 else f"exhausted {len(rounds)} of {max_rounds} rounds")}

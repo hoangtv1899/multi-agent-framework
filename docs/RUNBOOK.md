@@ -109,7 +109,7 @@ Same machinery, but **replace steps 1–3** with one command (vary only soil at 
 no planning plot — it's controlled, not spatial):
 ```bash
 SW=workflow_outputs/soil_sweep
-python3 tools/make_soil_sweep.py --out-dir $SW           # clay 5→55% at a fixed site
+python3 mcp/elm-mcp/scripts/make_soil_sweep.py --out-dir $SW           # clay 5→55% at a fixed site
 # then steps 4–6 with these substitutions:
 python3 tools/build_cases.py  --plan $SW/soilsweep_plan.json --ref $REF --out-dir $SW
 python3 tools/plot_columns.py --run-dir $SW --cases-file cases.json --surfaces   # verify 7 distinct soils

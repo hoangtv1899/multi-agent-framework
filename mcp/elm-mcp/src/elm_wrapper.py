@@ -26,7 +26,7 @@ import logging
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -176,18 +176,39 @@ class GeneratedELMAgent:
 
     def __init__(self,
                  case_suffix:    Optional[str] = None,
-                 runtime_config: Optional[dict] = None):
+                 runtime_config: Optional[dict] = None,
+                 prescribed_weather: Optional[Any] = None):
         # Apply defaults, then validate and apply user overrides
         self.runtime_config = DEFAULT_RUNTIME.copy()
         if runtime_config:
+            # RAISES, SINCE 2026-08-14. This used to log a warning and drop the
+            # key, and the case then ran with the DEFAULT in its place — a
+            # misspelt STOP_OPTION gives a case that builds, runs, and
+            # simulates the wrong length, with the only evidence a warning
+            # inside an MCP server's log during an unattended job. A key this
+            # class cannot apply is a case it must not build.
+            unknown = sorted(set(runtime_config) - RUNTIME_KEYS)
+            if unknown:
+                raise ValueError(
+                    f"Unknown runtime key(s) {unknown} — this class cannot "
+                    f"apply them, and running anyway means running with the "
+                    f"DEFAULT in their place.\n"
+                    f"  Allowed: {sorted(RUNTIME_KEYS)}\n"
+                    f"  Add the key to RUNTIME_KEYS in elm_wrapper.py if ELM "
+                    f"accepts it, or fix the caller."
+                )
             for key, value in runtime_config.items():
-                if key in RUNTIME_KEYS:
-                    self.runtime_config[key] = str(value)
-                else:
-                    logger.warning(
-                        f"Unknown runtime key '{key}' ignored. "
-                        f"Allowed: {sorted(RUNTIME_KEYS)}"
-                    )
+                self.runtime_config[key] = str(value)
+
+        # NOT VALIDATED HERE, and not deferred either — spec_to_fill runs now
+        # so a malformed spec raises where the case is CONFIGURED rather than
+        # eight minutes later where it is built. The resolved fill is thrown
+        # away; only the spec is kept, because the case directory it needs does
+        # not exist yet.
+        self.prescribed_weather = prescribed_weather
+        if prescribed_weather is not None:
+            import forcing
+            forcing.spec_to_fill(prescribed_weather)
 
         # State
         self.case_suffix  = case_suffix
@@ -195,6 +216,7 @@ class GeneratedELMAgent:
         self.case_dir     = None
         self.is_built     = False
         self.is_completed = False
+        self.forcing_written = None
 
         logger.info(
             f"ELMAgent init: suffix={case_suffix} | "
@@ -478,8 +500,20 @@ class GeneratedELMAgent:
             # lets a CONUS gridcell be subset straight into a finidat, with no
             # carrier file and no prior run. elm_surface_generator folds
             # PCT_CROP into PCT_NATVEG so the surfdata agrees with this.
-            "create_crop_landunit = .false.\n"
-            "hist_fincl1 = "
+            #
+            # THE REASON IS THE WARM START, so a COLD case does not have it.
+            # With no finidat there is no restart layout to match, and the
+            # constraint costs rather than buys: a cold conceptual run builds
+            # its surface from the default template, which is the new CFT-based
+            # format, and ELM refuses that outright —
+            #     ERROR: New format surface datasets require
+            #            create_crop_landunit TRUE   (surfrdMod.F90:1061)
+            # Every one of the first conceptual runs died there. Keyed on
+            # finidat rather than on an archetype flag because the restart is
+            # the thing the setting is about.
+            + (f"create_crop_landunit = "
+               f"{'.false.' if finidat else '.true.'}\n")
+            + "hist_fincl1 = "
             "'RAIN','SNOW','QOVER','QDRAI','QCHARGE',"
             "'TWS','H2OSOI','SOILLIQ','ZWT','WA',"
             "'H2OSNO','QSNOMELT','QINFL','QSOIL','QVEGE','QVEGT'\n"
@@ -487,15 +521,94 @@ class GeneratedELMAgent:
             "hist_mfilt  = 365\n"
         )
 
+        # Written weather, when the design asked for it. Must happen BEFORE
+        # user_nl_datm is written, because a flat-solar level adds a line to it
+        # — composing the file from both sources in one write is what stops the
+        # two from racing each other's content.
+        datm_namelist = FIXED_NAMELISTS['datm'] + self._write_prescribed_forcing()
+
         namelists = {
             'elm':    elm_namelist,
-            'datm':   FIXED_NAMELISTS['datm'],
+            'datm':   datm_namelist,
         }
 
         for name, content in namelists.items():
             nl_file = self.case_dir / f"user_nl_{name}"
             nl_file.write_text(content)
             logger.info(f"Wrote user_nl_{name}")
+
+    def _write_prescribed_forcing(self) -> str:
+        """Write the DATM files and the user stream file. Returns namelist lines.
+
+        A NO-OP WITHOUT A SPEC, which is every site run and every conceptual run
+        that kept the real weather — so this method existing changes nothing
+        about the path that already works.
+
+        RAISES ON FAILURE rather than logging and continuing. A missing stream
+        file does not stop the run: CIME generates its own, DATM reads gridded
+        NLDAS, and the case completes on the weather of whatever real cell the
+        column sits in. The run record would say the weather was prescribed and
+        the output would be the borrowed climate — the exact confusion this
+        capability exists to remove.
+        """
+        import forcing
+
+        if self.prescribed_weather is None:
+            # A CLONE INHERITS THE REFERENCE CASE'S FILES. create_clone copies
+            # the case directory, so a case with no written weather that was
+            # cloned from one that had it would start life holding the
+            # reference's user stream file — and run on the reference column's
+            # weather while every record said it used NLDAS. Deleting it is the
+            # difference between "this case has no prescribed weather" and
+            # "nobody wrote one for this case".
+            stale = self.case_dir / forcing.USER_STREAM_FILE
+            if stale.exists():
+                stale.unlink()
+                logger.info(f"Removed inherited {forcing.USER_STREAM_FILE} — "
+                            f"this case has no prescribed weather")
+            return ""
+
+        # The stream's domainInfo must name the SAME domain file the case uses,
+        # or DATM interpolates the written cell onto a grid it was not written
+        # for. Both come off the runtime config so they cannot disagree.
+        dom_path = self.runtime_config.get('LND_DOMAIN_PATH',
+                                           FIXED_XML['LND_DOMAIN_PATH'])
+        dom_file = self.runtime_config.get('LND_DOMAIN_FILE',
+                                           FIXED_XML['LND_DOMAIN_FILE'])
+        y0 = int(self.runtime_config['DATM_CLMNCEP_YR_START'])
+        y1 = int(self.runtime_config['DATM_CLMNCEP_YR_END'])
+
+        # The column's own coordinates, read from the domain file rather than
+        # passed in. mapalgo="nn" makes DATM take the nearest forcing cell
+        # without checking containment, so a file written at any other point
+        # would be used anyway and the run would finish on weather from a place
+        # nobody chose.
+        lat, lon = self._domain_latlon(Path(dom_path) / dom_file)
+
+        written = forcing.install(
+            case_dir    = self.case_dir,
+            data_dir    = self.case_dir / "prescribed_forcing",
+            spec        = self.prescribed_weather,
+            lat         = lat,
+            lon         = lon,
+            years       = range(y0, y1 + 1),
+            domain_file = str(Path(dom_path) / dom_file),
+            src_dir     = forcing.real_nldas_dir(),
+        )
+        self.forcing_written = written
+        logger.info(f"Wrote prescribed forcing: {written['fill']} "
+                    f"{written['values'] or ''} — {written['n_files']} file(s) "
+                    f"at ({lat:.4f}, {lon:.4f}), stream "
+                    f"{Path(written['stream_file']).name}")
+        return written["namelist"]
+
+    @staticmethod
+    def _domain_latlon(domain_path: Path) -> tuple:
+        """The single gridcell's centre, from the domain file the case uses."""
+        import netCDF4 as nc
+        with nc.Dataset(str(domain_path)) as d:
+            return (float(d.variables['yc'][:].ravel()[0]),
+                    float(d.variables['xc'][:].ravel()[0]))
 
     def _setup_case(self):
         """case.setup only (regenerate run-dir namelists + .env_mach_specific,

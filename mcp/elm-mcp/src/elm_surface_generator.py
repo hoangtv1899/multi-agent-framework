@@ -331,7 +331,14 @@ class ELMSurfaceGenerator:
                 "Install with: pip install netcdf4 xarray"
             )
 
-        self.template_path = Path(template_path)
+        # `None` MEANS THE DEFAULT, not a crash. The signature's default is
+        # SURFACE_TEMPLATE, but a caller passing template_path=None explicitly
+        # bypasses it — and that is exactly what a cold run does, because no
+        # warm start ran to subset a donor surfdata. Path(None) then raised
+        # inside a caller that swallows exceptions, so FSURDAT came back unset
+        # and every column silently fell through to one shared default soil.
+        # On a texture sweep that is four identical runs wearing four labels.
+        self.template_path = Path(template_path or SURFACE_TEMPLATE)
         self.output_dir    = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 

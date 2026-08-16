@@ -54,6 +54,60 @@ _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT / "src"))
 
 from core import run_layout as _layout          # noqa: E402
+from core.keyset import KeySet                  # noqa: E402
+
+
+# EVERY KEY OF experiment.json, SAID OUT LOUD. This is the list that broke:
+# `spinup_dropped` was measured by the extractor, folded into the package, and
+# read by step 4 — and arrived None for six days, because the dict below was
+# eleven names long and that was not one of them. Nothing raised, because a
+# whitelist that drops looks exactly like a whitelist that is right.
+#
+# The package is not copied wholesale into `data` for a reason that has not
+# changed: `data` is the ONLY place a reported number may come from, and the
+# audit in step 3 strikes any claim citing a number that is not in it. Putting
+# the question, the goals and the caveats in there would make them citable as
+# evidence. So the split stays — and it now has to be stated.
+_EXPERIMENT = KeySet(
+    "ctx.data",
+    keep = ("model", "columns", "columns_total", "columns_succeeded",
+            "variable_units", "field_semantics", "boundary", "grid", "bands",
+            "spinup_dropped",
+            # WHICH KIND OF STUDY. Kept on the DATA side, not routed to
+            # ctx.plan with the rest of the question, because the stages that
+            # branch on it are reading the evidence: step1_compare skips the
+            # observation comparison on a sweep, and it needs to know that
+            # from the artifact it was handed rather than by inferring it from
+            # a missing basin — an inference that reads a failed fetch as a
+            # design decision. ctx.plan carries its own copy from the
+            # strategy; both come from the same word.
+            "archetype"),
+    drop = {
+        # ── routed to ctx.plan: the QUESTION, not the evidence ──────────
+        "domain":     "-> ctx.plan.domain — what was asked about",
+        "period":     "-> ctx.plan.period",
+        "goals":      "-> ctx.plan.goals",
+        "sampling_domain": "-> ctx.plan.sampling — the design, which the "
+                           "interpreter reads to know the scope and may not "
+                           "cite as a result",
+        # ── routed to ctx.caveats: what the run cannot support ──────────
+        "limitations": "-> _caveats() — the honesty payload the manager "
+                       "folded in from extra_summary. Blocking caveats are "
+                       "promoted there, so it must not also be evidence",
+        "assumptions_ledger": "-> _caveats()",
+        "strategy_check":     "-> _caveats()",
+        # ── genuinely not carried ───────────────────────────────────────
+        "run_dir":   "the context carries its own run_dir, resolved from the "
+                     "directory actually opened rather than from a path "
+                     "recorded when the package was written",
+        "created":   "when the package was written. The report dates the RUN "
+                     "from the scheduler, which is the clock that ran it",
+        "artifacts": "the manager's index of files it wrote. A reader wanting "
+                     "a figure gets its path from the finding that cites it",
+    },
+    source = "experiment.json (top level)",
+    where  = "src/agents/analysis/step0_context.py :: _EXPERIMENT",
+)
 
 # Severity is about what a caveat DOES to a claim, not how bad it sounds.
 BLOCKING = "blocking"       # a claim of this kind must not be made at all
@@ -87,6 +141,38 @@ class AnalysisContext:
         # frame, and why. Read by step 2's catalog, so the figure planner is
         # told what is absent instead of discovering it as an empty groupby.
         self.series_withheld: Dict[str, Dict[str, Any]] = {}
+        # BUILT ONCE PER CONTEXT. Each frame is reconstructed from the packaged
+        # rows, and script_runner rebuilds all three for EVERY figure it runs —
+        # five figures meant five rebuilds and five pickles of the same ~66k
+        # rows. Nothing mutates a frame in place, so one copy serves everyone.
+        # A sentinel rather than None, because None is a real answer here: it
+        # means this run has no frame of that kind.
+        self._frames: Dict[str, Any] = {}
+
+    # ── the frames, built once ──────────────────────────────────────────
+    def _frame(self, name: str):
+        """Cached frame. `_build_<name>` does the work exactly once."""
+        if name not in self._frames:
+            try:
+                self._frames[name] = getattr(self, f"_build_{name}")()
+            except Exception:                                   # noqa: BLE001
+                # A frame this run cannot build is None, the same answer a run
+                # without that output gives. Raising here would take down every
+                # caller of a frame they may not even need.
+                self._frames[name] = None
+        return self._frames[name]
+
+    def series(self):
+        """Model daily series as a tidy long frame, or None. See _build_series."""
+        return self._frame("series")
+
+    def soil(self):
+        """The soil column through time, or None. See _build_soil."""
+        return self._frame("soil")
+
+    def profiles(self):
+        """Depth profiles, or None. See _build_profiles."""
+        return self._frame("profiles")
 
     # ── the rule the split exists to enforce ────────────────────────────
     @property
@@ -97,7 +183,7 @@ class AnalysisContext:
         """Caveats that forbid a class of claim outright."""
         return [c for c in self.caveats if c.get("severity") == BLOCKING]
 
-    def series(self):
+    def _build_series(self):
         """Model daily series as a TIDY long frame, or None without pandas.
 
             date | entity | variable | value | units | source
@@ -188,7 +274,7 @@ class AnalysisContext:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         return df
 
-    def soil(self):
+    def _build_soil(self):
         """The soil column through time, as a TIDY long frame, or None.
 
             entity | date | layer | depth_m | thickness_m
@@ -258,7 +344,7 @@ class AnalysisContext:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         return df
 
-    def profiles(self):
+    def _build_profiles(self):
         """Depth profiles as a TIDY long frame, or None when the run has none.
 
             entity | time_y | depth_m | variable | value | units | source
@@ -300,6 +386,72 @@ class AnalysisContext:
         return pd.DataFrame(recs, columns=["entity", "time_y", "depth_m",
                                            "variable", "value", "units",
                                            "source"])
+
+    # ── what this run can actually support ──────────────────────────────
+    def preflight(self) -> Dict[str, Any]:
+        """What is here to analyse, decided before anything is spent on it.
+
+        THE CHEAP HALF OF A FIX THAT WAS ALWAYS THE EXPENSIVE HALF. A run whose
+        packaged columns carry no usable series reached step 2, spent a model
+        call on five figure specifications, and discovered the absence one
+        script at a time inside the runner — five subprocesses to learn
+        something knowable here. A Brandywine run spent both rounds and four
+        model calls to establish that the field it needed was in no frame.
+
+        Three consumers, one computation:
+
+            the gate    Analyzer.run() skips steps 2-3 when `blocked` is set,
+                        rather than paying to be told
+            the filter  step 2 refuses a proposed figure whose variables are
+                        not in any frame, before running its script
+            the brief   the model is shown this, so it proposes what exists
+
+        NOT A VERDICT ON THE SCIENCE. It reports what the packaged run
+        contains. Whether that answers the user's question is step 3's to say.
+        """
+        frames: Dict[str, Any] = {}
+        available: set = set()
+        for name in ("series", "soil", "profiles"):
+            f = self._frame(name)
+            cols = getattr(f, "columns", None)
+            if f is None or cols is None or not len(f):
+                frames[name] = None
+                continue
+            vars_ = (sorted({str(v) for v in f["variable"].dropna().unique()})
+                     if "variable" in cols else [])
+            frames[name] = {"rows": int(len(f)), "variables": vars_}
+            available |= set(vars_)
+
+        # WHY A VARIABLE IS NOT THERE, from the frame builder that refused it.
+        # "H2OSOI is absent" and "H2OSOI is depth-resolved and lives in `soil`"
+        # lead a reader to opposite conclusions.
+        withheld = {k: v.get("why") for k, v in
+                    (self.series_withheld or {}).items()}
+
+        # THE PLANNER ALREADY SAID WHETHER THIS WAS FEASIBLE. Carried into
+        # ctx.plan since step 0 was written and read by nothing until now: the
+        # stage whose job is judging whether a study can answer the question
+        # published a verdict, and the stage that spends the model calls
+        # ignored it.
+        feasibility = (self.plan or {}).get("feasibility")
+        unmet = [c for c in self.planned_vs_actual() if not c.get("ok")]
+
+        blocked = None
+        if not self.columns:
+            blocked = ("this run packaged no columns, so there is nothing to "
+                       "investigate")
+        elif not any(frames.values()):
+            blocked = ("this run has no daily series, no soil layers and no "
+                       "depth profiles — every generated script would fail on "
+                       "the same missing frame")
+
+        return {"frames": frames,
+                "variables": sorted(available),
+                "withheld": withheld,
+                "feasibility": feasibility,
+                "unmet_plan_targets": unmet,
+                "n_columns": len(self.columns),
+                "blocked": blocked}
 
     def planned_vs_actual(self) -> List[Dict[str, Any]]:
         """Did the run do what was asked? One record per checked claim.
@@ -399,8 +551,19 @@ def _caveats(experiment: Dict[str, Any],
                 text, where, kind_ = lim, "all claims", kind
             if not text:
                 continue
+            # AN EXPLICIT SEVERITY WINS. The kind rule below is a good default
+            # for the two original families — structural forbids a comparison,
+            # configuration qualifies a number — but it cannot speak for a
+            # family whose entries differ from each other. The conceptual set
+            # is exactly that: "nothing was compared against a measurement"
+            # forbids every quantitative claim, while "the soils are synthetic
+            # and uniform" qualifies one. Derived from the kind, both came out
+            # `qualify` and the blocking one stopped binding.
+            sev = str(lim.get("severity") or "").strip().lower() \
+                if isinstance(lim, dict) else ""
             add(f"limitation_{kind_}_{n}",
-                BLOCKING if str(kind_).startswith("structural") else QUALIFY,
+                sev if sev in (BLOCKING, QUALIFY) else
+                (BLOCKING if str(kind_).startswith("structural") else QUALIFY),
                 text, where, "experiment.json:limitations")
 
     # assumptions_ledger entries are {parameter, value, source, note} — there
@@ -429,6 +592,19 @@ def _caveats(experiment: Dict[str, Any],
         add("bbox_not_watershed", BLOCKING, sd["caveat"],
             "any claim about the watershed as a whole",
             "experiment.json:sampling_domain")
+
+    # A TRIM THAT WAS NEEDED AND DID NOT FIT. The extractor drops the start-up
+    # transient before any statistic, but it cannot drop more record than the
+    # run produced: a one-year cold run wants a year gone and has nothing left
+    # over. The series that reaches step 3 is then entirely transient, and the
+    # only thing standing between that and an annual mean presented as physics
+    # is this caveat.
+    drop = experiment.get("spinup_dropped") or {}
+    if drop and not drop.get("applied") and drop.get("note"):
+        add("spinup_not_trimmed", BLOCKING,
+            f"{drop['note']} ({drop.get('reason')})",
+            "any mean, total or trend over the run period",
+            "experiment.json:spinup_dropped")
 
     for i, corr in enumerate((experiment.get("strategy_check") or {})
                              .get("corrections") or []):
@@ -491,28 +667,20 @@ def load(run_dir: str) -> AnalysisContext:
     }
 
     # DATA — the evidence, and the only place a reported number may come from.
-    data = {
-        "model":             experiment.get("model"),
-        "columns":           experiment.get("columns") or [],
-        "columns_total":     experiment.get("columns_total"),
-        "columns_succeeded": experiment.get("columns_succeeded"),
-        "variable_units":    experiment.get("variable_units") or {},
-        "field_semantics":   experiment.get("field_semantics") or {},
-        "boundary":          experiment.get("boundary"),
-        "grid":              experiment.get("grid"),
-        "bands":             experiment.get("bands"),
-        # WHAT THE WARM-START TRIM REMOVED. This dict is a WHITELIST, so a key
-        # the manager adds to experiment.json reaches step 4 only if it is
-        # named here — and step 4 has read ctx.data["spinup_dropped"] since it
-        # was written. The value was wired into the package on 2026-08-13 and
-        # still arrived as None, because it was dropped one layer later, here.
-        "spinup_dropped":    experiment.get("spinup_dropped"),
-        # Observations come from RECEPTION, which fetched them once the period
-        # was fixed. The Analyzer does not re-fetch: a second fetch can
-        # disagree with the first, and then the run's own record is not what
-        # was compared against.
-        "observations":      reception.get("observations") or {},
-    }
+    #
+    # take() raises if the manager wrote a key _EXPERIMENT above neither keeps
+    # nor drops. It is the assertion `spinup_dropped` needed: the value existed
+    # in experiment.json, the reader existed in step 4, and the only thing
+    # missing was a name on the list. That is now a stop, not a null.
+    data = _EXPERIMENT.take(experiment)
+    data["columns"]         = data["columns"] or []
+    data["variable_units"]  = data["variable_units"] or {}
+    data["field_semantics"] = data["field_semantics"] or {}
+    # Observations come from RECEPTION, which fetched them once the period was
+    # fixed, so they are not on the experiment list at all. The Analyzer does
+    # not re-fetch: a second fetch can disagree with the first, and then the
+    # run's own record is not what was compared against.
+    data["observations"]    = reception.get("observations") or {}
 
     return AnalysisContext(
         run_dir = str(rd),

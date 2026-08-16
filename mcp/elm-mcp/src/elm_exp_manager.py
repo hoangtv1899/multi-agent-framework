@@ -25,8 +25,6 @@ Output directory structure:
         │   └── warmstart.json
         ├── 01_inputs/
         │   └── experiment_summary.json
-        ├── 02_setup_plots/
-        │   └── column_surfaces.png                 (real FSURDAT per column)
         ├── 03_results/
         │   ├── execution_report.txt  results_summary.csv
         │   └── extracted.json          (the record of what was READ)
@@ -137,6 +135,51 @@ class ELMExpManager(ExperimentManagerBase):
 		"""CONDITIONS_COUPLERS is ELM's executable payload (the legacy shape)."""
 		return bool(plan.get("CONDITIONS_COUPLERS"))
 
+	def _build_sweep_columns(self, design: Dict[str, Any],
+							 config: Dict[str, Any]) -> Dict[str, Any]:
+		"""A controlled sweep's columns, built by the server that runs them.
+
+		The base knows a sweep is one column per level combination. Only this
+		server knows that a soil_texture level of 27 becomes a synthetic
+		surface dataset with those percentages in it, or that two coordinates
+		in one NLDAS cell would share their weather exactly — so the design
+		crosses the MCP boundary and comes back as columns.
+
+		CHECKED FIRST, AND SEPARATELY. build_conceptual_columns refuses an
+		unbuildable design on its own, but its refusal is an exception with a
+		list in it. Calling check first means the run stops with every reason
+		named at once, including the ones that would NOT have refused — a level
+		outside the fitted range builds fine and still belongs in the log
+		before an hour of compute rather than after.
+		"""
+		client = self._mcp(config)
+		if client is None:
+			raise RuntimeError(
+				"the elm MCP is required to build a controlled sweep — what a "
+				"factor level becomes is this server's knowledge. Register an "
+				"`elm` client in mcp_config.json.")
+
+		verdict = self._mcp_call(client, "check_conceptual_design",
+								 {"design": design}) or {}
+		for f in (verdict.get("facts") or []):
+			print(f"   · {f.get('what')}: {f.get('detail')}")
+		for u in (verdict.get("unusual") or []):
+			print(f"   ⚠️  {u.get('factor')}: {u.get('why')}")
+		if not verdict.get("buildable", False):
+			why = "\n".join(f"     - {w.get('factor')}: {w.get('why')}"
+							for w in (verdict.get("wont_build") or []))
+			raise RuntimeError(
+				f"the elm server refused this sweep design:\n{why}")
+
+		out = self._mcp_call(client, "build_conceptual_columns",
+							 {"design": design}) or {}
+		if not out.get("columns"):
+			raise RuntimeError(
+				"build_conceptual_columns returned no columns for a design the "
+				"server had just called buildable — the check and the builder "
+				"disagree, which they share code precisely to prevent.")
+		return out
+
 	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
 		"""ONE MCP call: warm start, donor soil, surfaces, case_inputs.json.
 
@@ -167,7 +210,7 @@ class ELMExpManager(ExperimentManagerBase):
 				"by-import path was deleted 2026-08-10 (docs/EXP_MANAGER_ELM.md "
 				"§4). Register an `elm` client in mcp_config.json.")
 		yr_start = int((config or {}).get("yr_start", 1995))
-		ws = (config or {}).get("warm_start")
+		ws = (config or {}).get("warm_start", True)
 		out = self._mcp_call(client, "build_elm_inputs_from_location", {
 			"run_dir":       str(self.run_dir),
 			"columns":       columns,
@@ -175,6 +218,10 @@ class ELMExpManager(ExperimentManagerBase):
 			"yr_end":        int((config or {}).get("yr_end", yr_start)),
 			"soil_config":   str((config or {}).get("soil_config", "native")),
 			"substrate":     str((config or {}).get("substrate", "extrapolate")),
+			# FORWARDED EXPLICITLY. Only conus_restart used to cross, so
+			# warm_start=False could not be expressed at all and a cold sweep
+			# was built warm while its columns claimed otherwise.
+			"warm_start":    ws is not False,
 			"conus_restart": str((ws or {}).get("conus_restart", "")
 								 if isinstance(ws, dict) else ""),
 		}, budget=900)
@@ -533,12 +580,11 @@ exit $?
 				f"_refine_columns should have written it via the elm MCP")
 		return rows
 
-	# 02_setup_plots/column_surfaces.png — the soil each column ACTUALLY got —
-	# is drawn by the MCP's build job (mcp/elm-mcp/scripts/ensemble_job.py). It
-	# has to be: it reads each case's generated FSURDAT through its `run/lnd_in`,
-	# which does not exist until the case is built, and the build happens on the
-	# compute node. Drawing it from here was left behind by the move to jobs A+B
-	# and produced nothing for two studies.
+	# NO BUILD-TIME SURFACE FIGURE (deleted 2026-08-14, by request).
+	# column_surfaces.png was drawn by the MCP's build job because it read each
+	# case's generated FSURDAT through its `run/lnd_in`, which exists only after
+	# the build. sampling_design.png shows the same soil from the donor data,
+	# post-warm-start, and is the figure that gets looked at.
 
 	BUILT_CASES = "built_cases.json"
 
@@ -810,8 +856,17 @@ exit $?
 					# then could be True, a dict, or a string; with one source
 					# the question is answered here instead of re-derived.
 					warm_source   = "conus",
-					soil_source   = "conus",   # warm start is required; the
-					# donor's surfdata is always what ELM runs on
+					# WHAT THE RUN ACTUALLY DID, not what a site run always
+					# does. Both of these were hardcoded on the premise that a
+					# warm start is required and the donor's surfdata is always
+					# what ELM runs on. A conceptual sweep is cold and
+					# prescribes its own soil, so both were simply false there,
+					# and the caveat list described a different run.
+					soil_source   = str(couplers[0].get("SOIL_SOURCE") or "conus"),
+					archetype     = str((cfg.get("strategy") or {}).get("archetype")
+										or (cfg.get("brief") or {}).get("design_archetype")
+										or ""),
+					written_weather = bool(couplers[0].get("PRESCRIBED_WEATHER")),
 				),
 				"assumptions_ledger": (
 					json.loads((self.run_dir / "assumptions.json").read_text())
@@ -860,9 +915,13 @@ exit $?
 		# it and never found it.
 		drop = spinup_dropped(self.run_dir)
 		if drop:
-			print(f"   ✓ warm-start trim recorded: {drop['days']} d, "
-				  f"{drop['timesteps_dropped']} timestep(s), "
-				  f"from {drop['from']} to {drop['to']}")
+			span = (f", from {drop['from']} to {drop['to']}"
+					if drop.get("applied") else "")
+			print(f"   ✓ {drop.get('basis', 'start-up')} trim recorded: "
+				  f"{drop['days']} d, {drop['timesteps_dropped']} timestep(s)"
+				  f"{span}")
+			if drop.get("note"):
+				print(f"   ! {drop['note']}")
 
 		# THE STAGE'S OUTPUT IS DATA — a plain dict in the contract's shape, not
 		# a live object the base has to read with getattr. That was the last
