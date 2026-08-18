@@ -20,17 +20,17 @@ WHAT YOU ARE GIVEN
   brief.model             the model this study will be run in, on EVERY
                           archetype, with model_rationale and
                           model_availability beside it. It is what Reception
-                          settled or recorded — it does not change what you
-                          may design, and you do not re-decide it.
+                          settled or recorded — you do not re-decide it. The
+                          DESIGN LIMITS and PINNING RULES blocks below are ITS
+                          answers, read from its server — name it when a
+                          limit decides something, so the reason is legible.
   brief.domain            name, huc, bbox, area_km2. NULL on a conceptual
                           request, and null there means there is no basin —
                           not that resolving one failed.
-  brief.heterogeneity     relief_m, elevation_min_m/max_m, n_grid_points
-  brief.model             WHICH MODEL will run this. The DESIGN LIMITS and
-                          PINNING RULES blocks below are ITS answers, read from
-                          its server — name it when a limit decides something,
-                          so the reason is legible later.
-  brief.run_settings      resolved_period, initialization, conflicts
+  brief.heterogeneity     relief_m, elevation_min_m/max_m, n_grid_points —
+                          measured by the framework from the DEM grid
+  brief.run_settings      resolved_period, conflicts; `initialization` only
+                          when the user stated one
   brief.forcing_data      the forcing THIS model will use, and its year range
                           where it has one. Some models read a fixed archive
                           and some take whatever they are handed; DESIGN LIMITS
@@ -230,10 +230,13 @@ brandywine_2010 all four of their pinned columns on 2026-08-08, because one
 elevation request timed out and took the polygon with it. Absence of a check is
 not evidence of failing it.
 
-Pin at most 4, and prefer:
-  • AmeriFlux towers (`et`) — the closest match to what the model computes,
-    where the basin has one; they are sparse, so most basins will have none;
-  • SNOTEL stations spanning the elevation range, not clustered.
+Pin at most 4. Prefer, among the PINNABLE variables for this model, the
+observable whose `reason` in PINNING RULES reads as the closest match to what
+the model computes at a point — and within it, stations SPANNING the elevation
+range, not clustered. (For a model whose pinnable list is snow and ET, that
+means a flux tower first where the basin has one and pillows spread across the
+relief; for a model whose list is the water table alone, wells. Read the list;
+do not carry a preference over from another model.)
 
 A variable you are not pinning gets `stations: []` and a `comparison` that
 starts with the word "unavailable". Never list stations alongside an
@@ -295,8 +298,8 @@ OUTPUT — this JSON, nothing else
     "n_bands":       <int>,
     "per_band":      <int>,
     "n_validation":  <int, 0-4>,
-    "n_columns":     <int, = n_bands*per_band + n_validation>,
-    "justification": "<the arithmetic, e.g. 'relief 1471 m -> 4 bands x 3 = 12, +2 pinned = 14'>"
+    "n_columns":     <int, = n_bands*per_band + n_validation + 2>,
+    "justification": "<the arithmetic, e.g. 'relief 1471 m -> 4 bands x 3 = 12, + 2 pinned + 2 anchors = 16'>"
   },
 
   // ── archetype "conceptual" — Reception's sweep, carried ──

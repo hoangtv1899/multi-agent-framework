@@ -16,7 +16,6 @@ import re
 from typing import Any, Dict
 
 from agents.prompts import load_prompt
-from core.sweep_menu import render_sweep_menu
 from core.model_servers import model_tools
 from agents.tool_loop import ToolLoopAgent
 from core import data_gather as gather
@@ -34,15 +33,15 @@ from core import data_gather as gather
 #
 # The model's job is the part that needs judgement: what is being asked, where,
 # and when. The subsurface and the rain are not among the LLM's tools either —
-# ELM gets both from its own inputs (the CONUS 1 km donor gridcell the warm
-# start subsets, and NLDAS-2 off disk), and what a non-ELM model needs is
-# fetched by code (gather_subsurface, gather_precipitation), not chosen.
+# whichever model needs them gets them from the package, fetched by code
+# (gather_subsurface, gather_precipitation), not chosen.
 #
 # WHICH MODEL IS THE EXCEPTION, and deliberately so. It is a judgement, not a
 # fetch, and it is the one judgement that used to be made for the LLM by code
-# before the request was even read. `list_servers` and `describe_server` are
-# LOCAL tools — the framework answers them, no server is asked — so they are
-# not in this allowlist; see model_servers.model_tools.
+# before the request was even read. `list_servers`, `describe_server` and
+# `describe_sweep` are LOCAL tools — the framework answers them, no server is
+# asked until one is named — so they are not in this allowlist; see
+# model_servers.model_tools.
 DEFAULT_ALLOWLIST = {
     "terrain__resolve_watershed",
     "terrain__get_elevation",        # fallback: a point or town, no HUC given
@@ -93,20 +92,20 @@ class LLMReceptionAgent:
                  max_rounds: int = 14,
                  verbose: bool = True,
                  interactive: bool = False):
-        # THE FORCING WINDOW IS NO LONGER SUBSTITUTED HERE (2026-08-17). It was,
-        # from core/forcing_availability.py — framework code that opened ELM's
-        # DATM directory and parsed ELM's filenames. Two things were wrong with
-        # that: it put ELM knowledge in front of the MCP boundary, and it pasted
-        # ELM's answer into EVERY request. A PFLOTRAN study of 2024 was refused
-        # because ELM's forcing stops in 2023, which is not a fact about that
-        # study at all.
+        # NOTHING IS SUBSTITUTED INTO THE PROMPT ANY MORE (2026-08-18). Two
+        # things used to be: the forcing window (until 2026-08-17, from
+        # framework code that opened ELM's DATM directory) and the sweep menu
+        # (until today, rendered from a call hardcoded to "elm"). Both were one
+        # model's answer pasted into EVERY request before the request was read
+        # — a PFLOTRAN study of 2024 was refused for a gap in ELM's forcing,
+        # and a PFLOTRAN sweep would have been offered ELM's factors under a
+        # heading saying they came from "the model server just now".
         #
-        # The window now comes from the model's own report, under
-        # `constraints.forcing.years`, read by the same describe_server call
-        # reception already makes to choose a model. STEP 5 says so.
-        self.system = load_prompt(
-            "reception_agentic",
-            sweep_menu=render_sweep_menu(mcp_clients))
+        # Everything about a model now comes from that model's own server, read
+        # by the LLM after it has named it: the forcing window and the initial
+        # state under `constraints`, the sweep menu from describe_sweep. The
+        # prompt says how to read them, once, for any model.
+        self.system = load_prompt("reception_agentic")
         self._clients = mcp_clients or {}
         # THE MODEL IS CHOSEN BY READING, NOT BY LOOKUP (2026-08-17). There
         # used to be a third substituted block here, a MENU of models that this

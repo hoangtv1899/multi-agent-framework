@@ -259,12 +259,28 @@ class TestWarmStartIsTheDefault:
     # public path builds a run's config, not through the module that happens
     # to hold it this month.
 
-    def test_the_prompt_agrees_with_the_code(self):
-        """If the prompt still said 'otherwise cold', reception would report a
-        cold start while the manager warm-started — the run record would be
-        wrong about what it did."""
+    def test_the_prompt_states_no_default_and_defers_to_the_model(self):
+        """The prompt used to say DEFAULT IS WARM — thirty lines of one model's
+        initialization applied to every request (2026-08-18). It states no
+        default now: the model's own report says how a column starts
+        (`constraints.initial_state`), and reception emits `initialization`
+        only when the USER stated one. So the disagreement this test guarded
+        against — prompt says cold, manager warm-starts — cannot arise: the
+        prompt no longer says either."""
         p = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
-        assert "DEFAULT IS WARM" in p
+        assert "DEFAULT IS WARM" not in p and "otherwise cold" not in p
+        assert "constraints.initial_state" in p
+        assert "unless the USER stated a preference" in p
+
+    def test_the_code_still_warm_starts_unless_the_user_said_cold(self):
+        """The behaviour the deleted test lost — through the function that
+        builds a run's config, not the module that happens to hold it."""
+        import importlib.util as u
+        spec = u.spec_from_file_location("wf", ROOT / "workflow.py")
+        wf = u.module_from_spec(spec); spec.loader.exec_module(wf)
+        assert wf._elm_config({}, initialization=None).get("warm_start") is True
+        assert wf._elm_config({}, initialization={"mode": "warm"}).get("warm_start") is True
+        assert "warm_start" not in wf._elm_config({}, initialization={"mode": "cold"})
 
 
 class TestDonorSoilProfile:

@@ -271,6 +271,130 @@ def gather_grid(clients, bbox: Dict[str, float], huc: str = "", boundary=None,
 MAX_SWE_SERIES = 12
 
 
+def gather_precipitation(clients, grid: Dict[str, Any],
+                         yr_start: int, yr_end: int,
+                         provenance: List[Dict[str, Any]] = None
+                         ) -> Dict[str, Any]:
+    """Daily rainfall at every point a column could be placed on.
+
+    THE SAME POINTS AS gather_grid. The columns do not exist yet, but the
+    sampler chooses its stratified columns from this grid, so a value at every
+    grid point is a value at every column it can produce. Keyed by a "lat,lon"
+    string, so a column reads its rain with one lookup. A PINNED column sits at
+    a station and is not covered here — `covers` says so.
+
+    RESTORED 2026-08-18. The edit that retired gather_soil that morning sliced
+    the file from `def gather_soil(` to `def gather_subsurface(`, and this
+    function sat between them; reception went on calling it, nothing tested
+    it, and no reception ran in the hours before the commit. Recovered from
+    the session record, verbatim, and put back.
+
+    UNCONDITIONAL, never gated on which model was chosen. ELM reads NLDAS-2
+    from disk and will not touch this; fetching it anyway is what keeps two
+    runs of the same basin carrying the same provenance.
+
+    THE CALENDAR IS STORED ONCE. Daymet hands back `year` and `yday` beside
+    every point's values, and those two lists are identical at every point in
+    one period. Fifty-eight copies of the same 365 pairs measured 367,765
+    bytes against 121,262 with them lifted out — 67% of the block was one
+    calendar written 58 times. Align a series by POSITION into `calendar`:
+    Daymet drops 31 December in leap years, so counting days off a real
+    calendar drifts by one after every leap year.
+
+    SIZE SCALES WITH POINTS x YEARS x 365, at about 5.5 bytes a value. One
+    year over a 58-point grid is 121 KB; twenty years is about 2.4 MB. Nothing
+    is dropped and nothing is summarised — a monthly total cannot force an
+    infiltration model, so a cap here would quietly remove the reason the
+    block exists. The planner never sees it (it is a sibling of `brief`).
+
+    WHAT IT CANNOT DO. Daymet begins in 1980 and covers North America only.
+    An earlier period or a point off the tiles comes back ok=False with the
+    reason kept — an ELM run of 1979 records the refusal and is unaffected,
+    because ELM was never going to read this.
+    """
+    prov = provenance if provenance is not None else []
+    pts = (grid or {}).get("points") or []
+    if not pts:
+        return {"ok": False, "n_points": 0, "n_with_data": 0, "series": {},
+                "error": "no grid points to fetch precipitation for"}
+    if not isinstance(yr_start, int) or not isinstance(yr_end, int):
+        return {"ok": False, "n_points": len(pts), "n_with_data": 0,
+                "series": {}, "error": "no resolved period to fetch"}
+
+    # BUDGETED ON THE MEASUREMENT, LIKE SOIL. Daymet is queried per point
+    # upstream, so cost scales with the grid AND the period: 58 points x 1 year
+    # measured 28.9 s against a 300 s registered timeout. Twenty years returns
+    # twenty times the rows per point, which is why this is raised rather than
+    # left at the server's own ceiling.
+    r = _call(clients, "daymet", "get_precipitation_points",
+              {"lats": [p["lat"] for p in pts],
+               "lons": [p["lon"] for p in pts],
+               "start_year": int(yr_start), "end_year": int(yr_end),
+               "variables": "prcp"}, budget=1800.0)
+    rec = {k: r[k] for k in ("tool", "args", "fetched_at", "ok", "error")}
+    prov.append(rec)
+
+    # THE TOOL'S OWN ok, CHECKED SEPARATELY, AND FOLDED BACK INTO PROVENANCE.
+    # This tool reports its failures per point in `failures` and carries no
+    # top-level `error`, so a period before 1980 comes back as a SUCCESSFUL
+    # CALL that fetched nothing. Left alone, provenance would say ok=True
+    # beside an empty block — the one thing provenance exists to prevent.
+    res = r.get("result") or {}
+    ok_pts = {k: v for k, v in (res.get("points") or {}).items()
+              if (v or {}).get("ok")}
+    if not r.get("ok") or not res.get("ok") or not ok_pts:
+        fails = res.get("failures") or []
+        err = (r.get("error") or (fails[0].get("error") if fails else None)
+               or "no point returned a series")
+        rec["ok"], rec["error"] = False, str(err)[:200]
+        return {"ok": False, "n_points": len(pts), "n_with_data": 0,
+                "series": {}, "error": err}
+
+    first = next(iter(ok_pts.values()))
+    series, elevs = {}, {}
+    for key, p in ok_pts.items():
+        # The column name carries its units ("prcp (mm/day)"), which is why it
+        # is matched by prefix rather than looked up as "prcp".
+        name = next((c for c in p.get("series") or {} if c.startswith("prcp")),
+                    None)
+        if name is None:
+            continue
+        series[key] = p["series"][name]
+        elevs[key] = p.get("elevation_m")
+
+    return {
+        "ok": bool(series),
+        "source": res.get("source"),
+        "variable": "prcp",
+        "units": "mm/day",
+        "years": [int(yr_start), int(yr_end)],
+        "n_points": len(pts),
+        "n_with_data": len(series),
+        "n_days": len(first.get("year") or []),
+        "calendar": {
+            "year": first.get("year") or [],
+            "yday": first.get("yday") or [],
+            "note": ("365-day: Daymet drops 31 December in leap years. Stored "
+                     "ONCE because it is identical at every point in one "
+                     "period; align a series by index into these arrays, "
+                     "never by counting days from a real calendar."),
+        },
+        "covers": ("the clipped DEM grid points only — the locations the "
+                   "sampler chooses its STRATIFIED columns from. A column "
+                   "PINNED to a station is not at a grid point and has no "
+                   "series here."),
+        "when": ("PRE-SNAP: candidate locations, before any model moves a "
+                 "column. ELM snaps columns 200-700 m and reads NLDAS-2 from "
+                 "disk rather than this; a model that does not snap matches "
+                 "exactly."),
+        # Daymet's own 1 km cell elevation, kept beside the series because it
+        # is NOT the DEM elevation of the same coordinate: measured across the
+        # Naches grid the two differ by a median 13 m and by up to 267 m.
+        "elevation_m": elevs,
+        "series": series,
+    }
+
+
 def gather_subsurface(clients, bbox_str: str, run_dir=None,
                       provenance: List[Dict[str, Any]] = None) -> Dict[str, Any]:
     """ParFlow CONUS2's subsurface parameters over the basin, as a local file.

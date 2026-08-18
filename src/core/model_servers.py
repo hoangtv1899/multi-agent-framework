@@ -203,11 +203,52 @@ def describe_server(clients, server: str,
     return out
 
 
+def describe_sweep(clients, server: str,
+                   cache: Optional[Dict] = None) -> Dict[str, Any]:
+    """One server's sweep menu — the factors a controlled study may vary.
+
+    The server's JSON, verbatim; the reading rules are in the reception prompt
+    (STEP 2b), stated once for every model rather than rendered per model.
+    A server without the tool, or one that will not answer, gets a plain
+    statement rather than a default: what a model can be told to vary is a
+    property of its code, and inventing a factor costs a queue slot and a
+    designed study that cannot be built.
+
+    ANSWERED FROM THE TOOL LIST WHEN THE TOOL IS ABSENT — the same courtesy
+    describe_server extends: list_servers already fetched every server's tool
+    names, so a server with no describe_conceptual_factors is told so without
+    a round trip that could only come back "unknown tool".
+    """
+    from core.sweep_menu import TOOL, fetch
+    if (clients or {}).get(server) is None:
+        return {"error": f"no server named {server!r} is configured",
+                "configured": sorted(clients or {})}
+    g = _tools_of(clients, cache, server)
+    if g.get("reachable") and TOOL not in (g.get("tools") or []):
+        return {"server": server, "offers_a_sweep": False,
+                "why": f"this server has no {TOOL} tool",
+                "note": ("this server offers no controlled sweep. Do NOT name "
+                         "factors, ranges or defaults from memory; say so to "
+                         "the user, ask what they want to vary in their own "
+                         "words, and record in run_settings.conflicts that "
+                         "the capability list was not verified.")}
+    got = fetch(clients, server)
+    if not got["ok"]:
+        return {"server": server, "offers_a_sweep": False, "why": got["why"],
+                "note": ("this server offers no controlled sweep, or would not "
+                         "answer. Do NOT name factors, ranges or defaults from "
+                         "memory; say the menu could not be read, ask the user "
+                         "what they want to vary in their own words, and "
+                         "record in run_settings.conflicts that the capability "
+                         "list was not verified.")}
+    return {"server": server, "offers_a_sweep": True, "menu": got["menu"]}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # THE TOOLS, as the reception loop takes them
 # ─────────────────────────────────────────────────────────────────────────────
 def model_tools(clients) -> Dict[str, Any]:
-    """`local_tools` for ToolLoopAgent: the two questions, bound to clients.
+    """`local_tools` for ToolLoopAgent: the three questions, bound to clients.
 
     THE CACHES LIVE HERE, one set per reception. Deliberately not module-level:
     a long-lived process that added or restarted a server would keep answering
@@ -261,5 +302,42 @@ def model_tools(clients) -> Dict[str, Any]:
             },
             "fn": lambda server: describe_server(
                 clients, server, cache=tool_cache, reports=report_cache),
+        },
+        # WHAT A CONTROLLED SWEEP MAY VARY, asked of the model the LLM chose —
+        # AFTER it chose (2026-08-18). This used to be RENDERED INTO THE PROMPT
+        # at construction, from a call hardcoded to "elm", so every reception
+        # carried 5,871 characters of ELM's factors under a heading saying
+        # they came from "the model server just now" — before any model had
+        # been named, and for a model that may not offer a sweep at all. The
+        # same class of bug the pinning block had before 08-17. Now it is one
+        # more question the LLM asks, of one server, only on a conceptual
+        # request, and the answer is the server's JSON, unrendered.
+        "describe_sweep": {
+            "schema": {
+                "type": "function",
+                "function": {
+                    "name": "describe_sweep",
+                    "description": (
+                        "What a CONTROLLED SWEEP may vary in one model, from "
+                        "that model's server: the factors it can be told to "
+                        "vary (machine `name`, human `label`, what the levels "
+                        "are, suggested levels or none), what is held fixed, "
+                        "what is true of every sweep, and what cannot be "
+                        "varied. Call it ONLY for a conceptual request, on "
+                        "the model you chose in describe_server, and read "
+                        "factors[].name as the only string you may write into "
+                        "the brief. A server with no sweep says so; that is a "
+                        "true statement about that server, not a failure."),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"server": {
+                            "type": "string",
+                            "description": "the exact name from list_servers"}},
+                        "required": ["server"],
+                    },
+                },
+            },
+            "fn": lambda server: describe_sweep(clients, server,
+                                                cache=tool_cache),
         },
     }
