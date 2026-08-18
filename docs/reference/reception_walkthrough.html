@@ -1,0 +1,1108 @@
+<title>Reception Walkthrough</title>
+<style>
+  :root{
+    --ground:#F6F8F7; --panel:#FFFFFF; --panel-2:#EEF2F1;
+    --ink:#141D1C; --ink-2:#455457; --ink-3:#7A898C;
+    --rule:#DCE3E2; --rule-2:#C6D1D0;
+    --accent:#0E6E7A; --accent-soft:#DCEDEF;
+    --block:#A6342B; --block-soft:#F6E3E1;
+    --qual:#8A6410;  --qual-soft:#F7EEDA;
+    --ctx:#4A6572;   --ctx-soft:#E5EBEE;
+    --serif:Georgia,'Iowan Old Style',ui-serif,serif;
+    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E1514; --panel:#161F1E; --panel-2:#1D2827;
+      --ink:#E7EEEB; --ink-2:#A6B5B4; --ink-3:#7B8A8B;
+      --rule:#273433; --rule-2:#364544;
+      --accent:#5CB8C2; --accent-soft:#12312F;
+      --block:#E58779; --block-soft:#33201D;
+      --qual:#D8AB55;  --qual-soft:#2E2618;
+      --ctx:#9BB2BC;   --ctx-soft:#1C2629;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1514; --panel:#161F1E; --panel-2:#1D2827;
+    --ink:#E7EEEB; --ink-2:#A6B5B4; --ink-3:#7B8A8B;
+    --rule:#273433; --rule-2:#364544;
+    --accent:#5CB8C2; --accent-soft:#12312F;
+    --block:#E58779; --block-soft:#33201D;
+    --qual:#D8AB55;  --qual-soft:#2E2618;
+    --ctx:#9BB2BC;   --ctx-soft:#1C2629;
+  }
+
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);
+       font-size:16px;line-height:1.6;margin:0;padding:0;
+       -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:920px;margin:0 auto;padding:56px 24px 96px;
+        display:flex;flex-direction:column;gap:44px;}
+  p,li{color:var(--ink-2);max-width:70ch;}
+  strong{color:var(--ink);font-weight:600;}
+  code{font-family:var(--mono);font-size:.86em;background:var(--panel-2);
+       padding:.1em .34em;border-radius:3px;color:var(--ink);}
+  h1,h2,h3{font-family:var(--serif);color:var(--ink);text-wrap:balance;
+           font-weight:600;margin:0;line-height:1.25;}
+  h1{font-size:2.1rem;letter-spacing:-.01em;}
+  h2{font-size:1.4rem;}
+  h3{font-size:1.05rem;}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.13em;
+           text-transform:uppercase;color:var(--accent);}
+  header{display:flex;flex-direction:column;gap:12px;
+         border-bottom:1px solid var(--rule);padding-bottom:28px;}
+  header p{font-size:1.05rem;}
+  .meta{font-family:var(--mono);font-size:.78rem;color:var(--ink-3);
+        display:flex;flex-wrap:wrap;gap:6px 18px;}
+
+  section{display:flex;flex-direction:column;gap:18px;}
+
+  figure{margin:0;display:flex;flex-direction:column;gap:10px;}
+  .scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--rule);
+          border-radius:6px;padding:20px;}
+  svg{max-width:100%;height:auto;display:block;color:var(--ink-2);}
+  figcaption{font-size:.85rem;color:var(--ink-3);max-width:70ch;}
+
+  .step{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+        display:grid;grid-template-columns:120px 1fr;gap:0;overflow:hidden;}
+  .step-rail{background:var(--panel-2);padding:18px 16px;
+             border-right:1px solid var(--rule);
+             display:flex;flex-direction:column;gap:10px;}
+  .step-n{font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;
+          text-transform:uppercase;color:var(--ink-3);}
+  .io{font-family:var(--mono);font-size:.74rem;line-height:1.5;
+      color:var(--ink-2);word-break:break-word;}
+  .io b{display:block;color:var(--ink-3);font-weight:400;
+        text-transform:uppercase;letter-spacing:.08em;font-size:.66rem;
+        margin-bottom:2px;}
+  .step-body{padding:18px 22px;display:flex;flex-direction:column;gap:12px;}
+  .step-body p{margin:0;font-size:.95rem;}
+  .llm{display:inline-block;font-family:var(--mono);font-size:.7rem;
+       letter-spacing:.08em;text-transform:uppercase;
+       background:var(--accent-soft);color:var(--accent);
+       padding:2px 8px;border-radius:99px;align-self:flex-start;}
+  .rule-note{border-left:2px solid var(--accent);padding-left:14px;
+             font-size:.9rem;color:var(--ink-2);}
+  @media (max-width:640px){
+    .step{grid-template-columns:1fr;}
+    .step-rail{border-right:none;border-bottom:1px solid var(--rule);
+               flex-direction:row;flex-wrap:wrap;gap:16px;}
+  }
+
+  table{border-collapse:collapse;width:100%;font-size:.88rem;
+        font-variant-numeric:tabular-nums;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);
+        vertical-align:top;}
+  th{font-family:var(--mono);font-size:.7rem;letter-spacing:.09em;
+     text-transform:uppercase;color:var(--ink-3);font-weight:400;
+     border-bottom:1px solid var(--rule-2);}
+  td{color:var(--ink-2);}
+  td.id{font-family:var(--mono);font-size:.8rem;color:var(--ink);}
+  .pill{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;
+        text-transform:uppercase;padding:2px 8px;border-radius:99px;
+        white-space:nowrap;}
+  .p-block{background:var(--block-soft);color:var(--block);}
+  .p-qual{background:var(--qual-soft);color:var(--qual);}
+  .p-ctx{background:var(--ctx-soft);color:var(--ctx);}
+
+  .quote{background:var(--panel);border:1px solid var(--rule);
+         border-left:3px solid var(--block);border-radius:4px;
+         padding:14px 18px;font-size:.9rem;}
+  .quote .said{color:var(--ink);font-style:italic;}
+  .quote .why{color:var(--ink-3);font-size:.85rem;margin-top:8px;
+              display:block;font-style:normal;}
+
+  .runs{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width:640px){.runs{grid-template-columns:1fr;}}
+  .run{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+       padding:18px 20px;display:flex;flex-direction:column;gap:10px;}
+  .run h3{font-family:var(--sans);font-size:.95rem;}
+  .run dl{margin:0;display:grid;grid-template-columns:auto 1fr;
+          gap:4px 14px;font-size:.86rem;font-variant-numeric:tabular-nums;}
+  .run dt{color:var(--ink-3);}
+  .run dd{margin:0;color:var(--ink);font-family:var(--mono);font-size:.82rem;}
+  .verdict{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;
+           text-transform:uppercase;padding:2px 8px;border-radius:99px;
+           align-self:flex-start;}
+  .v-ok{background:var(--accent-soft);color:var(--accent);}
+  .v-no{background:var(--qual-soft);color:var(--qual);}
+
+  .open{background:var(--panel);border:1px solid var(--rule);
+        border-radius:6px;padding:18px 22px;
+        display:flex;flex-direction:column;gap:8px;}
+  .open h3{font-family:var(--sans);font-size:.95rem;}
+  .open p{margin:0;font-size:.92rem;}
+  ul{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:6px;}
+  a{color:var(--accent);}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  /* ── added for the reference rewrite ───────────────────────────── */
+  h4{font-family:var(--sans);font-size:.92rem;font-weight:600;color:var(--ink);
+     margin:6px 0 0;}
+  .toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.82rem;
+       font-family:var(--mono);padding-bottom:4px;}
+  .toc a{text-decoration:none;border-bottom:1px solid transparent;}
+  .toc a:hover{border-bottom-color:var(--accent);}
+  section{scroll-margin-top:20px;}
+
+  .notation{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:.82rem;
+            list-style:none;padding:0;color:var(--ink-2);}
+  .notation li{display:flex;align-items:center;gap:7px;}
+  .notation span{width:24px;height:14px;flex:none;display:inline-block;}
+  .n-file{border:1.4px solid var(--ink-2);border-left-width:4px;}
+  .n-mem{border:1.4px dashed var(--ink-2);}
+  .n-code{border:1.8px solid var(--ink-2);}
+  .n-llm{border:1.8px solid #2E8C99;}
+  .n-gate{border:1.8px solid #C0563F;transform:skewX(-18deg);}
+
+  .stepcard{background:var(--panel);border:1px solid var(--rule);
+            border-radius:6px;padding:20px 24px;
+            display:flex;flex-direction:column;gap:12px;}
+  .stepcard>h3{font-family:var(--sans);font-size:1.02rem;
+               padding-bottom:8px;border-bottom:1px solid var(--rule);}
+  table.spec th{width:150px;text-transform:none;font-family:var(--sans);
+                font-size:.82rem;letter-spacing:0;color:var(--ink-3);
+                border-bottom:1px solid var(--rule);vertical-align:top;
+                font-weight:400;}
+  table.spec td{font-size:.86rem;}
+  td.warn th,th.warn{color:var(--block);}
+  .mark{background:var(--qual-soft);color:var(--qual);
+        padding:.05em .3em;border-radius:3px;}
+  pre{background:var(--panel-2);border:1px solid var(--rule);border-radius:5px;
+      padding:12px 16px;overflow-x:auto;font-size:.8rem;
+      font-family:var(--mono);color:var(--ink-2);margin:0;line-height:1.5;}
+  .sub{font-size:.8rem;color:var(--ink-3);}
+  .lineage{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media (max-width:640px){.lineage{grid-template-columns:1fr;}}
+  .lineage>div{background:var(--panel);border:1px solid var(--rule);
+               border-radius:6px;padding:16px 20px;}
+  .lineage ol{margin:8px 0 0;padding-left:1.2em;font-size:.84rem;
+              display:flex;flex-direction:column;gap:5px;color:var(--ink-2);}
+  .lineage h4{margin:0;}
+  dl.gloss{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 20px;
+           font-size:.9rem;}
+  @media (max-width:640px){dl.gloss{grid-template-columns:1fr;gap:2px 0;}
+                           dl.gloss dd{margin-bottom:10px;}}
+  dl.gloss dt{font-family:var(--mono);font-size:.82rem;color:var(--ink);
+              white-space:nowrap;}
+  dl.gloss dd{margin:0;color:var(--ink-2);}
+  td.r-raise{color:var(--block);font-weight:600;}
+  td.r-warn,td.r-retry{color:var(--qual);font-weight:600;}
+  td.r-skip{color:var(--ctx);font-weight:600;}
+  ol.defects{margin:0;padding-left:1.2em;display:flex;flex-direction:column;
+             gap:10px;color:var(--ink-2);}
+</style>
+<div class="wrap">
+
+
+<header>
+  <span class="eyebrow">IDEAS · the first box</span>
+  <h1>Reception Walkthrough</h1>
+  <p>How a sentence from a user becomes <code>reception.json</code>: one
+     language-model loop that decides <em>what</em> is being asked, <em>which
+     model</em> should answer it, <em>where</em> and <em>when</em> — and then
+     ordinary code that fetches, once, everything the rest of the pipeline will
+     ever be allowed to know about that place. Reception is the only component
+     that reaches outside the framework. Everything downstream reads what it
+     wrote.</p>
+  <div class="meta">
+    <span>src/agents/reception_llm.py</span>
+    <span>src/agents/prompts/reception_agentic.txt</span>
+    <span>src/core/data_gather.py</span>
+    <span>src/core/model_servers.py</span>
+    <span>verified against the code 2026-08-18</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#s1">1 · In plain language</a>
+  <a href="#s2">2 · Scope and boundaries</a>
+  <a href="#s3">3 · End-to-end workflow</a>
+  <a href="#s4">4 · Step by step</a>
+  <a href="#s5">5 · Three requests, traced</a>
+  <a href="#s6">6 · Artifact lineage</a>
+  <a href="#s7">7 · Key and schema contracts</a>
+  <a href="#s8">8 · Failure paths</a>
+  <a href="#s9">9 · Current guarantees</a>
+  <a href="#s10">10 · Glossary</a>
+  <a href="#a1">Appendix A · Design history</a>
+  <a href="#a2">Appendix B · What is still open</a>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════ 1 ══ -->
+<section id="s1">
+  <span class="eyebrow">1</span>
+  <h2>In plain language</h2>
+  <p>Reception takes one request in natural language and returns one
+     <strong>package</strong>. The package has two halves that are made in two
+     different ways.</p>
+  <p>The first half is a <strong>brief</strong>, and a language model writes
+     it. The model classifies the request (a real place, a controlled sweep, a
+     coupling, or a question it cannot yet answer), decides which simulation
+     model should run it, resolves the watershed and the simulation period, and
+     frames the scientific question. It has five tools and no data: it can look
+     up a watershed, look up an elevation, list the servers that are installed,
+     read what each one says about itself, and — when a person is present — ask
+     them a question. <strong>It fetches no observations and knows no model
+     facts.</strong> What a model can and cannot do it learns by reading that
+     model's own report, in the conversation, every time.</p>
+  <p>The second half is <strong>everything else</strong>, and plain code makes
+     it after the model has finished: the elevation grid clipped to the basin,
+     the daily rain at every point on it, the observations for the resolved
+     period (gauges, wells, snow pillows, flux towers, and a modelled water
+     table), and the subsurface properties of the whole basin. These are not
+     decisions, so they are not the model's. They are fetched once, written
+     beside the brief, and never fetched again by anyone — the planner, the
+     sampler, the experiment manager and the analyzer all read this one file.</p>
+  <p>The seam between the halves is deliberate. Judgement goes to the model;
+     retrieval goes to code; and the model is told, in its own instructions,
+     that the retrieval will happen after it finishes and is not its concern.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 2 ══ -->
+<section id="s2">
+  <span class="eyebrow">2</span>
+  <h2>Scope and boundaries</h2>
+  <p>The framework is four stages in sequence — Reception, Planner, Experiment
+     Manager, Analyzer. Each writes one <strong>boundary artifact</strong>.
+     Reception is the first, and it ends the moment
+     <code>LLMReceptionAgent.process()</code> returns. What happens to the
+     package after that — the model check, the plan, the dispatch — belongs to
+     the coordinator in <code>workflow.py</code>, not to reception.</p>
+
+  <table>
+    <thead><tr><th>Reception owns</th><th>Reception does not own</th></tr></thead>
+    <tbody>
+      <tr><td>Classifying the request and choosing the design archetype</td>
+          <td><strong>Any fact about a model.</strong> Which years it can be
+              forced over, how it starts, what it can be pinned to, what a
+              sweep may vary — all read from the model server's report at
+              request time. The prompt states none of it.</td></tr>
+      <tr><td>Choosing which model server answers the question, and saying
+              why, and separately saying whether it can run today</td>
+          <td><strong>Whether the framework can drive that model.</strong>
+              <code>_adopt_model</code> in the coordinator checks the choice
+              against <code>RUNNABLE</code>; reception names the right
+              instrument regardless, and the run stops at dispatch with the
+              package saved if nothing can drive it.</td></tr>
+      <tr><td>Resolving the watershed and the simulation period, and refusing
+              a period the chosen model's forcing cannot cover</td>
+          <td><strong>Designing the study.</strong> No column counts, no bands,
+              no station pins. A count the user stated is recorded as a
+              constraint; nothing else is decided.</td></tr>
+      <tr><td>Fetching, once, the grid, the rain, the observations and the
+              subsurface for the resolved place and period</td>
+          <td><strong>Summarising or interpreting what it fetched.</strong>
+              The model never sees the observations. Code writes a compact
+              summary for the planner; the raw series go to the analyzer.</td></tr>
+      <tr><td>Recording every fetch, its arguments and its outcome in
+              <code>provenance</code>, including the ones it chose not to
+              make</td>
+          <td><strong>Naming the run directory.</strong> The coordinator mints
+              it before reception runs — reception needs somewhere to write
+              two GeoTIFF/NPZ products — and it is still named for the
+              default model, not the one reception chose.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Is <code>reception.json</code> the single authoritative output?</h3>
+  <p><strong>Yes, and it is written in one place</strong> —
+     <code>workflow._save_reception</code>, called twice: on the way into
+     planning, and again when a run stops at dispatch, so an honest "cannot
+     drive this model" does not cost the three minutes of fetching that
+     preceded it. It drops two keys from the in-memory package —
+     <code>trace</code> (the tool conversation) and <code>raw</code> (the
+     unparsed reply) — and writes <code>reception_brief.json</code> beside it
+     as an alias for the standalone tools. Two file products land next to it,
+     written by the servers reception called: <code>wtd_conus2.tif</code> and
+     <code>conus2_subsurface.npz</code> + <code>.json</code>.</p>
+  <p class="rule-note"><strong>Nuance worth knowing.</strong> The package
+     carries the raw observation series — 80 to 400 KB for a one-year Naches
+     request, dominated by 299 Fan wells and the daily rain. Nothing
+     summarises them on the way in. That is the point: the analyzer compares
+     against exactly what was fetched, and a second fetch could disagree with
+     the first.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 3 ══ -->
+<section id="s3">
+  <span class="eyebrow">3</span>
+  <h2>End-to-end workflow</h2>
+
+  <ul class="notation">
+    <li><span class="n-file"></span> file on disk</li>
+    <li><span class="n-mem"></span> in-memory object</li>
+    <li><span class="n-code"></span> deterministic code</li>
+    <li><span class="n-llm"></span> language-model call</li>
+    <li><span class="n-gate"></span> decision gate</li>
+  </ul>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 700" role="img" aria-label="Reception's execution flow. A user request enters a language-model loop of at most fourteen rounds. Inside it the model classifies the request, chooses an archetype, chooses a model by calling list_servers and describe_server and reading the reports, optionally calls describe_sweep for a conceptual request, resolves the domain with terrain tools, frames the question, and extracts the period against the chosen model's forcing window. It may call ask_user when a person is present. It emits a brief. A route gate then asks whether the intent is design; anything else returns at once. A second gate asks whether the archetype is conceptual; if so the domain is dropped, the drop is recorded in provenance, and the package returns with nothing fetched. Otherwise four code gathers run in order: the DEM grid from terrain with the basin boundary and a density retry, daily precipitation from Daymet at the same points, the observations for the period from USGS, hydrodata, SNOTEL and AmeriFlux, and the subsurface from hydrodata. Code writes observations_summary into the brief. The package returns to the coordinator, which writes reception.json and two file products beside it, and the planner, sampler, experiment manager and analyzer read from that file.">
+        <defs>
+          <marker id="r-ar" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="11.5"
+           fill="currentColor" stroke="currentColor">
+
+          <!-- user request -->
+          <rect x="30" y="20" width="200" height="34" rx="3" fill="none" stroke-width="1.4"/>
+          <text x="130" y="41" text-anchor="middle" stroke="none">user request (one sentence)</text>
+          <line x1="130" y1="54" x2="130" y2="82" stroke-width="1.2" marker-end="url(#r-ar)"/>
+
+          <!-- LLM loop -->
+          <rect x="30" y="84" width="560" height="248" rx="4" fill="none" stroke="#2E8C99" stroke-width="1.8"/>
+          <text x="42" y="102" fill="#2E8C99" stroke="none" font-size="10.5" letter-spacing=".08em">LLM LOOP · ToolLoopAgent · ≤ 14 rounds · reception_agentic.txt</text>
+
+          <!-- steps inside -->
+          <g stroke-width="1.2">
+            <rect x="46" y="116" width="150" height="30" rx="3" fill="none"/>
+            <text x="121" y="135" text-anchor="middle" stroke="none">1 classify intent</text>
+            <rect x="46" y="156" width="150" height="30" rx="3" fill="none"/>
+            <text x="121" y="175" text-anchor="middle" stroke="none">2 archetype</text>
+            <rect x="46" y="196" width="150" height="30" rx="3" fill="none"/>
+            <text x="121" y="215" text-anchor="middle" stroke="none">2a choose model</text>
+            <rect x="46" y="236" width="150" height="30" rx="3" fill="none" stroke-dasharray="4 3"/>
+            <text x="121" y="255" text-anchor="middle" stroke="none">2b settle sweep</text>
+            <rect x="46" y="276" width="150" height="30" rx="3" fill="none"/>
+            <text x="121" y="295" text-anchor="middle" stroke="none">3 domain · 4 frame · 5 period</text>
+          </g>
+          <line x1="121" y1="146" x2="121" y2="154" stroke-width="1"/>
+          <line x1="121" y1="186" x2="121" y2="194" stroke-width="1"/>
+          <line x1="121" y1="226" x2="121" y2="234" stroke-width="1"/>
+          <line x1="121" y1="266" x2="121" y2="274" stroke-width="1"/>
+
+          <!-- tools inside the loop -->
+          <text x="236" y="128" stroke="none" font-size="10.5" letter-spacing=".08em" fill="#2E8C99">TOOLS · local (framework answers)</text>
+          <g stroke-width="1.1">
+            <rect x="236" y="136" width="160" height="24" rx="3" fill="none"/>
+            <text x="316" y="152" text-anchor="middle" stroke="none">list_servers</text>
+            <rect x="236" y="166" width="160" height="24" rx="3" fill="none"/>
+            <text x="316" y="182" text-anchor="middle" stroke="none">describe_server(name)</text>
+            <rect x="236" y="196" width="160" height="24" rx="3" fill="none"/>
+            <text x="316" y="212" text-anchor="middle" stroke="none">describe_sweep(name)</text>
+          </g>
+          <text x="416" y="128" stroke="none" font-size="10.5" letter-spacing=".08em" fill="#2E8C99">TOOLS · MCP</text>
+          <g stroke-width="1.1">
+            <rect x="416" y="136" width="160" height="24" rx="3" fill="none"/>
+            <text x="496" y="152" text-anchor="middle" stroke="none">terrain.resolve_watershed</text>
+            <rect x="416" y="166" width="160" height="24" rx="3" fill="none"/>
+            <text x="496" y="182" text-anchor="middle" stroke="none">terrain.get_elevation</text>
+          </g>
+          <text x="416" y="242" stroke="none" font-size="10.5" letter-spacing=".08em" fill="#2E8C99">HUMAN · interactive only</text>
+          <rect x="416" y="250" width="160" height="24" rx="3" fill="none" stroke-width="1.1" stroke-dasharray="4 3"/>
+          <text x="496" y="266" text-anchor="middle" stroke="none">ask_user(question)</text>
+          <text x="236" y="243" stroke="none" font-size="10" fill="currentColor" opacity=".7">a report ≈ 5–10 KB, read whole;</text>
+          <text x="236" y="257" stroke="none" font-size="10" fill="currentColor" opacity=".7">the loop caps a tool result at 12,000 chars</text>
+          <text x="236" y="271" stroke="none" font-size="10" fill="currentColor" opacity=".7">— which is why describe_server takes one name</text>
+
+          <!-- model servers, off to the right -->
+          <g stroke-width="1.4">
+            <rect x="660" y="140" width="210" height="60" rx="3" fill="none"/>
+            <text x="765" y="160" text-anchor="middle" stroke="none">model servers</text>
+            <text x="765" y="176" text-anchor="middle" stroke="none" font-size="10.5">describe_*_capabilities</text>
+            <text x="765" y="190" text-anchor="middle" stroke="none" font-size="10.5">describe_conceptual_factors</text>
+          </g>
+          <line x1="576" y1="178" x2="658" y2="170" stroke-width="1.1" marker-end="url(#r-ar)" stroke-dasharray="3 3"/>
+          <text x="612" y="163" text-anchor="middle" stroke="none" font-size="9.5">one call per name</text>
+
+          <!-- brief -->
+          <line x1="310" y1="332" x2="310" y2="358" stroke-width="1.2" marker-end="url(#r-ar)"/>
+          <rect x="220" y="360" width="180" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="310" y="379" text-anchor="middle" stroke="none">brief (JSON, parsed)</text>
+
+          <!-- route gate -->
+          <line x1="310" y1="390" x2="310" y2="412" stroke-width="1.2" marker-end="url(#r-ar)"/>
+          <g transform="translate(310 432)">
+            <polygon points="-92,-18 92,-18 78,18 -106,18" fill="none" stroke="#C0563F" stroke-width="1.6"/>
+            <text x="-6" y="4" text-anchor="middle" stroke="none">route == design ?</text>
+          </g>
+          <line x1="402" y1="432" x2="640" y2="432" stroke-width="1.2" marker-end="url(#r-ar)"/>
+          <text x="520" y="425" text-anchor="middle" stroke="none" font-size="10">no — clarify · analyze · resume</text>
+          <rect x="642" y="416" width="228" height="32" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="756" y="436" text-anchor="middle" stroke="none">return package, nothing fetched</text>
+
+          <!-- conceptual gate -->
+          <line x1="310" y1="450" x2="310" y2="474" stroke-width="1.2" marker-end="url(#r-ar)"/>
+          <g transform="translate(310 494)">
+            <polygon points="-92,-18 92,-18 78,18 -106,18" fill="none" stroke="#C0563F" stroke-width="1.6"/>
+            <text x="-6" y="4" text-anchor="middle" stroke="none">archetype == conceptual ?</text>
+          </g>
+          <line x1="402" y1="494" x2="640" y2="494" stroke-width="1.2" marker-end="url(#r-ar)"/>
+          <text x="520" y="487" text-anchor="middle" stroke="none" font-size="10">yes — drop domain, record it</text>
+          <rect x="642" y="478" width="228" height="32" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="756" y="498" text-anchor="middle" stroke="none">return package, nothing fetched</text>
+
+          <!-- code gather -->
+          <line x1="310" y1="512" x2="310" y2="536" stroke-width="1.2" marker-end="url(#r-ar)"/>
+          <text x="216" y="530" stroke="none" font-size="10">no — site</text>
+          <rect x="30" y="538" width="560" height="112" rx="4" fill="none" stroke-width="1.8"/>
+          <text x="42" y="556" stroke="none" font-size="10.5" letter-spacing=".08em">CODE GATHER · data_gather.py · in this order, unconditional on the model</text>
+          <g stroke-width="1.2">
+            <rect x="46" y="570" width="126" height="64" rx="3" fill="none"/>
+            <text x="109" y="590" text-anchor="middle" stroke="none">gather_grid</text>
+            <text x="109" y="605" text-anchor="middle" stroke="none" font-size="10">terrain · boundary,</text>
+            <text x="109" y="619" text-anchor="middle" stroke="none" font-size="10">DEM, clip, retry</text>
+            <rect x="184" y="570" width="126" height="64" rx="3" fill="none"/>
+            <text x="247" y="590" text-anchor="middle" stroke="none">gather_precipitation</text>
+            <text x="247" y="605" text-anchor="middle" stroke="none" font-size="10">daymet · daily, at</text>
+            <text x="247" y="619" text-anchor="middle" stroke="none" font-size="10">the grid points</text>
+            <rect x="322" y="570" width="126" height="64" rx="3" fill="none"/>
+            <text x="385" y="590" text-anchor="middle" stroke="none">gather_observations</text>
+            <text x="385" y="605" text-anchor="middle" stroke="none" font-size="10">usgs · hydrodata ·</text>
+            <text x="385" y="619" text-anchor="middle" stroke="none" font-size="10">snotel · ameriflux</text>
+            <rect x="460" y="570" width="118" height="64" rx="3" fill="none"/>
+            <text x="519" y="590" text-anchor="middle" stroke="none">gather_subsurface</text>
+            <text x="519" y="605" text-anchor="middle" stroke="none" font-size="10">hydrodata · CONUS2,</text>
+            <text x="519" y="619" text-anchor="middle" stroke="none" font-size="10">basin cache</text>
+          </g>
+          <line x1="172" y1="602" x2="182" y2="602" stroke-width="1" marker-end="url(#r-ar)"/>
+          <line x1="310" y1="602" x2="320" y2="602" stroke-width="1" marker-end="url(#r-ar)"/>
+          <line x1="448" y1="602" x2="458" y2="602" stroke-width="1" marker-end="url(#r-ar)"/>
+
+          <!-- outputs -->
+          <line x1="310" y1="650" x2="310" y2="672" stroke-width="1.2" marker-end="url(#r-ar)"/>
+          <g stroke-width="1.4">
+            <rect x="120" y="674" width="150" height="24" rx="2" fill="none" stroke-width="1.4"/>
+            <rect x="120" y="674" width="4" height="24" fill="currentColor" stroke="none"/>
+            <text x="200" y="690" text-anchor="middle" stroke="none">reception.json</text>
+            <rect x="290" y="674" width="150" height="24" rx="2" fill="none"/>
+            <rect x="290" y="674" width="4" height="24" fill="currentColor" stroke="none"/>
+            <text x="370" y="690" text-anchor="middle" stroke="none">wtd_conus2.tif</text>
+            <rect x="460" y="674" width="170" height="24" rx="2" fill="none"/>
+            <rect x="460" y="674" width="4" height="24" fill="currentColor" stroke="none"/>
+            <text x="545" y="690" text-anchor="middle" stroke="none">conus2_subsurface.npz</text>
+          </g>
+          <text x="660" y="690" stroke="none" font-size="10" opacity=".8">written by the coordinator / the servers</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The two halves. Above the brief, a language model with five tools and no
+      data decides what, which model, where and when — reading each candidate
+      model's own report in the conversation. Below it, code fetches everything for
+      the resolved place and period, in a fixed order, and writes it beside the
+      brief. Two gates sit between them: a request that is not a design returns at
+      once, and a controlled sweep returns with nothing fetched — that absence is
+      recorded in <code>provenance</code>, so it cannot be mistaken for a fetch that
+      failed.</figcaption>
+  </figure>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 4 ══ -->
+<section id="s4">
+  <span class="eyebrow">4</span>
+  <h2>Step-by-step execution</h2>
+  <p>The model's steps are the numbered sections of
+     <code>reception_agentic.txt</code>; they are instructions, not code, and
+     the model may take them in whatever order the request needs. The code
+     steps run in the order written, after the model has emitted its JSON.</p>
+
+  <div class="stepcard">
+    <h3>Step 1 — Classify the intent <span class="llm">LLM</span></h3>
+    <table class="spec">
+      <tr><th>Reads</th><td>the request; CONVERSATION CONTEXT when the coordinator passes
+        one (the prior run directory, focus, column count and archetype, and up to
+        ten <code>resumable_runs</code>).</td></tr>
+      <tr><th>Decides</th><td>one of four intents: <code>design</code>,
+        <code>clarification_needed</code>, <code>analyze_existing</code>,
+        <code>resume</code>.</td></tr>
+      <tr><th>Rule</th><td>A resume may name only a <code>run_dir</code> that appears
+        verbatim in <code>resumable_runs</code>; a partial or constructed name resumes
+        somebody else's study. Two candidates or none → <code>run_dir: null</code> and
+        a question.</td></tr>
+      <tr><th>Becomes</th><td><code>route.action</code> — mapped by
+        <code>_route()</code>, kept out of the brief because it is dispatch, not
+        science. Anything unrecognised, including a parse failure, routes to
+        <code>clarify</code>.</td></tr>
+    </table>
+  </div>
+
+  <div class="stepcard">
+    <h3>Step 2 — Choose the archetype <span class="llm">LLM</span></h3>
+    <table class="spec">
+      <tr><th>Decides</th><td><code>site</code> (a real place), <code>conceptual</code>
+        (a controlled sweep — a mechanism, no basin), or <code>coupling</code> (one
+        model's output drives another).</td></tr>
+      <tr><th>Why it matters</th><td>It picks which half of the planner prompt applies,
+        and it is the gate on the code gather: a conceptual brief fetches nothing.
+        A conceptual brief that resolved a basin anyway has it <em>dropped</em> by
+        code and the drop recorded — the model both classified it as a sweep and
+        found a watershed, and a reader should see that happened.</td></tr>
+    </table>
+  </div>
+
+  <div class="stepcard">
+    <h3>Step 2a — Choose the model <span class="llm">LLM</span></h3>
+    <table class="spec">
+      <tr><th>Calls</th><td><code>list_servers</code>, then <code>describe_server</code> on
+        each plausible candidate — at least two whenever two are plausible. Both are
+        <em>local</em> tools: the framework answers them from the MCP configuration and
+        a cache, and no server is contacted until one is named.</td></tr>
+      <tr><th>Reads</th><td>the report whole and verbatim: <code>model</code> (the
+        server's one-line account, read literally), <code>ready</code> (measured, not
+        asserted), <code>pinning.pinnable</code> (strong evidence about what the model
+        computes), <code>pinning.not_pinnable[].basis</code> — <code>"model"</code> is
+        physics, <code>"design decision"</code> says nothing about the physics — and
+        <code>constraints</code>.</td></tr>
+      <tr><th>Rule</th><td><strong>Fit and runnability are two fields.</strong>
+        <code>model</code> names the right instrument. <code>can_run_a_study</code> is
+        the <em>framework's</em> flag, not the server's; a model that fits and cannot
+        be driven is named anyway, and <code>model_availability</code> says so. The
+        run then stops at dispatch with the package saved — the correct outcome, and
+        one somebody can act on.</td></tr>
+      <tr><th>Never</th><td>name a model from memory. A server may have been renamed,
+        may be missing a dependency, or may model something narrower than its name
+        suggests. If nothing usable is listed, <code>model: null</code> and a
+        conflict.</td></tr>
+      <tr><th>Writes</th><td><code>model</code>, <code>model_rationale</code>,
+        <code>model_availability</code>.</td></tr>
+    </table>
+    <p class="rule-note"><strong>What is not in the prompt.</strong> No list of
+      models, no menu, no summary written before the request was read. There was
+      one until 2026-08-17 — a dozen lines per server rendered at construction —
+      and one of its lines was a verdict ("Do not choose it"). The two tools
+      replaced it, at the cost of two extra rounds on every reception, because a
+      choice reasoned from what the servers actually say is worth more than a fast
+      one. A report is 5–10 KB and the loop caps a tool result at 12,000
+      characters, which is why <code>describe_server</code> takes one name and a
+      repeat call is answered from cache with <code>already_asked: true</code>.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>Step 2b — Settle the sweep <span class="llm">LLM</span> · conceptual only</h3>
+    <table class="spec">
+      <tr><th>Calls</th><td><code>describe_sweep</code> on the model chosen in 2a; then
+        <code>ask_user</code>. Nothing about what a model can vary is written in the
+        prompt: the menu is the server's JSON, and the prompt only says how to read
+        it — <code>factors[].name</code> is the only string that may be written into
+        the brief; <code>suggested_levels</code> present means offer a default, absent
+        means the value must be asked; <code>held_fixed_options</code> go in
+        <code>held_fixed</code>, never in <code>factors</code>;
+        <code>always_true</code> is said before the user agrees.</td></tr>
+      <tr><th>Rule</th><td>Never emit a design the user has not seen. Never say "as
+        you asked" for a choice you made. Never describe what is not in the JSON.
+        Record how each item was settled — <code>user</code>, <code>suggested</code>
+        or <code>default</code> — because the caveats on the result depend on it.</td></tr>
+      <tr><th>If the server offers no sweep</th><td>say so, do not invent factors,
+        record it in <code>run_settings.conflicts</code>. That is a true statement about
+        that server, not a failure.</td></tr>
+      <tr><th>Writes</th><td><code>sweep {factors, held_fixed, held_fixed_settled_by,
+        n_columns, forcing_site_rationale, unresolved}</code>. The model and its
+        rationale stay at the top level.</td></tr>
+    </table>
+  </div>
+
+  <div class="stepcard">
+    <h3>Step 3 — Resolve the domain <span class="llm">LLM</span> · site only</h3>
+    <table class="spec">
+      <tr><th>Calls</th><td><code>terrain.resolve_watershed</code>;
+        <code>terrain.get_elevation</code> as a fallback for a bare point or town.</td></tr>
+      <tr><th>Rule</th><td>Ambiguity is asked, never self-resolved: several HUC
+        matches, an unclear HUC scale (a name that is both a HUC6 basin and HUC8
+        sub-basins), or a vague place → <code>ask_user</code> with the concrete
+        candidates. In batch mode, the most defensible reading, recorded in
+        <code>conflicts</code>. Only numbers a tool returned are stated; coordinates,
+        areas and counts are never invented.</td></tr>
+      <tr><th>Writes</th><td><code>domain {name, huc, bbox, area_km2,
+        elevation_range_m, source}</code>.</td></tr>
+    </table>
+  </div>
+
+  <div class="stepcard">
+    <h3>Step 4 — Frame the problem <span class="llm">LLM</span></h3>
+    <table class="spec">
+      <tr><th>Writes</th><td><code>scientific_framing {goals, key_processes,
+        candidate_drivers}</code>, <code>known_data_gaps</code>, <code>notes</code>.
+        If the user asked for a comparison against observations, that goes in the
+        framing; whether the data supports it is decided later, from the data.</td></tr>
+    </table>
+  </div>
+
+  <div class="stepcard">
+    <h3>Step 5 — Extract the run settings <span class="llm">LLM</span></h3>
+    <table class="spec">
+      <tr><th>Forcing</th><td>the hard constraint, and <strong>it belongs to the model
+        chosen in 2a</strong>. The runnable years are not in the prompt; they are in
+        that report under <code>constraints.forcing</code>: <code>years</code>,
+        <code>years_partial</code>, <code>years_excluded</code>, <code>available</code>,
+        and <code>bounded</code> — which tells <code>years: null</code> apart from
+        "no archive at all, take what you are handed". A period wholly outside the
+        window is <em>refused</em>: <code>clarification_needed</code>, one question
+        naming the runnable range, no substitute year. Partly outside → clamped,
+        source <code>user-clamped</code>, conflict recorded.</td></tr>
+      <tr><th>Period</th><td>stated → resolved, source <code>user</code>. Not stated →
+        <code>ask_user</code> is mandatory when present ("the archive covers X–Y,
+        which year?"); in batch mode a single year inside the window, source
+        <code>default</code>, conflict recorded. Decided on forcing alone —
+        observation coverage is not the model's to weigh, because it has not seen
+        it.</td></tr>
+      <tr><th>Column count</th><td>only a number the user stated goes in
+        <code>requested_n_columns</code>. "A small study" is not a number. A count
+        left in prose is a suggestion the planner is free to read past — it did,
+        once, and designed 19 where 3 were asked for.</td></tr>
+      <tr><th>Initialization</th><td><strong>the model's, not the LLM's.</strong> How a
+        column starts is under <code>constraints.initial_state</code> in the report.
+        <code>run_settings.initialization</code> is emitted only when the user stated
+        a preference in their own words, as <code>{mode, source: "user"}</code>.
+        Nothing is decided from the question.</td></tr>
+      <tr><th>Writes</th><td><code>run_settings {requested_period, requested_n_columns,
+        resolved_period, [initialization], conflicts}</code>;
+        <code>forcing_data</code>, copied from the chosen model's
+        <code>constraints.forcing</code>.</td></tr>
+    </table>
+  </div>
+
+  <h3>Between the halves — parse and route <span class="pill p-ctx">code</span></h3>
+  <p><code>_parse()</code> finds the outermost <code>{…}</code> in the model's
+     final message; a failure returns <code>intent: parse_error</code> with the
+     first 400 characters kept. <code>_route()</code> maps intent to
+     <code>route.action</code>. If the action is not <code>design</code>, the
+     package returns now — no fetch. If the brief is <code>conceptual</code>,
+     any domain it resolved is removed, the removal is written into
+     <code>provenance</code> as a decision, and the package returns — no
+     fetch.</p>
+
+  <div class="stepcard">
+    <h3>Gather 1 — <code>gather_grid</code> <span class="pill p-ctx">code</span></h3>
+    <table class="spec">
+      <tr><th>Calls</th><td><code>terrain.get_watershed_boundary</code> when the brief
+        has a HUC and no boundary; <code>terrain.sample_elevation_grid</code> at
+        <code>GRID_N = 120</code>, retried once on an empty reply.</td></tr>
+      <tr><th>Does</th><td>parses the WBD polygon into rings (Polygon and MultiPolygon,
+        all parts), drops every point outside with a ray-casting test, and — when
+        fewer than <code>MIN_IN_BASIN = 55</code> land inside — asks again at a
+        density scaled by the fill ratio, up to <code>MAX_GRID_N = 480</code>. A
+        compact basin keeps ~50% of a bbox sample; an elongated coastal strip kept
+        18% and 21 points for 4,984 km².</td></tr>
+      <tr><th>Writes</th><td><code>grid {points (clipped), boundary, clipped_to_watershed,
+        n_requested, n_returned, n_in_basin, elevation_min_m, elevation_max_m,
+        relief_m}</code>; and, into the brief, <code>heterogeneity {relief_m,
+        elevation_min_m, elevation_max_m, n_grid_points}</code>. The model does not
+        write heterogeneity; the planner stratifies on these numbers and the sampler
+        sees the same points.</td></tr>
+      <tr><th>Rule</th><td>a bad polygon must not empty the grid — but an empty fetch
+        is not a bad polygon. If points came back and none survived the clip, the
+        polygon is dropped and the raw sample kept; if no points came back, nothing
+        is dropped. Conflating the two once cost two basins their boundary, every
+        station tag, and all four pinned columns.</td></tr>
+    </table>
+  </div>
+
+  <div class="stepcard">
+    <h3>Gather 2 — <code>gather_precipitation</code> <span class="pill p-ctx">code</span></h3>
+    <table class="spec">
+      <tr><th>Calls</th><td><code>daymet.get_precipitation_points</code>, one call for
+        every grid point, budget 1,800 s.</td></tr>
+      <tr><th>Writes</th><td><code>precipitation {series["lat,lon"] → mm/day,
+        calendar {year, yday} stored ONCE, elevation_m per point, n_days, years,
+        covers, when}</code>. The calendar is identical at every point, and 58 copies
+        of it were 67% of the block. Daymet is a 365-day year: align by index, never
+        by counting days off a real calendar.</td></tr>
+      <tr><th>Rule</th><td>the tool reports failures per point and carries no
+        top-level error, so a pre-1980 period comes back as a successful call that
+        fetched nothing. The tool's own <code>ok</code> is checked separately and
+        folded back into provenance, so provenance cannot say <code>ok: true</code>
+        beside an empty block.</td></tr>
+      <tr><th>Who reads it</th><td>a model that takes forcing it is handed
+        (PFLOTRAN's top boundary). A model that reads its own archive never opens
+        it. Fetched anyway — see Appendix B.</td></tr>
+    </table>
+  </div>
+
+  <div class="stepcard">
+    <h3>Gather 3 — <code>gather_observations</code> <span class="pill p-ctx">code</span></h3>
+    <table class="spec">
+      <tr><th>Calls</th><td>in one function, for the resolved period, one calendar
+        year for every observable: <code>usgs_water.get_streamflow</code>,
+        <code>usgs_water.get_water_table</code>, <code>hydrodata.get_fan2013_wells</code>,
+        <code>snotel.get_swe</code>, <code>ameriflux.get_et</code>,
+        <code>hydrodata.download_conus2_wtd</code> → <code>wtd_conus2.tif</code>.</td></tr>
+      <tr><th>Writes</th><td>six blocks under <code>observations</code>:
+        <code>streamflow</code>, <code>water_table</code> (daily recorder wells),
+        <code>water_table_static</code> (Fan et al. long-term means, up to 500),
+        <code>swe</code> (series kept on the 12 deepest-snowpack stations),
+        <code>et</code>, <code>water_table_modelled</code> (the CONUS2 field, as a
+        file). Every station is tagged <code>in_basin</code> against the grid's
+        polygon — <code>_inside</code>, computed once, here. Absent means the check
+        could not be made; absent is not <code>false</code>.</td></tr>
+      <tr><th>Then</th><td><code>summarise()</code> writes
+        <code>brief.observations_summary</code>: counts, station ids, coordinates,
+        elevations, in-basin tags. Never a series. That is what the planner sees;
+        the series go to the analyzer.</td></tr>
+      <tr><th>Rule</th><td>a fetch that failed is written as <code>ok: false</code>
+        with its error, and the analyzer turns that into a blocking caveat — "we
+        could not look" is not "there is nothing there".</td></tr>
+    </table>
+  </div>
+
+  <div class="stepcard">
+    <h3>Gather 4 — <code>gather_subsurface</code> <span class="pill p-ctx">code</span></h3>
+    <table class="spec">
+      <tr><th>Calls</th><td><code>hydrodata.download_conus2_subsurface</code> for the
+        bbox → <code>conus2_subsurface.npz</code> + <code>.json</code> beside
+        <code>reception.json</code>. Needs a run directory; without one it says so
+        and fetches nothing.</td></tr>
+      <tr><th>What it is</th><td>five static ParFlow CONUS2 fields — porosity,
+        vertical permeability, van Genuchten α and n, residual saturation — on
+        ten layers to 392 m, SSURGO-derived above 2 m and hydrogeologic units
+        below. It replaced a soil survey that stopped at 1.5 m and had 88–97% of a
+        column extrapolated below it. The server keeps a basin cache keyed by grid
+        bounds; the second study of a basin makes no request. 3.8 MB the first time.</td></tr>
+      <tr><th>Writes</th><td><code>subsurface {ok, source, reused, n_requests,
+        grid_bounds, arrays, meta, failed_fields}</code> — a record of the fetch. The
+        field itself is read later, at any point, by
+        <code>core.conus2_subsurface.sample</code>.</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 5 ══ -->
+<section id="s5">
+  <span class="eyebrow">5</span>
+  <h2>Three requests, traced</h2>
+  <p>The same prompt, the same code. Where the three differ is exactly what the
+     model reads out of the chosen server's report, whether it asks a person, and
+     whether the code gather runs.</p>
+  <table>
+    <thead><tr><th></th><th>site · "runoff vs recharge with elevation, Naches 1979"</th>
+      <th>conceptual · "how does soil texture split rain?"</th>
+      <th>site · "how deep does water move through unsaturated soil, Naches 1988"</th></tr></thead>
+    <tbody>
+      <tr><td class="id">2a model</td>
+          <td>describes elm and pflotran; picks <strong>elm</strong> — snow, runoff and
+              ET are on its pinnable list; the other report says it has none of them</td>
+          <td>same reading; <strong>elm</strong></td>
+          <td>same reading; picks <strong>pflotran</strong> — variably-saturated column,
+              water table pinnable, no snow</td></tr>
+      <tr><td class="id">2b sweep</td><td>—</td>
+          <td><code>describe_sweep(elm)</code> → four factors; <code>ask_user</code>:
+              orient, offer <code>soil_texture</code> levels, where the weather comes
+              from, quote the count</td>
+          <td>—</td></tr>
+      <tr><td class="id">3 domain</td><td>HUC 17030002, bbox</td>
+          <td>none — and any it resolved is dropped by code</td>
+          <td>HUC 17030002, bbox</td></tr>
+      <tr><td class="id">5 forcing</td>
+          <td>elm's <code>constraints.forcing.years</code> [1979, 2023] → 1979 ok</td>
+          <td>elm's window; period from <code>held_fixed.years</code> or asked</td>
+          <td>pflotran's: <code>years: null, bounded: false</code> → no refusal;
+              the period is the user's</td></tr>
+      <tr><td class="id">initialization</td><td>omitted unless the user said</td>
+          <td>omitted</td><td>omitted unless the user said</td></tr>
+      <tr><td class="id">code gather</td><td>all four</td><td><strong>none</strong></td>
+          <td>all four — and here <code>precipitation</code> and
+              <code>subsurface</code> are what the model will run on</td></tr>
+      <tr><td class="id">what happens next</td>
+          <td>coordinator: model ok → plan → ELM manager</td>
+          <td>coordinator: model ok → plan copies the sweep → ELM manager builds
+              the sweep, no sampling</td>
+          <td>coordinator: <code>_adopt_model</code> refuses — not in
+              <code>RUNNABLE</code>; <code>reception.json</code> saved; run stops.
+              Not reception's decision — see Appendix B.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 6 ══ -->
+<section id="s6">
+  <span class="eyebrow">6</span>
+  <h2>Artifact and data lineage</h2>
+  <p>One file, read by four consumers, each of which takes a different part.
+     Nothing downstream re-fetches. Sizes are for a one-year Naches request.</p>
+  <table>
+    <thead><tr><th>key in reception.json</th><th>written by</th><th>read by</th><th>size</th></tr></thead>
+    <tbody>
+      <tr><td class="id">route</td><td>code, from the model's <code>intent</code></td>
+          <td>coordinator — dispatch</td><td>0.1 KB</td></tr>
+      <tr><td class="id">brief</td><td>the model; code adds <code>heterogeneity</code>
+          and <code>observations_summary</code></td>
+          <td>planner (with <code>observations_summary</code>, minus the siblings);
+              coordinator (<code>model</code>, <code>run_settings</code>);
+              step 0 of the analyzer (<code>domain</code>, <code>period</code>,
+              <code>user_request</code>)</td><td>6–8 KB</td></tr>
+      <tr><td class="id">grid</td><td><code>gather_grid</code></td>
+          <td>sampler — <code>points</code> as the candidate set, <code>boundary</code>
+              for the record and the design figure, <code>clipped_to_watershed</code>
+              into <code>sampling_domain</code></td><td>6 KB</td></tr>
+      <tr><td class="id">precipitation</td><td><code>gather_precipitation</code></td>
+          <td>PFLOTRAN's <code>_to_run_plan</code>, by <code>"lat,lon"</code> — the
+              top-boundary flux and its calendar → <code>forcing_start/end</code></td>
+          <td>~120 KB / year</td></tr>
+      <tr><td class="id">observations</td><td><code>gather_observations</code></td>
+          <td>sampler — station coordinates and <code>in_basin</code> for pins, Fan
+              wells for the two anchors; analyzer step 0 — the series, as
+              <code>ctx.data.observations</code>; ELM's compare package;
+              <code>strategy_check</code></td><td>80–115 KB</td></tr>
+      <tr><td class="id">subsurface</td><td><code>gather_subsurface</code></td>
+          <td>a record only — the field is read from
+              <code>conus2_subsurface.npz</code> by
+              <code>core.conus2_subsurface.sample</code> in PFLOTRAN's
+              <code>_to_run_plan</code></td><td>1 KB (+3.8 MB file)</td></tr>
+      <tr><td class="id">provenance</td><td>every gather, and the conceptual skip</td>
+          <td>a reader; the analyzer's caveats read the observation blocks' own
+              <code>ok</code>/<code>error</code></td><td>2–5 KB</td></tr>
+      <tr><td class="id">rounds</td><td>the loop</td><td>a reader</td><td>—</td></tr>
+      <tr><td class="id"><s>trace</s>, <s>raw</s></td><td>the loop</td>
+          <td>dropped by <code>_save_reception</code></td><td>—</td></tr>
+    </tbody>
+  </table>
+  <h3>Beside it, on disk</h3>
+  <dl class="gloss">
+    <dt>reception_brief.json</dt><dd>the brief alone; an alias for the standalone tools.</dd>
+    <dt>wtd_conus2.tif</dt><dd>the modelled water table, written by hydrodata during
+      <code>gather_observations</code>; sampled at any point by
+      <code>core.static_wtd.sample</code>.</dd>
+    <dt>conus2_subsurface.npz · .json</dt><dd>five fields on ten layers, written by
+      hydrodata during <code>gather_subsurface</code>.</dd>
+  </dl>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 7 ══ -->
+<section id="s7">
+  <span class="eyebrow">7</span>
+  <h2>Key and schema contracts</h2>
+
+  <h3>The brief, on a design</h3>
+  <dl class="gloss">
+    <dt>intent</dt><dd><code>design</code> — routed, then irrelevant to the science.</dd>
+    <dt>design_archetype</dt><dd><code>site | conceptual | coupling</code>. Read first by the planner; gates the gather.</dd>
+    <dt>user_request</dt><dd>verbatim.</dd>
+    <dt>model</dt><dd>one name, exactly as <code>list_servers</code> spelled it. Required on every archetype.</dd>
+    <dt>model_rationale</dt><dd>why it fits <em>this</em> question, citing what was read.</dd>
+    <dt>model_availability</dt><dd>which servers were asked, which are ready, which can run — a separate sentence from the fit.</dd>
+    <dt>coupling</dt><dd>coupling only: <code>from_model</code>, <code>to_model</code>, <code>coupling_variable</code>, <code>prior_experiment</code>, <code>rationale</code>.</dd>
+    <dt>sweep</dt><dd>conceptual only: <code>factors[{name, levels, settled_by}]</code>, <code>held_fixed</code>, <code>held_fixed_settled_by</code>, <code>n_columns</code>, <code>forcing_site_rationale</code>, <code>unresolved</code>. Values only, never prose — the server builds columns from them.</dd>
+    <dt>scientific_framing</dt><dd><code>goals</code>, <code>key_processes</code>, <code>candidate_drivers</code>.</dd>
+    <dt>domain</dt><dd><code>name, huc, bbox, area_km2, elevation_range_m, source</code>; null on a conceptual request, and null there means no basin, not a failed lookup.</dd>
+    <dt>heterogeneity</dt><dd><strong>null from the model.</strong> Code fills <code>relief_m, elevation_min_m, elevation_max_m, n_grid_points</code> from the grid.</dd>
+    <dt>forcing_data</dt><dd>copied from the chosen model's <code>constraints.forcing</code> — <code>source, available_start_year, available_end_year, reason</code>.</dd>
+    <dt>run_settings</dt><dd><code>requested_period</code>, <code>requested_n_columns</code> (only a stated number), <code>resolved_period {yr_start, yr_end, source}</code>, <code>initialization</code> (only if the user said), <code>conflicts[]</code>.</dd>
+    <dt>observations_summary</dt><dd><strong>written by code</strong> after the gather; the planner's view of what was fetched.</dd>
+    <dt>known_data_gaps · notes</dt><dd>prose for a reader.</dd>
+  </dl>
+
+  <h3>What the model reads from a server, and where it lands</h3>
+  <table>
+    <thead><tr><th>in the report</th><th>read at</th><th>becomes</th></tr></thead>
+    <tbody>
+      <tr><td class="id">model · ready · missing_requirements</td><td>2a</td><td><code>model_availability</code></td></tr>
+      <tr><td class="id">pinning.pinnable · not_pinnable[].basis</td><td>2a</td><td>the choice, and <code>model_rationale</code></td></tr>
+      <tr><td class="id">constraints.forcing</td><td>5</td><td>the refusal or the clamp; <code>forcing_data</code></td></tr>
+      <tr><td class="id">constraints.initial_state</td><td>5</td><td>nothing — it is the model's; the LLM does not decide it</td></tr>
+      <tr><td class="id">describe_sweep → menu</td><td>2b</td><td><code>sweep</code></td></tr>
+    </tbody>
+  </table>
+  <p class="rule-note"><strong>The invariant.</strong> Both model servers today
+     report the same top-level shape — <code>model</code>, <code>pinning
+     {model, pinnable, not_pinnable, vocabulary}</code>, <code>constraints
+     {fixed, forcing, soil, initial_state}</code> — and reception is written
+     against that shape, not against either server's contents. A third server
+     that reports the same keys is chosen, forced and constrained the same way
+     without a line changing here.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 8 ══ -->
+<section id="s8">
+  <span class="eyebrow">8</span>
+  <h2>Failure paths</h2>
+  <table>
+    <thead><tr><th>where</th><th>what</th><th>outcome</th></tr></thead>
+    <tbody>
+      <tr><td class="id">loop</td><td>final message is not JSON</td>
+          <td class="r-skip">route → clarify, with the first 400 characters kept as <code>raw</code></td></tr>
+      <tr><td class="id">loop</td><td>rounds run out mid-fetch</td>
+          <td class="r-warn">the loop asks for a final answer without tools; the brief is whatever could be assembled — headroom is at 14 for that reason</td></tr>
+      <tr><td class="id">2a</td><td>no server describes itself, or none answers</td>
+          <td class="r-skip"><code>model: null</code>, a conflict, no name from memory</td></tr>
+      <tr><td class="id">2a</td><td>the right model cannot be driven</td>
+          <td class="r-skip">named anyway; <code>model_availability</code> says so; the coordinator stops at dispatch with the package saved</td></tr>
+      <tr><td class="id">3</td><td>several HUC matches, unclear scale, vague place</td>
+          <td class="r-retry"><code>ask_user</code>; in batch, the most defensible reading recorded in <code>conflicts</code></td></tr>
+      <tr><td class="id">5</td><td>period wholly outside the chosen model's forcing</td>
+          <td class="r-raise"><strong>refused</strong> — <code>clarification_needed</code>, one question naming the window, no substitute year, no brief</td></tr>
+      <tr><td class="id">5</td><td>period partly outside</td>
+          <td class="r-warn">clamped, source <code>user-clamped</code>, conflict recorded</td></tr>
+      <tr><td class="id">5</td><td>no period, interactive</td>
+          <td class="r-retry"><code>ask_user</code>, mandatory</td></tr>
+      <tr><td class="id">gather_grid</td><td>empty DEM reply</td>
+          <td class="r-retry">one retry; then the package carries an empty grid and the sampler refuses to materialize</td></tr>
+      <tr><td class="id">gather_grid</td><td>polygon clips every point</td>
+          <td class="r-warn">polygon dropped, raw sample kept, <code>clipped_to_watershed: false</code>; downstream <code>sampling_domain.caveat</code> says bbox sample</td></tr>
+      <tr><td class="id">gather_grid</td><td>too few points in basin</td>
+          <td class="r-retry">density scaled by fill ratio, up to 480</td></tr>
+      <tr><td class="id">gather_precipitation</td><td>period before 1980, point off the tiles</td>
+          <td class="r-warn"><code>ok: false</code> with the per-point reason; provenance says <code>ok: false</code> too</td></tr>
+      <tr><td class="id">gather_observations</td><td>one source fails</td>
+          <td class="r-warn">that block <code>ok: false</code> + error; the others proceed; the analyzer raises a blocking caveat on that variable</td></tr>
+      <tr><td class="id">gather_subsurface</td><td>no run directory · server unreachable</td>
+          <td class="r-warn"><code>ok: false</code> and why; a PFLOTRAN study then cannot build columns and says so at <code>_to_run_plan</code></td></tr>
+      <tr><td class="id">conceptual</td><td>the model resolved a basin anyway</td>
+          <td class="r-skip">domain dropped, recorded in provenance as <code>domain_dropped</code>; nothing fetched</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 9 ══ -->
+<section id="s9">
+  <span class="eyebrow">9</span>
+  <h2>Current guarantees</h2>
+
+  <h3>Enforced</h3>
+  <ul>
+    <li><strong>Every <code>gather.*</code> call in <code>reception_llm.py</code> names a function that exists in <code>data_gather</code>, and binds against its signature.</strong> <code>tests/test_call_sites_bind.py</code>. Added 2026-08-18 after an edit deleted <code>gather_precipitation</code> and every site reception would have died after the LLM rounds.</li>
+    <li><strong>The prompt states no initialization default and defers to <code>constraints.initial_state</code>; the config still warm-starts unless the user said cold.</strong> <code>tests/test_soil_extraction.py::TestWarmStartIsTheDefault</code>.</li>
+    <li><strong>The prompt has no unfilled placeholder.</strong> Nothing is substituted at construction; <code>load_prompt("reception_agentic")</code> takes no arguments.</li>
+    <li><strong>The three local tools exist and are exposed</strong> — <code>list_servers</code>, <code>describe_server</code>, <code>describe_sweep</code> — beside two terrain tools; nothing else reaches an MCP from the loop.</li>
+    <li><strong>A conceptual brief fetches nothing</strong>, and its domain is dropped and recorded (<code>_is_conceptual</code>, <code>_drop_domain</code>).</li>
+    <li><strong>The site path is unreachable without a resolved period</strong> — the observations, the rain and the subsurface sit under <code>if isinstance(y0, int) and isinstance(y1, int)</code>.</li>
+  </ul>
+
+  <h3>Intentions, not guarantees</h3>
+  <ul>
+    <li>That the model reads two reports before choosing, cites them, and never names a model from memory — prompt instructions, checked by no test.</li>
+    <li>That the model refuses a period outside the chosen model's window rather than substituting a year — prompt instruction; a live-LLM test could pin it and does not.</li>
+    <li>That the model emits <code>heterogeneity: null</code> and no <code>observations_available</code> — the schema says so; if it writes them anyway, code overwrites the first four heterogeneity keys and nothing reads the rest.</li>
+    <li>That the gather is the same for every model — true by construction today, and stated in <code>gather_subsurface</code>'s docstring as a decision; see Appendix B.</li>
+    <li>That a fresh reception with the current code produces a brief a downstream stage accepts — <strong>not yet exercised end to end for either model</strong> since the changes of 2026-08-17/18; see Appendix B.</li>
+  </ul>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 10 ══ -->
+<section id="s10">
+  <span class="eyebrow">10</span>
+  <h2>Glossary</h2>
+  <dl class="gloss">
+    <dt>brief</dt><dd>the model-written half of the package: what is asked, which model, where, when, framed.</dd>
+    <dt>package</dt><dd>the whole return of <code>process()</code>: route, brief, and the four gathered blocks with provenance.</dd>
+    <dt>route</dt><dd>framework dispatch, kept out of the brief: <code>design | clarify | analyze_existing | resume</code>.</dd>
+    <dt>archetype</dt><dd><code>site</code> (a place), <code>conceptual</code> (a controlled sweep, no place), <code>coupling</code>.</dd>
+    <dt>local tool</dt><dd>a tool the framework answers itself — <code>list_servers</code>, <code>describe_server</code>, <code>describe_sweep</code> — as opposed to an MCP tool a server answers.</dd>
+    <dt>report</dt><dd>a model server's own account of itself: <code>describe_*_capabilities</code>. Read whole, verbatim, one server per call.</dd>
+    <dt>pinning</dt><dd>in a report: what a column of that model may be compared against at a point, and why not, with <code>basis</code>.</dd>
+    <dt>constraints</dt><dd>in a report: what a plan may not vary — <code>fixed</code>, <code>forcing</code>, <code>soil</code>, <code>initial_state</code> — each with <code>chosen_by</code> and <code>consequence</code>.</dd>
+    <dt>can_run_a_study</dt><dd>the <em>framework's</em> flag on a server: is there a study wrapper for it. Not evidence about fit.</dd>
+    <dt>gather</dt><dd>the code half: <code>gather_grid</code>, <code>gather_precipitation</code>, <code>gather_observations</code>, <code>gather_subsurface</code>, in that order.</dd>
+    <dt>in_basin</dt><dd>reception's tag on every station, computed once against the grid's polygon; absent when it could not be computed, which is not <code>false</code>.</dd>
+    <dt>observations_summary</dt><dd>the compact, series-free view code writes into the brief for the planner.</dd>
+    <dt>provenance</dt><dd>one record per fetch — tool, args, time, ok, error — plus one for a fetch deliberately not made.</dd>
+  </dl>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ A ══ -->
+<section id="a1">
+  <span class="eyebrow">Appendix A</span>
+  <h2>Design history</h2>
+
+  <h3>The fetcher left reception (2026-07-28)</h3>
+  <p>Twelve tools in the loop meant the model spent 100–250 s of a 167–315 s
+     reception choosing tools, then summarised results truncated to 12,000
+     characters — which is how it reported 25 gauges where 93 existed. Fetching
+     became code, run once after the period is fixed. The model kept the
+     judgements: what, where, when.</p>
+
+  <h3>The comparison's vocabulary, and pinning only what a column produces (2026-08-07/08)</h3>
+  <p>The sampler wrote <code>water_table</code> and the comparison read
+     <code>wtd</code>; every well pin ever designed was silently refused. On the
+     13-basin chain run, 14 of 40 pinned columns went to stream gauges a 1-D
+     column cannot reproduce. Stations became tagged <code>in_basin</code>
+     against the polygon, once, in <code>data_gather._inside</code>; a pin
+     outside the divide is refused downstream.</p>
+
+  <h3>One slow request cost two basins their whole validation design (2026-08-09)</h3>
+  <p>An empty DEM reply propagated as "no polygon", so no station could be
+     tagged and the planner, told to pin only what it could confirm was inside,
+     pinned nothing. The grid fetch is retried once, and an empty fetch is no
+     longer treated as a bad polygon.</p>
+
+  <h3>The model is chosen by reading, not by lookup (2026-08-17)</h3>
+  <p>A rendered menu — a dozen lines per server, written at construction before
+     the request was read, one line of it a verdict — was replaced by two local
+     tools the model calls itself. It reads the reports whole. Measured live: a
+     snow question picked ELM and quoted PFLOTRAN's report on why not; an
+     unsaturated-flow question picked PFLOTRAN and said separately that it could
+     not be driven yet.</p>
+
+  <h3>The forcing window comes from the model's report (2026-08-17)</h3>
+  <p>The prompt named NLDAS-2 and its years, from framework code that opened
+     ELM's DATM directory. A PFLOTRAN study of 2024 was refused for a gap in
+     ELM's forcing. The window is read from <code>constraints.forcing</code> of
+     whichever model was named, and <code>bounded: false</code> says "no archive,
+     no window".</p>
+
+  <h3>The soil survey left; the subsurface arrived (2026-08-17/18)</h3>
+  <p><code>gather_soil</code> asked a geology server for SSURGO horizons at every
+     grid point; a survey stops at ~1.5 m and everything below was extrapolated.
+     <code>gather_subsurface</code> fetches ParFlow CONUS2's own parameterisation
+     to 392 m, once per basin, cached server-side. The geology server is
+     retired.</p>
+
+  <h3>The last three model facts left the prompt (2026-08-18)</h3>
+  <p>The sweep menu was rendered from a call hardcoded to <code>elm</code> and
+     substituted into every prompt at construction — ELM's factors, before any
+     model was chosen, under a heading saying they came from "the model server
+     just now"; it is now <code>describe_sweep</code>, called on the chosen
+     model, returning that server's JSON. Thirty lines of initialization
+     guidance — one model's warm and cold starts from a particular restart file,
+     applied to every request — became "read <code>constraints.initial_state</code>;
+     emit nothing unless the user stated a preference". And six schema keys the
+     model was asked to write and nothing read — a relief under a second
+     spelling, band edges, a water-table prior with no producer since 08-07, a
+     soil note, and two observation lists the model was told elsewhere not to
+     write — were deleted.</p>
+
+  <h3>The regression that made the binding test (2026-08-18)</h3>
+  <p>The edit that retired <code>gather_soil</code> sliced the file from
+     <code>def gather_soil(</code> to <code>def gather_subsurface(</code> and took
+     <code>gather_precipitation</code>, defined between them. Reception went on
+     calling it; the suite passed; the commit landed. Recovered verbatim from the
+     session record, and <code>test_call_sites_bind</code> now walks every
+     <code>gather.*</code> access against the module.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ B ══ -->
+<section id="a2">
+  <span class="eyebrow">Appendix B</span>
+  <h2>What is still open</h2>
+
+  <div class="open">
+    <h3>The gather is unconditional on the model — a decision, recorded</h3>
+    <p>An ELM study of a new basin downloads the CONUS2 subsurface and N years of
+       Daymet that ELM never reads. <code>gather_subsurface</code>'s docstring
+       gives the reason: two runs of the same basin should carry the same
+       provenance whatever was decided a moment earlier, and the cost is held by
+       the server-side cache rather than by a condition. The alternative — each
+       server's report naming what it takes from reception, and code gathering
+       exactly that — is one list per server and one loop here. Not done; not
+       clearly wrong either way.</p>
+  </div>
+  <div class="open">
+    <h3>Nothing has run end to end with the current code</h3>
+    <p>The most recent ELM reception predates the model-choice rewrite, Daymet and
+       the subsurface; the most recent PFLOTRAN one predates the forcing-window
+       fix and carries <code>forcing_data: NLDAS-2</code>. Everything since was
+       tested from those two files. One fresh reception per model — ~12 LLM
+       rounds and every fetch, hydrodata included — is the missing check.</p>
+  </div>
+  <div class="open">
+    <h3>The coordinator, not reception</h3>
+    <p>Three things a reader will notice sit just past reception's boundary and
+       are not its to fix: the run directory is named <code>elm_run_*</code>
+       before reception chooses a model, so a PFLOTRAN brief lands in an ELM-named
+       directory; <code>_adopt_model</code> stops any model outside
+       <code>RUNNABLE = {"elm"}</code>; and <code>_execute</code> builds the ELM
+       manager unconditionally. The last two must change together.</p>
+  </div>
+  <div class="open">
+    <h3>Two named-model residues, both harmless</h3>
+    <p>The prompt still quotes a user saying "run PFLOTRAN using the recharge
+       from that ELM run" as an example of a coupling request, and one
+       historical note names NLDAS-2 to explain why the forcing window moved.
+       Neither is a rule.</p>
+  </div>
+</section>
+
+</div>
