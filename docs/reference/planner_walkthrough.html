@@ -1,0 +1,452 @@
+<title>Planner Walkthrough</title>
+<style>
+  :root{
+    --ground:#F6F8F7; --panel:#FFFFFF; --panel-2:#EEF2F1;
+    --ink:#141D1C; --ink-2:#455457; --ink-3:#7A898C;
+    --rule:#DCE3E2; --rule-2:#C6D1D0;
+    --accent:#0E6E7A; --accent-soft:#DCEDEF;
+    --block:#A6342B; --block-soft:#F6E3E1;
+    --qual:#8A6410;  --qual-soft:#F7EEDA;
+    --ctx:#4A6572;   --ctx-soft:#E5EBEE;
+    --serif:Georgia,'Iowan Old Style',ui-serif,serif;
+    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E1514; --panel:#161F1E; --panel-2:#1D2827;
+      --ink:#E7EEEB; --ink-2:#A6B5B4; --ink-3:#7B8A8B;
+      --rule:#273433; --rule-2:#364544;
+      --accent:#5CB8C2; --accent-soft:#12312F;
+      --block:#E58779; --block-soft:#33201D;
+      --qual:#D8AB55;  --qual-soft:#2E2618;
+      --ctx:#9BB2BC;   --ctx-soft:#1C2629;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1514; --panel:#161F1E; --panel-2:#1D2827;
+    --ink:#E7EEEB; --ink-2:#A6B5B4; --ink-3:#7B8A8B;
+    --rule:#273433; --rule-2:#364544;
+    --accent:#5CB8C2; --accent-soft:#12312F;
+    --block:#E58779; --block-soft:#33201D;
+    --qual:#D8AB55;  --qual-soft:#2E2618;
+    --ctx:#9BB2BC;   --ctx-soft:#1C2629;
+  }
+
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);
+       font-size:16px;line-height:1.6;margin:0;padding:0;
+       -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:920px;margin:0 auto;padding:56px 24px 96px;
+        display:flex;flex-direction:column;gap:44px;}
+  p,li{color:var(--ink-2);max-width:70ch;}
+  strong{color:var(--ink);font-weight:600;}
+  code{font-family:var(--mono);font-size:.86em;background:var(--panel-2);
+       padding:.1em .34em;border-radius:3px;color:var(--ink);}
+  h1,h2,h3{font-family:var(--serif);color:var(--ink);text-wrap:balance;
+           font-weight:600;margin:0;line-height:1.25;}
+  h1{font-size:2.1rem;letter-spacing:-.01em;}
+  h2{font-size:1.4rem;}
+  h3{font-size:1.05rem;}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.13em;
+           text-transform:uppercase;color:var(--accent);}
+  header{display:flex;flex-direction:column;gap:12px;
+         border-bottom:1px solid var(--rule);padding-bottom:28px;}
+  header p{font-size:1.05rem;}
+  .meta{font-family:var(--mono);font-size:.78rem;color:var(--ink-3);
+        display:flex;flex-wrap:wrap;gap:6px 18px;}
+
+  section{display:flex;flex-direction:column;gap:18px;}
+
+  figure{margin:0;display:flex;flex-direction:column;gap:10px;}
+  .scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--rule);
+          border-radius:6px;padding:20px;}
+  svg{max-width:100%;height:auto;display:block;color:var(--ink-2);}
+  figcaption{font-size:.85rem;color:var(--ink-3);max-width:70ch;}
+
+  .step{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+        display:grid;grid-template-columns:120px 1fr;gap:0;overflow:hidden;}
+  .step-rail{background:var(--panel-2);padding:18px 16px;
+             border-right:1px solid var(--rule);
+             display:flex;flex-direction:column;gap:10px;}
+  .step-n{font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;
+          text-transform:uppercase;color:var(--ink-3);}
+  .io{font-family:var(--mono);font-size:.74rem;line-height:1.5;
+      color:var(--ink-2);word-break:break-word;}
+  .io b{display:block;color:var(--ink-3);font-weight:400;
+        text-transform:uppercase;letter-spacing:.08em;font-size:.66rem;
+        margin-bottom:2px;}
+  .step-body{padding:18px 22px;display:flex;flex-direction:column;gap:12px;}
+  .step-body p{margin:0;font-size:.95rem;}
+  .llm{display:inline-block;font-family:var(--mono);font-size:.7rem;
+       letter-spacing:.08em;text-transform:uppercase;
+       background:var(--accent-soft);color:var(--accent);
+       padding:2px 8px;border-radius:99px;align-self:flex-start;}
+  .rule-note{border-left:2px solid var(--accent);padding-left:14px;
+             font-size:.9rem;color:var(--ink-2);}
+  @media (max-width:640px){
+    .step{grid-template-columns:1fr;}
+    .step-rail{border-right:none;border-bottom:1px solid var(--rule);
+               flex-direction:row;flex-wrap:wrap;gap:16px;}
+  }
+
+  table{border-collapse:collapse;width:100%;font-size:.88rem;
+        font-variant-numeric:tabular-nums;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);
+        vertical-align:top;}
+  th{font-family:var(--mono);font-size:.7rem;letter-spacing:.09em;
+     text-transform:uppercase;color:var(--ink-3);font-weight:400;
+     border-bottom:1px solid var(--rule-2);}
+  td{color:var(--ink-2);}
+  td.id{font-family:var(--mono);font-size:.8rem;color:var(--ink);}
+  .pill{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;
+        text-transform:uppercase;padding:2px 8px;border-radius:99px;
+        white-space:nowrap;}
+  .p-block{background:var(--block-soft);color:var(--block);}
+  .p-qual{background:var(--qual-soft);color:var(--qual);}
+  .p-ctx{background:var(--ctx-soft);color:var(--ctx);}
+
+  .quote{background:var(--panel);border:1px solid var(--rule);
+         border-left:3px solid var(--block);border-radius:4px;
+         padding:14px 18px;font-size:.9rem;}
+  .quote .said{color:var(--ink);font-style:italic;}
+  .quote .why{color:var(--ink-3);font-size:.85rem;margin-top:8px;
+              display:block;font-style:normal;}
+
+  .runs{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width:640px){.runs{grid-template-columns:1fr;}}
+  .run{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+       padding:18px 20px;display:flex;flex-direction:column;gap:10px;}
+  .run h3{font-family:var(--sans);font-size:.95rem;}
+  .run dl{margin:0;display:grid;grid-template-columns:auto 1fr;
+          gap:4px 14px;font-size:.86rem;font-variant-numeric:tabular-nums;}
+  .run dt{color:var(--ink-3);}
+  .run dd{margin:0;color:var(--ink);font-family:var(--mono);font-size:.82rem;}
+  .verdict{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;
+           text-transform:uppercase;padding:2px 8px;border-radius:99px;
+           align-self:flex-start;}
+  .v-ok{background:var(--accent-soft);color:var(--accent);}
+  .v-no{background:var(--qual-soft);color:var(--qual);}
+
+  .open{background:var(--panel);border:1px solid var(--rule);
+        border-radius:6px;padding:18px 22px;
+        display:flex;flex-direction:column;gap:8px;}
+  .open h3{font-family:var(--sans);font-size:.95rem;}
+  .open p{margin:0;font-size:.92rem;}
+  ul{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:6px;}
+  a{color:var(--accent);}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  /* ── added for the reference rewrite ───────────────────────────── */
+  h4{font-family:var(--sans);font-size:.92rem;font-weight:600;color:var(--ink);
+     margin:6px 0 0;}
+  .toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.82rem;
+       font-family:var(--mono);padding-bottom:4px;}
+  .toc a{text-decoration:none;border-bottom:1px solid transparent;}
+  .toc a:hover{border-bottom-color:var(--accent);}
+  section{scroll-margin-top:20px;}
+
+  .notation{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:.82rem;
+            list-style:none;padding:0;color:var(--ink-2);}
+  .notation li{display:flex;align-items:center;gap:7px;}
+  .notation span{width:24px;height:14px;flex:none;display:inline-block;}
+  .n-file{border:1.4px solid var(--ink-2);border-left-width:4px;}
+  .n-mem{border:1.4px dashed var(--ink-2);}
+  .n-code{border:1.8px solid var(--ink-2);}
+  .n-llm{border:1.8px solid #2E8C99;}
+  .n-gate{border:1.8px solid #C0563F;transform:skewX(-18deg);}
+
+  .stepcard{background:var(--panel);border:1px solid var(--rule);
+            border-radius:6px;padding:20px 24px;
+            display:flex;flex-direction:column;gap:12px;}
+  .stepcard>h3{font-family:var(--sans);font-size:1.02rem;
+               padding-bottom:8px;border-bottom:1px solid var(--rule);}
+  table.spec th{width:150px;text-transform:none;font-family:var(--sans);
+                font-size:.82rem;letter-spacing:0;color:var(--ink-3);
+                border-bottom:1px solid var(--rule);vertical-align:top;
+                font-weight:400;}
+  table.spec td{font-size:.86rem;}
+  td.warn th,th.warn{color:var(--block);}
+  .mark{background:var(--qual-soft);color:var(--qual);
+        padding:.05em .3em;border-radius:3px;}
+  pre{background:var(--panel-2);border:1px solid var(--rule);border-radius:5px;
+      padding:12px 16px;overflow-x:auto;font-size:.8rem;
+      font-family:var(--mono);color:var(--ink-2);margin:0;line-height:1.5;}
+  .sub{font-size:.8rem;color:var(--ink-3);}
+  .lineage{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media (max-width:640px){.lineage{grid-template-columns:1fr;}}
+  .lineage>div{background:var(--panel);border:1px solid var(--rule);
+               border-radius:6px;padding:16px 20px;}
+  .lineage ol{margin:8px 0 0;padding-left:1.2em;font-size:.84rem;
+              display:flex;flex-direction:column;gap:5px;color:var(--ink-2);}
+  .lineage h4{margin:0;}
+  dl.gloss{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 20px;
+           font-size:.9rem;}
+  @media (max-width:640px){dl.gloss{grid-template-columns:1fr;gap:2px 0;}
+                           dl.gloss dd{margin-bottom:10px;}}
+  dl.gloss dt{font-family:var(--mono);font-size:.82rem;color:var(--ink);
+              white-space:nowrap;}
+  dl.gloss dd{margin:0;color:var(--ink-2);}
+  td.r-raise{color:var(--block);font-weight:600;}
+  td.r-warn,td.r-retry{color:var(--qual);font-weight:600;}
+  td.r-skip{color:var(--ctx);font-weight:600;}
+  ol.defects{margin:0;padding-left:1.2em;display:flex;flex-direction:column;
+             gap:10px;color:var(--ink-2);}
+</style>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">IDEAS · the second box</span>
+  <h1>Planner Walkthrough</h1>
+  <p>One diagram, and a few sentences on each box in it. The planner turns
+     <code>reception.json</code> into <code>strategy.json</code>: one language-model
+     call that decides how many columns, in what bands, pinned to which stations,
+     and whether the study can answer the question — never a coordinate. It
+     touches exactly one server: the model reception chose.</p>
+  <div class="meta">
+    <span>src/agents/planner.py</span>
+    <span>src/agents/prompts/planner.txt</span>
+    <span>workflow.py · _plan, _model_report</span>
+    <span>src/core/strategy_check.py</span>
+    <span>verified against the code 2026-08-18</span>
+  </div>
+</header>
+
+<section id="flow">
+  <h2>The flow</h2>
+  <ul class="notation">
+    <li><span class="n-file"></span> file on disk</li>
+    <li><span class="n-mem"></span> in-memory object</li>
+    <li><span class="n-code"></span> deterministic code</li>
+    <li><span class="n-llm"></span> language-model call</li>
+    <li><span class="n-gate"></span> decision gate</li>
+    <li><span class="n-code" style="border-style:double"></span> MCP server</li>
+  </ul>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 640" role="img" aria-label="The planner's execution flow. Left: reception.json is read; code keeps the brief without its data siblings and adds observations_summary. Right: the model server named in the brief is asked once for its report through describe_server, memoized; two blocks are taken from it, pinning and constraints. Both feed one language-model call whose system prompt is planner.txt plus DESIGN LIMITS (the constraints block) plus PINNING RULES (the pinning block); the model emits seven keys. Code writes the pinning block into the plan and writes strategy.json. Below the file, the Experiment Manager's check gate reads reception.json and strategy.json together before any column is materialised: it stops on a design that cannot be placed and records corrections otherwise.">
+        <defs>
+          <marker id="p-ar" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="11.5"
+           fill="currentColor" stroke="currentColor">
+
+          <!-- ── inputs: reception.json ── -->
+          <rect x="30" y="20" width="200" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="30" y="20" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="130" y="37" text-anchor="middle" stroke="none">reception.json</text>
+          <line x1="130" y1="46" x2="130" y2="72" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="30" y="74" width="300" height="58" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="92" stroke="none">_summary_for_prompt</text>
+          <text x="42" y="108" stroke="none" font-size="10.5">brief, minus its data siblings</text>
+          <text x="42" y="122" stroke="none" font-size="10.5">+ observations_summary (ids, coordinates, in_basin — no series)</text>
+
+          <!-- ── inputs: the model server ── -->
+          <rect x="600" y="20" width="270" height="52" rx="3" fill="none" stroke-width="1.6"/>
+          <rect x="603" y="23" width="264" height="46" rx="2" fill="none" stroke-width=".8"/>
+          <text x="612" y="40" stroke="none">model server · brief.model</text>
+          <text x="612" y="56" stroke="none" font-size="10.5">describe_*_capabilities</text>
+          <line x1="735" y1="72" x2="735" y2="98" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="600" y="100" width="270" height="44" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="612" y="118" stroke="none">describe_server · _model_report</text>
+          <text x="612" y="133" stroke="none" font-size="10.5">one call per run, memoized; the same local tool reception used</text>
+          <line x1="670" y1="144" x2="670" y2="170" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <line x1="800" y1="144" x2="800" y2="170" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="600" y="172" width="126" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="663" y="191" text-anchor="middle" stroke="none">pinning</text>
+          <rect x="740" y="172" width="130" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="805" y="191" text-anchor="middle" stroke="none">constraints</text>
+
+          <!-- ── the LLM call ── -->
+          <line x1="180" y1="132" x2="180" y2="230" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <text x="188" y="186" stroke="none" font-size="10" opacity=".8">the user message</text>
+          <path d="M663 202 C 663 260, 560 240, 540 262" fill="none" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <path d="M805 202 C 805 300, 560 260, 540 300" fill="none" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <text x="590" y="240" stroke="none" font-size="10" opacity=".8">into the system prompt,</text>
+          <text x="590" y="254" stroke="none" font-size="10" opacity=".8">as two labelled blocks</text>
+
+          <rect x="30" y="232" width="510" height="196" rx="4" fill="none" stroke="#2E8C99" stroke-width="1.8"/>
+          <text x="42" y="250" fill="#2E8C99" stroke="none" font-size="10.5" letter-spacing=".08em">ONE LLM CALL · Planner.plan · SimpleLLMClient</text>
+          <text x="42" y="270" stroke="none">system = planner.txt</text>
+          <text x="42" y="286" stroke="none" font-size="10.5">        + DESIGN LIMITS  ← constraints   (what a plan may not vary)</text>
+          <text x="42" y="300" stroke="none" font-size="10.5">        + PINNING RULES  ← pinning       (what a column may be compared against)</text>
+          <text x="42" y="326" stroke="none" font-size="10.5" letter-spacing=".06em" opacity=".8">SITE — decides</text>
+          <text x="42" y="342" stroke="none" font-size="10.5">n_bands from relief_m (3 · 4 · 5) · per_band 3 · + 2 anchors · 6..24</text>
+          <text x="42" y="356" stroke="none" font-size="10.5">which stations to pin: observations_summary × pinning.pinnable, ≤ 4</text>
+          <text x="42" y="370" stroke="none" font-size="10.5">a verdict per variable: co-located · basin-aggregate · distance-matched · unavailable</text>
+          <text x="42" y="384" stroke="none" font-size="10.5">feasibility + requires: the question against constraints.fixed / forcing / soil / initial_state</text>
+          <text x="42" y="406" stroke="none" font-size="10.5" letter-spacing=".06em" opacity=".8">CONCEPTUAL — copies</text>
+          <text x="42" y="420" stroke="none" font-size="10.5">brief.sweep verbatim · n_columns = product of the levels · validation []</text>
+
+          <!-- ── seven keys ── -->
+          <line x1="285" y1="428" x2="285" y2="452" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="120" y="454" width="330" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="285" y="473" text-anchor="middle" stroke="none">7 keys: archetype · goals · feasibility · sampling · validation · requires · coupling</text>
+
+          <!-- ── code: attach pinning, write ── -->
+          <line x1="285" y1="484" x2="285" y2="506" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="120" y="508" width="330" height="40" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="132" y="526" stroke="none">plan["pinning"] = the block above</text>
+          <text x="132" y="541" stroke="none" font-size="10.5">the rulebook the design was made under travels with the design</text>
+          <path d="M600 187 C 480 187, 470 470, 452 528" fill="none" stroke-width="1.1" stroke-dasharray="3 3" marker-end="url(#p-ar)"/>
+          <text x="470" y="440" stroke="none" font-size="10" opacity=".8">same object</text>
+
+          <line x1="285" y1="548" x2="285" y2="572" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="200" y="574" width="170" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="200" y="574" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="285" y="591" text-anchor="middle" stroke="none">strategy.json (8 keys)</text>
+
+          <!-- ── the gate after ── -->
+          <line x1="285" y1="600" x2="285" y2="614" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <g transform="translate(285 630)">
+            <polygon points="-150,-14 150,-14 136,14 -164,14" fill="none" stroke="#C0563F" stroke-width="1.6"/>
+            <text x="-6" y="4" text-anchor="middle" stroke="none" font-size="10.5">Experiment Manager · check(): reception × strategy — STOP or CORRECTION, recorded</text>
+          </g>
+          <line x1="30" y1="40" x2="20" y2="40" stroke-width="0"/>
+          <path d="M30 33 C 5 33, 5 630, 118 630" fill="none" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#p-ar)"/>
+          <text x="590" y="600" stroke="none" font-size="10" opacity=".8">pure code, no server —</text>
+          <text x="590" y="614" stroke="none" font-size="10" opacity=".8">the first thing that reads the plan</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>Two inputs meet in one call. From the left, the brief and a summary of
+      what reception fetched; from the right, two blocks read once from the model
+      reception chose. The model's seven keys plus the pinning block become
+      <code>strategy.json</code>. Just below the file, the Experiment Manager's
+      gate reads reception and strategy together before any column is
+      materialised — code, no server.</figcaption>
+  </figure>
+</section>
+
+<!-- ─────────────────────────────────────────── the boxes, top to bottom ── -->
+<section id="boxes">
+  <h2>The boxes, top to bottom</h2>
+
+  <div class="stepcard">
+    <h3>reception.json → _summary_for_prompt</h3>
+    <p>The planner is shown the brief and <code>observations_summary</code> — counts,
+       station ids, coordinates, elevations, in-basin tags — and nothing else from
+       the package. Not the grid, not the rain, not the observation series (170 KB
+       for one basin), not the subsurface. It stratifies on elevation and pins by
+       station id, so those are all it needs; everything else would be paid for
+       and unread. The exclusion is done twice on purpose: by naming keys, and by
+       popping the data siblings if they were ever written into the brief by
+       mistake.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>model server · brief.model → describe_server</h3>
+    <p>The one server the planner touches, asked once. <code>_model_report</code>
+       calls the same local <code>describe_server</code> reception used, by the name
+       reception wrote, and memoizes it — two blocks are read out of one report,
+       and a report costs a real round trip. Nothing goes through a manager class:
+       until 2026-08-17 it did, and since the only manager was ELM's, every study
+       was handed ELM's rules under a heading saying they came from the model that
+       would run. For PFLOTRAN those rules are not stale but inverted.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>pinning</h3>
+    <p>What a column of <em>this</em> model may be compared against at a point,
+       and what not, each with a <code>reason</code> and a <code>basis</code> —
+       physics, or a design decision about how columns are spent. It decides which
+       variables may get stations, and the <code>instead</code> word gives the
+       verdict for the rest. If the report has no such block the planner is told
+       so, writes a plan anyway, and the sampler refuses to place a pinned column
+       until it can read one.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>constraints</h3>
+    <p>What a plan may <em>not</em> vary: <code>fixed</code> (mechanisms the model
+       does not have — a question that needs one is infeasible),
+       <code>forcing</code>, <code>soil</code>, <code>initial_state</code>, each with
+       <code>chosen_by</code> (the model, the plan, or a split), <code>available</code>,
+       and a <code>consequence</code> sentence to reason from. The prompt tells the
+       model how to read the block and adds no limit of its own — a limit not in
+       the block is not a limit. This is where a stale report moves the plan: on
+       2026-08-18 PFLOTRAN's block still said <code>depth_cap_m: 50</code> after
+       the framework had gone to 392 m, and the verdict came back
+       <code>partial</code> for a reason that no longer existed. The server was
+       corrected; the planner needed no change.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>the LLM call</h3>
+    <p>Purely a proposal — nothing here corrects it. Its system prompt is
+       <code>planner.txt</code> with the two blocks appended under labelled
+       headings; its user message is the summary. On a <strong>site</strong> it
+       decides: the band count from relief (3 under 500 m, 4 under 1,200 m, else
+       5), three columns per band, up to four pinned stations chosen from the
+       summary and filtered by what is pinnable, a verdict per variable, and the
+       feasibility judgement with its <code>requires</code> list. The total is
+       arithmetic — <code>n_bands × per_band + n_validation + 2</code>, the two
+       being the sampler's own water-table anchors — bounded 6..24 as a sampling
+       range, not a compute one, so a cheap model does not get a wider one. On a
+       <strong>conceptual</strong> request it copies reception's sweep verbatim; the
+       user was shown those levels and said yes.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>7 keys → plan["pinning"] → strategy.json</h3>
+    <p>The model's JSON is parsed; the coordinator adds the pinning block it was
+       shown and writes the file. So <code>strategy.json</code> carries the design
+       <em>and the rulebook it was designed against</em>, the same object, and the
+       sampler enforces that copy rather than fetching the rule again. Two readers,
+       one record; a server updated between plan and run, or a resume a week later,
+       cannot make them disagree.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>gate · check()</h3>
+    <p>Not the planner — the Experiment Manager's first step, and the only place
+       that holds reception and strategy together. Pure code. It <strong>stops</strong>
+       a design that would produce garbage (no domain, no period, a count that
+       cannot be placed, a sweep with one level) and <strong>corrects</strong> what
+       is unusable but survivable — a column count the user stated that the planner
+       ignored, a station named that was never fetched — and records every
+       correction in the run, because the planner is pure LLM and this is the only
+       point a discrepancy becomes visible.</p>
+  </div>
+</section>
+
+<section id="moves">
+  <h2>What moves the plan, and from where</h2>
+  <table>
+    <thead><tr><th>decision</th><th>source</th></tr></thead>
+    <tbody>
+      <tr><td>which half of the prompt applies</td><td class="id">brief.design_archetype</td></tr>
+      <tr><td>band count</td><td class="id">brief.heterogeneity.relief_m — measured by reception</td></tr>
+      <tr><td>per band, the + 2, the 6..24 bounds</td><td class="id">planner.txt — fixed arithmetic</td></tr>
+      <tr><td>which stations, how many pinned</td><td class="id">observations_summary × pinning.pinnable — reception × the model server</td></tr>
+      <tr><td>verdict word on the rest</td><td class="id">pinning.not_pinnable[].instead — the model server</td></tr>
+      <tr><td>feasibility, requires</td><td class="id">constraints — the model server</td></tr>
+      <tr><td>a sweep's factors and count</td><td class="id">brief.sweep — settled with the user</td></tr>
+    </tbody>
+  </table>
+  <p class="rule-note">Only two rows come from a server, and both from the same
+     one. A wrong <code>pinning</code> moves the pins; a wrong
+     <code>constraints</code> moves the verdict. Neither can move the band count
+     or the total — on the same basin those came out identical for both models,
+     5 × 3, + 2.</p>
+</section>
+
+<section id="notes">
+  <h2>Two things not on the diagram</h2>
+  <p><strong>It is proven on both models.</strong> The same method, driven on the
+     latest ELM and PFLOTRAN receptions on 2026-08-18: each <code>strategy.json</code>
+     carried its own model's block — ELM pins snow and ET, PFLOTRAN pins the water
+     table alone — and the sampler resolved both from the two files with no
+     server call. After the PFLOTRAN report was corrected the same day, the two
+     stale <code>requires</code> lines vanished and the verdict stayed
+     <code>partial</code> for reasons that are true.</p>
+  <p><strong>What still names a model.</strong> One example value in the output
+     schema (<code>"from_model": "ELM"</code>) and a historical note explaining why
+     the limits left the prompt. Neither is a rule. The gate's sweep branch has two
+     ELM-worded messages; sweeps are ELM-only today.</p>
+</section>
+
+</div>
