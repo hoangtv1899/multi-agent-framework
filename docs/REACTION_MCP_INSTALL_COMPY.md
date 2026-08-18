@@ -1,5 +1,16 @@
 # Installing the reaction sandbox MCP (`pflotran_mcp`) on Compy
 
+> **Superseded (2026-08-18).** This recipe describes the original port: an
+> unzipped copy of the upstream repository (`reaction_sandbox_mcp-main/`),
+> served through a launcher and a `fastmcp` shim under
+> `mcp/reaction-sandbox-mcp/`. That launcher and shim are **deleted**. The live
+> server is the git checkout `reaction_sandbox_mcp-upstream/` on branch
+> `compy-port`, installed **editable** into the `ideas` env, so `mcp_config.json`
+> launches it directly as the console script `pflotran-mcp` — see
+> `docs/CLAUDE_CODE_MCP_GUIDE.md`, "Which tree is live". Kept for the record of
+> how the port was done, not as instructions to follow.
+
+
 A standalone recipe for setting this server up in **your own account** on
 `compy01.pnl.gov`. It does not install or assume the IDEAS framework — when
 you are done you have a working MCP server that any MCP client can talk to.
