@@ -37,6 +37,8 @@ conductivity in m/h, van Genuchten alpha in 1/m, `n` rather than `m`. Turning
 those into a deck is the PFLOTRAN server's job (`create_decks_from_columns`),
 and it is the only place that knows what a deck wants.
 """
+import json
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.exp_manager_base import ExperimentManagerBase
@@ -107,6 +109,44 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					 "final saturation profile compares an input with an "
 					 "output"),
 		},
+		"unsaturated_m": {
+			"units": "m", "from": ["water_table_m", "domain_depth_m"],
+			"note": ("how much unsaturated column the run STARTED with. An "
+					 "input, and the thing the study is about: a column with "
+					 "0 m of it has no vertical transit to observe, however "
+					 "cleanly it ran"),
+		},
+		"wt_in_domain": {
+			"units": "true/false", "from": ["water_table_m", "domain_depth_m"],
+			"note": ("whether that initial water table is INSIDE the column "
+					 "at all. False means the domain was capped above it, so "
+					 "water_table_m describes a place the model never "
+					 "represented and nothing in the profile is measured "
+					 "against it"),
+		},
+		"transient": {
+			"units": "true/false", "from": ["the deck's FLOW_CONDITION"],
+			"note": ("true when the top boundary follows the daily series, "
+					 "false when it is one constant rate. Which one decides "
+					 "what the output times mean: a steady column's snapshots "
+					 "are one state approached, a transient column's are the "
+					 "year being walked through"),
+		},
+		"n_forcing_steps": {
+			"units": "count", "from": ["Daymet daily precipitation"],
+			"note": ("how many boundary values the column was driven with — "
+					 "365 for a year of days. Null or 0 means a constant "
+					 "boundary"),
+		},
+		"recharge_mm_yr": {
+			"units": "mm/y", "from": ["Daymet daily precipitation"],
+			"note": ("the CONSTANT top-boundary flux, for a column driven by "
+					 "one. NULL ON A TRANSIENT COLUMN, where the boundary is "
+					 "the 365-step series and no single rate describes it — "
+					 "an absence with a reason, not a gap. Either way it is "
+					 "an input: no flux is written out, so the rate that "
+					 "actually reached the water table is not in this run"),
+		},
 		# WHAT IS ABSENT, said explicitly. A reader looking for these will not
 		# find them, and the reason is a design decision rather than a gap.
 		"_not_computed": {
@@ -155,7 +195,21 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 
 		profiles = cs.sample(run_dir, lats, lons)
 		tables = static_wtd.sample(run_dir, lats, lons)
-		rain = ((reception.get("precipitation") or {}).get("series")) or {}
+		precip = reception.get("precipitation") or {}
+		rain = precip.get("series") or {}
+		# WHICH YEARS THE COLUMN WAS ACTUALLY DRIVEN WITH, read off the same
+		# calendar the series is on rather than copied from the plan. The
+		# Analyzer asks "was the run driven over the period that was asked
+		# for?" and answers it from the columns; a column that never records
+		# its years answers `null`, and null reads as a period that was
+		# planned and not honoured. Seventeen PFLOTRAN columns said exactly
+		# that about a run driven with the 1988 Daymet year they were joined
+		# to. Taken from the plan instead, the check would compare the plan
+		# with itself and could never fail.
+		cal_years = [y for y in ((precip.get("calendar") or {}).get("year") or [])
+					 if isinstance(y, (int, float))]
+		yr_first = int(min(cal_years)) if cal_years else None
+		yr_last  = int(max(cal_years)) if cal_years else None
 
 		out: List[Dict[str, Any]] = []
 		incomplete: List[Dict[str, Any]] = []
@@ -165,6 +219,10 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			row["subsurface_profile"] = prof
 			row["water_table_m"] = wt
 			row["precipitation_mm_day"] = rain.get(key)
+			# Only a column that GOT a series was driven by it. One that fell
+			# outside the fetched box has no forcing and must not claim years.
+			if rain.get(key) is not None and yr_first is not None:
+				row["forcing_start"], row["forcing_end"] = yr_first, yr_last
 			missing = [n for n, v in (("subsurface_profile", prof),
 									  ("water_table_m", wt),
 									  ("precipitation_mm_day", rain.get(key)))
@@ -448,6 +506,69 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		for r in rows:
 			if not r.get("ok"):
 				print(f"   ⚠️  {r.get('id')}: {str(r.get('reason'))[:120]}")
+
+		# THE SERIES COME BACK OFF DISK AND ONTO THE ROWS. The tool writes them
+		# to out_file and returns summaries, because a 786-cell column at five
+		# output times is ~8,000 numbers and a tool result is not the place for
+		# seventeen of those. But the Analyzer reads experiment.json and only
+		# experiment.json — its step 0 says so, and _package copies the rows
+		# verbatim — so a row without its series arrives at the Analyzer as a
+		# column that ran and produced nothing. That is exactly what happened:
+		# 17 of 17 columns packaged, every frame empty, and the run declined
+		# with "no daily series, no soil layers and no depth profiles".
+		#
+		# So the file stays the raw record and the rows carry a copy, which is
+		# what ELM's extractor already does by returning its daily values
+		# inline. Attached under `profiles` because that is the frame the
+		# Analyzer builds from a depth x time grid — one value per (output
+		# time, depth), which is neither a daily series nor a soil layer.
+		#
+		# READ, NOT REBUILT. The block is passed through as the server wrote
+		# it; this stage does not know what saturation means and does not need
+		# to. It also makes a resumed run identical to a fresh one, since
+		# _rehydrate_extract reads these same rows back out of experiment.json.
+		attached = 0
+		try:
+			series = ((json.loads(Path(out_file).read_text()) or {})
+					  .get("columns") or {})
+		except Exception as e:                                  # noqa: BLE001
+			series = {}
+			print(f"   ⚠️  could not read back {out_file} ({e}) — the rows "
+				  f"carry no series, so the Analyzer will find no frame")
+		# The column's OWN SETUP travels the same way, from the case inputs
+		# this stage was handed. It is the manager's to carry: the server read
+		# .tec files and has no idea what drove them or what they started from.
+		#
+		# water_table_m is the one that had to be here. FIELD_SEMANTICS
+		# declares it, so the Analyzer went looking and reported "the ParFlow
+		# CONUS2 reference water_table_m is finite for 0 of the 17 columns" —
+		# about a run where every column was initialised hydrostatic about a
+		# finite one. A name in FIELD_SEMANTICS with no number on any row is a
+		# capability the package claims and does not have, and the claim it
+		# produced was a false statement about the study.
+		#
+		# EVERY ONE OF THESE IS AN INPUT, and FIELD_SEMANTICS says so for each.
+		# They are carried so an output can be read against what produced it —
+		# not so they can be reported as results.
+		SETUP = ("forcing_start", "forcing_end", "water_table_m",
+				 "unsaturated_m", "wt_in_domain",
+				 "transient", "n_forcing_steps", "recharge_mm_yr")
+		by_id = {e.get("id"): e for e in (experiments or []) if e.get("id")}
+		for r in rows:
+			blk = series.get(r.get("id"))
+			if blk:
+				r["profiles"] = blk
+				attached += 1
+			src = by_id.get(r.get("id")) or {}
+			for k in SETUP:
+				if src.get(k) is not None and r.get(k) is None:
+					r[k] = src[k]
+		if series and attached < len(read):
+			print(f"   ⚠️  {len(read) - attached} column(s) read but not "
+				  f"attached — their id is not a key of the series file")
+		if attached:
+			print(f"   ✓ {attached} column(s) carry their depth x time series "
+				  f"into experiment.json")
 
 		return {
 			"rows": rows,

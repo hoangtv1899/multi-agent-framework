@@ -566,21 +566,39 @@ def _caveats(experiment: Dict[str, Any],
                 (BLOCKING if str(kind_).startswith("structural") else QUALIFY),
                 text, where, "experiment.json:limitations")
 
-    # assumptions_ledger entries are {parameter, value, source, note} — there
-    # is no `statement` key, so asking for one yielded None for every entry.
+    # TWO PRODUCERS, TWO SHAPES, AND THE READER HAS TO KNOW BOTH.
+    # ELM's ledger is a settings record — {parameter, value, source, note} —
+    # and there is no `statement` key, so asking for one yielded None for
+    # every entry. PFLOTRAN's is a decision record — {assumption, why, cost,
+    # source} — and shares not one of those names, so a ledger of three
+    # entries produced a caveat list of zero: the honesty payload was written,
+    # packaged and read, and dropped here in silence because the reader knew
+    # only the other shape. Both are read now.
     for i, a in enumerate(experiment.get("assumptions_ledger") or []):
+        sev = CONTEXT
         if isinstance(a, dict):
             head = " = ".join(str(x) for x in (a.get("parameter"), a.get("value"))
-                              if x is not None)
-            text = " — ".join(x for x in (head, a.get("note")) if x) \
-                or a.get("statement") or a.get("text")
-            where = a.get("applies_to") or a.get("parameter") or "the run setup"
+                              if x is not None) or a.get("assumption")
+            # `cost` IS A SEVERITY, not a note. It says what the assumption
+            # costs the conclusion — "these columns drain far more completely
+            # than a real soil would" bounds every claim about drainage — and
+            # that is what QUALIFY means. Read off the entry rather than
+            # declared, so a ledger that states no cost stays context.
+            cost = a.get("cost")
+            if cost:
+                sev = QUALIFY
+            text = " — ".join(x for x in (head, a.get("note"), a.get("why"))
+                              if x) or a.get("statement") or a.get("text")
+            if cost:
+                text = f"{text} (cost: {cost})" if text else str(cost)
+            where = (a.get("applies_to") or a.get("parameter")
+                     or a.get("assumption") or "the run setup")
             src = a.get("source")
         else:
             text, where, src = a, "the run setup", None
         if not text:
             continue
-        add(f"assumption_{i+1}", CONTEXT, text, where,
+        add(f"assumption_{i+1}", sev, text, where,
             f"experiment.json:assumptions_ledger"
             + (f" (source: {src})" if src else ""))
 
