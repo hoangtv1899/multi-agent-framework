@@ -18,10 +18,13 @@ import json
 import sys
 from pathlib import Path
 
-# THREE THINGS THIS REACHES BACK FOR, and none of them is framework LOGIC:
+# TWO THINGS THIS REACHES BACK FOR, and neither is framework LOGIC:
 #   figstyle          house style — the printed width and point sizes
-#   expand_sampling   nldas_annual_precip, forcing shared with PFLOTRAN
 #   core.basemap      the hillshade tiles, shared with compare/'s column maps
+#
+# nldas_annual_precip used to be a third, imported from the framework's
+# sampler; it is ELM forcing and lives in forcing.py beside this file now
+# (2026-08-18).
 #
 # The precedent is compare/_common.py, which already resolves core.basemap this
 # way for exactly the same reason. Presentation policy is neither ELM knowledge
@@ -68,8 +71,8 @@ def _precip(cols, year):
     a defect to hide.
     """
     try:
-        import expand_sampling as exp
-        return exp.nldas_annual_precip(cols, year)
+        from forcing import nldas_annual_precip
+        return nldas_annual_precip(cols, year)
     except Exception as e:                                   # noqa: BLE001
         print(f"   precip unavailable: {str(e)[:90]}")
         return None

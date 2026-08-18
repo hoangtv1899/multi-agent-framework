@@ -309,33 +309,11 @@ class TestDonorSoilProfile:
         assert all(b > a for a, b in zip(tops, tops[1:]))
 
 
-class TestTheSamplingFigureDrawsTheDonorSoil:
-    """The panel shows the soil the RUN uses, which it can now guarantee.
+# TestTheSamplingFigureDrawsTheDonorSoil stood here and is deleted (2026-08-18)
+# with expand_sampling._soil_cov, the helper it tested. That helper summarised
+# the donor soil for a panel of plot_columns, deleted 2026-08-13; the server's
+# own figure (mcp/elm-mcp/src/sampling_design.py) reads the profile itself.
 
-    _refine_columns runs before the figure is drawn, so soil_profile holds the
-    warm-start donor's own soil by then. Previously a second profile was also
-    fetched at sampling time and the panel had to guess which one it was
-    holding — its own comment named the hazard: "a panel captioned SSURGO would
-    describe a profile the model never saw."
-    """
-
-    def test_it_reads_clay_and_organic_from_the_donor_profile(self):
-        exp = _tool("expand_sampling")
-        col = {"soil_profile": {"layers": [
-            {"component": "CONUS 1km", "clay_pct": 21.0, "organic_kg_m3": 57.4},
-            {"component": "CONUS 1km", "clay_pct": 24.0, "organic_kg_m3": 36.7}]}}
-        assert exp._soil_cov(col) == (24.0, 57.4)
-
-    def test_a_column_with_no_profile_reports_nothing_plottable(self):
-        exp = _tool("expand_sampling")
-        assert exp._soil_cov({}) == (None, None)
-
-    def test_ksat_is_not_expected_of_the_donor(self):
-        """CONUS 1 km carries no saturated conductivity — ELM derives it from
-        sand and organic. The old helper's Ksat branch only ever served the
-        survey profile that sampling no longer fetches."""
-        src = (ROOT / "tools" / "expand_sampling.py").read_text()
-        assert "ksat_ums" not in src
 
 class TestGridDensityAdaptsToShape:
     """A grid is requested over the BOUNDING BOX and used inside the BASIN, so

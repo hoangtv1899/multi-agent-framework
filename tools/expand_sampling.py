@@ -2,10 +2,19 @@
 """
 Tier-2 expander: planner sampling STRATEGY -> concrete column points.
 
-Deterministic geospatial expansion (no LLM, no invented coordinates). Samples
-the real DEM via the terrain MCP across the domain bbox, stratifies by elevation
-band, allocates the planner's N columns proportionally to occupied area, and
-picks spatially-spread points per band. NOTHING is executed.
+Deterministic geospatial expansion (no LLM, no invented coordinates). Takes the
+DEM grid reception already fetched and clipped to the basin, cuts it into
+equal-interval elevation bands, gives every occupied band the planner's
+per_band columns (or an even share of the budget), and picks spatially-spread
+points inside each band. NOTHING is executed.
+
+A FUNCTION OF TWO FILES (2026-08-18). reception.json carries the grid, the
+basin boundary and every station; strategy.json carries the design and the
+pinning rules it was made under. Nothing here fetches a DEM, a polygon or a
+capability report — reception is the only component that reaches outside, and
+what it fetched is what the sampler reads. The one call this module still
+makes is a point-elevation query at each PINNED station, so the column is
+banded by the ground it stands on rather than by a grid point kilometres away.
 
 SELECTION IS ELEVATION-ONLY. No water table, no soil. Fan WTD used to be
 attached here and never influenced a single placement; soil comes from the
@@ -13,9 +22,9 @@ warm-start donor gridcell, so a profile queried here would be a field the model
 never sees. Both are the consumer's to fetch, where the decision that needs
 them is made.
 
-Operates on a pipeline run dir (reads reception_brief.json for the bbox,
-strategy.json for N / band count / the pinning rules, reception.json for the
-stations), or standalone via --bbox/--n/--bands.
+Operates on a pipeline run dir (reception.json + strategy.json), or standalone
+via --bbox/--n/--bands, in which case it asks reception's own gather_grid for
+the DEM — the same code, so there is one fetch-and-clip in the framework.
 
 Run from the project root with the MCP runtime env:
     source /qfs/people/tran289/IDEAS/env_compy.sh
@@ -24,13 +33,14 @@ Run from the project root with the MCP runtime env:
 """
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
 
-sys.path.insert(0, "src")
-from core.mcp_manager import MCPManager
+# NO MCP IMPORT AT MODULE SCOPE. The Experiment Manager imports this file for
+# the sampler; the MCP client stack (mcp, anyio, ...) is needed only by the CLI
+# in main(), and pulling it in here made the sampler unimportable wherever
+# that stack was not installed. main() adds src/ to the path and imports it.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -454,7 +464,7 @@ def _pinned_from_plan(plan, reception):
     return keep + _fan_anchors(reception)
 
 
-def _place_pinned(clients, pinned, bands, pts):
+def _place_pinned(terrain, pinned, bands, pts):
     """One column at each station's own coordinates.
 
     Elevation comes from a point 3DEP query AT the station, not from the nearest
@@ -465,7 +475,7 @@ def _place_pinned(clients, pinned, bands, pts):
     the model surface sits from the instrument before trusting the pairing — the
     quantity step1_compare_swe had to give up on.
     """
-    terr = clients.get("terrain")
+    terr = terrain
     out = []
     for st in pinned:
         elev, src = None, None
@@ -508,80 +518,56 @@ def _place_pinned(clients, pinned, bands, pts):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# EXPANSION (uses the MCP servers)
+# EXPANSION — reception's grid in, columns out
 # ─────────────────────────────────────────────────────────────────────────────
+#
+# _clip_to_polygon WAS HERE and is deleted (2026-08-18). It clipped the grid to
+# the largest WBD ring with shapely — a second clip, after data_gather.gather_grid
+# had already dropped every point outside the divide with its own ray-casting
+# test and written the survivors to reception.json. Fifty-eight points in,
+# fifty-eight out, on every run. The two predicates were not even the same
+# (largest ring against all rings), so for a basin in parts they could disagree
+# about a point reception had kept. One clip, reception's; this file reads it.
 
-def _clip_to_polygon(pts, rings):
-    """Keep only points inside the watershed polygon (largest ring). Falls back
-    to the original list if shapely/polygon is unavailable or clips everything."""
-    try:
-        from shapely.geometry import Polygon, Point
-    except Exception:
-        return pts
-    polys = []
-    for r in rings or []:
-        if len(r) >= 4:
-            try:
-                polys.append(Polygon(r))
-            except Exception:
-                pass
-    if not polys:
-        return pts
-    poly = max(polys, key=lambda p: p.area)
-    # One prepared-geometry pass over all points instead of a Python-level
-    # contains() per point: shapely builds the edge index once and vectorises
-    # the test. Identical predicate, same points kept.
-    try:
-        import numpy as np
-        from shapely import points as _shp_points, contains as _shp_contains
-        arr = _shp_points(np.fromiter((q["lon"] for q in pts), float, len(pts)),
-                          np.fromiter((q["lat"] for q in pts), float, len(pts)))
-        keep = np.asarray(_shp_contains(poly, arr), dtype=bool)
-        inside = [q for q, k in zip(pts, keep) if k]
-    except Exception:
-        # shapely < 2 has no vectorised API; the scalar predicate is the same.
-        inside = [q for q in pts if poly.contains(Point(q["lon"], q["lat"]))]
-    return inside or pts          # never drop everything on a bad clip
-
-
-def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
-           per_band=None, pinned=None, grid=None):
+def expand(rec_grid, n_total, n_bands, per_band=None, pinned=None,
+           terrain=None):
     """Strategy -> concrete columns.
 
+    rec_grid  reception's `grid` block, as written: `points` already clipped
+              to the basin, `boundary` (the WBD rings, kept for the record and
+              the design figure), `clipped_to_watershed`. Used as given —
+              nothing is fetched or clipped here.
     n_total   the column budget, after check() has reconciled the planner's
               n_columns against anything the request asked for. HARD: it is the
-              number of ELM cases that will be built, and the enforcement path
+              number of cases that will be built, and the enforcement path
               fixed in 22cecae depends on nothing here exceeding it.
     per_band  the planner's stratified count per band, obeyed as stated.
     pinned    station records from _pinned_from_plan; one column each, at the
               station's own coordinates.
-    """
-    terr = clients["terrain"]
+    terrain   the terrain client, for the point elevation AT each pinned
+              station — the one lookup this module still makes. Optional:
+              without it a pinned column takes the station's reported
+              elevation, then the nearest grid point, and says which.
 
-    # PREFER A GRID THE CALLER ALREADY HAS. Reception fetches this exact grid --
-    # data_gather.GRID_N is expand_sampling's own default, and the constant says
-    # so -- and it RETRIES at higher density when fewer than MIN_IN_BASIN = 55
-    # points land inside the basin. Re-fetching here repeated the query without
-    # the retry, so the sampler could design on a fraction of the evidence
-    # reception had already paid for and written to disk. Measured on
-    # naches_2023 (2026-08-07): reception escalated to n=216 and kept 101 points
-    # in basin; this call, flat at n=120, got 29. Bands 1 and 5 held two points
-    # each against per_band=3, so the ensemble came out 17 columns instead of 19
-    # -- and worse than the count, the BAND EDGES were computed from that sparse
-    # sample, so the strata did not match the relief reception had characterised.
-    if grid:
-        pts = [p for p in grid if p.get("elevation_m") is not None]
-        print(f"  DEM grid: {len(pts)} points from reception (no re-fetch)")
-    else:
-        got = terr.call_tool_json("sample_elevation_grid",
-                                  {**bbox, "n": grid_n}) or {}
-        pts = [p for p in got.get("points", []) if p.get("elevation_m") is not None]
-    if boundary:                  # clip the rectangular bbox sample to the real basin
-        n0 = len(pts)
-        pts = _clip_to_polygon(pts, boundary)
-        print(f"  clipped DEM grid -> {len(pts)}/{n0} points inside the watershed")
+    WHY THE GRID IS TAKEN AND NOT FETCHED. Reception fetches this exact grid
+    at the sampler's own resolution and RETRIES at higher density when too few
+    points land inside the basin. This function used to fetch its own when not
+    handed one, without the retry, and could design on a fraction of the
+    evidence reception had already paid for: on naches_2023 (2026-08-07)
+    reception escalated to n=216 and kept 101 points; a flat n=120 here got
+    29, two bands held two points each against per_band=3, and the BAND EDGES
+    were cut from that sparse sample. Then it re-clipped what reception had
+    already clipped. Now there is one grid, and reception owns it.
+    """
+    rec_grid = rec_grid or {}
+    pts = [p for p in (rec_grid.get("points") or [])
+           if p.get("elevation_m") is not None]
+    boundary = rec_grid.get("boundary") or None
+    print(f"  DEM grid: {len(pts)} points from reception"
+          + (", clipped to the watershed" if boundary else ", NOT clipped (no boundary)"))
     if not pts:
-        return {"error": "no elevation points returned for bbox", "bbox": bbox}
+        return {"error": "reception's grid carries no elevation points — "
+                         "gather_grid did not run, or returned nothing"}
 
     bands = _make_bands([p["elevation_m"] for p in pts], n_bands)
     by_band = {i: [] for i in range(len(bands))}
@@ -590,7 +576,7 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
     counts = [len(by_band[i]) for i in range(len(bands))]
 
     # ── PINNED FIRST: they are the validation design, and they consume budget ──
-    pin_cols = _place_pinned(clients, pinned or [], bands, pts)
+    pin_cols = _place_pinned(terrain, pinned or [], bands, pts)
     if len(pin_cols) > n_total:
         dropped = pin_cols[n_total:]
         pin_cols = pin_cols[:n_total]
@@ -694,7 +680,7 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
     # soil_profile from the donor after the warm start, and that is the only
     # soil the run has.
 
-    return {"bbox": bbox, "n_requested": n_total, "n_columns": len(columns),
+    return {"n_requested": n_total, "n_columns": len(columns),
             "bands": [{"band": i + 1, "elev_lo_m": round(bands[i][0]),
                        "elev_hi_m": round(bands[i][1]), "grid_points": counts[i],
                        "allocated": alloc[i],
@@ -718,147 +704,37 @@ def expand(clients, bbox, n_total, n_bands, grid_n=120, boundary=None,
                                     for c in columns if c.get("pinned")],
             },
             "columns": columns,
-            # full DEM sample kept for the hypsometry / map plot (not saved to columns.json)
+            # THE FULL DEM SAMPLE, and it IS saved: both callers write this
+            # dict whole as columns.json, and the design figure reads `grid`
+            # from it for the hypsometry and the map. A comment here used to
+            # say the opposite.
             "grid": [{"lat": round(p["lat"], 5), "lon": round(p["lon"], 5),
-                      "elevation_m": p["elevation_m"]} for p in pts]}
+                      "elevation_m": p["elevation_m"]} for p in pts],
+            # THE BOUNDARY, AS RECEPTION FETCHED IT. Carried so columns.json is
+            # self-contained: the design figure draws the basin outline from it
+            # and a re-plot needs no MCP call. None when reception had no
+            # polygon, and the caller's sampling_domain says what that means.
+            # Last, where the manager used to append it, so an archived
+            # columns.json keeps its key order and its hash.
+            "boundary": boundary}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FORCING LOOKUP — used by the model server's design figure
+# NOTHING MODEL-SPECIFIC BELOW THIS LINE
 # ─────────────────────────────────────────────────────────────────────────────
-
-# NOTE (Compy): this directory exists but is currently empty — the ctsmforc
-# monthly Precip files are not yet staged (/compyfs/tran289/raw_nldas holds
-# only raw hourly NLDAS_FORA files, a different format).
-NLDAS_PRECIP = ("/compyfs/inputdata/atm/datm7/"
-                "atm_forcing.datm7.NLDAS2.0.125d.v1/Precip")
-# Second NLDAS-2 layout on Compy: the single-stream CLM files that
-# DATM_MODE=CLMMOSARTTEST actually reads (complete 1979-2023, whereas the
-# ...NLDAS2.0.125d.v1/Precip directory above is EMPTY here). Same 12 km grid
-# and the same LATIXY/LONGXY + PRECTmms structure, so the reader below works
-# on either -- only the filename differs. Preferring this one means the
-# preview panel shows the forcing the run is actually driven by.
-NLDAS_CLM_DIR = "/compyfs/inputdata/atm/datm7/NLDAS"
-# Months read in parallel; see nldas_annual_precip. Six keeps enough seeks in
-# flight to hide the latency without monopolising a login node.
-NLDAS_WORKERS = int(os.environ.get("IDEAS_NLDAS_WORKERS", "6"))
-
-
-def _nldas_month_file(year, mm):
-    """Monthly NLDAS precip file, whichever of the two layouts is staged."""
-    import os
-    cands = [
-        f"{NLDAS_PRECIP}/ctsmforc.NLDAS2.0.125d.v1.Prec.{year}-{mm:02d}.nc",
-        f"{NLDAS_CLM_DIR}/clmforc.nldas.{year}-{mm:02d}.nc",
-    ]
-    for p in cands:
-        if os.path.exists(p):
-            return p
-    raise FileNotFoundError(
-        f"no NLDAS precip file for {year}-{mm:02d}; looked in "
-        f"{NLDAS_PRECIP} and {NLDAS_CLM_DIR}")
-
-
-def _soil_cov(c):
-    """(clay_max %, max organic kg/m3) for the soil-coverage panel.
-
-    Reads the DONOR profile, which _attach_donor_soil writes onto the columns
-    before this figure is drawn — the soil ELM actually runs on. The old
-    version also handled SSURGO's saturated conductivity; the CONUS 1 km
-    surface dataset does not carry Ksat (ELM derives it internally from sand
-    and organic) but does carry organic matter, which plays the same role of
-    separating soils that differ hydraulically at similar clay content.
-    """
-    layers = (c.get("soil_profile") or {}).get("layers") or []
-    comp = layers[0].get("component") if layers else None
-    hz = [l for l in layers if l.get("component") == comp]
-    def num(x):
-        try: return float(x)
-        except (TypeError, ValueError): return None
-    clays = [v for v in (num(l.get("clay_pct")) for l in hz) if v is not None]
-    org = [v for v in (num(l.get("organic_kg_m3")) for l in hz) if v is not None]
-    return (max(clays) if clays else None), (max(org) if org else None)
-
-
-def _nldas_month_slab(args):
-    """(slab, mm_per_step) for one month's lat/lon box, or (None, 0) if absent.
-
-    Module-level and self-contained so it can cross a process boundary; returns
-    only the small box, never the 2 GB file.
-    """
-    year, mm, i0, i1, j0, j1 = args
-    import numpy as np
-    import xarray as xr
-    try:
-        ds = xr.open_dataset(_nldas_month_file(year, mm))
-    except FileNotFoundError:
-        return None, 0.0
-    try:
-        var = next(v for v in ds.data_vars if "PREC" in v.upper())
-        nt = ds.sizes["time"]
-        slab = np.asarray(ds[var][:, i0:i1 + 1, j0:j1 + 1].values)
-        per_step = 86400.0 / (24 if nt > 400 else 8)    # hourly vs 3-hourly
-    finally:
-        ds.close()
-    return slab, per_step
-
-
-def nldas_annual_precip(cols, year):
-    """Per-column annual NLDAS precipitation (mm/yr) from the nearest 12 km cell.
-
-    Reads ONE small lat/lon slab per month, then takes every column out of it in
-    memory.
-
-    The obvious form -- `ds[var][:, i, j]` once per column -- looks like a cheap
-    point read and is not. Precipitation is stored (time, lat, lon) contiguously
-    in a ~2 GB monthly file, so pulling one (i, j) across all timesteps strides
-    the whole array, and doing it per column repeats that traversal once per
-    column per month: 14 columns x 12 months was 168 passes over 24 GB, roughly
-    an hour of Lustre time to fill one panel of the design figure.
-
-    The columns of a HUC8 span a handful of 12 km cells, so their bounding box
-    is tiny; reading it whole costs one pass and a few MB.
-    """
-    import numpy as np
-    import xarray as xr
-    d0 = xr.open_dataset(_nldas_month_file(year, 1))
-    lats = d0["LATIXY"].values[:, 0]
-    lons = d0["LONGXY"].values[0, :]
-    d0.close()
-    idx = {c["id"]: (int(np.abs(lats - c["lat"]).argmin()),
-                     int(np.abs(lons - (c["lon"] % 360.0)).argmin())) for c in cols}
-    if not idx:
-        return {}
-    i0 = min(i for i, _ in idx.values()); i1 = max(i for i, _ in idx.values())
-    j0 = min(j for _, j in idx.values()); j1 = max(j for _, j in idx.values())
-
-    # The twelve months are read CONCURRENTLY. Precipitation is
-    # (time, lat, lon) and contiguous, so a lat/lon box across all times is one
-    # strided read PER TIMESTEP -- 744 per month, 8928 for the year. That is
-    # seek latency, not bandwidth or CPU (the slab is a few MB), and it was
-    # 4 min 14 s of a run's step 0. Independent files, so overlapping them is
-    # the same trick that fixed the warm start.
-    tot = {cid: 0.0 for cid in idx}
-    jobs = [(year, mm, i0, i1, j0, j1) for mm in range(1, 13)]
-    parts = None
-    if len(jobs) > 1:
-        from concurrent.futures import ProcessPoolExecutor
-        try:
-            with ProcessPoolExecutor(max_workers=NLDAS_WORKERS) as ex:
-                parts = list(ex.map(_nldas_month_slab, jobs))
-        except Exception:
-            parts = None                      # fall through to serial
-    if parts is None:
-        parts = [_nldas_month_slab(j) for j in jobs]
-
-    for slab, per_step in parts:
-        if slab is None:
-            continue
-        for cid, (i, j) in idx.items():
-            tot[cid] += float(slab[:, i - i0, j - j0].sum()) * per_step
-    return tot
-
-
+#
+# nldas_annual_precip AND ITS HELPERS MOVED to mcp/elm-mcp/src/forcing.py
+# (2026-08-18). ~130 lines that opened NLDAS-2 monthly files at two hardcoded
+# Compy paths, called by exactly one thing — the ELM server's design figure,
+# which reached back into tools/ for it — under a comment claiming the forcing
+# was "shared with PFLOTRAN", which stopped being true when PFLOTRAN moved to
+# Daymet. forcing.py already owned the NLDAS directory and the file pattern.
+# Everything ELM uses the ELM server; the sampler is not an exception.
+#
+# _soil_cov DELETED the same day. It summarised the donor soil for a panel of
+# plot_columns, deleted 2026-08-13; the server's own figure has _soil_layers.
+# Its only callers were two tests, which went with it.
+#
 # plot_columns() WAS HERE and is deleted (2026-08-13).
 #
 # It drew sampling_design.png as a 2x3 with its own rcParams — 15 pt titles on
@@ -883,6 +759,14 @@ def _bbox_from_brief(brief):
 
 
 def _n_from_plan(plan):
+    """The planner's column count.
+
+    THE FALLBACK KEYS ARE NOT DRIFT. `sampling.n_columns` is what planner.txt
+    emits; `sampling_strategy.n_exploratory` and `experiment_summary.exploratory`
+    are what planner_capability_probe.txt emitted, and that prompt is FROZEN
+    for the eval (see ARCHITECTURE.md) — the plans it produced are still read.
+    Same for the two readers below.
+    """
     return ((plan.get("sampling") or {}).get("n_columns")
             or (plan.get("sampling_strategy") or {}).get("n_exploratory")
             or (plan.get("experiment_summary") or {}).get("exploratory"))
@@ -940,16 +824,23 @@ def _print_table(res):
 
 def main():
     ap = argparse.ArgumentParser(description="Tier-2 expander: strategy -> concrete columns")
-    ap.add_argument("--run-dir", help="pipeline output dir (reads brief + plan)")
-    ap.add_argument("--bbox", help="min_lon,min_lat,max_lon,max_lat (overrides brief)")
+    ap.add_argument("--run-dir", help="pipeline output dir (reads reception.json + strategy.json)")
+    ap.add_argument("--bbox", help="min_lon,min_lat,max_lon,max_lat (standalone: fetches the grid via gather_grid)")
+    ap.add_argument("--huc", default="", help="standalone: HUC to clip the grid to")
     ap.add_argument("--n", type=int, help="number of columns (overrides plan)")
     ap.add_argument("--bands", type=int, default=0, help="number of elevation bands")
-    ap.add_argument("--grid-n", type=int, default=120, help="DEM sample density")
     ap.add_argument("--per-band", type=int, default=0,
                     help="stratified columns per band (overrides plan.sampling.per_band)")
     ap.add_argument("--no-pin", action="store_true",
                     help="skip station pinning (stratified columns only)")
     args = ap.parse_args()
+
+    # The MCP stack, only here — see the note at the top of the file.
+    _root = Path(__file__).resolve().parents[1]
+    for _d in (_root / "src",):
+        if str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
+    from core.mcp_manager import MCPManager
 
     out_dir = Path(args.run_dir) if args.run_dir else Path(".")
     out = out_dir / "columns.json"
@@ -959,17 +850,16 @@ def main():
     print("=" * 72)
 
     if args.run_dir and out.exists():
-        # Pure read: re-plot/inspect an already-materialized run-dir — no fetch.
+        # Pure read: re-inspect an already-materialized run-dir — no fetch.
         res = json.loads(out.read_text())
         print(f"reading existing {out} ({res.get('n_columns')} columns — no MCP fetch)")
     else:
-        # Materialize once: resolve domain + N, then sample DEM/soil/Fan.
-        bbox = n_total = huc = None
+        n_total, plan, rec, rec_grid = None, {}, {}, None
         n_bands = args.bands or 4
         per_band, pinned = args.per_band, []
+        clients = MCPManager(str(_root / "mcp_config.json")).get_all_clients()
         if args.run_dir:
             rd = Path(args.run_dir)
-            brief = json.loads((rd / "reception_brief.json").read_text())
             # strategy.json is the plan AND the pinning block it was designed
             # against; plan.json is the manager's copy of the same dict.
             plan = next((json.loads((rd / f).read_text())
@@ -978,44 +868,41 @@ def main():
             if (plan.get("archetype")
             or (plan.get("model_choice") or {}).get("design_archetype")) == "conceptual":
                 sys.exit("Plan is 'conceptual' archetype — no spatial expansion needed.")
-            bbox = _bbox_from_brief(brief)
+            rec_f = rd / "reception.json"
+            if not rec_f.exists():
+                sys.exit(f"{rec_f} not found — the sampler reads reception's grid "
+                         f"and stations from it, and fetches nothing itself.")
+            rec = json.loads(rec_f.read_text())
+            rec_grid = rec.get("grid") or {}
             n_total = _n_from_plan(plan)
-            huc = (brief.get("domain") or {}).get("huc")
             if not args.bands:
                 # The planner's count, not len(brief.heterogeneity.elevation_bands)
                 # — those are band edges, never a band count. See _n_bands_from_plan.
                 n_bands = _n_bands_from_plan(plan) or 4
             per_band = per_band or _per_band_from_plan(plan)
-            rec_f = rd / "reception.json"
-            if rec_f.exists() and not args.no_pin:
-                pinned = _pinned_from_plan(plan, json.loads(rec_f.read_text()))
-            elif (plan.get("validation") or []) and not args.no_pin:
-                print(f"⚠️  {rec_f} not found — the plan names validation stations "
-                      f"but NO column will be pinned to one.")
+            if not args.no_pin:
+                pinned = _pinned_from_plan(plan, rec)
         if args.bbox:
+            # STANDALONE. The grid comes from reception's OWN gather_grid, so
+            # there is exactly one fetch-and-clip in the framework and this
+            # path cannot drift from what a real run samples.
+            from core import data_gather
             v = [float(x) for x in args.bbox.split(",")]
             bbox = {"min_lon": v[0], "min_lat": v[1], "max_lon": v[2], "max_lat": v[3]}
+            rec_grid = data_gather.gather_grid(clients, bbox, huc=args.huc)
         if args.n:
             n_total = args.n
-        if not bbox:
-            sys.exit("No bbox (give --run-dir with a site brief, or --bbox).")
+        if not rec_grid:
+            sys.exit("No grid (give --run-dir with a reception.json, or --bbox).")
         if not n_total:
             sys.exit("No column count (give --run-dir with a plan, or --n).")
 
-        print(f"bbox: {bbox} | N={n_total} | bands={n_bands} | "
-              f"per_band={per_band or '-'} | pinned={len(pinned)}")
-        clients = MCPManager("mcp_config.json").get_all_clients()
-        boundary = None
-        if huc:   # watershed polygon — clips sampling to the basin + outlines the map
-            b = clients["terrain"].call_tool_json(
-                "get_watershed_boundary", {"huc": huc, "huc_level": len(huc)}) or {}
-            boundary = b.get("rings")
-        res = expand(clients, bbox, n_total, n_bands, grid_n=args.grid_n,
-                     boundary=boundary, per_band=per_band, pinned=pinned)
+        print(f"grid: {len(rec_grid.get('points') or [])} pts | N={n_total} | "
+              f"bands={n_bands} | per_band={per_band or '-'} | pinned={len(pinned)}")
+        res = expand(rec_grid, n_total, n_bands, per_band=per_band,
+                     pinned=pinned, terrain=clients.get("terrain"))
         if "error" in res:
             sys.exit(res["error"])
-        if boundary:
-            res["boundary"] = boundary
         out.write_text(json.dumps(res, indent=2))   # self-contained (grid + boundary)
         print(f"\nSaved {res['n_columns']} columns -> {out}")
 

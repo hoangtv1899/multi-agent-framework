@@ -798,3 +798,99 @@ def verify_against_real(out_dir, src_dir, year: int, month: int,
                 bad[v] = f"{diffs} of {len(got)} values differ"
     return {"ok": not bad, "file": path, "differences": bad,
             "n_steps": days_in_month(year, month) * STEPS_PER_DAY}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ANNUAL PRECIPITATION AT EACH COLUMN — for the design figure
+#
+# MOVED HERE FROM tools/expand_sampling.py ON 2026-08-18. It sat in the
+# FRAMEWORK'S SAMPLER with two hardcoded Compy paths of its own, called by
+# exactly one thing — sampling_design.py in this directory, which reached back
+# across the boundary for it — under a comment claiming the forcing was
+# "shared with PFLOTRAN", which stopped being true when PFLOTRAN moved to
+# Daymet. This module already owned the directory (real_nldas_dir) and the
+# filename (FILE_PATTERN); the reader now uses them, so a change to where
+# NLDAS lives is one edit rather than three. Ported from xarray to netCDF4 for
+# the same reason: one library opens these files here.
+# ─────────────────────────────────────────────────────────────────────────────
+# Months read in parallel; see nldas_annual_precip. Six keeps enough seeks in
+# flight to hide the latency without monopolising a login node.
+NLDAS_WORKERS = int(os.environ.get("IDEAS_NLDAS_WORKERS", "6"))
+
+
+def _nldas_month_slab(args):
+    """(slab, mm_per_step) for one month's lat/lon box, or (None, 0) if absent.
+
+    Module-level and self-contained so it can cross a process boundary; returns
+    only the small box, never the 2 GB file.
+    """
+    year, mm, i0, i1, j0, j1 = args
+    import netCDF4 as nc
+    import numpy as np
+    path = real_nldas_dir() / FILE_PATTERN.format(year=year, month=mm)
+    if not path.is_file():
+        return None, 0.0
+    with nc.Dataset(str(path)) as ds:
+        var = next(v for v in ds.variables if "PREC" in v.upper())
+        nt = len(ds.dimensions["time"])
+        slab = np.asarray(ds.variables[var][:, i0:i1 + 1, j0:j1 + 1])
+        per_step = 86400.0 / (24 if nt > 400 else 8)    # hourly vs 3-hourly
+    return slab, per_step
+
+
+def nldas_annual_precip(cols, year):
+    """Per-column annual NLDAS precipitation (mm/yr) from the nearest 12 km cell.
+
+    Reads ONE small lat/lon slab per month, then takes every column out of it in
+    memory.
+
+    The obvious form -- `ds[var][:, i, j]` once per column -- looks like a cheap
+    point read and is not. Precipitation is stored (time, lat, lon) contiguously
+    in a ~2 GB monthly file, so pulling one (i, j) across all timesteps strides
+    the whole array, and doing it per column repeats that traversal once per
+    column per month: 14 columns x 12 months was 168 passes over 24 GB, roughly
+    an hour of Lustre time to fill one panel of the design figure.
+
+    The columns of a HUC8 span a handful of 12 km cells, so their bounding box
+    is tiny; reading it whole costs one pass and a few MB.
+    """
+    import netCDF4 as nc
+    import numpy as np
+    first = real_nldas_dir() / FILE_PATTERN.format(year=year, month=1)
+    if not first.is_file():
+        raise FileNotFoundError(f"no NLDAS file for {year}-01 at {first}")
+    with nc.Dataset(str(first)) as d0:
+        lats = np.asarray(d0.variables["LATIXY"][:])[:, 0]
+        lons = np.asarray(d0.variables["LONGXY"][:])[0, :]
+    idx = {c["id"]: (int(np.abs(lats - c["lat"]).argmin()),
+                     int(np.abs(lons - (c["lon"] % 360.0)).argmin())) for c in cols}
+    if not idx:
+        return {}
+    i0 = min(i for i, _ in idx.values()); i1 = max(i for i, _ in idx.values())
+    j0 = min(j for _, j in idx.values()); j1 = max(j for _, j in idx.values())
+
+    # The twelve months are read CONCURRENTLY. Precipitation is
+    # (time, lat, lon) and contiguous, so a lat/lon box across all times is one
+    # strided read PER TIMESTEP -- 744 per month, 8928 for the year. That is
+    # seek latency, not bandwidth or CPU (the slab is a few MB), and it was
+    # 4 min 14 s of a run's step 0. Independent files, so overlapping them is
+    # the same trick that fixed the warm start.
+    tot = {cid: 0.0 for cid in idx}
+    jobs = [(year, mm, i0, i1, j0, j1) for mm in range(1, 13)]
+    parts = None
+    if len(jobs) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        try:
+            with ProcessPoolExecutor(max_workers=NLDAS_WORKERS) as ex:
+                parts = list(ex.map(_nldas_month_slab, jobs))
+        except Exception:                                   # noqa: BLE001
+            parts = None                      # fall through to serial
+    if parts is None:
+        parts = [_nldas_month_slab(j) for j in jobs]
+
+    for slab, per_step in parts:
+        if slab is None:
+            continue
+        for cid, (i, j) in idx.items():
+            tot[cid] += float(slab[:, i - i0, j - j0].sum()) * per_step
+    return tot

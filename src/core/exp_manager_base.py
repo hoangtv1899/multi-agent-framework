@@ -993,7 +993,10 @@ class ExperimentManagerBase:
 
 		Needs, via config:
 			brief        — reception brief (domain bbox + optional HUC)
-			mcp_clients  — dict of live MCP clients (terrain/fan_wtd/geology)
+			reception    — reception.json: the grid, the polygon, the stations
+			strategy     — strategy.json: the design and its pinning block
+			mcp_clients  — live MCP clients; terrain is used only for the point
+			               elevation at pinned stations, and is optional
 		Optional: yr_start, yr_end, soil_config, substrate, n_columns, n_bands.
 		"""
 		if self._already_executable(plan):
@@ -1020,10 +1023,15 @@ class ExperimentManagerBase:
 					"Cannot materialize sampling: no domain bbox in the reception "
 					"brief, and the plan has no executable payload. Pass "
 					"config['brief'] with domain.bbox, or supply an explicit plan.")
+			# THE TERRAIN CLIENT IS NO LONGER REQUIRED HERE (2026-08-18). The
+			# grid and the basin polygon come from reception.json — fetched and
+			# clipped once, by the only component that reaches outside — and
+			# the sampler reads them. Terrain is used for one thing now: the
+			# point elevation AT each pinned station, which has a fallback.
 			if not clients.get("terrain"):
-				raise ValueError(
-					"Cannot materialize sampling: the 'terrain' MCP client is "
-					"required. Pass config['mcp_clients'].")
+				print("   ⚠️  no 'terrain' client — pinned columns will take the "
+					  "station's reported elevation or the nearest grid point, "
+					  "and say which")
 
 		# CHECK FIRST, then read the counts. The order is the whole point.
 		#
@@ -1110,61 +1118,58 @@ class ExperimentManagerBase:
 		print(f"   bbox={bbox} N={n_total} bands={bands} per_band={per_band} "
 			  f"pinned={len(pinned)}")
 
-		# Clip the rectangular DEM sample to the real basin when we know the HUC.
-		# Without a boundary the sample is the raw bbox, so columns can land
-		# OUTSIDE the basin — the run still completes, but the ensemble no
-		# longer represents the watershed that was asked about. That is a
-		# scientific difference, so say so loudly rather than degrade silently.
-		boundary = None
-		huc = (brief.get("domain") or {}).get("huc")
-		if huc:
-			try:
-				b = clients["terrain"].call_tool_json(
-					"get_watershed_boundary",
-					{"huc": huc, "huc_level": len(str(huc))}) or {}
-				boundary = b.get("rings")
-			except Exception as e:
-				print(f"   ⚠️  boundary lookup FAILED for HUC {huc} ({e})")
-		if not boundary:
-			why = ("no HUC in the reception brief"
-				   if not huc else f"boundary lookup returned nothing for HUC {huc}")
-			name = (brief.get("domain") or {}).get("name") or "the watershed"
-			print(f"   ⚠️  WARNING: sampling the RAW BBOX, not the watershed — {why}.")
-			print(f"   ⚠️  Columns may fall outside the basin; the ensemble is "
-				  f"a bounding-box sample, not '{name}'.")
-			print(f"   ⚠️  Fix: ensure reception resolves a HUC, or pass "
-				  f"config['boundary'] explicitly.")
-		boundary = config.get("boundary", boundary)
-
-		# Reception's grid, when we have it. It is the SAME grid this call would
-		# otherwise fetch (data_gather.GRID_N is expand_sampling's default), but
-		# reception retries at higher density when too few points land in the
-		# basin and this call does not — see expand() for what that cost.
-		rec_grid = ((reception.get("grid") or {}).get("points")) or None
-		res = exp.expand(clients, bbox, n_total, bands, boundary=boundary,
-						 per_band=per_band, pinned=pinned, grid=rec_grid)
+		# THE GRID AND THE POLYGON ARE RECEPTION'S, READ AS WRITTEN. gather_grid
+		# fetched the DEM at the sampler's own resolution, retried at higher
+		# density when too few points landed in the basin, dropped every point
+		# outside the WBD polygon, and wrote both to reception.json — its own
+		# comment says "kept so a re-plot needs no refetch". This stage used to
+		# fetch the polygon AGAIN from terrain and clip AGAIN with a different
+		# predicate (largest ring, against reception's all-rings), fifty-eight
+		# points in and fifty-eight out on every run. data_gather already
+		# records why the fetch moved there: "the Experiment Manager used to
+		# make this call itself, at which point the grid it clipped and the
+		# grid reception described were two different things."
+		rec_grid = reception.get("grid") or {}
+		if not rec_grid.get("points"):
+			raise RuntimeError(
+				"Cannot materialize sampling: reception.json carries no grid — "
+				"gather_grid did not run, or returned nothing. The sampler reads "
+				"reception's grid and fetches none of its own; fix reception "
+				"rather than sampling on a grid it never described.")
+		res = exp.expand(rec_grid, n_total, bands, per_band=per_band,
+						 pinned=pinned, terrain=clients.get("terrain"))
 		if res.get("error"):
 			raise RuntimeError(f"Sampling expansion failed: {res['error']}")
 		columns = res.get("columns", [])
 		if not columns:
 			raise RuntimeError("Sampling expansion produced no columns.")
 
-		# Keep the WBD polygon in the result: plot_columns() draws it as the
-		# basin outline in panel (a), and it makes columns.json self-contained
-		# (grid + boundary) so a later re-plot needs no MCP fetch.
-		if boundary:
-			res["boundary"] = boundary
-
-		# Provenance: was this a true watershed sample or a bbox fallback?
+		# WHETHER THIS IS A WATERSHED SAMPLE OR A BBOX FALLBACK is reception's
+		# fact too — it is the one that had or lacked the polygon. Without one
+		# the columns are the raw bbox and can lie OUTSIDE the basin: the run
+		# completes, but the ensemble no longer represents the watershed that
+		# was asked about. A scientific difference, said loudly.
+		huc = (brief.get("domain") or {}).get("huc")
+		clipped = bool(rec_grid.get("clipped_to_watershed")) and bool(res.get("boundary"))
+		if not clipped:
+			why = ("no HUC in the reception brief" if not huc
+				   else f"reception fetched no boundary for HUC {huc}")
+			name = (brief.get("domain") or {}).get("name") or "the watershed"
+			print(f"   ⚠️  WARNING: the grid is the RAW BBOX, not the watershed — {why}.")
+			print(f"   ⚠️  Columns may fall outside the basin; the ensemble is "
+				  f"a bounding-box sample, not '{name}'.")
+		# bbox FIRST, as expand() used to write it, so columns.json keeps its
+		# historical key order and an archived fixture still hashes the same.
+		res = {"bbox": bbox, **res}
 		res["sampling_domain"] = {
-			"clipped_to_watershed": bool(boundary),
+			"clipped_to_watershed": clipped,
 			"huc": huc,
 			"name": (brief.get("domain") or {}).get("name"),
 			"bbox": bbox,
-			"caveat": None if boundary else (
+			"caveat": None if clipped else (
 				"Columns were sampled from the bounding box, NOT clipped to the "
-				"watershed boundary (no HUC resolved). Some columns may lie "
-				"outside the basin; treat the ensemble as a bbox sample."),
+				"watershed boundary (reception had no polygon). Some columns may "
+				"lie outside the basin; treat the ensemble as a bbox sample."),
 		}
 
 		return self._persist_columns(res, columns, plan, config)

@@ -221,15 +221,14 @@ def run_case(case, clients, models, verbose=False):
     # designed behaviour and a genuine result for this case, not a harness bug.
     pinned = exp._pinned_from_plan(plan, reception)
 
-    # Reception already fetched the DEM grid at the sampler's own resolution
-    # (data_gather.GRID_N = 120) and clipped it to the WBD polygon, so reuse its
-    # boundary rather than asking for the polygon a second time.
-    boundary = ((reception.get("grid") or {}).get("boundary"))
-
+    # Reception fetched the DEM grid at the sampler's own resolution and
+    # clipped it to the WBD polygon; the sampler takes that block as given and
+    # asks terrain only for the point elevation at each pinned station.
     res = None
     if bbox and n_total:
-        res = exp.expand(clients, bbox, n_total, n_bands or 4,
-                         boundary=boundary, per_band=per_band, pinned=pinned)
+        res = exp.expand(reception.get("grid") or {}, n_total, n_bands or 4,
+                         per_band=per_band, pinned=pinned,
+                         terrain=clients.get("terrain"))
         if res.get("error"):
             res = None
     return reception, plan, res, pinned
@@ -237,24 +236,11 @@ def run_case(case, clients, models, verbose=False):
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _GridStub:
-    """The real terrain client with sample_elevation_grid served from disk.
-
-    Reception already fetched that grid — at the sampler's own resolution, and
-    clipped to the basin (data_gather.GRID_N = 120) — and every chain artifact
-    stores it. Replaying from it makes the sampler stage deterministic and cheap:
-    only the per-station 3DEP point queries go out, and they are the calls whose
-    accuracy is the point. Re-running reception and the planner instead would
-    change the plan under us, since both are LLM stages.
-    """
-
-    def __init__(self, terr, points):
-        self._terr, self._points = terr, points
-
-    def call_tool_json(self, tool, args):
-        if tool == "sample_elevation_grid":
-            return {"points": self._points}
-        return self._terr.call_tool_json(tool, args)
+# _GridStub STOOD HERE and is deleted (2026-08-18). It wrapped the real terrain
+# client so that sample_elevation_grid was served from the saved artifact,
+# because the sampler used to fetch its own grid. It takes reception's grid
+# block as data now, so the replay hands it the saved block directly and only
+# the per-station point-elevation queries go out — which they always did.
 
 
 def replay(d: Path, clients):
@@ -275,17 +261,14 @@ def replay(d: Path, clients):
             print(f"  skip {cid} (no plan or no saved grid)")
             continue
 
-        stub = {**clients, "terrain": _GridStub(clients["terrain"], pts)}
         res, pinned, err = None, [], None
         try:
             plan.setdefault("pinning", pin_block(clients))   # an archived plan may predate the key
             pinned = exp._pinned_from_plan(plan, rec)
-            bbox = exp._bbox_from_brief(rec.get("brief") or {})
-            res = exp.expand(stub, bbox, exp._n_from_plan(plan),
+            res = exp.expand(grid, exp._n_from_plan(plan),
                              exp._n_bands_from_plan(plan) or 4,
-                             boundary=grid.get("boundary"),
                              per_band=exp._per_band_from_plan(plan),
-                             pinned=pinned)
+                             pinned=pinned, terrain=clients.get("terrain"))
             if res.get("error"):
                 err, res = res["error"], None
         except Exception as e:                                 # noqa: BLE001

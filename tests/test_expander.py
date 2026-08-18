@@ -30,21 +30,12 @@ def _load(name, relpath):
 
 exp = _load("expand_sampling", "tools/expand_sampling.py")
 
-BBOX = {"min_lon": -121.5, "min_lat": 46.0, "max_lon": -121.0, "max_lat": 46.5}
-
-
-# ── fakes ──────────────────────────────────────────────────────────────────
-class _Fake:
-    """MCP client stub: dispatches on tool name to a responder fn; records calls."""
-    def __init__(self, fn):
-        self.fn = fn
-        self.calls = []
-
-    def call_tool_json(self, tool, args):
-        self.calls.append((tool, args))
-        return self.fn(tool, args)
-
-
+# ── the one fixture ──────────────────────────────────────────────────────────
+# _Fake, _terrain, _fan, _geo and _clients stood here and are deleted
+# (2026-08-18). They stubbed MCP clients for a sampler that fetched its own
+# grid and queried Fan and geology per column; it does none of that now —
+# expand() takes reception's grid block and touches no server. What is left to
+# test is arithmetic on a grid, so a grid is the only fixture.
 def _grid(n=24, lo=100.0, hi=445.0):
     """A synthetic DEM sample: n points spread in lat/lon and elevation."""
     pts = []
@@ -56,53 +47,9 @@ def _grid(n=24, lo=100.0, hi=445.0):
     return {"points": pts}
 
 
-def _terrain(grid=None):
-    g = grid if grid is not None else _grid()
-    return _Fake(lambda tool, args: g if tool == "sample_elevation_grid" else {})
-
-
-def _fan(depth=5.0):
-    """Answers the BATCHED tool: one call carries every column's point.
-
-    Enrichment used to ask per column, which cost a fresh MCP session — and for
-    Fan, a reopen of the dataset — per column. Measured live: 41.4 s for 6
-    points per-call against 7.7 s batched, identical values.
-    """
-    def fn(tool, args):
-        if tool == "get_fan_wtd_points":
-            n = len(args.get("lats") or [])
-            return {"n_points": n,
-                    "points": [{"depth_to_water_m": depth} for _ in range(n)]}
-        return {"depth_to_water_m": depth}          # legacy single-point form
-    return _Fake(fn)
-
-
-def _geo(layers=(("loam", 3),)):
-    def _profile():
-        lyrs = [{"texture_class": t} for t, _ in layers]
-        return {"layers": lyrs, "num_layers": (layers[0][1] if layers else 0),
-                "source": "SSURGO"}
-
-    def fn(tool, args):
-        if tool == "get_soil_profiles":
-            n = len(args.get("lats") or [])
-            return {"n_points": n, "profiles": [_profile() for _ in range(n)]}
-        return _profile()                            # legacy single-point form
-    return _Fake(fn)
-
-
-def _clients(terrain=None, fan=None, geo=None):
-    c = {"terrain": terrain or _terrain()}
-    if fan is not None:
-        c["fan_wtd"] = fan
-    if geo is not None:
-        c["geology"] = geo
-    return c
-
-
 # ── tests ────────────────────────────────────────────────────────────────────
 def test_allocation_sums_to_n_total_and_column_shape():
-    res = exp.expand(_clients(fan=_fan(), geo=_geo()), BBOX, n_total=8, n_bands=4)
+    res = exp.expand(_grid(), n_total=8, n_bands=4)
     assert res["n_columns"] == 8
     assert sum(b["allocated"] for b in res["bands"]) == 8
     ids = [c["id"] for c in res["columns"]]
@@ -124,38 +71,49 @@ def test_no_soil_is_gathered_at_sampling_time():
     from being analysed was that nobody happened to. _attach_donor_soil fills
     soil_profile after the warm start, and that is the only soil the run has.
     """
-    geo = _geo()
-    res = exp.expand(_clients(geo=geo), BBOX, n_total=4, n_bands=2, grid_n=24)
-    assert not [c for c in geo.calls if "soil" in c[0]], \
-        "sampling queried soil; the donor decides it"
+    res = exp.expand(_grid(), n_total=4, n_bands=2)
     for c in res["columns"]:
         assert "soil_profile" not in c
         assert "soil_top_texture" not in c
 
 
 def test_empty_grid_returns_error():
-    res = exp.expand(_clients(terrain=_terrain(grid={"points": []})),
-                     BBOX, n_total=5, n_bands=3)
+    res = exp.expand({"points": []}, n_total=5, n_bands=3)
     assert "error" in res and "columns" not in res
 
 
+def test_the_sampler_fetches_nothing_and_clips_nothing():
+    """A FUNCTION OF TWO FILES (2026-08-18). Reception fetched the DEM, fetched
+    the polygon and clipped the one to the other; the sampler used to do all
+    three again — a second fetch without reception's density retry, and a
+    second clip with a different predicate. Asserted on the source, so a
+    well-meaning re-add is a visible decision rather than a quiet regression."""
+    src = (ROOT / "tools" / "expand_sampling.py").read_text()
+    body = src[src.index("def expand("):src.index("def _bbox_from_brief")]
+    code = "\n".join(l for l in body.splitlines()
+                     if not l.lstrip().startswith("#"))
+    for word in ("sample_elevation_grid", "get_watershed_boundary",
+                 "_clip_to_polygon", "shapely"):
+        assert word not in code, f"expand() {word}s again; that is reception's"
+
+
+def test_reception_boundary_passes_through_unclipped():
+    """The polygon is carried into the result for the record and the figure —
+    and NOT applied. Points outside it stay: reception already decided."""
+    ring = [[-122.0, 45.9], [-120.0, 45.9], [-120.0, 46.25], [-122.0, 46.25],
+            [-122.0, 45.9]]
+    g = _grid(); g["boundary"] = [ring]
+    res = exp.expand(g, n_total=4, n_bands=2)
+    assert res["boundary"] == [ring]
+    assert len(res["grid"]) == 24                           # nothing dropped here
+
+
 def test_bands_metadata_present_and_consistent():
-    res = exp.expand(_clients(fan=_fan(), geo=_geo()), BBOX, n_total=8, n_bands=4)
+    res = exp.expand(_grid(), n_total=8, n_bands=4)
     assert len(res["bands"]) == 4
     assert sum(b["grid_points"] for b in res["bands"]) == len(res["grid"])
     for b in res["bands"]:
         assert b["elev_lo_m"] <= b["elev_hi_m"]
-
-
-def test_clips_sample_to_watershed_boundary():
-    pytest.importorskip("shapely")
-    # polygon covering only the lower-lat half of the grid (lat <= ~46.25)
-    ring = [[-122.0, 45.9], [-120.0, 45.9], [-120.0, 46.25], [-122.0, 46.25],
-            [-122.0, 45.9]]
-    res = exp.expand(_clients(fan=_fan(), geo=_geo()), BBOX, n_total=4, n_bands=2,
-                     boundary=[ring])
-    assert len(res["grid"]) < 24                            # some points clipped out
-    assert all(p["lat"] <= 46.26 for p in res["grid"])      # kept points inside poly
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,7 +140,7 @@ def test_clips_sample_to_watershed_boundary():
 def test_sampling_no_longer_attaches_a_water_table():
     """The removal, asserted — so a well-meaning re-add is a visible decision."""
     src = (ROOT / "tools" / "expand_sampling.py").read_text()
-    body = src[src.index("def expand("):src.index("def _nldas_month_file")]
+    body = src[src.index("def expand("):src.index("def _bbox_from_brief")]
     # Comments stripped: the block above explains WHY the fetch left and names
     # the tool, so a substring match would flag its own documentation.
     code = "\n".join(l for l in body.splitlines()
