@@ -1,0 +1,606 @@
+<title>Experiment Manager Walkthrough</title>
+<style>
+  :root{
+    --ground:#F6F8F7; --panel:#FFFFFF; --panel-2:#EEF2F1;
+    --ink:#141D1C; --ink-2:#455457; --ink-3:#7A898C;
+    --rule:#DCE3E2; --rule-2:#C6D1D0;
+    --accent:#0E6E7A; --accent-soft:#DCEDEF;
+    --block:#A6342B; --block-soft:#F6E3E1;
+    --qual:#8A6410;  --qual-soft:#F7EEDA;
+    --ctx:#4A6572;   --ctx-soft:#E5EBEE;
+    --serif:Georgia,'Iowan Old Style',ui-serif,serif;
+    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E1514; --panel:#161F1E; --panel-2:#1D2827;
+      --ink:#E7EEEB; --ink-2:#A6B5B4; --ink-3:#7B8A8B;
+      --rule:#273433; --rule-2:#364544;
+      --accent:#5CB8C2; --accent-soft:#12312F;
+      --block:#E58779; --block-soft:#33201D;
+      --qual:#D8AB55;  --qual-soft:#2E2618;
+      --ctx:#9BB2BC;   --ctx-soft:#1C2629;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1514; --panel:#161F1E; --panel-2:#1D2827;
+    --ink:#E7EEEB; --ink-2:#A6B5B4; --ink-3:#7B8A8B;
+    --rule:#273433; --rule-2:#364544;
+    --accent:#5CB8C2; --accent-soft:#12312F;
+    --block:#E58779; --block-soft:#33201D;
+    --qual:#D8AB55;  --qual-soft:#2E2618;
+    --ctx:#9BB2BC;   --ctx-soft:#1C2629;
+  }
+
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);
+       font-size:16px;line-height:1.6;margin:0;padding:0;
+       -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:920px;margin:0 auto;padding:56px 24px 96px;
+        display:flex;flex-direction:column;gap:44px;}
+  p,li{color:var(--ink-2);max-width:70ch;}
+  strong{color:var(--ink);font-weight:600;}
+  code{font-family:var(--mono);font-size:.86em;background:var(--panel-2);
+       padding:.1em .34em;border-radius:3px;color:var(--ink);}
+  h1,h2,h3{font-family:var(--serif);color:var(--ink);text-wrap:balance;
+           font-weight:600;margin:0;line-height:1.25;}
+  h1{font-size:2.1rem;letter-spacing:-.01em;}
+  h2{font-size:1.4rem;}
+  h3{font-size:1.05rem;}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.13em;
+           text-transform:uppercase;color:var(--accent);}
+  header{display:flex;flex-direction:column;gap:12px;
+         border-bottom:1px solid var(--rule);padding-bottom:28px;}
+  header p{font-size:1.05rem;}
+  .meta{font-family:var(--mono);font-size:.78rem;color:var(--ink-3);
+        display:flex;flex-wrap:wrap;gap:6px 18px;}
+
+  section{display:flex;flex-direction:column;gap:18px;}
+
+  figure{margin:0;display:flex;flex-direction:column;gap:10px;}
+  .scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--rule);
+          border-radius:6px;padding:20px;}
+  svg{max-width:100%;height:auto;display:block;color:var(--ink-2);}
+  figcaption{font-size:.85rem;color:var(--ink-3);max-width:70ch;}
+
+  .step{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+        display:grid;grid-template-columns:120px 1fr;gap:0;overflow:hidden;}
+  .step-rail{background:var(--panel-2);padding:18px 16px;
+             border-right:1px solid var(--rule);
+             display:flex;flex-direction:column;gap:10px;}
+  .step-n{font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;
+          text-transform:uppercase;color:var(--ink-3);}
+  .io{font-family:var(--mono);font-size:.74rem;line-height:1.5;
+      color:var(--ink-2);word-break:break-word;}
+  .io b{display:block;color:var(--ink-3);font-weight:400;
+        text-transform:uppercase;letter-spacing:.08em;font-size:.66rem;
+        margin-bottom:2px;}
+  .step-body{padding:18px 22px;display:flex;flex-direction:column;gap:12px;}
+  .step-body p{margin:0;font-size:.95rem;}
+  .llm{display:inline-block;font-family:var(--mono);font-size:.7rem;
+       letter-spacing:.08em;text-transform:uppercase;
+       background:var(--accent-soft);color:var(--accent);
+       padding:2px 8px;border-radius:99px;align-self:flex-start;}
+  .rule-note{border-left:2px solid var(--accent);padding-left:14px;
+             font-size:.9rem;color:var(--ink-2);}
+  @media (max-width:640px){
+    .step{grid-template-columns:1fr;}
+    .step-rail{border-right:none;border-bottom:1px solid var(--rule);
+               flex-direction:row;flex-wrap:wrap;gap:16px;}
+  }
+
+  table{border-collapse:collapse;width:100%;font-size:.88rem;
+        font-variant-numeric:tabular-nums;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);
+        vertical-align:top;}
+  th{font-family:var(--mono);font-size:.7rem;letter-spacing:.09em;
+     text-transform:uppercase;color:var(--ink-3);font-weight:400;
+     border-bottom:1px solid var(--rule-2);}
+  td{color:var(--ink-2);}
+  td.id{font-family:var(--mono);font-size:.8rem;color:var(--ink);}
+  .pill{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;
+        text-transform:uppercase;padding:2px 8px;border-radius:99px;
+        white-space:nowrap;}
+  .p-block{background:var(--block-soft);color:var(--block);}
+  .p-qual{background:var(--qual-soft);color:var(--qual);}
+  .p-ctx{background:var(--ctx-soft);color:var(--ctx);}
+
+  .quote{background:var(--panel);border:1px solid var(--rule);
+         border-left:3px solid var(--block);border-radius:4px;
+         padding:14px 18px;font-size:.9rem;}
+  .quote .said{color:var(--ink);font-style:italic;}
+  .quote .why{color:var(--ink-3);font-size:.85rem;margin-top:8px;
+              display:block;font-style:normal;}
+
+  .runs{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width:640px){.runs{grid-template-columns:1fr;}}
+  .run{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+       padding:18px 20px;display:flex;flex-direction:column;gap:10px;}
+  .run h3{font-family:var(--sans);font-size:.95rem;}
+  .run dl{margin:0;display:grid;grid-template-columns:auto 1fr;
+          gap:4px 14px;font-size:.86rem;font-variant-numeric:tabular-nums;}
+  .run dt{color:var(--ink-3);}
+  .run dd{margin:0;color:var(--ink);font-family:var(--mono);font-size:.82rem;}
+  .verdict{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;
+           text-transform:uppercase;padding:2px 8px;border-radius:99px;
+           align-self:flex-start;}
+  .v-ok{background:var(--accent-soft);color:var(--accent);}
+  .v-no{background:var(--qual-soft);color:var(--qual);}
+
+  .open{background:var(--panel);border:1px solid var(--rule);
+        border-radius:6px;padding:18px 22px;
+        display:flex;flex-direction:column;gap:8px;}
+  .open h3{font-family:var(--sans);font-size:.95rem;}
+  .open p{margin:0;font-size:.92rem;}
+  ul{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:6px;}
+  a{color:var(--accent);}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  /* ── added for the reference rewrite ───────────────────────────── */
+  h4{font-family:var(--sans);font-size:.92rem;font-weight:600;color:var(--ink);
+     margin:6px 0 0;}
+  .toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.82rem;
+       font-family:var(--mono);padding-bottom:4px;}
+  .toc a{text-decoration:none;border-bottom:1px solid transparent;}
+  .toc a:hover{border-bottom-color:var(--accent);}
+  section{scroll-margin-top:20px;}
+
+  .notation{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:.82rem;
+            list-style:none;padding:0;color:var(--ink-2);}
+  .notation li{display:flex;align-items:center;gap:7px;}
+  .notation span{width:24px;height:14px;flex:none;display:inline-block;}
+  .n-file{border:1.4px solid var(--ink-2);border-left-width:4px;}
+  .n-mem{border:1.4px dashed var(--ink-2);}
+  .n-code{border:1.8px solid var(--ink-2);}
+  .n-llm{border:1.8px solid #2E8C99;}
+  .n-gate{border:1.8px solid #C0563F;transform:skewX(-18deg);}
+
+  .stepcard{background:var(--panel);border:1px solid var(--rule);
+            border-radius:6px;padding:20px 24px;
+            display:flex;flex-direction:column;gap:12px;}
+  .stepcard>h3{font-family:var(--sans);font-size:1.02rem;
+               padding-bottom:8px;border-bottom:1px solid var(--rule);}
+  table.spec th{width:150px;text-transform:none;font-family:var(--sans);
+                font-size:.82rem;letter-spacing:0;color:var(--ink-3);
+                border-bottom:1px solid var(--rule);vertical-align:top;
+                font-weight:400;}
+  table.spec td{font-size:.86rem;}
+  td.warn th,th.warn{color:var(--block);}
+  .mark{background:var(--qual-soft);color:var(--qual);
+        padding:.05em .3em;border-radius:3px;}
+  pre{background:var(--panel-2);border:1px solid var(--rule);border-radius:5px;
+      padding:12px 16px;overflow-x:auto;font-size:.8rem;
+      font-family:var(--mono);color:var(--ink-2);margin:0;line-height:1.5;}
+  .sub{font-size:.8rem;color:var(--ink-3);}
+  .lineage{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media (max-width:640px){.lineage{grid-template-columns:1fr;}}
+  .lineage>div{background:var(--panel);border:1px solid var(--rule);
+               border-radius:6px;padding:16px 20px;}
+  .lineage ol{margin:8px 0 0;padding-left:1.2em;font-size:.84rem;
+              display:flex;flex-direction:column;gap:5px;color:var(--ink-2);}
+  .lineage h4{margin:0;}
+  dl.gloss{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 20px;
+           font-size:.9rem;}
+  @media (max-width:640px){dl.gloss{grid-template-columns:1fr;gap:2px 0;}
+                           dl.gloss dd{margin-bottom:10px;}}
+  dl.gloss dt{font-family:var(--mono);font-size:.82rem;color:var(--ink);
+              white-space:nowrap;}
+  dl.gloss dd{margin:0;color:var(--ink-2);}
+  td.r-raise{color:var(--block);font-weight:600;}
+  td.r-warn,td.r-retry{color:var(--qual);font-weight:600;}
+  td.r-skip{color:var(--ctx);font-weight:600;}
+  ol.defects{margin:0;padding-left:1.2em;display:flex;flex-direction:column;
+             gap:10px;color:var(--ink-2);}
+</style>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">IDEAS · the third box</span>
+  <h1>Experiment Manager Walkthrough</h1>
+  <p>One diagram, and a few sentences on each box in it. The Experiment Manager
+     turns <code>strategy.json</code> and <code>reception.json</code> into a run:
+     real coordinates, the model's inputs, the simulations, and one
+     <code>experiment.json</code> the Analyzer reads. It is one sequence of
+     stages in the base class, the same for every model; each model's manager
+     — a small file beside its server — fills three slots and makes
+     <strong>one build call</strong>. It fetches nothing: everything it needs
+     was written by reception.</p>
+  <div class="meta">
+    <span>src/core/exp_manager_base.py</span>
+    <span>mcp/elm-mcp/src/elm_exp_manager.py</span>
+    <span>mcp/pflotran-mcp/pflotran_exp_manager.py</span>
+    <span>tools/expand_sampling.py · src/core/strategy_check.py</span>
+    <span>workflow.py · _execute, resume_run, finalize_run</span>
+    <span>verified against the code 2026-08-18</span>
+  </div>
+</header>
+
+<section id="flow">
+  <h2>The flow</h2>
+  <ul class="notation">
+    <li><span class="n-file"></span> file on disk</li>
+    <li><span class="n-mem"></span> in-memory object · optional</li>
+    <li><span class="n-code"></span> deterministic code</li>
+    <li><span class="n-gate"></span> decision gate</li>
+    <li><span class="n-code" style="border-style:double"></span> MCP server</li>
+  </ul>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 960 1000" role="img" aria-label="The Experiment Manager's stages, top to bottom, with the servers each one calls. Two files enter: strategy.json and reception.json. A gate, check, reads both and stops or records corrections. Materialize: on a site the sampler places columns from reception's grid and the strategy's bands, pins stations named in the strategy, adds two water-table anchors and asks terrain for elevation at pinned stations only; on a conceptual design the ELM server builds the sweep columns. Then the one build call: ELM's build_elm_inputs_from_location, or PFLOTRAN's create_decks_from_columns with the run directory. columns.json is written after that call; the server's run plan comes back and assumptions.json and run_plan.json are written. Build case inputs reads what the server wrote. Build cases, ELM only, submits job A and job B and returns pending; resume polls. Run: ELM collects from disk, PFLOTRAN runs each deck inline. Extract: ELM by imported code, PFLOTRAN by extract_column_series. Package writes experiment.json, then the Analyzer is called, non-fatal. Right column: the elm, pflotran and terrain servers with the tools called on each. run_state.json is marked after every stage.">
+        <defs>
+          <marker id="e-ar" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="11.5"
+           fill="currentColor" stroke="currentColor">
+          <rect x="30" y="20" width="180" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="30" y="20" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="120.0" y="37" text-anchor="middle" stroke="none">strategy.json</text>
+          <rect x="230" y="20" width="180" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="230" y="20" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="320.0" y="37" text-anchor="middle" stroke="none">reception.json</text>
+          <text x="430" y="37" stroke="none" font-size="10" opacity=".8">+ the site files beside it (WTD raster, CONUS2 arrays)</text>
+          <line x1="120" y1="46" x2="120" y2="66" stroke-width="1.2"/>
+          <line x1="320" y1="46" x2="320" y2="66" stroke-width="1.2"/>
+          <line x1="120" y1="66" x2="320" y2="66" stroke-width="1.2"/>
+          <line x1="220" y1="66" x2="220" y2="82" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <g transform="translate(315.0 98)"><polygon points="-262,-14 262,-14 248,14 -276,14" fill="none" stroke="#C0563F" stroke-width="1.6"/><text x="-6" y="4" text-anchor="middle" stroke="none" font-size="10.5">check() · reception × strategy — STOP on garbage; correct and RECORD the rest</text></g>
+          <line x1="315.0" y1="112" x2="315.0" y2="128" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="46" y="160" width="262" height="102" rx="3" fill="none" stroke-width="1.4"/>
+          <text x="56" y="178" stroke="none">SITE · the sampler · expand()</text>
+          <text x="56" y="194" stroke="none" font-size="10.5">grid + polygon: from reception.json</text>
+          <text x="56" y="208" stroke="none" font-size="10.5">n_bands × per_band: from the strategy</text>
+          <text x="56" y="222" stroke="none" font-size="10.5">pins: co-located × pinnable × in_basin</text>
+          <text x="56" y="236" stroke="none" font-size="10.5">+ 2 Fan anchors (median, 10th pct)</text>
+          <text x="56" y="250" stroke="none" font-size="10.5">terrain.get_elevation at pins only</text>
+          <rect x="322" y="160" width="262" height="102" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="332" y="178" stroke="none">CONCEPTUAL · the server builds</text>
+          <text x="332" y="194" stroke="none" font-size="10.5">check_conceptual_design — all reasons</text>
+          <text x="332" y="208" stroke="none" font-size="10.5">build_conceptual_columns — 1 per level</text>
+          <text x="332" y="222" stroke="none" font-size="10.5">no basin, no grid, no sampling</text>
+          <text x="332" y="236" stroke="none" font-size="10.5">warm_start = False — starts COLD</text>
+          <text x="332" y="250" stroke="none" font-size="10" opacity=".8">lat/lon = a forcing cell, not a site</text>
+          <line x1="177.0" y1="262" x2="177.0" y2="284" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <line x1="453.0" y1="262" x2="453.0" y2="284" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="46" y="286" width="538" height="116" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="56" y="304" stroke="none">_refine_columns · THE ONE BUILD CALL · before columns.json is written</text>
+          <text x="56" y="320" stroke="none" font-size="10.5">elm       build_elm_inputs_from_location — the warm start SNAPS each column</text>
+          <text x="56" y="334" stroke="none" font-size="10.5">          to its donor cell; donor soil, surface + domain (+ finidat),</text>
+          <text x="56" y="348" stroke="none" font-size="10.5">          case_inputs.json; the columns are replaced in place</text>
+          <text x="56" y="362" stroke="none" font-size="10.5">pflotran  create_decks_from_columns(site_dir = the run dir) — joins the</text>
+          <text x="56" y="376" stroke="none" font-size="10.5">          subsurface, water table and rain itself; one deck per column;</text>
+          <text x="56" y="390" stroke="none" font-size="10.5">          the run plan comes back; the columns are unchanged (no snap)</text>
+          <line x1="161" y1="402" x2="161" y2="424" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="46" y="426" width="230" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="46" y="426" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="161.0" y="443" text-anchor="middle" stroke="none">columns.json (post-build)</text>
+          <rect x="300" y="426" width="284" height="26" rx="2" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="442.0" y="443" text-anchor="middle" stroke="none" font-size="10.5">sampling_design.png · elm · non-fatal</text>
+          <line x1="161" y1="452" x2="161" y2="470" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="46" y="472" width="290" height="26" rx="3" fill="none" stroke-width="1.4"/>
+          <text x="191" y="489" text-anchor="middle" stroke="none" font-size="10.5">_to_run_plan: the server's plan, handed back</text>
+          <line x1="336" y1="485" x2="356" y2="485" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="358" y="472" width="226" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="358" y="472" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="471.0" y="489" text-anchor="middle" stroke="none" font-size="10.5">assumptions.json · run_plan.json</text>
+          <rect x="30" y="130" width="570" height="384" rx="4" fill="none" stroke-width="1.8"/>
+          <text x="42" y="148" stroke="none" font-size="10.5" letter-spacing=".08em">STEP 0 · MATERIALIZE · _materialize → _persist_columns</text>
+          <line x1="315.0" y1="514" x2="315.0" y2="532" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="534" width="570" height="34" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="555" stroke="none" font-size="10.5">STEP 1 · build_case_inputs — reads what the server wrote → case_inputs.json</text>
+          <line x1="315.0" y1="568" x2="315.0" y2="586" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="588" width="570" height="74" rx="3" fill="none" stroke-width="1.6" stroke-dasharray="5 3"/>
+          <text x="42" y="606" stroke="none">STEP 2 · build_cases — ELM ONLY (NEEDS_CASE_BUILD)</text>
+          <text x="42" y="622" stroke="none" font-size="10.5">run_elm_ensemble → job A: compile the case, clone it, run every column;</text>
+          <text x="42" y="636" stroke="none" font-size="10.5">the manager submits job B (afterany): workflow.py --finalize on the node.</text>
+          <text x="42" y="650" stroke="none" font-size="10.5">Returns PENDING — the session ends; --resume polls check_elm_job.</text>
+          <line x1="315.0" y1="662" x2="315.0" y2="680" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="682" width="570" height="60" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="700" stroke="none">STEP 3 · run</text>
+          <text x="42" y="716" stroke="none" font-size="10.5">elm       COLLECT — job A already ran; a column succeeded if ELM wrote its history</text>
+          <text x="42" y="730" stroke="none" font-size="10.5">pflotran  run_pflotran_simulation per deck, inline, seconds each</text>
+          <line x1="315.0" y1="742" x2="315.0" y2="760" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="762" width="570" height="74" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="780" stroke="none">STEP 4 · extract → 03_results/extracted.json → rows</text>
+          <text x="42" y="796" stroke="none" font-size="10.5">elm       extract_run, imported ELM code, reads the history NetCDFs</text>
+          <text x="42" y="810" stroke="none" font-size="10.5">pflotran  extract_column_series; profiles + the column's setup onto its row</text>
+          <text x="42" y="824" stroke="none" font-size="10" opacity=".8">raw numbers only — what they mean is FIELD_SEMANTICS, this side of the boundary</text>
+          <line x1="315.0" y1="836" x2="315.0" y2="854" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="856" width="570" height="34" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="877" stroke="none" font-size="10.5">STEP 4b · package → experiment.json — NON-FATAL from here on</text>
+          <line x1="315.0" y1="890" x2="315.0" y2="908" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="910" width="570" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="42" y="929" stroke="none" font-size="10.5">STEP 4c · Analyzer — hand-off; its own walkthrough</text>
+          <text x="30" y="966" stroke="none" font-size="10" opacity=".8">run_state.json · _mark after every stage — what --resume and --finalize read;</text>
+          <text x="30" y="980" stroke="none" font-size="10" opacity=".8">a finished stage is reused from disk, never redone</text>
+          <text x="660" y="148" stroke="none" font-size="10.5" letter-spacing=".08em">MCP SERVERS · what the manager asks each</text>
+          <rect x="660" y="160" width="270" height="130" rx="3" fill="none" stroke-width="1.6"/>
+          <rect x="663" y="163" width="264" height="124" rx="2" fill="none" stroke-width="0.8"/>
+          <text x="672" y="178" stroke="none">elm</text>
+          <text x="672" y="194" stroke="none" font-size="10.5">check_conceptual_design</text>
+          <text x="672" y="208" stroke="none" font-size="10.5">build_conceptual_columns</text>
+          <text x="672" y="222" stroke="none" font-size="10.5">build_elm_inputs_from_location</text>
+          <text x="672" y="236" stroke="none" font-size="10.5">run_elm_ensemble · check_elm_job</text>
+          <text x="672" y="250" stroke="none" font-size="10" opacity=".8">by import, not a tool call:</text>
+          <text x="672" y="264" stroke="none" font-size="10" opacity=".8">sampling_design, extract_run</text>
+          <text x="672" y="278" stroke="none" font-size="10" opacity=".8">manager: mcp/elm-mcp/src</text>
+          <rect x="660" y="304" width="270" height="88" rx="3" fill="none" stroke-width="1.6"/>
+          <rect x="663" y="307" width="264" height="82" rx="2" fill="none" stroke-width="0.8"/>
+          <text x="672" y="322" stroke="none">pflotran</text>
+          <text x="672" y="338" stroke="none" font-size="10.5">create_decks_from_columns (site_dir)</text>
+          <text x="672" y="352" stroke="none" font-size="10.5">run_pflotran_simulation</text>
+          <text x="672" y="366" stroke="none" font-size="10.5">extract_column_series</text>
+          <text x="672" y="380" stroke="none" font-size="10" opacity=".8">manager: mcp/pflotran-mcp</text>
+          <rect x="660" y="406" width="270" height="60" rx="3" fill="none" stroke-width="1.6"/>
+          <rect x="663" y="409" width="264" height="54" rx="2" fill="none" stroke-width="0.8"/>
+          <text x="672" y="424" stroke="none">terrain</text>
+          <text x="672" y="440" stroke="none" font-size="10.5">get_elevation — asked by the sampler,</text>
+          <text x="672" y="454" stroke="none" font-size="10.5">at the pinned stations only</text>
+          <text x="660" y="490" stroke="none" font-size="10" opacity=".8">Nothing else. hydrodata, daymet, usgs_water,</text>
+          <text x="660" y="504" stroke="none" font-size="10" opacity=".8">snotel, ameriflux are reception's; the manager</text>
+          <text x="660" y="518" stroke="none" font-size="10" opacity=".8">reads what reception wrote and never fetches.</text>
+          <rect x="660" y="588" width="270" height="62" rx="3" fill="none" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <text x="672" y="606" stroke="none" font-size="10.5">SLURM · elm only</text>
+          <text x="672" y="622" stroke="none" font-size="10">job A: build + run every column</text>
+          <text x="672" y="636" stroke="none" font-size="10">job B: --finalize → the tail on the node</text>
+          <g stroke-width="1.1" stroke-dasharray="3 3" fill="none"><path d="M584 194 C 620 194, 630 194, 658 194" marker-end="url(#e-ar)"/><path d="M584 320 C 622 320, 626 222, 658 222" marker-end="url(#e-ar)"/><path d="M584 362 C 622 362, 626 338, 658 338" marker-end="url(#e-ar)"/><path d="M600 622 C 636 622, 630 236, 658 236" marker-end="url(#e-ar)"/><path d="M600 636 C 630 636, 640 618, 658 618" marker-end="url(#e-ar)"/><path d="M600 730 C 640 730, 640 352, 658 352" marker-end="url(#e-ar)"/><path d="M600 810 C 648 810, 646 366, 658 366" marker-end="url(#e-ar)"/></g>
+        </g>
+      </svg>
+    </div>
+    <figcaption>One sequence for every model. The dashed boxes are the parts that
+      exist for one model only — the conceptual build (ELM), the case build and
+      its two SLURM jobs (ELM), the design figure (ELM). The one solid box each
+      model fills differently is the build call in the middle of materialize;
+      everything after it reads what that call wrote. Three servers, and the
+      third only for a point elevation.</figcaption>
+  </figure>
+</section>
+
+<!-- ─────────────────────────────────────────── the boxes, top to bottom ── -->
+<section id="boxes">
+  <h2>The boxes, top to bottom</h2>
+
+  <div class="stepcard">
+    <h3>strategy.json + reception.json → check()</h3>
+    <p>The manager reads two files and the site files beside the second — the
+       WTD raster and the CONUS2 arrays reception fetched. Its config is the
+       brief, the reception package, the strategy, the MCP clients, and the
+       resolved years; nothing else comes in. <code>check()</code> runs
+       <em>first</em>, before any count is read: it holds reception and strategy
+       together and either <strong>stops</strong> (no domain or period on a site,
+       a count that cannot be placed, a sweep with one level) or
+       <strong>corrects and records</strong> (a column count the user stated that
+       the planner ignored, a station named that was never fetched). The
+       corrected strategy is what every later line reads — reading the count
+       before the gate once built 17 columns for a request that asked for 2.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>materialize · site — the sampler</h3>
+    <p>A pure function of the two files. The grid and the basin polygon come off
+       <code>reception.json</code> as written (fetched and clipped once, by the
+       only component that reaches outside — the manager used to fetch and clip
+       them again, fifty-eight points in and fifty-eight out). Bands and columns
+       per band come from the strategy. A station is pinned only if the planner's
+       verdict for its variable was <code>co-located</code>, the variable is
+       pinnable under the block the strategy carries, and reception tagged the
+       station <code>in_basin</code>; a ghost id raises, because plan and
+       observations disagreeing is not survivable. Two water-table anchors are
+       always appended — the median and the shallow tenth-percentile in-basin Fan
+       depth, placement only. The one outside call is
+       <code>terrain.get_elevation</code> at each pinned station, with the
+       station's reported elevation, then the nearest grid point, as fallbacks.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>materialize · conceptual — the server builds</h3>
+    <p>No basin, no grid, no sampling: a controlled sweep is one column per level
+       combination, and what a level <em>becomes</em> — a soil texture of 27
+       turning into a synthetic surface dataset — is the server's knowledge. So
+       the design crosses to the ELM server twice: <code>check_conceptual_design</code>
+       first, so every reason is named at once before an hour of compute, then
+       <code>build_conceptual_columns</code>. The manager sets
+       <code>warm_start = False</code> here: a sweep starts cold, or it is not
+       controlled. The cost — years to forget ELM's defaults, so a short run reports
+       the initialisation as much as the soil — is recorded as a caveat, not fixed
+       with a spin-up.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>_refine_columns — the one build call</h3>
+    <p>Where the two managers differ, and the only place. It runs inside
+       materialize, <em>before</em> <code>columns.json</code> is written, because
+       ELM's warm start moves every column 250–400 m onto its donor gridcell —
+       anything persisted earlier describes a plan the run will not follow.</p>
+    <table class="spec">
+      <thead><tr><th></th><th>elm</th><th>pflotran</th></tr></thead>
+      <tbody>
+        <tr><th>the call</th>
+            <td class="id">build_elm_inputs_from_location(run_dir, columns, years, warm_start, …)</td>
+            <td class="id">create_decks_from_columns(columns, out_dir, site_dir = run_dir, knobs)</td></tr>
+        <tr><th>what the server does</th>
+            <td>snaps each column to its donor cell, takes the donor's soil, writes the surface and domain files (and finidat when warm), the runtime config, and <code>01_inputs/case_inputs.json</code></td>
+            <td>looks each column up in the site files reception wrote — CONUS2 profile, water-table depth, daily rain (nearest grid point within one grid spacing when off-grid, recorded as <code>rain_borrowed_km</code>) — and writes one deck per column under <code>01_inputs/decks/</code></td></tr>
+        <tr><th>the columns</th>
+            <td>replaced in place — post-snap coordinates and elevations</td>
+            <td>unchanged — no donor, no snap</td></tr>
+        <tr><th>comes back</th>
+            <td>the run plan: CONDITIONS_COUPLERS, ELM_CONFIG, assumptions ledger</td>
+            <td>the run plan: CONDITIONS_COUPLERS (column + joined scalars + deck record), PFLOTRAN_CONFIG (the values used), assumptions ledger, incomplete columns</td></tr>
+      </tbody>
+    </table>
+    <p class="rule-note">Same shape both sides: coordinates in, inputs out, run plan
+       back. Until 2026-08-18 the PFLOTRAN manager did the join itself in a
+       117-line <code>_to_run_plan</code> and handed the server pre-chewed columns;
+       moving it made the two managers the same size and the same shape.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>columns.json · sampling_design.png</h3>
+    <p><code>columns.json</code> is written twice, to <code>01_inputs/</code> and the
+       run root, and it is the <em>post-build</em> list — for ELM the snapped
+       coordinates, for PFLOTRAN the sampled ones. The design figure is drawn
+       after it, by ELM's own code (<code>sampling_design.render_run</code>,
+       imported from beside the server): the columns over a hillshade, forcing
+       against donor elevation, the initial soil water read out of each finidat,
+       the donor soil profiles — all post-warm-start, which is why it cannot run
+       earlier. Non-fatal: a figure is not worth a finished materialize.
+       PFLOTRAN has no figure yet.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>_to_run_plan → assumptions.json · run_plan.json</h3>
+    <p>Both managers hand back the plan the server already built rather than
+       recompute it — the same computation twice would be two chances to
+       disagree. The base merges it over the strategy and writes
+       <code>run_plan.json</code> (what will run) and <code>assumptions.json</code>
+       (the ledger: precipitation used as recharge, subsurface from CONUS2, sres
+       as published — or ELM's own). <code>reception_brief.json</code> and
+       <code>plan.json</code> are written beside them so the standalone tools find
+       the filenames they expect.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>build_case_inputs</h3>
+    <p>Reads what the build call wrote and computes nothing: ELM's
+       <code>case_inputs.json</code>, PFLOTRAN's <code>CONDITIONS_COUPLERS</code>.
+       The stage exists because the base's sequence has a slot for it, and on a
+       resume it is the same read off disk. The base persists the result as
+       <code>01_inputs/case_inputs.json</code>.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>build_cases — ELM only</h3>
+    <p>A CIME case build takes eight to ten minutes and belongs on a compute
+       node, so this stage is job-shaped. <code>run_elm_ensemble</code> submits
+       <strong>job A</strong> — compile the reference case, clone it per column,
+       run every column — and the manager itself submits <strong>job B</strong>
+       with <code>afterany</code> (never <code>afterok</code>: a failed ensemble
+       must still report). Job B runs <code>workflow.py --finalize</code> on the
+       node: adopt the finished output, then extract → package → analyze. The
+       stage returns <code>Pending</code> with both ids and the session ends;
+       <code>--resume</code> polls <code>check_elm_job</code>. The manager
+       announces the job ids before submitting; asking is the coordinator's job
+       (the notification address, on a terminal only). PFLOTRAN declares
+       <code>NEEDS_CASE_BUILD = False</code> and skips the stage: a deck is a text
+       file, and writing it was the build.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>run</h3>
+    <p>Two meanings of the same slot. For ELM it <em>collects</em>: job A already
+       ran the columns, so this never submits — a column succeeded if ELM wrote
+       its history file, and the run summaries and reports are built from disk
+       (submitting here once re-ran a landed ensemble over its own output). For
+       PFLOTRAN it <em>runs</em>: <code>run_pflotran_simulation</code> once per
+       deck, inline, five to ninety seconds each — one deck per call because the
+       tool's list form runs only the first. A failed column is recorded against
+       itself and does not stop the ensemble.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>extract</h3>
+    <p>Reads the model's own output format and stops: raw numbers, no
+       interpretation. ELM: <code>extract_run</code>, imported ELM code, reads the
+       history NetCDFs into <code>03_results/extracted.json</code> and the rows are
+       built from that file — one writer of one artifact. PFLOTRAN:
+       <code>extract_column_series</code> writes saturation and pressure against
+       depth per output time to the same filename, and the manager attaches each
+       column's block to its row as <code>profiles</code> and carries the column's
+       own setup — water table, unsaturated depth, transient or steady, forcing
+       years, borrowed-rain distance — so an output can be read against what
+       produced it. What a field <em>means</em> (<code>FIELD_SEMANTICS</code>)
+       stays on this side of the boundary, never behind a tool call.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>package → experiment.json · Analyzer</h3>
+    <p><code>experiment.json</code> is this box's product and the Analyzer's only
+       input: the rows with their series, <code>field_semantics</code>,
+       <code>variable_units</code>, the assumptions ledger, the columns, grid,
+       boundary, domain, period, model, and the strategy check's record.
+       <code>RUN_SUMMARY.json</code> sits beside it. Everything from package
+       onward is <strong>non-fatal</strong>: by then the compute has succeeded and
+       extraction has written its summary, and a reporting bug must not discard
+       an ensemble that cost a queue slot. The Analyzer is called last and has
+       its own walkthrough.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>run_state.json · resume · finalize</h3>
+    <p><code>_mark</code> writes a line after every stage — done, failed, skipped,
+       pending, with artifacts and job ids. <code>--resume RUN_DIR</code> reads it,
+       reuses every finished stage from disk (materialize from
+       <code>run_plan.json</code>, case inputs from <code>case_inputs.json</code>,
+       extract from <code>experiment.json</code>) and advances the pending one —
+       polling the scheduler for ELM. <code>--finalize RUN_DIR</code> is the tail
+       run inside job B: it adopts the completed run without polling (the job
+       polling would find itself) and continues from extract. Resume is opt-in;
+       re-entering a directory without it means "do it again".</p>
+  </div>
+</section>
+
+<section id="who">
+  <h2>Which server, which tool, per stage</h2>
+  <table>
+    <thead><tr><th>stage</th><th>elm</th><th>pflotran</th></tr></thead>
+    <tbody>
+      <tr><td>check</td><td colspan="2">code — <code>strategy_check</code>, no server</td></tr>
+      <tr><td>materialize · sample</td><td colspan="2">code — <code>expand()</code>; <code>terrain.get_elevation</code> at pinned stations</td></tr>
+      <tr><td>materialize · sweep</td><td class="id">check_conceptual_design · build_conceptual_columns</td><td>—</td></tr>
+      <tr><td>the build call</td><td class="id">build_elm_inputs_from_location</td><td class="id">create_decks_from_columns (site_dir)</td></tr>
+      <tr><td>design figure</td><td class="id">sampling_design.render_run (imported)</td><td>none</td></tr>
+      <tr><td>build_case_inputs</td><td colspan="2">code — reads what the build call wrote</td></tr>
+      <tr><td>build_cases</td><td class="id">run_elm_ensemble → job A · sbatch job B</td><td>skipped</td></tr>
+      <tr><td>run</td><td>collect from disk</td><td class="id">run_pflotran_simulation, per deck</td></tr>
+      <tr><td>extract</td><td class="id">extract_run (imported)</td><td class="id">extract_column_series</td></tr>
+      <tr><td>package · analyze</td><td colspan="2">code — <code>experiment.json</code>, then the Analyzer</td></tr>
+      <tr><td>resume</td><td class="id">check_elm_job</td><td>nothing pending — a study finishes in one session</td></tr>
+    </tbody>
+  </table>
+  <p class="rule-note">Two servers do the model's work and one answers a point
+     elevation. Everything reception fetched — the grid, the rain, the wells, the
+     water table, the subsurface — is read from the run directory, and the
+     PFLOTRAN server reads three of those files itself.</p>
+</section>
+
+<section id="files">
+  <h2>What lands in the run directory, and when</h2>
+  <table>
+    <thead><tr><th>after</th><th>file</th><th>what it is</th></tr></thead>
+    <tbody>
+      <tr><td>reception</td><td class="id">reception.json · reception_brief.json · wtd_conus2.tif · conus2_subsurface.npz/.json</td><td>the package and the site files beside it</td></tr>
+      <tr><td>planner</td><td class="id">strategy.json</td><td>the design and the pinning block it was designed under</td></tr>
+      <tr><td>materialize</td><td class="id">columns.json (×2) · sampling_design.png · run_plan.json · assumptions.json · plan.json</td><td>post-build columns; the executable plan; the ledger</td></tr>
+      <tr><td>materialize · elm</td><td class="id">01_inputs/case_inputs.json + surface, domain, finidat files</td><td>written by the ELM server</td></tr>
+      <tr><td>materialize · pflotran</td><td class="id">01_inputs/decks/&lt;id&gt;/&lt;id&gt;.in</td><td>one deck per column, written by the PFLOTRAN server</td></tr>
+      <tr><td>build_case_inputs</td><td class="id">01_inputs/case_inputs.json</td><td>the experiments, as plain data</td></tr>
+      <tr><td>build_cases · elm</td><td class="id">ensemble_A.sbatch · ensemble_B.sbatch · run_state.json (pending, job ids)</td><td>the two jobs</td></tr>
+      <tr><td>extract</td><td class="id">03_results/extracted.json</td><td>the raw series, one writer</td></tr>
+      <tr><td>package</td><td class="id">experiment.json · RUN_SUMMARY.json</td><td>the Analyzer's input</td></tr>
+      <tr><td>every stage</td><td class="id">run_state.json</td><td>the ledger <code>--resume</code> reads</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="notes">
+  <h2>Two things not on the diagram</h2>
+  <p><strong>All three paths ran on this code on 2026-08-18.</strong> ELM site:
+     <code>columns.json</code> byte-identical to the pre-refactor run. ELM
+     conceptual: a two-level clay sweep from the request through built inputs —
+     cold, two synthetic surface files with clay 5 and 55, one domain file.
+     PFLOTRAN site: Naches, from a fresh request through package — 17 decks
+     built, 17 ran, 17 read, every row carrying its profiles and its setup;
+     dispatched by <code>workflow.py</code> itself, into a directory named
+     <code>pflotran_run_*</code>.</p>
+  <p><strong>What is parked.</strong> The Analyzer's frames are ELM-shaped
+     (daily series, soil layers, depth profiles); PFLOTRAN's rows arrive with
+     <code>profiles</code> and are not yet drawn. The run → analyze tail of an
+     ELM conceptual sweep last ran on 2026-08-16. Both are the next box's
+     business, not this one's.</p>
+</section>
+
+</div>
