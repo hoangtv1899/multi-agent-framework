@@ -77,14 +77,16 @@ opt-in and named, rather than happening because the file said so.
 """
 import math
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 # Where the REAL cell is read from when a fill modifies it rather than
-# inventing it. Same precedence as core/forcing_availability.nldas_dir, and
-# deliberately not an import of it: this module lives behind the MCP boundary
-# and the framework side must stay reachable without it.
+# inventing it. There is no second copy of these two constants any more: the
+# framework's core/forcing_availability.py held the same pair and opened the
+# same directory, and was deleted on 2026-08-17 when its window scan moved
+# below — ELM knowledge belongs behind this boundary, not in front of it.
 DEFAULT_DIN_LOC_ROOT = "/compyfs/inputdata"
 NLDAS_SUBPATH = "atm/datm7/NLDAS"
 
@@ -93,6 +95,83 @@ def real_nldas_dir(root: Optional[str] = None) -> Path:
     """The directory DATM would have read. $DIN_LOC_ROOT wins if it is set."""
     root = root or os.environ.get("DIN_LOC_ROOT") or DEFAULT_DIN_LOC_ROOT
     return Path(root) / NLDAS_SUBPATH
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WHICH YEARS CAN ACTUALLY BE SIMULATED
+#
+# MOVED HERE FROM src/core/forcing_availability.py ON 2026-08-17. That module
+# sat in the FRAMEWORK and opened this directory, parsed these filenames, and
+# knew DATM_MODE=CLMMOSARTTEST — ELM knowledge on the wrong side of the MCP
+# boundary, and a second copy of the two constants above. Reception pasted its
+# output into every request, including ones that chose a different model, so a
+# PFLOTRAN study of 2024 was refused for an ELM forcing gap.
+#
+# READ FROM DISK, NEVER ASSERTED, and that is the whole point. The prompt used
+# to carry the window as prose — "NLDAS-2 available 1980-2018" — and it had
+# drifted in both directions: it stopped at 2018 while Compy holds complete
+# years through 2023, and it offered a Qian fallback that DATM_MODE makes
+# impossible. A directory listing cannot drift.
+# ─────────────────────────────────────────────────────────────────────────────
+MONTHS_PER_YEAR = 12
+_NLDAS_FILE = re.compile(r"^clmforc\.nldas\.(\d{4})-(\d{2})\.nc$")
+
+
+def month_counts(directory) -> Dict[int, int]:
+    """{year: months present}.
+
+    Filenames that do not match are ignored — the tree carries a couple of
+    strays (clmforc.nldas.0016-06.nc) that would otherwise invent a year 16 AD.
+    """
+    counts: Dict[int, int] = {}
+    directory = Path(directory)
+    if not directory.is_dir():
+        return counts
+    for name in os.listdir(directory):
+        m = _NLDAS_FILE.match(name)
+        if m:
+            counts[int(m.group(1))] = counts.get(int(m.group(1)), 0) + 1
+    return counts
+
+
+def contiguous_span(years) -> List[int]:
+    """Longest run of consecutive years. Pure arithmetic, no filesystem.
+
+    A run needs an UNBROKEN window: a gap year mid-record would abort the
+    simulation partway rather than at submit time, so the longest gap-free run
+    is what may be offered, not first..last.
+    """
+    ys = sorted(set(int(y) for y in years))
+    if not ys:
+        return []
+    best = run = [ys[0]]
+    for y in ys[1:]:
+        run = run + [y] if y == run[-1] + 1 else [y]
+        if len(run) > len(best):
+            best = run
+    return best
+
+
+def scan_window(root: Optional[str] = None) -> Dict[str, Any]:
+    """What the forcing tree holds. The only function here that touches disk."""
+    d = real_nldas_dir(root)
+    counts = month_counts(d)
+    complete = [y for y, n in counts.items() if n >= MONTHS_PER_YEAR]
+    span = contiguous_span(complete)
+    partial = {y: n for y, n in counts.items() if n < MONTHS_PER_YEAR}
+    return {
+        "dataset": "NLDAS-2",
+        "resolution": "0.125 deg (~12 km)",
+        "datm_mode": STREAM_NAME,
+        "path": str(d),
+        "exists": d.is_dir(),
+        "n_files": sum(counts.values()),
+        "yr_first": span[0] if span else None,
+        "yr_last": span[-1] if span else None,
+        "n_years": len(span),
+        "partial_years": dict(sorted(partial.items())),
+        "excluded": sorted(set(complete) - set(span)),
+    }
 
 # The seven DATM reads, with the units the real files carry. Verified by
 # opening /compyfs/inputdata/atm/datm7/NLDAS/clmforc.nldas.1995-01.nc.

@@ -103,6 +103,28 @@ def _request_text(run_dir: Path) -> Optional[str]:
 	return None
 
 
+def _manager_for(model: str):
+	"""The manager class for a backend name, or None if there is not one.
+
+	The last of what backends.get() did, and deliberately not a table: two
+	names, two imports, and a new model adds one line here rather than an
+	entry in a registry that also has to be kept in step with the servers.
+	"""
+	name = (model or "").strip().lower()
+	if name == "pflotran":
+		from core.pflotran_exp_manager import PFLOTRANExpManager
+		return PFLOTRANExpManager
+	if name == "elm":
+		import sys
+		from pathlib import Path as _P
+		src = _P(__file__).resolve().parents[2] / "mcp" / "elm-mcp" / "src"
+		if src.is_dir() and str(src) not in sys.path:
+			sys.path.append(str(src))
+		from elm_exp_manager import ELMExpManager
+		return ELMExpManager
+	return None
+
+
 def _stages_for(model: Optional[str]) -> tuple:
 	"""The stages this backend actually runs.
 
@@ -113,11 +135,18 @@ def _stages_for(model: Optional[str]) -> tuple:
 	"""
 	if not model:
 		return STAGES
+	# ASKED OF THE MANAGER, BY NAME (2026-08-17). This went through
+	# core/backends.py, which was deleted on 2026-08-16 — so the lookup raised,
+	# the except swallowed it, and every backend fell back to "assume all
+	# stages". A PFLOTRAN run that had finished its decks reported `build_cases`
+	# as outstanding, which is the exact failure this function exists to
+	# prevent, arrived at by the fallback rather than by the bug.
 	try:
-		from core import backends
-		cls = backends.get(model)
+		cls = _manager_for(model)
 	except Exception:                                           # noqa: BLE001
 		return STAGES                                # unknown backend: assume all
+	if cls is None:
+		return STAGES
 	return tuple(s for s in STAGES
 				 if s != "build_cases" or getattr(cls, "NEEDS_CASE_BUILD", True))
 

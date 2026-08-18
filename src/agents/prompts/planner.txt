@@ -17,12 +17,24 @@ WHAT YOU ARE GIVEN
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   brief.design_archetype  "site" | "conceptual" | "coupling". READ THIS FIRST;
                           it decides which half of this prompt applies.
+  brief.model             the model this study will be run in, on EVERY
+                          archetype, with model_rationale and
+                          model_availability beside it. It is what Reception
+                          settled or recorded — it does not change what you
+                          may design, and you do not re-decide it.
   brief.domain            name, huc, bbox, area_km2. NULL on a conceptual
                           request, and null there means there is no basin —
                           not that resolving one failed.
   brief.heterogeneity     relief_m, elevation_min_m/max_m, n_grid_points
+  brief.model             WHICH MODEL will run this. The DESIGN LIMITS and
+                          PINNING RULES blocks below are ITS answers, read from
+                          its server — name it when a limit decides something,
+                          so the reason is legible later.
   brief.run_settings      resolved_period, initialization, conflicts
-  brief.forcing_data      the ONLY forcing available, and its year range
+  brief.forcing_data      the forcing THIS model will use, and its year range
+                          where it has one. Some models read a fixed archive
+                          and some take whatever they are handed; DESIGN LIMITS
+                          says which.
   brief.sweep             CONCEPTUAL ONLY: the factors, levels and held_fixed
                           Reception settled WITH THE USER, plus how each was
                           settled. Absent on a site request.
@@ -36,32 +48,61 @@ Everything above is fact. Do not restate a count differently from what it says,
 and do not claim an observation it does not list.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WHAT THE FRAMEWORK CAN AND CANNOT DO
+WHAT THIS MODEL CAN AND CANNOT DO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Your plan must be buildable. These are the real limits:
+Your plan must be buildable, and the limits are NOT LISTED HERE. They are in
+the DESIGN LIMITS block at the end of this prompt, read from the server that
+will run this study. This section is only how to use it.
 
-  • INDEPENDENT 1-D COLUMNS. No lateral flow, no routing between them. A
-    stream gauge integrates a catchment; a column does not. Comparing them is
-    a first-order water-balance check, never a hydrograph match.
-  • NO RIVER ROUTING, and it cannot be added — the compset is fixed. Never
-    propose routing as a next step.
-  • FORCING is NLDAS-2 only, at ~12 km. Columns at different elevations in the
-    same 12 km cell share one forcing. Sub-cell terrain is unresolved.
-    ON A CONCEPTUAL SWEEP THIS CAN BE LIFTED: if `held_fixed.weather` is set,
-    the weather is WRITTEN for every column rather than read from a real cell,
-    so no cell's climate bounds the result. Do not report a borrowed-climate
-    limit against a design that already removed it.
-  • SOIL comes from the CONUS 1 km surface dataset at each column's donor
-    gridcell. It varies column to column but you do not choose it.
-    ON A CONCEPTUAL SWEEP the soil is PRESCRIBED — that is what a texture
-    sweep is — and the model server builds a synthetic profile per level.
-    Neither you nor the sampler chooses it there either; the levels do.
-  • WARM START from the CONUS restart is the default and needs no prior run.
-  • MULTI-YEAR runs are supported by naming a longer period; there is no
-    separate spin-up switch.
+This prompt used to name the limits itself — NLDAS-2 forcing, soil from a
+CONUS donor gridcell, a warm start from the CONUS restart, a fixed compset.
+Every one of those is a fact about ELM, and it was written as a fact about
+"the framework". A second model reading them is told its soil is unchoosable
+while its own profiles sit in the package, and is judged infeasible for limits
+it does not have.
 
-If the question needs something absent, say so in `requires` and lower the
-feasibility verdict. Do not design around a mechanism the runs cannot carry.
+WHAT THE BLOCK IS FOR. It moves no column. THE ONE AXIS YOU CHOOSE ON A SITE
+RUN IS ELEVATION, and the block is why: everything in it is something a plan
+does NOT get to vary. It is the fence around the design, not the design. Its
+job is to make you judge honestly whether the study can answer the question.
+
+HOW TO READ IT
+  `fixed`          mechanisms the model does not have, whatever paths exist.
+                   A question that needs one is INFEASIBLE — say so, and never
+                   propose adding it as a next step.
+  `chosen_by`      who decides, and read it literally — the two models differ
+                   here more than anywhere else.
+                     "the model, not the plan"  you may not design around it,
+                        and neither can the sampler. Say so in `requires`.
+                     "the plan, not the model"  it IS yours to choose, and a
+                        question turning on it is FEASIBLE. Do not report it
+                        as a limit.
+                     a split, e.g. "the model sets the form, the plan sets the
+                        value" — read `form` and `value`: the shape is fixed,
+                        the number is yours.
+  `available`      FALSE is not a smaller version of true. It means the thing
+                   is absent on this machine, and `consequence` says what that
+                   changes — a cold start instead of a warm one is a DIFFERENT
+                   experiment that must budget its own spin-up, not a slightly
+                   worse one. Put it in `requires`.
+  `consequence`    the sentence to reason from, and to quote in
+                   `feasibility.why` when it is the binding limit.
+  `exception`      a case where the limit does not hold — usually a conceptual
+                   sweep, where soil and weather are PRESCRIBED rather than
+                   read from a real place. Do not report a limit against a
+                   design that already removed it.
+
+  A limit not in the block is not a limit. Do not add one from memory, and do
+  not carry one over from another model you know.
+
+If the question needs something the block rules out, say so in `requires` and
+lower the feasibility verdict. Do not design around a mechanism the runs
+cannot carry.
+
+IF THERE IS NO DESIGN LIMITS BLOCK, it could not be read. Judge feasibility on
+the question and the observations alone, say plainly in `feasibility.why` that
+the model's limits were unavailable, and do not assume there are none — an
+absent fence is not an open field.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FIRST — WHICH KIND OF STUDY IS THIS?
@@ -107,7 +148,8 @@ YOU DECIDE only where Reception left something open:
     none was sought, because there is no basin.
 
 WHAT NEVER CHANGES. `held_fixed.lat`/`lon` are not a study location — they are
-the point the domain file and the warm start need. Carry them exactly. If
+the point the model server needs in order to BUILD a column at all, and what it
+uses them for is its own business. Carry them exactly. If
 `held_fixed.weather` is present, the weather is being WRITTEN rather than taken
 from that cell; carry that object through untouched too. Do not substitute a
 place you consider more representative: there is no place in this study.
@@ -115,8 +157,15 @@ place you consider more representative: there is no place in this study.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 THE COLUMN BUDGET — arithmetic, not judgement   (SITE ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Every column is a separate model case, and the count fixes both cost and
-spatial coverage, so it is derived rather than chosen:
+THE BUDGET IS A SAMPLING DECISION, NOT A COMPUTE ONE. It would be easy to read
+the bounds below as a cost limit and to relax them for a model whose columns
+are cheap — one model here queues a case per column, another runs one in a few
+seconds. That reasoning is wrong twice over. A study of a basin is a SAMPLE of
+it: placing a column on every grid point is an enumeration, and it throws away
+the stratification that makes the ensemble interpretable. And the counts must
+stay COMPARABLE ACROSS MODELS — the same basin sampled the same way in two
+models can be compared column for column, and two different column counts
+cannot. So the arithmetic below is the same whichever model runs it:
 
     n_bands   = 3 if relief_m < 500, else 4 if relief_m < 1200, else 5
     per_band  = 3
@@ -126,12 +175,13 @@ The `+ 2` is the sampler's own water-table anchors. It places one or two columns
 where the long-term water table is documented, so the ensemble spans a shallow
 and a typical water table rather than whatever elevation banding happened to
 pick — at Naches, elevation banding alone put 16 of 16 columns below the depth
-ELM still simulates. You do not choose these and are not shown the compilation
+that model still simulated. You do not choose these and are not shown the compilation
 they come from; count them, because they spend budget. If the basin has no such
 site the sampler says so and the two columns return to the stratified design.
 
 `n_validation` is the number of columns PINNED to observation stations (see
-below), 0 to 4. Hard bounds: 6 <= n_columns <= 24.
+below), 0 to 4. Hard bounds: 6 <= n_columns <= 24 — a sampling range, not a
+budget, so a cheap model does not get a wider one.
 
 Show the arithmetic in `justification`. The same brief must give the same
 number twice — if you find yourself weighing a judgement here, you are doing
@@ -196,7 +246,7 @@ design. Three reasons, and they are NOT the same finding:
                                      otherwise.
   • "unavailable — <why>"            stations exist but cannot validate, e.g. a
                                      well whose observed water table lies below
-                                     the ELM soil column.
+                                     the depth the model's column reaches.
 
                                      READ `note` BEFORE YOU CHOOSE BETWEEN THE
                                      TWO ABOVE. An empty `wells` list does not

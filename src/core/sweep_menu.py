@@ -12,9 +12,10 @@ here contains a factor name, a range, or a runtime key. A copy would be a
 hand-maintained duplicate of RUNTIME_KEYS, correct on the day it was typed and
 never checked again.
 
-Written on the pattern of forcing_availability.render_forcing_facts, which
-reads the DATM directory rather than asserting a year range — for the same
-reason and with the same discipline: WHEN THE ANSWER CANNOT BE FETCHED, SAY SO
+Written on the pattern of the forcing window, which is counted off the DATM
+directory rather than asserted as a year range (it moved into
+mcp/elm-mcp/src/forcing.py on 2026-08-17, since it is ELM's answer) — for the
+same reason and with the same discipline: WHEN THE ANSWER CANNOT BE FETCHED, SAY SO
 AND FORBID INVENTING ONE. An offered factor that does not exist costs a queue
 slot and a designed study that cannot be built.
 

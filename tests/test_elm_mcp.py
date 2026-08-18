@@ -139,6 +139,60 @@ class TestItDoesNotClaimWhatItCannotDo:
         assert "e3sm_source" in d["missing_requirements"]
 
 
+class TestItStatesItsOwnDesignLimits:
+    """`constraints` — what a study using ELM may not VARY.
+
+    Added 2026-08-17 with the block. These limits were four bullets in
+    planner.txt written as facts about "the framework", and the forcing window
+    was scanned by core/forcing_availability.py from the framework side. Both
+    are ELM's answers and both now come from here, so the planner reads them
+    off whichever model was chosen instead of assuming ELM's.
+    """
+
+    def test_the_forcing_window_is_scanned_not_declared(self, srv):
+        """The one hard constraint on a request. A declared span drifts — this
+        one had said 1980-2018 while the disk held complete years to 2023."""
+        c = json.loads(srv.describe_elm_capabilities())["constraints"]
+        yrs = c["forcing"]["years"]
+        assert yrs is None or (len(yrs) == 2 and yrs[0] <= yrs[1])
+        if yrs:
+            import forcing
+            assert yrs == [forcing.scan_window()["yr_first"],
+                           forcing.scan_window()["yr_last"]]
+
+    def test_what_the_plan_may_not_choose_says_so(self, srv):
+        c = json.loads(srv.describe_elm_capabilities())["constraints"]
+        for key in ("forcing", "soil", "initial_state"):
+            assert c[key]["chosen_by"] == "the model, not the plan"
+            assert c[key]["consequence"], f"{key} states a limit with no effect"
+
+    def test_availability_is_measured_against_the_bulk_data(self, srv):
+        """A missing restart is a DIFFERENT experiment, not a degraded one, so
+        the fence must move rather than vanish."""
+        absent = {"conus_restart_manifest": {"present": False},
+                  "conus_surfdata": {"present": False}}
+        c = srv._constraints(absent)
+        assert c["soil"]["available"] is False
+        assert c["initial_state"]["available"] is False
+        assert "COLD" in c["initial_state"]["consequence"]
+
+    def test_a_manifest_whose_restarts_are_gone_is_not_available(self, srv):
+        """The file is kilobytes; the data it points at is ~43 GB in somebody
+        else's scratch. Existing is not resolving."""
+        c = srv._constraints({"conus_restart_manifest": {"present": True,
+                                                         "bands_resolving": 0},
+                              "conus_surfdata": {"present": True}})
+        assert c["initial_state"]["available"] is False
+
+    def test_the_dead_qian_fallback_is_not_offered(self, srv):
+        """DATM_MODE is pinned to CLMMOSARTTEST, so a promised Qian fallback is
+        forcing the code cannot produce. Carried over from the deleted
+        render_forcing_facts tests."""
+        c = json.loads(srv.describe_elm_capabilities())["constraints"]
+        assert "Qian" not in json.dumps(c)
+        assert c["forcing"]["dataset"] == "NLDAS-2"
+
+
 class TestItIsRegistered:
 
     def test_mcp_config_has_elm(self):

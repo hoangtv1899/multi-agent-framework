@@ -33,6 +33,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "src"))
+sys.path.insert(0, str(_ROOT))          # for workflow.py's model helpers
 
 from core.mcp_manager import MCPManager                        # noqa: E402
 from agents.reception_llm import LLMReceptionAgent             # noqa: E402
@@ -41,14 +42,23 @@ DEFAULT_MODEL = "claude-opus-5-project"
 STAGES = ("reception", "plan", "materialize")
 
 
+def _summarise_model(brief: dict) -> None:
+    """The model, printed for every archetype — sweep or not.
+
+    These three fields sat inside `sweep` until 2026-08-16, so a site brief
+    printed nothing here and nothing anywhere else said what the study would
+    be run in.
+    """
+    print(f"model      : {brief.get('model')}")
+    print(f"  because  : {brief.get('model_rationale')}")
+    print(f"  runnable : {brief.get('model_availability')}")
+
+
 def _summarise_sweep(brief: dict) -> dict:
     sweep = brief.get("sweep") or {}
     if not sweep:
         return {}
     print("\n--- the sweep reception settled ---")
-    print(f"model      : {sweep.get('model')}")
-    print(f"  because  : {sweep.get('model_rationale')}")
-    print(f"  runnable : {sweep.get('model_availability')}")
     for f in (sweep.get("factors") or []):
         print(f"factor     : {f.get('name')} = {f.get('levels')}"
               f"   [{f.get('settled_by')}]")
@@ -95,12 +105,17 @@ def _materialize(run_dir: Path, plan: dict, pkg: dict, clients: dict,
     carry on into the case build and the ensemble submission, which is exactly
     what this tool exists not to do.
     """
-    from core import backends
+    # core/backends.py was deleted 2026-08-16; the coordinator's two helpers
+    # are the whole of what it did for ELM, so this shares them rather than
+    # keeping a second copy of the same two settings.
+    import workflow as W
+    if backend != "elm":
+        raise SystemExit(f"--backend {backend}: only 'elm' can be materialized "
+                         f"— core/backends.py and the PFLOTRAN managers were "
+                         f"deleted on 2026-08-16")
     brief = pkg.get("brief") or {}
-    Manager = backends.get(backend)
-    mgr = Manager(base_output_dir=out, run_dir=str(run_dir))
-    cfg = backends.config_for(
-        backend,
+    mgr = W._elm_manager()(base_output_dir=out, run_dir=str(run_dir))
+    cfg = W._elm_config(
         {"brief": brief, "reception": pkg, "strategy": plan,
          "mcp_clients": clients, "last_run_dir": None},
         period=(brief.get("run_settings") or {}).get("resolved_period"),
@@ -258,6 +273,7 @@ def main() -> int:
     route = pkg.get("route") or {}
     print(f"\nroute      : {route.get('action')}")
     print(f"archetype  : {brief.get('design_archetype')}")
+    _summarise_model(brief)
     for q in (route.get("questions") or []):
         print(f"  ? {q}")
     sweep = _summarise_sweep(brief)

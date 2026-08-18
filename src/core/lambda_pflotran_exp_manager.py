@@ -282,7 +282,7 @@ class LambdaPFLOTRANExpManager(PFLOTRANExpManager):
         # server: the framework then uses the same entry point a person would,
         # rather than reaching past it into the package's internals.
         for attempt, fn in (("binned[mcp]", lambda: self._mcp_network(
-                                out_dir, n_bins, (clients or {}).get("reaction"))),
+                                out_dir, n_bins, (clients or {}).get("pflotran"))),
                             ("binned", lambda: self._binned_network(
                                 out_dir, n_bins))):
             try:
@@ -337,13 +337,13 @@ class LambdaPFLOTRANExpManager(PFLOTRANExpManager):
     def _mcp_network(self, out_dir: Path, n_bins: int, client):
         """Bin through the reaction MCP's run_lambda_binning tool.
 
-        The server is registered in mcp_config.json as `reaction` and exposes
+        The server is registered in mcp_config.json as `pflotran` and exposes
         39 tools; this is the one that turns an FTICR table into a PFLOTRAN
         reaction network. Using it keeps the framework on the same entry point
         a person calling the server by hand would use.
         """
         if client is None:
-            raise RuntimeError("no `reaction` MCP client in config['mcp_clients']")
+            raise RuntimeError("no `pflotran` MCP client in config['mcp_clients']")
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 

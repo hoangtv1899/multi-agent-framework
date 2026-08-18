@@ -362,6 +362,147 @@ def _does_not(names: set) -> List[Dict[str, Any]]:
     return out
 
 
+def _constraints(reqs: Dict[str, Any]) -> Dict[str, Any]:
+    """What a study using this model may NOT vary, and why — the design fence.
+
+    THE SIBLING OF _pinning, AND A DIFFERENT QUESTION. `pinning` says what a
+    finished column may be COMPARED against. This says what a plan may CHOOSE
+    before any column exists. Both were prose in planner.txt, stated as facts
+    about "the framework" — "FORCING is NLDAS-2 only", "SOIL comes from the
+    CONUS 1 km surface dataset", "WARM START is the default". Every one of
+    those is a fact about ELM. A second model reading them is told its soil is
+    unchoosable while its profiles sit in the reception package.
+
+    WHY THE PLANNER NEEDS IT AT ALL. It is not decoration and it does not move
+    a single column. It is what makes "how does soil texture control recharge
+    here?" come back `partial` with `requires: [soil control]` instead of a
+    confident design that cannot answer the question. Delete the fence and
+    every study is judged feasible; freeze the wrong fence into the prompt and
+    a study is downgraded for a limit it does not have.
+
+    MEASURED WHERE IT CAN BE. `fixed` is the model — the compset is compiled
+    that way and no path check changes it. Soil and the warm start are
+    CONDITIONAL: both come from bulk data in somebody else's scratch, and when
+    that data is absent the fence moves rather than vanishing — a study with no
+    restart manifest must budget its own spin-up, which is a different design,
+    not a degraded one. `reqs` is the same inventory `ready` is derived from,
+    passed in so the two cannot disagree.
+
+    THE FORCING YEARS ARE SCANNED, NOT DECLARED (2026-08-17). The dataset and
+    resolution are compiled in (DATM_MODE=CLMMOSARTTEST); the runnable YEARS
+    are whatever sits in the DATM directory, so forcing.scan_window() counts
+    the months present. It used to be counted framework-side by
+    core/forcing_availability.py, which meant the framework opened ELM's input
+    tree and pasted an ELM answer into every request — a PFLOTRAN study of 2024
+    was refused for a gap in ELM's forcing. That module is gone.
+
+    THE SPAN IS THE LONGEST UNBROKEN RUN, not first..last. A gap year mid-record
+    aborts the simulation partway rather than at submit time, so a complete year
+    outside the contiguous span is reported in `years_excluded` and NOT offered.
+    """
+    def _has(name: str) -> bool:
+        return bool((reqs.get(name) or {}).get("present"))
+
+    restart_ok = _has("conus_restart_manifest")
+    bands = (reqs.get("conus_restart_manifest") or {}).get("bands_resolving")
+    surf_ok = _has("conus_surfdata")
+    try:
+        import forcing as _forcing                 # src/ is on sys.path
+        w = _forcing.scan_window()
+    except Exception as e:                         # noqa: BLE001 — reported
+        w = {"exists": False, "error": f"{type(e).__name__}: {e}"[:120]}
+    span = ([w["yr_first"], w["yr_last"]]
+            if w.get("exists") and w.get("yr_first") else None)
+
+    return {
+        "model": "E3SM Land Model (ELM), 1-D columns",
+        # NOT CONDITIONAL ON ANYTHING. The compset is fixed in code, so no
+        # path check and no argument makes these available.
+        "fixed": [
+            {"what": "lateral flow between columns",
+             "why": "the columns are independent 1-D land units. Nothing "
+                    "moves water sideways from one to another",
+             "consequence": "a stream gauge integrates and ROUTES a catchment; "
+                            "a column produces a point flux. Comparing them is "
+                            "a first-order water-balance check, never a "
+                            "hydrograph match"},
+            {"what": "river routing",
+             "why": "DATM_MODE=CLMMOSARTTEST is fixed in code and the compset "
+                    "is compiled without it",
+             "consequence": "it cannot be added, so do not propose it as a "
+                            "next step"},
+        ],
+        "forcing": {
+            "chosen_by": "the model, not the plan",
+            "dataset": "NLDAS-2",
+            "resolution_m": 12000,
+            "path": w.get("path"),
+            # THE ONE HARD CONSTRAINT ON A REQUEST. Without forcing there is no
+            # run at all; every other data gap only costs a comparison
+            # afterwards. Counted on disk at the moment of asking.
+            "years": span,
+            "n_years": w.get("n_years"),
+            "years_partial": w.get("partial_years") or {},
+            "years_excluded": w.get("excluded") or [],
+            "available": bool(span),
+            "consequence": ("columns at different elevations inside ONE 12 km "
+                            "cell share their weather exactly. An elevation "
+                            "gradient can come out flat for that reason alone, "
+                            "with nothing downstream saying so — spread bands "
+                            "wider than the cell where the question turns on "
+                            "climate. A period outside `years` cannot be run: "
+                            "refuse it, do not shift it to a decade nobody "
+                            "asked for"
+                            if span else
+                            "the forcing tree could not be read (" +
+                            str(w.get("error") or w.get("path")) + "), so no "
+                            "year can be confirmed runnable. Do NOT state a "
+                            "range; ask which period is wanted and record that "
+                            "forcing could not be verified"),
+            "exception": ("a CONCEPTUAL sweep may PRESCRIBE weather: with "
+                          "held_fixed.weather set, this server WRITES the "
+                          "forcing for every column instead of reading a real "
+                          "cell, so no cell's climate bounds the result and "
+                          "the 12 km sharing above does not apply. The year "
+                          "range still does — the written series is built from "
+                          "a real one"),
+        },
+        "soil": {
+            "chosen_by": "the model, not the plan",
+            "source": "CONUS 1 km surface dataset, at each column's donor "
+                      "gridcell",
+            "available": surf_ok,
+            "consequence": ("it varies column to column, but a site plan does "
+                            "not choose it. A question that turns on soil "
+                            "texture cannot be answered by a site run — say so "
+                            "in `requires` rather than designing bands around "
+                            "it"
+                            if surf_ok else
+                            "the CONUS surface dataset is NOT present on this "
+                            "machine, so no column can be given a donor soil "
+                            "at all. A site run cannot be built until it is"),
+            "exception": ("a CONCEPTUAL sweep PRESCRIBES soil — that is what a "
+                          "texture sweep is — and this server builds a "
+                          "synthetic profile per level. The levels choose it, "
+                          "not the planner and not the sampler"),
+        },
+        "initial_state": {
+            "chosen_by": "the model, not the plan",
+            "default": "warm start from the CONUS restart",
+            "available": bool(restart_ok and bands),
+            "bands_resolving": bands,
+            "consequence": ("no prior run and no separate spin-up switch is "
+                            "needed; a longer study is made by naming a longer "
+                            "period"
+                            if restart_ok and bands else
+                            "the CONUS restart is NOT resolvable here, so a "
+                            "run starts COLD. That is a different experiment, "
+                            "not a degraded one: the study must budget its own "
+                            "spin-up and say so in `requires`"),
+        },
+    }
+
+
 def _pinning() -> Dict[str, Any]:
     """Which observed variables a column of THIS model may be pinned to.
 
@@ -444,6 +585,12 @@ def _workflow() -> List[Dict[str, Any]]:
     Hand-written because it carries what the registry cannot: the ORDER,
     and the reason a step is there. _coverage() checks it against the
     registry so the prose cannot quietly drift out of step with the code.
+
+    ONLY `step` AND `tool` LEAVE THIS SERVER (2026-08-17). The `does` and
+    `returns` sentences below are for whoever reads this file; the report
+    carries the order and the names, which is what _coverage() and the tests
+    check. Keeping the prose here rather than deleting it costs nothing on the
+    wire and keeps the reason a step exists next to the step.
     """
     return [
             {"step": 1, "tool": "describe_elm_capabilities",
@@ -598,13 +745,28 @@ def describe_elm_capabilities() -> str:
         # partial list here is worse than none: this is the tool an agent calls
         # FIRST, so anything missing from it effectively does not exist, and
         # the omission looks like an absent capability rather than a stale doc.
-        "workflow": wf,
+        #
+        # ORDER AND NAMES ONLY, since 2026-08-17. The `does` and `returns`
+        # sentences stay in _workflow() where a person reading this file can
+        # see why each step is there; they no longer travel on the wire. They
+        # were 3,112 of this report's 11,003 characters — 28% — and NOTHING
+        # reads them: the framework takes five keys (model, ready,
+        # missing_requirements, broken_imports, pinning) and discards the rest,
+        # and the only readers of `workflow` are this server's own tests, which
+        # read `step["tool"]`. The cost was real for a reader that has to fit
+        # inside a 12,000-character tool result.
+        "workflow": [{"step": s["step"], "tool": s["tool"]} for s in wf],
 
         # WHAT A COLUMN OF THIS MODEL MAY BE COMPARED AGAINST AT A POINT. The
         # planner reads it to decide which stations to name, and the sampler
         # reads the same answer to enforce it — one source, so the two cannot
         # drift into disagreeing about what a pin means.
         "pinning": _pinning(),
+
+        # THE FENCE AROUND A DESIGN — what a study using this model may NOT
+        # vary, and why. Its sibling `pinning` says what a column may be
+        # COMPARED against; this says what a plan may CHOOSE. Added 2026-08-17.
+        "constraints": _constraints(reqs),
 
         "inputs_expected": {
             "file": f"<run_dir>/01_inputs/{CASE_INPUTS}",

@@ -239,24 +239,25 @@ class TestWarmStartIsTheDefault:
     itself relaxing: -0.18 mm/yr recharge cold against 309 warm on the SAME
     column. The subset costs ~2 s per column, so cold is now an opt-out."""
 
-    def test_no_initialization_still_warm_starts(self):
-        """Asserts the BEHAVIOUR, not the text of one file.
-
-        This used to grep workflow.py for `get('mode') != 'cold'`, which
-        passed for the right reason until the per-model config moved to
-        core/backends.py — then it failed while the behaviour it names was
-        still correct. A test that breaks when code moves rather than when it
-        changes is a test of where the code lives.
-        """
-        sys.path.insert(0, str(ROOT / "src"))
-        from core import backends
-        base = {"brief": {}, "reception": {}, "strategy": {}, "mcp_clients": {}}
-
-        assert backends.config_for("elm", base)["warm_start"]["source"] == "conus"
-        assert backends.config_for("elm", base, initialization={})[
-            "warm_start"]["source"] == "conus"
-        assert "warm_start" not in backends.config_for(
-            "elm", base, initialization={"mode": "cold"})
+    # DELETED 2026-08-17: test_no_initialization_still_warm_starts.
+    #
+    # It asserted `config_for("elm", base)["warm_start"]["source"] == "conus"`.
+    # The `source` key was removed on 2026-08-12 — one warm start, so a source
+    # was a choice with one option — and warm_start became plain True. The test
+    # has raised TypeError ever since, so it verified nothing for five days;
+    # deleting core/backends.py on 2026-08-17 only changed TypeError to
+    # ImportError.
+    #
+    # Its own docstring said it was rewritten once already, because it used to
+    # grep workflow.py and broke when the config moved INTO backends.py: "a
+    # test that breaks when code moves rather than when it changes is a test of
+    # where the code lives." It then bound to a module path and did it again.
+    #
+    # The behaviour is still real and is now in workflow._elm_config: warm
+    # start on by default, absent for initialization={"mode": "cold"}. NOTHING
+    # TESTS IT. A replacement should assert the behaviour through whatever
+    # public path builds a run's config, not through the module that happens
+    # to hold it this month.
 
     def test_the_prompt_agrees_with_the_code(self):
         """If the prompt still said 'otherwise cold', reception would report a

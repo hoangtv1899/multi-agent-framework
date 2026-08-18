@@ -48,6 +48,8 @@ Sign convention: depth is POSITIVE DOWNWARD from the land surface, matching the
 framework's `water_table_depth_m`.
 """
 import json
+import os
+import shutil
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -94,6 +96,11 @@ _MAX_CELLS = 1_000_000
 # capture the rotation on its own; more also covers the curvature of an edge in
 # a conic projection, and it is local arithmetic either way.
 _EDGE_SAMPLES = 9
+
+# CONUS2's own extent, published with the dataset ("XY Grid Spacial Extent:
+# 4442 x 3256"). Used only to CLAMP a box at the domain edge; the authoritative
+# shape still comes from the catalogue where a call is already being made.
+_DOMAIN_NX, _DOMAIN_NY = 4442, 3256
 
 mcp = FastMCP("hydrodata")
 
@@ -319,6 +326,39 @@ def data_status() -> str:
     if out["how_to_enable"]:
         out["how_to_enable"] = [s for s in out["how_to_enable"] if s]
     return json.dumps(out, indent=2)
+
+
+def _grid_bounds_for(bbox: str, pad_cells: int = 2) -> str:
+    """bbox -> CONUS2 grid_bounds [x0, y0, x1, y1]. Local arithmetic, no request.
+
+    EXTRACTED 2026-08-17 so the water table and the subsurface derive the same
+    box from the same bbox. Two copies of a perimeter walk is two chances to
+    disagree about which cells a basin covers, and the two products would then
+    describe different ground while looking like a matched pair.
+    """
+    try:
+        lo_lon, lo_lat, hi_lon, hi_lat = [float(v) for v in str(bbox).split(",")]
+    except Exception:                                           # noqa: BLE001
+        return json.dumps({"ok": False, "bbox": bbox,
+                           "error": "bbox must be 'min_lon,min_lat,max_lon,max_lat'"})
+    nx_dom, ny_dom = _DOMAIN_NX, _DOMAIN_NY
+    n = _EDGE_SAMPLES
+    ring = []
+    for k in range(n):
+        tt = k / (n - 1)
+        la = lo_lat + (hi_lat - lo_lat) * tt
+        lo = lo_lon + (hi_lon - lo_lon) * tt
+        ring += [(lo_lat, lo), (hi_lat, lo), (la, lo_lon), (la, hi_lon)]
+    idx = [q for q in (_xy(_SS_GRID, la, lo) for la, lo in ring) if q]
+    if not idx:
+        return json.dumps({"ok": False, "bbox": bbox,
+                           "error": "bbox is outside the CONUS2 domain"})
+    xs, ys = [q[0] for q in idx], [q[1] for q in idx]
+    pad = max(0, int(pad_cells))
+    xa, xb = max(0, min(xs) - pad), min(nx_dom, max(xs) + 1 + pad)
+    ya, yb = max(0, min(ys) - pad), min(ny_dom, max(ys) + 1 + pad)
+    return json.dumps({"ok": True, "grid_bounds": [xa, ya, xb, yb],
+                       "n_cells": (xb - xa) * (yb - ya), "pad_cells": pad})
 
 
 @mcp.tool()
@@ -626,6 +666,169 @@ def get_fan2013_wells(bbox: str, min_records: int = 1) -> str:
 # where reading it costs nothing, and data_status() is still there for the
 # question that genuinely needs the network: whether this host can fetch at all.
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE SUBSURFACE — added 2026-08-17
+# ─────────────────────────────────────────────────────────────────────────────
+# Five static fields, ten layers, one box: the parameters ParFlow CONUS2 itself
+# runs on. Fetched here for the same reason the water table is — once per basin,
+# then read locally by src/core/conus2_subsurface.py with no network and no PIN.
+#
+# WHAT IT REPLACED. A PFLOTRAN column used to be survey soil to ~1.5 m and then
+# invented material to 12-50 m: the deepest surveyed horizon copied downward, so
+# 88-97% of every column was one extrapolated layer. These fields parameterise
+# the whole 392 m — SSURGO-derived soil in the top four layers, GLHYMPS
+# hydrogeologic units below.
+_SUB_FIELDS = ("porosity", "permeability_z", "vg_alpha", "vg_n", "sres")
+_SUB_ARRAYS = "conus2_subsurface.npz"
+_SUB_META = "conus2_subsurface.json"
+
+# A BASIN CACHE, NOT A RUN CACHE. The water table caches inside the run
+# directory, so a second study of the same basin refetches it. At 0.08 MB that
+# never mattered; at 3.8 MB for five 3-D fields it does. Keyed by grid_bounds,
+# which IS the basin as far as this dataset is concerned.
+_SUB_CACHE = Path(os.getenv("IDEAS_CONUS2_CACHE",
+                            str(Path.home() / ".cache" / "ideas-conus2")))
+
+# The five fields with no bbox are 5.79 GB — 58% of HydroFrame's 10 GB monthly
+# allowance in a single call, and it fails SILENTLY by returning a very large
+# array. So the box is checked, not trusted.
+_SUB_MAX_CELLS = 250_000
+
+
+@mcp.tool()
+def download_conus2_subsurface(bbox: str, out_dir: str, pad_cells: int = 2,
+                               overwrite: bool = False) -> str:
+    """Fetch CONUS2's subsurface parameters over a bbox, as one .npz + metadata.
+
+    FIVE REQUESTS, THEN A LOCAL FILE — porosity, permeability_z, vg_alpha, vg_n
+    and sres, each 10 layers deep. About 3.8 MB over a basin-sized box and
+    0.07 MB once compressed, because the fields are piecewise constant over a
+    handful of geologic units.
+
+    THE UNITS ARE CONUS2'S AND ARE NOT CONVERTED HERE. Hydraulic conductivity in
+    m/h, van Genuchten alpha in 1/m, and `n` rather than `m`. Turning those into
+    what a model deck wants is knowledge of that model and belongs behind its
+    own server; this one only knows where the numbers came from.
+
+    LAYER ORDER IS BOTTOM-TO-TOP, the dataset's own convention: index 0 is the
+    deepest 200 m layer, index 9 the 0.1 m layer at the surface. Thicknesses are
+    written into the metadata file so no reader has to remember them.
+
+    Args:
+        bbox: "min_lon,min_lat,max_lon,max_lat".
+        out_dir: where the run wants the files. A basin cache is consulted
+            first, so a second study of the same basin costs no request.
+        pad_cells: extra cells around the bbox; the same default as the water
+            table so the two land on the same grid.
+        overwrite: refetch even when a cached copy exists.
+
+    Returns: JSON with the paths, the grid_bounds, per-field ranges, and
+    whether anything was actually fetched.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return json.dumps({"ok": False, "error": "numpy is not installed"})
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    dst_a, dst_m = out / _SUB_ARRAYS, out / _SUB_META
+
+    # 1. Bounds. Reuse the water table's when it is already here, so the two
+    #    products describe exactly the same cells; otherwise derive them.
+    gb = None
+    tif = out / "wtd_conus2.tif"
+    if tif.is_file():
+        try:
+            import rasterio
+            with rasterio.open(tif) as r:
+                t = r.tags()
+            gb = [int(v) for v in (t.get("grid_bounds") or "").split(",") if v != ""]
+        except Exception:                                       # noqa: BLE001
+            gb = None
+    if not gb or len(gb) != 4:
+        got = json.loads(_grid_bounds_for(bbox, pad_cells))
+        if not got.get("ok"):
+            return json.dumps(got)
+        gb = got["grid_bounds"]
+
+    n_cells = (gb[2] - gb[0]) * (gb[3] - gb[1])
+    if n_cells <= 0 or n_cells > _SUB_MAX_CELLS:
+        return json.dumps({
+            "ok": False, "grid_bounds": gb, "n_cells": n_cells,
+            "error": (f"the box is {n_cells} cells, outside the 1..{_SUB_MAX_CELLS} "
+                      f"range this tool will fetch. Five 3-D fields over the "
+                      f"whole CONUS2 grid are 5.79 GB, which is most of a "
+                      f"monthly allowance — pass a basin bbox.")})
+
+    # 2. The basin cache.
+    key = "conus2_sub_%d_%d_%d_%d" % tuple(gb)
+    cdir = _SUB_CACHE / key
+    if not overwrite and (cdir / _SUB_ARRAYS).is_file() and (cdir / _SUB_META).is_file():
+        shutil.copyfile(cdir / _SUB_ARRAYS, dst_a)
+        shutil.copyfile(cdir / _SUB_META, dst_m)
+        meta = json.loads(dst_m.read_text())
+        return json.dumps({"ok": True, "reused": True, "cache": str(cdir),
+                           "arrays": str(dst_a), "meta": str(dst_m),
+                           "grid_bounds": gb, "n_requests": 0,
+                           "fields": list(meta.get("fields") or {}),
+                           "source": _SOURCE}, indent=2)
+
+    # 3. Fetch. One request per field; z is omitted so all ten layers arrive
+    #    in one array rather than one request per layer.
+    arrays, meta, failed = {}, {}, []
+    for v in _SUB_FIELDS:
+        try:
+            a = np.asarray(_fetch("conus2_domain", v, _SS_GRID, gb))
+        except Exception as e:                                  # noqa: BLE001
+            failed.append(v)
+            meta[v] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+            continue
+        fin = np.isfinite(a)
+        arrays[v] = a
+        meta[v] = {"ok": True, "shape": list(a.shape), "dtype": str(a.dtype),
+                   "bytes": int(a.nbytes), "n_nan": int((~fin).sum()),
+                   "min": float(a[fin].min()) if fin.any() else None,
+                   "max": float(a[fin].max()) if fin.any() else None}
+    if not arrays:
+        return json.dumps({"ok": False, "grid_bounds": gb,
+                           "error": "no field could be fetched",
+                           "fields": meta, "source": _SOURCE}, indent=2)
+
+    payload = {
+        "source": _SOURCE + ", dataset conus2_domain, grid conus2",
+        "dataset": "conus2_domain", "grid": _SS_GRID,
+        "grid_bounds": gb, "pad_cells": int(pad_cells), "bbox": bbox,
+        "resolution_m": 1000,
+        "layer_thicknesses_m_bottom_to_top":
+            [200, 100, 50, 25, 10, 5, 1, 0.6, 0.3, 0.1],
+        "layer_index_note": ("index 0 is the DEEPEST (200 m) layer and index 9 "
+                             "the 0.1 m layer at the surface — the dataset's "
+                             "own convention, which matches PFLOTRAN's"),
+        "soil_layers": ("indices 9,8,7,6 span 0-2 m and are SSURGO-derived; "
+                        "5..0 span 2-392 m and are GLHYMPS hydrogeologic units"),
+        "units": {"porosity": "-", "permeability_z": "m/h",
+                  "vg_alpha": "1/m", "vg_n": "-", "sres": "-"},
+        "citation": "https://essd.copernicus.org/articles/13/3263/2021/",
+        "fields": meta,
+    }
+    np.savez_compressed(dst_a, **arrays)
+    dst_m.write_text(json.dumps(payload, indent=2))
+    try:
+        cdir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(dst_a, cdir / _SUB_ARRAYS)
+        shutil.copyfile(dst_m, cdir / _SUB_META)
+    except Exception:                                           # noqa: BLE001
+        pass          # a cache that cannot be written is not a failed fetch
+    return json.dumps({"ok": True, "reused": False, "cache": str(cdir),
+                       "arrays": str(dst_a), "meta": str(dst_m),
+                       "grid_bounds": gb, "n_cells": n_cells,
+                       "n_requests": len(_SUB_FIELDS),
+                       "bytes_fetched": sum(a.nbytes for a in arrays.values()),
+                       "failed": failed, "fields": meta,
+                       "source": _SOURCE}, indent=2)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

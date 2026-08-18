@@ -216,7 +216,7 @@ class TestSubmittingIsOptInForPFLOTRAN:
         m = self._mgr(tmp_path)
         c = _RxClient(check_pflotran_job={"active": True, "state": "RUNNING"})
         assert m._poll({"job_id": "770699", "stage": "run"}, [],
-                       {"mcp_clients": {"reaction": c}}) is None
+                       {"mcp_clients": {"pflotran": c}}) is None
         assert "collect_pflotran_results" not in [t for t, _ in c.calls]
 
     def test_poll_collects_and_attributes(self, tmp_path):
@@ -235,7 +235,7 @@ class TestSubmittingIsOptInForPFLOTRAN:
                                               "execution_time": 0.31}}})
         rows = m._poll({"job_id": "770699", "stage": "run"},
                        [{"id": "col_01", "case_dir": str(case)}],
-                       {"mcp_clients": {"reaction": c}})
+                       {"mcp_clients": {"pflotran": c}})
         assert len(rows) == 1
         assert rows[0]["status"] == "completed"
         assert rows[0]["runtime_seconds"] == 0.31
@@ -251,13 +251,13 @@ class TestSubmittingIsOptInForPFLOTRAN:
                                       "error": "no result file"})
         with pytest.raises(RuntimeError, match="no attributable results"):
             m._poll({"job_id": "770699", "stage": "run"}, [],
-                    {"mcp_clients": {"reaction": c}})
+                    {"mcp_clients": {"pflotran": c}})
 
     def test_polling_without_a_client_raises(self, tmp_path):
         """The job was submitted through the server; only the server can
         collect it."""
         m = self._mgr(tmp_path)
-        with pytest.raises(RuntimeError, match="no reaction client"):
+        with pytest.raises(RuntimeError, match="no pflotran client"):
             m._poll({"job_id": "770699", "stage": "run"}, [], {})
 
     def test_both_paths_share_one_attribution(self):

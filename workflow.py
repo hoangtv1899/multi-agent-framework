@@ -8,11 +8,13 @@ IDEAS workflow coordinator — the four agents of the framework, in order.
       → Experiment Manager run     (materialize → build → prepare → run)
       → Analyzer           report  (metrics → validation → interpretation)
 
-WHICH MODEL runs is `--model`, resolved through core/backends.py: `elm`,
-`pflotran`, or `lambda-pflotran`. The choice is the Experiment Manager CLASS,
-because the backends differ in the stages they have, not only in the code
-inside them. All three write the same experiment.json and are read by the same
-Analyzer.
+WHICH MODEL RUNS IS NOT DECIDED HERE ANY MORE, and as of 2026-08-16 it is not
+decided anywhere: the `--model` flag is gone and core/backends.py — the table
+that turned a model name into an Experiment Manager class — is deleted. The
+intended replacement is that Reception asks each MCP server what it is, using
+the `describe_*_capabilities` tool a model server exposes, and the brief names
+the model. Until that is wired, `self.model` is a string with nothing behind
+it and every `backends.` call below raises.
 
 (This file used to say PFLOTRAN was not driven from here. It is, since the
 backend table landed — the standalone tools/build_pflotran_cases.py still
@@ -26,6 +28,60 @@ from pathlib import Path
 from typing  import Optional
 sys.path.insert(0, "src")
 
+# ELM's manager class lives in mcp/elm-mcp/src/, and the framework still
+# instantiates it. core/backends.py used to put that directory on the path;
+# with the table deleted the append has to happen somewhere, and this is the
+# file that now knows which class it wants. It goes when the class does.
+# APPEND, not insert: the framework's own modules must still win a tie.
+_ELM_MCP_SRC = Path(__file__).resolve().parent / "mcp" / "elm-mcp" / "src"
+if _ELM_MCP_SRC.is_dir() and str(_ELM_MCP_SRC) not in sys.path:
+	sys.path.append(str(_ELM_MCP_SRC))
+
+
+def _elm_manager():
+	"""The Experiment Manager class, which is ELM's because it is the only one.
+
+	This is the whole of what backends.get() did for "elm". The table it came
+	from mapped three names to three classes; two of those classes are deleted
+	and the table with them, so the lookup is now an import.
+	"""
+	from elm_exp_manager import ELMExpManager
+	return ELMExpManager
+
+
+def _elm_config(base: dict, period: dict = None,
+				initialization: dict = None) -> dict:
+	"""backends.config_for("elm", ...), with the other backends' branches gone.
+
+	`base` holds what the manager always takes — brief, reception, strategy,
+	mcp_clients — and is never modified in place.
+
+	ELM KNOWLEDGE IN THE FRAMEWORK, and it should not stay here. Both settings
+	below are facts about ELM: that a period is years, and that a single-column
+	run wants a warm start. They sat in backends.py for the same bad reason —
+	it was the file that already knew which model was which. The right home is
+	the ELM server, beside build_elm_inputs_from_location, which is the thing
+	that actually reads them.
+	"""
+	cfg = dict(base)
+
+	# The period reception resolved. Recorded because it is what was ASKED
+	# about, which is not always what was simulated.
+	if period:
+		if period.get("yr_start"):
+			cfg["yr_start"] = int(period["yr_start"])
+		cfg["yr_end"] = int(period.get("yr_end")
+							or period.get("yr_start") or 1995)
+
+	# WARM IS THE DEFAULT, cold is an explicit opt-out. A cold single-column
+	# year starts from ELM's generic state and spends the run relaxing out of
+	# it — measured on this framework, recharge came out -0.18 mm/yr cold
+	# against 309 warm on the SAME column.
+	if (initialization or {}).get("mode") != "cold":
+		cfg["warm_start"] = True
+	return cfg
+
+
 class _NothingToReportOn(Exception):
 	"""Not a failure: the run finished and produced nothing to interpret.
 
@@ -33,6 +89,30 @@ class _NothingToReportOn(Exception):
 	it would print "written report failed", which describes a broken reporter
 	rather than an empty ensemble.
 	"""
+
+
+def _save_reception(run_dir, result: dict) -> None:
+	"""Persist the reception package the moment it exists.
+
+	CALLED TWICE, AND THE SECOND CALLER IS THE POINT. The normal path writes
+	this on the way into planning. The other is a run that STOPS at dispatch
+	because reception named a model this framework cannot drive yet — three
+	minutes of watershed, soil, rain and observation fetching, and the reason
+	the run stopped is a missing wrapper rather than anything wrong with what
+	was gathered. Throwing it away would make the honest answer the expensive
+	one, and the next attempt would fetch all of it again.
+
+	`trace` and `raw` are dropped in both: the tool trace is the conversation,
+	not the package, and `raw` is the unparsed reply.
+	"""
+	run_dir = Path(run_dir)
+	run_dir.mkdir(parents=True, exist_ok=True)
+	(run_dir / "reception.json").write_text(
+		json.dumps({k: v for k, v in result.items()
+					if k not in ("trace", "raw")}, indent=2, default=str))
+	# alias for the standalone tools that open it by this name
+	(run_dir / "reception_brief.json").write_text(
+		json.dumps(result.get("brief") or {}, indent=2, default=str))
 
 
 def _drop_if_empty(d) -> None:
@@ -79,9 +159,16 @@ class WorkflowCoordinator:
 		# WHICH MODEL THIS SESSION RUNS. Validated here, at construction,
 		# rather than at _execute — that is minutes of reception and planning
 		# later, and a typo'd name should not cost an LLM call to discover.
-		from core import backends
-		self.model = (model or backends.DEFAULT).strip().lower()
-		backends.get(self.model)          # raises on an unknown name
+		# ONE MODEL, so the name is not looked up — it is checked. Anything
+		# other than "elm" has nothing behind it now that the table and the
+		# PFLOTRAN managers are deleted, and a name that cannot run must fail
+		# here rather than minutes later at _execute.
+		self.model = (model or "elm").strip().lower()
+		if self.model != "elm":
+			raise ValueError(
+				f"unknown model {self.model!r} — only 'elm' can run: "
+				f"core/backends.py and the PFLOTRAN managers were deleted on "
+				f"2026-08-16, and nothing has replaced the dispatch yet")
 
 		# ── MCP Manager ───────────────────────────────────────
 		print("\n" + "=" * 70)
@@ -122,13 +209,17 @@ class WorkflowCoordinator:
 			mcp_clients = mcp_clients,
 			interactive = interactive_reception,
 		)
-		# WHAT THE PLANNER MAY PIN TO COMES FROM THE MODEL SERVER, asked once
-		# here because this is where the backend is known and the clients are
-		# held. Not fatal if it is missing: the sampler asks the same server for
-		# the same answer and refuses to place a column without it, so a plan
-		# made without the rules cannot quietly reach compute.
-		self.planner = Planner(model=planner_model,
-							   pinning=self._pinning_block(mcp_clients))
+		# NO PINNING RULES YET, AND THAT IS THE POINT. This used to ask here,
+		# with a comment claiming "this is where the backend is known" — it was
+		# not. Construction happens before the request is read, so the only
+		# model available is the default, and the answer was ELM's whatever
+		# reception went on to choose. It also spent an MCP call on every
+		# start, including the runs that end in a clarifying question.
+		# The rules are read in the design path instead, once reception has
+		# named a model. Not fatal if they are missing: the sampler asks the
+		# same server for the same answer and refuses to place a column
+		# without it, so a plan made without them cannot quietly reach compute.
+		self.planner = Planner(model=planner_model, pinning=None)
 
 		# NO ANALYZER OBJECT. The Analyzer is not an agent this class holds; it
 		# is a box that runs over a finished run directory, constructed where it
@@ -145,12 +236,69 @@ class WorkflowCoordinator:
 			'last_focus':    None,
 		}
 	
-	def _pinning_block(self, mcp_clients: dict) -> Optional[dict]:
-		"""The model server's own account of what a column may be pinned to.
+	def _adopt_model(self, brief: dict) -> None:
+		"""Take the model from the brief, or say why the default stands.
 
-		ASKED OF THE BACKEND THAT WILL RUN, not of a name this file knows. The
-		manager class carries MCP_NAME and CAPABILITIES_TOOL for exactly this,
-		so adding a second model does not add a branch here.
+		RECEPTION CHOOSES, THIS ONE CHECKS. The brief names a model that a
+		server described; whether this framework can drive a STUDY with it is
+		a different question, and the answer today is ELM only — core/
+		backends.py and the PFLOTRAN managers were deleted on 2026-08-16.
+
+		Refuses rather than falling back silently. A study that ran ELM
+		because PFLOTRAN was unavailable, and said so nowhere, is a wrong
+		answer wearing a completed run directory.
+
+		THIS IS THE ONLY PLACE THE LIMIT IS ENFORCED (2026-08-17). It used to
+		be enforced twice: here, and again in reception's own prompt, which
+		told the model to pick something runnable. Two enforcements of one rule
+		is one too many, and the prompt's copy was the harmful one — it made
+		reception report a forced choice as a scientific one. Reception now
+		names the right instrument and says separately that it cannot be
+		driven; the refusal below is what stops the run, and its caller turns
+		it into a message rather than a traceback.
+		"""
+		from core.model_servers import RUNNABLE
+		want = str((brief or {}).get("model") or "").strip().lower()
+		if not want:
+			print(f"   model: {self.model} (reception named none)")
+			return
+		if want == self.model:
+			print(f"   model: {want} (reception)")
+			return
+		if want not in RUNNABLE:
+			raise RuntimeError(
+				f"reception chose {want!r}, and its server does describe "
+				f"itself — but this framework cannot run a study with it "
+				f"yet. Nothing turns a sampling strategy into {want} decks, "
+				f"writes its experiment.json, or names what its numbers "
+				f"mean. Runnable today: {', '.join(sorted(RUNNABLE))}.")
+		# A second runnable model would land here. The run directory is
+		# already named for the old one — it is minted before reception,
+		# because reception writes a GeoTIFF into it — so this is the point
+		# that will need to rename it.
+		print(f"   model: {want} (reception, was {self.model})")
+		self.model = want
+
+	def _pinning_block(self, mcp_clients: dict, model: str) -> Optional[dict]:
+		"""What a column of `model` may be compared against, asked of ITS server.
+
+		ASKED OF THE SERVER BY NAME, NOT VIA A MANAGER CLASS (2026-08-17). It
+		used to go through the manager, which carries MCP_NAME and
+		CAPABILITIES_TOOL — and since the only manager left is ELM's, every
+		study was handed ELM's pinning rules under a heading that told the
+		planner they came from "the model server that will run this study".
+		For a PFLOTRAN study those rules are not merely stale, they are
+		INVERTED: ELM offers swe and et and withholds water_table; PFLOTRAN
+		computes no snow and no ET and offers water_table alone. A planner
+		reading the wrong block spends its validation columns on snow pillows
+		for a model with no snow, and every downstream check agrees with it.
+
+		Routing through the manager also tied this to a study wrapper. Whether
+		a column may be pinned to a well is a property of the MODEL; whether
+		this framework can drive a study is a property of this repository.
+		PFLOTRAN can answer the first today and cannot do the second, and a
+		manager class conflates them — which is why the name goes straight to
+		describe_server, the same call reception uses to choose.
 
 		Returns None and says so rather than raising: the planner without the
 		block writes a plan, and the sampler — which asks the same server the
@@ -158,26 +306,73 @@ class WorkflowCoordinator:
 		later point is better than failing at the earlier one, because the
 		later point is where a wrong answer would start costing compute.
 		"""
-		from core import backends
 		try:
-			cls = backends.get(self.model)
-			client = (mcp_clients or {}).get(getattr(cls, "MCP_NAME", None))
-			tool = getattr(cls, "CAPABILITIES_TOOL", None)
-			if client is None or not tool:
-				raise RuntimeError(
-					f"no live {getattr(cls, 'MCP_NAME', '?')!r} client"
-					if not tool else f"{self.model} declares no capabilities tool")
-			block = (client.call_tool_json(tool, {}) or {}).get("pinning")
+			block = (self._model_report(mcp_clients, model) or {}).get("pinning")
 			if not block:
-				raise RuntimeError(f"{tool} reported no `pinning` block")
+				raise RuntimeError("its report carries no `pinning` block")
 			names = [e.get("variable") for e in (block.get("pinnable") or [])]
-			print(f"✓ pinning rules from {self.model}: {', '.join(names)}")
+			print(f"✓ pinning rules from {model}: {', '.join(names) or '(none)'}")
 			return block
 		except Exception as e:                                  # noqa: BLE001
-			print(f"⚠️  could not read the pinning rules from the {self.model} "
+			print(f"⚠️  could not read the pinning rules from the {model} "
 				  f"server ({e}) — the planner will not be told what it may "
 				  f"pin to, and the sampler will refuse to place a pinned "
 				  f"column until it can ask.")
+			return None
+
+	def _model_report(self, mcp_clients: dict, model: str) -> Optional[dict]:
+		"""The chosen model server's capability report, fetched once per run.
+
+		MEMOIZED because two blocks are read out of it — `pinning` and
+		`constraints` — and the report costs a real MCP round trip (2.5 s for
+		ELM, measured). Asking twice for one answer is how the pinning call
+		came to run at construction AND again at plan time.
+		"""
+		cached = getattr(self, "_report_cache", None)
+		if cached and cached[0] == model:
+			return cached[1]
+		from core.model_servers import describe_server
+		got = describe_server(mcp_clients or {}, model)
+		if got.get("error"):
+			raise RuntimeError(got["error"])
+		if got.get("describes_itself") is False:
+			raise RuntimeError(f"{model} exposes no describe tool")
+		rep = got.get("report") or {}
+		self._report_cache = (model, rep)
+		return rep
+
+	def _constraints_block(self, mcp_clients: dict,
+						   model: str) -> Optional[dict]:
+		"""What a study using `model` may NOT vary — the design fence.
+
+		THE OTHER HALF OF THE SAME MOVE AS _pinning_block. These limits used to
+		be four hardcoded bullets in planner.txt, stated as facts about "the
+		framework": NLDAS-2 only, soil from the CONUS donor gridcell, warm
+		start by default, compset fixed. All four are facts about ELM. A
+		PFLOTRAN study reading them is told its soil is unchoosable while its
+		SSURGO profiles sit in the reception package, and is downgraded for
+		limits it does not have.
+
+		Returns None rather than raising, and the prompt says what to do with
+		that: judge feasibility on what was asked and the observations, and say
+		the fence could not be read. A missing fence must not silently become
+		an absent one — that would make every study come back `full`.
+		"""
+		try:
+			block = (self._model_report(mcp_clients, model) or {}).get(
+				"constraints")
+			if not block:
+				raise RuntimeError("its report carries no `constraints` block")
+			off = [k for k in ("forcing", "soil", "initial_state")
+				   if (block.get(k) or {}).get("available") is False]
+			print(f"✓ design limits from {model}"
+				  + (f" — UNAVAILABLE HERE: {', '.join(off)}" if off else ""))
+			return block
+		except Exception as e:                                  # noqa: BLE001
+			print(f"⚠️  could not read the design limits from the {model} "
+				  f"server ({e}) — the planner will judge feasibility without "
+				  f"knowing what this model cannot vary, so a study it calls "
+				  f"feasible may not be.")
 			return None
 
 	# ═════════════════════════════════════════════════════════
@@ -309,6 +504,40 @@ class WorkflowCoordinator:
 		action = (result.get("route") or {}).get("action", "clarify")
 		print(f"🧠 Route: {action}\n")
 
+		# ── WHICH MODEL, from the brief ──────────────────────────────
+		# Reception chose it against what the servers said they are (STEP 2a),
+		# so this is the first point in the run where the model is known. It
+		# used to be fixed by a --model flag before the request was read.
+		#
+		# A REFUSAL HERE IS A NORMAL OUTCOME, NOT A CRASH (2026-08-17). Reception
+		# is now told to name the RIGHT instrument even when this framework
+		# cannot drive it, so "the model that fits cannot be run yet" is an
+		# answer the pipeline is expected to produce. It used to reach the user
+		# as an unhandled traceback with the reception package unwritten. Now
+		# the package is saved first and the reason is stated in full: nothing
+		# has been spent on compute, and everything gathered is on disk.
+		if action == "design":
+			try:
+				self._adopt_model(result.get("brief") or {})
+			except RuntimeError as e:
+				_save_reception(run_dir, result)
+				brief = result.get("brief") or {}
+				return (
+					f"⏹  STOPPED AT DISPATCH — nothing was run, nothing was "
+					f"queued.\n\n{e}\n\n"
+					f"WHY THIS MODEL: {brief.get('model_rationale') or '(none given)'}\n\n"
+					f"WHAT RECEPTION FOUND: {brief.get('model_availability') or '(none given)'}\n\n"
+					f"The reception package is saved and complete — the "
+					f"watershed, the grid, the soil, the rain and the "
+					f"observations are all in\n"
+					f"    {Path(run_dir) / 'reception.json'}\n"
+					f"Nothing in it needs fetching again. There is no button "
+					f"that picks it up yet, though: --resume reads "
+					f"run_state.json and strategy.json, which are written "
+					f"AFTER planning, and this run stopped before that. Until "
+					f"{brief.get('model')!r} has a study wrapper, driving the "
+					f"planner against this file is a manual step.")
+
 		# Only the design route uses the directory made above. Reception returns
 		# before it gathers anything on the other three, so the directory is
 		# still empty — remove it rather than leave a trail of empty run dirs
@@ -430,17 +659,22 @@ class WorkflowCoordinator:
 			# ELM was the only backend and becomes a mislabel the moment it is
 			# not — archived PFLOTRAN studies would all claim to be ELM.
 			run_dir = Path(run_dir)
-			run_dir.mkdir(parents=True, exist_ok=True)
-			(run_dir / "reception.json").write_text(
-				json.dumps({k: v for k, v in result.items()
-							if k not in ("trace", "raw")}, indent=2, default=str))
-			# alias for the standalone tools that open it by this name
-			(run_dir / "reception_brief.json").write_text(
-				json.dumps(result.get("brief") or {}, indent=2, default=str))
+			_save_reception(run_dir, result)
 
 			# Step 1 — Plan
 			print("📋 STEP 1: Planning Experiments")
 			print("-" * 50)
+			# WHAT MAY BE PINNED TO, asked of the model reception just chose —
+			# by name, so this is the chosen server's answer rather than the
+			# only manager the framework happens to have. `self.model` is what
+			# _adopt_model settled on a few lines above, so the two cannot
+			# disagree.
+			self.planner.pinning = self._pinning_block(
+				self.mcp_clients, self.model)
+			# AND WHAT IT MAY NOT VARY. One report, two blocks, one round trip
+			# — _model_report memoizes between these two calls.
+			self.planner.constraints = self._constraints_block(
+				self.mcp_clients, self.model)
 			plan = self.planner.plan(result)
 			(run_dir / "strategy.json").write_text(
 				json.dumps(plan, indent=2, default=str))
@@ -770,16 +1004,14 @@ class WorkflowCoordinator:
 		either as a free variable is how this method came to reference two
 		names that only existed in its caller.
 		"""
-		# WHICH MODEL, resolved through the one table every caller shares. The
-		# class is the choice: the backends differ in the STAGES they have, and
-		# the base's execute_plan reads those declarations off the class.
-		from core import backends
-		Manager = backends.get(self.model)
+		# WHICH MODEL. There is one, so there is no lookup: ELM's class is
+		# imported directly. The base's execute_plan still reads the stage
+		# declarations (NEEDS_CASE_BUILD, NEEDS_SCHEDULER) off the class.
+		Manager = _elm_manager()
 		executor = Manager(base_output_dir=output_dir, run_dir=str(run_dir))
 		# brief + mcp_clients feed the manager's materialize stage, which turns
 		# the planner's sampling_strategy into the backend's own run plan.
-		cfg = backends.config_for(
-			self.model,
+		cfg = _elm_config(
 			{
 				'brief':       brief or {},
 				'reception':   reception,
@@ -980,20 +1212,6 @@ def main():
         default = 'mcp_config.json',
         help    = 'MCP configuration file'
     )
-    from core import backends
-    parser.add_argument(
-        '--model',
-        choices = backends.names(),
-        default = backends.DEFAULT,
-        help    = f'which model to run (default: {backends.DEFAULT}). '
-                  f'elm: land-surface columns, warm-started from the CONUS '
-                  f'restarts. pflotran: standalone 1-D subsurface flow over '
-                  f'20 y, initialised at the Fan 2013 water table. '
-                  f'lambda-pflotran: the same flow plus the LAMBDA '
-                  f'organic-matter reaction sandbox, capped at 1 y (the timestep '
-                  f'collapses above 1 y on sampled columns) — a demonstration of '
-                  f'reactive transport, not a calibration.'
-    )
     parser.add_argument(
         '--resume',
         nargs   = '?',
@@ -1040,7 +1258,6 @@ def main():
             default_output_dir    = args.output_dir,
             mcp_config_file       = args.mcp_config,
             interactive_reception = False,
-            model                 = args.model,
         )
         print(coordinator.finalize_run(args.finalize))
         return
@@ -1087,7 +1304,6 @@ def main():
             default_output_dir    = args.output_dir,
             mcp_config_file       = args.mcp_config,
             interactive_reception = False,
-            model                 = args.model,
         )
         print(coordinator.resume_run(target))
         return
@@ -1101,7 +1317,6 @@ def main():
         default_output_dir    = args.output_dir,
         mcp_config_file       = args.mcp_config,
         interactive_reception = (args.interactive or args.ask) and not args.no_ask,
-        model                 = args.model,
     )
 
     if args.interactive:
@@ -1111,7 +1326,6 @@ def main():
         print("Run with --interactive for interactive mode")
         print("\nExamples:")
         print("  python workflow.py --interactive")
-        print("  python workflow.py --interactive --model pflotran")
         print("  python workflow.py --interactive --ask")
         print("=" * 70 + "\n")
 

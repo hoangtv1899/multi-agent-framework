@@ -1,733 +1,473 @@
 #!/usr/bin/env python3
 """
-PFLOTRAN Experiment Manager
+PFLOTRAN Experiment Manager — the join, and nothing else
 src/core/pflotran_exp_manager.py
 
-The subsurface backend: one 1-D Richards-flow column per sampled point, with
-the Fan 2013 equilibrium water table as both the initial condition and the
-bottom boundary.
+    in   the sampler's columns (id, lat, lon, elevation, band)
+    out  a run plan where each column carries what a deck needs
 
-WHAT IT SHARES WITH ELM, AND WHY THAT IS THE POINT. Sampling is identical —
-`_materialize` in the base resolves the bbox, clips to the HUC, stratifies by
-elevation, and enriches each column with soil and `fan_wtd_m`. PFLOTRAN needs
-every one of those fields, so a PFLOTRAN run over the columns an ELM run
-produced is comparing two models at the same points rather than at two
-different samples of the same basin. That is the whole reason the manager was
-split.
+DELIBERATELY THIN, AND THAT IS THE DESIGN. The base class already samples,
+checks the strategy against reception, clips to the watershed and persists
+columns.json; none of that is model-specific and none of it is repeated here.
+What PFLOTRAN adds is one step the base cannot do: saying WHICH server owns the
+pinning rules, and joining the per-column subsurface, water table and forcing
+onto the columns the sampler placed.
 
-WHERE IT DIFFERS, DECLARED RATHER THAN STUBBED:
+NO SNAP. `_refine_columns` is inherited from the base and returns {} — ELM's
+warm start moves every column 200-700 m onto its donor gridcell, and this model
+has no donor. The columns stay exactly where the plan put them, which is why
+the subsurface and rain lookups below hit the same coordinates the sampler
+chose.
 
-    NEEDS_CASE_BUILD = False     ELM compiles CIME cases (~8 min for the first,
-                              clones after). PFLOTRAN writes a text deck; deck
-                              generation IS the build, so there is no separate
-                              prepare stage. Declaring that is honest; a no-op
-                              _build_cases() would report "prepared nothing,
-                              successfully".
-    NEEDS_SCHEDULER = False   ELM's 19 columns took 2406 s through SLURM.
-                              PFLOTRAN's took 0.3 s each on the login node,
-                              measured. Queueing them would cost more in wait
-                              than in compute.
+WHERE THE NUMBERS COME FROM, and why none of them is fetched here:
 
-DECK GENERATION IS NOT DONE HERE. tools/build_pflotran_cases.py already
-generates and runs decks and is verified at 19/19 columns; this manager calls
-it. A second deck generator would drift from the one that has been tested.
+    subsurface   ParFlow CONUS2, five parameter fields over the basin, written
+                 once by reception. Read at any point by
+                 core.conus2_subsurface.sample — no network, no PIN.
+    water table  the CONUS2 steady-state field, same pattern, read by
+                 core.static_wtd.sample.
+    forcing      Daymet daily precipitation at the grid points, in the
+                 reception package.
 
-_to_run_plan EMITS A SPEC, NOT DECKS. The base writes columns.json only after
-`_refine_columns`, and the design figure after that — decks written during
-materialization would describe a plan that had not been finalised. So the plan
-carries what to build and `_build_case_inputs` builds it.
+Reception is the only component that reaches outside the framework, so this
+reads what reception wrote and fetches nothing.
+
+UNITS ARE NOT CONVERTED HERE. Each column carries CONUS2's own vocabulary —
+conductivity in m/h, van Genuchten alpha in 1/m, `n` rather than `m`. Turning
+those into a deck is the PFLOTRAN server's job (`create_decks_from_columns`),
+and it is the only place that knows what a deck wants.
 """
-import json
-import sys
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-sys.path.insert(0, "src")
-
-from core.exp_manager_base import ExperimentManagerBase, Pending   # noqa: E402
-
-
-def _load_tool(name: str):
-    """Import a tools/*.py module by name, as the base does."""
-    import importlib.util
-    root = Path(__file__).resolve().parents[2]
-    spec = importlib.util.spec_from_file_location(name, str(root / "tools" / f"{name}.py"))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-class _PFLOTRANResults:
-    """The results object _package consumes: `.results` rows plus `.units`.
-
-    Mirrors ELMResultsAnalyzer's surface so the base needs no backend test.
-    """
-
-    def __init__(self, rows, units):
-        self.results = rows
-        self.units = dict(units)
-        self.summary = {"units": dict(units)}
+from core.exp_manager_base import ExperimentManagerBase
 
 
 class PFLOTRANExpManager(ExperimentManagerBase):
-    """steps 0-5 for standalone subsurface flow over sampled columns."""
+	"""Sampling from the base; the per-column join is the whole of what is here."""
 
-    MODEL = "pflotran"
+	MODEL = "pflotran"
 
-    NEEDS_CASE_BUILD = False       # deck generation is the build; see docstring
-    NEEDS_SCHEDULER = False     # 0.3 s per column, measured
-    COUPLES_TO = None           # nothing downstream of it yet
+	# WHICH SERVER OWNS THE PINNING RULES. `_pinning_rules` prefers the model
+	# the brief names and falls back to this, so a manager driven directly by a
+	# tool or a test still asks the right server.
+	MCP_NAME = "pflotran"
+	CAPABILITIES_TOOL = "describe_pflotran_capabilities"
 
-    # The key that marks a plan as already executable. DELIBERATELY NOT
-    # ELM's CONDITIONS_COUPLERS: if the two backends shared a key, an ELM plan
-    # would look already-materialized to this manager and it would build zero
-    # experiments without raising — the exact silent mis-dispatch that produced
-    # empty PFLOTRAN runs before the managers were split.
-    PLAN_KEY = "PFLOTRAN_CASES"
+	# NEITHER STAGE APPLIES. There is no case to compile — a deck is a text file
+	# — and no scheduler to wait on: a 786-cell column runs in 86 s and a 36-cell
+	# one in 5 s, measured. The base reads both off the class to decide which
+	# stages to walk.
+	NEEDS_CASE_BUILD = False
+	NEEDS_SCHEDULER = False
 
-    # Per-column wall limit. Generous for flow, which takes ~1 s; it exists for
-    # the reactive subclass, where a deep unsaturated profile can drive the
-    # timestep to machine epsilon and grind indefinitely at t≈1 y.
-    RUN_TIMEOUT_S = 900
+	# WHAT THE NUMBERS MEAN, and why this cannot be left empty. _package writes
+	# it into experiment.json and step 2 hands it to an LLM as THE AUTHORITY on
+	# what the run produced. The base default is {} on purpose — PFLOTRAN used
+	# to inherit ELM's, so a saturation study came back described as a water
+	# budget with QOVER-derived runoff fractions it never computed. An empty
+	# dict is safer than a wrong one and still leaves a reader to guess, which
+	# is what this fills.
+	#
+	# EVERY ENTRY IS A RAW FIELD. Nothing derived is listed because nothing
+	# derived is written: _extract reads what PFLOTRAN wrote and stops. Front
+	# depth, transit time and drainage flux are the Analyzer's to compute FROM
+	# these, and a catalogue entry for a field the file does not contain would
+	# be an invitation to report one that was never calculated.
+	FIELD_SEMANTICS = {
+		"saturation": {
+			"units": "-", "from": ["Liquid Saturation"],
+			"note": ("fraction of PORE SPACE filled with water, 0 to 1 — NOT a "
+					 "volumetric water content. Multiply by porosity for water "
+					 "content. 1.0 means saturated, and a column reading 1.0 "
+					 "at every depth has no unsaturated zone to study"),
+		},
+		"liquid_pressure_Pa": {
+			"units": "Pa", "from": ["Liquid Pressure"],
+			"note": ("ABSOLUTE pressure, not head and not suction. Atmospheric "
+					 "is ~101325 Pa, so a value below that is unsaturated and "
+					 "one above it is below the water table"),
+		},
+		"depth_m": {
+			"units": "m", "from": ["Z"],
+			"note": ("BELOW THE LAND SURFACE, positive downward. PFLOTRAN "
+					 "writes elevation upward from the domain bottom; the "
+					 "extractor converts it once so nothing downstream has to"),
+		},
+		"times_y": {
+			"units": "y", "from": ["SOLUTIONTIME"],
+			"note": ("years since the simulation START, which INCLUDES the "
+					 "steady spin-up. A transient column runs spin_years at "
+					 "the forcing mean first, so the first snapshot is the "
+					 "spun-up state and the transient period begins after it"),
+		},
+		"water_table_m": {
+			"units": "m", "from": ["ParFlow CONUS2 ss_water_table_depth"],
+			"note": ("the INITIAL condition, not a result — the column is "
+					 "initialised hydrostatic about it. Comparing it to the "
+					 "final saturation profile compares an input with an "
+					 "output"),
+		},
+		# WHAT IS ABSENT, said explicitly. A reader looking for these will not
+		# find them, and the reason is a design decision rather than a gap.
+		"_not_computed": {
+			"fields": ["wetting_front_depth", "transit_time", "residence_time",
+					   "drainage_flux", "recharge_fraction", "water_budget"],
+			"note": ("the extraction is RAW SERIES ONLY. These answer what the "
+					 "study asked and are the Analyzer's to derive from the "
+					 "series above — the server has particle-trajectory, "
+					 "residence-time and breakthrough-curve tools for it. "
+					 "Nothing in this file is any of them"),
+		},
+		"_forcing": {
+			"note": ("the top boundary was driven with Daymet PRECIPITATION "
+					 "applied as recharge: no snow storage, no "
+					 "evapotranspiration removed, no runoff generated, because "
+					 "this model has none of them. In a snow-dominated basin "
+					 "the snowpack therefore infiltrates in winter rather than "
+					 "at melt, so seasonal TIMING is wrong by construction. "
+					 "See the assumptions ledger"),
+		},
+	}
 
-    # What this backend's metrics MEAN, for the Analyzer and for the LLM step
-    # 2 hands them to. Every entry is a quantity _extract actually computes;
-    # nothing here is inherited. Two of them carry the caveats that a reader
-    # comparing PFLOTRAN against ELM most needs and would not otherwise see.
-    FIELD_SEMANTICS = {
-        "final_water_table_depth_m": {
-            "units": "m", "from": ["LIQUID_SATURATION"],
-            "note": "positive downward from the surface, at the LAST output "
-                    "time. null means NO water table was found in the domain "
-                    "— the column never reaches saturation — which is NOT the "
-                    "same as a water table at the domain bottom, and must not "
-                    "be filled in with domain_depth_m"},
-        "water_table_in_domain": {
-            "units": "bool", "from": ["LIQUID_SATURATION"],
-            "note": "false for columns whose Fan water table lies below the "
-                    "domain depth cap; those columns run fully unsaturated "
-                    "and their saturation metrics describe drainage, not a "
-                    "water table"},
-        "saturation_top": {"units": "1", "from": ["LIQUID_SATURATION"],
-                           "note": "shallowest cell, last output time"},
-        "saturation_bottom": {"units": "1", "from": ["LIQUID_SATURATION"],
-                              "note": "deepest cell, last output time"},
-        "saturation_mean": {"units": "1", "from": ["LIQUID_SATURATION"],
-                            "note": "depth-mean over the column, last output "
-                                    "time. UNWEIGHTED by cell thickness"},
-        "fan_wtd_m": {
-            "units": "m", "from": [],
-            "note": "the Fan 2013 water table this column was INITIALISED "
-                    "with, not a result. Comparing it to "
-                    "final_water_table_depth_m measures drift away from the "
-                    "initial condition, not agreement with an observation"},
-        "domain_depth_m": {"units": "m", "from": [],
-                           "note": "column length, capped by depth_cap"},
-        "n_cells": {"units": "1", "from": [], "note": "vertical cells"},
-    }
+	def _to_run_plan(self, plan: Dict[str, Any], columns, config: Dict[str, Any],
+					 refine: Dict[str, Any]) -> Dict[str, Any]:
+		"""Columns -> the executable payload, by joining what reception wrote.
 
-    def _already_executable(self, plan: Dict[str, Any]) -> bool:
-        return bool(plan.get(self.PLAN_KEY))
+		THE JOIN IS A LOOKUP, NOT A FETCH. Reception wrote the subsurface and
+		the water table as FIELDS over the basin and the rain as a series per
+		grid point, all keyed by coordinate. Every column sits exactly where the
+		sampler placed it, so each one is a dictionary lookup away from
+		everything it needs — no interpolation, no nearest-neighbour, and no
+		request.
 
-    def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
-        """No-op, and that is a statement rather than an omission.
+		A COLUMN THAT CANNOT BE COMPLETED IS REPORTED, NOT DROPPED. A missing
+		profile or water table means this location is outside the fetched box
+		or over a no-data cell, and that is a fact about the study worth
+		carrying — a silently shorter ensemble is a design nobody chose.
+		"""
+		from core import conus2_subsurface as cs
+		from core import static_wtd
 
-        ELM refines here because a warm start snaps each column to its donor
-        gridcell and adopts that cell's soil — the sampled coordinates are not
-        the simulated ones. PFLOTRAN runs at the sampled point with the sampled
-        soil and the Fan water table already on the column, so the columns the
-        sampler produced are the columns that run.
-        """
-        return {}
+		run_dir = self.run_dir
+		reception = config.get("reception") or {}
+		lats = [c["lat"] for c in columns]
+		lons = [c["lon"] for c in columns]
 
-    # ─────────────────────────────────────────────────────────
-    # PLAN
-    # ─────────────────────────────────────────────────────────
-    def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
-        """Columns → a deck SPEC per column. No files are written here."""
-        bottom = config.get("bottom", "fan")
-        years = float(config.get("years", 20.0))
-        depth_cap = float(config.get("depth_cap", 50.0))
-        flux_from = config.get("flux_from")          # an ELM run dir, optional
+		profiles = cs.sample(run_dir, lats, lons)
+		tables = static_wtd.sample(run_dir, lats, lons)
+		rain = ((reception.get("precipitation") or {}).get("series")) or {}
 
-        cases = []
-        for c in columns:
-            fan = c.get("fan_wtd_m")
-            cases.append({
-                "id": c.get("id"),
-                "lat": c.get("lat"), "lon": c.get("lon"),
-                "elevation_m": c.get("elevation_m"),
-                "fan_wtd_m": fan,
-                # Recorded per case because it changes what the run means: a
-                # column whose water table is below the domain runs fully
-                # unsaturated, and on the 2019 Gunnison sample that was 10 of
-                # 19 columns. A reader comparing them needs to know which.
-                "wt_in_domain": (fan is not None and fan < depth_cap),
-                "bottom_bc": bottom,
-                "years": years,
-            })
+		out: List[Dict[str, Any]] = []
+		incomplete: List[Dict[str, Any]] = []
+		for col, prof, wt in zip(columns, profiles, tables):
+			key = f"{round(col['lat'], 5)},{round(col['lon'], 5)}"
+			row = dict(col)
+			row["subsurface_profile"] = prof
+			row["water_table_m"] = wt
+			row["precipitation_mm_day"] = rain.get(key)
+			missing = [n for n, v in (("subsurface_profile", prof),
+									  ("water_table_m", wt),
+									  ("precipitation_mm_day", rain.get(key)))
+					   if v is None]
+			if missing:
+				row["incomplete"] = missing
+				incomplete.append({"id": col.get("id"), "missing": missing})
+			out.append(row)
 
-        n_capped = sum(1 for c in cases if not c["wt_in_domain"])
-        ledger = [
-            {"key": "initial_condition",
-             "value": "hydrostatic, pinned at the Fan 2013 water table",
-             "why": "no measured subsurface state exists for these columns; "
-                    "Fan is a modelled equilibrium prior, not an observation"},
-            {"key": "bottom_boundary", "value": f"{bottom}",
-             "why": "hydrostatic at the Fan water table" if bottom == "fan"
-                    else "no-flow"},
-            {"key": "domain_depth_cap_m", "value": depth_cap,
-             "why": f"{n_capped} of {len(cases)} columns have a Fan water "
-                    f"table below the cap and run fully unsaturated"},
-            # experiment.json's `period` is the period the USER asked about,
-            # written by the base for every backend. It is not what this model
-            # simulated, and the two being different is easy to miss: a reader
-            # sees period 2019-2019 beside a 20-year relaxation and has no
-            # reason to suspect they are different quantities unless it is
-            # stated here.
-            {"key": "simulated_duration_y", "value": years,
-             "why": "a relaxation from the Fan initial condition, NOT a "
-                    "simulation of the requested period — experiment.json's "
-                    "`period` records what was asked about, not what was run"},
-        ]
-        if not flux_from:
-            ledger.append({
-                "key": "top_boundary", "value": "constant nominal recharge",
-                "why": "no ELM flux supplied (--flux-from); the top boundary "
-                       "is a placeholder, not a derived quantity, so columns "
-                       "do not differ in their forcing"})
+		# THE FORCING ASSUMPTION TRAVELS WITH THE PLAN. Daymet reports
+		# PRECIPITATION and the deck's top boundary is a RECHARGE flux; between
+		# them sit snow storage, evapotranspiration and runoff, none of which
+		# this model has. In a snow-dominated basin the winter snowpack
+		# therefore enters the ground in winter rather than at melt, so seasonal
+		# timing is wrong by construction. Recorded here so the run carries it
+		# whether or not anyone reads the server's copy.
+		ledger = [
+			{"assumption": "precipitation used as recharge",
+			 "why": ("Daymet gives precipitation; the top boundary takes a "
+					 "recharge flux. This model has no snowpack, no "
+					 "evapotranspiration and no runoff generation, so nothing "
+					 "stands between them"),
+			 "cost": ("seasonal timing is wrong where snow matters — the "
+					  "snowpack infiltrates in winter instead of at melt"),
+			 "source": "design decision, 2026-08-17"},
+			{"assumption": "subsurface from ParFlow CONUS2",
+			 "why": ("a soil survey stops at about 1.5 m; these columns run to "
+					 "tens or hundreds of metres. CONUS2 parameterises the "
+					 "whole 392 m — SSURGO-derived above 2 m, GLHYMPS "
+					 "hydrogeologic units below"),
+			 "cost": ("properties are per-geologic-unit constants on a 1 km "
+					  "grid, not site measurements; below 2 m the van Genuchten "
+					  "curve shape is uniform basin-wide, so transit is "
+					  "controlled by porosity and permeability alone"),
+			 "source": "https://essd.copernicus.org/articles/13/3263/2021/"},
+			{"assumption": "residual saturation as published",
+			 "why": ("the water table these columns start from is an OUTPUT of "
+					 "this same parameterisation; substituting a "
+					 "texture-derived residual would make the initial "
+					 "condition disagree with the material it initialises"),
+			 "cost": ("CONUS2's sres is 1e-5 to 1e-4 against the 0.04-0.11 a "
+					  "texture-derived profile gives, so these columns drain "
+					  "far more completely than a real soil would"),
+			 "source": "user decision, 2026-08-17"},
+		]
 
-        return {self.PLAN_KEY: cases,
-                "pflotran_settings": {"bottom": bottom, "years": years,
-                                      "depth_cap": depth_cap,
-                                      "flux_from": flux_from},
-                "assumptions_ledger": ledger}
+		return {
+			"CONDITIONS_COUPLERS": out,
+			"PFLOTRAN_CONFIG": {
+				# 0.5 m: measured. Refining a 12.85 m unsaturated column from
+				# 2.0 m to 0.1 m moved the water-table front 1.30 m and the
+				# stored water 1.5%; from 0.5 m to 0.1 m moved them 0.05 m and
+				# 0.1%. Finer than 0.5 m buys nothing and costs cells.
+				"max_cell_m": float(config.get("max_cell_m", 0.5)),
+				"cap_m": float(config.get("cap_m", cs.TOTAL_DEPTH_M)),
+				"min_depth_m": float(config.get("min_depth_m", cs.MIN_DEPTH_M)),
+				"spin_years": float(config.get("spin_years", 10.0)),
+			},
+			"assumptions_ledger": ledger,
+			"n_columns": len(out),
+			"n_incomplete": len(incomplete),
+			"incomplete": incomplete,
+		}
 
-    # ─────────────────────────────────────────────────────────
-    # STAGES
-    # ─────────────────────────────────────────────────────────
-    def _build_case_inputs(self, plan: Dict[str, Any], config: Dict[str, Any]) -> List[Dict]:
-        """Generate the decks by calling the verified standalone tool."""
-        cases = plan.get(self.PLAN_KEY) or []
-        if not cases:
-            raise RuntimeError(
-                f"no {self.PLAN_KEY} in the plan — _materialize did not run, "
-                f"or _to_run_plan produced nothing")
+	# ─────────────────────────────────────────────────────────
+	# STEP 1 — BUILD THE DECKS
+	# ─────────────────────────────────────────────────────────
+	def _build_case_inputs(self, plan: Dict[str, Any],
+						   config: Dict[str, Any]) -> List[Dict[str, Any]]:
+		"""The run plan's columns become 17 runnable decks, written by the server.
 
-        settings = plan.get("pflotran_settings") or {}
-        bp = _load_tool("build_pflotran_cases")
-        columns = self._columns_from_disk()
-        out = self.run_dir / "01_inputs" / "pflotran"
+		A THIN PASS-THROUGH, AND DELIBERATELY SO. Everything this stage needs is
+		already on the columns — _to_run_plan joined the subsurface, the water
+		table and the forcing — so there is nothing to compute here. The deck
+		itself is written by `create_decks_from_columns`, because knowing what a
+		deck wants is the server's job: unit conversion, the layer-boundary
+		domain depth, subdividing material zones into cells.
 
-        # build_ensemble is the tool's own importable core — the same function
-        # its CLI calls — so a run launched from here and one launched from
-        # the command line produce byte-identical decks. `run=False`: executing
-        # is _run's stage, not _build_case_inputs's.
-        built = bp.build_ensemble(
-            columns=columns, out_dir=str(out), run=False, quiet=False,
-            flux_from=settings.get("flux_from"),
-            bottom=settings.get("bottom", "fan"),
-            years=settings.get("years", 20.0),
-            depth_cap=settings.get("depth_cap", 50.0),
-            spin_years=settings.get("spin_years", 10.0))
+		NEEDS_CASE_BUILD IS FALSE, so the base skips _build_cases entirely. For
+		ELM that stage compiles a CIME case and takes eight minutes; a PFLOTRAN
+		deck is a text file, so writing it IS the build and there is no second
+		step to wait on.
+		"""
+		client = self._mcp(config)
+		if client is None:
+			raise RuntimeError(
+				f"no {self.MCP_NAME!r} client in config['mcp_clients'] — the "
+				f"decks are written by the model server, so this stage cannot "
+				f"run without one")
 
-        # build_ensemble returns {"scenario": ..., "cases": [...]}, NOT a list.
-        # Returning it whole made _build_case_inputs report "2 deck(s)" for 19 columns —
-        # it was counting the dict's two keys — and handed _run a dict, which
-        # iterates as its key STRINGS: 'str' object has no attribute 'get'.
-        # Every stage-level test passed because they built `experiments` by
-        # hand; only running the stages in sequence reached it.
-        self.scenario = (built or {}).get("scenario") or {}
-        cases = (built or {}).get("cases") or []
+		cols = (plan or {}).get("CONDITIONS_COUPLERS") or []
+		if not cols:
+			raise RuntimeError(
+				"the run plan carries no CONDITIONS_COUPLERS — _to_run_plan "
+				"must run first, and it is what joins the subsurface, the "
+				"water table and the forcing onto the sampled columns")
+		cfg = dict((plan or {}).get("PFLOTRAN_CONFIG") or {})
+		out_dir = str(self.run_dir / "01_inputs" / "decks")
 
-        # A column that build_ensemble skipped is a column the ensemble does
-        # not have. Silent shrinkage is how an ensemble comes back smaller than
-        # the strategy asked for with nothing on record saying so — and the
-        # skip path here (`no ELM flux — skipped`) is reachable whenever
-        # flux_from is set.
-        if len(cases) != len(plan.get(self.PLAN_KEY) or []):
-            print(f"   ⚠️  {len(plan[self.PLAN_KEY]) - len(cases)} of "
-                  f"{len(plan[self.PLAN_KEY])} planned column(s) produced no "
-                  f"deck and are absent from the ensemble")
-        if not cases:
-            raise RuntimeError(
-                f"build_ensemble produced no decks from "
-                f"{len(plan.get(self.PLAN_KEY) or [])} planned case(s)")
+		print(f"   {len(cols)} column(s) -> decks in {out_dir}")
+		# BUDGETED, because this writes one deck per column and a 786-cell
+		# column is not a quick call. The ceiling belongs to the CALL, not to
+		# the server, whose registered timeout is sized for its ordinary tool.
+		res = self._mcp_call(client, "create_decks_from_columns",
+							 {"columns": cols, "out_dir": out_dir, **cfg},
+							 budget=1800.0) or {}
+		decks = res.get("decks") or []
+		if not decks:
+			raise RuntimeError(f"the server built no decks: "
+							   f"{str(res.get('error') or res)[:200]}")
 
-        print(f"✓ {len(cases)} deck(s) → {out}")
-        return cases
+		built = [d for d in decks if d.get("status") == "built"]
+		sat = [d for d in decks if d.get("warning")]
+		print(f"   ✓ {len(built)}/{len(decks)} deck(s) built, "
+			  f"{sum(d.get('n_cells') or 0 for d in built)} cells total")
+		if sat:
+			# SAID OUT LOUD, because a saturated column runs perfectly and
+			# answers nothing about vertical transit. It is a fact about the
+			# site, not a failure, so it is reported rather than dropped.
+			print(f"   ⚠️  {len(sat)} column(s) have no unsaturated zone: "
+				  f"{', '.join(d['id'] for d in sat)}")
+		if len(built) < len(decks):
+			for d in decks:
+				if d.get("status") != "built":
+					print(f"   ⚠️  {d.get('id')}: {str(d.get('reason'))[:120]}")
 
-    # Columns run CONCURRENTLY, up to this many. Threads, not processes:
-    # each worker only waits on subprocess.run, which releases the GIL, so
-    # there is nothing for extra interpreters to do.
-    #
-    # WHY NOT ProcessPoolExecutor, which is what the reaction MCP's own
-    # ensemble_parallel uses: it defaults to fork on Linux, and forking a
-    # process that has threads holding locks deadlocks the child before it
-    # does any work. Measured — that tool hangs for its full 300 s timeout on
-    # three decks that take 1.8 s here, spawning no PFLOTRAN at all, while the
-    # same function called outside the server works fine.
-    #
-    # FOUR, not os.cpu_count(). These run on whatever node the workflow is on,
-    # often a shared login node, and a 19-column ensemble at full width is
-    # antisocial. Raise it with config['max_parallel'] on a compute node.
-    MAX_PARALLEL = 4
+		# THE COLUMN AND ITS DECK TRAVEL TOGETHER. The base persists whatever
+		# this returns as case_inputs.json and resumes from it, so each record
+		# has to carry enough to re-run without re-deriving anything.
+		# `status` IS THE FRAMEWORK'S WORD FOR THE RUN'S OUTCOME, not the
+		# deck's. _outcome_map counts a case successful when status ==
+		# "completed", so leaving the builder's "built" here reported a
+		# finished 17-column ensemble as 0/17 — after the compute, in the final
+		# line. The build outcome keeps its own key.
+		by_id = {c.get("id"): c for c in cols}
+		out = []
+		for d in decks:
+			src = {k: v for k, v in (by_id.get(d.get("id")) or {}).items()
+				   if k not in ("subsurface_profile", "precipitation_mm_day")}
+			rec = {**src, **d}
+			rec["deck_status"] = rec.pop("status", None)
+			out.append(rec)
+		return out
 
-    def _run(self, experiments: List[Dict], config: Dict[str, Any]) -> List[Dict]:
-        """Execute the decks. No scheduler — see NEEDS_SCHEDULER.
+	# ─────────────────────────────────────────────────────────
+	# STEP 3 — RUN
+	# ─────────────────────────────────────────────────────────
+	def _run(self, experiments: List[Dict[str, Any]],
+			 config: Dict[str, Any]) -> List[Dict[str, Any]]:
+		"""Run every deck, inline. No scheduler, no job id, no polling.
 
-        THROUGH THE REACTION MCP WHEN ONE IS AVAILABLE, locally otherwise. The
-        server's run_pflotran_simulation does the same work — it shells out to
-        the same binary — so this is not a capability the framework lacks; it
-        is the framework using the registered tool rather than reaching past
-        it, which is the same reason _binned_network prefers the MCP.
+		NEEDS_SCHEDULER IS FALSE and this is where that shows. ELM's _run
+		submits to SLURM and hands back a job id, because a case takes long
+		enough that a tool must return before it finishes. A PFLOTRAN column
+		measured 5 s at 36 cells and 86 s at 786, so the whole 17-column
+		ensemble finishes inside one call and there is nothing to wait for.
 
-        The local path is NOT a legacy leftover. It is what runs when no client
-        is passed (tests, tools, a direct manager call), and it is the fallback
-        when the server answers in a shape this cannot attribute — see
-        _run_via_mcp.
-        """
-        import os
-        from concurrent.futures import ThreadPoolExecutor
+		ONE DECK PER CALL, AND THAT IS NOT AN OVERSIGHT. `run_pflotran_simulation`
+		accepts `input_file` as a list, and in its default mode it runs only the
+		FIRST one — measured 2026-08-17: three decks in, one .out produced, one
+		exit code returned, `validation_status: "success"`, and no
+		`results_by_input`. Sixteen columns would have been reported as run
+		without a process ever starting. A loop costs ~4 s of session setup per
+		column against a 5-86 s run and is attributable by construction.
 
-        exe = os.environ.get("PFLOTRAN_EXECUTABLE")
-        if not exe:
-            raise RuntimeError("PFLOTRAN_EXECUTABLE is not set; "
-                               "source env_compy.sh")
+		A FAILED COLUMN DOES NOT STOP THE ENSEMBLE. The others are real results
+		and the failure is recorded against the column it belongs to, because
+		"this column did not converge" and "the study did not run" are
+		different findings.
+		"""
+		client = self._mcp(config)
+		if client is None:
+			raise RuntimeError(f"no {self.MCP_NAME!r} client to run the decks with")
 
-        limit = config.get("timeout_s", self.RUN_TIMEOUT_S)
-        width = max(1, int(config.get("max_parallel", self.MAX_PARALLEL)))
-        width = min(width, len(experiments) or 1)
+		runnable = [e for e in experiments if e.get("input_file")]
+		if not runnable:
+			raise RuntimeError("no deck has an input_file — _build_case_inputs "
+							   "produced nothing runnable")
+		print(f"   {len(runnable)} deck(s), inline — no scheduler")
 
-        # WHEN A CLIENT IS PRESENT, THE MCP RUNS THE COLUMNS. Full stop — no
-        # quiet demotion to the local runner. A degradation that is merely
-        # RECORDED still means a study can be months old before anyone notices
-        # the server stopped being used, and this repository has been bitten by
-        # that shape often enough (soil_attribution returning {},
-        # validate_pflotran_input reporting success on a deck PFLOTRAN
-        # refuses). If the MCP is wired in and cannot answer, that is a fault
-        # to fix, not a slower path to take.
-        #
-        # The local runner below is NOT the other half of that choice. It is
-        # what runs when there is no client at all — the test suite, the
-        # standalone tools, any direct manager call — where nothing is being
-        # bypassed because nothing was configured.
-        client = (config.get("mcp_clients") or {}).get("reaction")
-        if client is not None and config.get("run_via_mcp", True):
-            # Opt-in: hand it to the scheduler instead of running it here.
-            if config.get("submit"):
-                return self._submit_via_mcp(experiments, client, limit, width,
-                                            config)
-            out = self._run_via_mcp(experiments, client, limit, width)
-            if out is None:
-                raise RuntimeError(
-                    "the reaction MCP could not run this ensemble in a form "
-                    "that can be attributed to columns (no results_by_input). "
-                    "The most likely cause is that the server's patches were "
-                    "lost — that tree is not under version control, so a "
-                    "re-unzip reverts them; see "
-                    "docs/mcp_contribution/. Re-apply them, or pass "
-                    "config['run_via_mcp']=False to run locally instead.")
-            return out
+		outcomes: Dict[str, Dict[str, Any]] = {}
+		for i, e in enumerate(runnable, 1):
+			res = self._mcp_call(client, "run_pflotran_simulation",
+								 {"input_file": e["input_file"],
+								  "num_cores": 1, "timeout": 3000},
+								 budget=3600.0) or {}
+			codes = res.get("exit_codes") or []
+			outcomes[e["input_file"]] = {
+				"exit_code": codes[0] if codes else None,
+				"stdout": (res.get("stdout_paths") or [None])[0],
+				"output_files": res.get("output_files") or [],
+				"seconds": res.get("execution_time"),
+				"error": res.get("error") or res.get("stderr"),
+			}
+			mark = "✓" if outcomes[e["input_file"]]["exit_code"] == 0 else "✗"
+			print(f"   {mark} [{i}/{len(runnable)}] {e.get('id')} "
+				  f"({e.get('n_cells')} cells)")
 
-        if width > 1:
-            print(f"   running {len(experiments)} column(s), "
-                  f"{width} at a time")
+		out, ok = [], 0
+		for e in experiments:
+			r = dict(e)
+			one = outcomes.get(e.get("input_file") or "") or {}
+			code = one.get("exit_code")
+			r["exit_code"] = code
+			r["ran"] = (code == 0)
+			# THE WORD THE FRAMEWORK COUNTS ON. _outcome_map reads `status`
+			# and _package's FAILED set reads it too; "completed" is the one
+			# spelling both agree on.
+			r["status"] = "completed" if code == 0 else "failed"
+			r["stdout"] = one.get("stdout")
+			r["output_files"] = one.get("output_files")
+			r["run_seconds"] = one.get("seconds")
+			if e.get("input_file") and code != 0:
+				r["run_error"] = str(one.get("error")
+									 or "the deck produced no exit code")[:300]
+			ok += 1 if r["ran"] else 0
+			out.append(r)
+		print(f"   ✓ {ok}/{len(runnable)} column(s) ran clean")
+		for r in out:
+			if r.get("input_file") and not r.get("ran"):
+				print(f"   ⚠️  {r.get('id')}: {str(r.get('run_error'))[:120]}")
+		return out
 
-        # Results stay in EXPERIMENT ORDER, not completion order: the run
-        # record is compared against columns.json by position often enough
-        # that a set of rows shuffled by which column happened to finish
-        # first would be a needless difference between two identical runs.
-        with ThreadPoolExecutor(max_workers=width) as pool:
-            results = list(pool.map(
-                lambda e: self._run_one(e, exe, limit), experiments))
-        return results
+	# ─────────────────────────────────────────────────────────
+	# STEP 4 — EXTRACT
+	# ─────────────────────────────────────────────────────────
+	EXTRACTED = "extracted.json"
 
-    def _run_via_mcp(self, experiments: List[Dict], client, limit: float,
-                     width: int):
-        """The whole ensemble in one MCP call, or None to fall back.
+	def _extract(self, experiments: List[Dict[str, Any]],
+				 plan: Dict[str, Any] = None,
+				 config: Dict[str, Any] = None) -> Dict[str, Any]:
+		"""Read the finished columns into depth-resolved series on disk.
 
-        RETURNS None RATHER THAN GUESSING. The server's aggregate `exit_codes`
-        are in COMPLETION order — as_completed yields whichever job finished
-        first — so exit_codes[i] does not belong to decks[i]. Only
-        `results_by_input` maps an outcome to the deck that produced it. A
-        server that does not send that map still ran the columns, but nothing
-        here could say WHICH column failed or how long any took, and a row in
-        experiment.json attributed to the wrong column is worse than a slower
-        run. So: no map, no result — fall back and run them locally.
-        """
-        decks, by_deck = [], {}
-        for e in experiments:
-            d = next(Path(e.get("case_dir") or "").glob("*.in"), None)
-            if d is not None:
-                decks.append(str(d))
-                by_deck[str(d)] = e
-        if not decks:
-            return None
+		THIN, BY THE SAME RULE ELM FOLLOWS. `extract_column_series` returns the
+		numbers PFLOTRAN wrote — saturation and liquid pressure against depth
+		at each output time — and nothing derived from them. No wetting-front
+		depth, no transit time, no drainage flux, no ratios. Those answer the
+		question the study asked, and answering it is the Analyzer's job; a
+		stage that both reads a file format and decides what it means is the
+		one place a wrong interpretation becomes unreviewable, because the raw
+		numbers stop being written down.
 
-        # TWO TIMEOUTS LIVE ON THIS PATH, and only one of them is per column.
-        # `limit` bounds each column inside the server. The MCP CLIENT has its
-        # own ceiling on the whole call, defaulted in mcp_config.json to 300 s
-        # — a figure sized for the binning tools, which answer in seconds.
-        #
-        # An ensemble is not that. Nineteen columns four-wide, each allowed
-        # 900 s, is 4500 s in the worst case: fifteen times the client's
-        # budget. Left alone, a PERFECTLY HEALTHY but slow ensemble would be
-        # abandoned at 300 s, and the fallback would then re-run every column
-        # locally — paying for the whole ensemble twice to produce the result
-        # the server was about to return.
-        #
-        # So the budget is sized to the work, and put back afterwards: this is
-        # a shared client, and a raised timeout leaking into the next binning
-        # call would hide a hang there.
-        import math
-        need = limit * math.ceil(len(decks) / max(1, width)) + 60
-        prev = getattr(client, "timeout", None)
-        print(f"   running {len(decks)} column(s) via the reaction MCP, "
-              f"{width} at a time")
-        try:
-            if prev is not None and prev < need:
-                print(f"   raising this call's MCP budget {prev:.0f}s → "
-                      f"{need:.0f}s to cover the ensemble")
-                client.timeout = need
-            r = client.call_tool_json("run_pflotran_simulation", {
-                "input_file": decks, "mode": "ensemble_parallel",
-                "max_parallel": width, "num_cores": 1,
-                "timeout": limit}) or {}
-        finally:
-            if prev is not None:
-                client.timeout = prev
+		That is a real restraint here rather than a nominal one: this server
+		carries compute_particle_trajectories, residence-time distributions and
+		breakthrough curves, any of which would have answered "how deep and how
+		fast" directly. They are left for the Analyzer to call against the
+		series this writes.
 
-        # None on an MCP timeout; {} or a bare error on a server-side failure.
-        rbi = r.get("results_by_input")
-        if not isinstance(rbi, dict) or not rbi:
-            print(f"   ⚠️  MCP returned no per-column results "
-                  f"({r.get('error') or r.get('validation_status') or 'no answer'})")
-            return None
+		THE SERIES GO TO DISK, not into the return. Seventeen columns at up to
+		786 cells and five output times is tens of thousands of numbers.
+		03_results/extracted.json is the artifact; this returns the rows, the
+		units and the path, which is the extract stage's contract.
+		"""
+		client = self._mcp(config or {})
+		if client is None:
+			raise RuntimeError(f"no {self.MCP_NAME!r} client — reading the "
+							   f"model's own output format is the server's job")
 
-        return self._rows_from_mcp(experiments, rbi)
+		# WHAT RAN IS ESTABLISHED HERE, FROM DISK — not read off a status field.
+		# execute_plan hands this stage the CASE INPUTS, not the run results,
+		# and that is deliberate: a run record is written before the model
+		# starts, so a column can be marked pending and have finished, or
+		# marked done and have produced nothing. The output files are the
+		# ground truth. So every case directory is offered to the extractor and
+		# a column with no .tec comes back ok=false with its reason, rather
+		# than being filtered out here on a field this stage cannot verify.
+		cases = [{"id": e.get("id"), "case_dir": e.get("case_dir")}
+				 for e in experiments if e.get("case_dir")]
+		if not cases:
+			raise RuntimeError("no column has a case directory — "
+							   "_build_case_inputs produced nothing to read")
 
-    def _rows_from_mcp(self, experiments, rbi):
-        """results_by_input -> per-column rows, in EXPERIMENT order.
+		out_file = str(self.results_dir / self.EXTRACTED)
+		res = self._mcp_call(client, "extract_column_series",
+							 {"cases": cases, "out_file": out_file},
+							 budget=1800.0) or {}
+		rows = res.get("rows") or []
+		read = [r for r in rows if r.get("ok")]
+		print(f"   ✓ {len(read)}/{len(rows)} column(s) read — "
+			  f"{res.get('n_values', 0):,} values -> {out_file}")
+		for r in rows:
+			if not r.get("ok"):
+				print(f"   ⚠️  {r.get('id')}: {str(r.get('reason'))[:120]}")
 
-        Shared by the inline and the submitted paths, because the two return
-        the same shape by design; a second copy of this mapping is a second
-        place for attribution to drift.
-        """
-        results = []
-        for e in experiments:                       # EXPERIMENT order, always
-            case_dir = Path(e.get("case_dir") or "")
-            deck = next(case_dir.glob("*.in"), None)
-            one = rbi.get(str(deck)) if deck is not None else None
-            if one is None:
-                outcome = {"status": "failed", "runtime_seconds": None,
-                           "returncode": None, "n_output_files": 0,
-                           "reason": "no .in deck in the case dir"
-                                     if deck is None else
-                                     "the MCP reported no result for this deck",
-                           "run_via": "mcp"}
-            else:
-                codes = one.get("exit_codes") or [None]
-                ok = (one.get("validation_status") == "success"
-                      and any(case_dir.glob("*.tec")))
-                outcome = {
-                    "status": "completed" if ok else "failed",
-                    "runtime_seconds": one.get("execution_time"),
-                    "returncode": codes[0] if codes else None,
-                    "n_output_files": len(list(case_dir.glob("*.tec"))),
-                    "reason": None if ok else (one.get("error")
-                                               or "run failed"),
-                    "run_via": "mcp"}
-            e.update(outcome)
-            results.append({**e, **outcome})
-            print(f"  {'✓' if outcome['status'] == 'completed' else '✗'} "
-                  f"{e.get('id')}: {outcome['runtime_seconds']}s, "
-                  f"{outcome['n_output_files']} tec")
-        return results
-
-    # ─────────────────────────────────────────────────────────
-    # THE SUBMITTED PATH — Phase 5, and OPT-IN
-    # ─────────────────────────────────────────────────────────
-    # NOT the default, unlike ELM. A framework column solves in ~0.3 s
-    # (measured; it is why NEEDS_SCHEDULER is False), so for the ordinary
-    # ensemble a queue slot costs more than the solve. Set config["submit"]
-    # when the run is long, wide, or when the server should not be spending
-    # login-node CPU on it.
-    def _submit_via_mcp(self, experiments, client, limit, width, config):
-        """Hand the ensemble to the scheduler. Returns a Pending."""
-        decks = []
-        for e in experiments:
-            d = next(Path(e.get("case_dir") or "").glob("*.in"), None)
-            if d is not None:
-                decks.append(str(d))
-        if not decks:
-            raise RuntimeError("no decks to submit")
-
-        out = client.call_tool_json("submit_pflotran_ensemble", {
-            "input_file": decks,
-            "output_dir":  str(self.run_dir),
-            "num_cores":   1,
-            "max_parallel": width,
-            "timeout":     limit,
-            "queue":       str(config.get("queue", "")),
-            "walltime":    str(config.get("walltime", "01:00:00")),
-        }) or {}
-        if out.get("error") or not out.get("job_id"):
-            raise RuntimeError(
-                f"the reaction MCP could not submit this ensemble: "
-                f"{out.get('error') or 'no job id returned'}")
-        print(f"   submitted {out.get('n_decks')} deck(s) as job "
-              f"{out['job_id']} via the reaction MCP")
-        return Pending(out["job_id"], n_decks=out.get("n_decks"),
-                       log=out.get("log_path"), via="mcp")
-
-    def _poll(self, record, experiments, config):
-        """Has the submitted ensemble landed?
-
-        Waits on `ready`, not on `active` alone. The scheduler finishing and
-        the result becoming readable here are different instants — job 770699
-        wrote its result 0.96 s into the same second its job ended, and a
-        collect fired on the scheduler's word alone reported three successful
-        columns as no results at all.
-        """
-        client = (config.get("mcp_clients") or {}).get("reaction")
-        if client is None:
-            raise RuntimeError(
-                f"job {record.get('job_id')} was submitted through the reaction "
-                f"MCP, but no reaction client is configured to collect it")
-
-        st = client.call_tool_json("check_pflotran_job", {
-            "job_id": str(record.get("job_id")),
-            "output_dir": str(self.run_dir)}) or {}
-        if st.get("active", True):
-            print(f"   job {record.get('job_id')} is "
-                  f"{st.get('state') or 'unanswered'} — nothing to collect yet")
-            return None
-
-        got = client.call_tool_json("collect_pflotran_results", {
-            "output_dir": str(self.run_dir)}) or {}
-        rbi = got.get("results_by_input")
-        if got.get("status") == "incomplete" or not isinstance(rbi, dict) or not rbi:
-            # The scheduler is done and there is still nothing attributable.
-            # Not a reason to keep waiting and not a reason to invent rows.
-            raise RuntimeError(
-                f"job {record.get('job_id')} finished ({st.get('state')}) but "
-                f"produced no attributable results: "
-                f"{got.get('error') or 'results_by_input was empty'}")
-        print(f"   job {record.get('job_id')} finished ({st.get('state')}) — "
-              f"collecting {len(rbi)} deck(s)")
-        return self._rows_from_mcp(experiments, rbi)
-
-    def _run_one(self, e: Dict[str, Any], exe: str, limit: float) -> Dict[str, Any]:
-        """One column. Returns its outcome and writes it back onto `e`."""
-        import subprocess, time
-        case_dir = Path(e.get("case_dir") or "")
-        deck = next(case_dir.glob("*.in"), None)
-        if deck is None:
-            outcome = {"status": "failed",
-                       "reason": "no .in deck in the case dir",
-                       "run_via": "local"}
-            e.update(outcome)
-            return {**e, **outcome}
-        t0 = time.time()
-        try:
-            proc = subprocess.run([exe, "-pflotranin", deck.name],
-                                  cwd=str(case_dir), capture_output=True,
-                                  text=True, timeout=limit)
-        except subprocess.TimeoutExpired:
-            # ONE COLUMN, NOT THE ENSEMBLE. subprocess.run RAISES on
-            # timeout, and uncaught that discarded every column already
-            # computed along with every one still queued. A column whose
-            # timestep collapses — the reactive decks do this on deep
-            # unsaturated profiles — is a failed column with a reason, and
-            # the run continues.
-            outcome = {"status": "failed",
-                       "runtime_seconds": round(time.time() - t0, 2),
-                       "returncode": None,
-                       "n_output_files": len(list(case_dir.glob("*.tec"))),
-                       "reason": f"exceeded {limit}s — timestep collapse "
-                                 f"or a non-converging solve",
-                       "run_via": "local"}
-            e.update(outcome)
-            print(f"  ✗ {e.get('id')}: TIMEOUT after {limit}s")
-            return {**e, **outcome}
-
-        ok = proc.returncode == 0 and any(case_dir.glob("*.tec"))
-        outcome = {"status": "completed" if ok else "failed",
-                   "runtime_seconds": round(time.time() - t0, 2),
-                   "returncode": proc.returncode,
-                   "n_output_files": len(list(case_dir.glob("*.tec"))),
-                   "reason": None if ok else
-                             (proc.stderr or "").strip()[-200:],
-                   "run_via": "local"}
-        # Written back onto the experiment too, not only into the returned
-        # copy. execute_plan hands _extract the EXPERIMENTS list, never
-        # _run's return value, so a timing that lives only in the copy
-        # never reaches experiment.json — every column came out with
-        # runtime_seconds: null and step 4 reported no compute at all.
-        e.update(outcome)
-        print(f"  {'✓' if ok else '✗'} {e.get('id')}: "
-              f"{outcome['runtime_seconds']}s, "
-              f"{outcome['n_output_files']} tec")
-        return {**e, **outcome}
-
-    def _extract(self, experiments, plan=None, config=None):
-        """.tec depth profiles -> the SAME per-column row shape ELM produces.
-
-        experiment.json is one contract for every backend, so this emits rows
-        _package already understands: case_name, status, metrics, variables.
-        Nothing downstream needs a PFLOTRAN special case.
-
-        WHAT MAPS CLEANLY AND WHAT DOES NOT. ELM's rows carry per-variable
-        DAILY SERIES; PFLOTRAN's native output is a DEPTH PROFILE at a handful
-        of output times (here 0, 1, 5, 10, 20 y). Those are different shapes
-        and pretending otherwise would be the dishonest move — five yearly
-        snapshots are not a daily series, and writing them under a `daily` key
-        with invented dates would make step 0 build a frame that looks like a
-        hydrograph and is not.
-
-        So:
-            metrics    scalars, exactly as ELM does — final water table,
-                       saturation at top and bottom, storage. This is what a
-                       cross-model comparison can actually use.
-            variables  per-variable summary stats, no `daily` block.
-            profiles   NEW, and PFLOTRAN-specific: depth, times, and the
-                       saturation/pressure fields. Additive, so no existing
-                       consumer changes.
-        """
-        rows, units = [], {"LIQUID_SATURATION": "-",
-                           "LIQUID_PRESSURE": "Pa",
-                           "WATER_TABLE_DEPTH": "m"}
-
-        for e in experiments or []:
-            cid = e.get("id") or e.get("case_name")
-            case_dir = Path(e.get("case_dir") or "")
-
-            # A COLUMN _run REJECTED STAYS REJECTED. A timed-out or crashed
-            # column still leaves the .tec snapshots it managed to write, and
-            # reading those produced a row marked "ok" carrying metrics from a
-            # simulation that never reached its final time — while _run's own
-            # record said "failed". The partial output is real but it is not
-            # the experiment that was asked for, and the ensemble must not
-            # average it in as though it were.
-            if e.get("status") == "failed":
-                rows.append({"case_name": cid, "scenario_name": cid,
-                             "status": "failed",
-                             "runtime_seconds": e.get("runtime_seconds"),
-                             "reason": e.get("reason") or "the run failed",
-                             "partial_output_files": len(
-                                 list(case_dir.glob("*.tec")))})
-                continue
-
-            tecs = sorted(case_dir.glob("*.tec"))
-            if not tecs:
-                rows.append({"case_name": cid, "scenario_name": cid,
-                             "status": "failed",
-                             "reason": "no .tec output written"})
-                continue
-
-            times, profiles = [], []
-            for t in tecs:
-                tm, z, sat, pres = self._read_tec(t)
-                if z:
-                    times.append(tm)
-                    profiles.append({"z_m": z, "saturation": sat,
-                                     "liquid_pressure_pa": pres})
-
-            if not profiles:
-                rows.append({"case_name": cid, "scenario_name": cid,
-                             "status": "failed",
-                             "reason": ".tec files held no data rows"})
-                continue
-
-            final = profiles[-1]
-            H = max(final["z_m"])
-            depth = [round(H - z, 4) for z in final["z_m"]]
-            sat = final["saturation"]
-            # Water table = shallowest depth reaching full saturation. None
-            # when the column never saturates, which on the 2019 sample was 10
-            # of 19 columns — reported as None rather than as the domain
-            # bottom, because "no water table in the domain" and "water table
-            # at 50 m" are different statements.
-            wt = min((d for d, sv in zip(depth, sat) if sv >= 0.999), default=None)
-
-            rows.append({
-                "case_name": cid, "scenario_name": cid, "status": "ok",
-                "lat": e.get("lat"), "lon": e.get("lon"),
-                "runtime_seconds": e.get("runtime_seconds"),
-                "metrics": {
-                    "final_water_table_depth_m": wt,
-                    "water_table_in_domain": wt is not None,
-                    "domain_depth_m": round(H, 3),
-                    "n_cells": len(sat),
-                    "saturation_top": round(sat[-1], 5),
-                    "saturation_bottom": round(sat[0], 5),
-                    "saturation_mean": round(sum(sat) / len(sat), 5),
-                    "fan_wtd_m": e.get("fan_wtd_m"),
-                },
-                "variables": {
-                    "LIQUID_SATURATION": {
-                        "units": "-", "min": round(min(sat), 5),
-                        "max": round(max(sat), 5),
-                        "mean": round(sum(sat) / len(sat), 5)},
-                    "LIQUID_PRESSURE": {
-                        "units": "Pa",
-                        "min": round(min(final["liquid_pressure_pa"]), 1),
-                        "max": round(max(final["liquid_pressure_pa"]), 1)},
-                },
-                # The depth data, kept whole. Step 2's generated scripts read
-                # this; the tidy frame has no depth axis and inventing one for
-                # ELM's sake would change a shape every existing step relies on.
-                "profiles": {
-                    "times_y": times,
-                    "depth_m": depth,
-                    "saturation": [p["saturation"] for p in profiles],
-                    "liquid_pressure_pa": [p["liquid_pressure_pa"] for p in profiles],
-                },
-            })
-
-        n_ok = sum(1 for r in rows if r.get("status") == "ok")
-        print(f"✓ extracted {n_ok}/{len(rows)} column(s)")
-        # DATA, not an object — see ExperimentManagerBase.EXTRACT_KEYS.
-        return self._as_extract(_PFLOTRANResults(rows, units))
-
-    @staticmethod
-    def _read_tec(path: Path):
-        """(time_y, z, saturation, pressure) from one Tecplot POINT file.
-
-        Columns are X, Y, Z, Liquid Pressure, Liquid Saturation, Material ID;
-        the title line carries the output time.
-        """
-        z, sat, pres = [], [], []
-        lines = path.read_text().splitlines()
-        tm = None
-        if lines and "TITLE" in lines[0]:
-            try:
-                tm = float(lines[0].split('"')[1].split("[")[0])
-            except (IndexError, ValueError):
-                tm = None
-        for line in lines[3:]:
-            f = line.split()
-            if len(f) >= 5:
-                try:
-                    z.append(float(f[2]))
-                    pres.append(float(f[3]))
-                    sat.append(float(f[4]))
-                except ValueError:
-                    continue
-        return tm, z, sat, pres
-
-    # ─────────────────────────────────────────────────────────
-    def _columns_from_disk(self) -> List[Dict[str, Any]]:
-        """The columns _materialize just wrote, read back rather than passed.
-
-        Keeps this manager honest about the ordering the base enforces: the
-        file is the record, so building from anything else risks building a
-        plan that columns.json does not describe.
-        """
-        for p in (self.input_dir / "columns.json", self.run_dir / "columns.json"):
-            if p.exists():
-                d = json.loads(p.read_text())
-                return d.get("columns", d) if isinstance(d, dict) else d
-        raise FileNotFoundError("columns.json not found; _materialize must run first")
+		return {
+			"rows": rows,
+			"units": res.get("units") or {},
+			"extra_summary": {
+				"extracted_path": res.get("path"),
+				"n_with_series": res.get("n_with_series"),
+				"n_values": res.get("n_values"),
+				# NAMED, NOT COUNTED. A column absent from the extraction is
+				# absent from every figure downstream, and "17 planned, 15
+				# read" is a fact about the study rather than a detail.
+				"no_output": [r.get("id") for r in rows if not r.get("ok")],
+				"what_is_here": ("raw saturation and liquid pressure against "
+								 "depth, per column, per output time. Nothing "
+								 "derived — front depth, transit time and "
+								 "fluxes are the Analyzer's to compute"),
+			},
+			# NO SPIN-UP WAS DROPPED, and saying so is different from saying
+			# nothing. A transient column runs spin_years steady at the series
+			# mean first, and those snapshots are IN the file: the reader needs
+			# to know they are there rather than assume they were removed.
+			"spinup_dropped": 0,
+		}

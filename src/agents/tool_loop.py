@@ -110,7 +110,18 @@ class ToolLoopAgent:
                  max_rounds: int = 8,
                  max_tokens: int = 8192,
                  verbose: bool = True,
-                 interactive: bool = False):
+                 interactive: bool = False,
+                 local_tools: Optional[Dict[str, Any]] = None):
+        """`local_tools` are tools the FRAMEWORK answers, not an MCP server.
+
+        {name: {"schema": <openai function schema>, "fn": callable(**args)}}
+
+        Needed because some questions have no server to ask. "Which servers
+        are configured?" is one: no single server can answer it, and the
+        caller holding the client dict is the only thing that can. They are
+        NOT in the allowlist — the allowlist names MCP tools — and they are
+        dispatched here the same way ask_user is.
+        """
         self.llm = SimpleLLMClient(model=model)
         self.mcp_clients = mcp_clients
         self.max_rounds = max_rounds
@@ -127,6 +138,8 @@ class ToolLoopAgent:
                       "yourself, run this directly in a terminal (not piped, "
                       "nohup, or a job step).")
         self.tools, self.dispatch = self._build_tools(mcp_clients, allowlist)
+        self.local = dict(local_tools or {})
+        self.tools += [t["schema"] for t in self.local.values()]
         if interactive:
             self.tools.append(ASK_USER_TOOL)
 
@@ -206,6 +219,14 @@ class ToolLoopAgent:
                 if fq == "ask_user":
                     result = _human_answer(args.get("question", ""),
                                            self._tty, self.interactive)
+                elif fq in self.local:
+                    # NEVER RAISES INTO THE LOOP. A framework tool that threw
+                    # would end the reception; the model can do something
+                    # sensible with an error it can read.
+                    try:
+                        result = self.local[fq]["fn"](**args)
+                    except Exception as e:              # noqa: BLE001
+                        result = {"error": f"{type(e).__name__}: {e}"[:300]}
                 elif fq not in self.dispatch:
                     result = {"error": f"unknown tool {fq}"}
                 else:

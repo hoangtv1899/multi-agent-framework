@@ -30,12 +30,18 @@ leaves reception.json and strategy.json intact.
 ```
 python workflow.py --interactive                     # normal use; Reception may ask you
 python workflow.py --interactive --no-ask            # it resolves gaps itself instead
-python workflow.py --interactive --model pflotran    # standalone subsurface flow
 ```
 
-`--model` picks the Experiment Manager, and the choice is the CLASS: the
-backends differ in the stages they have, not only in the code inside them.
+WHICH MODEL RUNS is the Experiment Manager CLASS, and the backends differ in
+the stages they have, not only in the code inside them.
 `src/core/backends.py` is the one table every caller resolves a name through.
+
+There is no `--model` flag: it was removed on 2026-08-16 because it fixed the
+model before Reception had read the request. The model belongs in the brief,
+chosen against what each model server reports about itself. Until that is
+wired the CLI runs the default, and a second model is reachable only by
+passing `model=` to `WorkflowCoordinator` — or by resuming a run, which takes
+the model from the run state.
 
 | model | stages | initial condition | run directory |
 |---|---|---|---|

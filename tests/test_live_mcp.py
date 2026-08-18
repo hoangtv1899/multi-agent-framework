@@ -18,7 +18,12 @@ from core.mcp_manager import MCPManager         # noqa: E402
 
 pytestmark = pytest.mark.live
 
-EXPECTED_SERVERS = {"terrain", "usgs_water", "fan_wtd", "geology", "weather", "snotel"}
+# The live roster. `fan_wtd` and `weather` were folded into hydrodata and
+# daymet; `geology` was RETIRED on 2026-08-17 — a soil survey stops at ~1.5 m,
+# so a subsurface column built from it was 88-97% extrapolated, and ParFlow
+# CONUS2's own parameterisation (hydrodata.download_conus2_subsurface) covers
+# the whole 392 m.
+EXPECTED_SERVERS = {"terrain", "usgs_water", "hydrodata", "daymet", "snotel"}
 
 
 @pytest.fixture(scope="module")
@@ -54,12 +59,6 @@ def test_fan_wtd_point_nonnegative_or_nodata(clients):
                                           {"lat": 46.75, "lon": -120.70}) or {}
     d = r.get("depth_to_water_m")
     assert d is None or d >= 0          # local Fan grid: positive depth, or masked no-data
-
-
-def test_geology_soil_profile_responds(clients):
-    r = clients["geology"].call_tool_json("get_soil_profile",
-                                          {"lat": 40.81, "lon": -96.70}) or {}
-    assert {"num_layers", "layers", "error"} & set(r)     # structured answer of some kind
 
 
 def test_usgs_groundwater_sites_respond(clients):

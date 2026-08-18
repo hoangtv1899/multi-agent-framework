@@ -86,7 +86,7 @@ def f(*paths):
 # it". `reaction` sat in the data group for months because the grouping was
 # "everything except elm", which is not a category — it is a leftover. It is
 # PFLOTRAN's reaction sandbox: it writes decks and runs the model.
-MODEL_SERVERS = {"elm", "reaction"}
+MODEL_SERVERS = {"elm", "pflotran"}
 
 # The two model servers get hand-written detail rather than the generic card the
 # data servers get, so the paths are named once here. RXN is ABSOLUTE: the
@@ -99,7 +99,7 @@ RXN = "/qfs/people/tran289/IDEAS/reaction_sandbox_mcp-upstream/server.py"
 CMP = "mcp/elm-mcp/src/compare/"
 
 # Display names, where the registered key is not what the thing is called.
-SERVER_TITLE = {"reaction": "pflotran (reaction)"}
+SERVER_TITLE = {"pflotran": "pflotran (reaction sandbox)"}
 
 
 def _entry_point(spec) -> str:
@@ -152,7 +152,7 @@ BLURB = {
                   "is a university's server and it gets ONE request per "
                   "basin. Catalogue is open; data needs a PIN.",
     "geology":    "Soil and geology characterisation at a point.",
-    "reaction":   "PFLOTRAN reaction sandbox: builds decks, runs 1-D reactive "
+    "pflotran":   "PFLOTRAN reaction sandbox: builds decks, runs 1-D reactive "
                   "transport, and runs the LAMBDA network. Not on the ELM path.",
     "elm":        "E3SM Land Model: warm start, donor soil, surfaces, the CIME "
                   "build, and the ensemble. The whole simulation, end to end.",

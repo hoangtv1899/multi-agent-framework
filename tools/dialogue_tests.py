@@ -213,8 +213,11 @@ def no_buildable_design():
 def fit_and_availability_separate():
     """The two must both be present and must not be the same sentence."""
     def _f(pkg, brief, sweep, verdict, human):
-        why = (sweep.get("model_rationale") or "").strip()
-        avail = (sweep.get("model_availability") or "").strip()
+        # Top-level since 2026-08-16 — every archetype names its model, not
+        # only a sweep. `sweep` is still passed in and is still the right
+        # place for the factors; the model never belonged inside it.
+        why = (brief.get("model_rationale") or "").strip()
+        avail = (brief.get("model_availability") or "").strip()
         if not why or not avail:
             return False, "one of rationale/availability is empty"
         return why != avail, ("both present and distinct" if why != avail

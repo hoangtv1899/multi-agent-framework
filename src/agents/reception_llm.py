@@ -16,15 +16,16 @@ import re
 from typing import Any, Dict
 
 from agents.prompts import load_prompt
-from core.forcing_availability import render_forcing_facts
 from core.sweep_menu import render_sweep_menu
+from core.model_servers import model_tools
 from agents.tool_loop import ToolLoopAgent
 from core import data_gather as gather
 
 # What the LLM may call. Deliberately tiny.
 #
 # Everything else reception fetches — the DEM grid, the water table, the three
-# observation sets — is fetched by CODE once the domain and period are fixed
+# observation sets, the subsurface and the rain — is fetched by CODE once
+# and period are fixed
 # (see reception_gather). Those are not decisions, so they should not cost an
 # LLM round each: with twelve tools the loop spent 100-250 s of a 167-315 s
 # reception choosing tools, and the model then summarised results truncated to
@@ -32,8 +33,16 @@ from core import data_gather as gather
 # validator found 93.
 #
 # The model's job is the part that needs judgement: what is being asked, where,
-# and when. Soil is absent entirely — it comes from the CONUS 1 km surface
-# dataset at the donor gridcell, which the warm start already subsets.
+# and when. The subsurface and the rain are not among the LLM's tools either —
+# ELM gets both from its own inputs (the CONUS 1 km donor gridcell the warm
+# start subsets, and NLDAS-2 off disk), and what a non-ELM model needs is
+# fetched by code (gather_subsurface, gather_precipitation), not chosen.
+#
+# WHICH MODEL IS THE EXCEPTION, and deliberately so. It is a judgement, not a
+# fetch, and it is the one judgement that used to be made for the LLM by code
+# before the request was even read. `list_servers` and `describe_server` are
+# LOCAL tools — the framework answers them, no server is asked — so they are
+# not in this allowlist; see model_servers.model_tools.
 DEFAULT_ALLOWLIST = {
     "terrain__resolve_watershed",
     "terrain__get_elevation",        # fallback: a point or town, no HUC given
@@ -74,21 +83,43 @@ class LLMReceptionAgent:
                  model: str,
                  mcp_clients: Dict[str, Any],
                  allowlist: set = None,
-                 max_rounds: int = 10,
+                 # RAISED FROM 10 (2026-08-17). Choosing the model now costs a
+                 # round to list the servers and one per server described, on
+                 # top of resolving the basin and the period. Running out of
+                 # rounds does not fail loudly — the loop asks for a final
+                 # answer without tools, and the brief that comes back is
+                 # whatever could be assembled without the fetch it was mid-way
+                 # through. Headroom is cheaper than that.
+                 max_rounds: int = 14,
                  verbose: bool = True,
                  interactive: bool = False):
-        # Forcing years are read off disk at construction, not asserted in the
-        # prompt text: the window is the one hard constraint on a request, and
-        # a hardcoded sentence had already drifted 5 years from the filesystem.
-        # TWO FETCHED BLOCKS, NEITHER ASSERTED. The forcing window is read from
-        # the DATM directory; the sweep menu is asked of the model server that
-        # would run it. Both fail soft and say so rather than naming something
-        # they could not verify — an invented year range or an invented factor
-        # both cost a queue slot and produce a study that cannot be built.
-        self.system = load_prompt("reception_agentic",
-                                  forcing_facts=render_forcing_facts(),
-                                  sweep_menu=render_sweep_menu(mcp_clients))
+        # THE FORCING WINDOW IS NO LONGER SUBSTITUTED HERE (2026-08-17). It was,
+        # from core/forcing_availability.py — framework code that opened ELM's
+        # DATM directory and parsed ELM's filenames. Two things were wrong with
+        # that: it put ELM knowledge in front of the MCP boundary, and it pasted
+        # ELM's answer into EVERY request. A PFLOTRAN study of 2024 was refused
+        # because ELM's forcing stops in 2023, which is not a fact about that
+        # study at all.
+        #
+        # The window now comes from the model's own report, under
+        # `constraints.forcing.years`, read by the same describe_server call
+        # reception already makes to choose a model. STEP 5 says so.
+        self.system = load_prompt(
+            "reception_agentic",
+            sweep_menu=render_sweep_menu(mcp_clients))
         self._clients = mcp_clients or {}
+        # THE MODEL IS CHOSEN BY READING, NOT BY LOOKUP (2026-08-17). There
+        # used to be a third substituted block here, a MENU of models that this
+        # file built by asking every server and then summarising the answers
+        # into a dozen lines each. It was replaced by two tools the model calls
+        # itself, because a summary written before the request is read decides
+        # what matters before knowing what the question is — and one of its
+        # lines, "Do not choose it", was a verdict rather than evidence.
+        #
+        # The cost is rounds: two more before it can name a model, and it is
+        # paid on every reception. That is the trade the user asked for
+        # explicitly — a choice reasoned from what the servers actually say is
+        # worth more here than a fast one.
         self.loop = ToolLoopAgent(
             model=model,
             mcp_clients=mcp_clients,
@@ -96,6 +127,7 @@ class LLMReceptionAgent:
             max_rounds=max_rounds,
             verbose=verbose,
             interactive=interactive,
+            local_tools=model_tools(self._clients),
         )
 
     @property
@@ -134,7 +166,8 @@ class LLMReceptionAgent:
         brief = self._parse(out["content"])
 
         pkg = {"route": self._route(brief), "brief": brief,
-               "observations": {}, "grid": {}, "provenance": [],
+               "observations": {}, "grid": {}, "precipitation": {},
+               "subsurface": {}, "provenance": [],
                "trace": out["trace"], "rounds": out["rounds"],
                "raw": out["content"]}
         if pkg["route"]["action"] != "design":
@@ -191,13 +224,28 @@ class LLMReceptionAgent:
             # heterogeneity is DERIVED from the grid, not written by the model:
             # the planner stratifies on it, so it must be the same numbers the
             # sampler will see.
-            brief.setdefault("heterogeneity", {})
+            # setdefault IS NOT ENOUGH: it only fills a MISSING key, and the
+            # schema tells the model to emit `heterogeneity: null`. A site
+            # brief that resolved a bbox and still wrote null — which happens
+            # when the request names bare coordinates rather than a basin —
+            # crashed here with "'NoneType' does not support item assignment".
+            if not isinstance(brief.get("heterogeneity"), dict):
+                brief["heterogeneity"] = {}
             brief["heterogeneity"]["relief_m"] = pkg["grid"].get("relief_m")
             brief["heterogeneity"]["elevation_min_m"] = pkg["grid"].get("elevation_min_m")
             brief["heterogeneity"]["elevation_max_m"] = pkg["grid"].get("elevation_max_m")
             brief["heterogeneity"]["n_grid_points"] = pkg["grid"].get("n_in_basin")
 
             if isinstance(y0, int) and isinstance(y1, int):
+                # RAIN AT THE SAME POINTS, over the resolved period. Soil says
+                # what the ground is; this says what falls on it. Both are
+                # keyed by the same "lat,lon" string, so a column reads them
+                # with one lookup. Needs the period, which is why it sits here
+                # and not beside soil. Same reasoning on placement as soil: a
+                # sibling of `brief`, never inside it.
+                pkg["precipitation"] = gather.gather_precipitation(
+                    self._clients, pkg["grid"], y0, y1, provenance=prov)
+
                 bs = (f'{bbox["min_lon"]},{bbox["min_lat"]},'
                       f'{bbox["max_lon"]},{bbox["max_lat"]}')
                 # The polygon comes from the GRID, not from the brief: when the
@@ -218,6 +266,18 @@ class LLMReceptionAgent:
                     run_dir=run_dir,
                     provenance=prov)
                 brief["observations_summary"] = gather.summarise(pkg["observations"])
+
+                # THE SUBSURFACE, as a FIELD beside the water table rather than
+                # a value per column. Same reason: the columns do not exist yet,
+                # and a field answers at any point chosen later. It needs the
+                # run directory, which is why it sits here with the other file
+                # products and not beside soil.
+                #
+                # It replaces what used to be invented. A survey profile stops
+                # at about 1.5 m; everything below that was the deepest horizon
+                # copied downward. This parameterises 392 m.
+                pkg["subsurface"] = gather.gather_subsurface(
+                    self._clients, bs, run_dir=run_dir, provenance=prov)
         pkg["provenance"] = prov
         return pkg
 

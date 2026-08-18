@@ -289,7 +289,7 @@ interpreter by absolute path** — not a bare `python3`, which will not be the
 env you built.
 
 ```json
-"reaction": {
+"pflotran": {
   "command": "/people/<you>/.conda/envs/ideas/bin/python3",
   "args": ["/people/<you>/mcp/reaction-sandbox-mcp/main.py"],
   "timeout": 300.0

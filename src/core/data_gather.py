@@ -30,9 +30,15 @@ Two consequences worth stating:
     empty result, because "we could not look" and "there is nothing there" are
     different findings and were being conflated.
 
-Soil is deliberately absent. It comes from the CONUS 1 km surface dataset at
-the donor gridcell, which the warm start already subsets per column, so there
-is nothing to fetch here.
+SUBSURFACE PROPERTIES, AND WHERE THEY COME FROM (settled 2026-08-17). They were
+briefly a SOIL SURVEY: gather_soil asked geology-mcp for SSURGO horizons at every
+grid point. A survey stops at about 1.5 m, so a model needing material properties
+to tens of metres got the deepest horizon copied downward — 88 to 97% of a column
+invented, and measured as such. That server is retired. gather_subsurface fetches
+ParFlow CONUS2's own parameterisation instead, which covers the whole 392 m: its
+top four layers are SSURGO-derived anyway, so nothing was lost above 2 m and
+everything below it was gained. ELM is unaffected either way — it reads its donor
+soil from the CONUS surface dataset and never read this.
 """
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -86,22 +92,38 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _call(clients, server: str, tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
+def _call(clients, server: str, tool: str, args: Dict[str, Any],
+          budget: Optional[float] = None) -> Dict[str, Any]:
     """One MCP call, with provenance and an explicit ok/error.
 
     Never raises: a stage that cannot fetch still produces a valid record
     saying so, which is what lets downstream tell failure from absence.
+
+    `budget` RAISES THE CLIENT TIMEOUT for this call only. Each server's
+    configured timeout is sized for its ordinary tool, and a BATCH tool is not
+    that: geology is registered at 30 s, which fits one SSURGO point and not
+    the 58 a basin's grid asks for in one call. Measured at 28.5 s direct, it
+    went over inside reception and the whole soil fetch came back empty — a
+    silent hole in the gather, recorded honestly but empty. The pattern is
+    exp_manager_base._mcp_call's, for the same reason: the ceiling belongs to
+    the CALL, not to the server.
     """
     rec = {"tool": f"{server}.{tool}", "args": args, "fetched_at": _now()}
     client = (clients or {}).get(server)
     if client is None:
         return {**rec, "ok": False, "error": f"no {server} client configured",
                 "result": None}
+    prev = getattr(client, "timeout", None)
     try:
+        if budget and prev is not None and prev < budget:
+            client.timeout = budget
         out = client.call_tool_json(tool, args)
     except Exception as e:                       # noqa: BLE001 - recorded, not raised
         return {**rec, "ok": False, "error": f"{type(e).__name__}: {e}"[:200],
                 "result": None}
+    finally:
+        if prev is not None:
+            client.timeout = prev
     if not isinstance(out, dict):
         return {**rec, "ok": False, "error": "tool returned no JSON object",
                 "result": None}
@@ -247,6 +269,65 @@ def gather_grid(clients, bbox: Dict[str, float], huc: str = "", boundary=None,
 # what was dropped — a silent first-N would quietly bias the sample toward
 # whatever order the server returned.
 MAX_SWE_SERIES = 12
+
+
+def gather_subsurface(clients, bbox_str: str, run_dir=None,
+                      provenance: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """ParFlow CONUS2's subsurface parameters over the basin, as a local file.
+
+    THE SAME SHAPE AS THE MODELLED WATER TABLE, and for the same reasons: one
+    fetch per basin, written beside reception.json, read afterwards at any point
+    by core/conus2_subsurface.sample with no network and no PIN. Sampling it per
+    column would be five requests per column to a university's server, and the
+    answer cannot change — every field is `static`.
+
+    WHAT IT IS FOR. A subsurface model needs material properties all the way
+    down, and a soil survey stops at about 1.5 m. Until 2026-08-17 everything
+    below that was the deepest surveyed horizon copied downward — 88 to 97% of
+    a column invented. These five fields parameterise the whole 392 m.
+
+    UNCONDITIONAL ON EVERY SITE RUN, never gated on which model was chosen, for
+    the reason the other gathers give: gating would make two runs of the same basin
+    carry different provenance depending on a decision taken moments earlier.
+    The cost is controlled by the CACHE rather than by a condition — the server
+    keeps a copy keyed by grid_bounds, so the second study of a basin makes no
+    request at all.
+
+    NEEDS A RUN DIRECTORY, because the product is a file rather than a number.
+    Without one there is nowhere to put it and this says so instead of fetching
+    something it would immediately discard.
+    """
+    prov = provenance if provenance is not None else []
+    if not run_dir:
+        return {"ok": False, "error": "no run_dir — the subsurface is a file, "
+                                      "not a value, and needs somewhere to go"}
+    r = _call(clients, "hydrodata", "download_conus2_subsurface",
+              {"bbox": bbox_str, "out_dir": str(run_dir)}, budget=1800.0)
+    prov.append({k: r[k] for k in ("tool", "args", "fetched_at", "ok", "error")})
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error")}
+    rr = r.get("result") or {}
+    if not rr.get("ok"):
+        return {"ok": False, "error": rr.get("error")}
+    return {
+        "ok": True,
+        "source": rr.get("source"),
+        # WHAT WAS PAID, kept because it is the number that decides whether an
+        # unconditional fetch is defensible. `reused: true` with zero requests
+        # is the normal case after a basin's first study.
+        "reused": rr.get("reused"),
+        "n_requests": rr.get("n_requests"),
+        "grid_bounds": rr.get("grid_bounds"),
+        "arrays": rr.get("arrays"),
+        "meta": rr.get("meta"),
+        "covers": ("the whole basin box, as a field — not a value per column. "
+                   "Read it at any point with core.conus2_subsurface.sample; "
+                   "it answers anywhere inside the box, including locations "
+                   "chosen after this fetch."),
+        "when": ("STATIC. A spun-up equilibrium parameterisation, with no "
+                 "period — the same field whatever years the study runs."),
+        "failed_fields": rr.get("failed") or [],
+    }
 
 
 def _cap_series(stations, limit, key="daily"):

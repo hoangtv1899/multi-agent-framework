@@ -51,9 +51,24 @@ def _summary_for_prompt(reception: Dict[str, Any]) -> Dict[str, Any]:
     Never the raw series. The summary carries station ids and coordinates,
     which is all the planner needs to pin validation columns — the measurements
     themselves are the analyzer's business and would be ~170 kB here.
+
+    NEVER THE SOIL OR THE RAIN EITHER. reception.soil holds a horizon profile
+    for every candidate column location (~2.5 kB a point, 150 kB for a basin's
+    grid) and reception.precipitation holds a daily series for every one of
+    them (121 kB for a single year, ~2.4 MB for twenty). The planner
+    stratifies on ELEVATION and reads neither, so every byte of them here
+    would be paid for and unused. They are excluded twice on purpose: both are
+    siblings of `brief`, so building this dict by naming keys already leaves
+    them out, and the pops below stop them reaching the prompt if either is
+    ever written into the brief by mistake. The second guard is the one that
+    matters — the first is a property of today's shape, not a rule anyone
+    stated.
     """
     brief = dict(reception.get("brief") or {})
     brief.pop("observations_summary", None)
+    brief.pop("soil", None)
+    brief.pop("precipitation", None)
+    brief.pop("subsurface", None)
     return {"brief": brief,
             "observations_summary": (reception.get("brief") or {}).get(
                 "observations_summary") or {}}
@@ -63,7 +78,8 @@ class Planner:
     """reception.json -> planner.json."""
 
     def __init__(self, model: str = "claude-opus-4-8-project",
-                 pinning: Optional[Dict[str, Any]] = None):
+                 pinning: Optional[Dict[str, Any]] = None,
+                 constraints: Optional[Dict[str, Any]] = None):
         """`pinning` is the model server's own `pinning` block.
 
         WHICH STATIONS MAY BE PINNED IS THE MODEL'S ANSWER, and it used to be
@@ -80,10 +96,23 @@ class Planner:
         self.llm = SimpleLLMClient(model=model)
         self.system = load_prompt("planner")
         self.pinning = pinning
+        # THE OTHER HALF OF THE SAME QUESTION, set by the caller after
+        # reception has named a model — `pinning` is what a column may be
+        # COMPARED against, `constraints` is what a plan may CHOOSE. Both come
+        # from the chosen model's own server; neither is stated in planner.txt
+        # any more, because both were ELM's answers written as the framework's.
+        self.constraints = constraints
 
     def plan(self, reception: Dict[str, Any]) -> Dict[str, Any]:
         payload = _summary_for_prompt(reception)
         system = self.system
+        if self.constraints:
+            system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                       "━━━━━━\nDESIGN LIMITS — what this model's studies "
+                       "cannot vary, from the\nserver that will run it. This "
+                       "is the fence referred to above.\n━━━━━━━━━━━━━━━━━━━━"
+                       "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                       + json.dumps(self.constraints, indent=1, default=str))
         if self.pinning:
             system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━\nPINNING RULES — from the model server that "

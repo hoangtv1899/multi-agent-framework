@@ -741,26 +741,43 @@ class ExperimentManagerBase:
 	def _pinning_rules(self, config: Dict[str, Any]) -> Dict[str, Any]:
 		"""What a column of THIS model may be pinned to, from its own server.
 
-		Raises rather than falling back. A default here would be ELM's answer
-		wearing whatever model happened to be running, which is the failure the
-		capability call exists to remove — and a study that pins the wrong
-		stations is not obviously wrong when you read it.
+		ASKED OF THE MODEL THE BRIEF NAMED, NOT OF THIS CLASS (2026-08-17).
+		It used to read MCP_NAME and CAPABILITIES_TOOL off the manager, which
+		is only correct while every model has a manager — and PFLOTRAN's was
+		deleted on 2026-08-16. The planner already asks by name
+		(workflow._pinning_block), so leaving this one reading class
+		attributes gave the two halves of one rule two different sources: the
+		planner would design well pins against PFLOTRAN's rules and the
+		sampler would drop them against ELM's, with a warning and no error.
+
+		THE CLASS ATTRIBUTE IS STILL THE FALLBACK, and deliberately second. A
+		manager driven directly by a tool or a test passes no brief; it should
+		keep working, and it can only mean its own model.
+
+		Raises rather than falling back to a default. A default here would be
+		ELM's answer wearing whatever model happened to be running, which is
+		the failure the capability call exists to remove — and a study that
+		pins the wrong stations is not obviously wrong when you read it.
 		"""
 		exp = _load_tool("expand_sampling")
-		client = self._mcp(config)
-		if not self.MCP_NAME or not self.CAPABILITIES_TOOL:
-			# The PFLOTRAN backends are here today: neither declares a server
-			# to ask, so a pinned site run under them stops at this line. That
-			# is the intended trade — before, they silently borrowed ELM's
-			# tuple, which is a wrong design nobody could see in the record.
-			why = (f"the {self.MCP_NAME or type(self).__name__} backend "
-				   f"declares no MCP_NAME/CAPABILITIES_TOOL, so there is no "
-				   f"server to ask. Add both, and a `pinning` block to that "
-				   f"server's capability report")
+		# The brief wins, because reception chose it against what the servers
+		# said they are; the class attribute is what a manager knows about
+		# itself when nobody told it.
+		named = str((((config or {}).get("brief") or {}).get("model")
+					 or "")).strip().lower()
+		server = named or self.MCP_NAME
+		clients = (config or {}).get("mcp_clients") or {}
+		client = clients.get(server) if (config or {}).get("run_via_mcp", True) \
+			else None
+
+		if not server:
+			why = (f"neither the brief nor {type(self).__name__} names a model "
+				   f"server to ask. Put `model` in the brief, or declare "
+				   f"MCP_NAME on the backend")
 		elif client is None:
-			why = (f"no {self.MCP_NAME!r} client in config['mcp_clients'] — "
-				   f"pass one, or set config['run_via_mcp']=False only if this "
-				   f"study pins nothing")
+			why = (f"no {server!r} client in config['mcp_clients'] — pass one, "
+				   f"or set config['run_via_mcp']=False only if this study "
+				   f"pins nothing")
 		else:
 			why = None
 		if why:
@@ -768,6 +785,18 @@ class ExperimentManagerBase:
 				f"{type(self).__name__} cannot ask its model server what a "
 				f"column may be pinned to: {why}. The pinning rules come from "
 				f"the server that owns them.")
+
+		# THE TOOL NAME IS FOUND, NOT DECLARED, when the brief named the model.
+		# A per-model CAPABILITIES_TOOL constant is one more thing to add for
+		# each new server, and model_servers already finds it by pattern — the
+		# same call reception makes to choose.
+		if named and named != self.MCP_NAME:
+			from core.model_servers import describe_server
+			got = describe_server(clients, server)
+			if got.get("error"):
+				raise RuntimeError(
+					f"cannot read {server}'s capability report: {got['error']}")
+			return exp.pinning_rules(got.get("report") or {})
 		return exp.pinning_rules(
 			self._mcp_call(client, self.CAPABILITIES_TOOL, {}))
 
@@ -796,8 +825,14 @@ class ExperimentManagerBase:
 			if prev is not None:
 				client.timeout = prev
 		if out is None:
+			# DOES NOT NAME A SERVER (2026-08-17). It said "the elm MCP"
+			# whatever it had called — written when there was one — so a
+			# PFLOTRAN tool that returned nothing reported an ELM timeout and
+			# sent a reader to the wrong logs. This is a @staticmethod and has
+			# no backend to ask, so it names the TOOL, which is unambiguous.
 			raise RuntimeError(
-				f"the elm MCP did not answer {tool} within its timeout")
+				f"the MCP server did not answer {tool} within its timeout, "
+				f"or returned no JSON")
 		# `error` means the CALL could not be made. A payload carrying `ok` is
 		# reporting an OUTCOME — a build that failed, an ensemble with no
 		# results — and the caller has more to say about that than this does,
