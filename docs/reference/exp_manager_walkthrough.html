@@ -425,8 +425,8 @@
             <td>snaps each column to its donor cell, takes the donor's soil, writes the surface and domain files (and finidat when warm), the runtime config, and <code>01_inputs/case_inputs.json</code></td>
             <td>looks each column up in the site files reception wrote — CONUS2 profile, water-table depth, daily rain (nearest grid point within one grid spacing when off-grid, recorded as <code>rain_borrowed_km</code>) — and writes one deck per column under <code>01_inputs/decks/</code></td></tr>
         <tr><th>the columns</th>
-            <td>replaced in place — post-snap coordinates and elevations</td>
-            <td>unchanged — no donor, no snap</td></tr>
+            <td>replaced in place — post-snap coordinates and elevations, plus the donor soil and forcing cell</td>
+            <td>replaced in place — the same coordinates (no donor, no snap), plus what the server learned: water table, unsaturated depth, transient or steady, borrowed rain, the deck's own warning</td></tr>
         <tr><th>comes back</th>
             <td>the run plan: CONDITIONS_COUPLERS, ELM_CONFIG, assumptions ledger</td>
             <td>the run plan: CONDITIONS_COUPLERS (column + joined scalars + deck record), PFLOTRAN_CONFIG (the values used), assumptions ledger, incomplete columns</td></tr>
@@ -441,8 +441,14 @@
   <div class="stepcard">
     <h3>columns.json · sampling_design.png</h3>
     <p><code>columns.json</code> is written twice, to <code>01_inputs/</code> and the
-       run root, and it is the <em>post-build</em> list — for ELM the snapped
-       coordinates, for PFLOTRAN the sampled ones. The design figure is drawn
+       run root, and it is the <em>post-build</em> list: the columns as the build
+       call left them — for ELM snapped, with the donor's soil; for PFLOTRAN at
+       the sampled coordinates, with the water table, the forcing and the deck's
+       warning attached. It is the <strong>one seam</strong> the package reads:
+       the base carries these onto the rows through an asserted list —
+       <code>COLUMN_METADATA</code> for what the sampler writes, plus each
+       manager's <code>COLUMN_METADATA_EXTRA</code> for what its build call adds —
+       and a key neither names raises rather than vanishing. The design figure is drawn
        after it, by ELM's own code (<code>sampling_design.render_run</code>,
        imported from beside the server): the columns over a hillshade, forcing
        against donor elevation, the initial soil water read out of each finidat,
@@ -509,17 +515,21 @@
        built from that file — one writer of one artifact. PFLOTRAN:
        <code>extract_column_series</code> writes saturation and pressure against
        depth per output time to the same filename, and the manager attaches each
-       column's block to its row as <code>profiles</code> and carries the column's
-       own setup — water table, unsaturated depth, transient or steady, forcing
-       years, borrowed-rain distance — so an output can be read against what
-       produced it. What a field <em>means</em> (<code>FIELD_SEMANTICS</code>)
-       stays on this side of the boundary, never behind a tool call.</p>
+       column's block to its row as <code>profiles</code>. The column's own setup —
+       water table, unsaturated depth, transient or steady, forcing years,
+       borrowed-rain distance, the server's warning — is not copied here: it is
+       on <code>columns.json</code>, and the package carries it onto the row
+       through the asserted list. What a field <em>means</em>
+       (<code>FIELD_SEMANTICS</code>) stays on this side of the boundary, never
+       behind a tool call.</p>
   </div>
 
   <div class="stepcard">
     <h3>package → experiment.json · Analyzer</h3>
     <p><code>experiment.json</code> is this box's product and the Analyzer's only
-       input: the rows with their series, <code>field_semantics</code>,
+       input: the rows with their series and their column facts (a row's
+       <code>warning</code> becomes a caveat in the Analyzer's step 0),
+       <code>field_semantics</code>,
        <code>variable_units</code>, the assumptions ledger, the columns, grid,
        boundary, domain, period, model, and the strategy check's record.
        <code>RUN_SUMMARY.json</code> sits beside it. Everything from package

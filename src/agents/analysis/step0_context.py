@@ -624,6 +624,26 @@ def _caveats(experiment: Dict[str, Any],
             "any mean, total or trend over the run period",
             "experiment.json:spinup_dropped")
 
+    # A ROW'S `warning` IS THE SERVER'S SENTENCE ABOUT THAT COLUMN — "only
+    # 0.01 m of unsaturated column", "built steady, no daily rain" — written
+    # by the build call, carried onto the row by the package's asserted list.
+    # One caveat per distinct sentence, naming the columns that carry it,
+    # because "8 of 17 columns cannot show vertical transit" is the single
+    # fact most likely to change what a figure may claim, and until
+    # 2026-08-18 it reached this reader only as a number (unsaturated_m) that
+    # nothing looked at. Model-blind: this knows nothing about saturation,
+    # only that a column came with a warning attached.
+    by_text: Dict[str, List[str]] = {}
+    for row in experiment.get("columns") or []:
+        w = row.get("warning") if isinstance(row, dict) else None
+        if w:
+            by_text.setdefault(str(w).strip(), []).append(
+                str(row.get("case_name") or row.get("id") or "?"))
+    for i, (text, ids) in enumerate(sorted(by_text.items())):
+        add(f"column_warning_{i+1}", QUALIFY,
+            f"{len(ids)} column(s) — {', '.join(ids)}: {text}",
+            "any claim resting on these columns",
+            "experiment.json:columns[*].warning")
     for i, corr in enumerate((experiment.get("strategy_check") or {})
                              .get("corrections") or []):
         add(f"strategy_correction_{i+1}", CONTEXT, corr,

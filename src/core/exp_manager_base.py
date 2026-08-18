@@ -1297,17 +1297,29 @@ class ExperimentManagerBase:
 		return {}
 
 	# Fields the extraction cannot know, because they describe how the column
-	# was CHOSEN rather than what the model did with it. Each is here because
-	# something downstream reads it:
+	# was CHOSEN AND BUILT rather than what the model did with it. columns.json
+	# is the one seam: the sampler writes where a column is, and each model's
+	# build call writes what it learned about the column onto the same list —
+	# ELM its donor soil and forcing cell after the warm start, PFLOTRAN the
+	# water table, the forcing and the deck's own warnings after the join.
+	# This list is what carries that seam onto the packaged rows.
+	#
+	# TWO PARTS, ONE ASSERTION (2026-08-18). The framework's own keys are
+	# here — what the SAMPLER writes, the same for every model. What a BUILD
+	# CALL adds is that model's knowledge, so each manager declares it beside
+	# its server as COLUMN_METADATA_EXTRA; _column_keys() composes the two
+	# once and the merge asserts against the union. Before this the base list
+	# named ELM's soil keys itself, and PFLOTRAN's build facts travelled by a
+	# second, unchecked list in its extractor — where `warning` ("this column
+	# is essentially saturated") vanished on the way to experiment.json.
+	#
+	# Each key is here because something downstream reads it:
 	#
 	#   band, band_range_m   area-weighting the ensemble. The sampler allocates
 	#                        >=1 column per elevation band regardless of band
 	#                        size, so an unweighted mean over-weights small
 	#                        bands. Without this the weighting silently
 	#                        degrades to a plain average.
-	#   soil_*               which soil this column actually got, and from
-	#                        where — the soil-attribution figure and any claim
-	#                        that soil explains a gradient rest on it.
 	#   lat, lon, elevation_m  normally come from the extraction, which reads
 	#                        them off the coupler. Listed here too because
 	#                        columns.json is the AUTHORITY on where a column
@@ -1321,6 +1333,20 @@ class ExperimentManagerBase:
 	#                        the Analyzer with pinned=None, and the comparison
 	#                        re-derived the pairing geometrically — guessing at
 	#                        an answer the sampler had already recorded.
+	#   forcing_start, forcing_end
+	#                        the years THIS column ran, written by the build
+	#                        call of either model. A forcing_year sweep varies
+	#                        them between columns, and a PFLOTRAN column with
+	#                        no rain series has none, so a run-level period
+	#                        would describe neither correctly.
+	#   treatment, weather   written by a CONTROLLED SWEEP, absent on a site
+	#                        run: WHY THIS COLUMN DIFFERS, which on a sweep is
+	#                        the only thing that makes it a column rather than
+	#                        a repeat, and which weather it was given. The
+	#                        sweep is the framework's archetype — the base
+	#                        derives treatment_label from `treatment` below —
+	#                        so the keys are the framework's, whichever server
+	#                        builds the sweep.
 	#
 	# A NAME ON THIS LIST THAT NOTHING PRODUCES IS NOT FREE: it asks for a
 	# capability the pipeline may no longer have, and a key that is absent
@@ -1331,44 +1357,16 @@ class ExperimentManagerBase:
 		keep = ("lat", "lon", "elevation_m",
 				"band", "band_range_m",
 				"pinned", "station_id", "station_variable",
-				# WHICH FORCING CELL, and WHAT SOIL — two independent facts
-				# about where the column ended up, both settled at input time
-				# and neither derivable from the row without them. Columns
-				# sharing forcing_cell got the same rain, so a difference
-				# between them is soil or terrain; that reading is the
-				# reader's to make, and nothing here precomputes it.
-				"forcing_cell", "soil_summary",
-				"soil_top_texture",
-				"soil_layers", "soil_source", "soil_profile",
-				# ── written by a CONTROLLED SWEEP, absent on a site run ──
-				# WHY THIS COLUMN DIFFERS, which on a sweep is the only thing
-				# that makes it a column rather than a repeat. The Analyzer
-				# groups by it; without it a 4-column sweep is four unlabelled
-				# runs and the design has to be re-derived from soil profiles.
-				"treatment",
-				# The fill spec, when the weather was written rather than taken
-				# from the cell. Carried because "no real climate bounds this
-				# result" is a claim the report makes, and it must rest on
-				# something in the record rather than on the run's reputation.
-				"weather",
-				# Cold or warm. Decides which initialisation caveat applies and
-				# how much of the early record is the start rather than the
-				# soil — extract.resolve_spinup reads it and trims 14 days for
-				# one and a year for the other.
-				"warm_start",
-				# The years THIS column ran. A forcing_year sweep varies them
-				# between columns, so a single run-level period would describe
-				# none of them correctly.
-				"forcing_start", "forcing_end"),
+				"forcing_start", "forcing_end",
+				"treatment", "weather"),
 		# A run that pinned nothing has no column carrying these, and that is
-		# a fact about the design rather than a gap in the list. The sweep keys
-		# are optional for the mirror-image reason: a site run varies nothing
-		# deliberately, so it has no treatment, no written weather and no
-		# per-column years — and a sweep has no band, no station and no DEM
-		# elevation. Neither absence is a hole.
+		# a fact about the design rather than a gap in the list. The years are
+		# optional for the same reason: a column with no series has none. And
+		# a site run varies nothing deliberately, so it has no treatment and
+		# no written weather — neither absence is a hole.
 		optional = ("station_id", "station_variable",
-					"treatment", "weather", "warm_start",
-					"forcing_start", "forcing_end"),
+					"forcing_start", "forcing_end",
+					"treatment", "weather"),
 		drop = {
 			"id": "the join key — _merge_column_metadata matches on it, so "
 				  "carrying it onto the row would restate the row's own name",
@@ -1384,10 +1382,6 @@ class ExperimentManagerBase:
 						"the rest of the station record. The comparison "
 						"applies it from the observations, which is where it "
 						"was measured",
-			"outside_design_band": "set by warm_start when the snapped donor "
-								   "leaves the band the sampler drew. A "
-								   "sampling-design fact, read by the design "
-								   "figure, not a property of the results",
 			"elevation_source": "WRITTEN BY TWO PRODUCERS AND READ BY NONE "
 								"(inputs.py:260, expand_sampling.py:486). "
 								"Dropped rather than carried because a field "
@@ -1404,6 +1398,36 @@ class ExperimentManagerBase:
 		source = "columns.json -> columns[*]",
 		where  = "src/core/exp_manager_base.py :: COLUMN_METADATA",
 	)
+
+	# WHAT THIS MODEL'S BUILD CALL ADDS TO A COLUMN — declared by the manager
+	# beside its server, None for a backend whose build adds nothing. Composed
+	# with COLUMN_METADATA above by _column_keys(); a key on columns.json that
+	# neither part names raises at package time, whichever producer wrote it.
+	COLUMN_METADATA_EXTRA: Optional[KeySet] = None
+
+	def _column_keys(self) -> KeySet:
+		"""COLUMN_METADATA plus this backend's additions, composed once."""
+		ks = getattr(self, "_column_keys_cache", None)
+		if ks is not None:
+			return ks
+		base, extra = self.COLUMN_METADATA, self.COLUMN_METADATA_EXTRA
+		if extra is None:
+			ks = base
+		else:
+			both = set(base.keep) & set(extra.keep)
+			if both:
+				raise ValueError(
+					f"{extra.name}: {sorted(both)} already kept by "
+					f"COLUMN_METADATA — declare a key once")
+			ks = KeySet(
+				f"COLUMN_METADATA[{self.MODEL}]",
+				keep = base.keep + extra.keep,
+				optional = tuple(base.optional | extra.optional),
+				drop = {**base.drop, **extra.drop},
+				source = base.source,
+				where = f"{base.where} + {extra.where or extra.name}")
+		self._column_keys_cache = ks
+		return ks
 
 	@staticmethod
 	def _treatment_label(treatment: Any) -> Optional[str]:
@@ -1497,8 +1521,9 @@ class ExperimentManagerBase:
 			# field is a decision someone has to make here, not a value that
 			# disappears on the way through. It also records which declared
 			# keys actually turned up, which is what report() reads.
-			self.COLUMN_METADATA.check(src)
-			for k in self.COLUMN_METADATA.keep:
+			keys = self._column_keys()
+			keys.check(src)
+			for k in keys.keep:
 				if src.get(k) is not None and r.get(k) is None:
 					r[k] = src[k]
 			# DERIVED, not copied, so it is not a COLUMN_METADATA key: nothing

@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.exp_manager_base import ExperimentManagerBase
+from core.keyset import KeySet
 
 
 class PFLOTRANExpManager(ExperimentManagerBase):
@@ -227,7 +228,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			raise RuntimeError(f"the server built no decks: "
 							   f"{str(res.get('error') or res)[:200]}")
 		built = [d for d in decks if d.get("status") == "built"]
-		sat = [d for d in decks if d.get("warning")]
+		sat = [d for d in decks
+			   if d.get("unsaturated_m") is not None and d["unsaturated_m"] < 0.5]
 		print(f"   ✓ {len(built)}/{len(decks)} deck(s) built, "
 			  f"{sum(d.get('n_cells') or 0 for d in built)} cells total")
 		if sat:
@@ -250,8 +252,66 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 				  + "; ".join(f"{i.get('id')} lacks "
 							  f"{', '.join(i.get('missing') or [])}"
 							  for i in inc))
+		# THE COLUMNS ARE REPLACED IN PLACE WITH THE COLUMNS AS BUILT — the
+		# same list, each entry now carrying what the server learned about it:
+		# the joined scalars (water table, forcing years, borrowed rain) and
+		# the deck's own facts (unsaturated depth, transient or steady, its
+		# warning). This is what ELM does with its snapped columns, and it is
+		# what makes columns.json the ONE seam the package reads: the base
+		# carries these onto the rows through COLUMN_METADATA_EXTRA below and
+		# asserts on any key nobody named. Until 2026-08-18 they travelled by
+		# a second, unchecked list in _extract, and `warning` — "this column
+		# is essentially saturated" — vanished on the way to experiment.json.
+		columns[:] = [dict(r) for r in res["run_plan"]["CONDITIONS_COUPLERS"]]
 		self._mcp_inputs = res
 		return {"mcp_inputs": res}
+
+	# WHAT create_decks_from_columns ADDS TO A COLUMN, and what the base's
+	# package carries from columns.json onto the row (composed with the
+	# framework's own COLUMN_METADATA; a key neither names raises). Every kept
+	# key is an INPUT to the column and FIELD_SEMANTICS says what it means;
+	# they are carried so an output can be read against what produced it.
+	COLUMN_METADATA_EXTRA = KeySet(
+		"PFLOTRAN_COLUMN_METADATA",
+		keep = ("water_table_m", "unsaturated_m", "wt_in_domain",
+				"transient", "n_forcing_steps", "recharge_mm_yr",
+				"rain_borrowed_km", "rain_borrowed_from",
+				# THE SERVER'S OWN SENTENCE ABOUT THIS COLUMN — "only 0.01 m
+				# of unsaturated column", "built steady, no daily rain". Step 0
+				# of the Analyzer turns a row's `warning` into a caveat naming
+				# the columns that carry it; that is the whole route by which
+				# a per-column fact reaches a claim.
+				"warning",
+				# which of the three inputs the join could not find, when any.
+				"incomplete"),
+		# Absent on a column that is on the grid, saturated-or-not, complete:
+		# a normal run produces none of these on most rows.
+		optional = ("recharge_mm_yr", "rain_borrowed_km", "rain_borrowed_from",
+					"warning", "incomplete"),
+		drop = {
+			"deck_status": "the run stage's `status` is the word the framework "
+						   "counts on; a deck that did not build has no output "
+						   "and is `failed` there",
+			"reason": "why a deck did not build — printed at materialize and "
+					  "kept in run_plan.json; the row's status carries the fact",
+			"case_dir": "the extractor's row already carries it, from the run",
+			"input_file": "the deck's path; case_dir locates it",
+			"n_cells": "the extractor reports it from the output itself",
+			"depth_m": "the extractor reports it as domain_depth_m, read off "
+					   "the output",
+			"domain_why": "the rule is stated once in the server's constraints "
+						  "report; wt_in_domain on the row says whether it held",
+			"forcing_caveat": "the transient wording is the ledger's first "
+							  "assumption; the steady case is said in `warning`",
+			"cell_dz_m": "deck numerics; the .in file is the record",
+			"max_cell_m": "deck numerics; PFLOTRAN_CONFIG in run_plan.json",
+			"n_material_zones": "deck numerics; the .in file is the record",
+			"source": "the same sentence on every column — the ledger's second "
+					  "assumption says it once",
+		},
+		source = "columns.json -> columns[*], as create_decks_from_columns wrote them",
+		where  = "mcp/pflotran-mcp/pflotran_exp_manager.py :: COLUMN_METADATA_EXTRA",
+	)
 
 	def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
 		"""The run plan the server already built, handed back — as ELM does."""
@@ -451,35 +511,16 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			series = {}
 			print(f"   ⚠️  could not read back {out_file} ({e}) — the rows "
 				  f"carry no series, so the Analyzer will find no frame")
-		# The column's OWN SETUP travels the same way, from the case inputs
-		# this stage was handed. It is the manager's to carry: the server read
-		# .tec files and has no idea what drove them or what they started from.
-		#
-		# water_table_m is the one that had to be here. FIELD_SEMANTICS
-		# declares it, so the Analyzer went looking and reported "the ParFlow
-		# CONUS2 reference water_table_m is finite for 0 of the 17 columns" —
-		# about a run where every column was initialised hydrostatic about a
-		# finite one. A name in FIELD_SEMANTICS with no number on any row is a
-		# capability the package claims and does not have, and the claim it
-		# produced was a false statement about the study.
-		#
-		# EVERY ONE OF THESE IS AN INPUT, and FIELD_SEMANTICS says so for each.
-		# They are carried so an output can be read against what produced it —
-		# not so they can be reported as results.
-		SETUP = ("forcing_start", "forcing_end", "water_table_m",
-				 "unsaturated_m", "wt_in_domain",
-				 "transient", "n_forcing_steps", "recharge_mm_yr",
-				 "rain_borrowed_km")
-		by_id = {e.get("id"): e for e in (experiments or []) if e.get("id")}
+		# THE COLUMN'S OWN SETUP IS NOT ATTACHED HERE ANY MORE (2026-08-18).
+		# It used to be copied from the case inputs by a hand-written tuple,
+		# and a key not on the tuple vanished in silence. The build call now
+		# writes it onto columns.json, and the base's package carries it onto
+		# the row through COLUMN_METADATA_EXTRA — the one asserted seam.
 		for r in rows:
 			blk = series.get(r.get("id"))
 			if blk:
 				r["profiles"] = blk
 				attached += 1
-			src = by_id.get(r.get("id")) or {}
-			for k in SETUP:
-				if src.get(k) is not None and r.get(k) is None:
-					r[k] = src[k]
 		if series and attached < len(read):
 			print(f"   ⚠️  {len(read) - attached} column(s) read but not "
 				  f"attached — their id is not a key of the series file")

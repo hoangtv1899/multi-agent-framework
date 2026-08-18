@@ -59,6 +59,7 @@ from typing   import Dict, Any, List, Optional
 sys.path.insert(0, "src")
 
 from core.exp_manager_base import ExperimentManagerBase, Pending
+from core.keyset import KeySet
 
 
 # parents[3]: this file is mcp/elm-mcp/src/. _ROOT is the FRAMEWORK root — the
@@ -280,6 +281,45 @@ class ELMExpManager(ExperimentManagerBase):
 	NEEDS_CASE_BUILD   = True          # CIME case build, ~8 min for the first
 	NEEDS_SCHEDULER = True          # sbatch + wait
 	COUPLES_TO      = "pflotran"    # one-way QINFL handoff, when asked for
+
+	# WHAT build_elm_inputs_from_location ADDS TO A COLUMN, and what the base's
+	# package carries from columns.json onto the row (composed with the
+	# framework's own COLUMN_METADATA; a key neither names raises). Moved here
+	# from the base list on 2026-08-18: which soil a column got and from where
+	# is ELM knowledge, so its declaration lives beside the server.
+	#
+	#   forcing_cell, soil_*   WHICH FORCING CELL, and WHAT SOIL — two
+	#                          independent facts about where the column ended
+	#                          up, both settled at input time and neither
+	#                          derivable from the row without them. Columns
+	#                          sharing forcing_cell got the same rain, so a
+	#                          difference between them is soil or terrain;
+	#                          that reading is the reader's to make, and
+	#                          nothing here precomputes it. The
+	#                          soil-attribution figure and any claim that soil
+	#                          explains a gradient rest on soil_*.
+	#   warm_start             cold or warm. Decides which initialisation
+	#                          caveat applies and how much of the early record
+	#                          is the start rather than the soil —
+	#                          extract.resolve_spinup reads it and trims 14
+	#                          days for one and a year for the other.
+	COLUMN_METADATA_EXTRA = KeySet(
+		"ELM_COLUMN_METADATA",
+		keep = ("forcing_cell", "soil_summary", "soil_top_texture",
+				"soil_layers", "soil_source", "soil_profile",
+				"warm_start"),
+		# A site run starts warm by default and its columns do not say so
+		# per column; a sweep writes it. Neither absence is a hole.
+		optional = ("warm_start",),
+		drop = {
+			"outside_design_band": "set by warm_start when the snapped donor "
+								   "leaves the band the sampler drew. A "
+								   "sampling-design fact, read by the design "
+								   "figure, not a property of the results",
+		},
+		source = "columns.json -> columns[*], as build_elm_inputs_from_location wrote them",
+		where  = "mcp/elm-mcp/src/elm_exp_manager.py :: COLUMN_METADATA_EXTRA",
+	)
 
 	# What ELM's derived metrics MEAN. Lives here, not on the base, because
 	# every entry names an ELM history variable: on the base it was silently
