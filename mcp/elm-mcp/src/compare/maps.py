@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from . import _common as C
+from agents.analysis import compare_common as C
 
 MAP_CMAP = "viridis"
 OBS_MARKER = "o"

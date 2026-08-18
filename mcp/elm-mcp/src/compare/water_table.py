@@ -40,7 +40,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import _common as C
+from agents.analysis import compare_common as C
 
 SPEC = C.Spec(
     name="water_table", model_vars=["ZWT"], units="m",

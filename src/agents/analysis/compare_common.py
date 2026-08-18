@@ -1,13 +1,30 @@
 #!/usr/bin/env python3
-"""The half of comparison that is the same for every observable.
+"""
+The model-blind half of every model-vs-observation comparison
+src/agents/analysis/compare_common.py
 
-Pairing, metrics and quality accounting do not depend on what is being
-compared, so they live once here. Everything that DOES depend on the
-observable — what a peak date means, whether a water table needs a log axis,
-whether a gauge is co-located at all — lives in that observable's own module.
+    Spec                     what one observable is, in the few facts every stage needs
+    load_observations        reception.json -> {(station, variable): {dates, values, quality}}
+    pair_stations / pair     which column stands beside which station, then the shared dates
+    metrics / quality        bias, RMSE, NSE, KGE, and how much of the record was measured
+    compare_all / compare_run / summarise
+                             the driver: every observable in a registry, its figures,
+                             comparison.json, and the summary small enough to travel
+    figure helpers           new_figure, save, basin_backdrop, column_map, one_to_one
 
-The split is the point. Two copies of an NSE would drift; two copies of "what
-snowpack phenology means" never existed to begin with.
+MOVED HERE FROM mcp/elm-mcp/src/compare/_common.py ON 2026-08-18, verbatim
+but for this header and two lines (a station's own `source`/`synthetic` now
+pass through, so a synthetic well cannot be mistaken for a USGS one). It was
+the shared half of ELM's comparison package and none of it knows ELM: it reads
+the shape reception writes, pairs stations to columns by the sampler's pins
+and by distance, computes metrics, and draws. The Analyzer is the one box that
+must be model-blind and reads PFLOTRAN runs too, so PFLOTRAN's comparison
+package needed exactly this — and two copies of an NSE would drift. Each
+model's package now holds only what is that model's: its SPEC per observable,
+how its own outputs become a comparable series, and its figure.
+
+The ELM server process imports this too (its `compare_to_obs` tool); it has
+put the framework's src on its path since long before this file moved.
 """
 from __future__ import annotations
 
@@ -101,8 +118,12 @@ BLOCKS = {
            "licence": "see per-site AmeriFlux data policy"},
 }
 
+# `source` and `synthetic` LAST, so a station's OWN statement of where it came
+# from overrides the block's default — a synthetic well written for a check
+# must never travel labelled as USGS.
 META_PASSTHROUGH = ("name", "lat", "lon", "elevation_m", "in_basin",
-                    "drainage_area_km2", "n_days", "n_obs", "igbp")
+                    "drainage_area_km2", "n_days", "n_obs", "igbp",
+                    "source", "synthetic")
 
 # Value fields a record-list may use, in the order they are tried.
 _VALUE_KEYS = ("value", "wtd_m", "et_mm_day", "mm_day", "swe_mm")
@@ -818,3 +839,180 @@ def split_quality(qq: List[str]) -> Tuple[List[int], List[int]]:
     """(indices measured, indices gap-filled or unknown)."""
     meas = [i for i, q in enumerate(qq) if q in MEASURED]
     return meas, [i for i in range(len(qq)) if i not in set(meas)]
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# THE DRIVER — every observable in a registry, its figures, the file, the summary
+# ═════════════════════════════════════════════════════════════════════════════
+# Moved here from mcp/elm-mcp/src/compare/__init__.py on 2026-08-18. It was
+# already generic: it never named an observable, only walked a registry of
+# modules that each carry a SPEC, a compare() and a plot(). Each model's package
+# is now that registry plus a few one-line wrappers, and the four moves —
+# compare, draw, write comparison.json, summarise — exist once.
+
+COMPARISON_FILENAME = "comparison.json"
+
+
+def compare_all(registry: Dict[str, Any], rows: List[Dict],
+                reception_json: str,
+                observables: Optional[List[str]] = None,
+                figure_dir: str = "", maps: Any = None) -> Dict[str, Any]:
+    """Every requested observable, whether or not it has an observation.
+
+    registry       {name: module} — each module has SPEC, compare(), plot()
+    reception_json the run's reception.json, or a payload already narrowed to
+                   its `observations` block
+    maps           a module with plot_all(observables, rows, meta, path, ...)
+                   for the spatial map, or None for a package without one
+    """
+    series, meta, dropped = load_observations(reception_json)
+    domain = load_domain(reception_json)
+    want = observables or list(registry)
+    out: Dict[str, Any] = {
+        "observables": {}, "n_observation_rows_dropped": dropped,
+        "domain": domain,
+        "note": ("measurements only — no verdict is offered on any of these, "
+                 "and every comparison is context rather than a skill claim"),
+    }
+    figures: Dict[str, Any] = {}
+    for name in want:
+        mod = registry.get(name)
+        if mod is None:
+            out["observables"][name] = {
+                "error": f"unknown observable '{name}'; have {sorted(registry)}"}
+            continue
+        # reception_json reaches every module: some read more of the file than
+        # the station tables (Fan wells, the water-table raster). The others
+        # absorb it in **kw.
+        rec = mod.compare(rows, series, meta, domain=domain,
+                          reception_json=reception_json)
+        out["observables"][name] = rec
+        if figure_dir:
+            # DRAWN EVEN WHEN THE RECORD CARRIES AN `error`: a module may return
+            # model-side findings beside the message that no station was
+            # available, and that is exactly the basin where the figure is the
+            # only picture there is. Each plot() returns None when it truly has
+            # nothing to draw. NON-FATAL: the numbers are the product.
+            try:
+                p = mod.plot(rec, rows, series,
+                             str(Path(figure_dir) / f"compare_{name}.png"),
+                             reception_json=reception_json)
+                if p:
+                    figures[name] = p
+            except Exception as e:                              # noqa: BLE001
+                figures[name] = f"failed: {type(e).__name__}: {e}"[:200]
+    if figure_dir and maps is not None:
+        try:
+            p = maps.plot_all(out["observables"], rows, meta,
+                              str(Path(figure_dir) / "comparison_spatial_map.png"),
+                              series=series, reception_json=reception_json)
+            if p:
+                figures["map"] = p
+        except Exception as e:                                  # noqa: BLE001
+            figures["map"] = f"failed: {type(e).__name__}: {e}"[:200]
+    out["figures"] = figures
+    return out
+
+
+def compare_run(registry: Dict[str, Any], rows: List[Dict],
+                reception_json: str, out_dir: str,
+                observables: Optional[List[str]] = None,
+                draw: bool = True, maps: Any = None) -> Dict[str, Any]:
+    """compare_all, written down, plus the summary. The whole thing, once.
+
+    Returns {comparison, summary, path, figures}. The full record is on disk
+    at `path`; `summary` is the part small enough to travel or to put in a
+    prompt. `draw` exists for a caller that only needs the numbers.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = compare_all(registry, rows, reception_json, observables=observables,
+                      figure_dir=str(out_dir) if draw else "", maps=maps)
+    path = out_dir / COMPARISON_FILENAME
+    path.write_text(json.dumps(out, indent=2, default=str))
+    return {"comparison": out, "summary": summarise(registry, out),
+            "path": str(path), "figures": out.get("figures") or {}}
+
+
+_MAX_STR = 160          # a note belongs in the file, not in a return value
+_MAX_LIST = 24          # column names travel; a daily series does not
+_MAX_DEPTH = 2          # a headline block, and the sub-blocks that carry it
+_BULK = {"values", "per_column", "range_m_per_column",
+         "frac_days_below_per_column", "towers", "dates"}
+
+
+def _compact(value: Any, depth: int = 0) -> Any:
+    """One record block, shrunk to what can travel: numbers, short strings, a
+    short list of scalars, and two levels of nesting."""
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, str):
+        return value if len(value) <= _MAX_STR else None
+    if isinstance(value, list):
+        if len(value) > _MAX_LIST or any(isinstance(v, (dict, list))
+                                         for v in value):
+            return None
+        return value
+    if isinstance(value, dict) and depth < _MAX_DEPTH:
+        kept = {k: (None if k in _BULK else _compact(v, depth + 1))
+                for k, v in value.items()}
+        return {k: v for k, v in kept.items() if v is not None and v != {}}
+    return None
+
+
+def summarise(registry: Dict[str, Any], out: Dict[str, Any]) -> Dict[str, Any]:
+    """The comparison as a few dozen numbers — for a caller, not for a file.
+
+    The model-side findings travel: each module declares which of its blocks
+    are headlines (SPEC.headlines) and they come back compacted, beside any
+    error rather than instead of it.
+    """
+    summary: Dict[str, Any] = {}
+    for name, rec in (out.get("observables") or {}).items():
+        mod = registry.get(name)
+        spec = getattr(mod, "SPEC", None)
+        entry: Dict[str, Any] = {
+            "units": rec.get("units"), "colocated": rec.get("colocated"),
+            "model_comparand": rec.get("model_comparand"),
+            "obs_quantity": rec.get("obs_quantity"),
+            "n_columns": rec.get("n_columns_with_series"),
+            "n_stations": rec.get("n_stations"),
+        }
+        if rec.get("error"):
+            entry["error"] = rec["error"]
+        if rec.get("skipped"):
+            entry["skipped"] = rec["skipped"]
+        matched = []
+        for e in (rec.get("pairs") or rec.get("gauges") or []):
+            if not e.get("n_days"):
+                continue
+            m = e.get("metrics") or {}
+            matched.append({
+                "station_id": e.get("station_id"),
+                **({"column": e["case_name"]} if e.get("case_name") else {}),
+                "n_days": e.get("n_days"), "overlap": e.get("overlap"),
+                **({"separation_km": e["separation_km"]}
+                   if e.get("separation_km") is not None else {}),
+                **{k: m.get(k) for k in ("bias", "rmse", "nse", "kge")},
+                **({"frac_measured": (e.get("obs_quality") or {})
+                    .get("frac_measured")} if e.get("obs_quality") else {}),
+                # THE KEY CARRIES THE SIGN CONVENTION: a positive offset means
+                # the model's water arrives AFTER the gauge saw it.
+                **({"model_days_later_than_gauge": (e.get("timing") or {})
+                    .get("best_offset_days")} if e.get("timing") else {}),
+            })
+        if matched:
+            entry["matched"] = matched
+        for key, n in (("unpaired_stations", "n_unpaired_stations"),
+                       ("unmatched_columns", "n_unmatched_columns")):
+            if rec.get(key):
+                entry[n] = len(rec[key])
+        if rec.get("stations_excluded_outside_basin"):
+            entry["stations_excluded_outside_basin"] = \
+                rec["stations_excluded_outside_basin"]
+        for key in (getattr(spec, "headlines", ()) or ()):
+            block = _compact(rec.get(key))
+            if block not in (None, {}, []):
+                entry[key] = block
+        summary[name] = {k: v for k, v in entry.items() if v is not None}
+    return summary

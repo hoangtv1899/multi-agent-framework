@@ -56,24 +56,56 @@ from typing import Any, Dict, List, Optional
 # model choose the manager class. A backend with no comparison says so; it does
 # not get ELM's.
 #
-#     model            module        where
+#     model            package       where
 #     elm              compare       mcp/elm-mcp/src/compare/
-#     pflotran         —             none yet; see below
+#     pflotran         compare       mcp/pflotran-mcp/compare/   (2026-08-18)
 #
-# ADDING PFLOTRAN is a package and one line here. It would declare its own
-# observables — a PFLOTRAN column has no snowpack, and its comparands are
-# concentrations and heads against wells — and the Spec/compare()/plot() shape
-# is model-agnostic on purpose. Nothing else in the Analyzer changes.
+# Each package is its model's registry of observables — a SPEC, a compare()
+# and a plot() per module — and nothing else: the dispatcher and the shared
+# half (reading reception's observations, pairing, metrics, figures) are the
+# framework's, in agents/analysis/compare_common. Adding a model is a package
+# and one line here.
 #
 # IN-PROCESS RATHER THAN OVER MCP, deliberately. The Analyzer must run against
 # an ARCHIVED run directory with no servers configured — that is what makes
 # step 3 re-runnable, and it is how this step is developed. A tool call would
-# make the Analyzer's one input a live subprocess. It is the same edge
-# core/backends.py already opens for ELMExpManager, and it goes when that does.
+# make the Analyzer's one input a live subprocess.
+#
+# LOADED BY PATH UNDER A UNIQUE NAME. Both packages are called `compare`, so
+# the old "append the server dir and __import__('compare')" would hand a
+# PFLOTRAN run whichever package a previous import had cached. Each is loaded
+# from its own __init__.py as `compare_<model>`; relative imports inside the
+# package resolve against that name.
+_ROOT = Path(__file__).resolve().parents[3]
 _SERVER_SRC = {
-    "elm": Path(__file__).resolve().parents[3] / "mcp" / "elm-mcp" / "src",
+    "elm":      _ROOT / "mcp" / "elm-mcp" / "src",
+    "pflotran": _ROOT / "mcp" / "pflotran-mcp",
 }
-_COMPARE_MODULE = {"elm": "compare"}
+_COMPARE_MODULE = {"elm": "compare", "pflotran": "compare"}
+
+
+def _load_compare(model: str):
+    """The model's comparison package, imported once under `compare_<model>`."""
+    import importlib.util
+    name = f"compare_{model}"
+    if name in sys.modules:
+        return sys.modules[name]
+    src = _SERVER_SRC.get(model)
+    pkg = (src / _COMPARE_MODULE[model]) if src else None
+    if not pkg or not (pkg / "__init__.py").is_file():
+        raise RuntimeError(
+            f"the comparison for '{model}' lives in that model's server "
+            f"({pkg}) and was not found there")
+    spec = importlib.util.spec_from_file_location(
+        name, pkg / "__init__.py", submodule_search_locations=[str(pkg)])
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
+    return mod
 
 FILENAME = "comparison.json"
 
@@ -133,16 +165,11 @@ def compare_all(ctx, out_dir, draw: bool = True) -> Dict[str, Any]:
                            f"lives in that model's server. Registered: "
                            f"{sorted(_COMPARE_MODULE)}."}
 
-    src = _SERVER_SRC.get(model)
-    if src and src.is_dir() and str(src) not in sys.path:
-        sys.path.append(str(src))       # append: the framework's own modules
-                                        # must still win a name collision
     try:
-        _cmp = __import__(mod_name)
-    except ImportError as e:                                    # noqa: BLE001
+        _cmp = _load_compare(model)
+    except Exception as e:                                      # noqa: BLE001
         raise RuntimeError(
-            f"the comparison for '{model}' lives in that model's server "
-            f"({src}) and could not be imported: {e}") from e
+            f"the comparison for '{model}' could not be imported: {e}") from e
 
     # THE ROWS COME FROM ctx, not from a file this step opens. ctx.columns is
     # already the shape the comparison reads — case_name, lat/lon/elevation_m,

@@ -43,7 +43,7 @@ import datetime as dt
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import _common as C
+from agents.analysis import compare_common as C
 
 SPEC = C.Spec(
     name="streamflow", model_vars=["QOVER", "QDRAI"], units="mm/day",

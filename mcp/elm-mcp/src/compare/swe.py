@@ -34,7 +34,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import _common as C
+from agents.analysis import compare_common as C
 
 SPEC = C.Spec(
     name="swe", model_vars=["H2OSNO"], units="mm",

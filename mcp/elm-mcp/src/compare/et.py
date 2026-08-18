@@ -50,7 +50,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import _common as C
+from agents.analysis import compare_common as C
 
 SPEC = C.Spec(
     name="et", model_vars=["QSOIL", "QVEGE", "QVEGT"], units="mm/day",
