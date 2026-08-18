@@ -341,7 +341,6 @@ class ELMExpManager(ExperimentManagerBase):
 	# now fails at the first stage instead of quietly running a second
 	# implementation of ELM that nobody has exercised since the move.
 	MCP_NAME = "elm"
-	CAPABILITIES_TOOL = "describe_elm_capabilities"
 
 	def _announce(self, experiments, config) -> str:
 		"""Say what is about to happen. PRINTS ONLY — it never asks.

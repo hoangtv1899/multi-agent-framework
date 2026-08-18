@@ -49,11 +49,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 
 	MODEL = "pflotran"
 
-	# WHICH SERVER OWNS THE PINNING RULES. `_pinning_rules` prefers the model
-	# the brief names and falls back to this, so a manager driven directly by a
-	# tool or a test still asks the right server.
+	# THE SERVER THIS MANAGER DRIVES — decks, runs, extraction all go to it.
 	MCP_NAME = "pflotran"
-	CAPABILITIES_TOOL = "describe_pflotran_capabilities"
 
 	# NEITHER STAGE APPLIES. There is no case to compile — a deck is a text file
 	# — and no scheduler to wait on: a 786-cell column runs in 86 s and a 36-cell

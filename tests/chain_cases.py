@@ -39,18 +39,18 @@ sys.path.insert(0, str(ROOT / "tests"))
 from reception_cases import CASES                              # noqa: E402
 
 
-def pin_rules(clients):
-    """What a column may be pinned to, asked of the model server.
+def pin_block(clients):
+    """The model server's `pinning` block, fetched ONCE for the planner.
 
-    THE HARNESS HAS TO APPLY THE SAMPLER'S OWN TEST, or it scores the pipeline
-    against a rule the pipeline no longer follows — which it did on 2026-08-08,
-    failing four basins for doing the right thing. That is exactly why this asks
-    the server rather than keeping its own copy: a third statement of the rule
-    is a third thing to go stale.
+    THE HARNESS HAS TO DO WHAT workflow.py DOES: hand the block to the planner
+    and write it into the plan, so the sampler reads the same rules the design
+    was made under. It used to fetch the block again for the sampler — a third
+    statement of one rule, and the harness scored four basins as failing on
+    2026-08-08 for following a rule the harness itself had not.
     """
-    import expand_sampling as _exp
-    return _exp.pinning_rules(
-        clients["elm"].call_tool_json("describe_elm_capabilities", {}) or {})
+    from core.model_servers import describe_server
+    got = describe_server(clients, "elm")
+    return (got.get("report") or {}).get("pinning") or {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -207,7 +207,9 @@ def run_case(case, clients, models, verbose=False):
     rec_agent = LLMReceptionAgent(model=models["reception"], mcp_clients=clients,
                                   verbose=verbose, interactive=False)
     reception = rec_agent.process(case["query"])
-    plan = Planner(model=models["planner"]).plan(reception)
+    block = pin_block(clients)
+    plan = Planner(model=models["planner"], pinning=block).plan(reception)
+    plan["pinning"] = block                 # what workflow.py writes beside it
 
     brief = reception.get("brief") or {}
     bbox = exp._bbox_from_brief(brief)
@@ -217,7 +219,7 @@ def run_case(case, clients, models, verbose=False):
 
     # Raises when the plan names a station reception never fetched. That is the
     # designed behaviour and a genuine result for this case, not a harness bug.
-    pinned = exp._pinned_from_plan(plan, reception, pin_rules(clients))
+    pinned = exp._pinned_from_plan(plan, reception)
 
     # Reception already fetched the DEM grid at the sampler's own resolution
     # (data_gather.GRID_N = 120) and clipped it to the WBD polygon, so reuse its
@@ -276,7 +278,8 @@ def replay(d: Path, clients):
         stub = {**clients, "terrain": _GridStub(clients["terrain"], pts)}
         res, pinned, err = None, [], None
         try:
-            pinned = exp._pinned_from_plan(plan, rec, pin_rules(clients))
+            plan.setdefault("pinning", pin_block(clients))   # an archived plan may predate the key
+            pinned = exp._pinned_from_plan(plan, rec)
             bbox = exp._bbox_from_brief(rec.get("brief") or {})
             res = exp.expand(stub, bbox, exp._n_from_plan(plan),
                              exp._n_bands_from_plan(plan) or 4,
@@ -288,7 +291,7 @@ def replay(d: Path, clients):
         except Exception as e:                                 # noqa: BLE001
             err = f"{type(e).__name__}: {e}"
 
-        checks = check_chain(plan, rec, res, pinned, pin_rules(clients))
+        checks = check_chain(plan, rec, res, pinned, exp.pinning_rules(plan))
         n_ok = sum(1 for x in checks if x["ok"] or x.get("note"))
         bad = [x["check"] for x in checks if not (x["ok"] or x.get("note"))]
         (d / f"{cid}.replay.json").write_text(json.dumps(
@@ -381,7 +384,7 @@ def main():
         el = time.time() - t0
 
         checks = (check_chain(plan or {}, rec or {}, res, pinned,
-                              pin_rules(clients)) if plan else [])
+                              exp.pinning_rules(plan)) if plan else [])
         (out / f"{c['id']}.json").write_text(json.dumps({
             "case": c,
             "reception": {k: v for k, v in (rec or {}).items()

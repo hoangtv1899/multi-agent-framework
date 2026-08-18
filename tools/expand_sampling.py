@@ -13,8 +13,9 @@ warm-start donor gridcell, so a profile queried here would be a field the model
 never sees. Both are the consumer's to fetch, where the decision that needs
 them is made.
 
-Operates on a pipeline run dir (reads reception_brief.json for the bbox and
-plan.json for N / band count), or standalone via --bbox/--n/--bands.
+Operates on a pipeline run dir (reads reception_brief.json for the bbox,
+strategy.json for N / band count / the pinning rules, reception.json for the
+stations), or standalone via --bbox/--n/--bands.
 
 Run from the project root with the MCP runtime env:
     source /qfs/people/tran289/IDEAS/env_compy.sh
@@ -163,7 +164,8 @@ STATION_SOURCES = (("streamflow", "stations"),
                    ("swe", "stations"),
                    ("et", "towers"))
 
-# WHAT A COLUMN CAN BE PINNED TO IS THE MODEL SERVER'S ANSWER, NOT THIS FILE'S.
+# WHAT A COLUMN CAN BE PINNED TO IS THE MODEL SERVER'S ANSWER, NOT THIS FILE'S
+# — AND IT IS READ FROM strategy.json, NOT ASKED OF THE SERVER (2026-08-18).
 #
 # A pinned column exists so a simulated value and an observed one describe the
 # SAME place, and whether that is possible depends on what the model computes
@@ -173,26 +175,44 @@ STATION_SOURCES = (("streamflow", "stations"),
 # has no lateral transport" is true of a 1-D ELM column and false of a 3-D
 # PFLOTRAN domain, so the frozen version was a bug waiting on a second backend.
 #
-# The rules now come from the server's capability report and are passed in. What
-# they are FOR has not changed, and is worth keeping: on the 13-basin chain run
-# of 2026-08-07, 14 of 40 pinned columns went to stream gauges. Eight were under
-# the planner's own "basin-aggregate" label — it knew — and the rest were
-# labelled "co-located", which for a gauge cannot be true. brandywine_2010 put
-# four gauge pins all in band 1, giving that band 7 of the basin's 13 columns
-# for a third of the elevation range: gauges sit on rivers, so gauge pins sit in
-# valleys, so the ensemble tilts downhill.
+# Then both read the server's capability report — the planner through its
+# prompt, this file through a second MCP call at sampling time — which was one
+# rule with two fetches, and two fetches can disagree: a server updated between
+# plan and run, a resume a week later, a manager class naming a different
+# server than the brief. So the block the planner was SHOWN now travels with
+# the plan: workflow.py writes it into strategy.json beside the design, and this
+# file reads it from there. One fetch, one record, two readers, and the sample
+# is checked against exactly the rules the design was made under. This file no
+# longer talks to any model server; it is a function of reception.json and
+# strategy.json and nothing else.
+#
+# What the rules are FOR has not changed, and is worth keeping: on the 13-basin
+# chain run of 2026-08-07, 14 of 40 pinned columns went to stream gauges. Eight
+# were under the planner's own "basin-aggregate" label — it knew — and the rest
+# were labelled "co-located", which for a gauge cannot be true. brandywine_2010
+# put four gauge pins all in band 1, giving that band 7 of the basin's 13
+# columns for a third of the elevation range: gauges sit on rivers, so gauge
+# pins sit in valleys, so the ensemble tilts downhill.
 #
 # FILTERING ON THE VARIABLE, not on the planner's `comparison` string, is what
 # makes that survivable — brandywine called all four "co-located", so a string
 # filter would have caught none of them.
-def pinning_rules(capabilities: Dict[str, Any]) -> Dict[str, Any]:
-    """A model server's `pinning` block, in the shape the filter needs.
+def pinning_rules(strategy: Dict[str, Any]) -> Dict[str, Any]:
+    """The `pinning` block the plan was designed against, in the filter's shape.
 
     Returns {model, pinnable: frozenset, why_not: {variable: reason}}.
 
+    READ OFF strategy.json. workflow.py fetches the chosen model's block for the
+    planner and writes it beside the plan (`strategy["pinning"]`), so what the
+    sampler enforces is what the planner was shown — the same object, not a
+    second fetch of the same question. Accepts a bare block too, for a caller
+    that already holds one.
+
     RAISES when the block is absent. There is deliberately no built-in default:
     a fallback tuple here is exactly what this replaced, and one that engages
-    silently would restate ELM's answer for whatever model actually ran.
+    silently would restate ELM's answer for whatever model actually ran. A
+    strategy written before 2026-08-18 has no block; re-plan it, or add the
+    server's `pinning` block by hand — do not default it.
 
     THE NAMES ARE THE COMPARISON'S NAMES (compare/*.py SPEC.name), which the
     server states in `vocabulary`. That agreement is not decorative: when the
@@ -200,16 +220,16 @@ def pinning_rules(capabilities: Dict[str, Any]) -> Dict[str, Any]:
     compared the two spellings, found them unequal, and silently refused every
     well pin ever designed.
     """
-    block = ((capabilities or {}).get("pinning")
-             if "pinning" in (capabilities or {}) else capabilities) or {}
+    block = ((strategy or {}).get("pinning")
+             if "pinning" in (strategy or {}) else strategy) or {}
     pinnable = [e.get("variable") for e in (block.get("pinnable") or [])
                 if e.get("variable")]
     if not pinnable:
         raise RuntimeError(
-            "the model server's capability report carries no `pinning."
-            "pinnable` — the sampler cannot decide what a column may be pinned "
-            "to, and guessing is what this replaced. Check that the backend's "
-            "CAPABILITIES_TOOL names a tool that reports a `pinning` block.")
+            "strategy.json carries no `pinning.pinnable` block — the sampler "
+            "cannot decide what a column may be pinned to, and guessing is what "
+            "this replaced. workflow.py writes the chosen model's block beside "
+            "the plan; a strategy from before 2026-08-18 does not have one.")
     return {
         "model": block.get("model"),
         "pinnable": frozenset(pinnable),
@@ -338,113 +358,99 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     return 2 * 6371.0 * math.asin(math.sqrt(h))
 
 
-def _pinned_from_plan(plan, reception, rules):
+def _pinned_from_plan(plan, reception):
     """Stations the planner asked for a column at, resolved to coordinates.
 
-    `rules` is pinning_rules(<the model server's capability report>) — which
-    observables a column of the model that is about to run may be pinned to.
-    Required, and deliberately not defaulted: see pinning_rules.
+    A FUNCTION OF TWO FILES. `plan` is strategy.json — the design, and the
+    pinning block it was designed against; `reception` is reception.json —
+    every station that was fetched, with its coordinates and its in-basin tag.
+    Nothing is asked of a server here: everything this decides on was on disk
+    before it ran, and the planner was shown all of it.
 
     Reads `plan["validation"]`, whose entries look like
 
-        {"variable": "swe", "stations": ["538:CO:SNTL", "762:CO:SNTL"], ...}
+        {"variable": "swe", "stations": ["538:CO:SNTL"], "comparison": "co-located — ..."}
 
-    and resolves each id against what reception actually fetched. Every station
-    the planner names is one it was shown, so each should resolve; a miss means
-    the plan and the observations disagree, and that is raised rather than
-    dropped. Silently skipping is how this whole class of bug happened.
+    ONLY A CO-LOCATED VERDICT PINS. The planner speaks four verdicts —
+    co-located, basin-aggregate, distance-matched, unavailable — and only the
+    first means "put a column here". Across every archived strategy, stations
+    appear under co-located and under nothing else, so this is the rule the
+    planner already follows rather than a new one; an entry that breaks it is
+    reported and its stations are not spent. That replaces a special case for
+    the word "unavailable" that caught the naches_1988 slip (water_table ruled
+    out AND two wells named, costing two columns and leaving two bands short)
+    and would have missed the same slip under any other verdict.
 
-    A variable the planner itself ruled out gets no columns. planner.txt asks it
-    to pair `comparison: "unavailable"` with `stations: []`, and the 2026-08-07
-    chain run caught it emitting the verdict while keeping the list: naches_1988
-    declared water_table unavailable — "observed WTDs of tens of metres lie below
-    the ELM soil column" — and still named two wells. Pinning them spent two
-    columns on a comparison that cannot be made AND took both out of the
-    stratified budget, leaving 13 stratified columns where the plan said 15 and
-    two bands one short. The verdict is the planner's real intent; the list is
-    the slip, and its own n_validation=4 against 6 cited stations says so.
+    Then, per station, three checks — each one line, each with a run behind it:
+
+      not fetched     RAISED. Every id the planner names is one it was shown,
+                      so a miss means plan and observations disagree, and
+                      dropping it silently is how this class of bug happened.
+      not pinnable    dropped, with the server's own reason. Judged on WHICH
+                      LIST RECEPTION FOUND THE STATION IN, not on the plan's
+                      label for it, so a mislabelled entry is filtered on what
+                      the station actually is. brandywine_2010 called four
+                      gauge pins "co-located"; a string filter caught none.
+      outside basin   dropped. Observations are fetched for the bbox, which
+                      is larger than the divide; `in_basin` is reception's tag,
+                      absent only when there was no polygon — and absent is
+                      not False.
+
+    THE FAN ANCHORS ARE APPENDED WHETHER OR NOT ANYTHING WAS PINNED. They are
+    the sampler's own — the planner is never shown Fan and budgets "+ 2" for
+    them blind — so a plan that pins no station still gets its two columns at
+    documented water tables. An earlier version returned before reaching them
+    when the pin list was empty: the count still came out right, because the
+    two orphaned columns were handed to the bands, so nothing said that a
+    17-column PFLOTRAN study meant to sit two columns on the water table sat
+    none. They come last so a budget squeeze in expand() drops an anchor
+    before a station the planner asked for.
     """
-    wanted, seen, ruled_out = [], set(), []
-    for entry in (plan or {}).get("validation") or []:
-        stations = [str(s) for s in entry.get("stations") or []]
-        if str(entry.get("comparison") or "").strip().lower().startswith(
-                "unavailable"):
-            if stations:
-                ruled_out.append((entry.get("variable"), stations))
-            continue
-        for sid in stations:
-            if sid not in seen:
-                seen.add(sid)
-                wanted.append(sid)
-
-    for var, sts in ruled_out:
-        print(f"   ⚠️  '{var}' is marked comparison='unavailable' but names "
-              f"{len(sts)} station(s) {sts} — NOT pinning them. The planner "
-              f"ruled the comparison out; a column there cannot be validated.")
-
-    # n_validation is DEFINED as the number of pinned columns, so a disagreement
-    # means the plan's own arithmetic (n_bands*per_band + n_validation) does not
-    # describe what it asked for.
-    n_val = ((plan or {}).get("sampling") or {}).get("n_validation")
-    if n_val is not None and len(wanted) != n_val:
-        print(f"   ⚠️  plan says n_validation={n_val} but {len(wanted)} station(s) "
-              f"remain after the 'unavailable' entries — the column budget was "
-              f"computed from {n_val}.")
-
-    if not wanted:
-        return []
-
+    rules = pinning_rules(plan)
+    pinnable, why = rules["pinnable"], rules["why_not"]
     idx = _station_index(reception)
 
-    missing = [s for s in wanted if s not in idx]
-    if missing:
-        raise ValueError(
-            f"Cannot pin columns: strategy.validation names station(s) "
-            f"{missing} that are not in reception's fetched set "
-            f"({len(idx)} available: {sorted(idx)[:8]}{' ...' if len(idx) > 8 else ''}). "
-            f"A column at the station is the only thing that lets the analyzer "
-            f"pair a simulation with an observation, so this is not degraded "
-            f"silently — fix reception's fetch, or drop the station from "
-            f"strategy.validation.")
+    keep, seen = [], set()
+    for entry in (plan or {}).get("validation") or []:
+        stations = [str(s) for s in entry.get("stations") or []]
+        verdict = str(entry.get("comparison") or "").strip().lower()
+        if not verdict.startswith("co-located"):
+            if stations:
+                print(f"   ⚠️  '{entry.get('variable')}' is "
+                      f"'{verdict.split(' ')[0] or '(no verdict)'}' but names "
+                      f"{len(stations)} station(s) {stations} — NOT pinning "
+                      f"them. Only a co-located verdict places a column.")
+            continue
+        for sid in stations:
+            if sid in seen:
+                continue
+            seen.add(sid)
+            st = idx.get(sid)
+            if st is None:
+                raise ValueError(
+                    f"Cannot pin columns: strategy.validation names station "
+                    f"{sid!r} that is not in reception's fetched set "
+                    f"({len(idx)} available: {sorted(idx)[:8]}"
+                    f"{' ...' if len(idx) > 8 else ''}). A column at the "
+                    f"station is the only thing that lets the analyzer pair a "
+                    f"simulation with an observation, so this is not degraded "
+                    f"silently — fix reception's fetch, or drop the station "
+                    f"from strategy.validation.")
+            var = st["station_variable"]
+            if var not in pinnable:
+                print(f"   ⚠️  not pinning {sid} ({var}) — this model cannot be "
+                      f"co-located with it: "
+                      f"{why.get(var, 'not a quantity this model produces at a point.')}")
+                continue
+            if st.get("in_basin") is False:
+                print(f"   ⚠️  not pinning {sid} ({var}) — OUTSIDE the "
+                      f"watershed. Observations are fetched for the bounding "
+                      f"box, which is larger than the basin; a column out "
+                      f"there is forced and soiled from ground the study "
+                      f"does not model.")
+                continue
+            keep.append(st)
 
-    # Drop what a column of THIS model cannot be co-located with. The variable
-    # comes from WHICH LIST RECEPTION FOUND THE STATION IN, not from the plan's
-    # claim about it, so a mislabelled entry is filtered on what the station
-    # actually is.
-    pinnable, why = rules["pinnable"], rules["why_not"]
-    keep = [idx[s] for s in wanted if idx[s]["station_variable"] in pinnable]
-    dropped = [idx[s] for s in wanted
-               if idx[s]["station_variable"] not in pinnable]
-    if dropped:
-        print(f"   ⚠️  not pinning {len(dropped)} station(s) this model cannot "
-              f"be co-located with: "
-              f"{[(d['station_id'], d['station_variable']) for d in dropped]}")
-        # ONE REASON PER VARIABLE, and the reason comes from the server that
-        # owns it. This used to print the gauge argument — "integrates and
-        # routes an upstream area" — for whatever was dropped, so after the
-        # water table left the list recorder wells were refused with an
-        # explanation about rivers.
-        for var in sorted({d["station_variable"] for d in dropped}):
-            print(f"   ⚠️  {var}: {why.get(var, 'not a quantity this model produces at a point.')}")
-
-    # And drop what sits outside the watershed. Reception tags every station
-    # against the WBD polygon (`in_basin`); the tag is absent only when there was
-    # no polygon to test against, and absent is not the same as False.
-    outside = [c for c in keep if c.get("in_basin") is False]
-    if outside:
-        keep = [c for c in keep if c.get("in_basin") is not False]
-        print(f"   ⚠️  not pinning {len(outside)} station(s) OUTSIDE the watershed: "
-              f"{[c['station_id'] for c in outside]}")
-        print(f"   ⚠️  Observations are fetched for the bounding box, which is "
-              f"larger than the basin. A column out there is forced and soiled "
-              f"from ground the study does not model.")
-
-    # THE FAN ANCHORS ARE THE SAMPLER'S, NOT THE PLANNER'S. The planner is never
-    # shown the Fan compilation (decided 2026-08-12: "it's okay the planner
-    # doesn't learn Fan exists"), and it should not be — where to put a column
-    # so the ensemble is interpretable is a design question, and the design is
-    # this file's job. They are appended after the planner's pins so a budget
-    # squeeze in expand() drops an anchor before a station the planner asked for.
     return keep + _fan_anchors(reception)
 
 
@@ -964,7 +970,11 @@ def main():
         if args.run_dir:
             rd = Path(args.run_dir)
             brief = json.loads((rd / "reception_brief.json").read_text())
-            plan = json.loads((rd / "plan.json").read_text()) if (rd / "plan.json").exists() else {}
+            # strategy.json is the plan AND the pinning block it was designed
+            # against; plan.json is the manager's copy of the same dict.
+            plan = next((json.loads((rd / f).read_text())
+                         for f in ("strategy.json", "plan.json")
+                         if (rd / f).exists()), {})
             if (plan.get("archetype")
             or (plan.get("model_choice") or {}).get("design_archetype")) == "conceptual":
                 sys.exit("Plan is 'conceptual' archetype — no spatial expansion needed.")

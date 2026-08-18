@@ -32,7 +32,7 @@ So they move DOWN, into `01_inputs/`, rather than away.
 | File | Written by | Holds |
 |---|---|---|
 | `reception.json` | coordinator, after Reception | route, brief, observations, grid, provenance |
-| `strategy.json` | coordinator, after Planner | archetype, goals, feasibility, sampling, validation |
+| `strategy.json` | coordinator, after Planner | archetype, goals, feasibility, sampling, validation, **pinning** — the model server's block the design was made against, written by the coordinator so the sampler enforces the same rules the planner was shown (2026-08-18) |
 | `experiment.json` | Exp Manager `_package()` | domain, period, strategy check, per-column results, field semantics, artifact pointers |
 | `analysis.json` | Analyzer | figures drawn, validation verdicts, interpretation — TO BE ADDED |
 

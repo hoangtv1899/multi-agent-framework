@@ -283,8 +283,8 @@ class WorkflowCoordinator:
 		"""What a column of `model` may be compared against, asked of ITS server.
 
 		ASKED OF THE SERVER BY NAME, NOT VIA A MANAGER CLASS (2026-08-17). It
-		used to go through the manager, which carries MCP_NAME and
-		CAPABILITIES_TOOL — and since the only manager left is ELM's, every
+		used to go through the manager, which carried MCP_NAME and a
+		CAPABILITIES_TOOL — and since the only manager left was ELM's, every
 		study was handed ELM's pinning rules under a heading that told the
 		planner they came from "the model server that will run this study".
 		For a PFLOTRAN study those rules are not merely stale, they are
@@ -300,11 +300,16 @@ class WorkflowCoordinator:
 		manager class conflates them — which is why the name goes straight to
 		describe_server, the same call reception uses to choose.
 
+		THIS IS THE ONLY FETCH (2026-08-18). The block is written into
+		strategy.json beside the plan, and the sampler reads it from there
+		rather than asking the server again — so the sample is checked against
+		exactly the rules the design was made under.
+
 		Returns None and says so rather than raising: the planner without the
-		block writes a plan, and the sampler — which asks the same server the
-		same question — refuses to place a column without it. Failing at the
-		later point is better than failing at the earlier one, because the
-		later point is where a wrong answer would start costing compute.
+		block writes a plan, strategy.json is written without a `pinning` key,
+		and the sampler refuses to place a column until one is there. Failing
+		at the later point is better than failing at the earlier one, because
+		the later point is where a wrong answer would start costing compute.
 		"""
 		try:
 			block = (self._model_report(mcp_clients, model) or {}).get("pinning")
@@ -378,6 +383,41 @@ class WorkflowCoordinator:
 	# ═════════════════════════════════════════════════════════
 	# MAIN ENTRY POINT
 	# ═════════════════════════════════════════════════════════
+	def _plan(self, result: dict, run_dir) -> dict:
+		"""reception.json -> strategy.json, with the rulebook it was made under.
+
+		ONE METHOD, so the step can be driven on its own — against an archived
+		reception, without the execute stage behind it — and so what it writes
+		is what a test reads. It was inlined in _workflow_design_and_run until
+		2026-08-18, which meant the only way to see strategy.json produced was
+		to run a study.
+
+		WHAT MAY BE PINNED TO is asked of the model reception just chose — by
+		name, so this is the chosen server's answer rather than the only manager
+		the framework happens to have. `self.model` is what _adopt_model settled
+		on, so the two cannot disagree. AND WHAT IT MAY NOT VARY comes from the
+		same report: one round trip, _model_report memoizes between the two.
+
+		THE RULEBOOK TRAVELS WITH THE DESIGN. The pinning block was fetched for
+		the planner's prompt and used to be discarded after it; the sampler
+		then asked the server the same question a second time, and two fetches
+		of one rule can disagree — a server updated between plan and run, a
+		resume a week later, a manager naming a different server than the
+		brief. Written here, beside the plan, it is what the sampler enforces:
+		the exact block this design was made under, the same object, read off
+		the same file. Written by this code and not by the planner, because an
+		LLM restating a rule it was given is a second copy of it.
+		"""
+		self.planner.pinning = self._pinning_block(self.mcp_clients, self.model)
+		self.planner.constraints = self._constraints_block(
+			self.mcp_clients, self.model)
+		plan = self.planner.plan(result)
+		if self.planner.pinning:
+			plan["pinning"] = self.planner.pinning
+		(Path(run_dir) / "strategy.json").write_text(
+			json.dumps(plan, indent=2, default=str))
+		return plan
+
 	def _reception_context(self) -> Optional[dict]:
 		"""What reception should know about earlier turns — and nothing more.
 
@@ -664,20 +704,7 @@ class WorkflowCoordinator:
 			# Step 1 — Plan
 			print("📋 STEP 1: Planning Experiments")
 			print("-" * 50)
-			# WHAT MAY BE PINNED TO, asked of the model reception just chose —
-			# by name, so this is the chosen server's answer rather than the
-			# only manager the framework happens to have. `self.model` is what
-			# _adopt_model settled on a few lines above, so the two cannot
-			# disagree.
-			self.planner.pinning = self._pinning_block(
-				self.mcp_clients, self.model)
-			# AND WHAT IT MAY NOT VARY. One report, two blocks, one round trip
-			# — _model_report memoizes between these two calls.
-			self.planner.constraints = self._constraints_block(
-				self.mcp_clients, self.model)
-			plan = self.planner.plan(result)
-			(run_dir / "strategy.json").write_text(
-				json.dumps(plan, indent=2, default=str))
+			plan = self._plan(result, run_dir)
 			# The capability-aware planner emits a STRATEGY, never
 			# CONDITIONS_COUPLERS — those are materialized against real data in
 			# the Experiment Manager's step 0. Counting them here printed

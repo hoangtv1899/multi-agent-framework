@@ -730,75 +730,17 @@ class ExperimentManagerBase:
 	# the same job — two backends, two conventions, and a third would have
 	# invented a third. None of it knows what a column is.
 	MCP_NAME: Optional[str] = None      # the server this backend drives
-	# THE TOOL THAT REPORTS WHAT THE MODEL CAN DO. Named per backend for the
-	# same reason MCP_NAME is: the framework must not know that ELM's is called
-	# describe_elm_capabilities. Its `pinning` block decides which observables a
-	# column may be pinned to, which used to be a literal tuple in the sampler
-	# and prose in planner.txt — one rule stated twice, neither aware of which
-	# model was about to run.
-	CAPABILITIES_TOOL: Optional[str] = None
-
-	def _pinning_rules(self, config: Dict[str, Any]) -> Dict[str, Any]:
-		"""What a column of THIS model may be pinned to, from its own server.
-
-		ASKED OF THE MODEL THE BRIEF NAMED, NOT OF THIS CLASS (2026-08-17).
-		It used to read MCP_NAME and CAPABILITIES_TOOL off the manager, which
-		is only correct while every model has a manager — and PFLOTRAN's was
-		deleted on 2026-08-16. The planner already asks by name
-		(workflow._pinning_block), so leaving this one reading class
-		attributes gave the two halves of one rule two different sources: the
-		planner would design well pins against PFLOTRAN's rules and the
-		sampler would drop them against ELM's, with a warning and no error.
-
-		THE CLASS ATTRIBUTE IS STILL THE FALLBACK, and deliberately second. A
-		manager driven directly by a tool or a test passes no brief; it should
-		keep working, and it can only mean its own model.
-
-		Raises rather than falling back to a default. A default here would be
-		ELM's answer wearing whatever model happened to be running, which is
-		the failure the capability call exists to remove — and a study that
-		pins the wrong stations is not obviously wrong when you read it.
-		"""
-		exp = _load_tool("expand_sampling")
-		# The brief wins, because reception chose it against what the servers
-		# said they are; the class attribute is what a manager knows about
-		# itself when nobody told it.
-		named = str((((config or {}).get("brief") or {}).get("model")
-					 or "")).strip().lower()
-		server = named or self.MCP_NAME
-		clients = (config or {}).get("mcp_clients") or {}
-		client = clients.get(server) if (config or {}).get("run_via_mcp", True) \
-			else None
-
-		if not server:
-			why = (f"neither the brief nor {type(self).__name__} names a model "
-				   f"server to ask. Put `model` in the brief, or declare "
-				   f"MCP_NAME on the backend")
-		elif client is None:
-			why = (f"no {server!r} client in config['mcp_clients'] — pass one, "
-				   f"or set config['run_via_mcp']=False only if this study "
-				   f"pins nothing")
-		else:
-			why = None
-		if why:
-			raise RuntimeError(
-				f"{type(self).__name__} cannot ask its model server what a "
-				f"column may be pinned to: {why}. The pinning rules come from "
-				f"the server that owns them.")
-
-		# THE TOOL NAME IS FOUND, NOT DECLARED, when the brief named the model.
-		# A per-model CAPABILITIES_TOOL constant is one more thing to add for
-		# each new server, and model_servers already finds it by pattern — the
-		# same call reception makes to choose.
-		if named and named != self.MCP_NAME:
-			from core.model_servers import describe_server
-			got = describe_server(clients, server)
-			if got.get("error"):
-				raise RuntimeError(
-					f"cannot read {server}'s capability report: {got['error']}")
-			return exp.pinning_rules(got.get("report") or {})
-		return exp.pinning_rules(
-			self._mcp_call(client, self.CAPABILITIES_TOOL, {}))
+	# _pinning_rules AND CAPABILITIES_TOOL DELETED 2026-08-18.
+	#
+	# The sampler used to ask the model server what a column may be pinned to
+	# — a second fetch of the block workflow.py had already fetched for the
+	# planner. Two fetches of one rule can disagree (a server updated between
+	# plan and run, a resume a week later, a manager naming a different server
+	# than the brief — all of which happened), and CAPABILITIES_TOOL existed
+	# only to make that second fetch. workflow.py now writes the block the
+	# planner was SHOWN into strategy.json beside the design, and
+	# expand_sampling._pinned_from_plan reads it from there. Sampling is a
+	# function of reception.json and strategy.json, and touches no server.
 
 	def _mcp(self, config: Dict[str, Any]):
 		"""The elm MCP client, or None to run locally."""
@@ -1152,11 +1094,11 @@ class ExperimentManagerBase:
 		per_band = config.get("per_band") or exp._per_band_from_plan(strategy)
 
 		# The stations the strategy wants a column AT. Resolved against what
-		# reception actually fetched, and raising when the two disagree — see
+		# reception actually fetched, filtered on the pinning block the strategy
+		# carries, and raising when plan and observations disagree — see
 		# expand_sampling._pinned_from_plan for why a miss is not survivable.
 		reception = config.get("reception") or {}
-		pinned = (exp._pinned_from_plan(strategy, reception,
-										self._pinning_rules(config))
+		pinned = (exp._pinned_from_plan(strategy, reception)
 				  if reception else [])
 		if not reception and (strategy.get("validation") or []):
 			print("   ⚠️  the strategy names validation stations but no reception "
