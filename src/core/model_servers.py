@@ -43,15 +43,14 @@ _DESCRIBE = re.compile(r"^describe_.+_capabilities$")
 # WHAT THIS FRAMEWORK CAN ACTUALLY DRIVE, which is not the same as what can
 # describe itself. A model server exposes tools; running a STUDY means walking
 # the stages — materialize, build, run, extract, package — and writing the
-# experiment record the Analyzer reads. Only ELM has that today: PFLOTRAN's
-# server can build a deck, run it, submit an ensemble and collect it, but
-# nothing yet turns a sampling strategy into a study with it.
+# experiment record the Analyzer reads. That takes a manager beside the server
+# (core/resumable._manager_for names them): ELM's since 2026-08-10, PFLOTRAN's
+# since 2026-08-18, when it ran a Naches study from the request through package.
 #
 # This is the last remnant of core/backends.py and it is deliberately one line.
-# It is HAND-MAINTAINED and nothing checks it: write a second study wrapper and
-# forget this line, and reception will go on refusing a model that now works.
-# It goes when the second model gets a wrapper.
-RUNNABLE = frozenset({"elm"})
+# It is HAND-MAINTAINED and nothing checks it: write a third manager and forget
+# this line, and reception will go on refusing a model that now works.
+RUNNABLE = frozenset({"elm", "pflotran"})
 
 
 def _list_tools(client) -> Dict[str, Any]:

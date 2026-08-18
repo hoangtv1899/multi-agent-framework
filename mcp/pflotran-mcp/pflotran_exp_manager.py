@@ -140,6 +140,17 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					 "365 for a year of days. Null or 0 means a constant "
 					 "boundary"),
 		},
+		"rain_borrowed_km": {
+			"units": "km", "from": ["the nearest reception grid point's Daymet series"],
+			"note": ("NULL when the column sits on a grid point of its own and "
+					 "was driven with the rain fetched there. A NUMBER means "
+					 "this column was placed off the grid (pinned to a station) "
+					 "and took the nearest grid point's daily series from this "
+					 "far away — always within one grid spacing, and said here "
+					 "so nobody reads the column's rain as measured at the "
+					 "station. Beyond one spacing no rain is borrowed and the "
+					 "column is steady (transient false)"),
+		},
 		"recharge_mm_yr": {
 			"units": "mm/y", "from": ["Daymet daily precipitation"],
 			"note": ("the CONSTANT top-boundary flux, for a column driven by "
@@ -225,6 +236,14 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		for d in decks:
 			if d.get("status") != "built":
 				print(f"   ⚠️  {d.get('id')}: {str(d.get('reason'))[:120]}")
+		borrowed = [r for r in (res["run_plan"].get("CONDITIONS_COUPLERS") or [])
+					if r.get("rain_borrowed_km") is not None]
+		if borrowed:
+			print(f"   ↪ {len(borrowed)} off-grid column(s) took the nearest grid "
+				  f"point's rain (grid spacing "
+				  f"{res['run_plan'].get('grid_spacing_km')} km): "
+				  + ", ".join(f"{r.get('id')} {r['rain_borrowed_km']} km"
+							  for r in borrowed))
 		inc = (res["run_plan"].get("incomplete") or [])
 		if inc:
 			print(f"   ⚠️  {len(inc)} column(s) incomplete — "
@@ -449,7 +468,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		# not so they can be reported as results.
 		SETUP = ("forcing_start", "forcing_end", "water_table_m",
 				 "unsaturated_m", "wt_in_domain",
-				 "transient", "n_forcing_steps", "recharge_mm_yr")
+				 "transient", "n_forcing_steps", "recharge_mm_yr",
+				 "rain_borrowed_km")
 		by_id = {e.get("id"): e for e in (experiments or []) if e.get("id")}
 		for r in rows:
 			blk = series.get(r.get("id"))

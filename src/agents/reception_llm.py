@@ -150,6 +150,14 @@ class LLMReceptionAgent:
         skipped and everything else still runs, which is what lets a caller with
         no run directory (a dry check, a test) use this unchanged.
 
+        MAY BE A FUNCTION OF THE BRIEF (2026-08-18): `run_dir(brief) -> path`.
+        The coordinator names a run directory for the model that will run it,
+        and the model is not known until the LLM phase has ended — so the
+        directory cannot exist before this call and must exist before the
+        gather writes into it. A callable is resolved exactly between the two,
+        and only on the `design` route, so a clarification mints nothing. The
+        coordinator still owns the directory: it is its function that makes it.
+
         Returns {route, brief, observations, grid, provenance, trace, rounds,
         raw} — `route` carries the framework's dispatch (design / clarify /
         analyze_existing) so the brief stays science.
@@ -171,6 +179,9 @@ class LLMReceptionAgent:
                "raw": out["content"]}
         if pkg["route"]["action"] != "design":
             return pkg                       # nothing to gather for yet
+        if callable(run_dir):
+            run_dir = run_dir(brief)         # named for the model, see above
+        pkg["run_dir"] = str(run_dir) if run_dir else None
 
         prov: list = []
         dom = (brief.get("domain") or {})

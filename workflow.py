@@ -8,17 +8,14 @@ IDEAS workflow coordinator — the four agents of the framework, in order.
       → Experiment Manager run     (materialize → build → prepare → run)
       → Analyzer           report  (metrics → validation → interpretation)
 
-WHICH MODEL RUNS IS NOT DECIDED HERE ANY MORE, and as of 2026-08-16 it is not
-decided anywhere: the `--model` flag is gone and core/backends.py — the table
-that turned a model name into an Experiment Manager class — is deleted. The
-intended replacement is that Reception asks each MCP server what it is, using
-the `describe_*_capabilities` tool a model server exposes, and the brief names
-the model. Until that is wired, `self.model` is a string with nothing behind
-it and every `backends.` call below raises.
-
-(This file used to say PFLOTRAN was not driven from here. It is, since the
-backend table landed — the standalone tools/build_pflotran_cases.py still
-works and builds byte-identical decks.)
+WHICH MODEL RUNS IS RECEPTION'S CHOICE. Reception asks each MCP server what
+it is (`describe_*_capabilities`) and the brief names the model; _adopt_model
+checks the name against core/model_servers.RUNNABLE, and
+core/resumable._manager_for turns it into the Experiment Manager class that
+lives beside that server (mcp/elm-mcp/src, mcp/pflotran-mcp). The run
+directory is named for that model, which is why it is minted only once the
+brief exists — see process_request. Wired 2026-08-18; until then every run
+directory was elm_run_* and _execute named ELM's manager by hand.
 """
 import os
 import sys
@@ -28,25 +25,29 @@ from pathlib import Path
 from typing  import Optional
 sys.path.insert(0, "src")
 
-# ELM's manager class lives in mcp/elm-mcp/src/, and the framework still
-# instantiates it. core/backends.py used to put that directory on the path;
-# with the table deleted the append has to happen somewhere, and this is the
-# file that now knows which class it wants. It goes when the class does.
-# APPEND, not insert: the framework's own modules must still win a tie.
-_ELM_MCP_SRC = Path(__file__).resolve().parent / "mcp" / "elm-mcp" / "src"
-if _ELM_MCP_SRC.is_dir() and str(_ELM_MCP_SRC) not in sys.path:
-	sys.path.append(str(_ELM_MCP_SRC))
+# THE MANAGER FOR A MODEL NAME comes from core/resumable._manager_for, which
+# puts the server's directory on the path and imports the class from beside
+# the server. Both the fresh path (_execute) and the resume/finalize paths use
+# it, so there is one place that knows where a manager lives.
+from core.resumable import _manager_for
 
 
-def _elm_manager():
-	"""The Experiment Manager class, which is ELM's because it is the only one.
+def _config_for(model: str, base: dict, period: dict = None,
+				initialization: dict = None) -> dict:
+	"""The manager's config for `model`: ELM's has settings of its own.
 
-	This is the whole of what backends.get() did for "elm". The table it came
-	from mapped three names to three classes; two of those classes are deleted
-	and the table with them, so the lookup is now an import.
+	The base config — brief, reception, strategy, mcp_clients — is what every
+	manager takes. ELM adds a period in years and a warm start (see
+	_elm_config); any other model takes the base plus the resolved period's
+	years, which the base class prints on the columns it materialises.
 	"""
-	from elm_exp_manager import ELMExpManager
-	return ELMExpManager
+	if model == "elm":
+		return _elm_config(base, period=period, initialization=initialization)
+	cfg = dict(base)
+	if period and period.get("yr_start"):
+		cfg["yr_start"] = int(period["yr_start"])
+		cfg["yr_end"] = int(period.get("yr_end") or period["yr_start"])
+	return cfg
 
 
 def _elm_config(base: dict, period: dict = None,
@@ -118,12 +119,14 @@ def _save_reception(run_dir, result: dict) -> None:
 def _drop_if_empty(d) -> None:
 	"""Remove a run directory only if nothing was ever written into it.
 
-	The directory is made BEFORE reception, because reception writes the
-	modelled water table into it as a GeoTIFF. Three of the four routes never
-	use it, and a failure can leave it untouched — so it is removed again here.
-	rmdir refuses a non-empty directory, which is the safety: this can never
-	take a real run with it.
+	The directory is minted DURING reception (between its LLM phase and its
+	gather, named for the model the brief chose), and a failure between the
+	mint and the first write can leave it untouched — so it is removed again
+	here. rmdir refuses a non-empty directory, which is the safety: this can
+	never take a real run with it.
 	"""
+	if not d:
+		return
 	try:
 		Path(d).rmdir()
 	except OSError:
@@ -159,16 +162,16 @@ class WorkflowCoordinator:
 		# WHICH MODEL THIS SESSION RUNS. Validated here, at construction,
 		# rather than at _execute — that is minutes of reception and planning
 		# later, and a typo'd name should not cost an LLM call to discover.
-		# ONE MODEL, so the name is not looked up — it is checked. Anything
-		# other than "elm" has nothing behind it now that the table and the
-		# PFLOTRAN managers are deleted, and a name that cannot run must fail
-		# here rather than minutes later at _execute.
+		# THE DEFAULT BEFORE RECEPTION SPEAKS. Reception names the model that
+		# will run; this is only what stands if it names none. Checked against
+		# RUNNABLE here so a name that cannot run fails now rather than
+		# minutes later at _execute.
+		from core.model_servers import RUNNABLE
 		self.model = (model or "elm").strip().lower()
-		if self.model != "elm":
+		if self.model not in RUNNABLE:
 			raise ValueError(
-				f"unknown model {self.model!r} — only 'elm' can run: "
-				f"core/backends.py and the PFLOTRAN managers were deleted on "
-				f"2026-08-16, and nothing has replaced the dispatch yet")
+				f"unknown model {self.model!r} — runnable: "
+				f"{', '.join(sorted(RUNNABLE))}")
 
 		# ── MCP Manager ───────────────────────────────────────
 		print("\n" + "=" * 70)
@@ -241,8 +244,8 @@ class WorkflowCoordinator:
 
 		RECEPTION CHOOSES, THIS ONE CHECKS. The brief names a model that a
 		server described; whether this framework can drive a STUDY with it is
-		a different question, and the answer today is ELM only — core/
-		backends.py and the PFLOTRAN managers were deleted on 2026-08-16.
+		a different question, answered by core/model_servers.RUNNABLE — ELM
+		and, since 2026-08-18, PFLOTRAN.
 
 		Refuses rather than falling back silently. A study that ran ELM
 		because PFLOTRAN was unavailable, and said so nowhere, is a wrong
@@ -272,10 +275,9 @@ class WorkflowCoordinator:
 				f"yet. Nothing turns a sampling strategy into {want} decks, "
 				f"writes its experiment.json, or names what its numbers "
 				f"mean. Runnable today: {', '.join(sorted(RUNNABLE))}.")
-		# A second runnable model would land here. The run directory is
-		# already named for the old one — it is minted before reception,
-		# because reception writes a GeoTIFF into it — so this is the point
-		# that will need to rename it.
+		# The run directory is already named for `want`: process_request
+		# mints it from the brief, between reception's LLM phase and its
+		# gather, so nothing needs renaming here.
 		print(f"   model: {want} (reception, was {self.model})")
 		self.model = want
 
@@ -482,16 +484,18 @@ class WorkflowCoordinator:
 		print(f"Request: {user_request[:80]}...")
 		print("=" * 70 + "\n")
 	
-		# THE RUN DIRECTORY IS MADE BEFORE RECEPTION (2026-08-12), because
-		# reception now writes one thing that is not JSON: the modelled water
-		# table, as a GeoTIFF. It has to land BESIDE reception.json — compare
-		# can be pointed at another run's reception.json, and the water table
-		# must travel with the observations it belongs to, not with whichever
-		# run is being analysed.
+		# THE RUN DIRECTORY IS MADE DURING RECEPTION — after its LLM phase,
+		# before its gather (2026-08-18). Reception writes things that are not
+		# JSON — the modelled water table as a GeoTIFF, the CONUS2 subsurface
+		# arrays — and they have to land BESIDE reception.json, so the directory
+		# must exist before the gather. But it is NAMED FOR THE MODEL THAT
+		# RUNS, and only the brief knows that; minted before reception, every
+		# directory was elm_run_* whatever ran. So the coordinator hands
+		# reception a function that mints the directory from the brief, and
+		# reception calls it exactly between its two phases, on the design
+		# route only. The coordinator still owns the directory — it is this
+		# function that makes it — and a clarification mints nothing.
 		#
-		# The coordinator still owns the directory and reception still only ever
-		# PRODUCES. An unused directory is removed a few lines down, so a
-		# clarification leaves nothing behind.
 		# THE NAME MUST BE UNIQUE, and a one-second timestamp is not.
 		#
 		# Two studies launched in the same second got the SAME directory —
@@ -506,35 +510,45 @@ class WorkflowCoordinator:
 		# rather than a check-then-create that races just as badly.
 		from datetime import datetime as _dt
 		base = Path(output_dir or self.default_output_dir)
-		stamp = f"{_dt.now():%Y%m%d_%H%M%S}"
-		for suffix in ("", *(f"_{i}" for i in range(2, 100))):
-			run_dir = base / f"{self.model}_run_{stamp}{suffix}"
-			try:
-				run_dir.mkdir(parents=True, exist_ok=False)
-				break
-			except FileExistsError:
-				continue
-		else:
+		minted: dict = {}
+
+		def _mint(brief: dict) -> Path:
+			# The model reception named, else the default that stands when it
+			# names none (_adopt_model prints which). Not yet checked against
+			# RUNNABLE: an unrunnable choice still gets its package saved,
+			# under its own name, so nothing gathered is lost or mislabelled.
+			name = str((brief or {}).get("model") or self.model).strip().lower()
+			stamp = f"{_dt.now():%Y%m%d_%H%M%S}"
+			for suffix in ("", *(f"_{i}" for i in range(2, 100))):
+				d = base / f"{name}_run_{stamp}{suffix}"
+				try:
+					d.mkdir(parents=True, exist_ok=False)
+					minted["dir"] = d
+					return d
+				except FileExistsError:
+					continue
 			raise RuntimeError(
 				f"could not mint a run directory under {base} — 99 names "
 				f"already taken for {stamp}")
 
 		# Step 1 — Reception
 		#
-		# ON ANY FAILURE THE EMPTY DIRECTORY GOES WITH IT. Made just above, and
-		# reception can raise before it writes anything — a broken LLM call, an
-		# unreachable server. Without this every failed request left a dated,
-		# empty run directory behind, and those accumulate in exactly the place
-		# someone looks for real runs.
+		# ON ANY FAILURE THE EMPTY DIRECTORY GOES WITH IT. Reception can raise
+		# after minting and before writing anything — an unreachable server.
+		# Without this every failed request left a dated, empty run directory
+		# behind, and those accumulate in exactly the place someone looks for
+		# real runs. Before the mint there is nothing to drop.
 		try:
 			result = self.reception.process(
 				user_request = user_request,
 				context      = self._reception_context(),
-				run_dir      = run_dir,
+				run_dir      = _mint,
 			)
 		except BaseException:
-			_drop_if_empty(run_dir)
+			if minted.get("dir"):
+				_drop_if_empty(minted["dir"])
 			raise
+		run_dir = minted.get("dir")
 		# Reception returns the whole package now: route (dispatch), brief
 		# (science), observations + grid (what was fetched), provenance.
 		# The adapter that used to flatten this into a dataclass is gone — it
@@ -579,10 +593,10 @@ class WorkflowCoordinator:
 					f"planner against this file is a manual step.")
 
 		# Only the design route uses the directory made above. Reception returns
-		# before it gathers anything on the other three, so the directory is
-		# still empty — remove it rather than leave a trail of empty run dirs
-		# behind every clarifying question.
-		if action != 'design':
+		# before it gathers anything on the other three, so no directory was
+		# minted at all (the mint runs on the design route only) — but an
+		# older reception could still hand one back, so the drop stays.
+		if action != 'design' and run_dir:
 			_drop_if_empty(run_dir)
 
 		# Step 2 — Route
@@ -905,7 +919,6 @@ class WorkflowCoordinator:
 		from extract. Everything after that is the same code that runs on a
 		login node; the only thing that changed is which machine it runs on.
 		"""
-		from core import backends
 		from core.resumable import inspect_run
 
 		rd = Path(run_dir)
@@ -914,11 +927,10 @@ class WorkflowCoordinator:
 
 		rec = inspect_run(rd, check_jobs=False)
 		model = rec.get("model") or self.model
-		try:
-			Manager = backends.get(model)
-		except Exception as e:                                  # noqa: BLE001
+		Manager = _manager_for(model)
+		if Manager is None:
 			return (f"❌ The run state says this run used model '{model}', which "
-					f"this build does not have ({e})")
+					f"this build has no Experiment Manager for")
 		self.model = model
 
 		print("\n" + "=" * 70)
@@ -954,7 +966,6 @@ class WorkflowCoordinator:
 		with the default backend would build PFLOTRAN decks in an ELM
 		directory; the run itself is the authority on what it is.
 		"""
-		from core import backends
 		# _read_json rather than json.loads: these files were written by an
 		# earlier session and a half-written one must degrade to "no reception
 		# package", not take the resume down.
@@ -975,11 +986,9 @@ class WorkflowCoordinator:
 					f"   Run `python workflow.py --resume` to see what can.")
 
 		model = rec.get("model") or self.model
-		try:
-			backends.get(model)
-		except Exception as e:                                  # noqa: BLE001
+		if _manager_for(model) is None:
 			return (f"❌ The run state says this run used model '{model}', which "
-					f"this build does not have ({e})")
+					f"this build has no Experiment Manager for")
 		if model != self.model:
 			print(f"   model: {model} (from the run state, not --model)")
 			self.model = model
@@ -1031,14 +1040,20 @@ class WorkflowCoordinator:
 		either as a free variable is how this method came to reference two
 		names that only existed in its caller.
 		"""
-		# WHICH MODEL. There is one, so there is no lookup: ELM's class is
-		# imported directly. The base's execute_plan still reads the stage
-		# declarations (NEEDS_CASE_BUILD, NEEDS_SCHEDULER) off the class.
-		Manager = _elm_manager()
+		# WHICH MODEL: the one _adopt_model settled from the brief. Its manager
+		# lives beside its server and is imported by path; the base's
+		# execute_plan reads the stage declarations (NEEDS_CASE_BUILD,
+		# NEEDS_SCHEDULER) off the class.
+		Manager = _manager_for(self.model)
+		if Manager is None:
+			raise RuntimeError(
+				f"no Experiment Manager for model {self.model!r} — "
+				f"core/resumable._manager_for names the ones that exist")
 		executor = Manager(base_output_dir=output_dir, run_dir=str(run_dir))
 		# brief + mcp_clients feed the manager's materialize stage, which turns
 		# the planner's sampling_strategy into the backend's own run plan.
-		cfg = _elm_config(
+		cfg = _config_for(
+			self.model,
 			{
 				'brief':       brief or {},
 				'reception':   reception,
