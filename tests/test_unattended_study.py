@@ -308,7 +308,7 @@ class TestTheAnnouncement:
         # The first version of this matched the substring and flagged both.
         call = re.compile(r"(?<![A-Za-z0-9_])input\s*\(")
         for f in (ROOT / "mcp" / "elm-mcp" / "src" / "elm_exp_manager.py",
-                  ROOT / "src" / "core" / "pflotran_exp_manager.py",
+                  ROOT / "mcp" / "pflotran-mcp" / "pflotran_exp_manager.py",
                   ROOT / "src" / "core" / "exp_manager_base.py"):
             src = f.read_text()
             code = [l.strip() for l in src.splitlines()
@@ -330,7 +330,7 @@ class TestTheAnnouncement:
         about it would be noise."""
         import workflow
         from elm_exp_manager import ELMExpManager
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         monkeypatch.setenv("IDEAS_NOTIFY_EMAIL", "who@x.gov")
         c = workflow.WorkflowCoordinator.__new__(workflow.WorkflowCoordinator)
         assert c._ask_notify_email(ELMExpManager) == "who@x.gov"

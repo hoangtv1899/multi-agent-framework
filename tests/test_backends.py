@@ -132,7 +132,7 @@ class TestTheCoordinatorActuallyDispatches:
         """Run the coordinator with every PFLOTRAN stage stubbed, and report
         which manager class it built and what config that manager received."""
         import workflow as wf
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         from agents.analysis import step3_interpret as _s3
 
         # The Analyzer's LLM steps are a live external call.

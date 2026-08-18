@@ -179,11 +179,11 @@ class TestSubmittingIsOptInForPFLOTRAN:
     slot costs more than the solve for the ordinary ensemble."""
 
     def _mgr(self, tmp_path):
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         return PFLOTRANExpManager(base_output_dir=str(tmp_path))
 
     def test_the_inline_path_is_still_the_default(self, tmp_path):
-        src = (ROOT / "src" / "core" / "pflotran_exp_manager.py").read_text()
+        src = (ROOT / "mcp" / "pflotran-mcp" / "pflotran_exp_manager.py").read_text()
         i = src.index("def _run(")
         body = src[i:i + 2500]
         assert 'config.get("submit")' in body, \
@@ -263,6 +263,6 @@ class TestSubmittingIsOptInForPFLOTRAN:
     def test_both_paths_share_one_attribution(self):
         """The inline and submitted paths return the same shape by design; a
         second copy of the mapping is a second place for it to drift."""
-        src = (ROOT / "src" / "core" / "pflotran_exp_manager.py").read_text()
+        src = (ROOT / "mcp" / "pflotran-mcp" / "pflotran_exp_manager.py").read_text()
         assert src.count("def _rows_from_mcp") == 1
         assert src.count("self._rows_from_mcp(") == 2

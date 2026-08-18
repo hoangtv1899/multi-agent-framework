@@ -111,15 +111,22 @@ def _manager_for(model: str):
 	entry in a registry that also has to be kept in step with the servers.
 	"""
 	name = (model or "").strip().lower()
+	# BOTH MANAGERS LIVE BESIDE THEIR SERVER, under mcp/<server>-mcp/, and are
+	# imported by path: src/core/ names no model (ELM moved 2026-08-10,
+	# PFLOTRAN 2026-08-18). A new model adds one branch here.
+	import sys
+	from pathlib import Path as _P
+	mcp_root = _P(__file__).resolve().parents[2] / "mcp"
 	if name == "pflotran":
-		from core.pflotran_exp_manager import PFLOTRANExpManager
+		d = mcp_root / "pflotran-mcp"
+		if d.is_dir() and str(d) not in sys.path:
+			sys.path.append(str(d))
+		from pflotran_exp_manager import PFLOTRANExpManager
 		return PFLOTRANExpManager
 	if name == "elm":
-		import sys
-		from pathlib import Path as _P
-		src = _P(__file__).resolve().parents[2] / "mcp" / "elm-mcp" / "src"
-		if src.is_dir() and str(src) not in sys.path:
-			sys.path.append(str(src))
+		d = mcp_root / "elm-mcp" / "src"
+		if d.is_dir() and str(d) not in sys.path:
+			sys.path.append(str(d))
 		from elm_exp_manager import ELMExpManager
 		return ELMExpManager
 	return None

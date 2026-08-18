@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LAMBDA-PFLOTRAN — flow plus reactive transport
-src/core/lambda_pflotran_exp_manager.py
+mcp/pflotran-mcp/lambda_pflotran_exp_manager.py
 
     in   the same sampled columns every backend gets
     out  experiment.json with the flow metrics PFLOTRAN reports, plus the
@@ -76,7 +76,14 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.pflotran_exp_manager import PFLOTRANExpManager, _load_tool
+# MOVED 2026-08-18 from src/core/, unchanged, alongside the PFLOTRAN manager
+# it subclasses. NOTE: THIS MODULE DOES NOT IMPORT. `_load_tool` — the
+# by-import loader of server tools — was deleted from the parent on
+# 2026-08-18 (f13459b) when the parent went MCP-only, and this file still
+# names it. It has been non-functional since that commit; it is kept here
+# rather than in src/core/ so the framework's core names no model, and
+# rewired or deleted when the Lambda study is picked up again.
+from pflotran_exp_manager import PFLOTRANExpManager, _load_tool  # noqa: F401
 
 
 class LambdaPFLOTRANExpManager(PFLOTRANExpManager):

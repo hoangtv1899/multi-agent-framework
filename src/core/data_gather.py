@@ -401,9 +401,10 @@ def gather_subsurface(clients, bbox_str: str, run_dir=None,
 
     THE SAME SHAPE AS THE MODELLED WATER TABLE, and for the same reasons: one
     fetch per basin, written beside reception.json, read afterwards at any point
-    by core/conus2_subsurface.sample with no network and no PIN. Sampling it per
-    column would be five requests per column to a university's server, and the
-    answer cannot change — every field is `static`.
+    by whichever model server builds columns from it — the PFLOTRAN server's
+    tools/site_data.py does, at deck build — with no network and no PIN.
+    Sampling it per column would be five requests per column to a university's
+    server, and the answer cannot change — every field is `static`.
 
     WHAT IT IS FOR. A subsurface model needs material properties all the way
     down, and a soil survey stops at about 1.5 m. Until 2026-08-17 everything
@@ -445,9 +446,9 @@ def gather_subsurface(clients, bbox_str: str, run_dir=None,
         "arrays": rr.get("arrays"),
         "meta": rr.get("meta"),
         "covers": ("the whole basin box, as a field — not a value per column. "
-                   "Read it at any point with core.conus2_subsurface.sample; "
-                   "it answers anywhere inside the box, including locations "
-                   "chosen after this fetch."),
+                   "A model server reads it at any point when it builds its "
+                   "inputs (no network, no PIN); it answers anywhere inside "
+                   "the box, including locations chosen after this fetch."),
         "when": ("STATIC. A spun-up equilibrium parameterisation, with no "
                  "period — the same field whatever years the study runs."),
         "failed_fields": rr.get("failed") or [],

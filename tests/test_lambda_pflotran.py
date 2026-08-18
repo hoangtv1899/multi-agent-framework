@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from core.lambda_pflotran_exp_manager import LambdaPFLOTRANExpManager as L  # noqa: E402
-from core.pflotran_exp_manager import PFLOTRANExpManager as P              # noqa: E402
+from lambda_pflotran_exp_manager import LambdaPFLOTRANExpManager as L  # noqa: E402
+from pflotran_exp_manager import PFLOTRANExpManager as P              # noqa: E402
 
 
 class TestItIsTheFlowBackendPlusChemistry:

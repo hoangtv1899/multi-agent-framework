@@ -673,7 +673,8 @@ def get_fan2013_wells(bbox: str, min_records: int = 1) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Five static fields, ten layers, one box: the parameters ParFlow CONUS2 itself
 # runs on. Fetched here for the same reason the water table is — once per basin,
-# then read locally by src/core/conus2_subsurface.py with no network and no PIN.
+# then read locally, with no network and no PIN, by the model server that builds
+# columns from it (the PFLOTRAN server's tools/site_data.py, 2026-08-18).
 #
 # WHAT IT REPLACED. A PFLOTRAN column used to be survey soil to ~1.5 m and then
 # invented material to 12-50 m: the deepest surveyed horizon copied downward, so

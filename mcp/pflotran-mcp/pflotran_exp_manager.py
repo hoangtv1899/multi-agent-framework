@@ -1,41 +1,46 @@
 #!/usr/bin/env python3
 """
-PFLOTRAN Experiment Manager — the join, and nothing else
-src/core/pflotran_exp_manager.py
+PFLOTRAN Experiment Manager — declarations, and three pass-throughs
+mcp/pflotran-mcp/pflotran_exp_manager.py
 
     in   the sampler's columns (id, lat, lon, elevation, band)
-    out  a run plan where each column carries what a deck needs
+    out  decks built, run, and read back — by the PFLOTRAN server, one tool
+         call per stage
 
-DELIBERATELY THIN, AND THAT IS THE DESIGN. The base class already samples,
-checks the strategy against reception, clips to the watershed and persists
-columns.json; none of that is model-specific and none of it is repeated here.
-What PFLOTRAN adds is one step the base cannot do: saying WHICH server owns the
-pinning rules, and joining the per-column subsurface, water table and forcing
-onto the columns the sampler placed.
+WHERE THIS FILE LIVES, AND WHY (moved 2026-08-18). It sat in src/core/ as the
+one model-named file left in the framework's core. ELM's manager had already
+moved beside its server (mcp/elm-mcp/src/elm_exp_manager.py); this is the same
+move for the same reason: the framework's per-server code lives in one place
+per server, and src/core/ names no model. The PFLOTRAN server itself is a
+separate repo (reaction_sandbox_mcp-upstream, launched as the `pflotran-mcp`
+console script named in mcp_config.json); this directory holds only what the
+framework needs to drive it. Imported by path — see core/resumable._manager_for.
 
-NO SNAP. `_refine_columns` is inherited from the base and returns {} — ELM's
-warm start moves every column 200-700 m onto its donor gridcell, and this model
-has no donor. The columns stay exactly where the plan put them, which is why
-the subsurface and rain lookups below hit the same coordinates the sampler
-chose.
+WHAT IS NOT HERE ANY MORE. The per-column join — subsurface profile, water
+table and daily rain looked up off the files reception wrote — used to be
+_to_run_plan, 117 lines, and was the reason this file kept growing. It is the
+server's now: `create_decks_from_columns` takes the run directory and does the
+lookup itself (tools/site_data.py there), exactly as ELM's build tool takes
+coordinates and reads its own data. One call at materialize builds every deck
+and hands back the run plan; the stages after it read what that call wrote.
 
-WHERE THE NUMBERS COME FROM, and why none of them is fetched here:
+WHAT IS HERE, and why it stays on this side of the boundary:
 
-    subsurface   ParFlow CONUS2, five parameter fields over the basin, written
-                 once by reception. Read at any point by
-                 core.conus2_subsurface.sample — no network, no PIN.
-    water table  the CONUS2 steady-state field, same pattern, read by
-                 core.static_wtd.sample.
-    forcing      Daymet daily precipitation at the grid points, in the
-                 reception package.
+    FIELD_SEMANTICS   what each number the server extracts MEANS. Read by
+                      the Analyzer as the authority on the run's outputs. The
+                      framework reads what came out; the meaning of a field
+                      does not go behind a tool call (decision of 2026-08-06).
+    _refine_columns   the one build call, at the moment the base allows it
+    _to_run_plan      hands the server's run plan back to the base
+    _build_case_inputs / _run / _extract
+                      the base's stage slots, each one tool call
 
-Reception is the only component that reaches outside the framework, so this
-reads what reception wrote and fetches nothing.
+NO SNAP. `_refine_columns` builds decks and returns the columns unchanged —
+ELM's warm start moves every column onto its donor gridcell; this model has no
+donor. The columns stay where the plan put them.
 
-UNITS ARE NOT CONVERTED HERE. Each column carries CONUS2's own vocabulary —
-conductivity in m/h, van Genuchten alpha in 1/m, `n` rather than `m`. Turning
-those into a deck is the PFLOTRAN server's job (`create_decks_from_columns`),
-and it is the only place that knows what a deck wants.
+Reception is the only component that reaches outside the framework; every
+stage here reads what reception wrote and fetches nothing.
 """
 import json
 from pathlib import Path
@@ -45,7 +50,7 @@ from core.exp_manager_base import ExperimentManagerBase
 
 
 class PFLOTRANExpManager(ExperimentManagerBase):
-	"""Sampling from the base; the per-column join is the whole of what is here."""
+	"""Declarations plus one build call; the base does the rest."""
 
 	MODEL = "pflotran"
 
@@ -166,203 +171,98 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		},
 	}
 
-	def _to_run_plan(self, plan: Dict[str, Any], columns, config: Dict[str, Any],
-					 refine: Dict[str, Any]) -> Dict[str, Any]:
-		"""Columns -> the executable payload, by joining what reception wrote.
-
-		THE JOIN IS A LOOKUP, NOT A FETCH. Reception wrote the subsurface and
-		the water table as FIELDS over the basin and the rain as a series per
-		grid point, all keyed by coordinate. Every column sits exactly where the
-		sampler placed it, so each one is a dictionary lookup away from
-		everything it needs — no interpolation, no nearest-neighbour, and no
-		request.
-
-		A COLUMN THAT CANNOT BE COMPLETED IS REPORTED, NOT DROPPED. A missing
-		profile or water table means this location is outside the fetched box
-		or over a no-data cell, and that is a fact about the study worth
-		carrying — a silently shorter ensemble is a design nobody chose.
-		"""
-		from core import conus2_subsurface as cs
-		from core import static_wtd
-
-		run_dir = self.run_dir
-		reception = config.get("reception") or {}
-		lats = [c["lat"] for c in columns]
-		lons = [c["lon"] for c in columns]
-
-		profiles = cs.sample(run_dir, lats, lons)
-		tables = static_wtd.sample(run_dir, lats, lons)
-		precip = reception.get("precipitation") or {}
-		rain = precip.get("series") or {}
-		# WHICH YEARS THE COLUMN WAS ACTUALLY DRIVEN WITH, read off the same
-		# calendar the series is on rather than copied from the plan. The
-		# Analyzer asks "was the run driven over the period that was asked
-		# for?" and answers it from the columns; a column that never records
-		# its years answers `null`, and null reads as a period that was
-		# planned and not honoured. Seventeen PFLOTRAN columns said exactly
-		# that about a run driven with the 1988 Daymet year they were joined
-		# to. Taken from the plan instead, the check would compare the plan
-		# with itself and could never fail.
-		cal_years = [y for y in ((precip.get("calendar") or {}).get("year") or [])
-					 if isinstance(y, (int, float))]
-		yr_first = int(min(cal_years)) if cal_years else None
-		yr_last  = int(max(cal_years)) if cal_years else None
-
-		out: List[Dict[str, Any]] = []
-		incomplete: List[Dict[str, Any]] = []
-		for col, prof, wt in zip(columns, profiles, tables):
-			key = f"{round(col['lat'], 5)},{round(col['lon'], 5)}"
-			row = dict(col)
-			row["subsurface_profile"] = prof
-			row["water_table_m"] = wt
-			row["precipitation_mm_day"] = rain.get(key)
-			# Only a column that GOT a series was driven by it. One that fell
-			# outside the fetched box has no forcing and must not claim years.
-			if rain.get(key) is not None and yr_first is not None:
-				row["forcing_start"], row["forcing_end"] = yr_first, yr_last
-			missing = [n for n, v in (("subsurface_profile", prof),
-									  ("water_table_m", wt),
-									  ("precipitation_mm_day", rain.get(key)))
-					   if v is None]
-			if missing:
-				row["incomplete"] = missing
-				incomplete.append({"id": col.get("id"), "missing": missing})
-			out.append(row)
-
-		# THE FORCING ASSUMPTION TRAVELS WITH THE PLAN. Daymet reports
-		# PRECIPITATION and the deck's top boundary is a RECHARGE flux; between
-		# them sit snow storage, evapotranspiration and runoff, none of which
-		# this model has. In a snow-dominated basin the winter snowpack
-		# therefore enters the ground in winter rather than at melt, so seasonal
-		# timing is wrong by construction. Recorded here so the run carries it
-		# whether or not anyone reads the server's copy.
-		ledger = [
-			{"assumption": "precipitation used as recharge",
-			 "why": ("Daymet gives precipitation; the top boundary takes a "
-					 "recharge flux. This model has no snowpack, no "
-					 "evapotranspiration and no runoff generation, so nothing "
-					 "stands between them"),
-			 "cost": ("seasonal timing is wrong where snow matters — the "
-					  "snowpack infiltrates in winter instead of at melt"),
-			 "source": "design decision, 2026-08-17"},
-			{"assumption": "subsurface from ParFlow CONUS2",
-			 "why": ("a soil survey stops at about 1.5 m; these columns run to "
-					 "tens or hundreds of metres. CONUS2 parameterises the "
-					 "whole 392 m — SSURGO-derived above 2 m, GLHYMPS "
-					 "hydrogeologic units below"),
-			 "cost": ("properties are per-geologic-unit constants on a 1 km "
-					  "grid, not site measurements; below 2 m the van Genuchten "
-					  "curve shape is uniform basin-wide, so transit is "
-					  "controlled by porosity and permeability alone"),
-			 "source": "https://essd.copernicus.org/articles/13/3263/2021/"},
-			{"assumption": "residual saturation as published",
-			 "why": ("the water table these columns start from is an OUTPUT of "
-					 "this same parameterisation; substituting a "
-					 "texture-derived residual would make the initial "
-					 "condition disagree with the material it initialises"),
-			 "cost": ("CONUS2's sres is 1e-5 to 1e-4 against the 0.04-0.11 a "
-					  "texture-derived profile gives, so these columns drain "
-					  "far more completely than a real soil would"),
-			 "source": "user decision, 2026-08-17"},
-		]
-
-		return {
-			"CONDITIONS_COUPLERS": out,
-			"PFLOTRAN_CONFIG": {
-				# 0.5 m: measured. Refining a 12.85 m unsaturated column from
-				# 2.0 m to 0.1 m moved the water-table front 1.30 m and the
-				# stored water 1.5%; from 0.5 m to 0.1 m moved them 0.05 m and
-				# 0.1%. Finer than 0.5 m buys nothing and costs cells.
-				"max_cell_m": float(config.get("max_cell_m", 0.5)),
-				"cap_m": float(config.get("cap_m", cs.TOTAL_DEPTH_M)),
-				"min_depth_m": float(config.get("min_depth_m", cs.MIN_DEPTH_M)),
-				"spin_years": float(config.get("spin_years", 10.0)),
-			},
-			"assumptions_ledger": ledger,
-			"n_columns": len(out),
-			"n_incomplete": len(incomplete),
-			"incomplete": incomplete,
-		}
-
 	# ─────────────────────────────────────────────────────────
-	# STEP 1 — BUILD THE DECKS
+	# STEP 0 — BUILD THE DECKS, inside materialize
 	# ─────────────────────────────────────────────────────────
-	def _build_case_inputs(self, plan: Dict[str, Any],
-						   config: Dict[str, Any]) -> List[Dict[str, Any]]:
-		"""The run plan's columns become 17 runnable decks, written by the server.
+	# What the framework may override on the server's build. Anything not in
+	# config takes the server's own default, and the server reports the values
+	# it used in run_plan.PFLOTRAN_CONFIG — so the record says what was built,
+	# not what was asked for.
+	BUILD_KNOBS = ("max_cell_m", "cap_m", "min_depth_m", "spin_years",
+				   "recharge_mm_yr")
 
-		A THIN PASS-THROUGH, AND DELIBERATELY SO. Everything this stage needs is
-		already on the columns — _to_run_plan joined the subsurface, the water
-		table and the forcing — so there is nothing to compute here. The deck
-		itself is written by `create_decks_from_columns`, because knowing what a
-		deck wants is the server's job: unit conversion, the layer-boundary
-		domain depth, subdividing material zones into cells.
+	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""ONE MCP call: join, decks, run plan.
 
-		NEEDS_CASE_BUILD IS FALSE, so the base skips _build_cases entirely. For
-		ELM that stage compiles a CIME case and takes eight minutes; a PFLOTRAN
-		deck is a text file, so writing it IS the build and there is no second
-		step to wait on.
+		Runs inside the base's materialize, before columns.json is written —
+		the slot ELM uses for its warm start. There is nothing to snap here, so
+		the columns go back exactly as they came; what this returns is the
+		server's answer, and _to_run_plan hands it on.
+
+		THE SERVER READS THE SITE ITSELF. `site_dir` is this run's directory,
+		where reception wrote the CONUS2 subsurface, the water table raster and
+		the daily rain. The server looks each column up by coordinate and
+		reports the ones it could not complete rather than dropping them.
 		"""
 		client = self._mcp(config)
 		if client is None:
 			raise RuntimeError(
 				f"no {self.MCP_NAME!r} client in config['mcp_clients'] — the "
-				f"decks are written by the model server, so this stage cannot "
-				f"run without one")
-
-		cols = (plan or {}).get("CONDITIONS_COUPLERS") or []
-		if not cols:
-			raise RuntimeError(
-				"the run plan carries no CONDITIONS_COUPLERS — _to_run_plan "
-				"must run first, and it is what joins the subsurface, the "
-				"water table and the forcing onto the sampled columns")
-		cfg = dict((plan or {}).get("PFLOTRAN_CONFIG") or {})
-		out_dir = str(self.run_dir / "01_inputs" / "decks")
-
-		print(f"   {len(cols)} column(s) -> decks in {out_dir}")
-		# BUDGETED, because this writes one deck per column and a 786-cell
-		# column is not a quick call. The ceiling belongs to the CALL, not to
-		# the server, whose registered timeout is sized for its ordinary tool.
-		res = self._mcp_call(client, "create_decks_from_columns",
-							 {"columns": cols, "out_dir": out_dir, **cfg},
+				f"decks are written by the model server, so materialize "
+				f"cannot finish without one")
+		args = {
+			"columns":  columns,
+			"out_dir":  str(self.input_dir / "decks"),
+			"site_dir": str(self.run_dir),
+		}
+		for k in self.BUILD_KNOBS:
+			if (config or {}).get(k) is not None:
+				args[k] = float(config[k])
+		print(f"   {len(columns)} column(s) -> decks in {args['out_dir']}")
+		res = self._mcp_call(client, "create_decks_from_columns", args,
 							 budget=1800.0) or {}
 		decks = res.get("decks") or []
-		if not decks:
+		if not decks or not res.get("run_plan"):
 			raise RuntimeError(f"the server built no decks: "
 							   f"{str(res.get('error') or res)[:200]}")
-
 		built = [d for d in decks if d.get("status") == "built"]
 		sat = [d for d in decks if d.get("warning")]
 		print(f"   ✓ {len(built)}/{len(decks)} deck(s) built, "
 			  f"{sum(d.get('n_cells') or 0 for d in built)} cells total")
 		if sat:
-			# SAID OUT LOUD, because a saturated column runs perfectly and
-			# answers nothing about vertical transit. It is a fact about the
-			# site, not a failure, so it is reported rather than dropped.
 			print(f"   ⚠️  {len(sat)} column(s) have no unsaturated zone: "
 				  f"{', '.join(d['id'] for d in sat)}")
-		if len(built) < len(decks):
-			for d in decks:
-				if d.get("status") != "built":
-					print(f"   ⚠️  {d.get('id')}: {str(d.get('reason'))[:120]}")
-
-		# THE COLUMN AND ITS DECK TRAVEL TOGETHER. The base persists whatever
-		# this returns as case_inputs.json and resumes from it, so each record
-		# has to carry enough to re-run without re-deriving anything.
-		# `status` IS THE FRAMEWORK'S WORD FOR THE RUN'S OUTCOME, not the
-		# deck's. _outcome_map counts a case successful when status ==
-		# "completed", so leaving the builder's "built" here reported a
-		# finished 17-column ensemble as 0/17 — after the compute, in the final
-		# line. The build outcome keeps its own key.
-		by_id = {c.get("id"): c for c in cols}
-		out = []
 		for d in decks:
-			src = {k: v for k, v in (by_id.get(d.get("id")) or {}).items()
-				   if k not in ("subsurface_profile", "precipitation_mm_day")}
-			rec = {**src, **d}
-			rec["deck_status"] = rec.pop("status", None)
-			out.append(rec)
-		return out
+			if d.get("status") != "built":
+				print(f"   ⚠️  {d.get('id')}: {str(d.get('reason'))[:120]}")
+		inc = (res["run_plan"].get("incomplete") or [])
+		if inc:
+			print(f"   ⚠️  {len(inc)} column(s) incomplete — "
+				  + "; ".join(f"{i.get('id')} lacks "
+							  f"{', '.join(i.get('missing') or [])}"
+							  for i in inc))
+		self._mcp_inputs = res
+		return {"mcp_inputs": res}
+
+	def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
+		"""The run plan the server already built, handed back — as ELM does."""
+		out = (refine or {}).get("mcp_inputs") or getattr(self, "_mcp_inputs", None)
+		if not out or "run_plan" not in out:
+			raise RuntimeError(
+				"no run plan from the pflotran server — _refine_columns must "
+				"run first")
+		return out["run_plan"]
+
+	# ─────────────────────────────────────────────────────────
+	# STEP 1 — CASE INPUTS
+	# ─────────────────────────────────────────────────────────
+	def _build_case_inputs(self, plan: Dict[str, Any],
+						   config: Dict[str, Any]) -> List[Dict[str, Any]]:
+		"""Read what materialize already built. Computes nothing.
+
+		The decks were written by the one call in _refine_columns and the run
+		plan carries one record per column — the column, its joined scalars
+		and its deck. This stage exists because the base's pipeline has a slot
+		for it; on a resume it is the same read off run_plan.json.
+		"""
+		rows = (plan or {}).get("CONDITIONS_COUPLERS") or []
+		if not rows:
+			raise RuntimeError(
+				"the run plan carries no CONDITIONS_COUPLERS — materialize "
+				"must run first; it is where the server builds the decks")
+		built = sum(1 for r in rows if r.get("deck_status") == "built")
+		print(f"   {len(rows)} column(s), {built} with a built deck")
+		return [dict(r) for r in rows]
 
 	# ─────────────────────────────────────────────────────────
 	# STEP 3 — RUN

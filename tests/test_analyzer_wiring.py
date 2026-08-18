@@ -222,14 +222,14 @@ class TestTheStageSequenceIsSharedNotCopied:
     def test_every_backend_resolves_to_the_base(self):
         from core.exp_manager_base import ExperimentManagerBase as B
         from elm_exp_manager import ELMExpManager
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         for M in (ELMExpManager, PFLOTRANExpManager):
             assert M.execute_plan is B.execute_plan, M.__name__
 
     def test_backends_declare_their_stages_rather_than_stubbing(self):
         """A no-op _build_cases() reports "prepared nothing, successfully"."""
         from elm_exp_manager import ELMExpManager
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         assert ELMExpManager.NEEDS_CASE_BUILD and ELMExpManager.NEEDS_SCHEDULER
         assert not PFLOTRANExpManager.NEEDS_CASE_BUILD
         assert not PFLOTRANExpManager.NEEDS_SCHEDULER
@@ -249,7 +249,7 @@ class TestTheStageSequenceIsSharedNotCopied:
         """Sharing a plan key would make an ELM plan look already-materialized
         to PFLOTRAN, which builds zero experiments WITHOUT raising."""
         from elm_exp_manager import ELMExpManager
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         elm, pf = ELMExpManager.__new__(ELMExpManager), \
                   PFLOTRANExpManager.__new__(PFLOTRANExpManager)
         elm_plan = {"CONDITIONS_COUPLERS": [1]}
@@ -267,7 +267,7 @@ class TestTheStageSequenceIsSharedNotCopied:
         """
         from core.exp_manager_base import ExperimentManagerBase as B
         from elm_exp_manager import ELMExpManager
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
 
         assert B.FIELD_SEMANTICS == {}, "the base must not supply a default"
 
@@ -306,7 +306,7 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
                  "runtime_seconds": 0.3}]
 
     def _extract(self, exps):
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
         return m._extract(exps)["rows"][0]
 
@@ -366,7 +366,7 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
         experiment.json attributed to the wrong column is worse than a slower
         run. So an answer without the map must be refused, not interpreted.
         """
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
         d = tmp_path / "col_01"
         d.mkdir()
@@ -419,7 +419,7 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
         shared, a raised timeout must not leak into the next binning call,
         where it would hide a hang.
         """
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
         exps = []
         for i in range(8):
@@ -457,7 +457,7 @@ class TestPFLOTRANExtractSpeaksTheSharedRowShape:
         enough that rows shuffled by whichever column finished first would be
         a needless difference between two identical runs.
         """
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         import os
         m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
 
@@ -509,7 +509,7 @@ class TestTheStageLedgerIsARecordNotAClaim:
     """
 
     def _mgr(self, tmp_path):
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         return PFLOTRANExpManager(base_output_dir=str(tmp_path))
 
     def test_a_stage_is_recorded_with_its_status_and_time(self, tmp_path):
@@ -566,7 +566,7 @@ class TestResumeSkipsWhatIsAlreadyDone:
     """
 
     def _mgr(self, tmp_path):
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         return PFLOTRANExpManager(base_output_dir=str(tmp_path))
 
     def test_resume_is_opt_in(self, tmp_path):

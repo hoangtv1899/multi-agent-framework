@@ -417,7 +417,7 @@ class TestTheCaseListCarriesWhatTheBuildNeeds:
 
     def test_the_default_serialiser_is_a_no_op(self, tmp_path):
         """PFLOTRAN's experiments are pure data — it must not need a hook."""
-        from core.pflotran_exp_manager import PFLOTRANExpManager
+        from pflotran_exp_manager import PFLOTRANExpManager
         m = PFLOTRANExpManager(base_output_dir=str(tmp_path))
         exps = [{"id": "col_01", "n_cells": 9}]
         assert m._serialise_case_inputs(exps) == exps
