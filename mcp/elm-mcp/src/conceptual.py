@@ -544,6 +544,35 @@ def _validate(design: Dict[str, Any]) -> Tuple[List[Dict], List[Dict], List[Dict
                                    f"normal — it is only surprising if you "
                                    f"expected soil over bedrock."})
 
+    # ── whose weather, and where the column sits ────────────────────
+    # A SWEEP HAS NO STUDY LOCATION AND STILL CANNOT RUN WITHOUT A POINT: the
+    # domain file, DATM's nearest-neighbour match and (on a site run) the warm
+    # start all need one. Held here rather than in the framework's strategy
+    # gate (moved 2026-08-18): the reason is ELM's — a PFLOTRAN sweep has no
+    # place at all and must not be refused for lacking one — so the server
+    # that needs the point is the one that asks for it.
+    #
+    # TWO WORDINGS, because the two cases differ. With the weather WRITTEN
+    # (held_fixed.weather or a prescribed_weather factor) the coordinates are
+    # bookkeeping; saying "ELM reads its weather from a grid cell" to that
+    # design would be a false explanation of a correct refusal.
+    varies_site = bool(_levels_of(design, "forcing_site"))
+    written = (fixed.get("weather") is not None
+               or bool(_levels_of(design, "prescribed_weather")))
+    if not varies_site and not (fixed.get("lat") is not None
+                                and fixed.get("lon") is not None):
+        wont.append({"factor": "held_fixed.lat/lon",
+                     "why": "the design names no coordinates — a sweep has no "
+                            "study location, "
+                            + ("but the domain file and the nearest-neighbour "
+                               "match still need a point, so held_fixed must "
+                               "say which (the weather is written, so this is "
+                               "bookkeeping rather than a scientific choice)"
+                               if written else
+                               "but ELM still reads its weather from a grid "
+                               "cell, so held_fixed must say which — or sweep "
+                               "forcing_site")})
+
     # ── the soil nobody chose ───────────────────────────────────────
     # WHAT THE COLUMNS ACTUALLY GET when the design says nothing about soil.
     # Reported because saying nothing is what let a real run tell the user

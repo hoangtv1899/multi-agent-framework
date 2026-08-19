@@ -25,6 +25,15 @@ This is a DESIGN figure. No model output is plotted anywhere in it.
     (f) unsaturated column  how much column above the water table each run
                          starts with, against elevation
 
+    A CONTROLLED SWEEP has no place, so it gets its own four panels
+    (render_sweep), chosen when columns.json says approach: factor_sweep:
+    (a) the design      one row per column: its treatment, in the factors' words
+    (b) the columns     each column on the CONUS2 layer ladder with its water
+                        table — what a water_table_m level does to the depth
+    (c) water in        the written daily rain per column, or the steady rate
+    (d) the soils       the retention curve of every texture class in the
+                        design — what a soil level means
+
     python3 mcp/pflotran-mcp/sampling_design.py --run-dir <dir> [--reception <json>]
                                                 [--out design.png]
 
@@ -128,6 +137,9 @@ def render(a):
     grid = cj.get("grid") or []
     if not cols:
         raise ValueError("no columns to draw")
+    if cj.get("approach") == "factor_sweep" or all(
+            not isinstance(c.get("lat"), (int, float)) for c in cols):
+        return render_sweep(a, rd, cj)
 
     def num(c, k):
         v = c.get(k)
@@ -321,6 +333,156 @@ def render(a):
     plt.close(fig)
     return str(out)
 
+
+
+def _treatment_words(t):
+    """A treatment dict as short words: 'wt 2 m · loam · storms 500 mm'."""
+    if not isinstance(t, dict):
+        return ""
+    parts = []
+    for k, v in t.items():
+        if k == "water_table_m":
+            parts.append(f"wt {v:g} m")
+        elif k == "soil_depth_m":
+            parts.append(f"soil {v:g} m")
+        elif k == "recharge_mm_yr":
+            parts.append(f"{v:g} mm/yr")
+        elif k == "rain" and isinstance(v, dict):
+            parts.append(f"{v.get('fill')} {v.get('mm_yr'):g} mm")
+        else:
+            parts.append(str(v))
+    return " · ".join(parts)
+
+
+def render_sweep(a, rd, cj):
+    """The design figure for a controlled sweep — no place, so no map."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    cols = cj["columns"]
+    design = cj.get("sampling_design") or {}
+    factors = [f.get("name") for f in (design.get("factors") or [])]
+    fixed = design.get("held_fixed") or {}
+    n = len(cols)
+
+    def num(c, k):
+        v = c.get(k)
+        return float(v) if isinstance(v, (int, float)) else np.nan
+
+    wt = np.array([num(c, "water_table_m") for c in cols])
+    dom = np.array([num(c, "depth_m") for c in cols])
+    k = figstyle.manuscript(a.width, a.font)
+    fig = plt.figure(figsize=(a.width, a.width * 0.72), layout="constrained")
+    gs = fig.add_gridspec(2, 2)
+    lw_line = max(0.5, 2.0 * k)
+    cmap = plt.get_cmap("tab10" if n <= 10 else "tab20")
+    colour = [cmap(i % cmap.N) for i in range(n)]
+
+    def tag(ax, letter, text, note=""):
+        ax.set_title(f"({letter}) {text}", loc="left")
+        if note:
+            ax.set_title(note, loc="right", fontsize=a.font - 1, color="0.35")
+
+    # (a) THE DESIGN, one row per column ───────────────────────────────────
+    ax = fig.add_subplot(gs[0, 0]); ax.axis("off")
+    heads = ["column"] + factors
+    body = []
+    for c in cols:
+        t = c.get("treatment") or {}
+        row = [str(c.get("id", "")).replace("col_", "")]
+        for f in factors:
+            row.append(_treatment_words({f: t.get(f)}) if f in t else "")
+        body.append(row)
+    tbl = ax.table(cellText=body, colLabels=heads, loc="center", cellLoc="left")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(max(4, a.font - 2))
+    tbl.scale(1, max(0.6, min(1.3, 14.0 / max(n, 1))))
+    for (r, cidx), cell in tbl.get_celld().items():
+        cell.set_edgecolor("0.8")
+        if r == 0:
+            cell.set_text_props(weight="bold")
+        elif cidx == 0:
+            cell.set_facecolor(matplotlib.colors.to_rgba(colour[r - 1], alpha=0.35))
+    held = " · ".join(f"{kk} {_treatment_words({kk: v}) if kk in ('water_table_m','soil_depth_m','recharge_mm_yr','rain') else v}"
+                      for kk, v in fixed.items())
+    tag(ax, "a", "design", (f"{n} columns · held: {held}" if held else f"{n} columns"))
+
+    # (b) THE COLUMNS ON THE CONUS2 LADDER ───────────────────────────────────
+    ax = fig.add_subplot(gs[0, 1])
+    for b in CONUS2_BOUNDS_M:
+        ax.axhline(b, color="0.85", lw=max(0.4, 1.2 * k), zorder=1)
+    top = 0.05
+    for i in range(n):
+        if np.isfinite(dom[i]):
+            ax.plot([i, i], [top, dom[i]], color=colour[i], lw=lw_line * 1.6,
+                    solid_capstyle="butt", zorder=3)
+        if np.isfinite(wt[i]):
+            ax.plot([i], [max(wt[i], top)], marker="o", color=colour[i], mec="k",
+                    mew=max(0.3, 1.4 * k), ms=5 * max(0.6, 20 * k / 4), zorder=4)
+    ax.set_yscale("log"); ax.invert_yaxis()
+    ax.set_ylim(max(np.nanmax(dom) if np.isfinite(dom).any() else 10.0, 10.0) * 1.3, top)
+    ax.set_xticks(range(n))
+    ax.set_xticklabels([str(c.get("id", "")).replace("col_", "") for c in cols],
+                       fontsize=max(4, a.font - 3))
+    ax.set_xlabel("column"); ax.set_ylabel("depth (m)")
+    tag(ax, "b", "column depth and water table")
+
+    # (c) WATER IN ───────────────────────────────────────────────────────────
+    ax = fig.add_subplot(gs[1, 0])
+    trans = [c for c in cols if c.get("transient")]
+    if trans:
+        # the written series, as the server left it on the row (a sweep row
+        # keeps precipitation_mm_day — the design is its only source)
+        drew = 0
+        for i, c in enumerate(cols):
+            y = c.get("precipitation_mm_day")
+            if not y:
+                continue
+            y = np.array([float(v) for v in y])
+            ax.plot(np.arange(1, len(y) + 1), y, color=colour[i], lw=lw_line * 0.8,
+                    label=str(c.get("id", "")).replace("col_", ""))
+            drew += 1
+        ax.set_xlabel("day of year"); ax.set_ylabel("rain (mm/day)")
+        ax.set_xlim(1, 365)
+        tag(ax, "c", "written rain", f"{drew} series")
+    else:
+        rate = np.array([num(c, "recharge_mm_yr") for c in cols])
+        ax.bar(range(n), rate, color=colour, edgecolor="k", lw=max(0.3, 1.0 * k))
+        ax.set_xticks(range(n))
+        ax.set_xticklabels([str(c.get("id", "")).replace("col_", "") for c in cols],
+                           fontsize=max(4, a.font - 3))
+        ax.set_xlabel("column"); ax.set_ylabel("steady recharge (mm/yr)")
+        tag(ax, "c", "water in — steady")
+
+    # (d) THE SOILS: retention curves of every class in the design ───────────
+    ax = fig.add_subplot(gs[1, 1])
+    seen = {}
+    for c in cols:
+        for L in ((c.get("subsurface_profile") or {}).get("layers") or []):
+            m = L.get("material")
+            if m and m not in seen:
+                seen[m] = L
+    h = np.logspace(-2, 3, 200)                        # suction head, m
+    for j, (m, L) in enumerate(seen.items()):
+        alpha, nn, sres = float(L["vg_alpha"]), float(L["vg_n"]), float(L["sres"])
+        S = sres + (1.0 - sres) / (1.0 + (alpha * h) ** nn) ** (1.0 - 1.0 / nn)
+        ax.plot(h, S, lw=lw_line, label=f"{m}  (Ks {float(L['permeability_z'])*24:.2g} m/d)")
+    ax.set_xscale("log")
+    ax.set_xlabel("suction head (m)"); ax.set_ylabel("saturation")
+    ax.set_ylim(0, 1.02)
+    if seen:
+        ax.legend(fontsize=max(4, a.font - 3), loc="lower left")
+    tag(ax, "d", "the soils", f"{len(seen)} class(es)")
+
+    fig.suptitle(a.title or f"controlled sweep — {n} PFLOTRAN columns as built",
+                 fontsize=a.font + 1)
+    figstyle.check_titles(fig)
+    out = Path(a.out) if a.out else rd / "sampling_design.png"
+    fig.savefig(out)
+    plt.close(fig)
+    return str(out)
 
 def main():
     ap = argparse.ArgumentParser(description="PFLOTRAN sampling-design figure")

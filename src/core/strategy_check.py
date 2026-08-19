@@ -108,30 +108,14 @@ def _sweep_stops(sampling: Dict[str, Any]) -> List[str]:
                        f"columns measure the model's determinism, not the "
                        f"factor")
 
-    # WHOSE WEATHER. A sweep has no study location and still cannot run without
-    # one: ELM reads forcing from a grid cell. Reception is instructed to ask
-    # rather than default this, so its absence here means the conversation did
-    # not finish, not that the design is location-free.
-    held = sampling.get("held_fixed") or {}
-    varies_site = any(f.get("name") == "forcing_site" for f in fs)
-    # STILL REQUIRED WHEN THE WEATHER IS WRITTEN, for a different reason. The
-    # domain file, the warm start's donor gridcell and DATM's nearest-neighbour
-    # match all need a point; what written weather removes is the CLIMATE, not
-    # the coordinates. Saying "ELM reads its weather from a grid cell" to a
-    # design that prescribes the weather would be a false explanation of a
-    # correct refusal, which is worse than no explanation.
-    written = (held.get("weather") is not None
-               or any(f.get("name") == "prescribed_weather" for f in fs))
-    if not varies_site and not (held.get("lat") is not None
-                                and held.get("lon") is not None):
-        out.append(
-            "the design names no coordinates — a sweep has no study location, "
-            + ("but the domain file and the warm start still need a point, so "
-               "held_fixed must say which (the weather is written, so this is "
-               "bookkeeping rather than a scientific choice)"
-               if written else
-               "but ELM still reads its weather from a grid cell, so "
-               "held_fixed must say which"))
+    # NOTHING ABOUT COORDINATES HERE (moved 2026-08-18). This gate used to stop
+    # a sweep whose held_fixed named no lat/lon, explaining that "ELM still
+    # reads its weather from a grid cell". That is a fact about ELM, judged
+    # by the framework, and it refused a PFLOTRAN sweep that has no place by
+    # design. Whether a sweep needs a point is the model server's to say:
+    # the ELM server's check_conceptual_design refuses a design with no
+    # coordinates (with the same two-way wording), and the PFLOTRAN server's
+    # does not ask for any. The manager calls that check before compute.
     return out
 
 

@@ -251,7 +251,7 @@ class ELMExpManager(ExperimentManagerBase):
 		and describing the columns as SAMPLED rather than as run. Moved
 		2026-08-13; that plotter is deleted.
 		"""
-		import sampling_design
+		sampling_design = self._sibling_module("sampling_design")
 		png = sampling_design.render_run(
 			self.run_dir,
 			reception = self.run_dir / "reception.json",

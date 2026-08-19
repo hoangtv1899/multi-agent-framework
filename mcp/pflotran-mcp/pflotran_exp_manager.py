@@ -46,7 +46,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.exp_manager_base import ExperimentManagerBase
+from core.exp_manager_base import ExperimentManagerBase, _is_factor_sweep
 from core.keyset import KeySet
 
 
@@ -106,11 +106,12 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					 "spun-up state and the transient period begins after it"),
 		},
 		"water_table_m": {
-			"units": "m", "from": ["ParFlow CONUS2 ss_water_table_depth"],
+			"units": "m", "from": ["ParFlow CONUS2 ss_water_table_depth (site run)",
+								   "the design's level or held_fixed (controlled sweep)"],
 			"note": ("the INITIAL condition, not a result — the column is "
-					 "initialised hydrostatic about it. Comparing it to the "
-					 "final saturation profile compares an input with an "
-					 "output"),
+					 "initialised hydrostatic about it and its bottom face is "
+					 "anchored to it. Comparing it to the final saturation "
+					 "profile compares an input with an output"),
 		},
 		"unsaturated_m": {
 			"units": "m", "from": ["water_table_m", "domain_depth_m"],
@@ -136,7 +137,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					 "year being walked through"),
 		},
 		"n_forcing_steps": {
-			"units": "count", "from": ["Daymet daily precipitation"],
+			"units": "count", "from": ["Daymet daily precipitation (site run)",
+									   "the written year of rain (controlled sweep)"],
 			"note": ("how many boundary values the column was driven with — "
 					 "365 for a year of days. Null or 0 means a constant "
 					 "boundary"),
@@ -153,13 +155,46 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					 "column is steady (transient false)"),
 		},
 		"recharge_mm_yr": {
-			"units": "mm/y", "from": ["Daymet daily precipitation"],
+			"units": "mm/y", "from": ["the deck tool's steady rate (site run)",
+									  "the design's recharge_mm_yr (controlled sweep)"],
 			"note": ("the CONSTANT top-boundary flux, for a column driven by "
 					 "one. NULL ON A TRANSIENT COLUMN, where the boundary is "
 					 "the 365-step series and no single rate describes it — "
 					 "an absence with a reason, not a gap. Either way it is "
 					 "an input: no flux is written out, so the rate that "
 					 "actually reached the water table is not in this run"),
+		},
+		# A CONTROLLED SWEEP'S OWN INPUTS — absent on a site run.
+		"soil": {
+			"units": "class name", "from": ["the design's soil level or held_fixed"],
+			"note": ("a USDA texture class; what it BECOMES is the Carsel & "
+					 "Parrish (1988) class means (porosity, permeability, van "
+					 "Genuchten alpha and n, residual saturation), one material "
+					 "down the whole column unless soil_depth_m puts a "
+					 "substrate under it. A textbook material, not a soil "
+					 "anyone measured"),
+		},
+		"substrate": {
+			"units": "class name", "from": ["held_fixed.substrate"],
+			"note": ("the material from soil_depth_m down, from the same "
+					 "table; NULL when the column is one material throughout"),
+		},
+		"soil_depth_m": {
+			"units": "m", "from": ["the design's soil_depth_m level or held_fixed"],
+			"note": ("where soil ends and substrate begins; NULL when there is "
+					 "no substrate"),
+		},
+		"soil_source": {
+			"units": "text", "from": ["build_conceptual_columns"],
+			"note": "the one sentence saying where the material came from",
+		},
+		"weather": {
+			"units": "spec", "from": ["the design's rain level or held_fixed.rain"],
+			"note": ("the WRITTEN rain: {fill: uniform|seasonal|storms, mm_yr, "
+					 "peak_doy|n_storms}. The 365 daily values the deck was "
+					 "driven with are rebuilt from exactly this; the shape is "
+					 "what a rain sweep varies at one total. NULL on a site "
+					 "run, whose rain is Daymet's"),
 		},
 		# WHAT IS ABSENT, said explicitly. A reader looking for these will not
 		# find them, and the reason is a design decision rather than a gap.
@@ -173,13 +208,15 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					 "Nothing in this file is any of them"),
 		},
 		"_forcing": {
-			"note": ("the top boundary was driven with Daymet PRECIPITATION "
-					 "applied as recharge: no snow storage, no "
-					 "evapotranspiration removed, no runoff generated, because "
-					 "this model has none of them. In a snow-dominated basin "
-					 "the snowpack therefore infiltrates in winter rather than "
-					 "at melt, so seasonal TIMING is wrong by construction. "
-					 "See the assumptions ledger"),
+			"note": ("the top boundary was driven with PRECIPITATION applied as "
+					 "recharge — Daymet's on a site run, the design's written "
+					 "rain or steady rate on a controlled sweep: no snow "
+					 "storage, no evapotranspiration removed, no runoff "
+					 "generated, because this model has none of them. In a "
+					 "snow-dominated basin the snowpack therefore infiltrates "
+					 "in winter rather than at melt, so seasonal TIMING is "
+					 "wrong by construction. See the assumptions ledger, which "
+					 "says which of the two this run was"),
 		},
 	}
 
@@ -193,6 +230,57 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 	BUILD_KNOBS = ("max_cell_m", "cap_m", "min_depth_m", "spin_years",
 				   "recharge_mm_yr")
 
+	def _build_sweep_columns(self, design: Dict[str, Any],
+							 config: Dict[str, Any]) -> Dict[str, Any]:
+		"""A controlled sweep's columns, built by the server that runs them.
+
+		The same forty lines ELM's manager has, for the same reason: the base
+		knows a sweep is one column per level combination; only this server
+		knows that a `soil` level of "loam" is five van Genuchten numbers, or
+		that a water table at 2 m makes a 7 m column. The design crosses the
+		MCP boundary and comes back as columns in the shape the deck tool
+		reads — so from here on the sweep IS the site path.
+
+		CHECKED FIRST, AND SEPARATELY. build_conceptual_columns refuses an
+		unbuildable design on its own, but calling check first means the run
+		stops with every reason named at once, including the ones that would
+		NOT have refused (unusual: a saturated water table, 0 mm/yr) — which
+		belong in the log before compute rather than after.
+
+		`deck_knobs` — held_fixed settings that are arguments to the deck
+		build (cap_m, spin_years, max_cell_m) rather than fields of a column —
+		are kept for _refine_columns, which passes them to the deck tool.
+		"""
+		client = self._mcp(config)
+		if client is None:
+			raise RuntimeError(
+				f"the {self.MCP_NAME!r} MCP is required to build a controlled "
+				f"sweep — what a factor level becomes is this server's "
+				f"knowledge. Register a `{self.MCP_NAME}` client in mcp_config.json.")
+
+		verdict = self._mcp_call(client, "check_conceptual_design",
+								 {"design": design}) or {}
+		for f in (verdict.get("facts") or []):
+			print(f"   · {f.get('what')}: {f.get('detail')}")
+		for u in (verdict.get("unusual") or []):
+			print(f"   ⚠️  {u.get('factor')}: {u.get('why')}")
+		if not verdict.get("buildable", False):
+			why = "\n".join(f"     - {w.get('factor')}: {w.get('why')}"
+							for w in (verdict.get("wont_build") or []))
+			raise RuntimeError(
+				f"the {self.MCP_NAME} server refused this sweep design:\n{why}")
+
+		out = self._mcp_call(client, "build_conceptual_columns",
+							 {"design": design}) or {}
+		if not out.get("columns"):
+			raise RuntimeError(
+				"build_conceptual_columns returned no columns for a design the "
+				"server had just called buildable — the check and the builder "
+				"disagree, which they share code precisely to prevent: "
+				+ str(out.get("error") or "")[:200])
+		self._deck_knobs = dict(out.get("deck_knobs") or {})
+		return out
+
 	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
 		"""ONE MCP call: join, decks, run plan.
 
@@ -205,6 +293,13 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		where reception wrote the CONUS2 subsurface, the water table raster and
 		the daily rain. The server looks each column up by coordinate and
 		reports the ones it could not complete rather than dropping them.
+
+		A CONTROLLED SWEEP HAS NO SITE. Its columns already carry a profile,
+		a water table and their water (from build_conceptual_columns), so no
+		site_dir is passed and nothing is looked up; the design's deck knobs
+		(cap_m, spin_years, max_cell_m) go to the deck tool instead. Everything
+		else in this call — the decks, the run plan, the columns replaced in
+		place — is identical.
 		"""
 		client = self._mcp(config)
 		if client is None:
@@ -212,15 +307,23 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 				f"no {self.MCP_NAME!r} client in config['mcp_clients'] — the "
 				f"decks are written by the model server, so materialize "
 				f"cannot finish without one")
+		sweep = _is_factor_sweep(config.get("strategy") or {}, config.get("brief"))
 		args = {
 			"columns":  columns,
 			"out_dir":  str(self.input_dir / "decks"),
-			"site_dir": str(self.run_dir),
 		}
+		if not sweep:
+			args["site_dir"] = str(self.run_dir)
 		for k in self.BUILD_KNOBS:
 			if (config or {}).get(k) is not None:
 				args[k] = float(config[k])
-		print(f"   {len(columns)} column(s) -> decks in {args['out_dir']}")
+		# THE DESIGN'S KNOBS WIN over the framework's config: held_fixed is
+		# what the user settled, and the run must be the study described.
+		for k, v in (getattr(self, "_deck_knobs", None) or {}).items():
+			args[k] = float(v)
+		print(f"   {len(columns)} column(s) -> decks in {args['out_dir']}"
+			  + ("  (controlled sweep: no site, the columns carry their own "
+				 "soil and water)" if sweep else ""))
 		res = self._mcp_call(client, "create_decks_from_columns", args,
 							 budget=1800.0) or {}
 		decks = res.get("decks") or []
@@ -276,6 +379,12 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		keep = ("water_table_m", "unsaturated_m", "wt_in_domain",
 				"transient", "n_forcing_steps", "recharge_mm_yr",
 				"rain_borrowed_km", "rain_borrowed_from",
+				# A CONTROLLED SWEEP'S OWN FACTS (build_conceptual_columns):
+				# which texture class the column is, what sits under it and
+				# from what depth, and where the soil came from. Absent on a
+				# site column, whose subsurface is CONUS2's and is described
+				# by the ledger, not per row.
+				"soil", "substrate", "soil_depth_m", "soil_source",
 				# THE SERVER'S OWN SENTENCE ABOUT THIS COLUMN — "only 0.01 m
 				# of unsaturated column", "built steady, no daily rain". Step 0
 				# of the Analyzer turns a row's `warning` into a caveat naming
@@ -287,7 +396,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		# Absent on a column that is on the grid, saturated-or-not, complete:
 		# a normal run produces none of these on most rows.
 		optional = ("recharge_mm_yr", "rain_borrowed_km", "rain_borrowed_from",
-					"warning", "incomplete"),
+					"warning", "incomplete",
+					"soil", "substrate", "soil_depth_m", "soil_source"),
 		drop = {
 			"deck_status": "the run stage's `status` is the word the framework "
 						   "counts on; a deck that did not build has no output "
@@ -308,6 +418,16 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			"n_material_zones": "deck numerics; the .in file is the record",
 			"source": "the same sentence on every column — the ledger's second "
 					  "assumption says it once",
+			# A SWEEP ROW KEEPS ITS ARRAYS (the design is their only source);
+			# the design figure reads them off columns.json. They do not
+			# belong on an experiment row: the deck encodes both, and the row
+			# already says which class (`soil`) and which rain (`weather`).
+			"subsurface_profile": "the material layers a sweep column was "
+								  "built from; the deck holds them and `soil` "
+								  "/ `substrate` name them",
+			"precipitation_mm_day": "the written year of rain a sweep column "
+									"was driven with; `weather` is the spec "
+									"that made it, n_forcing_steps its length",
 		},
 		source = "columns.json -> columns[*], as create_decks_from_columns wrote them",
 		where  = "mcp/pflotran-mcp/pflotran_exp_manager.py :: COLUMN_METADATA_EXTRA",
@@ -324,7 +444,7 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		(sampling_design.py), the way ELM's is drawn by code beside its server.
 		A design figure: no model output is on it. Non-fatal in the base.
 		"""
-		import sampling_design                       # mcp/pflotran-mcp is on the path
+		sampling_design = self._sibling_module("sampling_design")
 		png = sampling_design.render_run(
 			self.run_dir,
 			reception=self.run_dir / "reception.json",

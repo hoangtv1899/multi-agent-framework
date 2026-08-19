@@ -962,6 +962,37 @@ class ExperimentManagerBase:
 			f"turn factor levels into columns; only the model server knows "
 			f"what a level means.")
 
+	def _sibling_module(self, name: str):
+		"""Import a module that sits BESIDE this manager, under a per-model
+		name, so two servers' same-named modules do not collide.
+
+		Both servers ship a `sampling_design.py`; a bare `import sampling_design`
+		binds sys.modules['sampling_design'] to whichever manager drew first,
+		and every later draw silently gets the wrong one — invisible in a real
+		run (one model per process) and a real bug the moment two share one
+		(the test suite, and any future two-model tool). Loaded by path under
+		`{name}_{MODEL}`, the same way step1_compare loads each model's compare
+		package. The manager's own directory is already on sys.path
+		(core/resumable._manager_for put it there).
+		"""
+		import importlib, importlib.util
+		key = f"{name}_{self.MODEL}"
+		if key in sys.modules:
+			return sys.modules[key]
+		here = Path(sys.modules[type(self).__module__].__file__).resolve().parent
+		path = here / f"{name}.py"
+		if not path.is_file():
+			return importlib.import_module(name)          # fall back to the path
+		spec = importlib.util.spec_from_file_location(key, path)
+		mod = importlib.util.module_from_spec(spec)
+		sys.modules[key] = mod
+		try:
+			spec.loader.exec_module(mod)
+		except Exception:
+			sys.modules.pop(key, None)
+			raise
+		return mod
+
 	def _draw_design(self, res: Dict[str, Any], config: Dict[str, Any]) -> None:
 		"""Draw the sampling-design figure, if this backend has one.
 
