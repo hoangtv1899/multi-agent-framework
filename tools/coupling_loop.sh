@@ -25,7 +25,12 @@ set -uo pipefail
 PRIOR="${1:?usage: coupling_loop.sh <prior_pflotran_run_dir> [max_iters] [tol_m]}"
 MAX_ITERS="${2:-3}"
 TOL="${3:-0.10}"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# UNDER SBATCH THE SCRIPT IS A COPY: SLURM spools it to node-local /tmp, so
+# BASH_SOURCE points there and a path derived from it is wrong (learned from
+# job 773714, which looked for tools/ under /tmp/slurmd). SLURM_SUBMIT_DIR is
+# where sbatch was RUN — the repo root, since that is how the header says to
+# submit. Interactive use still resolves from the script's own location.
+ROOT="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$ROOT"
 source /qfs/people/tran289/IDEAS/env_compy.sh
 PY="${IDEAS_PYTHON:-python3}"
