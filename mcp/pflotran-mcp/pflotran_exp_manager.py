@@ -313,6 +313,24 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		where  = "mcp/pflotran-mcp/pflotran_exp_manager.py :: COLUMN_METADATA_EXTRA",
 	)
 
+	def _draw_design(self, res: Dict[str, Any], config: Dict[str, Any]) -> None:
+		"""sampling_design.png — the columns PFLOTRAN will actually integrate.
+
+		Six panels from columns.json AS BUILT and reception.json: the columns
+		over the terrain, the year's rain at each and through the year, the
+		CONUS2 water table each was given, each column's depth on the CONUS2
+		layer ladder, and how much unsaturated column each starts with. Drawn
+		after columns.json is persisted, by code beside this manager
+		(sampling_design.py), the way ELM's is drawn by code beside its server.
+		A design figure: no model output is on it. Non-fatal in the base.
+		"""
+		import sampling_design                       # mcp/pflotran-mcp is on the path
+		png = sampling_design.render_run(
+			self.run_dir,
+			reception=self.run_dir / "reception.json",
+			out=self.run_dir / "sampling_design.png")
+		print(f"✓ sampling design → {Path(png).name}")
+
 	def _to_run_plan(self, plan, columns, config, refine) -> Dict[str, Any]:
 		"""The run plan the server already built, handed back — as ELM does."""
 		out = (refine or {}).get("mcp_inputs") or getattr(self, "_mcp_inputs", None)
@@ -397,9 +415,14 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			print(f"   {mark} [{i}/{len(runnable)}] {e.get('id')} "
 				  f"({e.get('n_cells')} cells)")
 
+		# WRITTEN ONTO THE EXPERIMENTS IN PLACE, as ELM's collect does. The
+		# base builds RUN_SUMMARY.json from the EXPERIMENTS list, not from what
+		# this returns — so a fresh dict per case left every runtime at 0 and
+		# every status unrecorded there, while the values sat in a list nobody
+		# persisted. `runtime_seconds` is the base's word for it.
 		out, ok = [], 0
 		for e in experiments:
-			r = dict(e)
+			r = e
 			one = outcomes.get(e.get("input_file") or "") or {}
 			code = one.get("exit_code")
 			r["exit_code"] = code
@@ -410,7 +433,7 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			r["status"] = "completed" if code == 0 else "failed"
 			r["stdout"] = one.get("stdout")
 			r["output_files"] = one.get("output_files")
-			r["run_seconds"] = one.get("seconds")
+			r["runtime_seconds"] = one.get("seconds")
 			if e.get("input_file") and code != 0:
 				r["run_error"] = str(one.get("error")
 									 or "the deck produced no exit code")[:300]

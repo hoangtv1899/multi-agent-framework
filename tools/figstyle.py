@@ -64,3 +64,35 @@ def manuscript(width_in=WIDTH["double"], base_pt=8.0):
         "savefig.bbox": None,        # constrained_layout already did the work
     })
     return k
+
+
+def check_titles(fig):
+    """Warn when a panel's titles are wider than the panel. Reports; never
+    changes the figure.
+
+    Drawing at printed size makes overflow visible, but visible is not the same
+    as noticed — a first version of the ELM design figure shipped with (b)'s
+    title running through (c)'s. A panel is about 28 characters wide at 8 pt
+    and basin names and column counts vary, so whether a title fits is a
+    property of the DATA and is measured on every figure. Moved here from
+    mcp/elm-mcp/src/sampling_design.py on 2026-08-18 so PFLOTRAN's design
+    figure runs the same check without a second copy.
+    """
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    over = []
+    for ax in fig.axes:
+        w = ax.get_window_extent(r).width
+        used = sum(t.get_window_extent(r).width
+                   for t in (ax.title, ax._left_title, ax._right_title)
+                   if t.get_text())
+        if used > w:
+            over.append(f"title {ax.get_title('left') or ax.get_title()!r} "
+                        f"({used / w:.0%} of its panel)")
+        xl = ax.xaxis.label
+        if xl.get_text() and xl.get_window_extent(r).width > w:
+            over.append(f"x label {xl.get_text()!r} "
+                        f"({xl.get_window_extent(r).width / w:.0%})")
+    for o in over:
+        print(f"   ⚠️  title overflows: {o}")
+    return over

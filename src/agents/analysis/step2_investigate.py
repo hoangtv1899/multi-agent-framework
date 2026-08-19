@@ -232,13 +232,51 @@ def _variable_catalog(ctx) -> List[str]:
                 "by entity first."]
 
     if sem:
-        out.append("")
-        out.append("  derived per-column metrics (in columns[i]['metrics']) — "
-                   "ALREADY UNIT-CORRECT. Prefer these over re-deriving from df:")
+        # WHERE EACH DECLARED FIELD LIVES, read off the rows rather than
+        # assumed. ELM's semantics describe derived metrics that sit in
+        # columns[i]['metrics']; PFLOTRAN's describe the variables of `prof`
+        # and the INPUTS carried on the row itself (water_table_m,
+        # unsaturated_m, transient ...). Telling the model that water_table_m
+        # is in `metrics` sends it to a key that is empty. Entries whose name
+        # starts with "_" are notes about the run — what was NOT computed, how
+        # it was forced — and are printed as such.
+        rows = [c for c in ctx.columns if isinstance(c, dict)]
+        in_metrics = {k for c in rows for k in (c.get("metrics") or {})}
+        on_row = {k for c in rows for k, v in c.items() if v is not None}
+        prof_vars = set()
+        if prof is not None:
+            prof_vars = {str(v) for v in prof["variable"].unique()}
+        notes, fields = [], []
         for k in sorted(sem):
             e = sem[k] or {}
-            frm = ", ".join(e.get("from") or []) or "?"
-            out.append(f"    {k:26s} {str(e.get('units')):8s} from {frm}")
+            if k.startswith("_"):
+                notes.append((k, e)); continue
+            if k in prof_vars:
+                where = "a variable of `prof`"
+            elif k in in_metrics:
+                where = "columns[i]['metrics'][k]"
+            elif k in on_row:
+                where = "columns[i][k]  (an INPUT to the column, not an output)"
+            elif k in ("depth_m", "times_y", "time_y", "date"):
+                where = "an axis of the frame"
+            else:
+                where = "declared but on NO row of this run — do not use"
+            fields.append((k, e, where))
+        if fields:
+            out += ["", "  declared fields (units, where they live, meaning) — "
+                        "ALREADY UNIT-CORRECT; prefer these over re-deriving:"]
+            for k, e, where in fields:
+                # THE DERIVATION STAYS ON THE LINE: runoff_fraction is
+                # QOVER/(QCHARGE+QOVER), not a fraction of P, and reading the
+                # name instead of the derivation is how that was once got wrong.
+                frm = ", ".join(e.get("from") or []) or "?"
+                out.append(f"    {k:22s} {str(e.get('units')):10s} from {frm} — {where}")
+                if e.get("note"):
+                    out.append(f"    {'':22s} {str(e['note'])[:220]}")
+        for k, e in notes:
+            out += ["", f"  {k.strip('_').upper()}: {str(e.get('note') or e)[:400]}"]
+            if e.get("fields"):
+                out.append(f"    not computed: {', '.join(e['fields'])}")
     return out
 
 
@@ -324,12 +362,13 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
     for g in (plan.get("goals") or []):
         lines.append(f"    - {g}")
 
+    model_name = str((ctx.data or {}).get("model") or "model").upper()
     lines += [
         "",
         "WHAT THIS EXPERIMENT IS:",
-        f"    {len(ctx.columns)} independent 1-D ELM columns, "
+        f"    {len(ctx.columns)} independent 1-D {model_name} columns, "
         f"elevation {lo:.0f}-{hi:.0f} m." if lo is not None else
-        f"    {len(ctx.columns)} independent 1-D ELM columns.",
+        f"    {len(ctx.columns)} independent 1-D {model_name} columns.",
         f"    Period {period.get('yr_start')}-{period.get('yr_end')}.",
         "    No lateral flow, no routing, no run-on: the columns do not exchange",
         "    water. They are a gradient experiment, not a distributed basin model.",
@@ -401,8 +440,9 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
 
 
 TASK = f"""\
-You are a hydrologist analysing this ELM ensemble. Decide which figures answer
-what the user asked, and write the code that draws them.
+You are a hydrologist analysing this ensemble of 1-D columns — the model is
+named in the brief above. Decide which figures answer what the user asked, and
+write the code that draws them.
 
 Report the process the user asked about at TWO scales:
   1. overall — the DISTRIBUTION across the sampled columns and how it varies
@@ -443,8 +483,9 @@ containing the numbers it plotted plus an integer `n` = how many data points
 the figure rests on. A result with n below 3, or with no n, is rejected.
 
 Return ONLY JSON:
-{{"reasoning": "<2-5 sentences: which ELM variables you decided constitute the
-                process the user asked about, and why those and not others.
+{{"reasoning": "<2-5 sentences: which of this model's variables you decided
+                constitute the process the user asked about, and why those and
+                not others.
                 Name anything you considered computing and rejected, with the
                 reason. This is read by the reviewer, so say what you actually
                 decided rather than restating the question.>",
