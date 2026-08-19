@@ -13,6 +13,8 @@ workflow.py directly; tools/run_pipeline.py uses it for the dry path.
 """
 import json
 import re
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict
 
 from agents.prompts import load_prompt
@@ -56,6 +58,127 @@ def _is_conceptual(brief: Dict[str, Any]) -> bool:
     """
     return str((brief or {}).get("design_archetype") or "").strip().lower() \
         == "conceptual"
+
+
+def _is_coupling(brief: Dict[str, Any]) -> bool:
+    return str((brief or {}).get("design_archetype") or "").strip().lower() \
+        == "coupling"
+
+
+def _carry_prior_forward(brief, run_dir, prov):
+    """A coupling run's gather: the PRIOR run's, copied — not refetched.
+
+    "No new gathering beyond the prior run" (the archetype's own rule): the
+    domain, grid, observations and rain of a follow-up are by definition the
+    prior study's, and refetching them costs data-server calls to learn what
+    a file beside this one already says. So the prior run's reception blocks
+    are carried into this package, its site files (the CONUS2 subsurface, the
+    water-table raster) are copied beside this run's reception.json, and the
+    provenance says so — a reader must never mistake a carried record for a
+    fresh fetch.
+
+    THE PRIOR RUN IS RESOLVED HERE and the resolved path is written into
+    brief.coupling.prior_run_dir, which is what the Experiment Manager's
+    coupling branch reads. The LLM records only the name the user gave
+    (`prior_experiment`); names are for people, and the run directory is the
+    only address the pipeline trusts.
+
+    Returns the gather blocks (grid, observations, precipitation) or raises
+    with the reason named — a coupling with no prior is not a study.
+    """
+    import shutil
+
+    coupling = brief.get("coupling") or {}
+    ref = str(coupling.get("prior_experiment") or "").strip()
+    if not ref:
+        raise ValueError(
+            "a coupling brief names no prior_experiment — there is nothing "
+            "to drive this run with")
+    base = Path(run_dir).resolve().parent if run_dir else Path(".").resolve()
+    cand = [p for p in (Path(ref), base / ref) if p.is_dir()]
+    if not cand:
+        # the name may sit anywhere inside the user's words ("that ELM run
+        # elm_run_20260813_233645") — match run directories by substring
+        cand = sorted((p for p in base.iterdir()
+                       if p.is_dir() and p.name in ref), key=lambda p: p.name)
+    if len(cand) != 1:
+        have = ", ".join(sorted(p.name for p in base.glob("*_run_*"))[-6:])
+        raise ValueError(
+            f"could not resolve the prior run {ref!r} to exactly one "
+            f"directory under {base} (found {len(cand)}); recent runs: {have}")
+    prior = cand[0].resolve()
+    coupling["prior_run_dir"] = str(prior)
+    # THE COLUMN COUNT IS A FACT, NOT A DESIGN CHOICE: the coupled run reuses
+    # the prior's columns verbatim, and the planner copies this number so the
+    # strategy gate has an n_columns that is true by construction.
+    try:
+        pc = json.loads((prior / "columns.json").read_text())
+        pc = pc.get("columns", pc) if isinstance(pc, dict) else pc
+        coupling["n_columns_prior"] = len(pc)
+    except Exception:                                   # noqa: BLE001
+        pass
+    brief["coupling"] = coupling
+
+    rec_f = prior / "reception.json"
+    if not rec_f.is_file():
+        raise ValueError(f"the prior run {prior.name} has no reception.json — "
+                         f"it cannot anchor a follow-up")
+    rec = json.loads(rec_f.read_text())
+    rec = rec.get("reception", rec)
+
+    # THE DOMAIN AND PERIOD ARE THE PRIOR'S, literally. The LLM writes what
+    # the request said; a follow-up request rarely restates the bbox, and
+    # resolving it again would be the fetch this branch exists to avoid. A
+    # value the LLM DID write wins — the user may have narrowed the period.
+    pb = rec.get("brief") or {}
+    if not ((brief.get("domain") or {}).get("bbox")) and pb.get("domain"):
+        brief["domain"] = pb["domain"]
+    rs = brief.setdefault("run_settings", {})
+    if not ((rs.get("resolved_period") or {}).get("yr_start")):
+        prior_period = ((pb.get("run_settings") or {})
+                        .get("resolved_period") or {})
+        if prior_period.get("yr_start"):
+            rs["resolved_period"] = prior_period
+
+    copied, absent = [], []
+    if run_dir:
+        for name in ("conus2_subsurface.npz", "conus2_subsurface.json",
+                     "wtd_conus2.tif"):
+            src = prior / name
+            if src.is_file():
+                shutil.copy(src, Path(run_dir) / name)
+                copied.append(name)
+            else:
+                absent.append(name)
+    if "conus2_subsurface.npz" in absent:
+        # SAID NOW, NOT AT MATERIALIZE. The coupled columns carry their own
+        # water table and flux, so of the three site files only the
+        # subsurface is required — and "no new gathering" means it is not
+        # fetched here. The run will stop at the deck build with the join's
+        # error; this line says where the file must come from.
+        print(f"   ⚠️  the prior run {prior.name} has no conus2_subsurface.npz "
+              f"— the deck build will refuse. Copy the basin's subsurface "
+              f"files beside this run's reception.json, or couple from a "
+              f"prior run that fetched them.")
+    prov.append({
+        "tool": None,
+        "args": {"design_archetype": "coupling", "prior_run": prior.name},
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "ok": True, "error": None,
+        "note": (f"CARRIED FORWARD, NOT FETCHED: grid, observations and rain "
+                 f"are the prior run's ({prior.name}), copied from its "
+                 f"reception.json; site files copied beside this run's: "
+                 f"{', '.join(copied) or 'none found'}"
+                 + (f"; ABSENT from the prior: {', '.join(absent)}" if absent
+                    else "")
+                 + ". A coupling gathers nothing new — its domain IS the "
+                   "prior study's."),
+    })
+    return {
+        "grid": rec.get("grid") or {},
+        "observations": rec.get("observations") or {},
+        "precipitation": rec.get("precipitation") or {},
+    }
 
 
 def _drop_domain(brief: Dict[str, Any]) -> Dict[str, Any]:
@@ -188,6 +311,21 @@ class LLMReceptionAgent:
         bbox = dom.get("bbox") or {}
         period = ((brief.get("run_settings") or {}).get("resolved_period") or {})
         y0, y1 = period.get("yr_start"), period.get("yr_end")
+
+        # ── A COUPLING REQUEST GATHERS NOTHING NEW ──────────────────────
+        # Its domain, observations and rain are the prior run's, carried
+        # forward; its site files are copied beside this run's reception.
+        # Whatever the prior LACKS stays absent and is said in provenance —
+        # a fetch here would be a data-server call to re-learn what a file
+        # on disk already says, and the coupled columns carry their own
+        # water table and flux, so the join needs only the subsurface.
+        if _is_coupling(brief):
+            carried = _carry_prior_forward(brief, run_dir, prov)
+            pkg.update(carried)
+            brief["observations_summary"] = gather.summarise(
+                pkg["observations"])
+            pkg["provenance"] = prov
+            return pkg
 
         # ── A CONCEPTUAL REQUEST TOUCHES THE MODEL SERVER AND NOTHING ELSE ──
         # This used to be true only by luck. The fetch below was gated on

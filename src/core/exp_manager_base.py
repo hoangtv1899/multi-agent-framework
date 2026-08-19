@@ -95,6 +95,22 @@ def _is_factor_sweep(strategy: Dict[str, Any],
 	return str(arche).strip().lower() == "conceptual"
 
 
+def _is_coupling(strategy: Dict[str, Any],
+                 brief: Optional[Dict[str, Any]] = None) -> bool:
+    """Is this a cross-model follow-up rather than a sample or a sweep?
+
+    The same two sources as _is_factor_sweep, either sufficient: the
+    archetype is reception's word, the strategy's `coupling` block is the
+    planner's. A coupling run has a basin (carried forward from the prior
+    run) but samples nothing: its columns are the prior run's, verbatim.
+    """
+    arche = ((strategy or {}).get("archetype")
+             or (brief or {}).get("design_archetype") or "")
+    if str(arche).strip().lower() == "coupling":
+        return True
+    return bool((strategy or {}).get("coupling"))
+
+
 class Pending:
 	"""What _run returns when it SUBMITTED the ensemble instead of finishing it.
 
@@ -199,7 +215,12 @@ class ExperimentManagerBase:
 	# declaration reads as "this model has no such stage".
 	NEEDS_CASE_BUILD   = True    # ELM compiles CIME cases; PFLOTRAN writes decks
 	NEEDS_SCHEDULER = True    # ELM submits to SLURM; PFLOTRAN runs in 0.3 s
-	COUPLES_TO      = None    # backend name this one hands its output to
+	# COUPLES_TO IS GONE (2026-08-19). It bolted a PFLOTRAN appendix onto the
+	# tail of an ELM run — after the Analyzer, invisible to it, through a
+	# local deck builder that bypassed the model server. A coupling is a RUN
+	# of the downstream model now: reception's "coupling" archetype carries
+	# the prior domain forward, and _materialize's coupling branch takes the
+	# prior run's columns verbatim, each carrying its own driving flux.
 
 	# ─────────────────────────────────────────────────────────
 	# THE RUN STATE — what this study has already finished, on disk
@@ -629,16 +650,6 @@ class ExperimentManagerBase:
 						  f"stands")
 					self._mark("analyze", status="failed", error=str(e)[:200])
 
-			# Step 4d — hand off to a downstream model, when the backend
-			# declares one and the plan asks for it. Non-fatal: this study
-			# stands on its own.
-			if self.COUPLES_TO:
-				try:
-					self._couple(experiment_plan, config)
-				except Exception as e:                          # noqa: BLE001
-					print(f"   ⚠️  {self.COUPLES_TO} coupling failed ({e}) — "
-						  f"the {self.MODEL} run stands")
-
 			# STEP 5 IS GONE (2026-08-13). It wrote LLM_ANALYSIS_INPUT.json, an
 			# alias holding a prompt payload for the report agent that this
 			# framework no longer has. experiment.json is the product, and
@@ -924,12 +935,6 @@ class ExperimentManagerBase:
 	def _extract(self, experiments, plan=None, config=None):
 		raise NotImplementedError(f"{type(self).__name__} must implement _extract")
 
-	def _couple(self, plan, config):
-		raise NotImplementedError(
-			f"{type(self).__name__} declares COUPLES_TO={self.COUPLES_TO} "
-			f"but has no _couple")
-
-
 	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
 		"""Backend edits to the sampled columns, before they are persisted.
 
@@ -993,6 +998,24 @@ class ExperimentManagerBase:
 			raise
 		return mod
 
+	def _build_coupled_columns(self, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""Columns for a CROSS-MODEL FOLLOW-UP: the prior run's, verbatim.
+
+		The sibling of _build_sweep_columns, for the coupling archetype. The
+		base knows a coupled run reuses the prior run's columns; only the
+		downstream backend knows which of the prior model's outputs becomes
+		its boundary and what that series means. Returns the same payload
+		shape (`columns` plus provenance), because everything after this
+		point treats the three archetypes identically.
+
+		A backend with no coupling support raises, which is the correct
+		answer: this model cannot be driven by another's output.
+		"""
+		raise NotImplementedError(
+			f"{type(self).__name__} cannot run a coupled study. The strategy "
+			f"asked for a cross-model follow-up, which needs this backend to "
+			f"turn the prior run's record into its own boundary conditions.")
+
 	def _draw_design(self, res: Dict[str, Any], config: Dict[str, Any]) -> None:
 		"""Draw the sampling-design figure, if this backend has one.
 
@@ -1046,9 +1069,10 @@ class ExperimentManagerBase:
 		# here to the shared tail is the site path, untouched.
 		strategy_in = config.get("strategy") or plan
 		is_sweep = _is_factor_sweep(strategy_in, brief)
+		is_coupled = _is_coupling(strategy_in, brief)
 
-		bbox = None if is_sweep else exp._bbox_from_brief(brief)
-		if not is_sweep:
+		bbox = None if (is_sweep or is_coupled) else exp._bbox_from_brief(brief)
+		if not is_sweep and not is_coupled:
 			if not bbox:
 				raise ValueError(
 					"Cannot materialize sampling: no domain bbox in the reception "
@@ -1076,6 +1100,27 @@ class ExperimentManagerBase:
 		#
 		# 5e0cfd5 fixed the DETECTION. This is the enforcement.
 		config = self.check(plan, config)
+
+		# ── the coupling path, and it rejoins below at _refine_columns ──────
+		#
+		# BEFORE the sweep branch and after the gate, for the sweep's reasons.
+		# A coupled run samples nothing and designs nothing: its columns are
+		# the PRIOR run's, verbatim — same ids, coordinates, elevations,
+		# bands, pinned stations — so the Analyzer can line the two models up
+		# column by column. What the backend adds is its own boundary: each
+		# column carries the prior model's output series and a sentence
+		# saying what it is.
+		if is_coupled:
+			print("\n🗺️  STEP 0: Materializing a Coupled Follow-up")
+			print("-" * 40)
+			res = self._build_coupled_columns(config) or {}
+			columns = res.get("columns") or []
+			if not columns:
+				raise RuntimeError(
+					"The coupling produced no columns. The backend accepted "
+					"the prior run and returned nothing, which is a failure "
+					"rather than an empty result.")
+			return self._persist_columns(res, columns, plan, config)
 
 		# ── the sweep path, and it rejoins below at _refine_columns ─────────
 		#

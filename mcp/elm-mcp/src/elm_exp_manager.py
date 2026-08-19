@@ -33,10 +33,7 @@ Output directory structure:
         │   ├── analysis.json           (the Analyzer's boundary file)
         │   ├── partitioning.png  controls.png  soil_control.png
         │   └── wtd_columns.png
-        ├── 05_pflotran/                            (step 4d, only if coupled)
         │   ├── <col>/<col>.in + outputs
-        │   ├── pflotran_summary_coupled.json  pflotran_study.json
-        │   └── pflotran_coupled.png
         ├── experiment.json             (this box's product)
         └── RUN_SUMMARY.json
 
@@ -62,29 +59,9 @@ from core.exp_manager_base import ExperimentManagerBase, Pending
 from core.keyset import KeySet
 
 
-# parents[3]: this file is mcp/elm-mcp/src/. _ROOT is the FRAMEWORK root — the
-# only thing left that needs it is _load_tool, for the PFLOTRAN coupling CLIs.
-_ROOT = Path(__file__).resolve().parents[3]
-
-
-
-def _load_tool(name: str):
-	"""Import tools/<name>.py by path — tools/ is a script dir, not a package.
-
-	Down to one user: the PFLOTRAN coupling (step 4d, build_pflotran_cases +
-	analyze_pflotran_coupled), so that stage and its standalone CLIs share one
-	implementation. Everything else that used this now lives beside this file
-	or behind the MCP.
-	"""
-	import importlib.util
-	if name in sys.modules:
-		return sys.modules[name]
-	path = _ROOT / "tools" / f"{name}.py"
-	spec = importlib.util.spec_from_file_location(name, path)
-	mod  = importlib.util.module_from_spec(spec)
-	sys.modules[name] = mod
-	spec.loader.exec_module(mod)
-	return mod
+# _ROOT and _load_tool ARE GONE (2026-08-19) with step 4d: their only user
+# was the PFLOTRAN coupling CLIs, and a coupling is a run of the PFLOTRAN
+# manager now — see exp_manager_base._is_coupling.
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -280,7 +257,6 @@ class ELMExpManager(ExperimentManagerBase):
 	# base's, so a second backend cannot re-implement them differently.
 	NEEDS_CASE_BUILD   = True          # CIME case build, ~8 min for the first
 	NEEDS_SCHEDULER = True          # sbatch + wait
-	COUPLES_TO      = "pflotran"    # one-way QINFL handoff, when asked for
 
 	# WHAT build_elm_inputs_from_location ADDS TO A COLUMN, and what the base's
 	# package carries from columns.json onto the row (composed with the
@@ -367,11 +343,6 @@ class ELMExpManager(ExperimentManagerBase):
 											"x 365.25, so a short record is an "
 											"EXTRAPOLATION by 365.25/this"},
 	}
-
-	def _couple(self, plan, config):
-		"""Base calls this when COUPLES_TO is set; delegate to the existing
-		implementation so the coupling code has one home."""
-		return self._couple_pflotran(plan, config)
 
 	# ─────────────────────────────────────────────────────────
 	# THE MCP — the only path there is
@@ -974,74 +945,3 @@ exit $?
 	# ─────────────────────────────────────────────────────────
 	# STEP 4d — ONE-WAY ELM → PFLOTRAN COUPLING
 	# ─────────────────────────────────────────────────────────
-	def _couple_pflotran(self,
-						 plan:   Dict[str, Any],
-						 config: Dict[str, Any]) -> bool:
-		"""Drive a 1-D PFLOTRAN column per ELM column with that column's own
-		daily QINFL -> 05_pflotran/. Non-fatal.
-
-		Runs when the planner emitted a coupling_design (the archetype the
-		Reception and Planner prompts already speak), or when config forces it
-		with pflotran={'run': True}. Both prompts have described this coupling
-		for months; nothing executed it, so "one-way coupling" was a design the
-		framework could plan but never perform.
-
-		The columns are the SAME ones ELM just ran — same lat/lon, same SSURGO
-		profile, same Fan water table — so the two models answer one question
-		jointly: ELM partitions the surface water, PFLOTRAN carries it down.
-		1-D Richards columns take seconds, so this runs serially in-process
-		with no batch queue.
-		"""
-		cfg = (config or {}).get("pflotran") or {}
-		coupling = plan.get("coupling_design") or {}
-		archetype = ((plan.get("model_choice") or {}).get("design_archetype") or "")
-		wanted = bool(cfg.get("run")) or bool(coupling) or archetype == "coupling"
-		if not wanted:
-			return False
-
-		print("\n🪨 STEP 4d: Coupling ELM → PFLOTRAN")
-		print("-" * 40)
-		if coupling.get("driver"):
-			print(f"   driver: {coupling['driver']}")
-
-		# Checked before the try so a missing file reports what is missing,
-		# not a bare errno from json.loads.
-		cols_f = self.run_dir / "columns.json"
-		cols = []
-		if cols_f.exists():
-			cols = json.loads(cols_f.read_text())
-			cols = cols.get("columns", cols) if isinstance(cols, dict) else cols
-		if not cols:
-			print("   ⚠️  no columns.json in this run — skipping coupling")
-			return False
-
-		try:
-			bp  = _load_tool("build_pflotran_cases")
-			out = self.run_dir / "05_pflotran"
-
-			res = bp.build_ensemble(
-				cols, out,
-				flux_from  = str(self.run_dir),      # this run's QINFL
-				run        = cfg.get("run", True),
-				timeout    = int(cfg.get("timeout", 1800)),
-				spin_years = float(cfg.get("spin_years", 10.0)),
-				depth_cap  = float(cfg.get("depth_cap", 50.0)),
-				bottom     = cfg.get("bottom", "fan"),
-			)
-			cases = res.get("cases") or []
-			if not cases:
-				print("   ⚠️  no PFLOTRAN decks built (no ELM flux?) — skipping")
-				return False
-
-			n_ok = sum(1 for m in cases if m.get("run_ok"))
-			print(f"✓ {n_ok}/{len(cases)} PFLOTRAN column(s) ran → 05_pflotran/")
-			if not n_ok:
-				return False
-
-			ap = _load_tool("analyze_pflotran_coupled")
-			ap.analyze_coupled(out, quiet=True)
-			print("✓ lag + attenuation → 05_pflotran/pflotran_summary_coupled.json")
-			return True
-		except Exception as e:
-			print(f"   ⚠️  coupling failed ({e}) — the ELM study stands")
-			return False

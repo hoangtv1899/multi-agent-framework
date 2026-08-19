@@ -82,9 +82,13 @@ def _rain_key(lat, lon):
 
 
 def _series_for(col, rain):
-    """(daily series, borrowed?) for a column: its own grid point's, or the
+    """(daily series, borrowed?) for a column: its own carried flux (a
+    coupled column's driving series wins), its own grid point's rain, or the
     one the server borrowed for it — recorded on the column as
     rain_borrowed_from."""
+    flux = col.get("daily_flux_mm_day")
+    if flux:
+        return flux, False
     own = rain.get(_rain_key(col["lat"], col["lon"]))
     if own is not None:
         return own, False
@@ -134,6 +138,11 @@ def render(a):
     rd = Path(a.run_dir)
     cj, rings, rain, calendar, name = _load(rd, Path(a.reception) if a.reception else None)
     cols = cj["columns"]
+    # a coupled run's columns carry the driving model's series; the panels
+    # then show THAT, and the labels must not call it rain
+    coupled = any(c.get("daily_flux_mm_day") for c in cols)
+    water_word = ((cols[0].get("coupling_variable") or "driving flux")
+                  if coupled else "rain")
     grid = cj.get("grid") or []
     if not cols:
         raise ValueError("no columns to draw")
@@ -231,13 +240,13 @@ def render(a):
         points(ax, tot, elev, open_mask=borrowed)
         yr = calendar.get("year") or []
         year = f"{min(yr)}" if yr else "the year"
-        ax.set_xlabel("Daymet rain (mm)")
+        ax.set_xlabel(f"{water_word} (mm)" if coupled else "Daymet rain (mm)")
         note = (f"{year}" + (f" · {int(borrowed.sum())} borrowed" if borrowed.any() else ""))
-        tag(ax, "b", "rain", note)
+        tag(ax, "b", water_word, note)
     else:
         ax.text(0.5, 0.5, "no rain series in reception.json", ha="center",
                 transform=ax.transAxes, color="0.4")
-        tag(ax, "b", "rain")
+        tag(ax, "b", water_word)
     ax.set_ylabel("elevation (m)")
 
     # (c) RAIN THROUGH THE YEAR ────────────────────────────────────────────────
@@ -253,12 +262,12 @@ def render(a):
         ax.plot(days, np.nanmean(arr, axis=0), color="k", lw=lw_line * 1.2)
         ax.set_xlabel("day of year")
         ax.set_ylabel("mm day$^{-1}$")
-        tag(ax, "c", "rain, daily",
+        tag(ax, "c", f"{water_word}, daily",
             f"{len(series_by_col)} series" if len(series_by_col) < len(cols) else "")
     else:
         ax.text(0.5, 0.5, "no rain series", ha="center", transform=ax.transAxes,
                 color="0.4")
-        tag(ax, "c", "rain, daily")
+        tag(ax, "c", f"{water_word}, daily")
 
     # (d) THE WATER TABLE EACH COLUMN WAS GIVEN ────────────────────────────────
     ax = fig.add_subplot(gs[1, 0]); axes.append(ax)
@@ -266,7 +275,8 @@ def render(a):
         x = np.where(wt > 0.05, wt, 0.05)                 # log axis; surface at the edge
         points(ax, x, elev, open_mask=~trans)
         ax.set_xscale("log")
-        ax.set_xlabel("CONUS2 water table (m)")
+        ax.set_xlabel("the driving run's water table (m)" if coupled
+                      else "CONUS2 water table (m)")
         n_steady = int((~trans).sum())
         tag(ax, "d", "water table", f"{n_steady} steady" if n_steady else "")
     else:
@@ -317,11 +327,18 @@ def render(a):
     ax.set_ylabel("elevation (m)")
 
     # ── legend and colourbar ─────────────────────────────────────────────────
-    handles = [Line2D([], [], marker="o", ls="", mfc="0.6", mec="k", ms=6, label="column"),
-               Line2D([], [], marker="*", ls="", mfc="0.6", mec="k", ms=9, label="pinned"),
-               Line2D([], [], marker="o", ls="", mfc="none", mec="k", ms=6,
-                      label="open: steady / borrowed rain")]
-    fig.legend(handles=handles, loc="outside upper right", ncol=3)
+    # ONLY THE MARKS THIS RUN USES — an entry for a mark that never appears
+    # is noise, and on a run with a long basin name the three-entry legend
+    # collided with the suptitle.
+    handles = [Line2D([], [], marker="o", ls="", mfc="0.6", mec="k", ms=6, label="column")]
+    if pin.any():
+        handles.append(Line2D([], [], marker="*", ls="", mfc="0.6", mec="k",
+                              ms=9, label="pinned"))
+    if (~trans).any():
+        handles.append(Line2D([], [], marker="o", ls="", mfc="none", mec="k",
+                              ms=6, label="open: steady / borrowed rain"))
+    if len(handles) > 1:
+        fig.legend(handles=handles, loc="outside upper right", ncol=len(handles))
     if by_elevation:
         cb = fig.colorbar(sm, ax=axes, shrink=0.55, pad=0.01, location="right")
         cb.set_label("elevation (m)")

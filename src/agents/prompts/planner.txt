@@ -329,7 +329,13 @@ OUTPUT — this JSON, nothing else
   "requires": ["<capability the question needs and the framework lacks>"],
 
   "coupling": null | {
-    "from_model": "ELM", "to_model": "PFLOTRAN",
-    "driver": "<e.g. QDRAI -> top recharge BC>"
+    // archetype "coupling" ONLY. Copy brief.coupling verbatim — reception
+    // settled it. The columns are the PRIOR RUN'S, reused verbatim, so set
+    // sampling.n_columns to brief.coupling.n_columns_prior and design no
+    // sampling: no bands, no pinning — there is nothing to place.
+    "from_model": "<brief.coupling.from_model>",
+    "to_model": "<brief.coupling.to_model>",
+    "coupling_variable": "<brief.coupling.coupling_variable, e.g. QDRAI>",
+    "prior_experiment": "<brief.coupling.prior_experiment>"
   }
 }

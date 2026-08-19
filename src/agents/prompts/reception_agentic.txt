@@ -42,7 +42,8 @@ STEP 2 — FOR A DESIGN REQUEST, CHOOSE THE ARCHETYPE
           and available observations.
   • "coupling" — a CROSS-MODEL FOLLOW-UP that drives one model with another's
         output (e.g. "now run PFLOTRAN using the recharge from that ELM run").
-        ONLY when a CONVERSATION CONTEXT block names a prior experiment.
+        ONLY when a CONVERSATION CONTEXT block or the request itself NAMES a
+        prior experiment (a run directory name counts).
         → No new gathering beyond the prior run. Carry the prior domain forward,
           and identify from_model -> to_model + the coupling variable (e.g. the
           land model's sub-surface drainage -> the subsurface model's top recharge).

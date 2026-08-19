@@ -158,15 +158,11 @@ def stubbed(tmp_path, monkeypatch):
         ns.get_llm_analysis_input = lambda: {"experiments": rows}
         return ns
 
-    def fake_couple(self, plan, config):
-        calls.append("couple")
-
     with patch.object(ELMExpManager, "_materialize", fake_materialize), \
          patch.object(ELMExpManager, "_build_case_inputs",   fake_build),   \
          patch.object(ELMExpManager, "_build_cases", fake_prepare), \
          patch.object(ELMExpManager, "_run",     fake_run),     \
-         patch.object(ELMExpManager, "_extract", fake_extract), \
-         patch.object(ELMExpManager, "_couple_pflotran", fake_couple):
+         patch.object(ELMExpManager, "_extract", fake_extract):
         yield calls
 
 
@@ -348,7 +344,7 @@ class TestNothingPostComputeDiscardsTheRun:
             "generate_analysis_report": lambda self, **kw: {"s": "ok"}})()
         return co
 
-    @pytest.mark.parametrize("stage", ["_package", "_couple_pflotran"])
+    @pytest.mark.parametrize("stage", ["_package"])
     def test_a_post_compute_failure_is_survived(self, tmp_path, stubbed, stage):
         from elm_exp_manager import ELMExpManager
 

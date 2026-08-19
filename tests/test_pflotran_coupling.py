@@ -1,13 +1,15 @@
-"""Offline tests for the ELM -> PFLOTRAN coupling step (no PFLOTRAN binary).
+#!/usr/bin/env python3
+"""Coupling as a RUN of the downstream model — offline, on a fixture prior.
 
-Reception and the planner have described this coupling in their prompts for
-months — design_archetype "coupling", a coupling_design block naming the driver
-— but nothing executed it. These tests cover the decision layer that turns that
-plan into runs: WHEN step 4d fires, when it refuses, and whether the prose it
-writes about the driving ELM run is true. Actually solving Richards needs the
-binary and is exercised by tools/build_pflotran_cases.py --run.
+The old shape (step 4d: a PFLOTRAN appendix on the tail of an ELM run,
+through a local deck builder that bypassed the model server) is deleted.
+A coupling is the coupling archetype now: reception carries the prior
+domain forward, and the PFLOTRAN manager's _build_coupled_columns turns the
+prior run's RECORD into columns that carry their own boundary. What is
+pinned here: the columns are the prior's verbatim; the flux, the water
+table and the sentence describing them ride each column; every refusal
+names its reason; the base routes the archetype; and the old path is gone.
 """
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -16,144 +18,181 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "mcp" / "pflotran-mcp"))
+sys.path.insert(0, str(ROOT / "mcp" / "elm-mcp" / "src"))
 
-from elm_exp_manager import ELMExpManager  # noqa: E402
-
-
-def _load(name, relpath):
-    spec = importlib.util.spec_from_file_location(name, str(ROOT / relpath))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from pflotran_exp_manager import PFLOTRANExpManager     # noqa: E402
+from core import exp_manager_base as base               # noqa: E402
 
 
-apc = _load("apc_mod", "tools/analyze_pflotran_coupled.py")
-bpc = _load("bpc_mod", "tools/build_pflotran_cases.py")
+def _prior(tmp_path, n=2, var="QDRAI", units="mm/day", wtd=(4.25, 17.8)):
+    """A finished ELM run's record, as the coupling reads it."""
+    d = tmp_path / "elm_run_fixture"
+    (d / "03_results").mkdir(parents=True)
+    cols = [{"id": f"col_{i+1:02d}", "lat": 39.9 + i * 0.01, "lon": -75.7,
+             "elevation_m": 100.0 + 20 * i, "band": i + 1,
+             "band_range_m": [90 + 20 * i, 110 + 20 * i], "pinned": False,
+             # ELM's own extras, which must NOT travel onto a PFLOTRAN column
+             "soil_summary": "loam-ish", "forcing_cell": [3, 4],
+             "soil_profile": {"layers": []}, "soil_source": "donor"}
+            for i in range(n)]
+    (d / "columns.json").write_text(json.dumps({"columns": cols}))
+    (d / "experiment.json").write_text(json.dumps({"columns": [
+        {"case_name": c["id"], "metrics": {"water_table_depth_m": wtd[i]}}
+        for i, c in enumerate(cols)]}))
+    dates = [f"2010-01-{15+k:02d}" for k in range(10)]
+    (d / "03_results" / "extracted.json").write_text(json.dumps({
+        "metadata": {}, "data": {
+            c["id"]: {"dates": dates,
+                      "variables": {var: {"units": units,
+                                          "values": [1.0 + k * 0.1 for k in range(10)]},
+                                    "ZWT": {"units": "m", "values": [1] * 10}}}
+            for c in cols}}))
+    (d / "reception.json").write_text(json.dumps({
+        "grid": {"n_in_basin": 5}, "observations": {"ok": True},
+        "brief": {"domain": {"name": "Fixtureville"}}}))
+    return d
 
 
-@pytest.fixture
-def mgr(tmp_path):
-    """A manager whose run_dir has NO columns.json, so step 4d always bails
-    right after deciding it wants to run — which is exactly the decision under
-    test, with no PFLOTRAN binary involved."""
-    m = ELMExpManager.__new__(ELMExpManager)
-    m.run_dir = tmp_path / "run"
-    m.analysis_dir = m.run_dir / "04_analysis"
-    m.analysis_dir.mkdir(parents=True)
+def _mgr(tmp_path):
+    m = PFLOTRANExpManager.__new__(PFLOTRANExpManager)
+    m.run_dir = tmp_path
+    m.input_dir = tmp_path / "01_inputs"
+    m.input_dir.mkdir(exist_ok=True)
     return m
 
 
-HEADER = "STEP 4d"
+def _config(prior, var="QDRAI"):
+    return {"brief": {"design_archetype": "coupling",
+                      "coupling": {"from_model": "elm", "to_model": "pflotran",
+                                   "coupling_variable": var,
+                                   "prior_run_dir": str(prior)}},
+            "strategy": {"archetype": "coupling"}}
 
 
-class TestCouplingTrigger:
-    def test_plain_elm_plan_does_not_couple(self, mgr, capsys):
-        assert mgr._couple_pflotran({"model_choice": {"design_archetype": "site"}},
-                                    {}) is False
-        assert HEADER not in capsys.readouterr().out
+class TestTheColumnsAreThePriorsVerbatim:
+    def test_ids_coords_and_bands_travel_elm_extras_do_not(self, tmp_path):
+        prior = _prior(tmp_path)
+        out = _mgr(tmp_path)._build_coupled_columns(_config(prior))
+        assert out["approach"] == "coupled" and out["n_columns"] == 2
+        c = out["columns"][0]
+        assert (c["id"], c["lat"], c["band"]) == ("col_01", 39.9, 1)
+        for elm_only in ("soil_summary", "forcing_cell", "soil_profile", "soil_source"):
+            assert elm_only not in c, elm_only
 
-    def test_empty_plan_does_not_couple(self, mgr, capsys):
-        assert mgr._couple_pflotran({}, {}) is False
-        assert HEADER not in capsys.readouterr().out
+    def test_each_column_carries_its_own_boundary_and_anchor(self, tmp_path):
+        prior = _prior(tmp_path)
+        cols = _mgr(tmp_path)._build_coupled_columns(_config(prior))["columns"]
+        assert cols[0]["water_table_m"] == 4.25 and cols[1]["water_table_m"] == 17.8
+        assert cols[0]["daily_flux_mm_day"][0] == 1.0 and len(cols[0]["daily_flux_mm_day"]) == 10
+        assert cols[0]["coupling_variable"] == "QDRAI"
+        assert cols[0]["coupled_from"] == "elm_run_fixture"
+        d = cols[0]["flux_description"]
+        assert "QDRAI" in d and "already" in d and "solved" in d
+        assert (cols[0]["forcing_start"], cols[0]["forcing_end"]) == (2010, 2010)
 
-    def test_coupling_design_block_triggers_it(self, mgr, capsys):
-        """The planner's own output is the trigger — no extra config needed."""
-        plan = {"coupling_design": {"from_model": "ELM", "to_model": "PFLOTRAN",
-                                    "driver": "ELM QINFL -> top recharge BC"}}
-        mgr._couple_pflotran(plan, {})
-        out = capsys.readouterr().out
-        assert HEADER in out
-        assert "ELM QINFL -> top recharge BC" in out      # driver echoed
-
-    def test_coupling_archetype_triggers_it(self, mgr, capsys):
-        mgr._couple_pflotran({"model_choice": {"design_archetype": "coupling"}}, {})
-        assert HEADER in capsys.readouterr().out
-
-    def test_config_can_force_it(self, mgr, capsys):
-        mgr._couple_pflotran({}, {"pflotran": {"run": True}})
-        assert HEADER in capsys.readouterr().out
-
-    def test_missing_columns_is_non_fatal(self, mgr, capsys):
-        """The ELM study must stand even if coupling cannot start."""
-        assert mgr._couple_pflotran({"coupling_design": {"driver": "x"}}, {}) is False
-        assert "no columns.json" in capsys.readouterr().out
-
-    def test_empty_columns_list_is_non_fatal(self, mgr, capsys):
-        mgr.run_dir.mkdir(exist_ok=True)
-        (mgr.run_dir / "columns.json").write_text(json.dumps({"columns": []}))
-        assert mgr._couple_pflotran({"coupling_design": {"driver": "x"}}, {}) is False
-        assert "no columns.json" in capsys.readouterr().out
+    def test_the_coupled_keys_are_named_in_the_metadata(self, tmp_path):
+        keys = _mgr(tmp_path)._column_keys()
+        for k in ("coupled_from", "coupling_variable", "flux_description"):
+            assert k in keys.keep, k
+        assert "daily_flux_mm_day" in keys.drop
 
 
-class TestElmContextHonesty:
-    """The coupled figure and study.json describe the ELM run that forced them.
+class TestEveryRefusalNamesItsReason:
+    def test_no_prior_dir(self, tmp_path):
+        with pytest.raises(RuntimeError, match="prior run's directory"):
+            _mgr(tmp_path)._build_coupled_columns(
+                {"brief": {"coupling": {"prior_run_dir": str(tmp_path / "nope")}},
+                 "strategy": {}})
 
-    That prose used to be hardcoded as "Naches" and "warm-started NLDAS run",
-    which is wrong for any other basin and wrong for a cold run — the same class
-    of bug as a hardcoded forcing label on an axis.
-    """
-    def _run(self, tmp_path, couplers, basin="Testwater"):
-        rd = tmp_path / "elm"
+    def test_prior_without_an_extract(self, tmp_path):
+        prior = _prior(tmp_path)
+        (prior / "03_results" / "extracted.json").unlink()
+        with pytest.raises(RuntimeError, match="extracted.json"):
+            _mgr(tmp_path)._build_coupled_columns(_config(prior))
+
+    def test_missing_variable_names_what_is_there(self, tmp_path):
+        prior = _prior(tmp_path)
+        with pytest.raises(RuntimeError, match="QCHARGE.*QDRAI"):
+            _mgr(tmp_path)._build_coupled_columns(_config(prior, var="QCHARGE"))
+
+    def test_the_variable_is_read_out_of_prose(self, tmp_path):
+        """The brief's coupling_variable is settled in conversation and often
+        arrives as a sentence; the token that the extract holds is the one."""
+        prior = _prior(tmp_path)
+        cols = _mgr(tmp_path)._build_coupled_columns(_config(
+            prior, var="ELM sub-surface drainage QDRAI -> PFLOTRAN top flux"))["columns"]
+        assert cols[0]["coupling_variable"] == "QDRAI"
+
+    def test_wrong_units_are_refused_not_converted(self, tmp_path):
+        prior = _prior(tmp_path, units="mm/s")
+        with pytest.raises(RuntimeError, match="mm/s.*mm/day"):
+            _mgr(tmp_path)._build_coupled_columns(_config(prior))
+
+    def test_a_column_with_no_solved_water_table(self, tmp_path):
+        prior = _prior(tmp_path, wtd=(4.25, None))
+        with pytest.raises(RuntimeError, match="col_02.*water_table_depth_m"):
+            _mgr(tmp_path)._build_coupled_columns(_config(prior))
+
+
+class TestTheBaseRoutesTheArchetype:
+    def test_materialize_takes_the_coupling_branch(self, tmp_path, monkeypatch):
+        prior = _prior(tmp_path)
+        m = _mgr(tmp_path)
+        seen = {}
+        monkeypatch.setattr(m, "_persist_columns",
+                            lambda res, cols, plan, cfg: seen.update(res=res, n=len(cols)) or {"ok": True})
+        cfg = dict(_config(prior))
+        monkeypatch.setattr(m, "check", lambda plan, config: config)
+        out = m._materialize({"anything": True}, cfg)
+        assert out == {"ok": True} and seen["n"] == 2
+        assert seen["res"]["approach"] == "coupled"
+
+    def test_is_coupling_reads_either_word(self):
+        assert base._is_coupling({"archetype": "coupling"}, {})
+        assert base._is_coupling({}, {"design_archetype": "coupling"})
+        assert base._is_coupling({"coupling": {"from_model": "elm"}}, {})
+        assert not base._is_coupling({"archetype": "site"}, {})
+
+    def test_the_old_tail_is_gone(self):
+        from elm_exp_manager import ELMExpManager
+        assert not hasattr(ELMExpManager, "_couple_pflotran")
+        assert not hasattr(ELMExpManager, "COUPLES_TO")
+        assert not hasattr(base.ExperimentManagerBase, "COUPLES_TO")
+        assert not (ROOT / "tools" / "build_pflotran_cases.py").exists()
+        assert not (ROOT / "tools" / "analyze_pflotran_coupled.py").exists()
+
+
+class TestReceptionCarriesThePriorForward:
+    def _brief(self, ref):
+        return {"design_archetype": "coupling",
+                "coupling": {"prior_experiment": ref}}
+
+    def test_resolves_copies_and_says_so(self, tmp_path):
+        from agents.reception_llm import _carry_prior_forward
+        prior = _prior(tmp_path)
+        (prior / "conus2_subsurface.npz").write_bytes(b"x")
+        (prior / "conus2_subsurface.json").write_text("{}")
+        rd = tmp_path / "pflotran_run_x"
         rd.mkdir()
-        (rd / "reception_brief.json").write_text(
-            json.dumps({"domain": {"name": basin}}))
-        (rd / "run_plan.json").write_text(
-            json.dumps({"CONDITIONS_COUPLERS": couplers}))
-        return {"flux_from": str(rd)}
+        prov = []
+        brief = self._brief("the run elm_run_fixture please")
+        got = _carry_prior_forward(brief, str(rd), prov)
+        assert got["grid"] == {"n_in_basin": 5} and got["observations"] == {"ok": True}
+        assert brief["coupling"]["prior_run_dir"] == str(prior.resolve())
+        assert brief["coupling"]["n_columns_prior"] == 2
+        assert (rd / "conus2_subsurface.npz").exists()
+        note = prov[0]["note"]
+        assert "CARRIED FORWARD" in note and "wtd_conus2.tif" in note  # absent, named
 
-    def test_cold_run_is_reported_cold(self, tmp_path):
-        sc = self._run(tmp_path, [{"EXPERIMENT": "col_01"}, {"EXPERIMENT": "col_02"}])
-        basin, init = apc._elm_context(sc)
-        assert basin == "Testwater"
-        assert init == "cold-started"
+    def test_an_unresolvable_prior_raises_with_candidates(self, tmp_path):
+        from agents.reception_llm import _carry_prior_forward
+        rd = tmp_path / "pflotran_run_x"
+        rd.mkdir()
+        with pytest.raises(ValueError, match="exactly one"):
+            _carry_prior_forward(self._brief("no_such_run"), str(rd), [])
 
-    def test_warm_run_reports_the_column_count(self, tmp_path):
-        sc = self._run(tmp_path, [{"EXPERIMENT": "col_01", "FINIDAT": "/w/a.nc"},
-                                  {"EXPERIMENT": "col_02", "FINIDAT": "/w/b.nc"}])
-        _, init = apc._elm_context(sc)
-        assert init == "warm-started (2/2 columns)"
-
-    def test_partial_warm_run_is_not_rounded_up(self, tmp_path):
-        sc = self._run(tmp_path, [{"EXPERIMENT": "col_01", "FINIDAT": "/w/a.nc"},
-                                  {"EXPERIMENT": "col_02"}])
-        _, init = apc._elm_context(sc)
-        assert init == "warm-started (1/2 columns)"
-
-    def test_no_driving_run_claims_nothing(self):
-        basin, init = apc._elm_context({})
-        assert basin is None
-        assert "not recorded" in init
-
-    def test_unreadable_driving_run_claims_nothing(self, tmp_path):
-        basin, init = apc._elm_context({"flux_from": str(tmp_path / "gone")})
-        assert basin is None
-        assert "not recorded" in init
-
-
-class TestBuildEnsembleWiring:
-    def test_limit_truncates_and_manifest_is_written(self, tmp_path, monkeypatch):
-        """build_ensemble writes pflotran_cases.json even without running."""
-        cols = [{"id": f"col_{i:02d}", "lat": 46.0, "lon": -121.0,
-                 "fan_wtd_m": 2.0, "elevation_m": 900,
-                 "soil_profile": {"layers": [
-                     {"component": "c1", "depth_top_cm": 0, "depth_bot_cm": 100,
-                      "van_genuchten": {"theta_s": 0.45, "theta_r": 0.05,
-                                        "ksat_ms": 1e-6, "alpha_per_m": 1e-4,
-                                        "m": 0.4}}]}}
-                for i in range(1, 6)]
-        res = bpc.build_ensemble(cols, tmp_path / "out", run=False, limit=2,
-                                 quiet=True)
-        assert len(res["cases"]) == 2
-        assert (tmp_path / "out" / "pflotran_cases.json").exists()
-        # a standalone (non-coupled) ensemble records its scenario recharge
-        assert res["scenario"]["recharge_mm_yr"] == 100.0
-        assert res["scenario"]["flux_from"] is None
-
-    def test_each_column_gets_its_own_case_dir(self, tmp_path):
-        cols = [{"id": f"col_{i:02d}", "lat": 46.0, "lon": -121.0,
-                 "fan_wtd_m": 2.0, "elevation_m": 900, "soil_profile": None}
-                for i in range(1, 4)]
-        res = bpc.build_ensemble(cols, tmp_path / "out", run=False, quiet=True)
-        dirs = [m["case_dir"] for m in res["cases"]]
-        assert len(set(dirs)) == 3
+    def test_a_coupling_brief_with_no_prior_raises(self, tmp_path):
+        from agents.reception_llm import _carry_prior_forward
+        with pytest.raises(ValueError, match="prior_experiment"):
+            _carry_prior_forward({"design_archetype": "coupling"}, str(tmp_path), [])

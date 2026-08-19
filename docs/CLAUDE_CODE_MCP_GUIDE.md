@@ -512,68 +512,49 @@ non-converging column stalls the whole call.
 
 ---
 
-### Example 3 — a column driven by ELM infiltration (one-way coupling)
+### Example 3 — a column driven by an ELM run (one-way coupling, REBUILT 2026-08-19)
 
 *This is the coupling the project exists for: ELM does the surface
-partitioning, PFLOTRAN does the deep fate. The variable that crosses is
-`QINFL` (surface infiltration) — **not** `QCHARGE`. PFLOTRAN replaces ELM's
-crude recharge estimate with real physics, so it takes ELM's infiltration as
-its upper boundary.*
+partitioning, PFLOTRAN does the deep fate.*
 
-**You type:**
+The old form of this example — `elm_daily_flux()` in
+`tools/build_pflotran_cases.py`, a local deck builder, `--bottom fan` — is
+GONE: that path bypassed the model server and its results never reached the
+Analyzer. Coupling is the framework's **coupling archetype** now, and it is
+one request:
 
 ```
-Take the ELM run in workflow_outputs/elm_run_20260730_113010, extract the daily
-mean QINFL for col_01 as [[day_fraction_of_year, m/yr], ...] using
-elm_daily_flux() in tools/build_pflotran_cases.py, then build a PFLOTRAN column
-for that site from its entry in columns.json — 10 years of steady spin-up at the
-series mean, then the 365 daily values. Run it and tell me the annual mean flux
-and whether the water table stayed in the domain.
+python workflow.py --request "A coupling follow-up: drive PFLOTRAN with the
+sub-surface drainage (QDRAI) from the prior ELM run <elm_run_...>. Reuse that
+run's columns exactly, anchored at ELM's own solved water table."
 ```
 
-**What happens.** Claude runs the extraction with Bash (it is our code, not a
-tool):
+What happens, and where each fact lives:
 
-```bash
-python3 -c "
-import sys, json; sys.path.insert(0, 'tools')
-from build_pflotran_cases import elm_daily_flux
-f = elm_daily_flux('workflow_outputs/elm_run_20260730_113010')
-json.dump(f['col_01'], open('/tmp/col_01_qinfl.json','w'))"
-```
+- **Reception** (coupling archetype) gathers NOTHING new — the prior run's
+  grid, observations and rain are carried into this run's `reception.json`,
+  its site files are copied beside it, and the provenance says
+  `CARRIED FORWARD, NOT FETCHED`.
+- **The PFLOTRAN manager's** `_build_coupled_columns` turns the prior run's
+  RECORD (experiment.json + extracted.json) into columns: the prior's columns
+  **verbatim** (same ids, coordinates, bands, pinned stations), each carrying
+  its own daily `QDRAI` series (`daily_flux_mm_day`, mm/day) and **ELM's own
+  solved water table** as its anchor — not CONUS2's.
+- **The server's** `create_decks_from_columns` sees a column that carries its
+  flux and water table, joins only the subsurface, and writes the column's
+  `flux_description` into the deck's `forcing_caveat` — so the record never
+  claims "no ET was removed" of a flux that had ET removed by ELM.
+- **The Analyzer** runs on the coupled run like any other; the two runs line
+  up column by column.
 
-then calls `create_column_deck` with the series:
+Driving one column by hand through the MCP is still possible — build the deck
+with `create_column_deck(recharge_series=...)` — but the ensemble path above
+is the framework's and keeps every fact on the record.
 
-```json
-{"column": {"id": "col_01", "fan_wtd_m": 29.328, "soil_profile": {"...": "from columns.json"}},
- "out_dir": "/compyfs/tran289/coupled_demo",
- "recharge_series": [[0.0, 0.31], [0.00274, 0.29], "... 366 entries ..."],
- "spin_years": 10.0, "depth_cap": 50.0, "bottom": "water_table"}
-```
-
-`transient: true` comes back, and the deck runs 10 years steady at the series
-mean before the daily signal starts — so the column is not still relaxing out
-of its initial condition when the signal of interest arrives.
-
-**What to check** (all four were true for the 14-column Naches ensemble on
-2026-07-25): each deck's spin-up mean matches its own ELM column's QINFL mean to
-within ~0.5%; the daily series are distinct between columns; winter values are
-negative or near zero (sublimation under snow); annual means land in
-0.26-1.63 m/yr.
-
-**When `wt_in_domain` comes back false**, the site's water table is below
-`depth_cap` and the column runs fully unsaturated. That is reported, never
-silently deepened — and it is the *same* set of deep-water-table columns whose
-ELM `QDRAI` was ~0. The two models agreeing about which sites are deep is a
-consistency check, not a coincidence.
-
-**The whole ensemble in one command**, if you would rather not drive it column
-by column — this is the framework's own path and it does the same thing:
-
-```bash
-python3 tools/build_pflotran_cases.py --columns <run>/columns.json \
-        --out-dir <out> --flux-from <elm run dir> --bottom fan --run
-```
+When a column's ELM `QDRAI` is ~0 (a deep ELM water table), its PFLOTRAN
+column is driven by ~nothing: the deck builds STEADY at the near-zero mean and
+its row says so. The two models agreeing about which sites are dry-at-depth is
+a consistency check, not a coincidence.
 
 ---
 

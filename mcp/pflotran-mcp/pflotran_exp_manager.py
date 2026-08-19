@@ -107,7 +107,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		},
 		"water_table_m": {
 			"units": "m", "from": ["ParFlow CONUS2 ss_water_table_depth (site run)",
-								   "the design's level or held_fixed (controlled sweep)"],
+								   "the design's level or held_fixed (controlled sweep)",
+								   "the driving model's solved mean water table (coupled run)"],
 			"note": ("the INITIAL condition, not a result — the column is "
 					 "initialised hydrostatic about it and its bottom face is "
 					 "anchored to it. Comparing it to the final saturation "
@@ -281,6 +282,134 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		self._deck_knobs = dict(out.get("deck_knobs") or {})
 		return out
 
+	def _build_coupled_columns(self, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""The prior run's columns, each carrying its own driving flux.
+
+		A COUPLED STUDY REUSES THE UPSTREAM RUN'S COLUMNS VERBATIM — same ids,
+		coordinates, elevations, bands, pinned stations — so the Analyzer can
+		line the two models up column by column. What this backend adds is its
+		own boundary, read off the prior run's RECORD (experiment.json and
+		extracted.json — framework files, no model server touched and no
+		NetCDF reopened):
+
+		    daily_flux_mm_day   the prior model's daily series for the
+		                        coupling variable (default QDRAI, ELM's
+		                        sub-surface drainage), mm/day as extracted
+		    water_table_m       the prior model's own solved water table
+		                        (metrics.water_table_depth_m) — NOT CONUS2's,
+		                        so the column is anchored where the driving
+		                        model says the water stands
+		    flux_description    one sentence naming all of it; the server
+		                        writes it into the deck's forcing_caveat
+
+		Raises, with the reason named, on anything that would otherwise be
+		guessed: no prior run, a column without the variable, units that are
+		not mm/day, a column the prior never solved a water table for.
+		"""
+		brief = (config or {}).get("brief") or {}
+		# MERGED, THE BRIEF'S VALUES WINNING. Reception resolved the prior run
+		# and counted its columns INTO the brief's block; the planner's copy
+		# in the strategy restates the design and has neither. Taking the
+		# strategy's block alone — the first version did — read a coupling
+		# with no prior_run_dir and refused a run reception had fully resolved.
+		coupling = {**((config.get("strategy") or {}).get("coupling") or {}),
+					**(brief.get("coupling") or {})}
+		src = (coupling.get("prior_run_dir") or config.get("coupling_source"))
+		if not src or not Path(src).is_dir():
+			raise RuntimeError(
+				"a coupled study needs the prior run's directory — reception "
+				"resolves it into brief.coupling.prior_run_dir; got "
+				f"{src!r}")
+		src = Path(src).resolve()
+
+		cols_f = src / "columns.json"
+		exp_f = src / "experiment.json"
+		ext_f = src / "03_results" / "extracted.json"
+		for f in (cols_f, exp_f, ext_f):
+			if not f.is_file():
+				raise RuntimeError(
+					f"the prior run {src.name} has no {f.name} — it must have "
+					f"finished its extract before it can drive another model")
+		prior = json.loads(cols_f.read_text())
+		prior = prior.get("columns", prior) if isinstance(prior, dict) else prior
+		wtd = {r.get("case_name") or r.get("id"):
+			   ((r.get("metrics") or {}).get("water_table_depth_m"))
+			   for r in json.loads(exp_f.read_text()).get("columns") or []}
+		data = (json.loads(ext_f.read_text()) or {}).get("data") or {}
+
+		# THE VARIABLE, READ AGAINST WHAT THE EXTRACT HOLDS. The brief's
+		# coupling_variable is settled in conversation and often arrives as a
+		# sentence ("ELM sub-surface drainage QDRAI -> top recharge"), so the
+		# name is taken as the first ALL-CAPS token that the prior's extract
+		# actually carries — never invented, and refused by name when nothing
+		# matches.
+		import re as _re
+		have = sorted(((next(iter(data.values()), {}) or {})
+					   .get("variables") or {}).keys())
+		tokens = _re.findall(r"[A-Z][A-Z0-9_]{2,}",
+							 str(coupling.get("coupling_variable") or "QDRAI"))
+		var = next((t for t in tokens if t in have), None)
+		if var is None:
+			raise RuntimeError(
+				f"the coupling names no variable the prior run extracted — "
+				f"asked for {tokens or ['(nothing)']}, the extract holds {have}")
+
+		# THE FIELDS THAT TRAVEL are the framework's sampler keys. The prior
+		# model's own extras (ELM's soil_*, forcing_cell) stay behind: this
+		# run's column metadata is composed for THIS model, and the merge
+		# raises on a key nobody named — correctly, since ELM's donor soil is
+		# not a fact about a PFLOTRAN column.
+		KEEP = ("id", "lat", "lon", "elevation_m", "band", "band_range_m",
+				"pinned", "station_id", "station_variable")
+		columns: List[Dict[str, Any]] = []
+		for c in prior:
+			cid = c.get("id")
+			block = (data.get(cid) or {})
+			v = ((block.get("variables") or {}).get(var)) or {}
+			vals = v.get("values") or []
+			if not vals:
+				raise RuntimeError(
+					f"{cid}: the prior run's extract carries no {var} series "
+					f"— it has {sorted((block.get('variables') or {}).keys())}")
+			units = str(v.get("units") or "")
+			if units != "mm/day":
+				raise RuntimeError(
+					f"{cid}: {var} is in {units!r}, and the deck tool takes "
+					f"mm/day — convert at the extract, not here")
+			wt = wtd.get(cid)
+			if not isinstance(wt, (int, float)):
+				raise RuntimeError(
+					f"{cid}: the prior run reports no water_table_depth_m in "
+					f"its metrics — the coupled column has nothing to anchor to")
+			dates = block.get("dates") or []
+			col: Dict[str, Any] = {k: c.get(k) for k in KEEP if c.get(k) is not None}
+			col["water_table_m"] = round(float(wt), 3)
+			col["daily_flux_mm_day"] = [float(x) for x in vals]
+			col["coupled_from"] = src.name
+			col["coupling_variable"] = var
+			col["flux_description"] = (
+				f"{var} from {src.name} ({len(vals)} daily values, mm/day) "
+				f"applied as the top boundary: the driving model already "
+				f"stored snow, removed evapotranspiration and generated "
+				f"runoff, so this flux is what left ITS soil column downward. "
+				f"The water table ({col['water_table_m']} m) is the driving "
+				f"model's own solved mean, not CONUS2's.")
+			if dates:
+				col["forcing_start"] = int(str(dates[0])[:4])
+				col["forcing_end"] = int(str(dates[-1])[:4])
+			columns.append(col)
+
+		print(f"   {len(columns)} column(s) from {src.name}, each with its "
+			  f"own {var} series and solved water table")
+		return {
+			"approach": "coupled",
+			"coupled_from": str(src),
+			"coupling_variable": var,
+			"n_columns": len(columns),
+			"bands": [],
+			"columns": columns,
+		}
+
 	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
 		"""ONE MCP call: join, decks, run plan.
 
@@ -385,6 +514,10 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 				# site column, whose subsurface is CONUS2's and is described
 				# by the ledger, not per row.
 				"soil", "substrate", "soil_depth_m", "soil_source",
+				# A COUPLED RUN'S OWN FACTS (build_coupled_columns): which
+				# run drove this one, with which variable, and the sentence
+				# the deck's forcing_caveat carries. Absent elsewhere.
+				"coupled_from", "coupling_variable", "flux_description",
 				# THE SERVER'S OWN SENTENCE ABOUT THIS COLUMN — "only 0.01 m
 				# of unsaturated column", "built steady, no daily rain". Step 0
 				# of the Analyzer turns a row's `warning` into a caveat naming
@@ -397,7 +530,8 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		# a normal run produces none of these on most rows.
 		optional = ("recharge_mm_yr", "rain_borrowed_km", "rain_borrowed_from",
 					"warning", "incomplete",
-					"soil", "substrate", "soil_depth_m", "soil_source"),
+					"soil", "substrate", "soil_depth_m", "soil_source",
+					"coupled_from", "coupling_variable", "flux_description"),
 		drop = {
 			"deck_status": "the run stage's `status` is the word the framework "
 						   "counts on; a deck that did not build has no output "
@@ -428,6 +562,10 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			"precipitation_mm_day": "the written year of rain a sweep column "
 									"was driven with; `weather` is the spec "
 									"that made it, n_forcing_steps its length",
+			"daily_flux_mm_day": "the driving model's series a coupled column "
+								 "was driven with; the deck encodes it, "
+								 "flux_description says what it is, and the "
+								 "prior run's extract is its source of truth",
 		},
 		source = "columns.json -> columns[*], as create_decks_from_columns wrote them",
 		where  = "mcp/pflotran-mcp/pflotran_exp_manager.py :: COLUMN_METADATA_EXTRA",
