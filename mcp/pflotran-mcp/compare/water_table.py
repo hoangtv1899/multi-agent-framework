@@ -3,8 +3,8 @@
 water_table — a PFLOTRAN column's water table against a well. MEASUREMENTS ONLY.
 
     model    water_table_m       the depth the column was GIVEN: ParFlow CONUS2's
-                                 steady-state water table, held as a hydrostatic
-                                 boundary at the bottom of the column
+                                 steady-state water table, the fixed head at the
+                                 bottom face the column is anchored to
              crossing_m(t)       from the profiles: the depth where the modelled
                                  liquid pressure crosses atmospheric (101325 Pa)
                                  at each output time — where the water table IS
@@ -168,7 +168,7 @@ def model_series(rows: List[Dict]) -> Dict[str, Dict[str, Any]]:
 
 
 def _boundary_condition(model: Dict[str, Dict]) -> Dict[str, Any]:
-    """The fact that reframes every pair below: the water table was held."""
+    """The fact that reframes every pair below: the water table is anchored at the bottom face, not held."""
     per = {c: {"given_m": m.get("given_m"), "moved_m": m.get("moved_m"),
                "moved_in_year_m": m.get("moved_in_year_m"),
                "transient": m.get("transient")} for c, m in model.items()}
@@ -320,7 +320,7 @@ def compare(model_columns: List[Dict], observations: Dict, station_meta: Dict,
             if outside else
             "no well in this domain records a daily water-table series for "
             "this period, so no series was compared. Where the water table "
-            "SITS is in `distributions`, and that it was HELD is in "
+            "SITS is in `distributions`, and how far it moved off its anchor is in "
             "`boundary_condition`; neither needs a well. This is a fact about "
             "the basin, not a failed comparison.")
         rec["skipped"] = "no recorder wells"
