@@ -229,7 +229,15 @@ class WorkflowCoordinator:
 		# is used (execute_plan stage 4c, and _workflow_analyze_existing).
 
 		# ── Defaults ──────────────────────────────────────────
-		self.default_output_dir   = default_output_dir
+		# ABSOLUTE, ALWAYS (2026-08-18). The run directory is minted under this
+		# and every path the coordinator hands a model server — the run dir, a
+		# deck's input file — is derived from it. The servers are separate
+		# processes with their own working directories: the CLI default
+		# "./workflow_outputs" reached the PFLOTRAN server as a relative deck
+		# path and PFLOTRAN answered "File not found" on all 17 columns of a
+		# Gunnison study, while every driver that had passed an absolute path
+		# ran clean. Resolved once, here, so no caller has to remember.
+		self.default_output_dir   = str(Path(default_output_dir).resolve())
 	
 		# ── Conversation state ────────────────────────────────
 		self.conversation_context = {
@@ -509,7 +517,7 @@ class WorkflowCoordinator:
 		# mkdir(exist_ok=False) in a loop, so the FILESYSTEM decides who wins
 		# rather than a check-then-create that races just as badly.
 		from datetime import datetime as _dt
-		base = Path(output_dir or self.default_output_dir)
+		base = Path(output_dir or self.default_output_dir).resolve()
 		minted: dict = {}
 
 		def _mint(brief: dict) -> Path:
@@ -609,7 +617,7 @@ class WorkflowCoordinator:
 		elif action == 'design':
 			return self._workflow_design_and_run(
 				result     = result,
-				output_dir = output_dir or self.default_output_dir,
+				output_dir = str(Path(output_dir or self.default_output_dir).resolve()),
 				run_dir    = run_dir,
 			)
 		else:
@@ -921,7 +929,7 @@ class WorkflowCoordinator:
 		"""
 		from core.resumable import inspect_run
 
-		rd = Path(run_dir)
+		rd = Path(run_dir).resolve()      # absolute: the servers have their own cwd
 		if not rd.is_dir():
 			return f"❌ No such run directory: {rd}"
 
@@ -971,7 +979,7 @@ class WorkflowCoordinator:
 		# package", not take the resume down.
 		from core.resumable import inspect_run, describe, _read_json
 
-		rd = Path(run_dir)
+		rd = Path(run_dir).resolve()      # absolute: the servers have their own cwd
 		if not rd.is_dir():
 			return f"❌ No such run directory: {rd}"
 
