@@ -278,7 +278,7 @@
           <rect x="46" y="426" width="4" height="26" fill="currentColor" stroke="none"/>
           <text x="161.0" y="443" text-anchor="middle" stroke="none">columns.json (post-build)</text>
           <rect x="300" y="426" width="284" height="26" rx="2" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
-          <text x="442.0" y="443" text-anchor="middle" stroke="none" font-size="10.5">sampling_design.png · elm · non-fatal</text>
+          <text x="442.0" y="443" text-anchor="middle" stroke="none" font-size="10.5">sampling_design.png · both models · non-fatal</text>
           <line x1="161" y1="452" x2="161" y2="470" stroke-width="1.2" marker-end="url(#e-ar)"/>
           <rect x="46" y="472" width="290" height="26" rx="3" fill="none" stroke-width="1.4"/>
           <text x="191" y="489" text-anchor="middle" stroke="none" font-size="10.5">_to_run_plan: the server's plan, handed back</text>
@@ -449,12 +449,16 @@
        <code>COLUMN_METADATA</code> for what the sampler writes, plus each
        manager's <code>COLUMN_METADATA_EXTRA</code> for what its build call adds —
        and a key neither names raises rather than vanishing. The design figure is drawn
-       after it, by ELM's own code (<code>sampling_design.render_run</code>,
-       imported from beside the server): the columns over a hillshade, forcing
-       against donor elevation, the initial soil water read out of each finidat,
-       the donor soil profiles — all post-warm-start, which is why it cannot run
-       earlier. Non-fatal: a figure is not worth a finished materialize.
-       PFLOTRAN has no figure yet.</p>
+       after it, by each model's own code beside its server
+       (<code>sampling_design.render_run</code>). ELM's: the columns over a
+       hillshade, forcing against donor elevation, the initial soil water read
+       out of each finidat, the donor soil profiles — all post-warm-start, which
+       is why it cannot run earlier. PFLOTRAN's (2026-08-18): the columns over
+       the terrain, the year's rain at each and through the year, the CONUS2
+       water table each was given, each column's depth on the CONUS2 layer
+       ladder, how much unsaturated column each starts with. Design figures, no
+       model output on either. Non-fatal: a figure is not worth a finished
+       materialize.</p>
   </div>
 
   <div class="stepcard">
@@ -562,7 +566,7 @@
       <tr><td>materialize · sample</td><td colspan="2">code — <code>expand()</code>; <code>terrain.get_elevation</code> at pinned stations</td></tr>
       <tr><td>materialize · sweep</td><td class="id">check_conceptual_design · build_conceptual_columns</td><td>—</td></tr>
       <tr><td>the build call</td><td class="id">build_elm_inputs_from_location</td><td class="id">create_decks_from_columns (site_dir)</td></tr>
-      <tr><td>design figure</td><td class="id">sampling_design.render_run (imported)</td><td>none</td></tr>
+      <tr><td>design figure</td><td class="id">sampling_design.render_run (imported)</td><td class="id">sampling_design.render_run (imported)</td></tr>
       <tr><td>build_case_inputs</td><td colspan="2">code — reads what the build call wrote</td></tr>
       <tr><td>build_cases</td><td class="id">run_elm_ensemble → job A · sbatch job B</td><td>skipped</td></tr>
       <tr><td>run</td><td>collect from disk</td><td class="id">run_pflotran_simulation, per deck</td></tr>
@@ -606,11 +610,9 @@
      built, 17 ran, 17 read, every row carrying its profiles and its setup;
      dispatched by <code>workflow.py</code> itself, into a directory named
      <code>pflotran_run_*</code>.</p>
-  <p><strong>What is parked.</strong> The Analyzer's frames are ELM-shaped
-     (daily series, soil layers, depth profiles); PFLOTRAN's rows arrive with
-     <code>profiles</code> and are not yet drawn. The run → analyze tail of an
-     ELM conceptual sweep last ran on 2026-08-16. Both are the next box's
-     business, not this one's.</p>
+  <p><strong>What is parked.</strong> The run → analyze tail of an ELM
+     conceptual sweep last ran on 2026-08-16. (The Analyzer reads a PFLOTRAN run
+     through its report since 2026-08-18 — the next box's business, and done.)</p>
 </section>
 
 </div>

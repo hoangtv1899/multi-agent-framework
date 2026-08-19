@@ -729,7 +729,7 @@
     <h3>Step 1 — Compare</h3>
     <table class="spec">
       <tr><th>Purpose</th><td>Measure the simulation against the observations Reception fetched, and turn each measurement into evidence a later step may cite.</td></tr>
-      <tr><th>Implemented in</th><td><code>src/agents/analysis/step1_compare.py</code>; the comparisons themselves in <code>mcp/elm-mcp/src/compare/</code></td></tr>
+      <tr><th>Implemented in</th><td><code>src/agents/analysis/step1_compare.py</code>; the shared half (loading, pairing, metrics, figures, the driver) in <code>src/agents/analysis/compare_common.py</code> since 2026-08-18; each model's observables beside its server — <code>mcp/elm-mcp/src/compare/</code>, <code>mcp/pflotran-mcp/compare/</code></td></tr>
       <tr><th>Entry function</th><td><code>compare_all(ctx, out_dir, draw=True) → dict</code></td></tr>
       <tr><th>Called by</th><td><code>Analyzer.run()</code></td></tr>
       <tr><th>Reads from disk</th><td>Nothing itself. It passes <code>ctx.sources["reception"]</code> — a path — to the compare package, which opens it.</td></tr>
@@ -1465,7 +1465,7 @@
         <li><code>claims[i].values[j]</code> in <code>analysis.json</code></li>
         <li>→ <code>finding_id</code> is <code>compare_&lt;observable&gt;</code></li>
         <li>→ that finding's <code>result</code> in <code>comparison.json</code></li>
-        <li>→ computed by <code>mcp/elm-mcp/src/compare/&lt;observable&gt;.py</code></li>
+        <li>→ computed by the model's <code>compare/&lt;observable&gt;.py</code> (mcp/elm-mcp/src, mcp/pflotran-mcp) over <code>agents/analysis/compare_common</code></li>
         <li>→ which read the stations out of <code>reception.json</code></li>
         <li>→ fetched once by Reception from the external service (USGS, SNOTEL, AmeriFlux) when the period was fixed</li>
       </ol>
@@ -1770,7 +1770,7 @@
           <td>covered incidentally by surface tests</td></tr>
 
       <tr><td class="id">_VALUE_KEYS</td><td>module-local</td>
-          <td>observation-value aliases inside <code>compare/_common.py</code></td>
+          <td>observation-value aliases inside <code>agents/analysis/compare_common.py</code></td>
           <td>5</td><td>n/a</td><td>—</td>
           <td>no alias matches → the value is <code>None</code></td>
           <td>—</td></tr>
