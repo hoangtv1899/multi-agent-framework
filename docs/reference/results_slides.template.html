@@ -1,0 +1,263 @@
+<title>Six Studies, One Pipeline</title>
+<style>
+  :root{
+    --bg:#0F141A; --panel:#161D26; --panel2:#1C2530; --line:#2A3644;
+    --ink:#E8EDF2; --muted:#8B98A5; --faint:#5A6875;
+    --accent:#E8A33D; --pass:#4CAF6E; --fail:#E5484D;
+    --serif:Georgia,'Iowan Old Style',ui-serif,serif;
+    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  }
+  /* one committed dark look, same family as the guard-rails deck */
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+       font-size:16px;line-height:1.55;margin:0;}
+  .wrap{max-width:1000px;margin:0 auto;padding:48px 24px 96px;
+        display:flex;flex-direction:column;gap:56px;}
+  h1,h2{font-family:var(--serif);font-weight:600;line-height:1.2;
+        margin:0;text-wrap:balance;color:var(--ink);}
+  h1{font-size:2.2rem;} h2{font-size:1.35rem;}
+  p{margin:0;color:var(--muted);max-width:75ch;}
+  code{font-family:var(--mono);font-size:.84em;background:var(--panel2);
+       padding:.08em .34em;border-radius:3px;color:var(--ink);}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;
+           text-transform:uppercase;color:var(--accent);}
+  .slide{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+         padding:30px 34px;display:flex;flex-direction:column;gap:16px;}
+  .slide-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px;}
+  .pill{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;
+        text-transform:uppercase;padding:2px 9px;border-radius:99px;}
+  .p-ok{background:rgba(76,175,110,.15);color:var(--pass);}
+  .meta{font-family:var(--mono);font-size:.76rem;color:var(--faint);
+        display:flex;flex-wrap:wrap;gap:4px 16px;}
+  .q{border-left:3px solid var(--accent);padding:2px 0 2px 14px;
+     font-family:var(--serif);font-style:italic;font-size:1.02rem;color:var(--ink);}
+  .figs{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .figs.one{grid-template-columns:1fr;}
+  @media (max-width:720px){.figs{grid-template-columns:1fr;}}
+  figure{margin:0;display:flex;flex-direction:column;gap:7px;
+         background:#FFFFFF;border:1px solid var(--line);border-radius:6px;
+         padding:10px;}
+  figure img{width:100%;height:auto;display:block;border-radius:3px;}
+  figcaption{font-size:.78rem;color:#4A5560;font-family:var(--sans);
+             padding:0 2px;}
+  ul.res{margin:0;padding-left:1.15em;display:flex;flex-direction:column;
+         gap:7px;color:var(--muted);font-size:.95rem;}
+  ul.res b{color:var(--ink);font-weight:600;}
+  .take{background:var(--panel2);border:1px solid var(--line);
+        border-left:3px solid var(--accent);border-radius:6px;
+        padding:13px 18px;font-size:.98rem;color:var(--ink);}
+  .take b{color:var(--accent);font-family:var(--mono);font-size:.72rem;
+          letter-spacing:.12em;text-transform:uppercase;display:block;
+          margin-bottom:4px;font-weight:400;}
+  .hr-label{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;
+            text-transform:uppercase;color:var(--faint);}
+  table{border-collapse:collapse;width:100%;font-size:.88rem;
+        font-variant-numeric:tabular-nums;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);
+        vertical-align:top;color:var(--muted);}
+  th{font-family:var(--mono);font-size:.68rem;letter-spacing:.1em;
+     text-transform:uppercase;color:var(--faint);font-weight:400;}
+  td.id{font-family:var(--mono);font-size:.78rem;color:var(--ink);white-space:nowrap;}
+  td.v{color:var(--pass);font-family:var(--mono);font-size:.78rem;}
+  a{color:var(--accent);}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+</style>
+<div class="wrap">
+
+<header class="slide" style="gap:20px">
+  <span class="eyebrow">SAGE-Hydro · results · 2026-08-19</span>
+  <h1>Six Studies, One Pipeline</h1>
+  <p>The newest completed run of each kind the framework can do — a real basin,
+     a controlled sweep, and a model-to-model coupling, for each of ELM (land
+     surface) and PFLOTRAN (variably saturated subsurface). Every study began as
+     one plain-language sentence; every figure below was drawn by the pipeline
+     itself from that run's own record, and every verdict is the Analyzer's.</p>
+  <figure>
+    <img src="{{map}}" alt="CONUS map with nine watersheds and each basin's sampled columns">
+    <figcaption>Where the framework has sampled: 13 requests, 9 US watersheds,
+      1979–2023. Dots are stratified columns, stars are columns pinned to
+      observation stations; color is elevation within each basin.</figcaption>
+  </figure>
+</header>
+
+<!-- ── 1 · ELM site ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="slide-head">
+    <span class="eyebrow">1 · ELM · real basin</span>
+    <span class="pill p-ok">verdict: sufficient</span>
+  </div>
+  <div class="meta"><span>elm_run_20260814_121346</span><span>Naches, WA (HUC8 17030002)</span><span>1979</span><span>19 columns · 471–1913 m</span></div>
+  <p class="q">"How does the partitioning between surface runoff and recharge vary
+     with elevation in the Naches sub-watershed for 1979 — and compare with
+     observations?"</p>
+  <div class="figs">
+    <figure><img src="{{elm_part}}" alt="Runoff and drainage share of precipitation against column elevation">
+      <figcaption>How each column splits its 1979 precipitation, against elevation.</figcaption></figure>
+    <figure><img src="{{elm_swe}}" alt="Modelled snow water against the two SNOTEL pillows">
+      <figcaption>The one in-basin check 1979 offers: snow water at two co-located SNOTEL pillows.</figcaption></figure>
+  </div>
+  <ul class="res">
+    <li>Where drainage happens it dominates: up to <b>0.84 of precipitation</b> leaves as sub-surface drainage at the highest column (1913 m). Surface runoff is minor everywhere and does not follow elevation.</li>
+    <li>Several columns recharge without draining — e.g. <b>805 mm of recharge with zero drainage</b> — because the inherited water table sits below the 3.8 m active soil in every column (median 12.1 m).</li>
+    <li>Elevation sets timing: at 1913 m snowmelt peaks in May (551 mm), drainage one month later (338 mm in June).</li>
+    <li>Against the two snow pillows the model runs low by <b>≈86 mm</b> of snow water (NSE 0.29, KGE 0.46).</li>
+  </ul>
+  <div class="take"><b>take-away</b>Elevation controls when water moves; the
+    inherited water-table depth controls which columns can drain at all. The warm
+    start is not a detail — it is the switch.</div>
+</section>
+
+<!-- ── 2 · ELM conceptual ───────────────────────────────────────── -->
+<section class="slide">
+  <div class="slide-head">
+    <span class="eyebrow">2 · ELM · controlled sweep</span>
+    <span class="pill p-ok">verdict: sufficient</span>
+  </div>
+  <div class="meta"><span>elm_fixture_202608160905</span><span>no place — one forcing cell</span><span>1995–2004</span><span>clay 5% vs 55% · as-is and doubled rain</span></div>
+  <p class="q">"Does soil texture change the runoff/drainage split once the column
+     has wetted up?"</p>
+  <div class="figs">
+    <figure><img src="{{con_annual}}" alt="Annual runoff and drainage by texture after wet-up">
+      <figcaption>The split after wet-up (2000–2004), texture by texture.</figcaption></figure>
+    <figure><img src="{{con_month}}" alt="Monthly climatology of runoff and drainage by texture">
+      <figcaption>The same water by month — where texture actually acts.</figcaption></figure>
+  </div>
+  <ul class="res">
+    <li>Texture moves the runoff share only from <b>0.19 (clay 5%) to 0.23 (clay 55%)</b>; annual runoff itself is nearly identical (177 vs 186 mm/yr).</li>
+    <li>The clearest texture effect is timing, not amount: <b>April drainage is 194 mm under clay 55% vs 38 mm under clay 5%</b>.</li>
+    <li>Year-to-year weather moves the runoff share more (0.15–0.28 within one texture) than texture does.</li>
+  </ul>
+  <div class="take"><b>take-away</b>In a clean two-texture experiment, soil
+    texture mostly changes <i>when</i> water leaves the column, hardly whether it
+    runs off — and ordinary weather variability is the larger signal.</div>
+</section>
+
+<!-- ── 3 · PFLOTRAN site ────────────────────────────────────────── -->
+<section class="slide">
+  <div class="slide-head">
+    <span class="eyebrow">3 · PFLOTRAN · real basin</span>
+    <span class="pill p-ok">verdict: sufficient</span>
+  </div>
+  <div class="meta"><span>pflotran_run_20260818_195531</span><span>Brandywine-Christina, PA/DE (HUC8 02040205)</span><span>2010</span><span>15 columns</span></div>
+  <p class="q">"How deep does water move through the unsaturated soil in the
+     Brandywine-Christina basin in 2010?"</p>
+  <div class="figs">
+    <figure><img src="{{pf_unsat}}" alt="Unsaturated thickness against elevation across the 15 columns">
+      <figcaption>How much unsaturated soil each column has to move water through.</figcaption></figure>
+    <figure><img src="{{pf_deep}}" alt="Saturation profiles of the three deep columns across late-run snapshots">
+      <figcaption>The three columns that do have a vadose zone, across late-run snapshots.</figcaption></figure>
+  </div>
+  <ul class="res">
+    <li><b>12 of 15 columns have their water table at 0.1 m</b> — the CONUS2 state saturates lowland Brandywine, leaving essentially no unsaturated soil to study there.</li>
+    <li>The three upland columns hold 6.3, 13.0 and 20.6 m of unsaturated depth and barely change: their profiles stay put across snapshots, and the water table moves <b>at most 0.15 m</b> in any column within the year.</li>
+    <li>Against the wells, the ensemble runs wet (bias −3.5 to −13.9 m) — the modelled starting state, not the year's weather, sets the answer.</li>
+  </ul>
+  <div class="take"><b>take-away</b>The question is answered by the initial
+    condition more than the forcing: where CONUS2 says "already wet", there is
+    nothing to move through — and the three dry columns are nearly static over a
+    single year.</div>
+</section>
+
+<!-- ── 4 · PFLOTRAN conceptual ──────────────────────────────────── -->
+<section class="slide">
+  <div class="slide-head">
+    <span class="eyebrow">4 · PFLOTRAN · controlled sweep</span>
+    <span class="pill p-ok">verdict: sufficient</span>
+  </div>
+  <div class="meta"><span>pflotran_run_20260818_220421</span><span>no place — one loam column</span><span>water table at 2, 5, 10, 20 m</span><span>one year of seasonal rain</span></div>
+  <p class="q">"In a single loam soil column, how does the depth of the water table
+     change how far one year of seasonal rain reaches?"</p>
+  <div class="figs">
+    <figure><img src="{{pfc_front}}" alt="Saturation change through the rain year and the responding front">
+      <figcaption>Saturation change attributable to the rain year, and how deep it reaches.</figcaption></figure>
+    <figure><img src="{{pfc_wt}}" alt="Depth of detectable response against prescribed water-table depth">
+      <figcaption>The deepest responding cell, against where the water table was put.</figcaption></figure>
+  </div>
+  <ul class="res">
+    <li>Measured against the right baseline (the start of the rain year), the rain changes saturation by at most <b>0.021–0.023, and only the top 0.75 m responds</b> — the same answer whether the water table is at 2, 5 or 10 m.</li>
+    <li>Measured against t=0 the change looks up to <b>20× larger</b> (0.23–0.44) — that is the model still adjusting from its initial state, not rain.</li>
+    <li>The solved water table stays within a few centimetres (0.013–0.066 m) of the depth it was prescribed — the experiment holds its own control.</li>
+  </ul>
+  <div class="take"><b>take-away</b>One year of rain wets less than a metre of
+    loam no matter where the water table sits — and without the two-baseline
+    discipline, spin-up would have been reported as rainfall response.</div>
+</section>
+
+<!-- ── 5 · Weak coupling ────────────────────────────────────────── -->
+<section class="slide">
+  <div class="slide-head">
+    <span class="eyebrow">5 · one-way coupling · ELM → PFLOTRAN</span>
+    <span class="pill p-ok">verdict: sufficient</span>
+  </div>
+  <div class="meta"><span>pflotran_run_20260819_074628</span><span>Brandywine-Christina</span><span>2010</span><span>3 columns, reused verbatim from the ELM run</span></div>
+  <p class="q">"Drive PFLOTRAN with the sub-surface drainage (QDRAI) from the prior
+     ELM run — reuse its columns exactly, anchor each at ELM's own solved water
+     table."</p>
+  <div class="figs">
+    <figure><img src="{{wk_prog}}" alt="Depth of the drainage signal through 2010 in each column">
+      <figcaption>How far ELM's 2010 drainage signal reached, quarter by quarter.</figcaption></figure>
+    <figure><img src="{{wk_elev}}" alt="Front depth against column elevation">
+      <figcaption>The same fronts against elevation: only the lowland column responds.</figcaption></figure>
+  </div>
+  <ul class="res">
+    <li>The lowland column (water table 4.25 m) felt ELM's drainage: the changed zone reached <b>2.8 m deep in the first half of the year</b> and stood at 2.3 m at year end.</li>
+    <li>The two upland columns, whose ELM sent essentially zero drainage, changed saturation by <b>at most 0.0000033</b> — nothing, correctly.</li>
+    <li>PFLOTRAN's solved water table lands within <b>≈0.5 m</b> of ELM's anchor in every column.</li>
+  </ul>
+  <div class="take"><b>take-away</b>The handoff is physical end to end — the wet
+    column answers, the dry ones stay silent. What one pass cannot do is repair
+    the inherited deep state; that is exactly the job of the loop on the next
+    slide.</div>
+</section>
+
+<!-- ── 6 · Two-way coupling ─────────────────────────────────────── -->
+<section class="slide">
+  <div class="slide-head">
+    <span class="eyebrow">6 · two-way coupling · ELM ↔ PFLOTRAN</span>
+    <span class="pill p-ok">6 rounds · each leg's verdict: sufficient</span>
+  </div>
+  <div class="meta"><span>one SLURM job (773722) · sbatch once, both models inside</span><span>Brandywine-Christina · 2010</span><span>tolerance 0.10 m on movement between rounds</span></div>
+  <p class="q">"Iterate: ELM's drainage drives PFLOTRAN; PFLOTRAN's solved water
+     table becomes ELM's next starting state — until the water table stops
+     moving."</p>
+  <div class="figs one">
+    <figure><img src="{{tw_conv}}" alt="Water-table depth per round and movement between rounds against tolerance">
+      <figcaption>Left: the water table each round solved. Right: the movement between rounds — the number the convergence check judges — against the 0.10 m tolerance.</figcaption></figure>
+  </div>
+  <div class="figs one">
+    <figure><img src="{{tw_drift}}" alt="ELM's diagnosed water table drifting from the PFLOTRAN-imposed start through the year">
+      <figcaption>Inside one return leg: ELM's own water table through the year, measured from the depth PFLOTRAN handed it. The Analyzer drew this unprompted — the coupling facts ride each column like any other fact.</figcaption></figure>
+  </div>
+  <ul class="res">
+    <li><b>Six full rounds inside a single 1 h 15 m allocation</b> — ELM ensembles run in place, PFLOTRAN inline, a convergence check between every round.</li>
+    <li>Round 2 delivered the big correction: <b>18.5 m</b> at the deep columns. The shallow column then settled at <b>0.002 m per round — converged</b>.</li>
+    <li>The deep columns move a constant <b>≈0.50 m every round</b> (0.504, 0.504, 0.505, 0.505): a steady physical drift — ELM sends them no drainage, PFLOTRAN keeps draining — not a shrinking numerical error.</li>
+    <li>Every ELM return leg was read by the Analyzer with no special casing: it found the coupling facts on the columns, drew the drift, and reported ELM holding within ≈1 m of the imposed water table.</li>
+  </ul>
+  <div class="take"><b>take-away</b>The coupling machinery is proven — one job,
+    six rounds, honest verdicts throughout. What remains is a science question,
+    not a plumbing one: the deep columns drift 0.5 m per round toward a much
+    deeper balance, so "converged" there means choosing a spin-up length or a
+    per-column tolerance.</div>
+</section>
+
+<!-- ── summary ──────────────────────────────────────────────────── -->
+<section class="slide">
+  <span class="hr-label">the six at a glance</span>
+  <table>
+    <thead><tr><th>study</th><th>run</th><th>where · when</th><th>one number</th><th>verdict</th></tr></thead>
+    <tbody>
+      <tr><td>ELM, real basin</td><td class="id">elm_run_20260814_121346</td><td>Naches 1979, 19 cols</td><td>drainage up to 0.84 of precipitation</td><td class="v">sufficient</td></tr>
+      <tr><td>ELM, controlled sweep</td><td class="id">elm_fixture_202608160905</td><td>no place, 1995–2004</td><td>runoff share 0.19 → 0.23 across textures</td><td class="v">sufficient</td></tr>
+      <tr><td>PFLOTRAN, real basin</td><td class="id">pflotran_run_20260818_195531</td><td>Brandywine 2010, 15 cols</td><td>12 of 15 columns already saturated</td><td class="v">sufficient</td></tr>
+      <tr><td>PFLOTRAN, controlled sweep</td><td class="id">pflotran_run_20260818_220421</td><td>loam column, WT 2–20 m</td><td>rain reaches 0.75 m, at every depth</td><td class="v">sufficient</td></tr>
+      <tr><td>one-way coupling</td><td class="id">pflotran_run_20260819_074628</td><td>Brandywine 2010, 3 cols</td><td>drainage signal felt to 2.3 m</td><td class="v">sufficient</td></tr>
+      <tr><td>two-way coupling</td><td class="id">six rounds, job 773722</td><td>Brandywine 2010, 3 cols</td><td>shallow column converged at 0.002 m/round</td><td class="v">sufficient ×6</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:.85rem">Every run directory named above holds its own
+     figures, claims and caveats under <code>04_analysis/</code>; nothing on
+     these slides was computed outside the pipeline.</p>
+</section>
+
+</div>
