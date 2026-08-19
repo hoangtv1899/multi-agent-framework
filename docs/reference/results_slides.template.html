@@ -232,6 +232,11 @@
   <p class="q">"Iterate: ELM's drainage drives PFLOTRAN; PFLOTRAN's solved water
      table becomes ELM's next starting state — until the water table stops
      moving."</p>
+  <p style="font-size:.84rem">A round is one full simulated year of each model,
+     not a timestep: ELM re-runs all of 2010 from its new start and hands over
+     the whole year's daily drainage; PFLOTRAN runs its full clock and hands
+     back one solved water-table depth per column. The models exchange files
+     between runs and never talk during one.</p>
   <div class="figs one">
     <figure><img src="{{sch_two}}" alt="Two-way coupling schematic: drainage forward, solved water table back into ELM's next start, movement gate between rounds">
       <figcaption>The loop: the forward edge from slide 5, plus the one thing two-way adds — the solved water table stamped back as ELM's next start, with a movement gate between rounds.</figcaption></figure>
