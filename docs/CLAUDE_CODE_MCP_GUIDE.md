@@ -327,22 +327,48 @@ reads from it at runtime.
 The ones that matter for column work:
 
 ```
+describe_pflotran_capabilities()                READ THIS FIRST — the model, the constraints,
+                                                and `working_order`: the rules + call order for
+                                                driving this server by hand
 check_installation()                            every env var this server reads, resolved
 create_column_deck(column, out_dir, ...)        a RUNNABLE 1-D soil column deck
+create_decks_from_columns(columns, out_dir, ..) one deck per column; with site_dir it joins the
+                                                site data itself and returns a run plan
+describe_conceptual_factors()                   the CONTROLLED-SWEEP menu (water table, soil,
+                                                soil depth, recharge, written rain)
+check_conceptual_design(design)                 will a sweep build — every reason named, pre-compute
+build_conceptual_columns(design)                the sweep as columns, in the deck tool's shape
 create_pflotran_input(...)                      a deck SKELETON (grid/time/output only) — says runnable=False
 configure_reaction_sandbox(input_file, ...)     add LAMBDA/microbial/CLM-CN chemistry
-validate_pflotran_input(input_file)             syntax check + `runnable` (are the blocks a run needs there?)
+validate_pflotran_input(input_file)             TEXT SCAN + `runnable` (are the blocks a run needs there?)
+check_deck_reads(input_file, timeout)           PFLOTRAN ITSELF reads a COPY of the deck and returns
+                                                its own error lines — run it on any hand-touched deck
 run_pflotran_simulation(input_file, ...)        run it HERE, inline (seconds); num_cores defaults to 1
 check_simulation_status(output_dir, prefix)     completed / running (with progress) / failed, from the .out
+extract_column_series(cases, out_file)          profiles per column (saturation, pressure vs depth), to a file
 extract_observations(output_file, variables)    time series out of -obs-0.tec / .h5
 create_parameter_ensemble(...)                  LHS/Sobol parameter sets
 ```
 
-The other 30-odd cover the LAMBDA DOM-respiration pipeline (preprocessing,
-binning, thermodynamics), DART assimilation, particle tracking, and the JAX/KIM
-surrogates. This server has no capabilities tool of its own — `/mcp` lists every
-tool with its docstring, and `list_available_samples` is the cheap way to see
-what the LAMBDA side has on disk.
+**The working order, short form** (the full version rides
+`describe_pflotran_capabilities().working_order` — this exists because a
+hand-written deck that "validated" and PFLOTRAN refused is the main way a
+session here goes wrong):
+
+1. Never hand-write or hand-edit a deck — the builders write runnable ones.
+2. If a deck was hand-made anyway, `check_deck_reads` must say `reads: true`
+   before it is worth a real run. `validate_pflotran_input` is only a text
+   scan: its `is_valid` does not mean runnable, and neither catches a wrong
+   keyword — PFLOTRAN does, and this tool asks it.
+3. Never state a capability, keyword, or default from memory — read the
+   capabilities report, the sweep menu, or the tool docstrings.
+4. Judge a run by `exit_codes` (0 = clean) or `check_simulation_status` with
+   `prefix=<deck name>`; always pass `timeout`.
+
+The other 30-odd tools cover the LAMBDA DOM-respiration pipeline
+(preprocessing, binning, thermodynamics), DART assimilation, particle
+tracking, and the JAX/KIM surrogates; `list_available_samples` is the cheap
+way to see what the LAMBDA side has on disk.
 
 `create_column_deck` vs `create_pflotran_input`: the second writes simulation
 type, grid, time and output and stops — no materials, no regions, no strata, no

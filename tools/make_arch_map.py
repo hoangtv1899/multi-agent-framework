@@ -442,7 +442,7 @@ GROUPS = [
             ref("<code>create_column_deck</code> — a 1-D Richards column from a sampled column dict: depth, water table, recharge, van Genuchten soil.", RXN, "create_column_deck"),
             ref("<code>check_column_schema</code> — does this column dict carry what a deck needs?", RXN, "check_column_schema"),
             ref("<code>configure_reaction_sandbox</code> — attach a reaction network to the deck.", RXN, "configure_reaction_sandbox"),
-            ref("<code>validate_pflotran_input</code> — parse the deck before spending a run on it; <code>runnable</code> says whether the blocks a run needs are all there.", RXN, "validate_pflotran_input"),
+            ref("<code>validate_pflotran_input</code> — a TEXT SCAN of the deck; <code>runnable</code> says whether the blocks a run needs are all there. <code>check_deck_reads</code> is the stronger check: PFLOTRAN itself reads a COPY and returns its own error lines — the guard for any hand-written deck (added 2026-08-18 with the <code>working_order</code> block in the capabilities report).", RXN, "check_deck_reads"),
             ref("<b>The controlled-sweep trio</b>, the same three the ELM server exposes: <code>describe_conceptual_factors</code> (the menu reception reads — water table, soil, soil depth, recharge, written rain), <code>check_conceptual_design</code> (will it build, every reason named), <code>build_conceptual_columns</code> (the sweep as columns in the deck tool's shape). Over <code>tools/conceptual.py</code>.", RXN, "describe_conceptual_factors")],
    "files": [[RXN, lines(RXN)]]},
   {"n": "Run", "side": "srv", "sum": "Inline, one deck per call — the server has no scheduler path.",
