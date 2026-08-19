@@ -235,7 +235,7 @@ eight minutes into a case build.
 
 Every tool call asks the first time. Answer **"Yes, and don't ask again for
 this tool"** for the read-only ones (`describe_elm_capabilities`,
-`check_elm_job`, `validate_pflotran_input`, `check_pflotran_job`). Keep the ask
+`check_elm_job`, `validate_pflotran_input`, `check_simulation_status`). Keep the ask
 on anything that submits a job, at least at first — those spend node hours.
 
 To pre-authorize a whole server for a session:
@@ -329,13 +329,11 @@ The ones that matter for column work:
 ```
 check_installation()                            every env var this server reads, resolved
 create_column_deck(column, out_dir, ...)        a RUNNABLE 1-D soil column deck
-create_pflotran_input(...)                      a deck skeleton (grid/time/output only)
+create_pflotran_input(...)                      a deck SKELETON (grid/time/output only) — says runnable=False
 configure_reaction_sandbox(input_file, ...)     add LAMBDA/microbial/CLM-CN chemistry
-validate_pflotran_input(input_file)             syntax + physics check, instant
-run_pflotran_simulation(input_file, ...)        run it HERE, inline (seconds)
-submit_pflotran_ensemble(input_file[], ...)     -> JOB ID   (run it on a compute node)
-check_pflotran_job(job_id, output_dir)          is the scheduler still busy?
-collect_pflotran_results(output_dir)            same shape as run_..., with results_by_input
+validate_pflotran_input(input_file)             syntax check + `runnable` (are the blocks a run needs there?)
+run_pflotran_simulation(input_file, ...)        run it HERE, inline (seconds); num_cores defaults to 1
+check_simulation_status(output_dir, prefix)     completed / running (with progress) / failed, from the .out
 extract_observations(output_file, variables)    time series out of -obs-0.tec / .h5
 create_parameter_ensemble(...)                  LHS/Sobol parameter sets
 ```
@@ -471,61 +469,20 @@ depth through time.
 
 ---
 
-### Example 2 — a PFLOTRAN ensemble through Slurm (job 770823, 15 s)
+### Example 2 — a PFLOTRAN ensemble through Slurm (REMOVED 2026-08-18)
 
-*Same physics, two sites, run on a compute node instead of the login node —
-submit, poll, collect.*
-
-**You type:**
-
-```
-Build two columns in /compyfs/tran289/mcp_demo with the soil from before:
-col_a with the water table at 6 m and 120 mm/yr, col_b at 18 m and 240 mm/yr.
-Submit both as one Slurm job on the short partition, account e3sm, 10 minutes,
-then poll until it lands and collect the results.
-```
-
-**The three calls that matter:**
-
-```jsonc
-// submit_pflotran_ensemble
-{"input_file": [".../col_a/col_a.in", ".../col_b/col_b.in"],
- "output_dir": "/compyfs/tran289/mcp_demo",
- "queue": "short", "account": "e3sm", "walltime": "00:10:00",
- "max_parallel": 2, "timeout": 300.0}
-// -> {"job_id": "770823", "n_decks": 2,
-//     "result_path": "/compyfs/tran289/mcp_demo/.pflotran_job/result.json"}
-
-// check_pflotran_job  (repeat until active is false)
-{"job_id": "770823", "output_dir": "/compyfs/tran289/mcp_demo"}
-// -> {"state": "COMPLETED", "active": false, "result_written": true, "ready": true,
-//     "log_tail": "running 2 deck(s) on n0002.local\nENSEMBLE_DONE 2/2 attributed=2"}
-
-// collect_pflotran_results
-{"output_dir": "/compyfs/tran289/mcp_demo"}
-// -> {"exit_codes": [0, 0], "results_by_input": {
-//      ".../col_b.in": {"exit_codes": [0], "execution_time": 11.17, "output_files": [...]},
-//      ".../col_a.in": {"exit_codes": [0], "execution_time": 11.17, "output_files": [...]}}}
-```
-
-Whole thing: 15 s of node time, two 20-year columns, `2/2 attributed`.
-
-**Why `results_by_input` is the field to read.** The flat `exit_codes` list is
-in *completion* order, so `exit_codes[i]` does **not** belong to
-`input_file[i]` — col_b finished first here and is listed first. Only the map
-says which deck produced which outcome. An ensemble you can count but not
-attribute is worse than one you did not run, because the numbers look fine.
-
-**Inline or submitted?** A framework column solves in ~0.3-3 s, and for a
-handful of those the queue wait exceeds the solve — use Example 1's inline path.
-Submit when the run is long, wide (dozens of decks), or reactive-transport slow.
-The deciding factor is not speed: inline simulations run in the *server's* process
-tree, which lives on a login node, and the client kills that tree when the
-session ends.
+The three scheduler tools this example used — `submit_pflotran_ensemble`,
+`check_pflotran_job`, `collect_pflotran_results` — were deleted from the
+server (commit `fac929a`): they were ours, nothing called them, and a tool
+that can `sbatch` behind the conversation is what nobody wanted. A framework
+column solves in 0.3-3 s, so `run_pflotran_simulation` inline (Example 1) is
+the path. For a long or wide reactive ensemble, write the batch script
+yourself and ask before submitting it; inside the job, `tools.simulation.
+run_simulation(mode="ensemble_parallel", timeout=...)` still runs a list of
+decks and returns `results_by_input`, so each deck's outcome stays attributed.
 
 **One argument you should always pass:** `timeout`. Without it a single
-non-converging column consumes the whole job's walltime and takes every
-finished column down with it.
+non-converging column stalls the whole call.
 
 ---
 
@@ -666,10 +623,11 @@ demo's `k_deg`/`MU_MAX` and the log formulation goes singular. It is a
 deck-parameterisation limit, not a build problem — PFLOTRAN's own
 `reaction_sandbox_lambda` regression case passes clean at its native 21 days.
 
-**A real reactive ensemble wants `submit_pflotran_ensemble`**, not the inline
-path. Two seconds is the demo; chemistry over a deep column and a long record
-turns into hours, and that cannot run inside an MCP call at all, whatever the
-timeout says.
+**A real reactive ensemble wants a batch job you submit yourself**, not the
+inline path. Two seconds is the demo; chemistry over a deep column and a long
+record turns into hours, and that cannot run inside an MCP call at all,
+whatever the timeout says. (The server's own scheduler tools were removed
+2026-08-18 — see Example 2.)
 
 ---
 
@@ -925,13 +883,13 @@ defined` (CIME loads its compiler modules through `modulecmd`, which needs
 `MODULEPATH`). If you add a tool that shells out, resolve its environment in
 the server, with a default.
 
-**`check_simulation_status` says `running` for a finished run.** It greps the
-log for `*** SIMULATION COMPLETED`, which our PFLOTRAN v7.0 build does not
-print — its log ends with `Wall Clock Time`. Verified: a column that exited 0
-in 2.4 s reports `status: "running", progress_percent: 0.0`. **Trust
-`exit_codes` from `run_pflotran_simulation` / `collect_pflotran_results`**, or
-the tail of the `.out` file. Still true on upstream `bb773fd`
-(`tools/simulation.py:534`) — a candidate for the next contribution.
+**`check_simulation_status` used to say `running` for a finished run** — it
+grepped for `*** SIMULATION COMPLETED`, which PFLOTRAN v7.0 never prints.
+FIXED 2026-08-18 (`fac929a`): it now reads the `Wall Clock Time` line for
+completed, the `Step N Time=` lines against the deck's `FINAL_TIME` for
+progress, `ERROR` lines for failed, and falls back to the one `.out` in the
+directory when `prefix` is not the deck's name. `exit_codes` from
+`run_pflotran_simulation` remains the primary word.
 
 **`extract_observations` does not read snapshot `.tec` files.** It wants an
 observation *time series* — `-obs-0.tec` or `.h5`. Pointed at a
@@ -1012,11 +970,6 @@ sbatch --dependency=afterany:<A> ensemble_B.sbatch       # your job B: report + 
 # PFLOTRAN, reactive (LAMBDA) — build the deck with our builder, run it with the MCP
 python3 tools/build_reactive_demo.py --column col_01 --recharge 100 10
 "run_pflotran_simulation on that deck, num_cores 1, timeout 600"
-
-# PFLOTRAN, scheduled
-"submit_pflotran_ensemble on these decks, short/e3sm, 10 min, timeout 300"
-"check_pflotran_job <id> with output_dir <dir>"
-"collect_pflotran_results <dir>"                         # read results_by_input
 
 # headless
 claude -p "<prompt>" --mcp-config .mcp.json --strict-mcp-config \
