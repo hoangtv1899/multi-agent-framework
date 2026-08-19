@@ -85,6 +85,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -1152,8 +1153,19 @@ def _shared_fs(path: Path) -> Optional[str]:
 def run_elm_ensemble(run_dir:  str,
                      queue:    str = "",
                      walltime: str = "02:00:00",
-                     account:  str = "") -> str:
+                     account:  str = "",
+                     in_allocation: bool = False) -> str:
     """Build the cases and run every column, as ONE job. Returns its id.
+
+    `in_allocation=True` RUNS IN PLACE INSTEAD OF SUBMITTING: the same
+    ensemble script, executed synchronously inside the SLURM allocation this
+    server already lives in (the wrapper is srun-based, so the columns land
+    on the allocation's own cores). For the coupling iteration — ELM,
+    PFLOTRAN, ELM again inside ONE job, one queue wait for the whole loop —
+    rather than one sbatch per leg. Refused, by name, when there is no
+    allocation (no SLURM_JOB_ID): srun from a login node would hang.
+    Returns the built cases instead of a job id; there is no job B — the
+    caller is already running and simply continues.
 
     This is JOB A. It does everything that needs the compute node and stops
     there. The analysis is job B's: submit it yourself with
@@ -1194,6 +1206,42 @@ def run_elm_ensemble(run_dir:  str,
     # Job A owns that decision — it validates the case directories and the
     # executable and rebuilds if either is missing, which is a check this side
     # cannot make anyway (the paths are only known once the build has run).
+    if in_allocation:
+        jid = os.environ.get("SLURM_JOB_ID")
+        if not jid:
+            return json.dumps({
+                "error": "in_allocation=True but there is no SLURM_JOB_ID in "
+                         "the environment — this process is not inside an "
+                         "allocation, and srun from a login node would hang. "
+                         "Submit normally, or run inside salloc/sbatch."})
+        log = rd / "ensemble_A.log"
+        env = dict(os.environ,
+                   IDEAS_FRAMEWORK_DIR=str(FRAMEWORK),
+                   LC_ALL="en_US.utf8", LANG="en_US.utf8",
+                   PATH=f"{Path(sys.executable).parent}:{os.environ.get('PATH','')}")
+        t0 = time.time()
+        with open(log, "w") as lf:
+            rc = subprocess.run(
+                ["bash", str(ENSEMBLE_AB), str(rd), sys.executable],
+                stdout=lf, stderr=subprocess.STDOUT, env=env).returncode
+        cases = []
+        built = rd / "01_inputs" / "built_cases.json"
+        if built.is_file():
+            try:
+                cases = (json.loads(built.read_text()) or {}).get("cases") or []
+            except Exception:                                   # noqa: BLE001
+                pass
+        return json.dumps({
+            "ran_in_allocation": True,
+            "slurm_job_id": jid,
+            "returncode": rc,
+            "n_cases": n_cases,
+            "n_built": sum(1 for c in cases if c.get("case_dir")),
+            "cases": cases,
+            "elapsed_s": round(time.time() - t0, 1),
+            "log_path": str(log),
+        }, indent=2)
+
     q = queue or os.environ["IDEAS_SLURM_QUEUE"]
     acct = account or os.environ["IDEAS_SLURM_ACCOUNT"]
     sb = rd / "ensemble_A.sbatch"

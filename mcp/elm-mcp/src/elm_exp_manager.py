@@ -533,6 +533,38 @@ class ELMExpManager(ExperimentManagerBase):
 			raise RuntimeError(
 				f"{src} is missing — _refine_columns should have written it "
 				f"via the elm MCP")
+		# ── ALREADY INSIDE AN ALLOCATION? RUN IN PLACE. ─────────────────
+		# The coupling iteration submits ONE job and runs its legs — ELM,
+		# PFLOTRAN, ELM again — inside it; a nested sbatch from a compute
+		# node would rejoin the queue and defeat the allocation. The wrapper
+		# is srun-based, so the ensemble lands on this job's own cores. The
+		# whole pipeline then continues synchronously (no Pending, no job B —
+		# this very process does the analysis next). IDEAS_FORCE_SBATCH=1
+		# restores the submit for someone deliberately queueing from a job.
+		if os.environ.get("SLURM_JOB_ID") and \
+				os.environ.get("IDEAS_FORCE_SBATCH") != "1":
+			jid = os.environ["SLURM_JOB_ID"]
+			wall = str(config.get("study_walltime", "02:00:00"))
+			h, m, sec = (list(map(int, wall.split(":"))) + [0, 0])[:3]
+			budget = h * 3600 + m * 60 + sec + 900
+			print(f"   ⚙  inside allocation {jid} — running the ensemble IN "
+				  f"PLACE (srun on this job's cores), no new submission")
+			out = self._mcp_call(client, "run_elm_ensemble", {
+				"run_dir": str(self.run_dir), "in_allocation": True,
+			}, budget=float(budget))
+			if out.get("error"):
+				raise RuntimeError(f"run_elm_ensemble (in allocation): "
+								   f"{out['error']}")
+			by_name = {c.get("case_name"): c.get("case_dir")
+					   for c in (out.get("cases") or [])}
+			for e in experiments:
+				if by_name.get(e.get("case_name")):
+					e["case_dir"] = by_name[e["case_name"]]
+			print(f"   ✓ {out.get('n_built')}/{out.get('n_cases')} case(s) "
+				  f"built and run in {out.get('elapsed_s')} s "
+				  f"(allocation {jid})")
+			return experiments
+
 		email = self._announce(experiments, config)
 		out = self._mcp_call(client, "run_elm_ensemble", {
 			"run_dir":  str(self.run_dir),

@@ -151,3 +151,80 @@ class TestTheReturnLeg:
                             lambda res, cols, plan, cfg: seen.update(n=len(cols)) or {"ok": 1})
         out = m._materialize({"x": 1}, _cfg(_prior_pflotran(tmp_path)))
         assert out == {"ok": 1} and seen["n"] == 2
+
+
+# ── the one-allocation path ──────────────────────────────────────────────
+
+class TestInAllocationRun:
+    def test_inside_an_allocation_the_ensemble_runs_in_place(self, monkeypatch):
+        """SLURM_JOB_ID set -> _build_cases runs the tool synchronously with
+        in_allocation=True, attaches case dirs, and returns the experiments
+        list (the base's polled-build convention) — never a Pending."""
+        from core.exp_manager_base import Pending
+        monkeypatch.setenv("SLURM_JOB_ID", "999001")
+        monkeypatch.delenv("IDEAS_FORCE_SBATCH", raising=False)
+        m = ELMExpManager.__new__(ELMExpManager)
+        m.run_dir = Path("/tmp/x")
+        m.input_dir = Path("/tmp/x/01_inputs")
+        seen = {}
+
+        class _Client:
+            timeout = 300.0
+            def call_tool_json(self, name, args):
+                seen["tool"], seen["args"] = name, args
+                return {"ran_in_allocation": True, "returncode": 0,
+                        "n_cases": 2, "n_built": 2, "elapsed_s": 61.0,
+                        "cases": [{"case_name": "col_01", "case_dir": "/c/1"},
+                                  {"case_name": "col_02", "case_dir": "/c/2"}]}
+
+        monkeypatch.setattr(m, "_mcp", lambda cfg: _Client())
+        exps = [{"case_name": "col_01"}, {"case_name": "col_02"}]
+        (m.input_dir).mkdir(parents=True, exist_ok=True)
+        (m.input_dir / m.CASE_INPUTS).write_text("[]")
+        out = m._build_cases(exps, {"study_walltime": "00:30:00"})
+        assert not isinstance(out, Pending)
+        assert out is exps and exps[0]["case_dir"] == "/c/1"
+        assert seen["args"]["in_allocation"] is True
+
+    def test_force_sbatch_overrides_the_detection(self, monkeypatch):
+        """IDEAS_FORCE_SBATCH=1 restores the submit path even inside a job —
+        proven by it reaching the announce step, which the in-place path
+        never calls."""
+        monkeypatch.setenv("SLURM_JOB_ID", "999001")
+        monkeypatch.setenv("IDEAS_FORCE_SBATCH", "1")
+        m = ELMExpManager.__new__(ELMExpManager)
+        m.run_dir = Path("/tmp/x")
+        m.input_dir = Path("/tmp/x/01_inputs")
+        m.input_dir.mkdir(parents=True, exist_ok=True)
+        (m.input_dir / m.CASE_INPUTS).write_text("[]")
+        monkeypatch.setattr(m, "_mcp", lambda cfg: object())
+        hit = {}
+        monkeypatch.setattr(m, "_announce",
+                            lambda *a, **k: hit.setdefault("announced", True) and "")
+        with pytest.raises(Exception):
+            m._build_cases([{"case_name": "c"}], {})
+        assert hit.get("announced"), "the submit path (announce) was not taken"
+
+    def test_the_server_refuses_in_allocation_outside_one(self, monkeypatch):
+        monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+        sys.path.insert(0, str(ROOT / "mcp" / "elm-mcp"))
+        import main as elm_main
+        r = json.loads(elm_main.run_elm_ensemble(
+            run_dir=str(ROOT / "workflow_outputs" / "elm_run_20260813_233645"),
+            in_allocation=True))
+        assert "no SLURM_JOB_ID" in r.get("error", "")
+
+
+def test_coupling_delta_reads_a_real_leg():
+    """The convergence checker against the real Brandywine coupled run."""
+    run = ROOT / "workflow_outputs" / "pflotran_run_20260819_074628"
+    if not run.exists():
+        pytest.skip("no coupled run on disk")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "coupling_delta", ROOT / "tools" / "coupling_delta.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    rows = mod.deltas(str(run))
+    assert len(rows) == 3
+    assert all(abs(r["delta_m"]) <= 0.05 for r in rows)

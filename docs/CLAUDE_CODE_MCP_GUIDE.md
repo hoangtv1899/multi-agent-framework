@@ -556,6 +556,23 @@ column is driven by ~nothing: the deck builds STEADY at the near-zero mean and
 its row says so. The two models agreeing about which sites are dry-at-depth is
 a consistency check, not a coincidence.
 
+**Running the whole loop in ONE allocation** (added 2026-08-19): submit
+`tools/coupling_loop.sh` once —
+
+```bash
+sbatch -N 1 -p short -A e3sm -t 04:00:00 \
+       -o workflow_outputs/coupling_loop_%j.log \
+       tools/coupling_loop.sh <prior_pflotran_run> [max_iters] [tol_m]
+```
+
+— and every leg runs inside that job: the ELM manager notices `SLURM_JOB_ID`
+and runs its ensemble IN PLACE (`run_elm_ensemble(in_allocation=true)`; the
+wrapper was always srun-based, the sbatch was only an envelope;
+`IDEAS_FORCE_SBATCH=1` restores the submit), the PFLOTRAN legs were always
+inline, and `tools/coupling_delta.py` checks convergence off each PFLOTRAN
+leg's own record BEFORE spending the next ELM minute. One queue wait for the
+whole Picard iteration.
+
 **Two-way (added 2026-08-19)** is the same archetype pointed back: a coupling
 request with `to_model: elm` and a prior PFLOTRAN run hands each column
 PFLOTRAN's **solved** water table as its next initial state — the warm start
