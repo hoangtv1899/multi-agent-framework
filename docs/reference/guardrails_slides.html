@@ -1,0 +1,363 @@
+<title>PFLOTRAN Guard Rails</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0F141A; --panel:#161D26; --panel2:#1C2530; --line:#2A3644;
+    --ink:#E8EDF2; --muted:#8B98A5; --faint:#5A6875;
+    --accent:#E8A33D; --accent-dim:#8A6524;
+    --pass:#4CAF6E; --fail:#E5484D; --warn:#E8A33D;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sans:"IBM Plex Sans",system-ui,Segoe UI,Helvetica,Arial,sans-serif;
+    --disp:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+  }
+  html{scroll-snap-type:y mandatory;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       font-size:clamp(14px,1.35vw,17px);line-height:1.5;}
+  .slide{min-height:100svh;scroll-snap-align:start;display:flex;flex-direction:column;
+         justify-content:center;box-sizing:border-box;padding:4.5rem clamp(1.2rem,6vw,7rem) 4rem;
+         border-bottom:1px solid var(--line);position:relative;}
+  .kicker{font-family:var(--mono);font-size:.72em;letter-spacing:.14em;text-transform:uppercase;
+          color:var(--accent);margin-bottom:.9rem;}
+  .kicker .n{color:var(--faint);margin-right:.9em;}
+  h1,h2{font-family:var(--disp);font-weight:700;line-height:1.08;margin:0 0 1.1rem;
+        text-wrap:balance;letter-spacing:-.01em;}
+  h1{font-size:clamp(2.4rem,6vw,4.6rem);}
+  h2{font-size:clamp(1.6rem,3.4vw,2.6rem);}
+  p{max-width:62ch;margin:.45rem 0;}
+  .lead{font-size:1.12em;color:var(--ink);}
+  .muted{color:var(--muted);}
+  .small{font-size:.85em;}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.2rem;align-items:start;margin-top:.8rem;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:1rem 1.15rem;}
+  .card h3{font-family:var(--disp);font-size:1.05em;margin:0 0 .45rem;letter-spacing:.01em;}
+  /* terminal specimen */
+  .term{background:#0B0F14;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:.7rem 0;}
+  .term .bar{display:flex;align-items:center;gap:.6em;background:var(--panel2);border-bottom:1px solid var(--line);
+             padding:.42em .9em;font-family:var(--mono);font-size:.72em;color:var(--muted);letter-spacing:.05em;}
+  .term .bar .tag{margin-left:auto;font-weight:600;padding:.1em .6em;border-radius:99px;font-size:.95em;}
+  .tag.pass{color:#0F141A;background:var(--pass);}
+  .tag.fail{color:#fff;background:var(--fail);}
+  .tag.warn{color:#0F141A;background:var(--warn);}
+  .term pre{margin:0;padding:.85em 1em;font-family:var(--mono);font-size:.78em;line-height:1.55;
+            overflow-x:auto;color:#C7D2DC;}
+  .term pre b{color:var(--ink);font-weight:600;}
+  .ok{color:var(--pass);} .bad{color:var(--fail);} .amber{color:var(--warn);} .dim{color:var(--faint);}
+  code{font-family:var(--mono);font-size:.88em;background:var(--panel2);border:1px solid var(--line);
+       border-radius:4px;padding:.05em .35em;color:var(--ink);white-space:nowrap;}
+  /* rails motif */
+  .rail{height:10px;max-width:34rem;border-radius:3px;margin:1.6rem 0 0;
+        background:repeating-linear-gradient(-45deg,var(--accent) 0 14px,#3a2c10 14px 28px);}
+  ul{margin:.4rem 0 .4rem 1.1rem;padding:0;max-width:66ch;}
+  li{margin:.4rem 0;}
+  li::marker{color:var(--accent);}
+  table{border-collapse:collapse;width:100%;margin:.8rem 0;font-size:.92em;}
+  th,td{border:1px solid var(--line);padding:.5em .8em;text-align:left;vertical-align:top;}
+  th{font-family:var(--disp);background:var(--panel2);letter-spacing:.02em;}
+  td code{white-space:normal;}
+  .steps{display:grid;gap:.45rem;margin-top:.6rem;max-width:56rem;}
+  .step{display:grid;grid-template-columns:2.1rem 1fr;gap:.7rem;align-items:baseline;
+        font-family:var(--mono);font-size:.82em;background:var(--panel);border:1px solid var(--line);
+        border-radius:6px;padding:.5em .8em;}
+  .step .no{color:var(--accent);font-weight:600;text-align:right;}
+  .step .why{color:var(--muted);}
+  .foot{position:absolute;bottom:1.1rem;right:clamp(1.2rem,6vw,7rem);font-family:var(--mono);
+        font-size:.7em;color:var(--faint);}
+  .navhint{position:fixed;bottom:1.1rem;left:1.4rem;font-family:var(--mono);font-size:.7em;
+           color:var(--faint);z-index:5;}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem;align-items:start;}
+  @media(max-width:900px){.twocol{grid-template-columns:1fr;}}
+  figure{margin:1rem 0;}
+  figcaption{font-size:.8em;color:var(--muted);margin-top:.4rem;max-width:70ch;}
+  .vs{display:flex;align-items:center;justify-content:center;font-family:var(--disp);
+      color:var(--faint);font-size:1.4em;}
+  a{color:var(--accent);}
+</style>
+
+<div class="navhint">↑ ↓ / scroll · slide <span id="cur">1</span>/10</div>
+
+<!-- 1 ─ TITLE -->
+<section class="slide" id="s1">
+  <div class="kicker"><span class="n">SAGE-Hydro · IDEAS</span>PFLOTRAN MCP server</div>
+  <h1>Guard Rails</h1>
+  <p class="lead" style="max-width:56ch">Hallucination prevention for sessions that drive the
+     PFLOTRAN server <em>by hand</em> — a working order the model must read,
+     and a check where PFLOTRAN itself is the judge.</p>
+  <div class="rail" role="presentation"></div>
+  <p class="muted small" style="margin-top:1.6rem">
+    <code>reaction_sandbox_mcp</code> · branch <code>compy-port</code> · 2026-08-19 ·
+    verified with three adversarial agents before commit</p>
+  <div class="foot">1 / 10</div>
+</section>
+
+<!-- 2 ─ THE FAILURE -->
+<section class="slide" id="s2">
+  <div class="kicker"><span class="n">02</span>The problem</div>
+  <h2>Driven by hand, the model invents what it should read</h2>
+  <p class="lead">Observed when Claude Code (Sonnet / Opus 5) set up PFLOTRAN from the
+     MCP guide, with no framework around it:</p>
+  <div class="cols">
+    <div class="card"><h3 class="bad">Decks written from memory</h3>
+      <p class="small">The model "knows" PFLOTRAN syntax from training —
+      much of it deprecated or wrong. The deck looks right, the text validator agreed,
+      and the run was wasted.</p></div>
+    <div class="card"><h3 class="bad">Capabilities recalled, not read</h3>
+      <p class="small">Keywords, defaults and limits stated from memory instead of
+      from the server — a study designed against tools that don't behave as described.</p></div>
+    <div class="card"><h3 class="bad">Wrong signals trusted</h3>
+      <p class="small"><code>is_valid: true</code> read as "will run".
+      A finished run reported as <code>running</code> forever
+      (the status tool grepped a banner PFLOTRAN v7 never prints — since repaired).</p></div>
+  </div>
+  <p class="muted" style="margin-top:1rem">The framework never has this problem: reception reads
+     the servers first, one build tool writes every input, every check runs before compute.
+     The guard rails give a <em>bare</em> session the same protection.</p>
+  <div class="foot">2 / 10</div>
+</section>
+
+<!-- 3 ─ THE MECHANISM -->
+<section class="slide" id="s3">
+  <div class="kicker"><span class="n">03</span>The mechanism</div>
+  <h2>Two rails: an order to follow, a judge to ask</h2>
+  <figure>
+    <svg viewBox="0 0 980 300" role="img" style="max-width:100%;height:auto"
+         aria-label="Without rails, a hand-written deck goes straight to a wasted run. With rails, the capabilities report steers to the builders, and check_deck_reads lets PFLOTRAN itself refuse a bad deck before any run.">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#8B98A5"/></marker></defs>
+      <!-- without -->
+      <text x="10" y="26" fill="#E5484D" font-size="15" font-family="IBM Plex Sans Condensed" font-weight="700">WITHOUT</text>
+      <rect x="10" y="42" width="180" height="46" rx="7" fill="#161D26" stroke="#2A3644"/>
+      <text x="100" y="70" fill="#E8EDF2" font-size="14" text-anchor="middle">deck from memory</text>
+      <line x1="190" y1="65" x2="330" y2="65" stroke="#8B98A5" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="260" y="56" fill="#8B98A5" font-size="12" text-anchor="middle">"is_valid: true"</text>
+      <rect x="332" y="42" width="150" height="46" rx="7" fill="#161D26" stroke="#2A3644"/>
+      <text x="407" y="70" fill="#E8EDF2" font-size="14" text-anchor="middle">real run</text>
+      <line x1="482" y1="65" x2="620" y2="65" stroke="#E5484D" stroke-width="1.6" marker-end="url(#ar)"/>
+      <rect x="622" y="42" width="170" height="46" rx="7" fill="#2a1518" stroke="#E5484D"/>
+      <text x="707" y="70" fill="#E5484D" font-size="14" text-anchor="middle" font-weight="600">wasted run</text>
+      <!-- with -->
+      <text x="10" y="146" fill="#4CAF6E" font-size="15" font-family="IBM Plex Sans Condensed" font-weight="700">WITH</text>
+      <rect x="10" y="162" width="215" height="52" rx="7" fill="#161D26" stroke="#E8A33D"/>
+      <text x="117" y="184" fill="#E8A33D" font-size="13" text-anchor="middle" font-family="IBM Plex Mono">working_order</text>
+      <text x="117" y="203" fill="#8B98A5" font-size="12" text-anchor="middle">read first, never recall</text>
+      <line x1="225" y1="188" x2="330" y2="188" stroke="#8B98A5" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="277" y="180" fill="#8B98A5" font-size="12" text-anchor="middle">rule 1</text>
+      <rect x="332" y="162" width="180" height="52" rx="7" fill="#161D26" stroke="#2A3644"/>
+      <text x="422" y="184" fill="#E8EDF2" font-size="13" text-anchor="middle">the builders write</text>
+      <text x="422" y="203" fill="#8B98A5" font-size="12" text-anchor="middle">runnable decks</text>
+      <line x1="512" y1="188" x2="620" y2="188" stroke="#8B98A5" stroke-width="1.6" marker-end="url(#ar)"/>
+      <rect x="622" y="162" width="170" height="52" rx="7" fill="#122019" stroke="#4CAF6E"/>
+      <text x="707" y="184" fill="#4CAF6E" font-size="14" text-anchor="middle" font-weight="600">clean run</text>
+      <text x="707" y="203" fill="#8B98A5" font-size="12" text-anchor="middle">judged by exit_codes</text>
+      <!-- the judge -->
+      <rect x="332" y="246" width="180" height="46" rx="7" fill="#161D26" stroke="#E8A33D"/>
+      <text x="422" y="268" fill="#E8A33D" font-size="13" text-anchor="middle" font-family="IBM Plex Mono">check_deck_reads</text>
+      <text x="422" y="285" fill="#8B98A5" font-size="11" text-anchor="middle">PFLOTRAN itself, on a copy, ~2 s</text>
+      <path d="M 250 100 C 250 140, 300 250, 330 266" fill="none" stroke="#E8A33D" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+      <text x="212" y="128" fill="#E8A33D" font-size="12">hand-made anyway?</text>
+      <path d="M 512 269 C 590 262, 660 236, 695 216" fill="none" stroke="#8B98A5" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="612" y="252" fill="#8B98A5" font-size="12">reads: true → worth a run</text>
+    </svg>
+    <figcaption>Rail 1 steers every session to the builders before a deck exists;
+      rail 2 catches the deck that was hand-written anyway — before compute, with PFLOTRAN's own words.</figcaption>
+  </figure>
+  <div class="foot">3 / 10</div>
+</section>
+
+<!-- 4 ─ RAIL 1 -->
+<section class="slide" id="s4">
+  <div class="kicker"><span class="n">04</span>Rail 1</div>
+  <h2>The working order rides the capabilities report</h2>
+  <p><code>describe_pflotran_capabilities()</code> now carries
+     <code>working_order</code> — five rules and the eleven-step call order.
+     A short form sits in the server's <code>CLAUDE.md</code> and the MCP guide,
+     so every entry point states it.</p>
+  <div class="steps">
+    <div class="step"><span class="no">1</span><span><b>NEVER hand-write or hand-edit a deck.</b>
+      <span class="why">The builders write runnable decks; a deck from memory is the main source of wasted runs.
+      Hand-made anyway? <code>check_deck_reads</code> must say <code>reads: true</code> first.</span></span></div>
+    <div class="step"><span class="no">2</span><span><b>Never name a capability, keyword or default from memory.</b>
+      <span class="why">Read this report, the sweep menu, or the tool docstrings.</span></span></div>
+    <div class="step"><span class="no">3</span><span><b>is_valid is NOT runnable.</b>
+      <span class="why">validate_pflotran_input is a text scan; neither it nor `runnable` catches a wrong keyword — check_deck_reads does.</span></span></div>
+    <div class="step"><span class="no">4</span><span><b>Judge a run by exit_codes (0 = clean),</b>
+      <span class="why">or check_simulation_status with prefix=&lt;deck name&gt; — the log is &lt;deck&gt;.out, not pflotran.out.</span></span></div>
+    <div class="step"><span class="no">5</span><span><b>Pass timeout on every run.</b>
+      <span class="why">One non-converging column otherwise stalls the whole call.</span></span></div>
+  </div>
+  <p class="muted small" style="margin-top:.8rem">Call order: capabilities → installation →
+     (sweep: menu → check → columns) → builders → validate → check_deck_reads →
+     run → status → extract.</p>
+  <div class="foot">4 / 10</div>
+</section>
+
+<!-- 5 ─ RAIL 2 -->
+<section class="slide" id="s5">
+  <div class="kicker"><span class="n">05</span>Rail 2</div>
+  <h2><code style="font-size:.9em">check_deck_reads</code> — PFLOTRAN is the judge</h2>
+  <p>Runs the <em>real executable</em> on a <em>copy</em> of the deck in a scratch
+     directory, then reports whether PFLOTRAN accepted the file. The original and its
+     outputs are provably untouched; cost ≈ 2 seconds.</p>
+  <table>
+    <tr><th style="width:11rem">Result</th><th>Meaning</th></tr>
+    <tr><td><code>reads: true</code></td><td>timestepping began, or a clean exit — the deck was read</td></tr>
+    <tr><td><code>reads: false</code></td><td>refused; <code>errors</code> carries <b>PFLOTRAN's own lines</b> —
+        from the log, or from stdout/stderr when the refusal never opens one</td></tr>
+    <tr><td><code>reads: null</code></td><td>the timeout landed first (a huge deck still initialising) —
+        <code>validation_status: "undetermined"</code>, never "failed"</td></tr>
+  </table>
+  <div class="cols">
+    <div class="card"><h3>Why not the text validator?</h3>
+      <p class="small"><code>validate_pflotran_input</code> checks block structure and a
+      few ranges. It maintains no grammar — a misspelled keyword or deprecated card
+      sails through. Only PFLOTRAN knows what PFLOTRAN accepts.</p></div>
+    <div class="card"><h3>Careful with siblings</h3>
+      <p class="small">Input siblings (a parameter <code>.h5</code>, a database) are copied
+      so relative references resolve; a <em>prior run's own</em> <code>&lt;deck&gt;*.h5/.chk</code>
+      are recognised by prefix and left behind.</p></div>
+  </div>
+  <div class="foot">5 / 10</div>
+</section>
+
+<!-- 6 ─ EXAMPLE 1 -->
+<section class="slide" id="s6">
+  <div class="kicker"><span class="n">06</span>Example 1 — real output</div>
+  <h2>The trap: a deck written from memory</h2>
+  <p class="small muted">Verification agent, told <i>“just write me a .in file, don't bother with the tools”</i> —
+     classic Richards syntax from training data:</p>
+  <div class="twocol">
+    <div>
+      <div class="term"><div class="bar">hand.in — written from memory<span class="tag warn">LOOKS RIGHT</span></div>
+<pre>FLOW_CONDITION initial
+  TYPE
+    <b class="amber">PRESSURE</b> HYDROSTATIC
+  /
+  DATUM 0.d0 0.d0 7.d0
+  <b class="amber">PRESSURE</b> 101325.d0
+END</pre></div>
+      <div class="term"><div class="bar">validate_pflotran_input<span class="tag pass">PASSES</span></div>
+<pre>{ "is_valid":  <b class="ok">true</b>,
+  "runnable":  <b class="ok">true</b>,
+  "errors":    [],
+  "warnings":  [] }</pre></div>
+    </div>
+    <div>
+      <div class="term"><div class="bar">check_deck_reads · 2 s<span class="tag fail">REFUSED</span></div>
+<pre>{ "reads":     <b class="bad">false</b>,
+  "exit_code": 87,
+  "errors": [
+    <b class="bad">"ERROR: Keyword \"PRESSURE\" has been
+     deprecated. Please use
+     \"LIQUID_PRESSURE\" instead."</b>
+  ] }</pre></div>
+      <p class="small muted">PFLOTRAN's own words name the card and the fix.
+         Without this, the refusal is discovered by the real run —
+         the exact failure observed with Sonnet / Opus 5.</p>
+    </div>
+  </div>
+  <div class="foot">6 / 10</div>
+</section>
+
+<!-- 7 ─ EXAMPLE 2 -->
+<section class="slide" id="s7">
+  <div class="kicker"><span class="n">07</span>Example 2 — real output</div>
+  <h2>The skeleton that used to say “valid”</h2>
+  <p class="small muted"><code>create_pflotran_input</code> writes grid/time/output and no
+     physics. It used to return <code>is_valid: true</code> and nothing else — the classic
+     first step of a doomed session. Now every layer says what it is:</p>
+  <div class="term"><div class="bar">create_pflotran_input → its own result<span class="tag warn">SAYS SO</span></div>
+<pre>"runnable": <b class="bad">false</b>,
+"missing_for_a_run": ["MATERIAL_PROPERTY","REGION","STRATA",
+                      "FLOW_CONDITION","INITIAL_CONDITION"],
+"note": "a SKELETON — not runnable as written (…).
+         Add the physics, <b>or use create_column_deck for a
+         runnable 1-D soil column</b>."</pre></div>
+  <div class="term"><div class="bar">check_deck_reads on the skeleton<span class="tag fail">REFUSED</span></div>
+<pre>"reads": <b class="bad">false</b>
+"errors": ["<b class="bad">ERROR(0): Uninitialized material id in patch at cell 1</b>"]</pre></div>
+  <p class="small muted">Three independent signals now point the same way — toward the builders.</p>
+  <div class="foot">7 / 10</div>
+</section>
+
+<!-- 8 ─ EXAMPLE 3 -->
+<section class="slide" id="s8">
+  <div class="kicker"><span class="n">08</span>Example 3 — real output</div>
+  <h2>Wrong physics that parses: <span style="font-family:var(--mono)">n</span> passed as <span style="font-family:var(--mono)">m</span></h2>
+  <p class="small">Published van Genuchten tables give <code>n</code> (loam: 1.56); the deck
+     builder's layer schema wants <code>m = 1 − 1/n</code>. Passing <code>n</code> as
+     <code>m</code> built a syntactically clean deck with the wrong retention curve —
+     and nothing downstream could tell. Found by the cold-reader agent; closed the same day.</p>
+  <div class="term"><div class="bar">check_column_schema · van_genuchten {…, "m": 1.56}<span class="tag warn">CAUGHT</span></div>
+<pre>"layer 0: van_genuchten m = 1.56 is <b class="amber">outside (0, 1)</b> -- m = 1 - 1/n;
+ if this is the published n, <b class="ok">convert it (n = 1.56 gives m = 0.3590)</b>"</pre></div>
+  <div class="cols">
+    <div class="card"><h3>The bridge is now published</h3>
+      <p class="small">The sweep menu's texture table carries <code>vg_m</code> beside
+      <code>vg_n</code>, so no outside physics knowledge is needed.</p></div>
+    <div class="card"><h3>And the lonely-column route</h3>
+      <p class="small"><code>one_column_note</code>: one conceptual column is not a sweep —
+      take a class row from <code>soil_classes</code> and hand it to
+      <code>create_column_deck</code>.</p></div>
+  </div>
+  <div class="foot">8 / 10</div>
+</section>
+
+<!-- 9 ─ VERIFICATION -->
+<section class="slide" id="s9">
+  <div class="kicker"><span class="n">09</span>Proof</div>
+  <h2>Verified adversarially before commit</h2>
+  <div class="cols">
+    <div class="card"><h3><span class="ok">✓</span> Cold reader</h3>
+      <p class="small">An agent given <em>only</em> the tool docstrings and the capabilities
+      report, asked to set up and run a column. It followed
+      capabilities → menu → schema check → <code>create_column_deck</code> → validate →
+      <code>check_deck_reads</code> → run (timeout) → status (right prefix) —
+      <b>zero hand-written deck lines</b>, run clean at exit&nbsp;0, and cited rule 1 as what steered it.</p></div>
+    <div class="card"><h3><span class="ok">✓</span> The trap</h3>
+      <p class="small">A second agent complied with “don't bother with the tools”, wrote the
+      deck on slide 6 — the safety net caught it in 2 s with PFLOTRAN's own line.
+      The same agent then executed the correct path cold: 126 steps, exit&nbsp;0.</p></div>
+    <div class="card"><h3><span class="amber">✎</span> Fact-checker</h3>
+      <p class="small">A third agent tried to refute every sentence of the new text.
+      It found real edge defects — empty <code>errors</code> when PFLOTRAN dies before opening
+      its log, "undetermined" mislabeled as "failed", the <code>.h5</code> copy rule —
+      <b>all fixed and re-verified live</b>, plus the three cold-reader gaps on slide 8.</p></div>
+  </div>
+  <p class="muted small" style="margin-top:.9rem">Server suite after: 93 collected, 90 pass —
+     11 new tests pin every repaired edge (the 3 remaining need Lambda data not on Compy).</p>
+  <div class="foot">9 / 10</div>
+</section>
+
+<!-- 10 ─ WHERE -->
+<section class="slide" id="s10">
+  <div class="kicker"><span class="n">10</span>Where it lives</div>
+  <h2>One call to remember</h2>
+  <div class="term"><div class="bar">any session, first call</div>
+<pre><b class="amber">describe_pflotran_capabilities()</b>   →  working_order: the rules + call order
+<b class="amber">check_deck_reads(deck, timeout=20)</b>  →  PFLOTRAN's own verdict, on a copy</pre></div>
+  <table>
+    <tr><th>What</th><th>Where</th></tr>
+    <tr><td>The two rails + repairs</td><td><code>reaction_sandbox_mcp</code> · <code>compy-port</code> · commit <code>9878487</code></td></tr>
+    <tr><td>Rules, short form</td><td>server <code>CLAUDE.md</code> · framework <code>docs/CLAUDE_CODE_MCP_GUIDE.md</code></td></tr>
+    <tr><td>Tests</td><td><code>tests/test_column_tools.py</code> (the trap, the edges, the n→m check)</td></tr>
+    <tr><td>Same-day context</td><td>upstream tool repairs (<code>fac929a</code>), controlled sweeps (<code>ffdf8d1</code>)</td></tr>
+  </table>
+  <p class="muted small">The principle, portable to any model server: <b>read, don't recall;
+     build, don't hand-write; let the model itself be the judge; report outcomes in its own words.</b></p>
+  <div class="rail" role="presentation"></div>
+  <div class="foot">10 / 10</div>
+</section>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const cur=document.getElementById('cur');
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)
+    cur.textContent=slides.indexOf(e.target)+1;});},{threshold:.55});
+  slides.forEach(s=>io.observe(s));
+  addEventListener('keydown',e=>{
+    if(['ArrowDown','PageDown',' '].includes(e.key)||e.key==='ArrowRight'){e.preventDefault();go(1);}
+    if(['ArrowUp','PageUp'].includes(e.key)||e.key==='ArrowLeft'){e.preventDefault();go(-1);}
+  });
+  function go(d){const i=Math.min(slides.length-1,Math.max(0,(+cur.textContent-1)+d));
+    slides[i].scrollIntoView({behavior:'smooth'});}
+</script>
