@@ -407,26 +407,37 @@ def render_sweep(a, rd, cj):
             cell.set_facecolor(matplotlib.colors.to_rgba(colour[r - 1], alpha=0.35))
     held = " · ".join(f"{kk} {_treatment_words({kk: v}) if kk in ('water_table_m','soil_depth_m','recharge_mm_yr','rain') else v}"
                       for kk, v in fixed.items())
-    tag(ax, "a", "design", (f"{n} columns · held: {held}" if held else f"{n} columns"))
+    tag(ax, "a", "the design", f"{n} columns")
 
     # (b) THE COLUMNS ON THE CONUS2 LADDER ───────────────────────────────────
     ax = fig.add_subplot(gs[0, 1])
     for b in CONUS2_BOUNDS_M:
-        ax.axhline(b, color="0.85", lw=max(0.4, 1.2 * k), zorder=1)
+        ax.axhline(b, color="0.88", lw=max(0.4, 1.2 * k), zorder=1)
     top = 0.05
+    cap = 0.18                                            # half-width of an end tick, in x units
     for i in range(n):
         if np.isfinite(dom[i]):
-            ax.plot([i, i], [top, dom[i]], color=colour[i], lw=lw_line * 1.6,
+            # the column: surface (top) to its domain bottom, with a cap at
+            # each end so the reader sees exactly where it stops
+            ax.plot([i, i], [top, dom[i]], color=colour[i], lw=lw_line * 1.3,
                     solid_capstyle="butt", zorder=3)
+            ax.plot([i - cap, i + cap], [dom[i], dom[i]], color=colour[i],
+                    lw=lw_line * 1.3, zorder=3)
         if np.isfinite(wt[i]):
+            # the water table it is anchored to
             ax.plot([i], [max(wt[i], top)], marker="o", color=colour[i], mec="k",
-                    mew=max(0.3, 1.4 * k), ms=5 * max(0.6, 20 * k / 4), zorder=4)
-    ax.set_yscale("log"); ax.invert_yaxis()
-    ax.set_ylim(max(np.nanmax(dom) if np.isfinite(dom).any() else 10.0, 10.0) * 1.3, top)
+                    mew=max(0.3, 1.4 * k), ms=6 * max(0.6, 20 * k / 4), zorder=4)
+    ax.set_yscale("log")
+    ax.set_ylim(max(np.nanmax(dom) if np.isfinite(dom).any() else 10.0, 10.0) * 1.25, top)
+    ax.set_xlim(-0.5, n - 0.5)
     ax.set_xticks(range(n))
     ax.set_xticklabels([str(c.get("id", "")).replace("col_", "") for c in cols],
                        fontsize=max(4, a.font - 3))
-    ax.set_xlabel("column"); ax.set_ylabel("depth (m)")
+    ax.set_xlabel("column"); ax.set_ylabel("depth below surface (m)")
+    ax.plot([], [], marker="o", ls="", color="0.4", mec="k",
+            label="water table (anchor)")
+    ax.plot([], [], color="0.4", lw=lw_line * 1.3, label="column to its bottom")
+    ax.legend(fontsize=max(4, a.font - 3), loc="lower left", framealpha=0.9)
     tag(ax, "b", "column depth and water table")
 
     # (c) WATER IN ───────────────────────────────────────────────────────────
@@ -476,7 +487,8 @@ def render_sweep(a, rd, cj):
         ax.legend(fontsize=max(4, a.font - 3), loc="lower left")
     tag(ax, "d", "the soils", f"{len(seen)} class(es)")
 
-    fig.suptitle(a.title or f"controlled sweep — {n} PFLOTRAN columns as built",
+    top_line = a.title or f"controlled sweep — {n} PFLOTRAN columns as built"
+    fig.suptitle(top_line + (f"\nheld fixed: {held}" if held else ""),
                  fontsize=a.font + 1)
     figstyle.check_titles(fig)
     out = Path(a.out) if a.out else rd / "sampling_design.png"
