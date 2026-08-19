@@ -65,12 +65,12 @@ def main(run_dir):
     fig.subplots_adjust(wspace=0.34)
 
     rounds = list(range(len(legs) + 1))
-    labels = ["start\n(ELM's answer)"] + [f"round {i}" for i in rounds[1:]]
     styles = ["-", "-", "--", "-.", ":"]
     for n, cid in enumerate(ids):
         ax.plot(rounds, series[cid], marker="o", markersize=4, label=cid,
                 linestyle=styles[n % len(styles)])
-    ax.set_xticks(rounds, labels)
+    ax.set_xticks(rounds, ["start"] + [str(i) for i in rounds[1:]])
+    ax.set_xlabel("round (start = ELM's answer)")
     ax.invert_yaxis()
     ax.set_ylabel("water-table depth (m)")
     ax.legend()
@@ -86,8 +86,10 @@ def main(run_dir):
                 linestyle=styles[n % len(styles)])
         for x, m in zip(xs, moves):
             per_round[x] = max(per_round.get(x, 0.0), m)
-    # one number per round — the max, which is what the verdict reads
-    for x, m in per_round.items():
+    # the max is what the verdict reads; label first, second and last round
+    keep = {1, 2, max(per_round)}
+    for x in sorted(keep & set(per_round)):
+        m = per_round[x]
         bx.annotate(f"max {m:.3g}", (x, m), textcoords="offset points",
                     xytext=(6, 5))
     bx.axhline(TOL_M, linestyle="--", color="0.4")
@@ -95,14 +97,13 @@ def main(run_dir):
                 textcoords="offset points", xytext=(0, 4), ha="right", color="0.35")
     bx.set_yscale("log")
     bx.set_xticks(list(range(1, len(legs) + 1)),
-                  [f"round {i}" for i in range(1, len(legs) + 1)])
+                  [str(i) for i in range(1, len(legs) + 1)])
+    bx.set_xlabel("round")
     bx.set_ylabel("movement since the previous round (m)")
     bx.set_title("(b) what the convergence check judges")
 
-    fig.suptitle("Brandywine ELM ↔ PFLOTRAN two-way loop — "
-                 + " → ".join(p.name.replace("pflotran_run_", "PF ")
-                                   for p in legs),
-                 y=1.02)
+    fig.suptitle(f"Brandywine ELM ↔ PFLOTRAN two-way loop — "
+                 f"{len(legs)} rounds, {legs[0].name.split('_')[2]}", y=1.02)
     out = ROOT / "docs" / "paper" / "fig_coupling_convergence"
     fig.savefig(f"{out}.png", bbox_inches="tight")
     fig.savefig(f"{out}.pdf", bbox_inches="tight")
