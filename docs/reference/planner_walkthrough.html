@@ -207,7 +207,7 @@
     <span>src/agents/prompts/planner.txt</span>
     <span>workflow.py · _plan, _model_report</span>
     <span>src/core/strategy_check.py</span>
-    <span>verified against the code 2026-08-18</span>
+    <span>verified against the code 2026-08-19</span>
   </div>
 </header>
 
@@ -224,7 +224,7 @@
 
   <figure>
     <div class="scroll">
-      <svg viewBox="0 0 900 640" role="img" aria-label="The planner's execution flow. Left: reception.json is read; code keeps the brief without its data siblings and adds observations_summary. Right: the model server named in the brief is asked once for its report through describe_server, memoized; two blocks are taken from it, pinning and constraints. Both feed one language-model call whose system prompt is planner.txt plus DESIGN LIMITS (the constraints block) plus PINNING RULES (the pinning block); the model emits seven keys. Code writes the pinning block into the plan and writes strategy.json. Below the file, the Experiment Manager's check gate reads reception.json and strategy.json together before any column is materialised: it stops on a design that cannot be placed and records corrections otherwise.">
+      <svg viewBox="0 0 900 674" role="img" aria-label="The planner's execution flow. Left: reception.json is read; code keeps the brief without its data siblings and adds observations_summary. Right: the model server named in the brief is asked once for its report through describe_server, memoized; two blocks are taken from it, pinning and constraints. Both feed one language-model call whose system prompt is planner.txt plus DESIGN LIMITS (the constraints block) plus PINNING RULES (the pinning block); the model emits seven keys — deciding a site's bands and pins, or copying a conceptual sweep or a coupling block verbatim. Code writes the pinning block into the plan and writes strategy.json. Below the file, the Experiment Manager's check gate reads reception.json and strategy.json together before any column is materialised: it stops on a design that cannot be placed and records corrections otherwise.">
         <defs>
           <marker id="p-ar" viewBox="0 0 10 10" refX="9" refY="5"
                   markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -268,7 +268,7 @@
           <text x="590" y="240" stroke="none" font-size="10" opacity=".8">into the system prompt,</text>
           <text x="590" y="254" stroke="none" font-size="10" opacity=".8">as two labelled blocks</text>
 
-          <rect x="30" y="232" width="510" height="196" rx="4" fill="none" stroke="#2E8C99" stroke-width="1.8"/>
+          <rect x="30" y="232" width="510" height="230" rx="4" fill="none" stroke="#2E8C99" stroke-width="1.8"/>
           <text x="42" y="250" fill="#2E8C99" stroke="none" font-size="10.5" letter-spacing=".08em">ONE LLM CALL · Planner.plan · SimpleLLMClient</text>
           <text x="42" y="270" stroke="none">system = planner.txt</text>
           <text x="42" y="286" stroke="none" font-size="10.5">        + DESIGN LIMITS  ← constraints   (what a plan may not vary)</text>
@@ -280,35 +280,37 @@
           <text x="42" y="384" stroke="none" font-size="10.5">feasibility + requires: the question against constraints.fixed / forcing / soil / initial_state</text>
           <text x="42" y="406" stroke="none" font-size="10.5" letter-spacing=".06em" opacity=".8">CONCEPTUAL — copies</text>
           <text x="42" y="420" stroke="none" font-size="10.5">brief.sweep verbatim · n_columns = product of the levels · validation []</text>
+          <text x="42" y="440" stroke="none" font-size="10.5" letter-spacing=".06em" opacity=".8">COUPLING — copies</text>
+          <text x="42" y="454" stroke="none" font-size="10.5">brief.coupling verbatim · n_columns = n_columns_prior · no bands, no pinning</text>
 
           <!-- ── seven keys ── -->
-          <line x1="285" y1="428" x2="285" y2="452" stroke-width="1.2" marker-end="url(#p-ar)"/>
-          <rect x="120" y="454" width="330" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
-          <text x="285" y="473" text-anchor="middle" stroke="none">7 keys: archetype · goals · feasibility · sampling · validation · requires · coupling</text>
+          <line x1="285" y1="462" x2="285" y2="486" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="120" y="488" width="330" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="285" y="507" text-anchor="middle" stroke="none">7 keys: archetype · goals · feasibility · sampling · validation · requires · coupling</text>
 
           <!-- ── code: attach pinning, write ── -->
-          <line x1="285" y1="484" x2="285" y2="506" stroke-width="1.2" marker-end="url(#p-ar)"/>
-          <rect x="120" y="508" width="330" height="40" rx="3" fill="none" stroke-width="1.8"/>
-          <text x="132" y="526" stroke="none">plan["pinning"] = the block above</text>
-          <text x="132" y="541" stroke="none" font-size="10.5">the rulebook the design was made under travels with the design</text>
-          <path d="M600 187 C 480 187, 470 470, 452 528" fill="none" stroke-width="1.1" stroke-dasharray="3 3" marker-end="url(#p-ar)"/>
-          <text x="470" y="440" stroke="none" font-size="10" opacity=".8">same object</text>
+          <line x1="285" y1="518" x2="285" y2="540" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="120" y="542" width="330" height="40" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="132" y="560" stroke="none">plan["pinning"] = the block above</text>
+          <text x="132" y="575" stroke="none" font-size="10.5">the rulebook the design was made under travels with the design</text>
+          <path d="M600 187 C 480 187, 470 504, 452 562" fill="none" stroke-width="1.1" stroke-dasharray="3 3" marker-end="url(#p-ar)"/>
+          <text x="470" y="486" stroke="none" font-size="10" opacity=".8">same object</text>
 
-          <line x1="285" y1="548" x2="285" y2="572" stroke-width="1.2" marker-end="url(#p-ar)"/>
-          <rect x="200" y="574" width="170" height="26" rx="2" fill="none" stroke-width="1.4"/>
-          <rect x="200" y="574" width="4" height="26" fill="currentColor" stroke="none"/>
-          <text x="285" y="591" text-anchor="middle" stroke="none">strategy.json (8 keys)</text>
+          <line x1="285" y1="582" x2="285" y2="606" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <rect x="200" y="608" width="170" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="200" y="608" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="285" y="625" text-anchor="middle" stroke="none">strategy.json (8 keys)</text>
 
           <!-- ── the gate after ── -->
-          <line x1="285" y1="600" x2="285" y2="614" stroke-width="1.2" marker-end="url(#p-ar)"/>
-          <g transform="translate(285 630)">
+          <line x1="285" y1="634" x2="285" y2="648" stroke-width="1.2" marker-end="url(#p-ar)"/>
+          <g transform="translate(285 664)">
             <polygon points="-150,-14 150,-14 136,14 -164,14" fill="none" stroke="#C0563F" stroke-width="1.6"/>
             <text x="-6" y="4" text-anchor="middle" stroke="none" font-size="10.5">Experiment Manager · check(): reception × strategy — STOP or CORRECTION, recorded</text>
           </g>
           <line x1="30" y1="40" x2="20" y2="40" stroke-width="0"/>
-          <path d="M30 33 C 5 33, 5 630, 118 630" fill="none" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#p-ar)"/>
-          <text x="590" y="600" stroke="none" font-size="10" opacity=".8">pure code, no server —</text>
-          <text x="590" y="614" stroke="none" font-size="10" opacity=".8">the first thing that reads the plan</text>
+          <path d="M30 33 C 5 33, 5 664, 118 664" fill="none" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#p-ar)"/>
+          <text x="590" y="634" stroke="none" font-size="10" opacity=".8">pure code, no server —</text>
+          <text x="590" y="648" stroke="none" font-size="10" opacity=".8">the first thing that reads the plan</text>
         </g>
       </svg>
     </div>
@@ -387,7 +389,13 @@
        being the sampler's own water-table anchors — bounded 6..24 as a sampling
        range, not a compute one, so a cheap model does not get a wider one. On a
        <strong>conceptual</strong> request it copies reception's sweep verbatim; the
-       user was shown those levels and said yes.</p>
+       user was shown those levels and said yes. On a <strong>coupling</strong>
+       request it copies reception's coupling block verbatim too, and designs no
+       sampling at all: the columns are the prior run's, so
+       <code>n_columns</code> is <code>n_columns_prior</code> — a number
+       reception counted off the prior run's own <code>columns.json</code>, true
+       by construction — and there are no bands and nothing to pin, because
+       there is nothing to place.</p>
   </div>
 
   <div class="stepcard">
@@ -443,10 +451,13 @@
      server call. After the PFLOTRAN report was corrected the same day, the two
      stale <code>requires</code> lines vanished and the verdict stayed
      <code>partial</code> for reasons that are true.</p>
-  <p><strong>What still names a model.</strong> One example value in the output
-     schema (<code>"from_model": "ELM"</code>) and a historical note explaining why
-     the limits left the prompt. Neither is a rule. The gate's sweep branch has two
-     ELM-worded messages; sweeps are ELM-only today.</p>
+  <p><strong>What still names a model.</strong> One historical note in the
+     prompt, explaining why the limits left it — the paragraph exists so the
+     next reader does not put them back. It is not a rule, and nothing else in
+     <code>planner.txt</code> names a model. The gate no longer does either: the
+     one sweep refusal that was really about ELM's forcing grid moved into the
+     ELM server's own <code>check_conceptual_design</code> on 2026-08-18, and
+     both servers run sweeps now.</p>
 </section>
 
 </div>

@@ -215,16 +215,86 @@ class TestInAllocationRun:
         assert "no SLURM_JOB_ID" in r.get("error", "")
 
 
-def test_coupling_delta_reads_a_real_leg():
-    """The convergence checker against the real Brandywine coupled run."""
-    run = ROOT / "workflow_outputs" / "pflotran_run_20260819_074628"
-    if not run.exists():
-        pytest.skip("no coupled run on disk")
+def _delta_mod():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "coupling_delta", ROOT / "tools" / "coupling_delta.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    rows = mod.deltas(str(run))
-    assert len(rows) == 3
-    assert all(abs(r["delta_m"]) <= 0.05 for r in rows)
+    return mod
+
+
+def test_convergence_is_movement_between_legs_not_an_offset_inside_one():
+    """The real Brandywine chain, and the distinction the loop got wrong.
+
+    The anchor offset (solved minus given, within one leg) sat at exactly
+    +0.05 m in EVERY iteration while the state moved 46.8 -> 28.3 -> 27.8 m.
+    Judged on the offset the loop called CONVERGED at iteration 0 with the
+    answer 18 m away. The verdict must come from the movement.
+    """
+    seed = ROOT / "workflow_outputs" / "pflotran_run_20260819_074628"
+    leg2 = ROOT / "workflow_outputs" / "pflotran_run_20260819_100147"
+    leg3 = ROOT / "workflow_outputs" / "pflotran_run_20260819_102509"
+    if not all(p.exists() for p in (seed, leg2, leg3)):
+        pytest.skip("the Brandywine coupled chain is not on disk")
+    mod = _delta_mod()
+
+    # the seed leg has no predecessor: undecidable, NOT converged
+    rows, prior = mod.deltas(str(seed))
+    assert prior is None
+    assert all(r["delta_m"] is None for r in rows)
+    # ... and its anchor offset is the constant that fooled the old test
+    assert all(abs(r["offset_m"]) <= 0.05 for r in rows)
+
+    # leg 2 moved a long way from the seed — must NOT read as converged
+    rows2, prior2 = mod.deltas(str(leg2))
+    assert prior2 is not None and Path(prior2).name == seed.name
+    assert max(abs(r["delta_m"]) for r in rows2) > 10.0
+
+    # leg 3 is closer but still moving; the offset is unchanged at 0.05
+    rows3, prior3 = mod.deltas(str(leg3))
+    assert Path(prior3).name == leg2.name
+    moved = max(abs(r["delta_m"]) for r in rows3)
+    assert 0.1 < moved < 1.0
+    assert all(abs(r["offset_m"]) <= 0.05 for r in rows3)
+
+
+def test_the_previous_leg_is_walked_out_of_the_record():
+    """this pflotran run -> its ELM leg -> that leg's prior pflotran run."""
+    leg3 = ROOT / "workflow_outputs" / "pflotran_run_20260819_102509"
+    if not leg3.exists():
+        pytest.skip("the Brandywine coupled chain is not on disk")
+    mod = _delta_mod()
+    prev = mod.previous_leg(str(leg3))
+    assert prev is not None
+    assert prev.name == "pflotran_run_20260819_100147"
+    # a run that was never coupled has no predecessor, and that is not an error
+    assert mod.previous_leg(str(ROOT / "workflow_outputs")) is None
+
+
+def test_no_ensemble_job_reads_as_in_allocation_not_as_old():
+    """An in-allocation run has no job A because it never submitted one.
+
+    The note used to blame a 2026-08-13 vintage for it, which is a different
+    fact and a wrong one: nothing is missing from an ensemble that ran in
+    place.
+    """
+    import json as _json
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "src"))
+    from agents.analysis.step4_report import _slurm_elapsed
+    import tempfile
+    from pathlib import Path as _P
+
+    with tempfile.TemporaryDirectory() as td:
+        rd = _P(td)
+        # ran inside an allocation: stage done, no ids at all
+        (rd / "run_state.json").write_text(_json.dumps(
+            {"stages": {"build_cases": {"status": "done", "n_results": 3}}}))
+        assert "inside an existing allocation" in _slurm_elapsed(rd)["note"]
+
+        # an older submitted run: job_id present, job_id_a absent
+        (rd / "run_state.json").write_text(_json.dumps(
+            {"stages": {"build_cases": {"status": "pending",
+                                        "job_id": "770001"}}}))
+        assert "predates job_id_a" in _slurm_elapsed(rd)["note"]

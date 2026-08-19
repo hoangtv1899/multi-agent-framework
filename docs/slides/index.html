@@ -60,8 +60,8 @@
   <section class="slide title-slide">
     <h1>Multi-Agent LLM Framework for Autonomous Simulation Campaigns</h1>
     <div class="sub">Turning a natural-language scientific question into a real, validated
-      ensemble of land-surface (ELM) and groundwater (PFLOTRAN) simulations — on NERSC Perlmutter.</div>
-    <div class="meta">Reception · Planner · MCP data tools · Tier-2 expander · Tier-3 ELM execution &nbsp;|&nbsp; technical overview &amp; Naches case study</div>
+      ensemble of land-surface (ELM) and groundwater (PFLOTRAN) simulations — on NERSC Perlmutter, then PNNL Compy.</div>
+    <div class="meta">Reception · Planner · Experiment Manager · Analyzer · MCP data and model servers &nbsp;|&nbsp; technical overview &amp; Naches / Brandywine case studies</div>
   </section>
 
   <!-- 2 PROBLEM -->
@@ -84,12 +84,12 @@
   <!-- 3 BIG IDEA -->
   <section class="slide">
     <span class="kicker" style="background:var(--t1)">Core idea</span>
-    <h1>Three tiers — the LLM reasons, Python materializes, ELM executes</h1>
+    <h1>Three tiers — the LLM reasons, Python materializes, the models execute</h1>
     <h2>separation of concerns &amp; anti-hallucination</h2>
     <div class="grid g3">
       <div class="card t1"><h3>Tier 1 · LLM reasoning</h3><p>Reception frames the question and gathers evidence via MCP tools; the planner designs the experiment <i>strategy</i>.</p><p><b>Never emits coordinates.</b></p></div>
       <div class="card t2"><h3>Tier 2 · Expander</h3><p>Deterministic Python turns the strategy into concrete column points from the <i>real</i> DEM, soil and water-table data.</p></div>
-      <div class="card t3"><h3>Tier 3 · Execution</h3><p>Strict per-column ELM configuration, CIME build/clone, and SLURM execution → history files.</p></div>
+      <div class="card t3"><h3>Tier 3 · Execution</h3><p>Each model behind its own MCP server: ELM per-column via CIME build/clone and SLURM; PFLOTRAN one deck per column, run inline. The framework names no model fact of its own.</p></div>
     </div>
     <p class="foot">Key invariant: every latitude/longitude is <b>materialized from data in Tier 2</b>, so the LLM cannot hallucinate a location.</p>
     <span class="tag">Multi-agent LLM framework</span><span class="num">3</span>
@@ -114,7 +114,7 @@
   <!-- 6 MCP SVG -->
   <section class="slide">
     <span class="kicker" style="background:var(--mcp)">Data layer</span>
-    <h1>Six MCP servers — real geospatial evidence on tap</h1>
+    <h1>Six data servers, two model servers — evidence in, models behind a wall</h1>
     <div class="fig"><img src="assets/mcp_topology.svg" alt="MCP topology"/></div>
     <span class="tag">Multi-agent LLM framework</span><span class="num">6</span>
   </section>
@@ -170,31 +170,32 @@
     <h1>Deterministic expansion — strategy → concrete columns</h1>
     <h2>no LLM, no invented coordinates</h2>
     <div class="grid g3" style="flex:0">
-      <div class="card t2"><h3>1 · Sample</h3><p>Sample the real DEM across the basin bbox (terrain/3DEP), clip to the watershed polygon.</p></div>
-      <div class="card t2"><h3>2 · Stratify</h3><p>Bin points into elevation bands; allocate the planner’s <b>N</b> proportional to occupied area (≥1 per band).</p></div>
-      <div class="card t2"><h3>3 · Enrich</h3><p>Farthest-point spread within each band; attach SSURGO soil profile + Fan equilibrium water-table depth per point.</p></div>
+      <div class="card t2"><h3>1 · Stratify</h3><p>The DEM grid Reception already fetched and clipped, binned into elevation bands; the planner’s <b>N</b> allocated proportional to occupied area (≥1 per band).</p></div>
+      <div class="card t2"><h3>2 · Pin &amp; spread</h3><p>Farthest-point spread within each band, plus stations the planner named — pinned only if the variable is pinnable and Reception tagged the station in-basin. Two water-table anchors always.</p></div>
+      <div class="card t2"><h3>3 · The one build call</h3><p>The chosen model’s server turns the points into its own inputs: ELM snaps each column to a donor gridcell and writes its files; PFLOTRAN joins the subsurface, water table and rain and writes one deck.</p></div>
     </div>
-    <p class="lead" style="margin-top:22px">Output: <code>columns.json</code> — every column carries a real <b>lat/lon, elevation band, soil profile (van Genuchten), and water-table depth</b>.</p>
+    <p class="lead" style="margin-top:22px">Output: <code>columns.json</code>, written <b>after</b> the build — every column carries a real <b>lat/lon and elevation band</b> plus whatever its model learned about it. A sweep and a coupled follow-up take the same slot: one column per level, or the prior run’s columns verbatim.</p>
     <span class="tag">Multi-agent LLM framework</span><span class="num">9</span>
   </section>
 
   <!-- 10 EXECUTION -->
   <section class="slide">
     <span class="kicker" style="background:var(--t3)">Tier 3 · execution</span>
-    <h1>Per-column ELM execution on Perlmutter</h1>
+    <h1>Execution — one slot, two very different models</h1>
     <h2>strict configuration · fast cloning · SLURM</h2>
     <div class="grid g2">
-      <div class="card t3"><h3>Configuration bridge</h3><ul style="padding-left:18px">
-        <li><code>columns_to_elm_plan</code> → one coupler per column, each with its own lat/lon + soil</li>
-        <li>Generates per-column surface + domain NetCDF</li>
+      <div class="card t3"><h3>elm</h3><ul style="padding-left:18px">
+        <li>One coupler per column, each with its own lat/lon, donor soil and warm start</li>
+        <li>CIME <code>create_newcase</code> / <code>case.setup</code> / build once, then <b>clone</b> with <code>--keepexe</code> (~15 s each, shared exe)</li>
+        <li><code>srun</code> per column → history files; a detached SLURM pair (build+run, then report) — or, inside an existing allocation, in place and synchronously</li>
       </ul></div>
-      <div class="card t3"><h3>Build &amp; run</h3><ul style="padding-left:18px">
-        <li>CIME <code>create_newcase</code> / <code>case.setup</code> / build once</li>
-        <li><b>Clone</b> columns with <code>--keepexe</code> (~15 s each, shared exe)</li>
-        <li><code>srun</code> per column on an <code>salloc</code> node → history files</li>
+      <div class="card t3"><h3>pflotran</h3><ul style="padding-left:18px">
+        <li>One text deck per column, written by the server from the subsurface, water table and rain</li>
+        <li>Run inline, five to ninety seconds each — no case build, because writing the deck <i>was</i> the build</li>
+        <li>A failed column is recorded against itself and never stops the ensemble</li>
       </ul></div>
     </div>
-    <p class="foot">Repairing the <code>--keepexe</code> clone path (EXEROOT-resolved exe + <code>case.setup --reset</code>) cut per-column cost from a ~5-min rebuild to ~15 s.</p>
+    <p class="foot">Repairing the <code>--keepexe</code> clone path (EXEROOT-resolved exe + <code>case.setup --reset</code>) cut ELM’s per-column cost from a ~5-min rebuild to ~15 s. Ported from Perlmutter to PNNL Compy; the framework itself names neither machine nor model.</p>
     <span class="tag">Multi-agent LLM framework</span><span class="num">10</span>
   </section>
 
@@ -211,7 +212,7 @@
   <section class="slide">
     <span class="kicker" style="background:var(--t3)">Case study · results</span>
     <h1>Three columns run end-to-end — distinct per-column response</h1>
-    <h2>each cloned from a shared exe, run on Perlmutter (rc=0, 9 history files each)</h2>
+    <h2>each cloned from a shared exe, run on Perlmutter (rc=0, 9 history files each) — the original 2026-06 case study</h2>
     <div class="fig"><img src="assets/phase3_results.png" alt="Phase 3 per-column results"/></div>
     <p class="foot">Surface runoff rises and top-soil moisture falls with elevation — the per-column surfaces genuinely
       differentiated the physics. (Recharge <code>QDRAI≈0</code> as expected for a 1-yr no-spin-up run.)</p>
@@ -224,14 +225,14 @@
     <h1>A tiered test suite keeps it trustworthy</h1>
     <h2>plain <code>pytest</code> is fast, offline, deterministic — heavy tiers are opt-in</h2>
     <div class="stat">
-      <div><b>165</b><span>offline tests (mocked LLM + MCP)</span></div>
+      <div><b>727</b><span>offline tests passing (mocked LLM + MCP)</span></div>
       <div><b>4</b><span>tiers: offline · live · llm · compute</span></div>
-      <div><b>6/6</b><span>MCP servers liveness-checked</span></div>
-      <div><b>0</b><span>failures in the default run</span></div>
+      <div><b>92/95</b><span>PFLOTRAN server tests, in its own repo</span></div>
+      <div><b>69</b><span>stale tests still to retire</span></div>
     </div>
     <div class="grid g2" style="margin-top:20px">
-      <div class="card"><h3>Tiers</h3><p><code>pytest</code> · <code>--runlive</code> (MCP) · <code>--runllm</code> (endpoint + Bedrock <code>tools=</code>) · <code>--runcompute</code> (ELM build/run)</p></div>
-      <div class="card"><h3>Coverage</h3><p>Agentic loop, expander materialize, orchestration, validator, ELM wrapper &amp; clone routing. Retired PFLOTRAN tests quarantined for reference.</p></div>
+      <div class="card"><h3>Tiers</h3><p><code>pytest</code> · <code>--runlive</code> (MCP) · <code>--runllm</code> (endpoint + <code>tools=</code>) · <code>--runcompute</code> (build/run). Default run: 727 passed, 71 skipped, 59 s.</p></div>
+      <div class="card"><h3>The honest part</h3><p>69 tests still fail and two files no longer import — every one of them names an internal that the 2026-08 refactors renamed or deleted (<code>_per_band_from_plan</code>, <code>elm_results_analyzer</code>). Stale tests, not product faults; the paths they covered are tested elsewhere. Retiring them is open work.</p></div>
     </div>
     <span class="tag">Multi-agent LLM framework</span><span class="num">13</span>
   </section>
@@ -243,9 +244,9 @@
     <h2>“now run PFLOTRAN using the previous ELM output”</h2>
     <div class="grid g2">
       <div class="card t1"><h3>Multi-turn sessions</h3><p>Reception accepts <b>conversation context</b> — a prior experiment in the session — so a follow-up turn can build on the last design.</p></div>
-      <div class="card t3"><h3>ELM → PFLOTRAN (design)</h3><p>The coupling archetype maps ELM sub-surface drainage (<code>QDRAI</code>) into a PFLOTRAN recharge boundary condition — a designed, validated handoff between models.</p></div>
+      <div class="card t3"><h3>ELM → PFLOTRAN (design)</h3><p>The coupling archetype hands ELM’s sub-surface drainage (<code>QDRAI</code>, daily) to PFLOTRAN as each column’s top boundary — the prior run’s columns reused verbatim, so the two models line up column by column.</p></div>
     </div>
-    <p class="foot">Demonstrated as a design-only flow today; the physical coupler is on the roadmap.</p>
+    <p class="foot">Both directions run today (2026-08-19). PFLOTRAN’s solved water table goes back into ELM’s initial state, and <code>tools/coupling_loop.sh</code> iterates the pair inside <b>one</b> SLURM allocation until the water tables stop moving. On Brandywine the deep columns left ELM’s generic warm start and relaxed 46.8 m &rarr; 28.3 m &rarr; 27.8 m across two iterations — movement of 18.5 m then 0.50 m — while the shallow lowland column settled at 4.30 m after one. Not yet converged; converging fast.</p>
     <span class="tag">Multi-agent LLM framework</span><span class="num">14</span>
   </section>
 
@@ -253,10 +254,10 @@
   <section class="slide">
     <span class="kicker" style="background:var(--ink)">Roadmap</span>
     <h1>Where it goes next</h1>
-    <h2>productionize &amp; deepen the science</h2>
+    <h2>what landed, and what is still open</h2>
     <div class="grid g2">
-      <div class="card t3"><h3>Execution</h3><ul style="padding-left:18px"><li>A one-command <code>--execute</code> runner (columns → build/clone → run → analysis)</li><li>Multi-year <b>spin-up</b> for real recharge</li><li>Scale to full N columns</li></ul></div>
-      <div class="card t2"><h3>Science &amp; agents</h3><ul style="padding-left:18px"><li>The physical ELM→PFLOTRAN coupler (2-D transects)</li><li>An <b>agentic analyzer</b> — fetch observations &amp; compare automatically</li><li>Heavier executability validation</li></ul></div>
+      <div class="card t3"><h3>Done since this deck was drawn</h3><ul style="padding-left:18px"><li><code>workflow.py --request "…"</code> — one study, unattended, question to report</li><li>An <b>agentic Analyzer</b> — compares against the fetched observations and writes its own report</li><li>A second model, PFLOTRAN, behind its own MCP server, site and controlled-sweep alike</li><li>ELM ⇄ PFLOTRAN coupling, both directions, iterated in one allocation</li></ul></div>
+      <div class="card t2"><h3>Still ahead</h3><ul style="padding-left:18px"><li>Multi-year <b>spin-up</b> so recharge is not reporting the initial state</li><li>Lateral flow: a column receives no run-on and routes nothing downslope</li><li>Scale past a handful of columns per study</li><li>Contribute the server repairs and guard rails upstream</li></ul></div>
     </div>
     <span class="tag">Multi-agent LLM framework</span><span class="num">15</span>
   </section>
@@ -266,9 +267,11 @@
     <span class="kicker" style="background:var(--t1)">Summary</span>
     <h1>One question in, a validated simulation campaign out</h1>
     <div class="sub">
-      LLMs reason and gather evidence · Python materializes real coordinates · ELM executes on HPC.<br/><br/>
+      LLMs reason and gather evidence · Python materializes real coordinates · the models execute on HPC.<br/><br/>
       Demonstrated end-to-end on the Naches: a single natural-language question became
       10 data-grounded ELM columns, three of which ran on Perlmutter with distinct, physically sensible results.
+      Since then the same pipeline has run a second model, PFLOTRAN, from question to report — and coupled the two,
+      each direction driven by the other’s answer.
     </div>
     <div class="meta">Reception · Planner · 6 MCP servers · Tier-2 expander · Tier-3 ELM · 165-test tiered suite</div>
   </section>

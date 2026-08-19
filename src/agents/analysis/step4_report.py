@@ -150,6 +150,17 @@ def _slurm_elapsed(run_dir) -> Dict[str, Any]:
     # nothing rather than reporting B's clock as the model's.
     jid = bc.get("job_id_a")
     if not jid:
+        # TWO REASONS FOR NO JOB A, and they are not the same fact. An
+        # ensemble run INSIDE an existing allocation never submits one — it
+        # runs in place, synchronously — so there is no scheduler record to
+        # ask for and nothing is missing. An older run submitted job A but
+        # recorded only `job_id`, which is the REPORTING job's. Saying
+        # "predates job_id_a" about an in-allocation run blames a vintage for
+        # a design.
+        if not bc.get("job_id"):
+            return {"note": "no ensemble job — this run's columns ran inside "
+                            "an existing allocation, in place, so the "
+                            "scheduler has no record of them to account for"}
         return {"note": "no ensemble job id recorded — this run predates "
                         "job_id_a (2026-08-13), and the id it does carry is "
                         "the reporting job's"}

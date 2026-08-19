@@ -14,10 +14,16 @@
 # nodes (job B has made them for weeks).
 #
 # CONVERGENCE IS CHECKED FIRST, off the prior PFLOTRAN leg's own record
-# (tools/coupling_delta.py: the anchor each column was given vs where the
-# solved water table sat). Converged -> exit before spending a single ELM
+# (tools/coupling_delta.py: how far each column's solved water table MOVED
+# since the leg before it). Converged -> exit before spending a single ELM
 # minute. Otherwise: ELM leg (PFLOTRAN's solved water table stamped into each
 # column's finidat) -> PFLOTRAN leg (the new ELM run's QDRAI) -> check again.
+#
+# A SEED RUN HAS NOTHING TO HAVE MOVED FROM, so the first check of a fresh
+# chain comes back UNDECIDABLE (exit 1), and that is a reason to iterate, not
+# to stop: the loop treats it as "not converged" on the FIRST pass only. An
+# undecidable check later in the loop is a real fault (a column that left the
+# domain) and still stops.
 #
 # Size -t for max_iters * (one ELM ensemble + minutes of overhead); the
 # Brandywine 3-column legs ran ~20 min each.
@@ -46,6 +52,10 @@ for i in $(seq 1 "$MAX_ITERS"); do
   if [ "$rc" -eq 0 ]; then
     echo "== the two models agree — stopping after $((i-1)) iteration(s) =="
     exit 0
+  elif [ "$rc" -eq 1 ] && [ "$i" -eq 1 ]; then
+    # the seed leg of a fresh chain: no previous iteration exists, so there
+    # is nothing it can have moved from. Iterate — that is what makes one.
+    echo "   (seed leg — no previous iteration to compare against; iterating)"
   elif [ "$rc" -ne 3 ]; then
     echo "== convergence undecidable (see above) — stopping ==" ; exit 1
   fi

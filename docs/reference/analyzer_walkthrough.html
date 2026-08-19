@@ -210,7 +210,7 @@
     <span>src/agents/analysis/step0_context … step4_slides.py</span>
     <span>src/agents/analysis/compare_common.py</span>
     <span>mcp/elm-mcp/src/compare · mcp/pflotran-mcp/compare</span>
-    <span>verified against the code 2026-08-18</span>
+    <span>verified against the code 2026-08-19</span>
   </div>
 </header>
 
@@ -342,6 +342,15 @@
        <code>series</code> (daily), <code>soil</code> (layers through time),
        <code>profiles</code> (depth × output time) — and a frame the run does not
        have is <code>None</code>, which is the honest answer.</p>
+    <p class="rule-note">A coupled run needs nothing added here. The seven
+       coupling facts the upstream model left on each column —
+       <code>coupled_from</code>, <code>coupling_variable</code>, the water table
+       it was started at, what was actually written into its initial state and
+       why, the prior value and the difference between them — ride the same
+       asserted key list every other column fact rides, and land in
+       <code>data</code> as ordinary per-column numbers. That is what lets the
+       Analyzer notice, unprompted, that a run began at another model's answer
+       and ask whether it stayed there.</p>
   </div>
 
   <div class="stepcard">
@@ -456,11 +465,23 @@
      columns began saturated; the report named no ELM quantity. ELM's comparison,
      re-run through the shared half on two archived runs, gave every number
      identical.</p>
+  <p><strong>It reads a coupled run without being told, proven 2026-08-19.</strong>
+     Handed an ELM run started at PFLOTRAN's solved water tables, the Analyzer
+     found the coupling facts among the ordinary column facts and made the
+     comparison the coupling exists for: it drew the drift away from each
+     imposed water table over the year, reported that the columns held within
+     about a metre, and returned <code>sufficient</code>. Nothing in the five
+     steps knows the word "coupling" — the numbers were on the rows, and that
+     was enough.</p>
   <p><strong>What still leans on one model.</strong> Step 3's caveat scoping
      recognises a variable by its being UPPERCASE (ELM's names); PFLOTRAN's
      lower-case names are scoped by words instead, which works but is a
-     heuristic. Step 4's compute accounting reads SLURM job ids that only ELM
-     records; a PFLOTRAN run reports its runtimes from the run summary. The long
+     heuristic. Step 4 asks the scheduler for the ensemble's wall time through
+     a job id only ELM records; a PFLOTRAN run, and an ELM ensemble that ran
+     <em>inside</em> an existing allocation, have no job to ask about and say
+     so — the runtimes then come from the run summary, or from
+     <code>experiment.json</code> when the Analyzer runs before the summary is
+     written, which on a live run it always does. The long
      reference edition of this page — every contract, every failure path, the
      design history — is in git history before this rewrite.</p>
 </section>

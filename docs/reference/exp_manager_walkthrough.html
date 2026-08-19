@@ -211,7 +211,8 @@
     <span>mcp/pflotran-mcp/pflotran_exp_manager.py</span>
     <span>tools/expand_sampling.py · src/core/strategy_check.py</span>
     <span>workflow.py · _execute, resume_run, finalize_run</span>
-    <span>verified against the code 2026-08-18</span>
+    <span>tools/coupling_loop.sh · tools/coupling_delta.py</span>
+    <span>verified against the code 2026-08-19</span>
   </div>
 </header>
 
@@ -227,7 +228,7 @@
 
   <figure>
     <div class="scroll">
-      <svg viewBox="0 0 960 1000" role="img" aria-label="The Experiment Manager's stages, top to bottom, with the servers each one calls. Two files enter: strategy.json and reception.json. A gate, check, reads both and stops or records corrections. Materialize: on a site the sampler places columns from reception's grid and the strategy's bands, pins stations named in the strategy, adds two water-table anchors and asks terrain for elevation at pinned stations only; on a conceptual design the model server builds the sweep columns; on a coupling the prior run's columns are reused verbatim, each carrying the driving model's flux and solved water table. Then the one build call: ELM's build_elm_inputs_from_location, or PFLOTRAN's create_decks_from_columns with the run directory. columns.json is written after that call; the server's run plan comes back and assumptions.json and run_plan.json are written. Build case inputs reads what the server wrote. Build cases, ELM only, submits job A and job B and returns pending; resume polls. Run: ELM collects from disk, PFLOTRAN runs each deck inline. Extract: ELM by imported code, PFLOTRAN by extract_column_series. Package writes experiment.json, then the Analyzer is called, non-fatal. Right column: the elm, pflotran and terrain servers with the tools called on each. run_state.json is marked after every stage.">
+      <svg viewBox="0 0 960 1090" role="img" aria-label="The Experiment Manager's stages, top to bottom, with the servers each one calls. Two files enter: strategy.json and reception.json. A gate, check, reads both and stops or records corrections. Materialize takes one of three paths: on a site the sampler places columns from reception's grid and the strategy's bands, pins stations named in the strategy, adds two water-table anchors and asks terrain for elevation at pinned stations only; on a conceptual design the chosen model's server builds the sweep columns; on a coupling the prior run's columns are reused verbatim, each carrying the driving model's flux and solved water table. Then the one build call: ELM's build_elm_inputs_from_location — which stamps a coupled column's initial water table into its finidat — or PFLOTRAN's create_decks_from_columns with the run directory. columns.json is written after that call; the server's run plan comes back and assumptions.json and run_plan.json are written. Build case inputs reads what the server wrote. Build cases, ELM only, submits job A and job B and returns pending, and resume polls — unless the manager is already inside a SLURM allocation, where the ensemble runs in place synchronously and the pipeline continues in the same session. Run: ELM collects from disk, PFLOTRAN runs each deck inline. Extract: ELM by imported code, PFLOTRAN by extract_column_series. Package writes experiment.json, then the Analyzer is called, non-fatal. Right column: the elm, pflotran and terrain servers with the tools called on each. run_state.json is marked after every stage.">
         <defs>
           <marker id="e-ar" viewBox="0 0 10 10" refX="9" refY="5"
                   markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -256,66 +257,73 @@
           <text x="56" y="222" stroke="none" font-size="10.5">pins: co-located × pinnable × in_basin</text>
           <text x="56" y="236" stroke="none" font-size="10.5">+ 2 Fan anchors (median, 10th pct)</text>
           <text x="56" y="250" stroke="none" font-size="10.5">terrain.get_elevation at pins only</text>
-          <rect x="322" y="160" width="262" height="102" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <rect x="322" y="160" width="262" height="102" rx="3" fill="none" stroke-width="1.4"/>
           <text x="332" y="178" stroke="none">CONCEPTUAL · the server builds</text>
           <text x="332" y="194" stroke="none" font-size="10.5">check_conceptual_design — all reasons</text>
           <text x="332" y="208" stroke="none" font-size="10.5">build_conceptual_columns — 1 per level</text>
           <text x="332" y="222" stroke="none" font-size="10.5">no basin, no grid, no sampling</text>
-          <text x="332" y="236" stroke="none" font-size="10.5">warm_start = False — starts COLD</text>
+          <text x="332" y="236" stroke="none" font-size="10.5">elm: starts COLD · pflotran: sweep decks</text>
           <text x="332" y="250" stroke="none" font-size="10" opacity=".8">lat/lon = a forcing cell, not a site</text>
-          <line x1="177.0" y1="262" x2="177.0" y2="284" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <line x1="453.0" y1="262" x2="453.0" y2="284" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="46" y="286" width="538" height="116" rx="3" fill="none" stroke-width="1.8"/>
-          <text x="56" y="304" stroke="none">_refine_columns · THE ONE BUILD CALL · before columns.json is written</text>
-          <text x="56" y="320" stroke="none" font-size="10.5">elm       build_elm_inputs_from_location — the warm start SNAPS each column</text>
-          <text x="56" y="334" stroke="none" font-size="10.5">          to its donor cell; donor soil, surface + domain (+ finidat),</text>
-          <text x="56" y="348" stroke="none" font-size="10.5">          case_inputs.json; the columns are replaced in place</text>
-          <text x="56" y="362" stroke="none" font-size="10.5">pflotran  create_decks_from_columns(site_dir = the run dir) — joins the</text>
-          <text x="56" y="376" stroke="none" font-size="10.5">          subsurface, water table and rain itself; one deck per column;</text>
-          <text x="56" y="390" stroke="none" font-size="10.5">          the run plan comes back; the columns are unchanged (no snap)</text>
-          <line x1="161" y1="402" x2="161" y2="424" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="46" y="426" width="230" height="26" rx="2" fill="none" stroke-width="1.4"/>
-          <rect x="46" y="426" width="4" height="26" fill="currentColor" stroke="none"/>
-          <text x="161.0" y="443" text-anchor="middle" stroke="none">columns.json (post-build)</text>
-          <rect x="300" y="426" width="284" height="26" rx="2" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
-          <text x="442.0" y="443" text-anchor="middle" stroke="none" font-size="10.5">sampling_design.png · both models · non-fatal</text>
-          <line x1="161" y1="452" x2="161" y2="470" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="46" y="472" width="290" height="26" rx="3" fill="none" stroke-width="1.4"/>
-          <text x="191" y="489" text-anchor="middle" stroke="none" font-size="10.5">_to_run_plan: the server's plan, handed back</text>
-          <line x1="336" y1="485" x2="356" y2="485" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="358" y="472" width="226" height="26" rx="2" fill="none" stroke-width="1.4"/>
-          <rect x="358" y="472" width="4" height="26" fill="currentColor" stroke="none"/>
-          <text x="471.0" y="489" text-anchor="middle" stroke="none" font-size="10.5">assumptions.json · run_plan.json</text>
-          <rect x="30" y="130" width="570" height="384" rx="4" fill="none" stroke-width="1.8"/>
+          <rect x="140" y="274" width="310" height="64" rx="3" fill="none" stroke-width="1.4"/>
+          <text x="150" y="292" stroke="none">COUPLING · the prior run's columns, verbatim</text>
+          <text x="150" y="307" stroke="none" font-size="10.5">elm→pflotran: + QDRAI flux + solved water table</text>
+          <text x="150" y="321" stroke="none" font-size="10.5">pflotran→elm: + solved water table as next start</text>
+          <text x="150" y="333" stroke="none" font-size="10" opacity=".8">no sampling; prior_run_dir from the brief</text>
+          <line x1="93" y1="262" x2="93" y2="360" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <line x1="520" y1="262" x2="520" y2="360" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <line x1="295" y1="338" x2="295" y2="360" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="46" y="362" width="538" height="116" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="56" y="380" stroke="none">_refine_columns · THE ONE BUILD CALL · before columns.json is written</text>
+          <text x="56" y="396" stroke="none" font-size="10.5">elm       build_elm_inputs_from_location — the warm start SNAPS each column</text>
+          <text x="56" y="410" stroke="none" font-size="10.5">          to its donor cell; donor soil, surface + domain (+ finidat, and a</text>
+          <text x="56" y="424" stroke="none" font-size="10.5">          coupled column's water table STAMPED into it); case_inputs.json</text>
+          <text x="56" y="438" stroke="none" font-size="10.5">pflotran  create_decks_from_columns(site_dir = the run dir) — joins the</text>
+          <text x="56" y="452" stroke="none" font-size="10.5">          subsurface, water table and rain itself; one deck per column;</text>
+          <text x="56" y="466" stroke="none" font-size="10.5">          the run plan comes back; the columns are unchanged (no snap)</text>
+          <line x1="161" y1="478" x2="161" y2="500" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="46" y="502" width="230" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="46" y="502" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="161.0" y="519" text-anchor="middle" stroke="none">columns.json (post-build)</text>
+          <rect x="300" y="502" width="284" height="26" rx="2" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="442.0" y="519" text-anchor="middle" stroke="none" font-size="10.5">sampling_design.png · both models · non-fatal</text>
+          <line x1="161" y1="528" x2="161" y2="546" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="46" y="548" width="290" height="26" rx="3" fill="none" stroke-width="1.4"/>
+          <text x="191" y="565" text-anchor="middle" stroke="none" font-size="10.5">_to_run_plan: the server's plan, handed back</text>
+          <line x1="336" y1="561" x2="356" y2="561" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="358" y="548" width="226" height="26" rx="2" fill="none" stroke-width="1.4"/>
+          <rect x="358" y="548" width="4" height="26" fill="currentColor" stroke="none"/>
+          <text x="471.0" y="565" text-anchor="middle" stroke="none" font-size="10.5">assumptions.json · run_plan.json</text>
+          <rect x="30" y="130" width="570" height="460" rx="4" fill="none" stroke-width="1.8"/>
           <text x="42" y="148" stroke="none" font-size="10.5" letter-spacing=".08em">STEP 0 · MATERIALIZE · _materialize → _persist_columns</text>
-          <line x1="315.0" y1="514" x2="315.0" y2="532" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="30" y="534" width="570" height="34" rx="3" fill="none" stroke-width="1.8"/>
-          <text x="42" y="555" stroke="none" font-size="10.5">STEP 1 · build_case_inputs — reads what the server wrote → case_inputs.json</text>
-          <line x1="315.0" y1="568" x2="315.0" y2="586" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="30" y="588" width="570" height="74" rx="3" fill="none" stroke-width="1.6" stroke-dasharray="5 3"/>
-          <text x="42" y="606" stroke="none">STEP 2 · build_cases — ELM ONLY (NEEDS_CASE_BUILD)</text>
-          <text x="42" y="622" stroke="none" font-size="10.5">run_elm_ensemble → job A: compile the case, clone it, run every column;</text>
-          <text x="42" y="636" stroke="none" font-size="10.5">the manager submits job B (afterany): workflow.py --finalize on the node.</text>
-          <text x="42" y="650" stroke="none" font-size="10.5">Returns PENDING — the session ends; --resume polls check_elm_job.</text>
-          <line x1="315.0" y1="662" x2="315.0" y2="680" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="30" y="682" width="570" height="60" rx="3" fill="none" stroke-width="1.8"/>
-          <text x="42" y="700" stroke="none">STEP 3 · run</text>
-          <text x="42" y="716" stroke="none" font-size="10.5">elm       COLLECT — job A already ran; a column succeeded if ELM wrote its history</text>
-          <text x="42" y="730" stroke="none" font-size="10.5">pflotran  run_pflotran_simulation per deck, inline, seconds each</text>
-          <line x1="315.0" y1="742" x2="315.0" y2="760" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="30" y="762" width="570" height="74" rx="3" fill="none" stroke-width="1.8"/>
-          <text x="42" y="780" stroke="none">STEP 4 · extract → 03_results/extracted.json → rows</text>
-          <text x="42" y="796" stroke="none" font-size="10.5">elm       extract_run, imported ELM code, reads the history NetCDFs</text>
-          <text x="42" y="810" stroke="none" font-size="10.5">pflotran  extract_column_series; profiles + the column's setup onto its row</text>
-          <text x="42" y="824" stroke="none" font-size="10" opacity=".8">raw numbers only — what they mean is FIELD_SEMANTICS, this side of the boundary</text>
-          <line x1="315.0" y1="836" x2="315.0" y2="854" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="30" y="856" width="570" height="34" rx="3" fill="none" stroke-width="1.8"/>
-          <text x="42" y="877" stroke="none" font-size="10.5">STEP 4b · package → experiment.json — NON-FATAL from here on</text>
-          <line x1="315.0" y1="890" x2="315.0" y2="908" stroke-width="1.2" marker-end="url(#e-ar)"/>
-          <rect x="30" y="910" width="570" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
-          <text x="42" y="929" stroke="none" font-size="10.5">STEP 4c · Analyzer — hand-off; its own walkthrough</text>
-          <text x="30" y="966" stroke="none" font-size="10" opacity=".8">run_state.json · _mark after every stage — what --resume and --finalize read;</text>
-          <text x="30" y="980" stroke="none" font-size="10" opacity=".8">a finished stage is reused from disk, never redone</text>
+          <line x1="315.0" y1="590" x2="315.0" y2="608" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="610" width="570" height="34" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="631" stroke="none" font-size="10.5">STEP 1 · build_case_inputs — reads what the server wrote → case_inputs.json</text>
+          <line x1="315.0" y1="644" x2="315.0" y2="662" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="664" width="570" height="88" rx="3" fill="none" stroke-width="1.6" stroke-dasharray="5 3"/>
+          <text x="42" y="682" stroke="none">STEP 2 · build_cases — ELM ONLY (NEEDS_CASE_BUILD)</text>
+          <text x="42" y="698" stroke="none" font-size="10.5">run_elm_ensemble → job A: compile the case, clone it, run every column;</text>
+          <text x="42" y="712" stroke="none" font-size="10.5">the manager submits job B (afterany): workflow.py --finalize on the node.</text>
+          <text x="42" y="726" stroke="none" font-size="10.5">Returns PENDING — the session ends; --resume polls check_elm_job.</text>
+          <text x="42" y="740" stroke="none" font-size="10.5">in an allocation (SLURM_JOB_ID): runs in place, synchronously — no jobs, no PENDING</text>
+          <line x1="315.0" y1="752" x2="315.0" y2="770" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="772" width="570" height="60" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="790" stroke="none">STEP 3 · run</text>
+          <text x="42" y="806" stroke="none" font-size="10.5">elm       COLLECT — job A already ran; a column succeeded if ELM wrote its history</text>
+          <text x="42" y="820" stroke="none" font-size="10.5">pflotran  run_pflotran_simulation per deck, inline, seconds each</text>
+          <line x1="315.0" y1="832" x2="315.0" y2="850" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="852" width="570" height="74" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="870" stroke="none">STEP 4 · extract → 03_results/extracted.json → rows</text>
+          <text x="42" y="886" stroke="none" font-size="10.5">elm       extract_run, imported ELM code, reads the history NetCDFs</text>
+          <text x="42" y="900" stroke="none" font-size="10.5">pflotran  extract_column_series; profiles + the column's setup onto its row</text>
+          <text x="42" y="914" stroke="none" font-size="10" opacity=".8">raw numbers only — what they mean is FIELD_SEMANTICS, this side of the boundary</text>
+          <line x1="315.0" y1="926" x2="315.0" y2="944" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="946" width="570" height="34" rx="3" fill="none" stroke-width="1.8"/>
+          <text x="42" y="967" stroke="none" font-size="10.5">STEP 4b · package → experiment.json — NON-FATAL from here on</text>
+          <line x1="315.0" y1="980" x2="315.0" y2="998" stroke-width="1.2" marker-end="url(#e-ar)"/>
+          <rect x="30" y="1000" width="570" height="30" rx="3" fill="none" stroke-width="1.4" stroke-dasharray="5 3"/>
+          <text x="42" y="1019" stroke="none" font-size="10.5">STEP 4c · Analyzer — hand-off; its own walkthrough</text>
+          <text x="30" y="1056" stroke="none" font-size="10" opacity=".8">run_state.json · _mark after every stage — what --resume and --finalize read;</text>
+          <text x="30" y="1070" stroke="none" font-size="10" opacity=".8">a finished stage is reused from disk, never redone</text>
           <text x="660" y="148" stroke="none" font-size="10.5" letter-spacing=".08em">MCP SERVERS · what the manager asks each</text>
           <rect x="660" y="160" width="270" height="130" rx="3" fill="none" stroke-width="1.6"/>
           <rect x="663" y="163" width="264" height="124" rx="2" fill="none" stroke-width="0.8"/>
@@ -342,20 +350,23 @@
           <text x="660" y="490" stroke="none" font-size="10" opacity=".8">Nothing else. hydrodata, daymet, usgs_water,</text>
           <text x="660" y="504" stroke="none" font-size="10" opacity=".8">snotel, ameriflux are reception's; the manager</text>
           <text x="660" y="518" stroke="none" font-size="10" opacity=".8">reads what reception wrote and never fetches.</text>
-          <rect x="660" y="588" width="270" height="62" rx="3" fill="none" stroke-width="1.2" stroke-dasharray="4 3"/>
-          <text x="672" y="606" stroke="none" font-size="10.5">SLURM · elm only</text>
-          <text x="672" y="622" stroke="none" font-size="10">job A: build + run every column</text>
-          <text x="672" y="636" stroke="none" font-size="10">job B: --finalize → the tail on the node</text>
-          <g stroke-width="1.1" stroke-dasharray="3 3" fill="none"><path d="M584 194 C 620 194, 630 194, 658 194" marker-end="url(#e-ar)"/><path d="M584 320 C 622 320, 626 222, 658 222" marker-end="url(#e-ar)"/><path d="M584 362 C 622 362, 626 338, 658 338" marker-end="url(#e-ar)"/><path d="M600 622 C 636 622, 630 236, 658 236" marker-end="url(#e-ar)"/><path d="M600 636 C 630 636, 640 618, 658 618" marker-end="url(#e-ar)"/><path d="M600 730 C 640 730, 640 352, 658 352" marker-end="url(#e-ar)"/><path d="M600 810 C 648 810, 646 366, 658 366" marker-end="url(#e-ar)"/></g>
+          <rect x="660" y="664" width="270" height="76" rx="3" fill="none" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <text x="672" y="682" stroke="none" font-size="10.5">SLURM · elm only</text>
+          <text x="672" y="698" stroke="none" font-size="10">job A: build + run every column</text>
+          <text x="672" y="712" stroke="none" font-size="10">job B: --finalize → the tail on the node</text>
+          <text x="672" y="726" stroke="none" font-size="10">in-allocation: srun in place, no jobs</text>
+          <g stroke-width="1.1" stroke-dasharray="3 3" fill="none"><path d="M584 194 C 620 194, 630 194, 658 194" marker-end="url(#e-ar)"/><path d="M584 396 C 622 396, 626 222, 658 222" marker-end="url(#e-ar)"/><path d="M584 438 C 622 438, 626 338, 658 338" marker-end="url(#e-ar)"/><path d="M600 698 C 636 698, 630 236, 658 236" marker-end="url(#e-ar)"/><path d="M600 712 C 630 712, 640 694, 658 694" marker-end="url(#e-ar)"/><path d="M600 820 C 640 820, 640 352, 658 352" marker-end="url(#e-ar)"/><path d="M600 900 C 648 900, 646 366, 658 366" marker-end="url(#e-ar)"/></g>
         </g>
       </svg>
     </div>
-    <figcaption>One sequence for every model. The dashed boxes are the parts that
-      exist for one model only — the conceptual build (ELM), the case build and
-      its two SLURM jobs (ELM), the design figure (ELM). The one solid box each
-      model fills differently is the build call in the middle of materialize;
-      everything after it reads what that call wrote. Three servers, and the
-      third only for a point elevation.</figcaption>
+    <figcaption>One sequence for every model, and three ways into it: a site is
+      sampled, a sweep is built by the chosen model's server, a coupling reuses
+      the prior run's columns verbatim. The dashed boxes are the parts that are
+      optional or one model's only — the case build and its SLURM jobs (ELM;
+      skipped in place inside an allocation), the design figure (non-fatal).
+      The one solid box each model fills differently is the build call in the
+      middle of materialize; everything after it reads what that call wrote.
+      Three servers, and the third only for a point elevation.</figcaption>
   </figure>
 </section>
 
@@ -399,14 +410,60 @@
     <h3>materialize · conceptual — the server builds</h3>
     <p>No basin, no grid, no sampling: a controlled sweep is one column per level
        combination, and what a level <em>becomes</em> — a soil texture of 27
-       turning into a synthetic surface dataset — is the server's knowledge. So
-       the design crosses to the ELM server twice: <code>check_conceptual_design</code>
-       first, so every reason is named at once before an hour of compute, then
-       <code>build_conceptual_columns</code>. The manager sets
-       <code>warm_start = False</code> here: a sweep starts cold, or it is not
-       controlled. The cost — years to forget ELM's defaults, so a short run reports
-       the initialisation as much as the soil — is recorded as a caveat, not fixed
-       with a spin-up.</p>
+       turning into a synthetic surface dataset, or a van Genuchten curve — is
+       the server's knowledge. So the design crosses to the <em>chosen model's</em>
+       server twice: <code>check_conceptual_design</code>
+       first, so every reason is named at once before the compute, then
+       <code>build_conceptual_columns</code>. Both servers expose the same trio.
+       ELM's factors are the land surface's; the manager sets
+       <code>warm_start = False</code> there — a sweep starts cold, or it is not
+       controlled, and the cost (years to forget ELM's defaults) is recorded as
+       a caveat, not fixed with a spin-up. PFLOTRAN's factors are the column's —
+       water table, soil class (Carsel &amp; Parrish class means), soil depth,
+       recharge, written rain — and its <code>_build_sweep_columns</code> hands
+       the levels to the same deck builder with no site directory to join.</p>
+  </div>
+
+  <div class="stepcard">
+    <h3>materialize · coupling — the prior run's columns</h3>
+    <p>The same archetype pointed either way. The base routes it
+       (<code>_is_coupling</code>, before the sweep branch, with no bounding box
+       to sample) and the <em>downstream</em> model's manager fills
+       <code>_build_coupled_columns</code>: the prior run's columns verbatim —
+       same ids, coordinates, bands, pins — each carrying the driving model's
+       answer as its own boundary.</p>
+    <table class="spec">
+      <thead><tr><th></th><th>elm → pflotran</th><th>pflotran → elm</th></tr></thead>
+      <tbody>
+        <tr><th>reads from the prior run</th>
+            <td>the extract (QDRAI, mm/day, daily) and each column's solved
+                <code>water_table_depth_m</code> from its metrics</td>
+            <td>the extract's pressure profiles, through
+                <code>compare/water_table.solved_water_table_m</code> — the
+                pressure crossing at the final time, found bottom-up</td></tr>
+        <tr><th>each column gains</th>
+            <td><code>daily_flux_mm_day</code> — used as the deck's top boundary
+                instead of rain — plus <code>flux_description</code>, which
+                becomes the deck's forcing caveat, and <code>water_table_m</code></td>
+            <td><code>initial_water_table_m</code> — PFLOTRAN's solved depth as
+                the next start — with <code>water_table_prior_m</code> and
+                <code>water_table_delta_m</code>, the number an iteration
+                converges on</td></tr>
+        <tr><th>at the build call</th>
+            <td>the deck prefers the flux over rain and says so</td>
+            <td>the warm start <em>stamps</em> the depth into each column's
+                finidat (<code>set_water_table.apply</code>: exact in the
+                aquifer, approximate in-soil and says so, clamped below the
+                domain and recorded)</td></tr>
+      </tbody>
+    </table>
+    <p class="rule-note">The coupling variable arrives as prose in the brief;
+       the manager takes the first ALL-CAPS token the extract actually holds and
+       refuses by name when none matches. Wrong units are refused, not
+       converted. What reception carried — the prior's domain, period, grid,
+       observations — is already in this run's own <code>reception.json</code>,
+       so the manager still reads nothing outside the run directory except the
+       named prior.</p>
   </div>
 
   <div class="stepcard">
@@ -497,6 +554,34 @@
        (the notification address, on a terminal only). PFLOTRAN declares
        <code>NEEDS_CASE_BUILD = False</code> and skips the stage: a deck is a text
        file, and writing it was the build.</p>
+    <p class="rule-note"><strong>Inside an allocation, the stage changes shape.</strong>
+       When the manager finds itself already on a compute node
+       (<code>SLURM_JOB_ID</code> set; <code>IDEAS_FORCE_SBATCH=1</code> opts
+       back out), it calls <code>run_elm_ensemble(in_allocation=True)</code>
+       instead: the ensemble script runs in place, synchronously, under a call
+       budget of the study walltime plus fifteen minutes — no job A, no job B,
+       no <code>Pending</code> — and the pipeline continues through extract,
+       package and the Analyzer in the same session. This is what
+       <code>tools/coupling_loop.sh</code> is built on: <em>one</em> sbatch, then
+       ELM and PFLOTRAN legs alternate inside the same allocation, with
+       <code>tools/coupling_delta.py</code> deciding after each round whether the
+       water tables have stopped moving — <strong>this leg's solved depth
+       against the previous leg's</strong>, walked out of the record
+       (<code>coupled_from</code> → the ELM leg → its
+       <code>coupling.prior_run_dir</code>). A seed run has no predecessor and
+       reads as undecidable, which on the first pass is a reason to iterate,
+       not to stop.</p>
+    <p class="rule-note"><strong>The measure that looked right and was not.</strong>
+       A PFLOTRAN leg also records the anchor each column was <em>given</em>,
+       and solved-minus-given reads like a convergence error. It is not: it is
+       a within-run offset between the anchor and where the solver puts the
+       crossing, and on Brandywine it sat at exactly +0.050 m in every
+       iteration while the state itself moved 46.8 → 28.3 → 27.8 m. Judged on
+       that number the loop reported CONVERGED at iteration 0 with the answer
+       still 18 m away, and NOT CONVERGED forever at a tighter tolerance —
+       wrong in both directions, because the quantity does not shrink with
+       iteration. It is still printed, as a diagnostic, and never as the
+       verdict.</p>
   </div>
 
   <div class="stepcard">
@@ -564,11 +649,12 @@
     <tbody>
       <tr><td>check</td><td colspan="2">code — <code>strategy_check</code>, no server</td></tr>
       <tr><td>materialize · sample</td><td colspan="2">code — <code>expand()</code>; <code>terrain.get_elevation</code> at pinned stations</td></tr>
-      <tr><td>materialize · sweep</td><td class="id">check_conceptual_design · build_conceptual_columns</td><td>—</td></tr>
-      <tr><td>the build call</td><td class="id">build_elm_inputs_from_location</td><td class="id">create_decks_from_columns (site_dir)</td></tr>
-      <tr><td>design figure</td><td class="id">sampling_design.render_run (imported)</td><td class="id">sampling_design.render_run (imported)</td></tr>
+      <tr><td>materialize · sweep</td><td colspan="2">the chosen server's <code>check_conceptual_design</code> · <code>build_conceptual_columns</code></td></tr>
+      <tr><td>materialize · coupled</td><td>code — the prior PFLOTRAN run's columns + solved water tables</td><td>code — the prior ELM run's columns + QDRAI + water tables</td></tr>
+      <tr><td>the build call</td><td class="id">build_elm_inputs_from_location (stamps a coupled finidat)</td><td class="id">create_decks_from_columns (site_dir; flux over rain when coupled)</td></tr>
+      <tr><td>design figure</td><td class="id">sampling_design.render_run (imported)</td><td class="id">sampling_design.render_run / render_sweep (imported)</td></tr>
       <tr><td>build_case_inputs</td><td colspan="2">code — reads what the build call wrote</td></tr>
-      <tr><td>build_cases</td><td class="id">run_elm_ensemble → job A · sbatch job B</td><td>skipped</td></tr>
+      <tr><td>build_cases</td><td class="id">run_elm_ensemble → job A · sbatch job B — or in place, in an allocation</td><td>skipped</td></tr>
       <tr><td>run</td><td>collect from disk</td><td class="id">run_pflotran_simulation, per deck</td></tr>
       <tr><td>extract</td><td class="id">extract_run (imported)</td><td class="id">extract_column_series</td></tr>
       <tr><td>package · analyze</td><td colspan="2">code — <code>experiment.json</code>, then the Analyzer</td></tr>
@@ -602,14 +688,17 @@
 
 <section id="notes">
   <h2>Two things not on the diagram</h2>
-  <p><strong>All three paths ran on this code on 2026-08-18.</strong> ELM site:
-     <code>columns.json</code> byte-identical to the pre-refactor run. ELM
-     conceptual: a two-level clay sweep from the request through built inputs —
-     cold, two synthetic surface files with clay 5 and 55, one domain file.
-     PFLOTRAN site: Naches, from a fresh request through package — 17 decks
-     built, 17 ran, 17 read, every row carrying its profiles and its setup;
-     dispatched by <code>workflow.py</code> itself, into a directory named
-     <code>pflotran_run_*</code>.</p>
+  <p><strong>Every path has run on this code.</strong> ELM site:
+     <code>columns.json</code> byte-identical to the pre-refactor run
+     (2026-08-18). ELM conceptual: a two-level clay sweep from the request
+     through built inputs. PFLOTRAN site: Naches, 17 decks built, ran and read.
+     PFLOTRAN conceptual (2026-08-18): a controlled sweep from the request
+     through the report, with its own design figure. Coupling, both directions
+     (2026-08-19): ELM's Brandywine QDRAI drove three PFLOTRAN columns — the
+     lowland column's flux moved its water table, the two dry upland columns
+     moved nothing — and PFLOTRAN's solved water tables went back into ELM's
+     finidats, deltas +0.04 to +0.05 m at the first pass. The one-allocation
+     loop ran the whole round trip inside a single job.</p>
   <p><strong>What is parked.</strong> The run → analyze tail of an ELM
      conceptual sweep last ran on 2026-08-16. (The Analyzer reads a PFLOTRAN run
      through its report since 2026-08-18 — the next box's business, and done.)</p>

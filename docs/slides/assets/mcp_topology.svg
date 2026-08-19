@@ -13,8 +13,8 @@
   <rect x="368" y="250" width="224" height="112" rx="14" fill="#e6f3f7" stroke="#2c7fb8" stroke-width="2.4"/>
   <text x="480" y="284" fill="#1d5e85" font-size="16" font-weight="800" text-anchor="middle">Agentic clients</text>
   <text x="480" y="308" fill="#0f3d57" font-size="12.5" text-anchor="middle">Reception · Planner</text>
-  <text x="480" y="326" fill="#0f3d57" font-size="12.5" text-anchor="middle">Tier-2 Expander</text>
-  <text x="480" y="348" fill="#64748b" font-size="11" font-style="italic" text-anchor="middle">OpenAI function-calling</text>
+  <text x="480" y="326" fill="#0f3d57" font-size="12.5" text-anchor="middle">Experiment Manager · Analyzer</text>
+  <text x="480" y="348" fill="#64748b" font-size="11" font-style="italic" text-anchor="middle">Claude · tool use</text>
 
   <!-- nodes -->
   <g>
@@ -26,9 +26,9 @@
 
     <!-- geology (top-left) -->
     <rect x="40" y="150" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
-    <text x="148" y="174" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">geology</text>
-    <text x="148" y="193" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">USDA SSURGO</text>
-    <text x="148" y="211" fill="#475569" font-size="11" text-anchor="middle">soil profile · van Genuchten</text>
+    <text x="148" y="174" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">hydrodata</text>
+    <text x="148" y="193" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">HydroFrame · ParFlow CONUS2</text>
+    <text x="148" y="211" fill="#475569" font-size="11" text-anchor="middle">subsurface · water table · Fan wells</text>
 
     <!-- snotel (top-right) -->
     <rect x="704" y="150" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
@@ -44,16 +44,34 @@
 
     <!-- weather (bottom-right) -->
     <rect x="704" y="416" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
-    <text x="812" y="440" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">weather</text>
-    <text x="812" y="459" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">climate baseline</text>
-    <text x="812" y="477" fill="#475569" font-size="11" text-anchor="middle">precip · forcing period</text>
+    <text x="812" y="440" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">daymet</text>
+    <text x="812" y="459" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">ORNL Daymet · 1 km</text>
+    <text x="812" y="477" fill="#475569" font-size="11" text-anchor="middle">daily rain at every grid point</text>
 
     <!-- fan_wtd (bottom) -->
     <rect x="372" y="505" width="216" height="74" rx="11" fill="#fff7ed" stroke="#fd8d3c" stroke-width="2"/>
-    <text x="480" y="529" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">fan_wtd</text>
-    <text x="480" y="548" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">Fan et al. 2013 (local NetCDF)</text>
-    <text x="480" y="566" fill="#475569" font-size="11" text-anchor="middle">equilibrium water-table depth</text>
+    <text x="480" y="529" fill="#c2410c" font-size="14.5" font-weight="800" text-anchor="middle">ameriflux</text>
+    <text x="480" y="548" fill="#7c2d12" font-size="11.5" text-anchor="middle" font-style="italic">AmeriFlux network</text>
+    <text x="480" y="566" fill="#475569" font-size="11" text-anchor="middle">flux towers · evapotranspiration</text>
   </g>
 
-  <text x="480" y="612" fill="#94a3b8" font-size="11" text-anchor="middle" font-style="italic">stdio MCP servers (FastMCP) · config-driven · fresh session per call · pure-LLM tool selection</text>
+  
+  <!-- model servers: the only servers that run a model, one per model -->
+  <g stroke="#2c7fb8" stroke-width="2.2">
+    <line x1="368" y1="305" x2="258" y2="305"/>
+    <line x1="592" y1="305" x2="702" y2="305"/>
+  </g>
+  <g>
+    <rect x="40" y="268" width="216" height="74" rx="11" fill="#e6f3f7" stroke="#2c7fb8" stroke-width="2"/>
+    <text x="148" y="292" fill="#1d5e85" font-size="14.5" font-weight="800" text-anchor="middle">elm</text>
+    <text x="148" y="311" fill="#0f3d57" font-size="11.5" text-anchor="middle" font-style="italic">E3SM Land Model</text>
+    <text x="148" y="329" fill="#475569" font-size="11" text-anchor="middle">columns · cases · ensemble · extract</text>
+    <rect x="704" y="268" width="216" height="74" rx="11" fill="#e6f3f7" stroke="#2c7fb8" stroke-width="2"/>
+    <text x="812" y="292" fill="#1d5e85" font-size="14.5" font-weight="800" text-anchor="middle">pflotran</text>
+    <text x="812" y="311" fill="#0f3d57" font-size="11.5" text-anchor="middle" font-style="italic">subsurface flow · reactive transport</text>
+    <text x="812" y="329" fill="#475569" font-size="11" text-anchor="middle">decks · runs · profiles · guard rails</text>
+  </g>
+
+  <text x="480" y="600" fill="#94a3b8" font-size="11" text-anchor="middle" font-style="italic">stdio MCP servers (FastMCP) · config-driven · fresh session per call</text>
+  <text x="480" y="616" fill="#94a3b8" font-size="11" text-anchor="middle" font-style="italic">orange: data, fetched by Reception only · blue: a model, the only place a model fact lives</text>
 </svg>
