@@ -1276,6 +1276,16 @@ def main():
                   'and stop. Use --resume from a login node instead.'
     )
     parser.add_argument(
+        '--request', '-r',
+        metavar = 'TEXT',
+        default = None,
+        help    = 'run ONE study from this request and exit — the whole '
+                  'pipeline, reception through the Analyzer, unattended. '
+                  'Reception does not ask questions unless --ask is also '
+                  'given (which needs a terminal); put the basin, the model '
+                  'and the years in the sentence.'
+    )
+    parser.add_argument(
         '--no-ask',
         action = 'store_true',
         help   = 'do NOT let reception ask clarifying questions — it resolves '
@@ -1361,13 +1371,24 @@ def main():
         interactive_reception = (args.interactive or args.ask) and not args.no_ask,
     )
 
+    if args.request:
+        # ONE STUDY, UNATTENDED (2026-08-18). The end-to-end test that used to
+        # need a driver script or a typed line at the interactive prompt:
+        # reception -> planner -> the model's Experiment Manager -> Analyzer,
+        # into a directory named for the model reception chose.
+        print(coordinator.process_request(args.request))
+        return
+
     if args.interactive:
         coordinator.run_interactive()
     else:
         print("=" * 70)
-        print("Run with --interactive for interactive mode")
+        print("Run with --interactive for interactive mode, or --request TEXT for one study")
         print("\nExamples:")
         print("  python workflow.py --interactive")
+        print('  python workflow.py --request "How deep does water move through the '
+              'unsaturated soil in the Naches River basin, Washington? Use PFLOTRAN. '
+              'One year, 1988."')
         print("  python workflow.py --interactive --ask")
         print("=" * 70 + "\n")
 
