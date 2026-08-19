@@ -185,6 +185,51 @@ class TestReceptionCarriesThePriorForward:
         note = prov[0]["note"]
         assert "CARRIED FORWARD" in note and "wtd_conus2.tif" in note  # absent, named
 
+    def test_an_invented_domain_is_replaced_by_the_priors(self, tmp_path):
+        # The LLM resolved a basin the request never named (seen live:
+        # "Naches" written onto a Brandywine chain). The prior's domain wins
+        # and the correction is recorded, not silent.
+        from agents.reception_llm import _carry_prior_forward
+        _prior(tmp_path)
+        rd = tmp_path / "elm_run_x"
+        rd.mkdir()
+        brief = self._brief("elm_run_fixture")
+        brief["domain"] = {"name": "Naches", "bbox": {"min_lon": -121.5}}
+        _carry_prior_forward(brief, str(rd), [])
+        assert brief["domain"]["name"] == "Fixtureville"
+        assert any("Domain overridden" in a
+                   for a in brief.get("assumptions", []))
+
+    def test_a_defaulted_period_is_replaced_a_users_is_kept(self, tmp_path):
+        # An iteration must hold the forcing years fixed: an LLM default
+        # (source != "user") is replaced by the prior's period; a period the
+        # user stated survives — they may narrow a follow-up on purpose.
+        from agents.reception_llm import _carry_prior_forward
+        prior = _prior(tmp_path)
+        rec = json.loads((prior / "reception.json").read_text())
+        rec["brief"]["run_settings"] = {"resolved_period": {
+            "yr_start": 2010, "yr_end": 2010, "source": "user"}}
+        (prior / "reception.json").write_text(json.dumps(rec))
+        rd = tmp_path / "elm_run_x"
+        rd.mkdir()
+
+        defaulted = self._brief("elm_run_fixture")
+        defaulted["run_settings"] = {"resolved_period": {
+            "yr_start": 1979, "yr_end": 1979, "source": "default"}}
+        _carry_prior_forward(defaulted, str(rd), [])
+        got = defaulted["run_settings"]["resolved_period"]
+        assert (got["yr_start"], got["yr_end"]) == (2010, 2010)
+        assert got["source"] == "carried"
+        assert any("Period overridden" in a
+                   for a in defaulted.get("assumptions", []))
+
+        stated = self._brief("elm_run_fixture")
+        stated["run_settings"] = {"resolved_period": {
+            "yr_start": 2011, "yr_end": 2011, "source": "user"}}
+        _carry_prior_forward(stated, str(rd), [])
+        kept = stated["run_settings"]["resolved_period"]
+        assert (kept["yr_start"], kept["source"]) == (2011, "user")
+
     def test_an_unresolvable_prior_raises_with_candidates(self, tmp_path):
         from agents.reception_llm import _carry_prior_forward
         rd = tmp_path / "pflotran_run_x"

@@ -126,19 +126,53 @@ def _carry_prior_forward(brief, run_dir, prov):
     rec = json.loads(rec_f.read_text())
     rec = rec.get("reception", rec)
 
-    # THE DOMAIN AND PERIOD ARE THE PRIOR'S, literally. The LLM writes what
-    # the request said; a follow-up request rarely restates the bbox, and
-    # resolving it again would be the fetch this branch exists to avoid. A
-    # value the LLM DID write wins — the user may have narrowed the period.
+    # THE DOMAIN IS THE PRIOR'S, unconditionally. A follow-up reuses the
+    # prior's columns verbatim, so it runs WHERE those columns are — a domain
+    # the LLM resolved on its own is not a narrower request, it is invented
+    # (observed: a loop request that named no basin got "Naches" from the
+    # model while every carried column sat in Brandywine). The prior wins;
+    # a disagreement is said out loud and recorded in the assumptions.
     pb = rec.get("brief") or {}
-    if not ((brief.get("domain") or {}).get("bbox")) and pb.get("domain"):
+    if pb.get("domain"):
+        mine = (brief.get("domain") or {}).get("name")
+        theirs = (pb["domain"] or {}).get("name")
+        if mine and theirs and mine != theirs:
+            print(f"   ⚠️  the request's domain ({mine}) is not the prior "
+                  f"run's ({theirs}) — a follow-up runs where its columns "
+                  f"are; using the prior's")
+            brief.setdefault("assumptions", []).append(
+                f"Domain overridden: the brief said {mine!r} but the prior "
+                f"run {prior.name} is {theirs!r}; a coupling follow-up "
+                f"reuses the prior's columns, so the prior's domain wins.")
         brief["domain"] = pb["domain"]
+
+    # THE PERIOD IS THE PRIOR'S unless the USER said otherwise. The years
+    # must match the run that produced the coupled state: an iteration that
+    # changes the forcing year compares two climates, not two starts of one
+    # (observed: an LLM-defaulted 1979 slipped into a 2010 chain). Only a
+    # period the user actually stated (source == "user") may narrow it —
+    # a model default is exactly the invented value this carry replaces.
     rs = brief.setdefault("run_settings", {})
-    if not ((rs.get("resolved_period") or {}).get("yr_start")):
-        prior_period = ((pb.get("run_settings") or {})
-                        .get("resolved_period") or {})
-        if prior_period.get("yr_start"):
-            rs["resolved_period"] = prior_period
+    prior_period = ((pb.get("run_settings") or {})
+                    .get("resolved_period") or {})
+    mine_p = rs.get("resolved_period") or {}
+    if prior_period.get("yr_start") and \
+            str(mine_p.get("source") or "").lower() != "user":
+        if mine_p.get("yr_start") and \
+                int(mine_p["yr_start"]) != int(prior_period["yr_start"]):
+            print(f"   ⚠️  the brief's period {mine_p.get('yr_start')}-"
+                  f"{mine_p.get('yr_end')} was a "
+                  f"{mine_p.get('source') or 'model'} guess — using the "
+                  f"prior run's {prior_period.get('yr_start')}-"
+                  f"{prior_period.get('yr_end')}")
+            brief.setdefault("assumptions", []).append(
+                f"Period overridden: the brief defaulted to "
+                f"{mine_p.get('yr_start')}-{mine_p.get('yr_end')} but the "
+                f"prior run {prior.name} simulated "
+                f"{prior_period.get('yr_start')}-"
+                f"{prior_period.get('yr_end')}; an iteration must hold the "
+                f"forcing years fixed, so the prior's period wins.")
+        rs["resolved_period"] = dict(prior_period, source="carried")
 
     copied, absent = [], []
     if run_dir:
