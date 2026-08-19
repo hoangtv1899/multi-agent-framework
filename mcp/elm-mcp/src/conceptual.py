@@ -329,8 +329,11 @@ def declare() -> Dict[str, Any]:
         "cannot_vary": [
             {"what": "PFT parameters (rooting depth, Vcmax)",
              "needs": "a paramfile in user_nl_elm; RUNTIME_KEYS carries none"},
-            {"what": "a graded initial water table",
-             "needs": "perturbed restart files — a netCDF edit on WA/ZWT"},
+            # "a graded initial water table" LEFT THIS LIST 2026-08-19:
+            # set_initial_water_table writes ZWT/WA into a finidat subset
+            # (src/set_water_table.py). It serves the COUPLING archetype —
+            # PFLOTRAN's solved water table back into ELM's start — and is
+            # not offered as a sweep factor here until someone asks for one.
             {"what": "the starting state (warm against cold)",
              "needs": "nothing — it is a DECISION, not a missing capability. "
                       "Conceptual runs start cold so that no real gridcell's "

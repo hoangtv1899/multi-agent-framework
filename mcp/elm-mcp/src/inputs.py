@@ -339,6 +339,26 @@ def warm_start(run_dir: Path, columns: List[Dict],
                     f"every column was excluded ({excluded}); the CONUS grid "
                     f"has no usable donor over this domain.")
 
+        # ── A COUPLED FOLLOW-UP OVERRIDES THE DONOR'S WATER TABLE ────────
+        # A column carrying `initial_water_table_m` (the driving model's
+        # solved water table, written by the manager's coupling branch) gets
+        # it stamped into its fresh finidat — ZWT and WA kept consistent by
+        # ELM's own relation, clamps and the in-soil approximation reported
+        # on the column (set_water_table.py). After the subset and before
+        # anything reads the file, so the case is BUILT on the edited state.
+        import set_water_table as _swt
+        for c in columns:
+            wt_target = c.get("initial_water_table_m")
+            m = manifest.get(c.get("id"))
+            if wt_target is None or not m:
+                continue
+            r = _swt.apply(m["finidat"], float(wt_target))
+            c["initial_water_table_written_m"] = r["written_m"]
+            c["initial_water_table_note"] = r["note"]
+            m["water_table_override"] = {k: r[k] for k in
+                                         ("requested_m", "written_m", "regime",
+                                          "clamped", "old_zwt_m")}
+
         (run_dir / "warmstart" / "warmstart.json").write_text(
             json.dumps(manifest, indent=2))
         # `_excluded` is a LIST living in a dict of dicts, so anything walking

@@ -158,6 +158,102 @@ class ELMExpManager(ExperimentManagerBase):
 				"disagree, which they share code precisely to prevent.")
 		return out
 
+	def _build_coupled_columns(self, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""The prior PFLOTRAN run's columns, each carrying its next start.
+
+		THE RETURN LEG OF TWO-WAY COUPLING. The forward leg drove PFLOTRAN
+		with ELM's drainage; this one hands PFLOTRAN's SOLVED water table
+		back as each column's initial state. The columns are the prior run's
+		verbatim (which are the original ELM run's — same ids, coordinates,
+		bands), so an iteration is the same ensemble walked to consistency:
+
+		    initial_water_table_m   PFLOTRAN's pressure-crossing depth at its
+		                            final output time, read by the ONE public
+		                            function that owns that definition
+		                            (compare/water_table.solved_water_table_m,
+		                            loaded by path from beside the PFLOTRAN
+		                            server — the meaning of that model's
+		                            output stays on that model's side)
+		    water_table_prior_m     what ELM said last time (the anchor the
+		                            PFLOTRAN column was given)
+		    water_table_delta_m     solved minus prior — the number an
+		                            iteration watches; near zero means the
+		                            two models agree and the loop is done
+
+		The warm start then stamps each column's fresh finidat with the new
+		water table (inputs.py -> set_water_table.py), reporting clamps —
+		ELM's aquifer ends at 28.802 m, and a deeper PFLOTRAN water table is
+		honestly clamped, not silently believed.
+		"""
+		brief = (config or {}).get("brief") or {}
+		coupling = {**((config.get("strategy") or {}).get("coupling") or {}),
+					**(brief.get("coupling") or {})}
+		src = coupling.get("prior_run_dir") or config.get("coupling_source")
+		if not src or not Path(src).is_dir():
+			raise RuntimeError(
+				"a coupled study needs the prior run's directory — reception "
+				f"resolves it into brief.coupling.prior_run_dir; got {src!r}")
+		src = Path(src).resolve()
+		cols_f = src / "columns.json"
+		ext_f = src / "03_results" / "extracted.json"
+		for f in (cols_f, ext_f):
+			if not f.is_file():
+				raise RuntimeError(
+					f"the prior run {src.name} has no {f.name} — it must have "
+					f"finished its extract before it can drive another model")
+
+		# the one function that owns "where PFLOTRAN's water table IS"
+		import importlib.util
+		pkg = Path(__file__).resolve().parents[2] / "pflotran-mcp" / "compare"
+		spec = importlib.util.spec_from_file_location(
+			"compare_pflotran", pkg / "__init__.py",
+			submodule_search_locations=[str(pkg)])
+		mod = importlib.util.module_from_spec(spec)
+		sys.modules.setdefault("compare_pflotran", mod)
+		spec.loader.exec_module(mod)
+		from compare_pflotran import water_table as _pwt
+
+		prior = json.loads(cols_f.read_text())
+		prior = prior.get("columns", prior) if isinstance(prior, dict) else prior
+		data = (json.loads(ext_f.read_text()) or {}).get("columns") or {}
+
+		KEEP = ("id", "lat", "lon", "elevation_m", "band", "band_range_m",
+				"pinned", "station_id", "station_variable")
+		columns: List[Dict[str, Any]] = []
+		for c in prior:
+			cid = c.get("id")
+			solved = _pwt.solved_water_table_m(data.get(cid) or {})
+			if solved is None:
+				raise RuntimeError(
+					f"{cid}: the prior run's final profile has no water table "
+					f"in the domain (bottom cell unsaturated) — there is "
+					f"nothing to hand back for this column")
+			prior_wt = c.get("water_table_m")
+			col: Dict[str, Any] = {k: c.get(k) for k in KEEP
+								   if c.get(k) is not None}
+			col["initial_water_table_m"] = float(solved)
+			col["coupled_from"] = src.name
+			col["coupling_variable"] = "water_table"
+			if isinstance(prior_wt, (int, float)):
+				col["water_table_prior_m"] = round(float(prior_wt), 3)
+				col["water_table_delta_m"] = round(float(solved) - float(prior_wt), 3)
+			columns.append(col)
+
+		deltas = [c.get("water_table_delta_m") for c in columns
+				  if c.get("water_table_delta_m") is not None]
+		print(f"   {len(columns)} column(s) from {src.name}, each taking "
+			  f"PFLOTRAN's solved water table as its next start"
+			  + (f"; moved vs ELM's last answer: "
+				 + ", ".join(f"{d:+.3f} m" for d in deltas) if deltas else ""))
+		return {
+			"approach": "coupled",
+			"coupled_from": str(src),
+			"coupling_variable": "water_table",
+			"n_columns": len(columns),
+			"bands": [],
+			"columns": columns,
+		}
+
 	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:
 		"""ONE MCP call: warm start, donor soil, surfaces, case_inputs.json.
 
@@ -283,10 +379,24 @@ class ELMExpManager(ExperimentManagerBase):
 		"ELM_COLUMN_METADATA",
 		keep = ("forcing_cell", "soil_summary", "soil_top_texture",
 				"soil_layers", "soil_source", "soil_profile",
-				"warm_start"),
+				"warm_start",
+				# A COUPLED FOLLOW-UP'S OWN FACTS (_build_coupled_columns +
+				# the warm start's override): which run drove this one, the
+				# water table it asked for, the one the finidat actually got
+				# (clamps differ), the sentence saying so, and how far the
+				# driving model moved it from ELM's own last answer.
+				"coupled_from", "coupling_variable",
+				"initial_water_table_m", "initial_water_table_written_m",
+				"initial_water_table_note",
+				"water_table_prior_m", "water_table_delta_m"),
 		# A site run starts warm by default and its columns do not say so
-		# per column; a sweep writes it. Neither absence is a hole.
-		optional = ("warm_start",),
+		# per column; a sweep writes it. Neither absence is a hole — nor is
+		# any coupling key on a run nothing drove.
+		optional = ("warm_start",
+					"coupled_from", "coupling_variable",
+					"initial_water_table_m", "initial_water_table_written_m",
+					"initial_water_table_note",
+					"water_table_prior_m", "water_table_delta_m"),
 		drop = {
 			"outside_design_band": "set by warm_start when the snapped donor "
 								   "leaves the band the sampler drew. A "

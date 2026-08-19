@@ -100,6 +100,25 @@ def _crossing_depth(depth_m: List[float], pressure_pa: List[float]) -> Optional[
     return 0.0                                      # saturated to the surface
 
 
+def solved_water_table_m(block) -> "Optional[float]":
+    """The column's solved water table at its FINAL output time, m below
+    ground — the pressure crossing, by the one definition this module owns.
+
+    `block` is one column's entry in the PFLOTRAN extract
+    ({depth_m, times_y, liquid_pressure_Pa, ...}). This is the number a
+    TWO-WAY coupling hands back to the driving land model as its next initial
+    water table, so it is a named public function rather than a re-derivation
+    in whoever needs it: the meaning of PFLOTRAN's output belongs beside
+    PFLOTRAN's server, and the downstream manager imports this by path.
+
+    None when the water table left the domain (the bottom cell unsaturated).
+    """
+    press = (block or {}).get("liquid_pressure_Pa") or []
+    if not press:
+        return None
+    return _crossing_depth((block or {}).get("depth_m") or [], press[-1])
+
+
 def _snapshot_dates(times_y: List[float], forcing_start: Optional[int],
                     n_steps: Optional[int]) -> Dict[float, str]:
     """{time_y: 'YYYY-MM-DD'} for the snapshots that fall in the forcing year."""

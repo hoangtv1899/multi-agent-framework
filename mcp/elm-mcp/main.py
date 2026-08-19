@@ -620,6 +620,15 @@ def _workflow() -> List[Dict[str, Any]]:
                      "sampled run produces — the point where the two "
                      "archetypes merge and everything below is identical",
              "returns": "DATA; raises rather than building a partial sweep"},
+            {"step": "1d (coupled follow-ups only)",
+             "tool": "set_initial_water_table",
+             "does": "write a water table into a single-column finidat — ZWT "
+                     "and WA kept consistent by ELM's own relation, clamps at "
+                     "the 28.802 m aquifer bottom reported. The framework "
+                     "drives this THROUGH step 2: a column carrying "
+                     "initial_water_table_m is stamped right after its CONUS "
+                     "subset; this tool is the same edit for a file in hand",
+             "returns": "DATA: requested vs written, regime, clamped, note"},
             {"step": 2, "tool": "build_elm_inputs_from_location",
              "does": "columns (passed as data, or read from "
                      "01_inputs/columns.json) — warm start, donor soil, "
@@ -957,6 +966,42 @@ def build_elm_inputs_from_location(run_dir:         str,
 
 # ─────────────────────────────────────────────────────────────────────
 # CONTROLLED SWEEPS  (the conceptual archetype)
+@mcp.tool()
+@_stdout_to_stderr
+def set_initial_water_table(finidat: str, water_table_m: float) -> str:
+    """Write an initial water table into a single-column ELM finidat.
+
+    THE EDIT TWO-WAY COUPLING NEEDED — the one `cannot_vary` used to name as
+    missing. ZWT and WA are written mutually consistent by ELM's own relation
+    (zwt = 28.802 - wa/200, recovered from the CONUS restart itself); a target
+    below the soil column (> 3.802 m) is EXACT, one inside it is approximate
+    (ELM re-diagnoses in-soil tables from the moisture profile, which is left
+    untouched) and says so; a target deeper than 28.802 m is clamped there and
+    the clamp reported. Edits the file IN PLACE; only ZWT and WA change, only
+    in the unmasked entries.
+
+    Driven by the framework this happens inside build_elm_inputs_from_location:
+    a column carrying `initial_water_table_m` gets its fresh finidat stamped
+    right after the CONUS subset. This tool is the same edit for a file you
+    already have.
+
+    Args:
+        finidat: the single-column restart to edit (make_finidat_subset output).
+        water_table_m: depth below ground, metres, positive down.
+
+    Returns:
+        JSON: finidat, requested_m, written_m, old_zwt_m, new_wa_mm, regime
+        ("aquifer" exact / "in-soil" approximate), clamped, note.
+    """
+    import set_water_table
+    try:
+        return json.dumps(set_water_table.apply(finidat, water_table_m,
+                                                quiet=True), indent=2)
+    except Exception as e:                                  # noqa: BLE001
+        return json.dumps({"error": f"{type(e).__name__}: {e}",
+                           "validation_status": "failed"})
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Three tools in the order a study uses them: ask what can be varied, check the
 # design that comes back, then turn it into columns. The check and the builder

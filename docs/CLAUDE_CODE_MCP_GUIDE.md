@@ -556,6 +556,16 @@ column is driven by ~nothing: the deck builds STEADY at the near-zero mean and
 its row says so. The two models agreeing about which sites are dry-at-depth is
 a consistency check, not a coincidence.
 
+**Two-way (added 2026-08-19)** is the same archetype pointed back: a coupling
+request with `to_model: elm` and a prior PFLOTRAN run hands each column
+PFLOTRAN's **solved** water table as its next initial state — the warm start
+stamps it into the fresh finidat (`set_initial_water_table`: ZWT and WA kept
+consistent by ELM's own relation, clamps at the 28.802 m aquifer bottom
+reported). Each column records `water_table_delta_m` — solved minus ELM's last
+answer — and the iteration (ELM ⇄ PFLOTRAN, one run per leg) is done when the
+deltas are small. On the Brandywine proof the first legs already agreed to
+within 5 cm.
+
 ---
 
 ### Example 4 — reactive transport with the LAMBDA sandbox (2.7 s, verified)
