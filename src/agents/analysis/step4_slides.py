@@ -123,7 +123,8 @@ def build(report: Dict[str, Any], out_dir) -> Optional[str]:
     # ── 1 · the question and what kind of answer this is ────────────────
     s = prs.slides.add_slide(blank)
     _text(s, M, int(0.8 * _EMU_IN), W, int(0.4 * _EMU_IN), 13,
-          "IDEAS · ELM ensemble", rgb=(0x7A, 0x89, 0x8C))
+          f"IDEAS · {str(report.get('model') or 'model').upper()} ensemble",
+          rgb=(0x7A, 0x89, 0x8C))
     _text(s, M, int(1.3 * _EMU_IN), W, int(2.4 * _EMU_IN), 26,
           str(report.get("question") or "(no question recorded)"), bold=True)
     note, *rgb = _STATUS_LINE.get(status, ("", 0x45, 0x54, 0x57))

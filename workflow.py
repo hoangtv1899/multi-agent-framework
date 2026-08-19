@@ -274,7 +274,7 @@ class WorkflowCoordinator:
 			print(f"   model: {self.model} (reception named none)")
 			return
 		if want == self.model:
-			print(f"   model: {want} (reception)")
+			print(f"   model: {want} — chosen by reception")
 			return
 		if want not in RUNNABLE:
 			raise RuntimeError(
@@ -285,8 +285,10 @@ class WorkflowCoordinator:
 				f"mean. Runnable today: {', '.join(sorted(RUNNABLE))}.")
 		# The run directory is already named for `want`: process_request
 		# mints it from the brief, between reception's LLM phase and its
-		# gather, so nothing needs renaming here.
-		print(f"   model: {want} (reception, was {self.model})")
+		# gather, so nothing needs renaming here. The coordinator's default
+		# (self.model before this line) is a placeholder with no meaning for
+		# the study, so the message does not mention it.
+		print(f"   model: {want} — chosen by reception")
 		self.model = want
 
 	def _pinning_block(self, mcp_clients: dict, model: str) -> Optional[dict]:

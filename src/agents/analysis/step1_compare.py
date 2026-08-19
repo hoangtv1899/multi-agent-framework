@@ -109,10 +109,6 @@ def _load_compare(model: str):
 
 FILENAME = "comparison.json"
 
-# ELM's hydrologically active soil column. Quoted in a caveat, so it is named
-# once here and read from the comparison record when the record supplies it.
-ACTIVE_SOIL_M = 3.8
-
 
 def compare_all(ctx, out_dir, draw: bool = True) -> Dict[str, Any]:
     """The four comparisons, their figures, and what they forbid.

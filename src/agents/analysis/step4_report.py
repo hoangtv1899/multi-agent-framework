@@ -362,6 +362,9 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         "run_dir": str(run_dir),
 
         "question": plan.get("question"),
+        # WHICH MODEL RAN, from the package: the deck's title and any reader
+        # branching on it read this rather than assume (2026-08-18).
+        "model": (ctx.data or {}).get("model"),
         # WHAT KIND OF RESULT THIS IS, before what it says. A reader — or a
         # mailer, or a dashboard — that branches on `verdict` alone cannot tell
         # a crash from a conclusion, because a crash has no verdict at all.
