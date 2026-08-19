@@ -697,8 +697,11 @@
      (2026-08-19): ELM's Brandywine QDRAI drove three PFLOTRAN columns — the
      lowland column's flux moved its water table, the two dry upland columns
      moved nothing — and PFLOTRAN's solved water tables went back into ELM's
-     finidats, deltas +0.04 to +0.05 m at the first pass. The one-allocation
-     loop ran the whole round trip inside a single job.</p>
+     finidats. The one-allocation loop then ran the whole round trip inside a
+     single job, and its own convergence check measured the movement: 18.5 m
+     of water-table change from the first round to the second, 0.50 m from the
+     second to the third, the shallow column already settled at 0.002 m —
+     converging fast, not yet converged.</p>
   <p><strong>What is parked.</strong> The run → analyze tail of an ELM
      conceptual sweep last ran on 2026-08-16. (The Analyzer reads a PFLOTRAN run
      through its report since 2026-08-18 — the next box's business, and done.)</p>
