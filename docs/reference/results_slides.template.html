@@ -201,6 +201,10 @@
   <p class="q">"Drive PFLOTRAN with the sub-surface drainage (QDRAI) from the prior
      ELM run — reuse its columns exactly, anchor each at ELM's own solved water
      table."</p>
+  <div class="figs one">
+    <figure><img src="{{sch_one}}" alt="One-way coupling schematic: ELM's drainage becomes PFLOTRAN's top boundary; ELM's water table anchors the start">
+      <figcaption>What moves, and in which direction — once.</figcaption></figure>
+  </div>
   <div class="figs">
     <figure><img src="{{wk_prog}}" alt="Depth of the drainage signal through 2010 in each column">
       <figcaption>How far ELM's 2010 drainage signal reached, quarter by quarter.</figcaption></figure>
@@ -228,6 +232,10 @@
   <p class="q">"Iterate: ELM's drainage drives PFLOTRAN; PFLOTRAN's solved water
      table becomes ELM's next starting state — until the water table stops
      moving."</p>
+  <div class="figs one">
+    <figure><img src="{{sch_two}}" alt="Two-way coupling schematic: drainage forward, solved water table back into ELM's next start, movement gate between rounds">
+      <figcaption>The loop: the forward edge from slide 5, plus the one thing two-way adds — the solved water table stamped back as ELM's next start, with a movement gate between rounds.</figcaption></figure>
+  </div>
   <div class="figs one">
     <figure><img src="{{tw_conv}}" alt="Water-table depth per round and movement between rounds against tolerance">
       <figcaption>Left: the water table each round solved. Right: the movement between rounds — the number the convergence check judges — against the 0.10 m tolerance.</figcaption></figure>
