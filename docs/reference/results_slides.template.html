@@ -194,7 +194,7 @@
 <!-- ── 5 · Weak coupling ────────────────────────────────────────── -->
 <section class="slide">
   <div class="slide-head">
-    <span class="eyebrow">5 · one-way coupling · ELM → PFLOTRAN</span>
+    <span class="eyebrow">5 · coupling, forward leg · ELM supplies the boundary</span>
     <span class="pill p-ok">verdict: sufficient</span>
   </div>
   <div class="meta"><span>pflotran_run_20260819_074628</span><span>Brandywine-Christina</span><span>2010</span><span>3 columns, reused verbatim from the ELM run</span></div>
@@ -217,15 +217,16 @@
     <li>PFLOTRAN's solved water table lands within <b>≈0.5 m</b> of ELM's anchor in every column.</li>
   </ul>
   <div class="take"><b>take-away</b>The handoff is physical end to end — the wet
-    column answers, the dry ones stay silent. What one pass cannot do is repair
-    the inherited deep state; that is exactly the job of the loop on the next
-    slide.</div>
+    column answers, the dry ones stay silent. But notice how little moved:
+    ELM's flux barely perturbs PFLOTRAN. This leg is the <i>boundary
+    condition</i>; the informative direction is the other one — PFLOTRAN's
+    groundwater repairing ELM's starting state, the next slide's job.</div>
 </section>
 
 <!-- ── 6 · Two-way coupling ─────────────────────────────────────── -->
 <section class="slide">
   <div class="slide-head">
-    <span class="eyebrow">6 · two-way coupling · ELM ↔ PFLOTRAN</span>
+    <span class="eyebrow">6 · two-way coupling · PFLOTRAN's groundwater corrects ELM</span>
     <span class="pill p-ok">6 rounds · each leg's verdict: sufficient</span>
   </div>
   <div class="meta"><span>one SLURM job (773722) · sbatch once, both models inside</span><span>Brandywine-Christina · 2010</span><span>tolerance 0.10 m on movement between rounds</span></div>
@@ -255,11 +256,14 @@
     <li>The deep columns move a constant <b>≈0.50 m every round</b> (0.504, 0.504, 0.505, 0.505): a steady physical drift — ELM sends them no drainage, PFLOTRAN keeps draining — not a shrinking numerical error.</li>
     <li>Every ELM return leg was read by the Analyzer with no special casing: it found the coupling facts on the columns, drew the drift, and reported ELM holding within ≈1 m of the imposed water table.</li>
   </ul>
-  <div class="take"><b>take-away</b>The coupling machinery is proven — one job,
-    six rounds, honest verdicts throughout. What remains is a science question,
-    not a plumbing one: the deep columns drift 0.5 m per round toward a much
-    deeper balance, so "converged" there means choosing a spin-up length or a
-    per-column tolerance.</div>
+  <div class="take"><b>take-away</b>The information flows PFLOTRAN → ELM: the
+    18.5 m round-2 correction is PFLOTRAN's groundwater physics repairing
+    starting states ELM cannot fix itself — its own groundwater is a single
+    store that bottoms out at 28.8 m, with drainage switched off below the
+    3.8 m active soil. ELM's flux is the boundary that keeps PFLOTRAN honest.
+    The machinery is proven — one job, six rounds, honest verdicts; what
+    remains is science: the deep columns drift 0.5 m per round toward a much
+    deeper balance.</div>
 </section>
 
 <!-- ── summary ──────────────────────────────────────────────────── -->
@@ -272,7 +276,7 @@
       <tr><td>ELM, controlled sweep</td><td class="id">elm_fixture_202608160905</td><td>no place, 1995–2004</td><td>runoff share 0.19 → 0.23 across textures</td><td class="v">sufficient</td></tr>
       <tr><td>PFLOTRAN, real basin</td><td class="id">pflotran_run_20260818_195531</td><td>Brandywine 2010, 15 cols</td><td>12 of 15 columns already saturated</td><td class="v">sufficient</td></tr>
       <tr><td>PFLOTRAN, controlled sweep</td><td class="id">pflotran_run_20260818_220421</td><td>loam column, WT 2–20 m</td><td>rain reaches 0.75 m, at every depth</td><td class="v">sufficient</td></tr>
-      <tr><td>one-way coupling</td><td class="id">pflotran_run_20260819_074628</td><td>Brandywine 2010, 3 cols</td><td>drainage signal felt to 2.3 m</td><td class="v">sufficient</td></tr>
+      <tr><td>coupling, forward leg</td><td class="id">pflotran_run_20260819_074628</td><td>Brandywine 2010, 3 cols</td><td>drainage signal felt to 2.3 m</td><td class="v">sufficient</td></tr>
       <tr><td>two-way coupling</td><td class="id">six rounds, job 773722</td><td>Brandywine 2010, 3 cols</td><td>shallow column converged at 0.002 m/round</td><td class="v">sufficient ×6</td></tr>
     </tbody>
   </table>
