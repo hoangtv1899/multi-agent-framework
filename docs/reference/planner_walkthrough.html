@@ -409,6 +409,24 @@
   </div>
 
   <div class="stepcard">
+    <h3>DESIGN_REVIEW.md — the design, explained before it runs</h3>
+    <p>The moment <code>strategy.json</code> lands, the coordinator renders one
+       page beside it: the question verbatim, where and when <em>with their
+       sources</em> (you stated it / carried from the prior run / a recorded
+       default), the design with the planner's own justification quoted, the
+       feasibility verdict with its reason, and what was assumed without
+       asking. A <strong>renderer, not a reasoner</strong> —
+       plain code over the two records, no language model, so the page cannot
+       say anything the records do not
+       (<code>src/agents/design_review.py</code>; a thin section means the
+       planner recorded too little, and the fix is upstream). With a person at
+       the terminal the pipeline <strong>pauses</strong> here — read, then
+       agree or decline; declining costs nothing and leaves the records on
+       disk. Unattended runs record the review and continue, and the decision
+       either way is stamped into the file. Nothing downstream reads it.</p>
+  </div>
+
+  <div class="stepcard">
     <h3>gate · check()</h3>
     <p>Not the planner — the Experiment Manager's first step, and the only place
        that holds reception and strategy together. Pure code. It <strong>stops</strong>

@@ -212,6 +212,10 @@ class WorkflowCoordinator:
 			mcp_clients = mcp_clients,
 			interactive = interactive_reception,
 		)
+		# KEPT ON SELF for the design-review pause: with a person present the
+		# pipeline stops on DESIGN_REVIEW.md and asks; unattended it records
+		# the review and continues (a pause inside sbatch would hang the job).
+		self.interactive_reception = bool(interactive_reception)
 		# NO PINNING RULES YET, AND THAT IS THE POINT. This used to ask here,
 		# with a comment claiming "this is where the backend is known" — it was
 		# not. Construction happens before the request is read, so the only
@@ -745,7 +749,31 @@ class WorkflowCoordinator:
 			self.conversation_context['last_focus'] = (
 				((result.get('brief') or {}).get('scientific_framing') or {}).get('goals', [None])[0]
 			)
-	
+
+			# THE DESIGN, EXPLAINED BEFORE IT RUNS. One page rendered from the
+			# two records just written — the planner's own reasons, verbatim,
+			# never a second LLM pass (see design_review.py). With a person at
+			# the terminal the pipeline STOPS here and asks; unattended it
+			# records the review and continues. Declining costs nothing: the
+			# records stay on disk and nothing has been built.
+			from agents.design_review import write_review, record_decision
+			review_path = write_review(run_dir, reception=result, strategy=plan)
+			print(f"📝 Design review: {review_path}\n")
+			if getattr(self, "interactive_reception", False):
+				print(review_path.read_text())
+				try:
+					ans = input("Run this design? [Y/n] ").strip().lower()
+				except (EOFError, KeyboardInterrupt):
+					ans = "n"          # no consent is a no
+				if ans in ("n", "no"):
+					record_decision(run_dir, "DECLINED at the terminal")
+					return (f"🛑 Design declined — nothing was run. "
+							f"reception.json, strategy.json and "
+							f"{review_path.name} are saved in {run_dir}.")
+				record_decision(run_dir, "accepted at the terminal")
+			else:
+				record_decision(run_dir, "auto-continued (unattended run)")
+
 			# Step 2 — Execute
 			print("⚙️  STEP 2: Executing Experiments")
 			print("-" * 50)
