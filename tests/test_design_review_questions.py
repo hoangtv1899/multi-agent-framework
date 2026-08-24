@@ -79,6 +79,31 @@ def coupling(request, *, prior="pf_run_1", n_prior=3, variable="solved water "
     return {"user_request": request, "brief": brief}, strategy
 
 
+def _noted(request, note, stations=()):
+    """A site study whose swe validation carries a prose comparison note."""
+    rec, s = site(request, stations=stations)
+    s["validation"][0]["comparison"] = note
+    return rec, s
+
+
+def _with_drivers(request):
+    """A site study whose planner recorded controlled-vs-carried drivers."""
+    rec, s = site(request)
+    s["drivers"] = {
+        "controlled": ["elevation (5 bands wider than the forcing cell)"],
+        "carried": ["soil — recorded per column, entangled with elevation",
+                    "starting water table"]}
+    return rec, s
+
+
+def _long_rationale(request):
+    """A model rationale past the cap, so the trim must end at a sentence."""
+    rec, s = site(request)
+    rec["brief"]["model_rationale"] = \
+        "The model computes the flux where it stands. " * 12
+    return rec, s
+
+
 LONG = ("How deep does one year of rain and snowmelt actually reach in the "
         "unsaturated soils of a mountain watershed, whether that depth is "
         "different between the wet valley floor and the dry ridge tops, and "
@@ -128,6 +153,31 @@ CASES = [
      *site("Thin data.", conflicts=[f"conflict {i}" for i in range(9)],
            gaps=[f"gap {i}" for i in range(5)]),
      ["conflict 4", "data gap: gap 2"], ["conflict 5", "gap 3"]),
+    # An empty station list has two meanings, and the page must show the
+    # planner's own sentence saying which one — never the false blanket
+    # "no in-basin station" when a gauge exists but cannot be pinned.
+    ("site_unpinnable_quotes_the_note",
+     *_noted("Check streamflow anyway.",
+             "basin-aggregate — the gauge integrates its upstream area; "
+             "gauge USGS-1 is compared without co-location"),
+     ["basin-aggregate — the gauge integrates", "USGS-1"],
+     ["no in-basin station"]),
+    ("site_pinned_note_travels",
+     *_noted("Check snow.",
+             "co-located — four pillows; Corral dropped as in_basin:false",
+             stations=("642:WA:SNTL",)),
+     ["642:WA:SNTL", "dropped as in_basin:false"], []),
+    ("site_one_word_cadence_stays_out",
+     *site("Plain check."), ["642:WA:SNTL"], ["— daily"]),
+    ("site_drivers_controlled_vs_carried",
+     *_with_drivers("What drives what?"),
+     ["separated on purpose", "elevation (5 bands",
+      "varies underneath, recorded but not separated",
+      "starting water table"], []),
+    ("site_rationale_ends_at_a_sentence",
+     *_long_rationale("Why this model, at length?"),
+     ["Why this model: The model computes the flux where it stands."],
+     ["…"]),
     ("sweep_classic",
      *sweep("In one loam column, does water-table depth change how far a "
             "year of rain gets?",

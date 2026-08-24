@@ -54,8 +54,9 @@ Your plan must be buildable, and the limits are NOT LISTED HERE. They are in
 the DESIGN LIMITS block at the end of this prompt, read from the server that
 will run this study. This section is only how to use it.
 
-This prompt used to name the limits itself — NLDAS-2 forcing, soil from a
-CONUS donor gridcell, a warm start from the CONUS restart, a fixed compset.
+This prompt used to name the limits itself — NLDAS-2 forcing, soil taken from
+the CONUS grid cell a column falls in, a warm start from the CONUS restart, a
+fixed compset.
 Every one of those is a fact about ELM, and it was written as a fact about
 "the framework". A second model reading them is told its soil is unchoosable
 while its own profiles sit in the package, and is judged infeasible for limits
@@ -325,6 +326,21 @@ OUTPUT — this JSON, nothing else
       "comparison":  "<co-located | basin-aggregate | unavailable> — one clause why"
     }
   ],
+
+  // ARCHETYPE "site" ONLY. What the design SEPARATES versus what it only
+  // CARRIES. The stratified axis is separated on purpose; soil and the
+  // starting water table still vary column to column because each column
+  // lands where it lands — recorded per column, but their contribution is
+  // entangled with the stratified axis. The review page shows these two
+  // lines to the user before anything runs, and the analysis can correlate
+  // the answer against carried drivers afterwards — but a correlation
+  // across a basin cannot fully untangle what the design never separated,
+  // so the entanglement is stated HERE, not discovered after the run.
+  // Omit the key entirely for conceptual and coupling archetypes.
+  "drivers": {
+    "controlled": ["<the separated axis and how, e.g. 'elevation (5 bands, spread wider than the forcing cell)'>"],
+    "carried":    ["<e.g. 'soil — recorded per column, entangled with elevation'>", "<e.g. 'starting water table'>"]
+  },
 
   "requires": ["<capability the question needs and the framework lacks>"],
 

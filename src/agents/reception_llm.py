@@ -101,6 +101,16 @@ def _carry_prior_forward(brief, run_dir, prov):
         # elm_run_20260813_233645") — match run directories by substring
         cand = sorted((p for p in base.iterdir()
                        if p.is_dir() and p.name in ref), key=lambda p: p.name)
+    if len(cand) > 1:
+        # THE FIRST-NAMED RUN IS THE REFERENT. The LLM sometimes writes prose
+        # into prior_experiment — a live request carried "X (referenced in
+        # the canceled follow-up CANCELED_Y)" — and the substring pass then
+        # finds Y too. To a reader that reference is not ambiguous: the run
+        # it names FIRST is the target; later mentions are context. Only a
+        # tie (two names starting at the same position) stays ambiguous.
+        starts = sorted((ref.find(p.name), p) for p in cand)
+        if starts[0][0] < starts[1][0]:
+            cand = [starts[0][1]]
     if len(cand) != 1:
         have = ", ".join(sorted(p.name for p in base.glob("*_run_*"))[-6:])
         raise ValueError(
@@ -354,7 +364,31 @@ class LLMReceptionAgent:
         # on disk already says, and the coupled columns carry their own
         # water table and flux, so the join needs only the subsurface.
         if _is_coupling(brief):
-            carried = _carry_prior_forward(brief, run_dir, prov)
+            try:
+                carried = _carry_prior_forward(brief, run_dir, prov)
+            except ValueError as e:
+                # A PRIOR THAT CANNOT BE RESOLVED IS A QUESTION, NOT A CRASH
+                # (2026-08-24). A live coupling request died right here with a
+                # raw traceback — the user cannot answer a stack trace, and
+                # every ValueError this gather raises is a question a person
+                # CAN answer ("which run?", "that run has no records"). The
+                # clarify route already exists for exactly this. The minted
+                # run directory is removed if empty, honouring "a
+                # clarification mints nothing" — resolution fails before any
+                # file is copied into it.
+                if run_dir:
+                    try:
+                        Path(run_dir).rmdir()
+                    except OSError:
+                        pass
+                pkg["run_dir"] = None
+                pkg["route"] = {"action": "clarify",
+                                "questions": [f"{e}. Please name the prior "
+                                              f"run directory exactly, and I "
+                                              f"will continue from it."],
+                                "prior_run_dir": None,
+                                "llm_intent": "design"}
+                return pkg
             pkg.update(carried)
             brief["observations_summary"] = gather.summarise(
                 pkg["observations"])

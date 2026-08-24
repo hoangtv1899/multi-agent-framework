@@ -237,6 +237,63 @@ class TestReceptionCarriesThePriorForward:
         with pytest.raises(ValueError, match="exactly one"):
             _carry_prior_forward(self._brief("no_such_run"), str(rd), [])
 
+    def test_a_prose_reference_resolves_to_the_first_named_run(self, tmp_path):
+        # SEEN LIVE (2026-08-24): the LLM wrote "X (referenced in the canceled
+        # follow-up CANCELED_Y)" into prior_experiment, the substring pass
+        # matched both X and CANCELED_Y, and the run died ambiguous. To a
+        # reader that reference names X: the FIRST-named run is the referent,
+        # later mentions are context.
+        from agents.reception_llm import _carry_prior_forward
+        _prior(tmp_path)
+        (tmp_path / "CANCELED_elm_run_dead").mkdir()
+        rd = tmp_path / "elm_run_x"
+        rd.mkdir()
+        brief = self._brief("elm_run_fixture (referenced in the canceled "
+                            "follow-up CANCELED_elm_run_dead)")
+        _carry_prior_forward(brief, str(rd), [])
+        assert brief["coupling"]["prior_run_dir"].endswith("elm_run_fixture")
+
+    def test_a_true_tie_still_refuses(self, tmp_path):
+        # Two directory names starting at the same character of the reference
+        # (one a prefix of the other) is genuine ambiguity — no earliest
+        # mention exists, so the refusal stands.
+        from agents.reception_llm import _carry_prior_forward
+        (tmp_path / "elm_run_20990101_000000").mkdir()
+        (tmp_path / "elm_run_20990101_000000_2").mkdir()
+        rd = tmp_path / "elm_run_x"
+        rd.mkdir()
+        with pytest.raises(ValueError, match="exactly one"):
+            _carry_prior_forward(
+                self._brief("continue elm_run_20990101_000000_2 please"),
+                str(rd), [])
+
+    def test_an_unresolvable_prior_becomes_a_question_not_a_crash(
+            self, tmp_path, monkeypatch):
+        # The same live failure, at the process() level: the ValueError must
+        # come back as the clarify route — a question a person can answer —
+        # and the minted directory must not survive ("a clarification mints
+        # nothing").
+        import types
+        from agents.reception_llm import LLMReceptionAgent
+        inst = LLMReceptionAgent.__new__(LLMReceptionAgent)  # no LLM loop
+        inst._clients = {}
+        inst.system = ""
+        brief = {"intent": "design", "design_archetype": "coupling",
+                 "coupling": {"prior_experiment": "no_such_run"}}
+        inst.loop = types.SimpleNamespace(
+            run=lambda system, msg: {"content": json.dumps(brief),
+                                     "trace": [], "rounds": 1})
+        rd = tmp_path / "elm_run_minted"
+
+        def mint(_b):
+            rd.mkdir()
+            return rd
+
+        pkg = inst.process("continue the coupling", run_dir=mint)
+        assert pkg["route"]["action"] == "clarify"
+        assert "exactly one" in pkg["route"]["questions"][0]
+        assert not rd.exists()
+
     def test_a_coupling_brief_with_no_prior_raises(self, tmp_path):
         from agents.reception_llm import _carry_prior_forward
         with pytest.raises(ValueError, match="prior_experiment"):

@@ -378,7 +378,7 @@ def render(a):
         ax.text(0.5, 0.5, "pass --year for the NLDAS panel", ha="center",
                 transform=ax.transAxes, color="0.4")
         tag(ax, "b", "forcing")
-    ax.set_ylabel("donor elevation (m)")
+    ax.set_ylabel("column elevation (m)")
 
     # (c) THE STATE THE RUN STARTS FROM ────────────────────────────────────────
     ax = fig.add_subplot(gs[0, 2]); axes.append(ax)
@@ -407,7 +407,7 @@ def render(a):
 
     # ONE colorbar for the whole figure: elevation is the same variable in every
     # panel, and it had been drawn twice.
-    fig.colorbar(sm, ax=axes, label="donor elevation (m)", fraction=0.035,
+    fig.colorbar(sm, ax=axes, label="column elevation (m)", fraction=0.035,
                  shrink=0.6, pad=0.015)
     # The marker key belongs to the whole figure too. Inside panel (a) it landed
     # on top of columns; anchored under panel (a) it landed on panel (c)'s title.

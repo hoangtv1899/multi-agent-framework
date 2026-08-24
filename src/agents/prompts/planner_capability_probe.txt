@@ -73,18 +73,18 @@ design around a mechanism the runs can't represent and then claim to test it.
     any CONUS watershed): each column's deep state is subset straight out of a
     spun-up CONUS 1-km ELM restart at its nearest gridcell — soil TEMPERATURE
     profile, soil moisture, and aquifer (ZWT/WA). It needs NO prior run.
-    Caveats: the donor cell can sit up to ~700 m from the column, so the column
-    is snapped to it; the donor's soil comes with it, so the column runs on
-    CONUS soil rather than SSURGO; and the donor's water table is whatever the
-    CONUS run had, which at Naches was 9-70 m down for 10 of 16 columns and
-    left them producing no drainage at all.
+    Caveats: that nearest cell can sit up to ~700 m from the column, so the
+    column is snapped to it; the cell's soil comes with it, so the column runs
+    on CONUS soil rather than SSURGO; and the cell's water table is whatever
+    the CONUS run had, which at Naches was 9-70 m down for 10 of 16 columns
+    and left them producing no drainage at all.
     THERE IS NO WAY TO START A COLUMN AT A CHOSEN WATER TABLE. A command-line
     form used to edit only the aquifer (ZWT/WA) to a fetched estimate; it was
     removed, as was the ma_2025 dataset it read. The modelled water table
     reception fetches now (ParFlow CONUS2, written once per basin as a raster)
     is CONTEXT for comparison and is never written into a restart. So do not
     design a study whose premise is that the water table can be set per column
-    — the donor cell's value is what the column gets.
+    — the value in the column's nearest CONUS cell is what the column gets.
     Root-zone soil moisture is untouched by the warm start (fast state).
   • The levers the runs CAN pull: per-column SOIL (SSURGO), FORCING PERIOD
     (any years in 1980-2018), spin-up length, and location/elevation (via

@@ -761,15 +761,39 @@ class WorkflowCoordinator:
 			print(f"📝 Design review: {review_path}\n")
 			if getattr(self, "interactive_reception", False):
 				print(review_path.read_text())
+				# ONLY AN EXPLICIT YES RUNS. The first live battery showed
+				# the old parsing treated anything that was not "n" as
+				# consent — typing "change the year to 2015" at this prompt
+				# would have launched the 1988 run. Now: yes/Enter runs, no
+				# declines, and any other text is a CHANGE REQUEST handed
+				# back to reception as a follow-up in this same conversation
+				# — a revised design, a fresh review, a new prompt. A
+				# revision re-runs reception so its records are re-derived
+				# for the change (a new period means new observations),
+				# never patched in place.
 				try:
-					ans = input("Run this design? [Y/n] ").strip().lower()
+					ans = input("Run this design? "
+								"[Y/n, or type a change] ").strip()
 				except (EOFError, KeyboardInterrupt):
 					ans = "n"          # no consent is a no
-				if ans in ("n", "no"):
+				low = ans.lower()
+				if low in ("n", "no"):
 					record_decision(run_dir, "DECLINED at the terminal")
 					return (f"🛑 Design declined — nothing was run. "
 							f"reception.json, strategy.json and "
 							f"{review_path.name} are saved in {run_dir}.")
+				if low not in ("", "y", "yes"):
+					record_decision(
+						run_dir,
+						f"revision requested at the terminal: {ans!r}")
+					print("\n🔁 Revising the design — reception re-reads "
+						  "the request with your change.\n")
+					original = result.get("user_request") or ""
+					return self.process_request(
+						f"{original}\n\nRevision requested at the design "
+						f"review: {ans}",
+						output_dir=output_dir,
+					)
 				record_decision(run_dir, "accepted at the terminal")
 			else:
 				record_decision(run_dir, "auto-continued (unattended run)")

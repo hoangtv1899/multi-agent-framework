@@ -253,7 +253,8 @@ def warm_start(run_dir: Path, columns: List[Dict],
         if missing:
             raise RuntimeError(
                 f"warm start covered {len(manifest)}/{len(columns)} columns; no "
-                f"donor for {', '.join(missing)}. A partial warm start would "
+                f"CONUS grid cell could supply a starting state for "
+                f"{', '.join(missing)}. A partial warm start would "
                 f"put columns with different initial states and different soil "
                 f"datasets in one ensemble.")
 
@@ -296,7 +297,8 @@ def warm_start(run_dir: Path, columns: List[Dict],
             # design still counted it as representing the coast.
             if m.get("dist_km") is not None and m["dist_km"] > MAX_SNAP_KM:
                 excluded.append((c.get("id"),
-                                 f"nearest CONUS land donor is {m['dist_km']:.2f} km "
+                                 f"the nearest CONUS land grid cell that could "
+                                 f"supply this column is {m['dist_km']:.2f} km "
                                  f"away (> {MAX_SNAP_KM} km) — the sampled point "
                                  f"is not on the land grid"))
                 continue
@@ -308,7 +310,9 @@ def warm_start(run_dir: Path, columns: List[Dict],
             c["forcing_cell"] = _nldas_cell(c["lat"], c["lon"])
             topo = _donor_topo(m.get("surface_template"))
             if topo is None:
-                excluded.append((c.get("id"), "donor surfdata carries no TOPO"))
+                excluded.append((c.get("id"), "the surface data of the CONUS "
+                                 "grid cell supplying this column carries no "
+                                 "TOPO (surface height)"))
                 continue
             band = c.get("band_range_m")
             c["elevation_m"] = round(topo, 2)
@@ -337,7 +341,8 @@ def warm_start(run_dir: Path, columns: List[Dict],
             if not columns:
                 raise RuntimeError(
                     f"every column was excluded ({excluded}); the CONUS grid "
-                    f"has no usable donor over this domain.")
+                    f"has no usable cell over this domain to supply a column's "
+                    f"starting state and soil.")
 
         # ── A COUPLED FOLLOW-UP OVERRIDES THE DONOR'S WATER TABLE ────────
         # A column carrying `initial_water_table_m` (the driving model's
@@ -420,14 +425,15 @@ def attach_donor_soil(columns: List[Dict], finidat_map: Dict[str, Any]) -> int:
         sd = entry.get("surface_template")
         if not sd or not Path(sd).exists():
             raise RuntimeError(
-                f"{c.get('id')}: warm start reported a donor but its surface "
-                f"template is missing ({sd}). Skipping would leave this column "
-                f"with no soil while its siblings have the donor's.")
+                f"{c.get('id')}: the warm start matched this column to a CONUS "
+                f"grid cell but that cell's surface template is missing ({sd}). "
+                f"Skipping would leave this column with no soil while its "
+                f"siblings have the soil their grid cells supplied.")
         prof = fs.donor_soil_profile(sd)
         if not prof:
             raise RuntimeError(
-                f"{c.get('id')}: no soil profile readable from the donor "
-                f"surface template {sd}.")
+                f"{c.get('id')}: no soil profile readable from the surface "
+                f"template of the column's own CONUS grid cell ({sd}).")
         c["soil_profile"] = prof
         c["soil_layers"] = prof["num_layers"]
         c["soil_top_texture"] = prof["layers"][0]["texture_class"]

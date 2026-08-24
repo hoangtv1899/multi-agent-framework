@@ -43,6 +43,10 @@ _RESPONSES = {
     "recharge_fraction": "recharge_frac_of_P",
     "runoff_fraction":   "runoff_frac_of_P",
     "precip":            "precip_mm_yr",
+    # DERIVED, not read: no producer writes this key into `metrics`. The value
+    # comes from _penetration_depth_m over the row's own extract block — see
+    # _DERIVED_RESPONSES and the definition on that function.
+    "penetration_depth": "penetration_depth_m",
 }
 
 
@@ -76,6 +80,78 @@ def _metric(row: Dict[str, Any], key: str) -> Optional[float]:
     if key in m:
         return _num(m[key])
     return _num((m.get("water_budget") or {}).get(key))
+
+
+_WETTING_DSAT = 0.01        # a smaller saturation rise is numerical noise
+_STARTS_SATURATED = 0.999   # at t0, at or above this = below the water table
+
+
+def _penetration_depth_m(row: Dict[str, Any]) -> Optional[float]:
+    """Wetting-front depth: how deep the run's water reached, in m.
+
+    DEFINITION, exactly: the maximum depth_m whose saturation exceeds its own
+    value in the profile at the FIRST output time by at least 0.01
+    (_WETTING_DSAT) at ANY later output time, counting only depths that
+    started unsaturated (first-time saturation < 0.999, _STARTS_SATURATED — a
+    cell below the initial water table cannot record arrival). 0.0 when no
+    such depth exists: the front reached no measured depth, which is a result,
+    not a gap. None when the row carries no usable extract block — no
+    `profiles`, fewer than two output times, or depth/saturation lengths that
+    disagree.
+
+    THE BASELINE IS times_y[0]. On a transient deck that snapshot is the
+    initial condition BEFORE the steady spin, so spin-up adjustment counts as
+    penetration; the number is "since the simulation started", not "during the
+    forcing year", and a claim about the year alone cannot rest on it.
+
+    Computed HERE from the block the extractor attached to the row
+    (profiles = {depth_m: [...], times_y: [...], saturation: [[...] per
+    time]}), by the rule that keeps every other claim in this file out of
+    extraction: the extractor records what PFLOTRAN wrote and stops, and a
+    front depth is an interpretation of it.
+    """
+    blk = row.get("profiles") or {}
+    depths = blk.get("depth_m") or []
+    sats = blk.get("saturation") or []
+    if not depths or len(sats) < 2:
+        return None
+    init = sats[0]
+    if len(init) != len(depths):
+        return None
+    deepest = None
+    for i, d in enumerate(depths):
+        d = _num(d)
+        s0 = _num(init[i])
+        if d is None or s0 is None or s0 >= _STARTS_SATURATED:
+            continue
+        for later in sats[1:]:
+            s = _num(later[i]) if i < len(later) else None
+            if s is not None and s - s0 >= _WETTING_DSAT:
+                deepest = d if deepest is None or d > deepest else deepest
+                break
+    return round(deepest, 3) if deepest is not None else 0.0
+
+
+# Response keys no producer writes into `metrics`, and the plain code that
+# derives each from the row itself. In the analysis package on purpose: a
+# derivation behind a tool call is a number nobody can audit.
+_DERIVED_RESPONSES = {
+    "penetration_depth_m": _penetration_depth_m,
+}
+
+
+def _response(row: Dict[str, Any], key: str) -> Optional[float]:
+    """A response by key: the recorded metric, else the derived fallback.
+
+    A metric a producer wrote WINS over a recomputation — the record is the
+    audit trail. The fallback fires only where the record has nothing.
+    """
+    v = _metric(row, key)
+    if v is None:
+        fn = _DERIVED_RESPONSES.get(key)
+        if fn is not None:
+            v = fn(row)
+    return v
 
 
 def _pearson(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
@@ -128,6 +204,19 @@ def _organic_max(row: Dict[str, Any]) -> Optional[float]:
     return round(max(vals), 2) if vals else None
 
 
+def _water_table_m(row: Dict[str, Any]) -> Optional[float]:
+    """Starting water-table depth — an INPUT to the column, not an output.
+
+    Carried on the rows of runs that are BUILT at a water table: PFLOTRAN site
+    rows write `water_table_m` (the depth the domain was sized from), coupled
+    ELM rows write `initial_water_table_m` (the depth the warm start was
+    stamped at). NOT the `wtd_prior_m` of KNOWN_UNAVAILABLE — that names the
+    producer-less display prior, and its entry stays.
+    """
+    v = _num(row.get("water_table_m"))
+    return v if v is not None else _num(row.get("initial_water_table_m"))
+
+
 DRIVERS = {
     "elevation_m":   (lambda r: _num(r.get("elevation_m")), "m"),
     "precip_mm_yr":  (lambda r: _num((r.get("metrics") or {}).get("precip_mm_yr")),
@@ -136,6 +225,7 @@ DRIVERS = {
     "clay_max_pct":  (_clay_max_pct,   "%"),
     "sand_max_pct":  (_sand_max_pct,   "%"),
     "organic_max":   (_organic_max,    "kg/m3"),
+    "water_table_m": (_water_table_m,  "m"),
 }
 
 # Named so it can be reported as MISSING rather than silently absent. A
@@ -156,6 +246,11 @@ KNOWN_UNAVAILABLE = {
     # columns had a value" — true, and misleading: that phrasing says a driver
     # that is sometimes available happened to be thin here. Named as absent,
     # with the reason, which is what this block is for.
+    #
+    # NOT the same quantity as the `water_table_m` driver. This is the PRIOR —
+    # a fetched estimate nothing produces. The starting water table IS on the
+    # columns of runs built at one (PFLOTRAN site runs, coupled ELM runs), and
+    # the driver reads it off the row.
     "wtd_prior_m": "no producer since 2026-08-07 (Fan left the sampler); the "
                    "water-table prior is fetched by the consumer that needs "
                    "it, and nothing fetches it for ELM",
@@ -183,10 +278,14 @@ def driver_matrix(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     missing: Dict[str, str] = {}
     for resp, key in _RESPONSES.items():
-        ys = [_metric(r, key) for r in rows]
+        ys = [_response(r, key) for r in rows]
         n = len([y for y in ys if y is not None])
         if n < 3:
-            missing[resp] = (f"{n} of {len(rows)} column(s) carry "
+            # "yield", not "carry", for a derived key: nothing carries it, and
+            # saying so would send a reader hunting for a metrics key that has
+            # never existed.
+            verb = "yield" if key in _DERIVED_RESPONSES else "carry"
+            missing[resp] = (f"{n} of {len(rows)} column(s) {verb} "
                              f"'{key}'; a correlation needs at least 3")
             continue
         out[resp] = {d: _pearson(values[d], ys) for d in available}

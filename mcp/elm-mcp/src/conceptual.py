@@ -253,7 +253,8 @@ _DECLARATION: List[Dict[str, Any]] = [
         "label":       "Which climate — the same soil in wetter and drier places",
         "levels_are":  "a [lat, lon] pair, one NLDAS cell each",
         "reaches_elm": "the column's coordinates, which select the forcing cell "
-                       "and the donor gridcell for the warm start",
+                       "and the CONUS grid cell whose saved state supplies "
+                       "(donates) the warm start",
         "suggested_levels": [],
         "holds_fixed": ["soil_profile", "years", "pft"],
         "caveats":     ["conceptual_moved_column"],

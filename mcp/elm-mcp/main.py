@@ -470,8 +470,9 @@ def _constraints(reqs: Dict[str, Any]) -> Dict[str, Any]:
         },
         "soil": {
             "chosen_by": "the model, not the plan",
-            "source": "CONUS 1 km surface dataset, at each column's donor "
-                      "gridcell",
+            "source": "CONUS 1 km surface dataset, read at the grid cell each "
+                      "column falls in — the cell that supplies (donates) the "
+                      "column's soil",
             "available": surf_ok,
             "consequence": ("it varies column to column, but a site plan does "
                             "not choose it. A question that turns on soil "
@@ -480,8 +481,9 @@ def _constraints(reqs: Dict[str, Any]) -> Dict[str, Any]:
                             "it"
                             if surf_ok else
                             "the CONUS surface dataset is NOT present on this "
-                            "machine, so no column can be given a donor soil "
-                            "at all. A site run cannot be built until it is"),
+                            "machine, so no column can be given the soil of "
+                            "the grid cell it falls in — the only soil a run "
+                            "has. A site run cannot be built until it is"),
             "exception": ("a CONCEPTUAL sweep PRESCRIBES soil — that is what a "
                           "texture sweep is — and this server builds a "
                           "synthetic profile per level. The levels choose it, "
@@ -862,8 +864,10 @@ def build_elm_inputs_from_location(run_dir:         str,
     WHAT IT DOES, and the order matters:
 
       warm start          a finidat per column, subset from the CONUS restarts,
-                          SNAPPING each column to its donor gridcell (~250-400 m)
-      donor soil          that gridcell's own soil — the only soil the run has
+                          SNAPPING each column onto the CONUS grid cell it
+                          falls in — the cell that supplies (donates) its
+                          starting state and soil (a ~250-400 m move)
+      donor soil          that grid cell's own soil — the only soil the run has
       surfaces + domains  domain.nc and surface.nc per column
       runtime_config      the 13 CIME keys naming every file the build needs
       case_inputs.json    written to <run_dir>/01_inputs/
@@ -1101,13 +1105,14 @@ def build_conceptual_columns(design: dict) -> str:
 @mcp.tool()
 @_stdout_to_stderr
 def get_column_metadata(run_dir: str) -> str:
-    """The FINAL columns — post warm start, with their donor soil.
+    """The FINAL columns — post warm start, with the soil their grid cells supplied.
 
     Ask here rather than reading the columns.json you sampled. That file is
     what you ASKED FOR; this is what will run. The warm start snaps every
-    column to its CONUS donor gridcell and adopts that cell's TOPO and soil
+    column onto the CONUS grid cell it falls in — the cell that supplies
+    (donates) its starting state — and adopts that cell's TOPO and soil
     profile, so the two disagree by design — by up to MAX_SNAP_KM, and in
-    elevation by whatever the donor's TOPO differs from the sampled 3DEP value.
+    elevation by whatever that cell's TOPO differs from the sampled 3DEP value.
 
     Anything that describes the ensemble — a design figure, a table of what was
     run, an area weighting — wants these. Reading the sampled file instead
@@ -1121,7 +1126,8 @@ def get_column_metadata(run_dir: str) -> str:
             "ok": False,
             "error": f"no {COLUMN_META} in {rd / '01_inputs'} — "
                      f"build_elm_inputs_from_location has not run for this run "
-                     f"directory, so no column has a donor yet"})
+                     f"directory, so no column has yet been given the CONUS "
+                     f"grid cell that supplies its soil and starting state"})
     try:
         doc = json.loads(p.read_text())
     except Exception as e:                                      # noqa: BLE001

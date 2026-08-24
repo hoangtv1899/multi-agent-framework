@@ -225,13 +225,13 @@
     <h1>A tiered test suite keeps it trustworthy</h1>
     <h2>plain <code>pytest</code> is fast, offline, deterministic — heavy tiers are opt-in</h2>
     <div class="stat">
-      <div><b>795</b><span>offline tests passing (mocked LLM + MCP)</span></div>
+      <div><b>820</b><span>offline tests passing (mocked LLM + MCP)</span></div>
       <div><b>4</b><span>tiers: offline · live · llm · compute</span></div>
       <div><b>92/95</b><span>PFLOTRAN server tests, in its own repo</span></div>
       <div><b>69</b><span>stale tests still to retire</span></div>
     </div>
     <div class="grid g2" style="margin-top:20px">
-      <div class="card"><h3>Tiers</h3><p><code>pytest</code> · <code>--runlive</code> (MCP) · <code>--runllm</code> (endpoint + <code>tools=</code>) · <code>--runcompute</code> (build/run). Default run: 795 passed, 71 skipped, ~60 s.</p></div>
+      <div class="card"><h3>Tiers</h3><p><code>pytest</code> · <code>--runlive</code> (MCP) · <code>--runllm</code> (endpoint + <code>tools=</code>) · <code>--runcompute</code> (build/run). Default run: 820 passed, 71 skipped, ~2.5 min.</p></div>
       <div class="card"><h3>The honest part</h3><p>69 tests still fail and two files no longer import — every one of them names an internal that the 2026-08 refactors renamed or deleted (<code>_per_band_from_plan</code>, <code>elm_results_analyzer</code>). Stale tests, not product faults; the paths they covered are tested elsewhere. Retiring them is open work.</p></div>
     </div>
     <span class="tag">Multi-agent LLM framework</span><span class="num">13</span>

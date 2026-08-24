@@ -33,7 +33,21 @@ _PENDING = "**Decision:** pending — the coordinator records it here."
 
 def _trim(text, n=200):
     text = " ".join(str(text or "").split())
-    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+    if len(text) <= n:
+        return text
+    cut = text[: n - 1]
+    # END AT A SENTENCE when one falls in the back half of the budget — a
+    # quote that stops at a full stop needs no ellipsis and drops nothing
+    # mid-thought. Only the back half: cutting at a period near the start
+    # would throw away most of what the budget allows.
+    dot = max(cut.rfind(". "), cut.rfind("; "))
+    if dot >= n // 2:
+        return cut[: dot + 1]
+    # NEVER MID-WORD: "a pillow measures i…" reads as a glitch where
+    # "a pillow measures…" reads as a quote that was shortened.
+    if " " in cut:
+        cut = cut[: cut.rfind(" ")]
+    return cut.rstrip(" ,;:") + "…"
 
 
 def _period_line(brief):
@@ -108,9 +122,38 @@ def _design_lines(brief, strategy):
                       if sm.get("justification") else ""))
     for v in strategy.get("validation") or []:
         st = v.get("stations")
-        where = (f"{len(st)} station(s): {', '.join(map(str, st[:4]))}"
-                 if st else "no in-basin station — see the comparison note")
-        out.append(f"- check **{v.get('variable')}** against {where}")
+        # THE COMPARISON NOTE IS THE TRUTH, so it is quoted, not paraphrased.
+        # An empty station list has two different meanings — nothing exists
+        # (no flux tower in the basin) and exists-but-cannot-be-pinned (a
+        # gauge integrates its whole upstream area) — and the canned phrase
+        # "no in-basin station" was flatly wrong for the second. The planner's
+        # own sentence says which one it is, and why stations were dropped.
+        # A one-word cadence ("daily") is not a sentence and is not quoted.
+        note = _trim(v.get("comparison"), 220)
+        if st:
+            line = (f"- check **{v.get('variable')}** against {len(st)} "
+                    f"station(s): {', '.join(map(str, st[:4]))}")
+            if " " in note:
+                line += f" — {note}"
+        elif " " in note:
+            line = f"- **{v.get('variable')}**: {note}"
+        else:
+            line = (f"- check **{v.get('variable')}** against "
+                    f"no in-basin station")
+        out.append(line)
+    # WHAT THE DESIGN SEPARATES vs WHAT IT ONLY CARRIES, when the planner
+    # recorded it. A basin study stratified by elevation still has soil and
+    # the water table varying underneath — recorded per column, but their
+    # contribution entangled with the stratified axis. Saying so here is
+    # what keeps "why this can answer it" honest. Absent in older records;
+    # rendered only when present.
+    dr = strategy.get("drivers") or {}
+    if dr.get("controlled"):
+        out.append("- **separated on purpose:** "
+                   + "; ".join(_trim(x, 120) for x in dr["controlled"][:4]))
+    if dr.get("carried"):
+        out.append("- **varies underneath, recorded but not separated:** "
+                   + "; ".join(_trim(x, 120) for x in dr["carried"][:4]))
     return "real-basin study", out
 
 
@@ -134,7 +177,11 @@ def render(reception, strategy, run_name="this run"):
         read_as += f" for **{model.upper()}**"
     L.append(read_as + ".")
     if brief.get("model_rationale"):
-        L.append(f"Why this model: {_trim(brief['model_rationale'], 260)}")
+        # 420, NOT 260: reception writes two or three sentences here and the
+        # old cap cut the second one mid-thought on every live run. With the
+        # sentence-aware _trim, a typical rationale now survives whole and a
+        # long one ends at a full stop.
+        L.append(f"Why this model: {_trim(brief['model_rationale'], 420)}")
     L.append(f"- **Where:** {_domain_line(brief)}")
     L.append(f"- **When:** {_period_line(brief)}")
     L.append("")

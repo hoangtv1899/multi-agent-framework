@@ -60,8 +60,8 @@ DATA_PATHS: Dict[str, Tuple[str, str, str]] = {
     "conus_surfdata": (
         "/qfs/people/tran289/IDEAS/1d_elm/conus_surfdata",
         "IDEAS_CONUS_SURFDATA",
-        "CONUS surface data — the donor gridcell's soil, which is the only "
-        "soil a warm-started run actually uses",
+        "CONUS surface data — supplies each column the soil of the grid cell "
+        "it falls in, the only soil a warm-started run actually uses",
     ),
     "elm_input_files": (
         "/qfs/people/tran289/IDEAS/1d_elm/input_files",

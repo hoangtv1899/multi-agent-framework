@@ -163,13 +163,16 @@ def plan_subset(d, lat, lon):
     extra = sorted(set(ityplun) & EXTRA_LANDUNITS)
     if extra:
         raise SubsetError(
-            f"donor gridcell {g0} carries landunit type(s) {extra} "
+            f"the CONUS grid cell this column falls in (gridcell {g0} — the "
+            f"cell that would supply its starting state) carries landunit "
+            f"type(s) {extra} "
             f"(lake/landice/wetland), giving {len(ityplun)} columns. Our cases "
             f"build {len(EXPECTED_ITYPLUN)}; ELM's check_dim would abort. Pick a "
             f"different point or handle the extra landunit explicitly.")
     if ityplun != EXPECTED_ITYPLUN:
         raise SubsetError(
-            f"donor gridcell {g0} cols1d_ityplun={ityplun}, expected "
+            f"the CONUS grid cell this column falls in (gridcell {g0}) has "
+            f"cols1d_ityplun={ityplun}, expected "
             f"{EXPECTED_ITYPLUN}")
     # ixy/jxy locate this gridcell in the CONUS 2-D mesh. They are overwritten
     # with 1 in the output, so capture them here — they are how the matching
@@ -637,7 +640,8 @@ def donor_soil_profile(surfdata_path):
             "gravel_pct": round(float(grvl[i]), 1) if grvl is not None else None,
         })
         prev = bot
-    return {"source": "CONUS 1 km surface dataset (donor gridcell)",
+    return {"source": "CONUS 1 km surface dataset, at the grid cell the "
+                      "column falls in — the cell that supplies its soil",
             "num_layers": len(layers), "layers": layers}
 
 

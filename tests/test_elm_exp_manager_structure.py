@@ -1082,6 +1082,146 @@ class TestDrivers:
         assert all("mean" in b for b in ss["by_band"].values())
 
 
+class TestWaterTableDriver:
+    """The starting water table as a driver — read off the row, both
+    spellings.
+
+    PFLOTRAN site rows carry it as `water_table_m` (the depth the domain was
+    sized from); coupled ELM rows carry the same quantity as
+    `initial_water_table_m` (the depth the warm start was stamped at). It is
+    NOT `wtd_prior_m`, which stays in KNOWN_UNAVAILABLE with no producer.
+    """
+
+    @staticmethod
+    def _rows(key="water_table_m", n=5):
+        # runoff falls linearly as the water table deepens, so the perfect
+        # correlation is known by construction: r = -1.0 exactly.
+        return [{"case_name": f"col_{i:02d}", key: 2.0 + i,
+                 "metrics": {"runoff_mm_yr": 100.0 - 10.0 * i}}
+                for i in range(n)]
+
+    def test_water_table_correlates_with_a_response(self):
+        from agents.analysis import step2_derive as drivers
+        dm = drivers.driver_matrix(self._rows())
+        assert dm["drivers"]["available"]["water_table_m"] == "m"
+        assert dm["pearson_r"]["runoff"]["water_table_m"] == -1.0
+
+    def test_the_elm_spelling_is_read_too(self):
+        from agents.analysis import step2_derive as drivers
+        dm = drivers.driver_matrix(self._rows(key="initial_water_table_m"))
+        assert "water_table_m" in dm["drivers"]["available"]
+        assert dm["pearson_r"]["runoff"]["water_table_m"] == -1.0
+
+    def test_wtd_prior_m_stays_named_as_producer_less(self):
+        from agents.analysis import step2_derive as drivers
+        dm = drivers.driver_matrix(self._rows())
+        assert "wtd_prior_m" in dm["drivers"]["unavailable"]
+        assert "no producer" in dm["drivers"]["unavailable"]["wtd_prior_m"]
+
+
+class TestPenetrationDepth:
+    """Wetting-front depth from the row's own extract block.
+
+    The definition lives on _penetration_depth_m and these fixtures pin it:
+    the deepest depth whose saturation rose by >= 0.01 over its value at the
+    first output time, at any later output time, counting only depths that
+    started unsaturated. The answers here are known by construction.
+    """
+
+    # depths 0.5..4.5; the initial water table sits between 2.5 and 3.5, so
+    # the two deepest cells start saturated and cannot record arrival.
+    _DEPTHS = [0.5, 1.5, 2.5, 3.5, 4.5]
+    _INIT = [0.20, 0.20, 0.20, 1.0, 1.0]
+
+    @classmethod
+    def _row(cls, later, times=(0.0, 1.0), **extra):
+        return {"case_name": "col_01",
+                "profiles": {"depth_m": list(cls._DEPTHS),
+                             "times_y": list(times),
+                             "saturation": [list(cls._INIT)] + later},
+                **extra}
+
+    def test_the_front_depth_is_exact_by_construction(self):
+        """0.5 m rose 0.70, 1.5 m rose 0.30, 2.5 m rose exactly 0.011 — all
+        at or over the 0.01 threshold, so the answer is exactly 2.5."""
+        from agents.analysis import step2_derive as drivers
+        r = self._row([[0.90, 0.50, 0.211, 1.0, 1.0]])
+        assert drivers._penetration_depth_m(r) == 2.5
+
+    def test_a_rise_below_the_threshold_does_not_count(self):
+        """2.5 m rose 0.009 < 0.01, so the front stops at 1.5."""
+        from agents.analysis import step2_derive as drivers
+        r = self._row([[0.90, 0.50, 0.209, 1.0, 1.0]])
+        assert drivers._penetration_depth_m(r) == 1.5
+
+    def test_any_later_time_counts_not_just_the_last(self):
+        """The wet-up at 2.5 m appears at the middle time and has drained by
+        the final one; the front must still record it."""
+        from agents.analysis import step2_derive as drivers
+        r = self._row([[0.90, 0.50, 0.211, 1.0, 1.0],
+                       [0.30, 0.21, 0.200, 1.0, 1.0]],
+                      times=(0.0, 0.5, 1.0))
+        assert drivers._penetration_depth_m(r) == 2.5
+
+    def test_a_cell_that_started_saturated_is_excluded(self):
+        """A numeric overshoot below the initial water table (1.0 -> 1.02)
+        must not read as the year's water arriving at 4.5 m."""
+        from agents.analysis import step2_derive as drivers
+        r = self._row([[0.90, 0.50, 0.211, 1.0, 1.02]])
+        assert drivers._penetration_depth_m(r) == 2.5
+
+    def test_no_wet_up_is_zero_not_none(self):
+        """A drying column is a result — the front reached no measured depth
+        — not a gap."""
+        from agents.analysis import step2_derive as drivers
+        r = self._row([[0.15, 0.18, 0.20, 1.0, 1.0]])
+        assert drivers._penetration_depth_m(r) == 0.0
+
+    def test_a_row_without_profiles_is_none(self):
+        from agents.analysis import step2_derive as drivers
+        assert drivers._penetration_depth_m({"case_name": "col_01"}) is None
+        assert drivers._penetration_depth_m(
+            self._row([], times=(0.0,))) is None
+
+    def test_a_recorded_metric_wins_over_the_derivation(self):
+        """A producer that starts writing penetration_depth_m owns the value;
+        the derivation is only the fallback."""
+        from agents.analysis import step2_derive as drivers
+        r = self._row([[0.90, 0.50, 0.211, 1.0, 1.0]],
+                      metrics={"penetration_depth_m": 9.9})
+        assert drivers._response(r, "penetration_depth_m") == 9.9
+
+    def test_it_reaches_the_driver_matrix_as_a_response(self):
+        """Rows built so penetration deepens exactly as the water table does:
+        r = +1.0 by construction."""
+        from agents.analysis import step2_derive as drivers
+        rows = []
+        for i in range(4):
+            # the wet-up reaches one cell deeper on each successive column
+            later = [s + 0.5 if j <= i else s
+                     for j, s in enumerate([0.1, 0.1, 0.1, 0.1, 0.1])]
+            rows.append({"case_name": f"col_{i:02d}",
+                         "water_table_m": 5.0 + i,
+                         "profiles": {"depth_m": [0.5, 1.5, 2.5, 3.5, 4.5],
+                                      "times_y": [0.0, 1.0],
+                                      "saturation": [[0.1] * 5, later]}})
+        dm = drivers.driver_matrix(rows)
+        assert "penetration_depth" in dm["responses"]["measured"]
+        assert dm["pearson_r"]["penetration_depth"]["water_table_m"] == 1.0
+
+    def test_missing_on_every_row_is_named_as_unmeasured(self):
+        """ELM rows carry no profiles block; the table must say the response
+        was not measured rather than shrink in silence."""
+        from agents.analysis import step2_derive as drivers
+        rows = [{"case_name": f"col_{i:02d}", "elevation_m": 100.0 + i,
+                 "metrics": {"precip_mm_yr": 400.0 + i}}
+                for i in range(4)]
+        dm = drivers.driver_matrix(rows)
+        assert "penetration_depth" in dm["responses"]["unmeasured"]
+        assert "penetration_depth_m" in \
+            dm["responses"]["unmeasured"]["penetration_depth"]
+
+
 class TestSoilAttribution:
     """The one analysis that separates soil from forcing — and never ran.
 
