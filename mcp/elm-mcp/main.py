@@ -969,7 +969,9 @@ def build_elm_inputs_from_location(run_dir:         str,
 # CONTROLLED SWEEPS  (the conceptual archetype)
 @mcp.tool()
 @_stdout_to_stderr
-def set_initial_water_table(finidat: str, water_table_m: float) -> str:
+def set_initial_water_table(finidat: str, water_table_m: float,
+                            saturation_profile: dict = None,
+                            surfdata: str = None) -> str:
     """Write an initial water table into a single-column ELM finidat.
 
     THE EDIT TWO-WAY COUPLING NEEDED — the one `cannot_vary` used to name as
@@ -989,15 +991,36 @@ def set_initial_water_table(finidat: str, water_table_m: float) -> str:
     Args:
         finidat: the single-column restart to edit (make_finidat_subset output).
         water_table_m: depth below ground, metres, positive down.
+        saturation_profile: optional {"depth_m": [...], "saturation": [...]} —
+            the driving model's solved profile. With `surfdata` given, the 10
+            active soil layers' liquid water is also rewritten from it, using
+            ELM's OWN porosity (pedotransfer from that surface data); ice is
+            left in place and liquid reduced where ice occupies pore space.
+            This is what makes an in-soil water table exact instead of
+            approximate: the moisture ELM re-diagnoses from now agrees with
+            the water table stamped above.
+        surfdata: the column's ELM surface dataset (needed with the profile).
 
     Returns:
         JSON: finidat, requested_m, written_m, old_zwt_m, new_wa_mm, regime
-        ("aquifer" exact / "in-soil" approximate), clamped, note.
+        ("aquifer" exact / "in-soil" approximate), clamped, note — plus
+        soil_moisture {layers_written, n_ice_layers, note} when a profile
+        was written.
     """
     import set_water_table
     try:
-        return json.dumps(set_water_table.apply(finidat, water_table_m,
-                                                quiet=True), indent=2)
+        out = set_water_table.apply(finidat, water_table_m, quiet=True)
+        if saturation_profile:
+            if not surfdata:
+                raise ValueError("a saturation_profile needs `surfdata` too — "
+                                 "the layer conversion uses ELM's own porosity"
+                                 " from the column's surface data")
+            rp = set_water_table.apply_profile(
+                finidat, saturation_profile["depth_m"],
+                saturation_profile["saturation"], surfdata, quiet=True)
+            out["soil_moisture"] = {k: rp[k] for k in
+                                    ("layers_written", "n_ice_layers", "note")}
+        return json.dumps(out, indent=2)
     except Exception as e:                                  # noqa: BLE001
         return json.dumps({"error": f"{type(e).__name__}: {e}",
                            "validation_status": "failed"})

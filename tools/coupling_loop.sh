@@ -61,7 +61,7 @@ for i in $(seq 1 "$MAX_ITERS"); do
   fi
 
   echo; echo "== iteration $i: ELM leg (start at PFLOTRAN's solved water tables) =="
-  "$PY" workflow.py --request "A coupling follow-up: re-run ELM from the prior PFLOTRAN run $(basename "$PRIOR"), reusing its columns exactly and starting each column at PFLOTRAN's solved water table." \
+  "$PY" workflow.py --request "A coupling follow-up: re-run ELM from the prior PFLOTRAN run $(basename "$PRIOR"), reusing its columns exactly and starting each column at PFLOTRAN's solved water table and soil moisture." \
         --output-dir ./workflow_outputs || { echo "ELM leg failed"; exit 1; }
   ELM_LEG="$(newest elm)"
   echo "   ELM leg -> $ELM_LEG"

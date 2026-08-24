@@ -103,7 +103,8 @@ def _prior_pflotran(tmp_path, bottom_saturated=True):
     (d / "03_results" / "extracted.json").write_text(json.dumps({
         "columns": {
             "col_01": {"depth_m": depths, "times_y": [0.0, 1.0],
-                       "liquid_pressure_Pa": [[atm] * 4, final1]},
+                       "liquid_pressure_Pa": [[atm] * 4, final1],
+                       "saturation": [[0.2] * 4, [0.31, 0.52, 1.0, 1.0]]},
             "col_02": {"depth_m": depths, "times_y": [0.0, 1.0],
                        "liquid_pressure_Pa": [[atm] * 4, final2]},
         }}))
@@ -298,3 +299,137 @@ def test_no_ensemble_job_reads_as_in_allocation_not_as_old():
             {"stages": {"build_cases": {"status": "pending",
                                         "job_id": "770001"}}}))
         assert "predates job_id_a" in _slurm_elapsed(rd)["note"]
+
+
+# ── the soil-moisture companion stamp ────────────────────────────────────
+
+_REAL_SURFDATA = ROOT / ("workflow_outputs/elm_run_20260813_233645/"
+                         "warmstart/surfdata_col_01.nc")
+needs_surfdata = pytest.mark.skipif(not _REAL_SURFDATA.exists(),
+                                    reason="no real surfdata fixture on disk")
+
+
+def _surf(tmp_path, sand=0.0, organic=0.0, missing_sand=False):
+    """A minimal ELM surface dataset: just what the pedotransfer reads."""
+    import netCDF4
+    p = tmp_path / "surf.nc"
+    d = netCDF4.Dataset(p, "w")
+    for name, n in (("nlevsoi", 10), ("lsmlat", 1), ("lsmlon", 1)):
+        d.createDimension(name, n)
+    if not missing_sand:
+        v = d.createVariable("PCT_SAND", "f8", ("nlevsoi", "lsmlat", "lsmlon"))
+        v[:] = sand
+    v = d.createVariable("ORGANIC", "f8", ("nlevsoi", "lsmlat", "lsmlon"))
+    v[:] = organic
+    d.close()
+    return p
+
+
+class TestTheLayerGridAndPedotransfer:
+    def test_the_grid_matches_the_measured_soil_bottom(self):
+        z, dz = swt._layer_grid()
+        assert len(z) == 15 and len(dz) == 15
+        zi10 = 0.5 * (z[9] + z[10])
+        assert zi10 == pytest.approx(swt.SOIL_BOTTOM_M, abs=0.01)
+
+    def test_pedotransfer_is_elms_own(self, tmp_path):
+        w = swt._watsat_from_surfdata(str(_surf(tmp_path, sand=30.0)))
+        assert w[0] == pytest.approx(0.489 - 0.00126 * 30.0)
+        w = swt._watsat_from_surfdata(str(_surf(tmp_path, organic=130.0)))
+        assert w[0] == pytest.approx(0.9)
+
+
+@needs_finidat
+class TestApplyProfile:
+    def _copy(self, tmp_path):
+        dst = tmp_path / "fini.nc"
+        shutil.copy(_REAL_FINIDAT, dst)
+        return dst
+
+    def _soil(self, f, row=None):
+        """(liq, ice, live-rows, snow offset) for the 10 active layers."""
+        import netCDF4
+        import numpy as np
+        d = netCDF4.Dataset(f)
+        off = d.variables["H2OSOI_LIQ"].shape[1] - swt.ELM_NLEVGRND
+        rows = np.where(~np.ma.getmaskarray(d.variables["ZWT"][:]))[0]
+        r = rows[0] if row is None else row
+        liq = np.array(d.variables["H2OSOI_LIQ"][r, :])
+        ice = np.array(d.variables["H2OSOI_ICE"][r, :])
+        d.close()
+        return liq, ice, rows, off
+
+    def test_liquid_is_saturation_times_elms_porosity(self, tmp_path):
+        f = self._copy(tmp_path)
+        _, ice, _, off = self._soil(f)
+        r = swt.apply_profile(str(f), [0.0, 30.0], [0.5, 0.5],
+                              str(_surf(tmp_path)), quiet=True)
+        z, dz = swt._layer_grid()
+        for j in range(10):
+            want = max(0.5 * 0.489 * dz[j] * 1000.0 - float(ice[off + j]),
+                       swt.WATMIN_KG_M2)
+            assert r["new_liq_kg_m2"][j] == pytest.approx(want, rel=1e-4), j
+        liq_after, _, _, _ = self._soil(f)
+        assert float(liq_after[off]) == pytest.approx(r["new_liq_kg_m2"][0],
+                                                      abs=1e-3)
+
+    def test_deep_layers_and_ice_are_untouched(self, tmp_path):
+        import numpy as np
+        f = self._copy(tmp_path)
+        liq0, ice0, _, off = self._soil(f)
+        swt.apply_profile(str(f), [0.0, 30.0], [0.8, 0.8],
+                          str(_surf(tmp_path)), quiet=True)
+        liq1, ice1, _, _ = self._soil(f)
+        assert np.allclose(liq0[off + 10:], liq1[off + 10:])   # layers 11-15
+        assert np.allclose(ice0, ice1)                          # ice never moves
+
+    def test_ice_displaces_liquid_and_is_counted(self, tmp_path):
+        import netCDF4
+        f = self._copy(tmp_path)
+        _, _, rows, off = self._soil(f)
+        with netCDF4.Dataset(f, "r+") as d:      # plant ice in layer 3
+            ice = d.variables["H2OSOI_ICE"][:]
+            ice[rows[0], off + 2] = 5.0
+            d.variables["H2OSOI_ICE"][:] = ice
+        r = swt.apply_profile(str(f), [0.0, 30.0], [0.4, 0.4],
+                              str(_surf(tmp_path)), quiet=True)
+        z, dz = swt._layer_grid()
+        full = 0.4 * 0.489 * dz[2] * 1000.0
+        assert r["new_liq_kg_m2"][2] == pytest.approx(
+            max(full - 5.0, swt.WATMIN_KG_M2), abs=1e-3)
+        assert r["n_ice_layers"] >= 1 and "ice left in place" in r["note"]
+
+    def test_saturation_is_clipped_to_physical(self, tmp_path):
+        f = self._copy(tmp_path)
+        r = swt.apply_profile(str(f), [0.0, 30.0], [1.7, 1.7],
+                              str(_surf(tmp_path)), quiet=True)
+        assert max(r["saturation_at_layers"]) == pytest.approx(1.0)
+
+    def test_refusals_name_their_reason(self, tmp_path):
+        f = self._copy(tmp_path)
+        with pytest.raises(ValueError, match="equal length"):
+            swt.apply_profile(str(f), [0.0, 1.0, 2.0], [0.5, 0.5],
+                              str(_surf(tmp_path)), quiet=True)
+        with pytest.raises(KeyError, match="PCT_SAND"):
+            swt.apply_profile(str(f), [0.0, 30.0], [0.5, 0.5],
+                              str(_surf(tmp_path, missing_sand=True)),
+                              quiet=True)
+
+
+class TestTheProfileTravels:
+    def test_the_profile_rides_the_column_uninterpreted(self, tmp_path):
+        out = ELMExpManager.__new__(ELMExpManager)._build_coupled_columns(
+            _cfg(_prior_pflotran(tmp_path)))
+        c1 = out["columns"][0]
+        prof = c1["initial_saturation_profile"]
+        assert prof["saturation"] == [0.31, 0.52, 1.0, 1.0]   # the FINAL time
+        assert prof["depth_m"] == [0.5, 2.0, 5.0, 6.5]
+        assert prof["at_time_y"] == 1.0
+        # col_02's block has no saturation -> no key, and that is fine
+        assert "initial_saturation_profile" not in out["columns"][1]
+
+    def test_the_new_keys_are_named_in_the_seam(self):
+        keys = ELMExpManager.__new__(ELMExpManager)._column_keys()
+        assert "initial_soil_moisture_note" in keys.keep
+        assert "initial_soil_moisture_note" in keys.optional
+        assert "initial_saturation_profile" in keys.drop

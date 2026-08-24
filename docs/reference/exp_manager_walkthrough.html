@@ -448,13 +448,17 @@
             <td><code>initial_water_table_m</code> — PFLOTRAN's solved depth as
                 the next start — with <code>water_table_prior_m</code> and
                 <code>water_table_delta_m</code>, the number an iteration
-                converges on</td></tr>
+                converges on, plus the final <em>saturation profile</em>,
+                carried uninterpreted</td></tr>
         <tr><th>at the build call</th>
             <td>the deck prefers the flux over rain and says so</td>
             <td>the warm start <em>stamps</em> the depth into each column's
                 finidat (<code>set_water_table.apply</code>: exact in the
-                aquifer, approximate in-soil and says so, clamped below the
-                domain and recorded)</td></tr>
+                aquifer, clamped below the domain and recorded) and rewrites
+                the 10 active layers' moisture from the same solution —
+                saturation converted with ELM's <em>own</em> porosity
+                (<code>apply_profile</code>), ice left in place — so the
+                column starts from one coherent state</td></tr>
       </tbody>
     </table>
     <p class="rule-note">The coupling variable arrives as prose in the brief;

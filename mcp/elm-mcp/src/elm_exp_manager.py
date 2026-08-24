@@ -237,6 +237,21 @@ class ELMExpManager(ExperimentManagerBase):
 			if isinstance(prior_wt, (int, float)):
 				col["water_table_prior_m"] = round(float(prior_wt), 3)
 				col["water_table_delta_m"] = round(float(solved) - float(prior_wt), 3)
+			# THE WHOLE PROFILE, NOT JUST THE CROSSING. PFLOTRAN also solved
+			# where the water sits above the table; carried UNINTERPRETED —
+			# ELM's server converts it with ELM's own porosity at the stamp
+			# (set_water_table.apply_profile), so each model's meaning stays
+			# on its own side and the column starts from one coherent state.
+			blk = data.get(cid) or {}
+			deps, sats = blk.get("depth_m"), blk.get("saturation")
+			if (isinstance(deps, list) and len(deps) >= 2
+					and isinstance(sats, list) and sats
+					and isinstance(sats[-1], list)):
+				col["initial_saturation_profile"] = {
+					"depth_m": [round(float(x), 3) for x in deps],
+					"saturation": [round(float(s), 4) for s in sats[-1]],
+					"at_time_y": (blk.get("times_y") or [None])[-1],
+				}
 			columns.append(col)
 
 		deltas = [c.get("water_table_delta_m") for c in columns
@@ -387,7 +402,7 @@ class ELMExpManager(ExperimentManagerBase):
 				# driving model moved it from ELM's own last answer.
 				"coupled_from", "coupling_variable",
 				"initial_water_table_m", "initial_water_table_written_m",
-				"initial_water_table_note",
+				"initial_water_table_note", "initial_soil_moisture_note",
 				"water_table_prior_m", "water_table_delta_m"),
 		# A site run starts warm by default and its columns do not say so
 		# per column; a sweep writes it. Neither absence is a hole — nor is
@@ -395,13 +410,18 @@ class ELMExpManager(ExperimentManagerBase):
 		optional = ("warm_start",
 					"coupled_from", "coupling_variable",
 					"initial_water_table_m", "initial_water_table_written_m",
-					"initial_water_table_note",
+					"initial_water_table_note", "initial_soil_moisture_note",
 					"water_table_prior_m", "water_table_delta_m"),
 		drop = {
 			"outside_design_band": "set by warm_start when the snapped donor "
 								   "leaves the band the sampler drew. A "
 								   "sampling-design fact, read by the design "
 								   "figure, not a property of the results",
+			"initial_saturation_profile": "the driving model's profile, "
+								   "already stamped into the finidat with "
+								   "ELM's own porosity; a table-sized design "
+								   "input — stays on columns.json, its note "
+								   "travels instead",
 		},
 		source = "columns.json -> columns[*], as build_elm_inputs_from_location wrote them",
 		where  = "mcp/elm-mcp/src/elm_exp_manager.py :: COLUMN_METADATA_EXTRA",

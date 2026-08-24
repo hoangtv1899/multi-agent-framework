@@ -358,6 +358,19 @@ def warm_start(run_dir: Path, columns: List[Dict],
             m["water_table_override"] = {k: r[k] for k in
                                          ("requested_m", "written_m", "regime",
                                           "clamped", "old_zwt_m")}
+            # And the layer moisture, when the driving model handed a profile:
+            # written from the SAME solution as the water table above, with
+            # ELM's own porosity, so the column starts from one coherent
+            # state (apply_profile's docstring owns the reasoning).
+            prof = c.get("initial_saturation_profile")
+            if prof and m.get("surface_template"):
+                rp = _swt.apply_profile(m["finidat"], prof["depth_m"],
+                                        prof["saturation"],
+                                        m["surface_template"])
+                c["initial_soil_moisture_note"] = rp["note"]
+                m["water_table_override"]["soil_moisture"] = {
+                    k: rp[k] for k in ("layers_written", "n_ice_layers",
+                                       "saturation_at_layers")}
 
         (run_dir / "warmstart" / "warmstart.json").write_text(
             json.dumps(manifest, indent=2))
