@@ -229,7 +229,7 @@
     <span class="eyebrow">6 · two-way coupling · PFLOTRAN's groundwater corrects ELM</span>
     <span class="pill p-ok">6 rounds · each leg's verdict: sufficient</span>
   </div>
-  <div class="meta"><span>one SLURM job (773722) · sbatch once, both models inside</span><span>Brandywine-Christina · 2010</span><span>tolerance 0.10 m on movement between rounds</span></div>
+  <div class="meta"><span>nine rounds, two SLURM jobs (773722, 774852) — sbatch once each, both models inside</span><span>Brandywine-Christina · 2010</span><span>tolerance 0.10 m on movement between rounds</span></div>
   <p class="q">"Iterate: ELM's drainage drives PFLOTRAN; PFLOTRAN's solved water
      table becomes ELM's next starting state — until the water table stops
      moving."</p>
@@ -251,19 +251,19 @@
       <figcaption>Inside one return leg: ELM's own water table through the year, measured from the depth PFLOTRAN handed it. The Analyzer drew this unprompted — the coupling facts ride each column like any other fact.</figcaption></figure>
   </div>
   <ul class="res">
-    <li><b>Six full rounds inside a single 1 h 15 m allocation</b> — ELM ensembles run in place, PFLOTRAN inline, a convergence check between every round.</li>
-    <li>Round 2 delivered the big correction: <b>18.5 m</b> at the deep columns. The shallow column then settled at <b>0.002 m per round — converged</b>.</li>
-    <li>The deep columns move a constant <b>≈0.50 m every round</b> (0.504, 0.504, 0.505, 0.505): a steady physical drift — ELM sends them no drainage, PFLOTRAN keeps draining — not a shrinking numerical error.</li>
-    <li>Every ELM return leg was read by the Analyzer with no special casing: it found the coupling facts on the columns, drew the drift, and reported ELM holding within ≈1 m of the imposed water table.</li>
+    <li><b>Nine full rounds</b>, each allocation submitted once — ELM ensembles run in place, PFLOTRAN inline, a convergence check between every round. Round 2 delivered the big correction: <b>18.5 m</b> at the deep columns.</li>
+    <li>Rounds 3–6 handed back only the water table, and the deep columns marched a constant <b>≈0.50 m every round</b> — a drift that never shrank.</li>
+    <li>From round 7 the return leg carried PFLOTRAN's <b>whole state</b> — water table and soil moisture, converted with ELM's own porosity — and the drift <b>vanished</b>: the deep columns now move 0.05 m per round, inside tolerance. Most of the "drift" was the incoherent start draining away, not groundwater physics.</li>
+    <li>The shallow column then honestly re-equilibrated to its drier soil: <b>0.39 → 0.26 → 0.23 m per round</b>, still contracting at the budget's end — movement already smaller than its own within-year swing (0.38 m).</li>
+    <li>Every ELM return leg was read by the Analyzer with no special casing; the +0.05 m anchor offset is printed as a diagnostic, never the verdict.</li>
   </ul>
-  <div class="take"><b>take-away</b>The information flows PFLOTRAN → ELM: the
-    18.5 m round-2 correction is PFLOTRAN's groundwater physics repairing
-    starting states ELM cannot fix itself — its own groundwater is a single
-    store that bottoms out at 28.8 m, with drainage switched off below the
-    3.8 m active soil. ELM's flux is the boundary that keeps PFLOTRAN honest.
-    The machinery is proven — one job, six rounds, honest verdicts; what
-    remains is science: the deep columns drift 0.5 m per round toward a much
-    deeper balance.</div>
+  <div class="take"><b>take-away</b>The information flows PFLOTRAN → ELM — and
+    handing back the <i>whole</i> state matters. The water table alone left a
+    0.5 m-per-round artifact that looked like physics; adding the soil
+    moisture, converted with ELM's own porosity, removed it in one round.
+    Nine rounds, two jobs, honest verdicts throughout; what remains is one
+    shallow column finishing a real re-equilibration, its movement already
+    below its own annual swing.</div>
 </section>
 
 <!-- ── summary ──────────────────────────────────────────────────── -->
