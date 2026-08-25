@@ -239,6 +239,17 @@ class TestReceptionCarriesThePriorForward:
         kept = stated["run_settings"]["resolved_period"]
         assert (kept["yr_start"], kept["source"]) == (2011, "user")
 
+        # An EMPTY period labelled "user" is a default in disguise (observed
+        # 2026-08-25: yr_start None on a follow-up that named no year, and
+        # honoring the label left the run with no years to force). The prior
+        # still wins.
+        empty_user = self._brief("elm_run_fixture")
+        empty_user["run_settings"] = {"resolved_period": {
+            "yr_start": None, "yr_end": None, "source": "user"}}
+        _carry_prior_forward(empty_user, str(rd), [])
+        got = empty_user["run_settings"]["resolved_period"]
+        assert (got["yr_start"], got["source"]) == (2010, "carried")
+
     def test_an_unresolvable_prior_raises_with_candidates(self, tmp_path):
         from agents.reception_llm import _carry_prior_forward
         rd = tmp_path / "pflotran_run_x"

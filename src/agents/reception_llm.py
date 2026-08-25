@@ -166,8 +166,15 @@ def _carry_prior_forward(brief, run_dir, prov):
     prior_period = ((pb.get("run_settings") or {})
                     .get("resolved_period") or {})
     mine_p = rs.get("resolved_period") or {}
-    if prior_period.get("yr_start") and \
-            str(mine_p.get("source") or "").lower() != "user":
+    # "USER-STATED" NEEDS YEARS TO STATE. The LLM sometimes labels an EMPTY
+    # period source="user" (observed 2026-08-25: yr_start None on a coupling
+    # follow-up that named no year), and taking the label at face value left
+    # the run with no years at all — the strategy gate then rightly stopped
+    # it. A user statement the exception can honor is one that carries an
+    # actual yr_start; an empty claim is a default in disguise.
+    mine_is_user = (str(mine_p.get("source") or "").lower() == "user"
+                    and mine_p.get("yr_start"))
+    if prior_period.get("yr_start") and not mine_is_user:
         if mine_p.get("yr_start") and \
                 int(mine_p["yr_start"]) != int(prior_period["yr_start"]):
             print(f"   ⚠️  the brief's period {mine_p.get('yr_start')}-"
