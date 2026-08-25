@@ -71,6 +71,15 @@ def main(ref_case, work_dir) -> int:
 
     fs, fx = ew.latest_restart(straight), ew.latest_restart(sliced)
     print(f"comparing {fs.name} vs {fx.name}", flush=True)
+    # SAME DATE OR NO COMPARISON. A continuation that silently re-runs its
+    # first window leaves the pointer on the earlier date, and comparing
+    # day 15 against day 8 reports huge "leaks" that are really a slice
+    # that never advanced (seen on job 774959).
+    ds, dx = fs.name.split(".r.")[-1], fx.name.split(".r.")[-1]
+    if ds != dx:
+        print(f"VERDICT: SLICE DID NOT ADVANCE — straight ends at {ds}, "
+              f"sliced at {dx}; the continuation never took effect")
+        return 1
 
     import numpy as np
     from netCDF4 import Dataset

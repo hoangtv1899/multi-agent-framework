@@ -195,6 +195,14 @@ def configure_continuation(case_dir, stop_n, stop_option="ndays"):
         subprocess.run(["./xmlchange", f"{key}={val}"], cwd=cd,
                        env=_cime_env(), check=True, capture_output=True,
                        text=True)
+    # xmlchange edits env_run.xml ONLY; the executable reads the RUN-DIR
+    # namelists, and CONTINUE_RUN becomes drv_in's start_type='continue'
+    # only when those are regenerated. Measured live (job 774959): without
+    # this line the second slice silently re-ran the FIRST week from the
+    # original start — srun returned 0, the rpointer moved back to day 8,
+    # and nothing said so.
+    subprocess.run(["./preview_namelists"], cwd=cd, env=_cime_env(),
+                   check=True, capture_output=True, text=True)
 
 
 def run_built_case(case_dir) -> bool:
@@ -225,18 +233,22 @@ def run_built_case(case_dir) -> bool:
 
     logger.info(f"Running via srun: {case_dir.name}")
     start = time.time()
+    # THE CASE'S OWN ENVIRONMENT FIRST — .env_mach_specific.sh loads the
+    # modules the executable was linked against (job 774958 died in one
+    # second on libnetcdf.so.15 without it). Same pattern as
+    # tools/run_cases.sh, which is how every ensemble run does it; sourcing
+    # needs a shell, so the srun goes through bash -c.
+    #
+    # --mpi=pmi2 is REQUIRED on Compy: cases are built against Intel MPI
+    # (mpilib=impi) and CIME's compy config specifies --mpi=pmi2 for it.
+    # Without it Intel MPI falls back to its hydra bootstrap and dies
+    # setting up proxies.
     result = subprocess.run(
-        [
-            # --mpi=pmi2 is REQUIRED on Compy: cases are built against
-            # Intel MPI (mpilib=impi) and CIME's compy config specifies
-            # --mpi=pmi2 for it. Without it Intel MPI falls back to its
-            # hydra bootstrap and dies setting up proxies.
-            "srun", "--mpi=pmi2", "--label",
-            "-n", "1", "-N", "1", "-c", "2",
-            "--cpu_bind=cores",
-            str(exe_path),
-        ],
-        cwd=run_dir,
+        ["bash", "-c",
+         "source ./.env_mach_specific.sh 2>/dev/null; "
+         "cd run && srun --mpi=pmi2 --label -n 1 -N 1 -c 2 "
+         f"--cpu_bind=cores '{exe_path}'"],
+        cwd=case_dir,
         capture_output=True,
         text=True,
     )

@@ -27,12 +27,17 @@ import elm_wrapper as ew                               # noqa: E402
 
 
 def _fake_case(tmp_path):
-    """A case dir whose ./xmlchange appends each call to xml.log."""
+    """A case dir whose ./xmlchange appends each call to xml.log and whose
+    ./preview_namelists leaves a marker — the regeneration step that turns
+    CONTINUE_RUN into the run-dir namelists the executable actually reads."""
     case = tmp_path / "case"
     (case / "run").mkdir(parents=True)
     stub = case / "xmlchange"
     stub.write_text("#!/bin/bash\necho \"$@\" >> xml.log\n")
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    pv = case / "preview_namelists"
+    pv.write_text("#!/bin/bash\ntouch namelists_regenerated\n")
+    pv.chmod(pv.stat().st_mode | stat.S_IEXEC)
     return case
 
 
@@ -43,6 +48,14 @@ class TestConfigureContinuation:
         got = (case / "xml.log").read_text().splitlines()
         assert got == ["CONTINUE_RUN=TRUE", "STOP_N=7", "STOP_OPTION=ndays",
                        "REST_N=7", "REST_OPTION=ndays"]
+
+    def test_the_namelists_are_regenerated(self, tmp_path):
+        """xmlchange edits env_run.xml only; the executable reads the run-dir
+        namelists. Without regeneration the next slice silently re-runs the
+        previous window (measured: job 774959)."""
+        case = _fake_case(tmp_path)
+        ew.configure_continuation(case, stop_n=7)
+        assert (case / "namelists_regenerated").exists()
 
     def test_a_monthly_window(self, tmp_path):
         case = _fake_case(tmp_path)
