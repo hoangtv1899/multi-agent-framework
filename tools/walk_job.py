@@ -67,6 +67,12 @@ def main(walk_dir):
     solved_of = _solved_fn()
     EXE = os.environ["PFLOTRAN_EXECUTABLE"]
     t0, year = float(walk["t0_y"]), int(walk["year"])
+    # walk_setup.py --bottom: "water_table" re-anchors every window's deck to
+    # the starting level (which pins the answer there); "none" seals the
+    # bottom so the level must move with the drainage. The spin decks are
+    # anchored regardless — the seal starts at window 0, whose state comes
+    # from the anchored spin's checkpoint.
+    bottom = walk.get("pf_bottom", "water_table")
     win = walk["window"]
     windows = walk_lib.window_edges(year, months=win.get("months"),
                                     days=win.get("days"))
@@ -152,7 +158,7 @@ def main(walk_dir):
                 out_dir=str(wd / "pf" / f"w{w['i']:02d}"),
                 water_table_m=float(c["water_table_m"]),
                 recharge_series=series, cells=cells_of[cid],
-                restart_from=state["checkpoints"][cid],
+                restart_from=state["checkpoints"][cid], bottom=bottom,
                 final_time_y=end, output_times_y=[end], checkpoint=True)
             ok, r = pf_run_ok(built["input_file"])
             assert ok, (cid, w["i"], r)
@@ -219,7 +225,8 @@ def main(walk_dir):
         }
     (wd / "walk_summary.json").write_text(json.dumps({
         "year": year, "window": win, "n_windows": len(windows),
-        "t0_y": t0, "solved_trajectories": traj, "elm_daily": elm_series,
+        "t0_y": t0, "pf_bottom": bottom,
+        "solved_trajectories": traj, "elm_daily": elm_series,
         "window_0_note": (
             "the first ~14 days carry ELM's warm-start relaxation (the "
             "day-1 drainage spike the site extractor normally trims — see "

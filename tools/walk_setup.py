@@ -75,6 +75,16 @@ def main():
     ap.add_argument("--months", type=int, default=None)
     ap.add_argument("--days", type=int, default=None)
     ap.add_argument("--year", type=int, default=None)
+    # THE BOTTOM OF THE WALK'S PFLOTRAN COLUMNS. "water_table" holds the
+    # pressure at the bottom fixed to the starting anchor — which PINS the
+    # solved water table there (measured 2026-08-25: 100x the recharge moved
+    # it 11 cm), so the walk exchanges a number that cannot change. "none"
+    # seals the bottom: no water passes, and the level must genuinely rise
+    # and fall with the season's drainage. The SPIN decks stay anchored
+    # either way — a sealed column fed a steady inflow never settles, so the
+    # warm-up needs the anchor; the seal applies from the first window on.
+    ap.add_argument("--bottom", choices=("water_table", "none"),
+                    default="water_table")
     a = ap.parse_args()
 
     elm_run = Path(a.elm_run).resolve()
@@ -172,6 +182,7 @@ def main():
         # The walk's clock origin: the spin runs 20 years steady (the
         # builder's steady final_time), so its checkpoint carries t=20 y.
         "t0_y": 20.0,
+        "pf_bottom": a.bottom,
         "site_dir": str(pf_run),
         "elm_run_source": str(elm_run),
         "columns": cols,
@@ -179,7 +190,8 @@ def main():
     (out / "walk.json").write_text(json.dumps(walk, indent=1))
     print(f"walk.json written: {len(cols)} column(s), {len(windows)} "
           f"window(s) of {a.months or a.days} "
-          f"{'month(s)' if a.months else 'day(s)'}, year {year}")
+          f"{'month(s)' if a.months else 'day(s)'}, year {year}, "
+          f"window bottom {a.bottom!r}")
     print(f"next: submit tools/walk_job.py {out} inside a SLURM job "
           f"(ask first)")
 
