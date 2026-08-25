@@ -362,6 +362,7 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		KEEP = ("id", "lat", "lon", "elevation_m", "band", "band_range_m",
 				"pinned", "station_id", "station_variable")
 		columns: List[Dict[str, Any]] = []
+		skipped: List[Dict[str, str]] = []
 		for c in prior:
 			cid = c.get("id")
 			block = (data.get(cid) or {})
@@ -378,9 +379,17 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					f"mm/day — convert at the extract, not here")
 			wt = wtd.get(cid)
 			if not isinstance(wt, (int, float)):
-				raise RuntimeError(
-					f"{cid}: the prior run reports no water_table_depth_m in "
-					f"its metrics — the coupled column has nothing to anchor to")
+				# A COLUMN THE DRIVER NEVER SOLVED IS REPORTED, NOT FATAL to
+				# its siblings. Observed (Naches col_04, 2026-08-25): ELM wrote
+				# 365 days of fill values for ZWT while QDRAI was real — the
+				# cell drains but has no defined water table, so a coupled deck
+				# has nothing to anchor at. The skip and its reason travel on
+				# columns.json (res is persisted whole).
+				skipped.append({"id": cid, "reason": (
+					"the prior run reports no water_table_depth_m in its "
+					"metrics — nothing to anchor the coupled column to; "
+					"left out while its siblings run")})
+				continue
 			dates = block.get("dates") or []
 			col: Dict[str, Any] = {k: c.get(k) for k in KEEP if c.get(k) is not None}
 			col["water_table_m"] = round(float(wt), 3)
@@ -399,8 +408,11 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 				col["forcing_end"] = int(str(dates[-1])[:4])
 			columns.append(col)
 
+		for s in skipped:
+			print(f"   ⚠️  {s['id']} skipped: {s['reason']}")
 		print(f"   {len(columns)} column(s) from {src.name}, each with its "
-			  f"own {var} series and solved water table")
+			  f"own {var} series and solved water table"
+			  + (f"; {len(skipped)} skipped" if skipped else ""))
 		return {
 			"approach": "coupled",
 			"coupled_from": str(src),
@@ -408,6 +420,7 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			"n_columns": len(columns),
 			"bands": [],
 			"columns": columns,
+			"skipped_columns": skipped,
 		}
 
 	def _refine_columns(self, columns, config: Dict[str, Any]) -> Dict[str, Any]:

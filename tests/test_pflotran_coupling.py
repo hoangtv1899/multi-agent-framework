@@ -129,10 +129,19 @@ class TestEveryRefusalNamesItsReason:
         with pytest.raises(RuntimeError, match="mm/s.*mm/day"):
             _mgr(tmp_path)._build_coupled_columns(_config(prior))
 
-    def test_a_column_with_no_solved_water_table(self, tmp_path):
+    def test_a_column_with_no_solved_water_table_is_skipped_not_fatal(
+            self, tmp_path):
+        """The driver honestly never solved it (Naches col_04, 2026-08-25:
+        ELM wrote 365 days of ZWT fill values while QDRAI was real), so the
+        column is left out WITH ITS REASON ON THE RECORD — not invented an
+        anchor, and not allowed to sink its 18 siblings."""
         prior = _prior(tmp_path, wtd=(4.25, None))
-        with pytest.raises(RuntimeError, match="col_02.*water_table_depth_m"):
-            _mgr(tmp_path)._build_coupled_columns(_config(prior))
+        res = _mgr(tmp_path)._build_coupled_columns(_config(prior))
+        assert [c["id"] for c in res["columns"]] == ["col_01"]
+        assert res["n_columns"] == 1
+        (skip,) = res["skipped_columns"]
+        assert skip["id"] == "col_02"
+        assert "water_table_depth_m" in skip["reason"]
 
 
 class TestTheBaseRoutesTheArchetype:
