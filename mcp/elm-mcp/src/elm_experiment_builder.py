@@ -267,15 +267,22 @@ class ELMExperimentBuilder:
         if soil_config == 'native':
             logger.info(f"   substrate: {substrate}")
 
-        # Runtime config passed to the adapter
+        # Runtime config passed to the adapter. A coupler entry may carry its
+        # own STOP_OPTION/REST_* — a case that will run in SLICES (the
+        # walk-through-the-year coupling) is built with STOP_OPTION='ndays'
+        # and REST pinned to the same window, so every slice ends on a
+        # restart the next slice (possibly stamped) continues from.
         runtime_config = {
             'STOP_N':                stop_n,
-            'STOP_OPTION':           elm_cfg.get('base_stop_option', 'nyears'),
+            'STOP_OPTION':           str(coupler.get(
+                'STOP_OPTION', elm_cfg.get('base_stop_option', 'nyears'))),
             'DATM_CLMNCEP_YR_START': yr_start,
             'DATM_CLMNCEP_YR_END':   yr_end,
             'RUN_STARTDATE':         start_date,
-            'REST_N':                elm_cfg.get('base_rest_n',     '1'),
-            'REST_OPTION':           elm_cfg.get('base_rest_option', 'nyears'),
+            'REST_N':                str(coupler.get(
+                'REST_N', elm_cfg.get('base_rest_n', '1'))),
+            'REST_OPTION':           str(coupler.get(
+                'REST_OPTION', elm_cfg.get('base_rest_option', 'nyears'))),
         }
         if coupler.get('FINIDAT'):
             runtime_config['FINIDAT'] = coupler['FINIDAT']   # warm-start initial state

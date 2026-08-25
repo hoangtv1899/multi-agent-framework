@@ -149,6 +149,108 @@ XML_RUNTIME_KEYS = RUNTIME_KEYS - {'FSURDAT', 'FINIDAT'}
 
 
 # ─────────────────────────────────────────────────────────────────────
+# SLICES — continue a built case in place, the walk-through-the-year seam.
+# One case per column for the whole year; each slice advances it a window
+# and ends on a restart, which a between-slice stamping may edit before
+# the next slice reads it.
+# ─────────────────────────────────────────────────────────────────────
+def latest_restart(case_dir) -> Path:
+    """The land restart file the next continuation will start from.
+
+    Read from run/rpointer.lnd — the pointer ELM itself follows on
+    CONTINUE_RUN — never guessed from a directory listing: a run dir
+    accumulates restarts, and the newest mtime is not the pointer's choice.
+    This is the file a between-slice stamping edits (set_water_table.apply /
+    apply_profile take it like any finidat — a restart IS that format).
+    """
+    rd = Path(case_dir) / "run"
+    rp = rd / "rpointer.lnd"
+    if not rp.is_file():
+        raise ValueError(
+            f"no rpointer.lnd in {rd} — the case has not written a land "
+            f"restart yet, so there is nothing to continue from or to stamp")
+    name = rp.read_text().strip().splitlines()[0].strip()
+    f = rd / name
+    if not f.is_file():
+        raise ValueError(f"rpointer.lnd names {name!r} but {f} does not exist")
+    return f
+
+
+def configure_continuation(case_dir, stop_n, stop_option="ndays"):
+    """Point a built case at its NEXT slice: continue, this much further.
+
+    xmlchange only — no build, no namelists, no run. With CONTINUE_RUN set,
+    each later invocation of the executable advances the case by stop_n more
+    stop_option from wherever it stopped, reading its state through the
+    rpointer files — which is exactly what lets a stamping of
+    latest_restart() between slices reach the model. REST is pinned to the
+    same window so every slice ends on a restart.
+    """
+    cd = Path(case_dir)
+    for key, val in (("CONTINUE_RUN", "TRUE"),
+                     ("STOP_N", str(int(stop_n))),
+                     ("STOP_OPTION", str(stop_option)),
+                     ("REST_N", str(int(stop_n))),
+                     ("REST_OPTION", str(stop_option))):
+        subprocess.run(["./xmlchange", f"{key}={val}"], cwd=cd,
+                       env=_cime_env(), check=True, capture_output=True,
+                       text=True)
+
+
+def run_built_case(case_dir) -> bool:
+    """srun the case's executable from its run dir (blocking; needs a node).
+
+    Module-level so a slice loop can rerun an existing case without
+    reconstructing the agent that built it; GeneratedELMAgent.run_simulation
+    delegates here.
+    """
+    case_dir = Path(case_dir)
+    run_dir = case_dir / "run"
+    # Resolve the exe via EXEROOT so --keepexe clones work (their exe lives
+    # in the reference case's build dir, not <case>/build).
+    try:
+        exeroot = subprocess.check_output(
+            ["./xmlquery", "EXEROOT", "--value"],
+            cwd=case_dir, env=_cime_env(), text=True,
+        ).strip()
+        exe_path = Path(exeroot) / "e3sm.exe"
+    except Exception:
+        exe_path = case_dir / "build" / "e3sm.exe"
+
+    if not exe_path.exists():
+        raise RuntimeError(f"Executable not found: {exe_path}")
+
+    # Ensure timing dir exists (ELM requires this)
+    (run_dir / "timing" / "checkpoints").mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Running via srun: {case_dir.name}")
+    start = time.time()
+    result = subprocess.run(
+        [
+            # --mpi=pmi2 is REQUIRED on Compy: cases are built against
+            # Intel MPI (mpilib=impi) and CIME's compy config specifies
+            # --mpi=pmi2 for it. Without it Intel MPI falls back to its
+            # hydra bootstrap and dies setting up proxies.
+            "srun", "--mpi=pmi2", "--label",
+            "-n", "1", "-N", "1", "-c", "2",
+            "--cpu_bind=cores",
+            str(exe_path),
+        ],
+        cwd=run_dir,
+        capture_output=True,
+        text=True,
+    )
+    elapsed = (time.time() - start) / 60
+
+    if result.returncode == 0:
+        logger.info(f"srun completed in {elapsed:.1f} min")
+        return True
+    logger.error(f"srun failed after {elapsed:.1f} min: "
+                 f"{result.stderr[-300:]}")
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────
 # ELM AGENT
 # ─────────────────────────────────────────────────────────────────────
 class GeneratedELMAgent:
@@ -255,55 +357,10 @@ class GeneratedELMAgent:
             raise RuntimeError(
                 "Case not built. Call prepare_case() first."
             )
-
-        run_dir = self.case_dir / "run"
-        # Resolve the exe via EXEROOT so --keepexe clones work (their exe lives
-        # in the reference case's build dir, not <case>/build).
-        try:
-            exeroot = subprocess.check_output(
-                ["./xmlquery", "EXEROOT", "--value"],
-                cwd=self.case_dir, env=_cime_env(), text=True,
-            ).strip()
-            exe_path = Path(exeroot) / "e3sm.exe"
-        except Exception:
-            exe_path = self.case_dir / "build" / "e3sm.exe"
-
-        if not exe_path.exists():
-            raise RuntimeError(f"Executable not found: {exe_path}")
-
-        # Ensure timing dir exists (ELM requires this)
-        timing_dir = run_dir / "timing" / "checkpoints"
-        timing_dir.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Running via srun: {self.case_name}")
-        start  = time.time()
-        result = subprocess.run(
-            [
-                # --mpi=pmi2 is REQUIRED on Compy: cases are built against
-                # Intel MPI (mpilib=impi) and CIME's compy config specifies
-                # --mpi=pmi2 for it. Without it Intel MPI falls back to its
-                # hydra bootstrap and dies setting up proxies.
-                "srun", "--mpi=pmi2", "--label",
-                "-n", "1", "-N", "1", "-c", "2",
-                "--cpu_bind=cores",
-                str(exe_path),
-            ],
-            cwd            = run_dir,
-            capture_output = True,
-            text           = True,
-        )
-        elapsed = (time.time() - start) / 60
-
-        if result.returncode == 0:
+        ok = run_built_case(self.case_dir)
+        if ok:
             self.is_completed = True
-            logger.info(f"srun completed in {elapsed:.1f} min")
-            return True
-        else:
-            logger.error(
-                f"srun failed after {elapsed:.1f} min: "
-                f"{result.stderr[-300:]}"
-            )
-            return False
+        return ok
 
     def get_summary(self) -> dict:
         """Return current case state."""
