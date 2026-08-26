@@ -553,6 +553,12 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					  "kept in run_plan.json; the row's status carries the fact",
 			"case_dir": "the extractor's row already carries it, from the run",
 			"input_file": "the deck's path; case_dir locates it",
+			"restart_file_expected": "the save-and-continue seam's fact — "
+									 "where a checkpointed run writes its "
+									 "saved state. The walk reads it off the "
+									 "deck rows (walk_setup spin_checkpoint); "
+									 "a run that does not checkpoint carries "
+									 "None. Not an input to the column",
 			"n_cells": "the extractor reports it from the output itself",
 			"depth_m": "the extractor reports it as domain_depth_m, read off "
 					   "the output",
