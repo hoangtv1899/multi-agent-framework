@@ -22,6 +22,7 @@ Where the pieces come from:
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -56,6 +57,34 @@ def _clone_elm(ref, dest, first_window):
         _sh(["./xmlchange", kv], cwd=dest)
     _sh(["./case.setup"], cwd=dest)
     return dest
+
+
+def _own_finidat(dest):
+    """Copy the source finidat into the clone and point user_nl_elm at it.
+
+    Window 1 replays the starting file's relaxation as January weather:
+    measured at Naches (job 775060), the UNCOUPLED warm start burst
+    648-1795 mm/day of drainage — against 2.5 mm/day annual means — into
+    sealed columns and killed the solver at day 22. walk_job therefore
+    stamps PFLOTRAN's spun state onto the starting file before the first
+    window (the same return leg every later window gets), and the file it
+    stamps must be the CLONE'S OWN COPY: the source run's finidat is a
+    finished study's record, and is never written."""
+    unl = dest / "user_nl_elm"
+    text = unl.read_text()
+    m = re.search(r"finidat\s*=\s*'([^']+)'", text)
+    if not m:
+        raise RuntimeError(f"{dest}: user_nl_elm names no finidat — the walk "
+                           f"stamps the starting state and needs one")
+    src = Path(m.group(1))
+    own = dest / f"finidat_{src.name}"
+    shutil.copy(src, own)
+    unl.write_text(text.replace(m.group(0), f"finidat = '{own}'"))
+    # the run-dir namelists were generated at case.setup, BEFORE the
+    # rewrite — without this the run still reads the source file (the
+    # slice-proof lesson, job 774959)
+    _sh(["./preview_namelists"], cwd=dest)
+    return own
 
 
 def _fsurdat_of(case_dir):
@@ -174,10 +203,12 @@ def main():
         if cid not in built:
             raise SystemExit(f"{cid}: the elm run built no case for it")
         dest = _clone_elm(Path(built[cid]), out / "elm" / cid, windows[0])
+        finidat = _own_finidat(dest)
         r = rows[cid]
         cols.append({
             "id": cid,
             "elm_case_dir": str(dest),
+            "finidat": str(finidat),
             "fsurdat": _fsurdat_of(dest),
             "water_table_m": c.get("water_table_m"),
             "depth_m": r.get("depth_m"),

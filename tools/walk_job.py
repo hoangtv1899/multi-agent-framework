@@ -83,6 +83,13 @@ def main(walk_dir):
         codes = r.get("exit_codes") or [r.get("exit_code")]
         return all(c == 0 for c in codes), r
 
+    # A COLUMN MAY LEAVE THE WALK. A sealed column that fills has nowhere
+    # to put arriving water — the solver dies mid-window and PFLOTRAN still
+    # exits 0 at its step cap (measured: Naches col_10, job 775060, dead at
+    # day 22 after 166k timestep cuts). One column's death is recorded with
+    # its reason and window, and the others walk on.
+    state.setdefault("dead", {})
+
     # ── spin once: PFLOTRAN's clock starts where these end ──────────────
     if not state.get("spun"):
         for c in cols:
@@ -92,6 +99,30 @@ def main(walk_dir):
             ck = Path(c["spin_checkpoint"])
             assert ck.is_file(), f"{c['id']}: spin wrote no checkpoint {ck}"
             state["checkpoints"][c["id"]] = str(ck)
+            # THE RETURN LEG, BEFORE THE FIRST WINDOW. An uncoupled warm
+            # start replays its relaxation as January weather (Naches, job
+            # 775060: 648-1795 mm/day day-one bursts against 2.5 mm/day
+            # annual means — a solver-killing slug into a sealed column).
+            # Stamping the spun state onto the clone's OWN starting file is
+            # the same repair every later window gets; walk_setup made the
+            # copy, and old walk dirs without `finidat` are left unstamped.
+            if c.get("finidat"):
+                out_file = str(wd / "pf_spin" / f"x_{c['id']}.json")
+                pf_server.extract_column_series(
+                    cases=[{"id": c["id"],
+                            "case_dir": str(Path(c["spin_input_file"]).parent)}],
+                    out_file=out_file)
+                block = json.loads(
+                    Path(out_file).read_text())["columns"][c["id"]]
+                wt0 = solved_of(block)
+                assert wt0 is not None, (c["id"], "spin solved no water table")
+                a1 = swt.apply(c["finidat"], max(float(wt0), 0.01), quiet=True)
+                a2 = swt.apply_profile(c["finidat"], block["depth_m"],
+                                       block["saturation"][-1], c["fsurdat"],
+                                       quiet=True)
+                print(f"   {c['id']}: spun state stamped onto its starting "
+                      f"file (wt {a1.get('written_m')} m, "
+                      f"{a2.get('layers_written')} layers)", flush=True)
         state["spun"] = True
         walk_lib.save_state(wd, state)
 
@@ -113,12 +144,17 @@ def main(walk_dir):
 
     # ── the walk ────────────────────────────────────────────────────────
     for w in windows[int(state["windows_done"]):]:
+        alive = [c for c in cols if c["id"] not in state["dead"]]
+        if not alive:
+            print("== every column has left the walk — stopping", flush=True)
+            break
         print(f"== window {w['i'] + 1}/{len(windows)} "
-              f"(days {w['d0']}..{w['d1']})", flush=True)
+              f"(days {w['d0']}..{w['d1']}, {len(alive)} column(s))",
+              flush=True)
         row = {"window": w["i"], "d0": w["d0"], "d1": w["d1"], "columns": {}}
 
         expected_end = walk_lib.window_end_date(year, w["d1"])
-        for c in cols:
+        for c in alive:
             case = c["elm_case_dir"]
             # RESUME-SAFE: state advances only after a FULL window, so a job
             # killed mid-window re-enters it — and continuing a case that
@@ -143,7 +179,7 @@ def main(walk_dir):
                                           stop_option=w["stop_option"])
             assert ew.run_built_case(case), f"{c['id']}: ELM window {w['i']}"
 
-        for c in cols:
+        for c in alive:
             cid = c["id"]
             data, meta = elm_extract.extract_column(
                 c["elm_case_dir"], variables=["QDRAI"], spinup_days=0)
@@ -160,17 +196,66 @@ def main(walk_dir):
                 recharge_series=series, cells=cells_of[cid],
                 restart_from=state["checkpoints"][cid], bottom=bottom,
                 final_time_y=end, output_times_y=[end], checkpoint=True)
-            ok, r = pf_run_ok(built["input_file"])
-            assert ok, (cid, w["i"], r)
-            out_file = str(wd / "pf" / f"w{w['i']:02d}" / f"x_{cid}.json")
-            pf_server.extract_column_series(
-                cases=[{"id": cid, "case_dir": built["case_dir"]}],
-                out_file=out_file)
-            block = json.loads(Path(out_file).read_text())["columns"][cid]
-            wt_solved = solved_of(block)
-            assert wt_solved is not None, (cid, "no solved water table")
             ck = Path(built["restart_file_expected"])
-            assert ck.is_file(), (cid, f"window wrote no checkpoint {ck}")
+            out_file = str(wd / "pf" / f"w{w['i']:02d}" / f"x_{cid}.json")
+
+            def _window_block():
+                pf_server.extract_column_series(
+                    cases=[{"id": cid, "case_dir": built["case_dir"]}],
+                    out_file=out_file)
+                return json.loads(
+                    Path(out_file).read_text())["columns"].get(cid)
+
+            # THE PF MIRROR OF THE ELM SKIP-GUARD (adversarial review,
+            # 2026-08-26): a re-entered window may already hold this leg's
+            # finished result — the kill gap between _log and save_state
+            # re-enters the window, and re-running a finished deterministic
+            # leg only gives a transient failure (a slow node, a timeout)
+            # the chance to disown it and record a healthy column dead. The
+            # window's own checkpoint name is the proof: a step-cap death
+            # writes <cid>-restart-max-ts.h5 and no snapshot, so it cannot
+            # pass this gate.
+            block = None
+            if ck.is_file():
+                block = _window_block()
+                if block:
+                    print(f"   {cid}: window checkpoint and output already "
+                          f"present — reused, not re-run", flush=True)
+            # THE EXIT CODE IS NOT THE VERDICT: PFLOTRAN exits 0 when it
+            # gives up at its step cap. The window's checkpoint and its
+            # output time are what say the window was actually reached.
+            reason = None
+            if block is None:
+                ok, r = pf_run_ok(built["input_file"])
+                if not ok:
+                    # exit codes + the run layer's own error sentence — not
+                    # str(dict) truncated into a list of file paths (the
+                    # review measured the 'error' field always cut off)
+                    reason = ("the window's PFLOTRAN run failed: exit_codes="
+                              f"{r.get('exit_codes') or [r.get('exit_code')]}"
+                              + (f"; {r.get('error')}" if r.get("error")
+                                 else ""))
+                elif not ck.is_file():
+                    reason = ("the solver never reached the window's end — "
+                              "no checkpoint written (a sealed column that "
+                              "fills has nowhere to put arriving water)")
+                else:
+                    block = _window_block()
+                    if not block:
+                        reason = ("the run wrote no output snapshot — "
+                                  "nothing extracted at the window's end")
+            if reason is None:
+                wt_solved = solved_of(block)
+                if wt_solved is None:
+                    reason = "no solved water table in the window's extract"
+            if reason:
+                state["dead"][cid] = {"window": w["i"],
+                                      "window_end_day": w["d1"],
+                                      "reason": reason}
+                row["columns"][cid] = {"failed": reason}
+                print(f"   ✗ {cid} leaves the walk at window {w['i'] + 1}: "
+                      f"{reason}", flush=True)
+                continue
 
             # SATURATED TO THE SURFACE IS AN ANSWER, NOT A CRASH: solved 0.0
             # is a real winter state, and apply() rightly refuses 0 as "not
@@ -210,14 +295,27 @@ def main(walk_dir):
     for line in (wd / "walk_log.jsonl").read_text().splitlines():
         r = json.loads(line)
         for cid, v in r["columns"].items():
-            by_day[cid][r["d1"]] = v["wt_solved_m"]
+            # "the later row wins" must hold in BOTH directions: a success
+            # overwrites, and a failure TOMBSTONES the day — otherwise a
+            # window logged success-then-failure (killed in the log/state
+            # gap, then disowned on re-entry) would keep a trajectory point
+            # at the very day the death record says nothing was solved.
+            if isinstance(v, dict) and "wt_solved_m" in v:
+                by_day[cid][r["d1"]] = v["wt_solved_m"]
+            elif isinstance(v, dict) and "failed" in v:
+                by_day[cid].pop(r["d1"], None)
     traj = {cid: {"day": sorted(d), "wt_solved_m": [d[k] for k in sorted(d)]}
             for cid, d in by_day.items()}
-    # ELM's own view of the year, for the cadence figure
+    # ELM's own view of the year, for the cadence figure — partial for a
+    # column that left the walk (its case stands at the window it died in)
     elm_series = {}
     for c in cols:
-        data, _m = elm_extract.extract_column(
-            c["elm_case_dir"], variables=["ZWT", "QDRAI"], spinup_days=0)
+        try:
+            data, _m = elm_extract.extract_column(
+                c["elm_case_dir"], variables=["ZWT", "QDRAI"], spinup_days=0)
+        except Exception as e:                              # noqa: BLE001
+            elm_series[c["id"]] = {"error": f"{type(e).__name__}: {e}"[:200]}
+            continue
         elm_series[c["id"]] = {
             "dates": data.get("dates"),
             "ZWT": ((data.get("variables") or {}).get("ZWT") or {}).get("values"),
@@ -226,6 +324,7 @@ def main(walk_dir):
     (wd / "walk_summary.json").write_text(json.dumps({
         "year": year, "window": win, "n_windows": len(windows),
         "t0_y": t0, "pf_bottom": bottom,
+        "columns_left_the_walk": state["dead"],
         "solved_trajectories": traj, "elm_daily": elm_series,
         "window_0_note": (
             "the first ~14 days carry ELM's warm-start relaxation (the "
@@ -233,8 +332,12 @@ def main(walk_dir):
             "extract.py SPINUP_DAYS); January's exchange is start-up "
             "adjustment, not weather"),
     }, indent=1))
-    print("WALK COMPLETE:", len(windows), "windows,",
-          len(cols), "columns", flush=True)
+    n_dead = len(state["dead"])
+    print(f"WALK COMPLETE: {len(windows)} windows, "
+          f"{len(cols) - n_dead}/{len(cols)} columns walked the year"
+          + (f" ({n_dead} left early: "
+             f"{', '.join(sorted(state['dead']))})" if n_dead else ""),
+          flush=True)
     return 0
 
 
