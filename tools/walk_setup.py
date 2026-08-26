@@ -85,6 +85,13 @@ def main():
     # warm-up needs the anchor; the seal applies from the first window on.
     ap.add_argument("--bottom", choices=("water_table", "none"),
                     default="water_table")
+    # WALK A SUBSET, NAMED. A coupled run may carry columns whose driver
+    # sends exactly nothing (Naches: 9 of 18 with QDRAI identically zero at
+    # water tables >= 12 m) — a walk window there re-proves a known flat
+    # line. Names must exist in the pf run; an unknown one is refused, not
+    # skipped, so a typo cannot silently shrink the study.
+    ap.add_argument("--columns", default=None,
+                    help="comma-separated column ids to walk (default: all)")
     a = ap.parse_args()
 
     elm_run = Path(a.elm_run).resolve()
@@ -102,6 +109,14 @@ def main():
     pf_cols = json.loads((pf_run / "columns.json").read_text())
     pf_cols = pf_cols.get("columns", pf_cols) \
         if isinstance(pf_cols, dict) else pf_cols
+    if a.columns:
+        want = [w.strip() for w in a.columns.split(",") if w.strip()]
+        have = {c["id"] for c in pf_cols}
+        missing = [w for w in want if w not in have]
+        if missing:
+            sys.exit(f"--columns names {missing} but the pf run carries "
+                     f"{sorted(have)}")
+        pf_cols = [c for c in pf_cols if c["id"] in want]
 
     # The year is the forcing year the reference cases already run
     ref0 = next(iter(built.values()))
