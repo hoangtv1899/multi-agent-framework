@@ -389,6 +389,11 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
                        f"{preflight['blocked']}.")
                    or None),
         "verdict": (interpretation or {}).get("verdict"),
+        # THE HEADLINE AND THE WORDING CHECK travel with the answer: the
+        # one-sentence form a slide title carries, and what the readability
+        # gate still objects to, so a reader knows before pasting.
+        "headline": (interpretation or {}).get("headline"),
+        "readability": (interpretation or {}).get("readability"),
 
         "claims": claims,
         # Rejected claims travel with their reason. Deleting them would make
@@ -454,6 +459,124 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# THE READER'S RENDERING (2026-09-12)
+# ─────────────────────────────────────────────────────────────────────
+# analysis.json is the record and stays exact. REPORT.md is the same content
+# laid out for a person who will read it aloud or paste it onto a slide: the
+# headline first, then the answer, then each surviving claim with its numbers
+# shown to three significant figures and the finding it rests on, then the
+# caveats that bind it, then what the audit withheld. Nothing is computed or
+# re-worded here; display precision is not recomputation, and the exact
+# values stay one file away.
+REPORT_MD = "REPORT.md"
+
+
+def format_value(v) -> str:
+    """A measured value as a reader sees it: 3 significant figures, no exponent
+    in the ranges this work lives in, integers left whole."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if x != x:                                      # NaN
+        return "n/a"
+    if x == 0:
+        return "0"
+    if float(x).is_integer() and abs(x) < 1e7:
+        return f"{int(x):,}" if abs(x) >= 10000 else str(int(x))
+    mag = abs(x)
+    if mag >= 1e6 or mag < 1e-3:
+        return f"{x:.3g}"
+    decimals = max(0, 2 - int(f"{mag:e}".split("e")[1]))
+    # A thousands separator only from 10,000 up: "1,913 m" reads as a
+    # typeset number, "1913 m" as an elevation.
+    out = f"{x:,.{decimals}f}" if mag >= 10000 else f"{x:.{decimals}f}"
+    return out.rstrip("0").rstrip(".") if "." in out else out
+
+
+def _plain(text) -> str:
+    """Display form of recorded prose: dashes used as punctuation become
+    commas (the record itself is untouched; this is the reader's copy)."""
+    from agents.analysis.step3_interpret import _strip_dashes
+    return _strip_dashes(str(text if text is not None else ""))
+
+
+def render_markdown(report: Dict[str, Any]) -> str:
+    """REPORT.md from the assembled report dict. Pure."""
+    q = _plain(report.get("question") or "(no question recorded)")
+    model = report.get("model") or "model"
+    status = report.get("status") or "unknown"
+    lines = [f"# {q}", "",
+             f"*{model} run, status **{status}**, generated "
+             f"{report.get('generated_at')}, "
+             f"{Path(str(report.get('run_dir') or '')).name}*", "",
+             "## The answer", ""]
+    if report.get("headline"):
+        lines += [f"**{_plain(report['headline'])}**", ""]
+    lines += [_plain(report.get("answer") or "(no answer)"), ""]
+    rd = report.get("readability") or {}
+    if rd.get("problems_after"):
+        lines += ["> Wording the readability check still flags: "
+                  + "; ".join(str(x) for x in rd["problems_after"][:6]), ""]
+
+    claims = report.get("claims") or []
+    lines += [f"## What the run found ({len(claims)} audited claims)", ""]
+    for i, c in enumerate(claims, 1):
+        lines.append(f"{i}. {_plain(c.get('claim'))}")
+        vals = c.get("values") or []
+        tail = []
+        if vals:
+            tail.append("values " + ", ".join(format_value(v) for v in vals[:8]))
+        if c.get("n") is not None:
+            tail.append(f"n = {c['n']}")
+        tail.append(f"finding `{c.get('finding_id')}`")
+        for cid in (c.get("caveats") or []):
+            tail.append(f"caveat `{cid}`")
+        lines.append("   " + "; ".join(tail))
+        lines.append("")
+
+    caveats = report.get("caveats") or []
+    blocking = [c for c in caveats if c.get("severity") == "blocking"]
+    others = [c for c in caveats if c.get("severity") != "blocking"]
+    if blocking:
+        lines += ["## Caveats that bind this answer", ""]
+        for c in blocking:
+            lines.append(f"- **{c.get('id')}**: {_plain(c.get('statement'))}")
+        lines.append("")
+    if others:
+        lines += ["## Other caveats on record", ""]
+        for c in others:
+            lines.append(f"- {c.get('id')} ({c.get('severity')}): "
+                         f"{_plain(c.get('statement'))}")
+        lines.append("")
+
+    withheld = report.get("withheld") or []
+    if withheld:
+        lines += [f"## Claims the audit withheld ({len(withheld)})", ""]
+        for w in withheld:
+            lines.append(f"- {_plain(w.get('claim'))}")
+            lines.append(f"  struck by `{w.get('struck_by')}`: "
+                         f"{_plain(w.get('struck_because'))}")
+        lines.append("")
+
+    prov = report.get("provenance") or {}
+    cost = report.get("cost") or {}
+    comp = cost.get("compute") or {}
+    llm = (cost.get("llm") or {}).get("analyzer") or {}
+    lines += ["## Provenance", "",
+              f"- rounds: {len(prov.get('rounds') or [])}, stopped because "
+              f"{prov.get('stopped_because')}",
+              f"- audit: {(prov.get('audit') or {}).get('n_claims')} claims made, "
+              f"{(prov.get('audit') or {}).get('n_struck')} struck",
+              f"- columns: {comp.get('columns_succeeded')} of "
+              f"{comp.get('columns_total')} succeeded",
+              f"- model calls in the Analyzer: {llm.get('calls', 'not measured')}",
+              "", "*Values are shown to 3 significant figures; the exact "
+              "measured values are in analysis.json beside this file.*", ""]
+    return "\n".join(lines)
+
+
 def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
     """Write analysis.json, and beside it a deck rendered from the same dict.
 
@@ -466,6 +589,11 @@ def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
     out_dir.mkdir(parents=True, exist_ok=True)
     p = out_dir / FILENAME
     p.write_text(json.dumps(report, indent=2, default=str))
+    # THE READER'S COPY, beside the record. Written second, never instead.
+    try:
+        (out_dir / REPORT_MD).write_text(render_markdown(report))
+    except Exception as e:                                      # noqa: BLE001
+        print(f"   ⚠️  REPORT.md not written: {e}")
 
     if slides:
         try:

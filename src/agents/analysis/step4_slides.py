@@ -7,9 +7,12 @@ src/agents/analysis/step4_slides.py
 
 A SECOND RENDERING, NOT A SECOND REPORT. analysis.json stays the Analyzer's
 one authoritative output; this reads it and lays it out. Nothing here computes,
-rounds, re-words or omits a number — a deck that disagreed with the file it came
-from would be the worst artifact in the run, because it is the one that gets
-presented while the file is the one that gets checked.
+re-words or omits a number; a deck that disagreed with the file it came from
+would be the worst artifact in the run, because it is the one that gets
+presented while the file is the one that gets checked. Values are DISPLAYED to
+three significant figures (2026-09-12): a fifteen-digit float on a slide was
+the other way this deck embarrassed its presenter, and display precision is
+not recomputation while the exact value stays in the file.
 
 WHAT THAT RULES OUT, concretely: no claim appears without the finding id it
 rests on; the struck claims travel, with the reason; the caveats are quoted
@@ -157,7 +160,13 @@ def build(report: Dict[str, Any], out_dir) -> Optional[str]:
               bold=True, rgb=(0x0E, 0x6E, 0x7A))
         # VERBATIM. Step 3 wrote this and step 4 copied it; a deck that
         # tightened the wording would be a third author nobody audited.
-        _text(s, M, int(1.4 * _EMU_IN), W, int(4.5 * _EMU_IN), 18, str(answer))
+        # The headline is step 3's own one-sentence form, shown above it.
+        y = int(1.4 * _EMU_IN)
+        if report.get("headline"):
+            _text(s, M, y, W, int(1.3 * _EMU_IN), 22, str(report["headline"]),
+                  bold=True)
+            y = int(2.9 * _EMU_IN)
+        _text(s, M, y, W, int(4.5 * _EMU_IN), 16, str(answer))
 
     # ── 3..n · one slide per claim, with the figure it rests on ─────────
     figs = report.get("figures") or {}
@@ -185,8 +194,13 @@ def build(report: Dict[str, Any], out_dir) -> Optional[str]:
             lines.append(f"n = {c['n']}")
         vals = c.get("values") or []
         if vals:
-            lines.append("values as measured:")
-            lines += [(str(v), 1) for v in vals[:8]]
+            # SHOWN TO 3 SIGNIFICANT FIGURES; the exact values are in
+            # analysis.json. Display precision is not recomputation, and a
+            # fifteen-digit float on a slide is what this deck is for
+            # avoiding.
+            from agents.analysis.step4_report import format_value
+            lines.append("values (3 s.f.):")
+            lines += [(format_value(v), 1) for v in vals[:8]]
         if c.get("variables"):
             lines.append("variables: " + ", ".join(str(v) for v in
                                                    c["variables"][:8]))

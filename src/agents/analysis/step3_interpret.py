@@ -457,6 +457,29 @@ experiment cannot address the question, that is a SUFFICIENT answer of the form
 "this cannot be determined from this run, because ...". Only ask for a revision
 if step 2 could plausibly do better with the same data.
 
+WRITE FOR A READER WHO WILL PUT THIS ON A SLIDE. Every sentence you return
+is read aloud to people who do not know this model. The rules, checked by code
+after you answer, and a sentence that breaks one is sent back once:
+  - Sentences of at most 30 words. One idea per sentence.
+  - Plain words. Not "parameterisation", "bimodal", "diagnosed",
+    "quasi-steady"; say what happens instead ("the model's drainage rule",
+    "two groups of columns", "the water table sits below the soil").
+  - A variable code is never bare. The first time it appears, gloss it:
+    "sub-surface drainage (QDRAI)", "aquifer recharge (QCHARGE)", "water
+    table depth (ZWT)". After that the plain words alone are fine.
+  - No column ids ("col_11"). Say what distinguishes the column: "the highest
+    column, at 1913 m", "10 of 19 columns".
+  - Numbers in a SENTENCE are rounded to 2 or 3 significant figures with a
+    unit or a percent sign ("37 percent of precipitation", "805 mm"). The
+    exact measured value goes in `values`, unrounded; the audit reads
+    `values`, the reader reads the sentence.
+  - No dashes as punctuation. Use a comma, a colon or a new sentence.
+  - `headline`: ONE sentence of at most 25 words that answers the question
+    with its key number, the sentence a slide title could carry. If the
+    experiment cannot answer, the headline says so plainly.
+  - `answer`: 2 to 4 further sentences, same rules, in this order: what was
+    found, why (the mechanism in plain words), what it does not show.
+
 Return ONLY JSON:
 {{"claims": [
     {{"claim": "<one sentence>",
@@ -467,13 +490,189 @@ Return ONLY JSON:
                   if the claim asserts no measurement.>],
       "caveats": ["<ids of any blocking caveat this claim falls under>"]}}
   ],
-  "answer": "<2-4 sentences answering the user's question, or saying plainly "
-            "that this experiment cannot answer it and why>",
+  "headline": "<ONE plain sentence, at most 25 words, with the key number>",
+  "answer": "<2-4 plain sentences: what was found, why, what it does not show; "
+            "or saying plainly that this experiment cannot answer it and why>",
   "verdict": "sufficient" | "insufficient",
   "feedback": "<if insufficient: what step 2 should do differently. Be "
               "specific about which figure and what is wrong with it. Empty "
               "if sufficient.>"}}
 """
+
+
+# ─────────────────────────────────────────────────────────────────────
+# READABILITY GATE (2026-09-12)
+# ─────────────────────────────────────────────────────────────────────
+# The audit above proves a claim's numbers are real. It says nothing about
+# whether a person can read the sentence, and the answer paragraph is not
+# audited at all. A live consequence: an answer of one 120-word sentence,
+# stuffed with variable codes, column ids and "parameterisation", was pasted
+# onto a slide and presented as it stood. The numbers were right and the room
+# understood none of it.
+#
+# So the wording is gated the way the numbers are: by code, not by hoping the
+# prompt was read. The checks are mechanical and listed below; a text that
+# fails is sent back ONCE with the exact problems, wording only, `values` and
+# `finding_id` untouched, and then audited exactly as before. A text that
+# still fails after the rewrite is kept and its problems are recorded on the
+# interpretation, so the report can say so rather than pretend.
+MAX_SENTENCE_WORDS = 30
+MAX_HEADLINE_WORDS = 25
+# Acronyms a reader of this field knows, and proper names. Not variable codes.
+PLAIN_ALLOWED = {
+    "ELM", "PFLOTRAN", "USGS", "SNOTEL", "NLDAS", "CONUS", "CONUS2", "HUC",
+    "HUC8", "DEM", "SSURGO", "GLHYMPS", "MODIS", "NSE", "KGE", "RMSE", "MAE",
+    "SWE", "ET", "WTD", "LLM", "MCP", "SLURM", "USA", "WA", "CO", "PA", "DE",
+    "ID", "JSON", "CSV", "MM", "NA", "N", "S", "E", "W", "II", "III", "IV",
+    "AND", "OR", "NOT", "CUT", "DO", "PA",
+}
+JARGON = ("parameterisation", "parameterization", "bimodal", "diagnosed",
+          "quasi-steady", "heteroscedastic", "ergodic", "stochastically",
+          "ansatz")
+_CODE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+_COL_ID = re.compile(r"\bcol_\d+\b")
+_LONG_NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d*\.\d{5,}\b")
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"])")
+
+
+def _strip_dashes(text: str) -> str:
+    """Em- and en-dashes used as punctuation become a comma; ranges keep theirs."""
+    t = str(text or "")
+    t = t.replace(" \u2014 ", ", ").replace("\u2014", ", ")
+    t = re.sub(r"(?<!\d)\s*\u2013\s*(?!\d)", ", ", t)
+    return t
+
+
+def _sentences(text: str):
+    return [x.strip() for x in _SENTENCE_END.split(str(text or "").strip())
+            if x.strip()]
+
+
+def glossed_codes(texts) -> set:
+    """Variable codes that appear in a plain-language gloss, "(CODE)", anywhere."""
+    out = set()
+    for t in texts:
+        out |= set(re.findall(r"\(([A-Z][A-Z0-9_]{2,})\)", str(t or "")))
+    return out
+
+
+def readability_problems(text: str, glossed: set, where: str,
+                         max_words: int = MAX_SENTENCE_WORDS,
+                         needs_number: bool = False):
+    """Every way `text` fails the slide-reader rules, as sentences a model can act on."""
+    t = str(text or "")
+    problems = []
+    if not t.strip():
+        return [f"{where}: empty"]
+    for sen in _sentences(t):
+        n = len(sen.split())
+        if n > max_words:
+            problems.append(f"{where}: a {n}-word sentence; the limit is "
+                            f"{max_words}. Split it: \"{sen[:70]}...\"")
+    for code in sorted(set(_CODE.findall(t))):
+        if code in PLAIN_ALLOWED or code in glossed:
+            continue
+        problems.append(f"{where}: {code} appears without a plain-language "
+                        f"gloss; write it once as \"<plain words> ({code})\"")
+    for cid in sorted(set(_COL_ID.findall(t))):
+        problems.append(f"{where}: refers to {cid} by id; say what "
+                        f"distinguishes that column (its elevation, how wet "
+                        f"it is, its water table) or how many columns")
+    for w in JARGON:
+        if re.search(rf"\b{re.escape(w)}\b", t, re.I):
+            problems.append(f"{where}: \"{w}\" is jargon; say what it means")
+    for num in _LONG_NUMBER.findall(t):
+        problems.append(f"{where}: {num} has too many digits for a sentence; "
+                        f"round to 2 or 3 significant figures (the exact value "
+                        f"belongs in `values`)")
+    if needs_number and not re.search(r"\d", t):
+        problems.append(f"{where}: carries no number; the headline states "
+                        f"the key result with its value and unit")
+    return problems
+
+
+def check_readability(spec: Dict[str, Any]):
+    """All problems in a parsed reply's wording: headline, answer, every claim."""
+    claims = [c for c in (spec.get("claims") or []) if isinstance(c, dict)]
+    texts = [spec.get("headline"), spec.get("answer")] + \
+        [c.get("claim") for c in claims]
+    glossed = glossed_codes(texts)
+    cannot = bool(re.search(r"cannot (be )?(answer|determin)",
+                            str(spec.get("headline") or "") +
+                            str(spec.get("answer") or ""), re.I))
+    problems = readability_problems(spec.get("headline"), glossed, "headline",
+                                    max_words=MAX_HEADLINE_WORDS,
+                                    needs_number=not cannot)
+    problems += readability_problems(spec.get("answer"), glossed, "answer")
+    for i, c in enumerate(claims, 1):
+        problems += readability_problems(c.get("claim"), glossed,
+                                         f"claim {i}")
+    return problems
+
+
+REWRITE = """\
+The wording below failed the slide-reader rules listed after it. Rewrite ONLY
+the wording. Do not change, add, remove or re-round any number that carries
+meaning; do not add a measurement; keep every claim's meaning and its order.
+A variable code stays present but glossed once, as "<plain words> (CODE)".
+
+PROBLEMS:
+{problems}
+
+TEXT:
+{text}
+
+Return ONLY JSON: {{"headline": "...", "answer": "...",
+                    "claims": ["<claim 1 wording>", "<claim 2 wording>", ...]}}
+with exactly {n} claims in the same order.
+"""
+
+
+def rewrite_wording(spec: Dict[str, Any], problems, client) -> Dict[str, Any]:
+    """One rewrite of the wording, `values` and `finding_id` untouched."""
+    claims = [c for c in (spec.get("claims") or []) if isinstance(c, dict)]
+    text = json.dumps({"headline": spec.get("headline"),
+                       "answer": spec.get("answer"),
+                       "claims": [c.get("claim") for c in claims]}, indent=1)
+    msg = REWRITE.format(problems="\n".join(f"  - {p}" for p in problems),
+                         text=text, n=len(claims))
+    reply = client.ask([{"role": "user", "content": msg}])
+    new = _parse(reply)
+    words = new.get("claims") or []
+    out = dict(spec)
+    out["headline"] = _strip_dashes(new.get("headline") or spec.get("headline"))
+    out["answer"] = _strip_dashes(new.get("answer") or spec.get("answer"))
+    out["claims"] = [dict(c, claim=_strip_dashes(words[i]))
+                     if i < len(words) and words[i] else c
+                     for i, c in enumerate(claims)]
+    return out
+
+
+def gate_wording(spec: Dict[str, Any], client) -> Dict[str, Any]:
+    """Dashes stripped, then the checks, then at most one rewrite.
+
+    Returns the spec to audit plus a `readability` record: what was wrong
+    before, whether a rewrite was asked for, and what is still wrong after.
+    """
+    spec = dict(spec)
+    spec["headline"] = _strip_dashes(spec.get("headline"))
+    spec["answer"] = _strip_dashes(spec.get("answer"))
+    spec["claims"] = [dict(c, claim=_strip_dashes(c.get("claim")))
+                      if isinstance(c, dict) else c
+                      for c in (spec.get("claims") or [])]
+    before = check_readability(spec)
+    record = {"problems_before": before, "rewritten": False,
+              "problems_after": before}
+    if not before:
+        return spec, record
+    try:
+        spec2 = rewrite_wording(spec, before, client)
+    except Exception as e:                                       # noqa: BLE001
+        record["rewrite_error"] = str(e)[:200]
+        return spec, record
+    record["rewritten"] = True
+    record["problems_after"] = check_readability(spec2)
+    return spec2, record
 
 
 def _parse(reply: str) -> Dict[str, Any]:
@@ -588,6 +787,9 @@ def interpret(ctx, comparison, investigation, out_dir,
     content = _content(brief, figures, with_images)
     reply = client.ask([{"role": "user", "content": content}])
     spec = _parse(reply)
+    # THE WORDING IS GATED LIKE THE NUMBERS. Deterministic checks, one
+    # bounded rewrite of the wording alone, then the audit as before.
+    spec, readability = gate_wording(spec, client)
 
     # THE BRIEF, NOT `content`. `content` is the brief plus every figure
     # base64-encoded — tens of megabytes of image bytes that say nothing a
@@ -606,7 +808,9 @@ def interpret(ctx, comparison, investigation, out_dir,
     if verdict not in ("sufficient", "insufficient"):
         verdict = "insufficient"          # an unparseable verdict is not a pass
 
-    out = {"answer": spec.get("answer"), "verdict": verdict,
+    out = {"headline": spec.get("headline"),
+           "answer": spec.get("answer"), "verdict": verdict,
+           "readability": readability,
            "feedback": spec.get("feedback") or None,
            "claims": result["kept"], "struck": result["struck"],
            "audit": {k: result[k] for k in ("n_claims", "n_struck")},
