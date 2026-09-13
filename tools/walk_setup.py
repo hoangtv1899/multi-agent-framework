@@ -342,13 +342,15 @@ def main():
     ap.add_argument("--negative-forward", choices=("clip", "pass"),
                     default="clip")
     ap.add_argument("--return", dest="return_leg",
-                    choices=walk_lib.RETURN_LEGS, default="wt+profile",
+                    choices=walk_lib.RETURN_LEGS, default="wt",
                     help="what PFLOTRAN hands back to ELM after each window: "
-                         "the water table and the saturation profile (today's "
-                         "behaviour), or the water table alone. The window-0 "
-                         "pre-stamp keeps the profile either way; it cures "
-                         "the start-up burst. Stamping the profile every "
-                         "window was measured to CREATE water (2026-09-13).")
+                         "the water table alone (default since 2026-09-13), "
+                         "or the water table and the saturation profile. The "
+                         "window-0 pre-stamp keeps the profile either way; it "
+                         "cures the start-up burst. Stamping the profile every "
+                         "window was measured to CREATE water (col_17 closed "
+                         "at -2492 mm, now +120 mm of 1191). Walk directories "
+                         "written before the flip keep the leg they recorded.")
     # THE LATERAL SINK (docs/coupling/lateral_sink_design.md). A sealed
     # column has nowhere to put the drainage it receives; a thin band of
     # side faces above a drainage datum leaks outward while the water table

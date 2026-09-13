@@ -548,10 +548,13 @@ class TestReturnLegAndBalance:
     def test_missing_series_is_none_not_zero(self):
         assert wl.elm_balance({"RAIN": [1.0]}, [(0, 1)]) is None
 
-    def test_return_dial_is_recorded_and_defaults_to_the_old_behaviour(self):
+    def test_return_dial_defaults_to_the_water_table_and_old_dirs_keep_theirs(self):
+        # new walks stamp the water table alone (the profile stamp created
+        # water, 2026-09-13); a walk.json written before the dial existed
+        # still means the profile stamp it actually ran with
         assert wl.RETURN_LEGS == ("wt+profile", "wt")
         src = (ROOT / "tools" / "walk_setup.py").read_text()
-        assert 'dest="return_leg"' in src and 'default="wt+profile"' in src
+        assert 'dest="return_leg"' in src and 'default="wt",' in src
         job = (ROOT / "tools" / "walk_job.py").read_text()
         assert 'walk.get("return_leg") or "wt+profile"' in job
         assert 'if return_leg == "wt":' in job
