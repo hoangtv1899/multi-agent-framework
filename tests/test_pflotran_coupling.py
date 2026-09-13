@@ -143,6 +143,61 @@ class TestEveryRefusalNamesItsReason:
         assert skip["id"] == "col_02"
         assert "water_table_depth_m" in skip["reason"]
 
+    def test_a_column_with_an_empty_forward_series_is_skipped_not_fatal(
+            self, tmp_path):
+        """The Naches col_04 case for the flux itself (design, section 5):
+        the driver's extract holds the variable for its siblings but not
+        for this column. The same skip path as the unsolved water table,
+        the reason on the record; the old raise sank every column."""
+        prior = _prior(tmp_path)
+        ext = prior / "03_results" / "extracted.json"
+        d = json.loads(ext.read_text())
+        del d["data"]["col_02"]["variables"]["QDRAI"]
+        ext.write_text(json.dumps(d))
+        res = _mgr(tmp_path)._build_coupled_columns(_config(prior))
+        assert [c["id"] for c in res["columns"]] == ["col_01"]
+        assert res["n_columns"] == 1
+        (skip,) = res["skipped_columns"]
+        assert skip["id"] == "col_02"
+        assert "wrote no QDRAI" in skip["reason"]
+        assert "ZWT" in skip["reason"]                 # what it does have
+
+
+class TestTheSinkIsNamedInTheRecord:
+    """docs/coupling/lateral_sink_design.md, sections 6 and 7: every
+    contract key classified, the outflow fields explained with their sign
+    and unit, and the fixed-head sentence gone."""
+
+    SINK_KEYS = ("sink_datum_source", "sink_datum_m", "sink_datum_applied_m",
+                 "sink_datum_clipped_to_domain", "sink_datum_raised_to_band",
+                 "sink_band_m", "sink_sy",
+                 "sink_sy_source", "sink_tau_days", "sink_tau_source",
+                 "sink_conductance_m", "sink_implied_tau_days", "hand_m",
+                 "hand_path_km", "hand_stream_area_km2", "hand_threshold_km2",
+                 "std_elev_m", "conus2_wtd_m")
+
+    def test_every_contract_key_is_kept_and_optional(self, tmp_path):
+        keys = _mgr(tmp_path)._column_keys()
+        for k in self.SINK_KEYS:
+            assert k in keys.keep and k in keys.optional, k
+        for k in ("lateral_sink", "lateral_outflow"):
+            assert keys.drop.get(k), k
+
+    def test_the_semantics_say_sign_unit_and_the_three_bottoms(self):
+        fs = PFLOTRANExpManager.FIELD_SEMANTICS
+        day = fs["lateral_outflow_mm_day"]
+        assert day["units"] == "mm/day"
+        assert "positive" in day["note"] and "365.25" in day["note"]
+        assert "lateral_sink Water Mass [kg/y]" in " ".join(day["from"])
+        win = fs["lateral_outflow_window_mm"]
+        assert win["units"] == "mm" and "last" in " ".join(win["from"])
+        note = fs["water_table_m"]["note"]
+        for state in ("ANCHORED", "SEALED", "LATERAL SINK"):
+            assert state in note, state
+        assert "fixed head" not in note.lower()
+        assert "lateral outflow" in fs["_not_computed"]["note"]
+        assert "drainage_flux" in fs["_not_computed"]["fields"]
+
 
 class TestTheBaseRoutesTheArchetype:
     def test_materialize_takes_the_coupling_branch(self, tmp_path, monkeypatch):

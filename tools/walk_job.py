@@ -7,10 +7,12 @@ Run INSIDE a SLURM allocation (ELM runs via srun). WALK_DIR comes from
 tools/walk_setup.py. Per window:
 
     ELM runs the window        (slice: proven exact, job 774960)
-      -> its daily drainage    (extract_column, spin-drop disabled)
+      -> its daily forward flux (QDRAI or QCHARGE, walk_setup --forward;
+                               extract_column, spin-drop disabled)
     PFLOTRAN continues the window from its checkpoint
                                (proven to 6e-4 / 62 Pa)
-      -> its solved water table + saturation profile
+      -> its solved water table + saturation profile, and with a lateral
+         sink the window's outflow off its -mas.dat
     stamped onto ELM's next-slice restart
                                (set_water_table.apply + apply_profile,
                                 the proven return leg, mid-year now)
@@ -59,6 +61,47 @@ def _log(walk_dir, row):
         f.write(json.dumps(row) + "\n")
 
 
+def _leave(state, row, cid, w, reason):
+    """A column's departure, recorded: the state, the window's row, the line."""
+    state["dead"][cid] = {"window": w["i"], "window_end_day": w["d1"],
+                          "reason": reason}
+    row["columns"][cid] = {"failed": reason}
+    print(f"   ✗ {cid} leaves the walk at window {w['i'] + 1}: {reason}",
+          flush=True)
+
+
+def _sink_kwargs(c):
+    """The deck builder's three sink kwargs for a column that carries one, else {}.
+
+    A column without sink_conductance_m (walk_setup --sink-datum none, or a
+    walk dir from before the sink) gets the call it always got, so a server
+    without the sink still runs a sink-free walk.
+    """
+    if not isinstance(c.get("sink_conductance_m"), (int, float)):
+        return {}
+    return {"lateral_sink_depth_m": float(c["sink_datum_applied_m"]),
+            "lateral_sink_band_m": float(c["sink_band_m"]),
+            "lateral_sink_conductance": float(c["sink_conductance_m"])}
+
+
+def _lateral_outflow(case_dir, cid):
+    """The window's lateral outflow off <cid>-mas.dat as row keys; {} without.
+
+    Positive = leaving; kg == mm over the 1 m^2 column; the window runs in
+    its own case directory so the file's last cumulative value is its
+    total. A file that cannot be read is reported as the error, not as a
+    number: this is a record of the window, not a gate on it.
+    """
+    try:
+        block = walk_lib.lateral_outflow_block(
+            Path(case_dir) / f"{cid}-mas.dat")
+    except ValueError as e:
+        return {"lateral_outflow_error": str(e)[:200]}
+    if block is None:
+        return {}
+    return {"lateral_outflow_window_mm": block["window_total_mm"]}
+
+
 def main(walk_dir):
     wd = Path(walk_dir).resolve()
     walk = json.loads((wd / "walk.json").read_text())
@@ -77,6 +120,20 @@ def main(walk_dir):
     windows = walk_lib.window_edges(year, months=win.get("months"),
                                     days=win.get("days"))
     cols = walk["columns"]
+    # walk_setup.py --forward / --negative-forward: which ELM flux drives
+    # the top face (QDRAI, or QCHARGE for the aquifer's own recharge) and
+    # what a negative day becomes. A walk dir from before the dials carries
+    # neither and means QDRAI, clip (QDRAI is never negative, so the clip
+    # changes nothing there). The sink rides each column as the three
+    # numbers the deck builder takes; the spin decks never see it.
+    forward_var = str(walk.get("forward_var") or "QDRAI").upper()
+    negative_forward = walk.get("negative_forward") or "clip"
+    # walk_setup --return: a walk dir from before the dial stamped the
+    # profile every window, so that is what its absence means.
+    return_leg = walk.get("return_leg") or "wt+profile"
+    if return_leg not in walk_lib.RETURN_LEGS:
+        sys.exit(f"return_leg={return_leg!r} is not one of {walk_lib.RETURN_LEGS}")
+    sink_kw = {c["id"]: _sink_kwargs(c) for c in cols}
 
     def pf_run_ok(input_file):
         r = run_sim(input_file=input_file, executable=EXE, timeout=1800)
@@ -182,11 +239,20 @@ def main(walk_dir):
         for c in alive:
             cid = c["id"]
             data, meta = elm_extract.extract_column(
-                c["elm_case_dir"], variables=["QDRAI"], spinup_days=0)
-            qd = ((data.get("variables") or {}).get("QDRAI") or {})
-            vals = walk_lib.window_slice(data.get("dates"),
-                                         qd.get("values") or [],
+                c["elm_case_dir"], variables=[forward_var], spinup_days=0)
+            raw = walk_lib.forward_values(data, forward_var)
+            # ELM WROTE NO SERIES: a recorded departure, never a traceback
+            # (design, section 5; Naches col_04, where QCHARGE is fill on a
+            # cell ELM never solved it for). Before window_slice, which
+            # would refuse the empty record as a month of missing days.
+            if not raw:
+                _leave(state, row, cid, w,
+                       walk_lib.no_forward_reason(forward_var, meta))
+                continue
+            vals = walk_lib.window_slice(data.get("dates"), raw,
                                          year, w["d0"], w["d1"])
+            vals, clipped_mm = walk_lib.apply_negative_policy(
+                vals, negative_forward)
             series = walk_lib.flux_series(vals, w["d0"], t0)
             end = round(t0 + w["d1"] / 365.0, 8)
             built = build_deck(
@@ -195,7 +261,8 @@ def main(walk_dir):
                 water_table_m=float(c["water_table_m"]),
                 recharge_series=series, cells=cells_of[cid],
                 restart_from=state["checkpoints"][cid], bottom=bottom,
-                final_time_y=end, output_times_y=[end], checkpoint=True)
+                final_time_y=end, output_times_y=[end], checkpoint=True,
+                **sink_kw[cid])
             ck = Path(built["restart_file_expected"])
             out_file = str(wd / "pf" / f"w{w['i']:02d}" / f"x_{cid}.json")
 
@@ -249,12 +316,7 @@ def main(walk_dir):
                 if wt_solved is None:
                     reason = "no solved water table in the window's extract"
             if reason:
-                state["dead"][cid] = {"window": w["i"],
-                                      "window_end_day": w["d1"],
-                                      "reason": reason}
-                row["columns"][cid] = {"failed": reason}
-                print(f"   ✗ {cid} leaves the walk at window {w['i'] + 1}: "
-                      f"{reason}", flush=True)
+                _leave(state, row, cid, w, reason)
                 continue
 
             # SATURATED TO THE SURFACE IS AN ANSWER, NOT A CRASH: solved 0.0
@@ -266,18 +328,33 @@ def main(walk_dir):
             wt_stamp = max(float(wt_solved), 0.01)
             rest = ew.latest_restart(c["elm_case_dir"])
             a1 = swt.apply(str(rest), wt_stamp, quiet=True)
-            a2 = swt.apply_profile(str(rest), block["depth_m"],
-                                   block["saturation"][-1], c["fsurdat"],
-                                   quiet=True)
+            if return_leg == "wt":
+                # THE PROFILE IS NOT STAMPED after window 0: copying
+                # PFLOTRAN's saturation into ELM's soil every window put
+                # water into ELM that PFLOTRAN kept, and ELM drained it
+                # back down as recharge (walk_lib.elm_balance records the
+                # jump that would show). The water table alone is a state
+                # both models own once.
+                a2 = {"layers_written": 0, "profile": "not stamped (return_leg=wt)"}
+            else:
+                a2 = swt.apply_profile(str(rest), block["depth_m"],
+                                       block["saturation"][-1], c["fsurdat"],
+                                       quiet=True)
             state["checkpoints"][cid] = str(ck)
             row["columns"][cid] = {
                 "flux_mean_mm_day": round(sum(vals) / len(vals), 4),
+                # the window's forward total after the policy, and what the
+                # policy removed (both mm over the window)
+                "forward_mm_window": round(sum(vals), 4),
+                "forward_clipped_mm": clipped_mm,
+                **_lateral_outflow(built["case_dir"], cid),
                 "wt_solved_m": round(float(wt_solved), 4),
                 "saturated_to_surface": saturated,
                 "stamped": rest.name,
                 "zwt_written_m": a1.get("written_m"),
                 "zwt_regime": a1.get("regime"),
                 "layers_written": a2.get("layers_written"),
+                "return_leg": return_leg,
             }
 
         state["windows_done"] = w["i"] + 1
@@ -292,6 +369,7 @@ def main(walk_dir):
     # keyed by window end so a window RE-ENTERED after a kill (logged twice,
     # the later row the one that stamped) appears once, as its final values
     by_day = {c["id"]: {} for c in cols}
+    out_by_day = {c["id"]: {} for c in cols}
     for line in (wd / "walk_log.jsonl").read_text().splitlines():
         r = json.loads(line)
         for cid, v in r["columns"].items():
@@ -302,9 +380,14 @@ def main(walk_dir):
             # at the very day the death record says nothing was solved.
             if isinstance(v, dict) and "wt_solved_m" in v:
                 by_day[cid][r["d1"]] = v["wt_solved_m"]
+                out_by_day[cid][r["d1"]] = v.get("lateral_outflow_window_mm")
             elif isinstance(v, dict) and "failed" in v:
                 by_day[cid].pop(r["d1"], None)
-    traj = {cid: {"day": sorted(d), "wt_solved_m": [d[k] for k in sorted(d)]}
+                out_by_day[cid].pop(r["d1"], None)
+    traj = {cid: {"day": sorted(d), "wt_solved_m": [d[k] for k in sorted(d)],
+                  # None on a window without a sink: an absence, not zero
+                  "lateral_outflow_window_mm": [out_by_day[cid][k]
+                                                for k in sorted(d)]}
             for cid, d in by_day.items()}
     # ELM's own view of the year, for the cadence figure — partial for a
     # column that left the walk (its case stands at the window it died in)
@@ -312,18 +395,35 @@ def main(walk_dir):
     for c in cols:
         try:
             data, _m = elm_extract.extract_column(
-                c["elm_case_dir"], variables=["ZWT", "QDRAI"], spinup_days=0)
+                c["elm_case_dir"],
+                variables=["ZWT", *walk_lib.BALANCE_VARS], spinup_days=0)
         except Exception as e:                              # noqa: BLE001
             elm_series[c["id"]] = {"error": f"{type(e).__name__}: {e}"[:200]}
             continue
-        elm_series[c["id"]] = {
-            "dates": data.get("dates"),
-            "ZWT": ((data.get("variables") or {}).get("ZWT") or {}).get("values"),
-            "QDRAI": ((data.get("variables") or {}).get("QDRAI") or {}).get("values"),
-        }
+        vs = data.get("variables") or {}
+        got = {v: (vs.get(v) or {}).get("values") for v in ("ZWT", *walk_lib.BALANCE_VARS)}
+        # ELM'S OWN WATER BALANCE, per window and for the year, with the
+        # storage jump at every stamp. A conserving exchange keeps the
+        # residual near zero; water created by the return leg shows here.
+        balance = walk_lib.elm_balance(got, [(w_["d0"], w_["d1"]) for w_ in windows])
+        elm_series[c["id"]] = {"dates": data.get("dates"), **got,
+                               "balance": balance}
+        yr = (balance or {}).get("year") or {}
+        frac = yr.get("residual_fraction_of_P")
+        if frac is not None and abs(frac) > 0.10:
+            kind = ("WATER CREATED (the return leg?)" if frac < 0 else
+                    "water left through a flux this history does not carry, "
+                    "or the sink's removal mirrored by the stamp")
+            print(f"   ⚠️  {c['id']}: ELM's year does not close: residual "
+                  f"{yr['residual_mm']:+.0f} mm against {yr['P_mm']:.0f} mm "
+                  f"of precipitation ({frac:+.0%}); stamp jumps "
+                  f"{yr['stamp_jumps_mm']:+.0f} mm; {kind}", flush=True)
     (wd / "walk_summary.json").write_text(json.dumps({
         "year": year, "window": win, "n_windows": len(windows),
         "t0_y": t0, "pf_bottom": bottom,
+        "forward_var": forward_var, "negative_forward": negative_forward,
+        "return_leg": return_leg,
+        "sink": walk.get("sink"),
         "columns_left_the_walk": state["dead"],
         "solved_trajectories": traj, "elm_daily": elm_series,
         "window_0_note": (

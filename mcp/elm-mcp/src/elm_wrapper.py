@@ -205,6 +205,12 @@ def configure_continuation(case_dir, stop_n, stop_option="ndays"):
                    check=True, capture_output=True, text=True)
 
 
+# srun stderr that means the SLURM controller, not the model, failed
+SRUN_CONTROLLER_SIGNATURES = ("Unable to confirm allocation",
+                              "Socket timed out on send/recv")
+SRUN_RETRY_PAUSE_S = 60
+
+
 def run_built_case(case_dir) -> bool:
     """srun the case's executable from its run dir (blocking; needs a node).
 
@@ -243,15 +249,24 @@ def run_built_case(case_dir) -> bool:
     # (mpilib=impi) and CIME's compy config specifies --mpi=pmi2 for it.
     # Without it Intel MPI falls back to its hydra bootstrap and dies
     # setting up proxies.
-    result = subprocess.run(
-        ["bash", "-c",
-         "source ./.env_mach_specific.sh 2>/dev/null; "
-         "cd run && srun --mpi=pmi2 --label -n 1 -N 1 -c 2 "
-         f"--cpu_bind=cores '{exe_path}'"],
-        cwd=case_dir,
-        capture_output=True,
-        text=True,
-    )
+    cmd = ["bash", "-c",
+           "source ./.env_mach_specific.sh 2>/dev/null; "
+           "cd run && srun --mpi=pmi2 --label -n 1 -N 1 -c 2 "
+           f"--cpu_bind=cores '{exe_path}'"]
+    result = subprocess.run(cmd, cwd=case_dir, capture_output=True, text=True)
+    # ONE RETRY FOR THE CONTROLLER, NOT FOR THE MODEL: job 778447 (2026-09-13)
+    # lost a 56-minute walk at window 10 of 12 when srun could not confirm
+    # its own, still valid, allocation ("Socket timed out on send/recv").
+    # Nothing had run, so a second srun after a pause is the same request;
+    # any other failure is the model's and is reported at once.
+    if result.returncode != 0 and any(
+            sig in result.stderr for sig in SRUN_CONTROLLER_SIGNATURES):
+        logger.warning(f"srun could not reach the SLURM controller "
+                       f"({result.stderr.strip().splitlines()[-1][:120]}); "
+                       f"retrying once in {SRUN_RETRY_PAUSE_S} s")
+        time.sleep(SRUN_RETRY_PAUSE_S)
+        result = subprocess.run(cmd, cwd=case_dir, capture_output=True,
+                                text=True)
     elapsed = (time.time() - start) / 60
 
     if result.returncode == 0:
@@ -585,7 +600,12 @@ class GeneratedELMAgent:
             + "hist_fincl1 = "
             "'RAIN','SNOW','QOVER','QDRAI','QCHARGE',"
             "'TWS','H2OSOI','SOILLIQ','ZWT','WA',"
-            "'H2OSNO','QSNOMELT','QINFL','QSOIL','QVEGE','QVEGT'\n"
+            "'H2OSNO','QSNOMELT','QINFL','QSOIL','QVEGE','QVEGT',"
+            # THE WHOLE RUNOFF, not only the soil column's two terms
+            # (2026-09-13): a column with a lake, wetland or capped-snow
+            # fraction loses water through QRGWL / QSNWCPICE, which the walk's
+            # water-balance guard could not see and reported as a residual.
+            "'QRUNOFF','QRGWL','QSNWCPICE'\n"
             "hist_nhtfrq = -3\n"
             "hist_mfilt  = 365\n"
         )

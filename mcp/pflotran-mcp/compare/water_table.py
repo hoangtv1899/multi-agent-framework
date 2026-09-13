@@ -3,8 +3,8 @@
 water_table — a PFLOTRAN column's water table against a well. MEASUREMENTS ONLY.
 
     model    water_table_m       the depth the column was GIVEN: ParFlow CONUS2's
-                                 steady-state water table, the fixed head at the
-                                 bottom face the column is anchored to
+                                 steady-state water table, the level a framework
+                                 run anchors the bottom face to
              crossing_m(t)       from the profiles: the depth where the modelled
                                  liquid pressure crosses atmospheric (101325 Pa)
                                  at each output time — where the water table IS
@@ -12,11 +12,15 @@ water_table — a PFLOTRAN column's water table against a well. MEASUREMENTS ONL
     obs      a well's daily depth to water, m below land surface
 
 WHAT A WELL COMPARISON MEANS HERE, said before any number. The bottom face of
-every column is a FIXED HEAD — hydrostatic at the CONUS2 water-table depth
-(`bottom_wt`) — and the column starts hydrostatic about that depth. The water
-table itself is not held: it is the depth where the solved pressure crosses
-atmospheric, and it moves with the recharge the column receives, anchored to
-that pressure at the bottom face. Measured on Naches, 2026-08-18: col_09 was
+a column is in one of three states: ANCHORED, hydrostatic at the CONUS2
+water-table depth (`bottom_wt`; every framework site and coupled run); SEALED,
+no flow (the walk's --bottom none); or SEALED WITH A LATERAL SINK, no flow at
+the base and a band of side faces leaking to a drainage datum (the walk's
+--sink-datum). The column starts hydrostatic about the given depth in every
+state, and the water table itself is never held: it is the depth where the
+solved pressure crosses atmospheric, and it moves with the recharge the column
+receives and with whatever its bottom state allows out. Measured on Naches,
+2026-08-18, anchored: col_09 was
 given 99.9 m, mounded to 76 m over ten spin-up years at the mean recharge, and
 moved 3.6 m within the forcing year; col_03 sat at 13.3 m in every snapshot.
 So a well beside a column speaks to two things at once — the CONUS2 depth the
@@ -56,8 +60,9 @@ DAYS = 365                       # Daymet's calendar, and the series' step
 SPEC = C.Spec(
     name="water_table", model_vars=["water_table_m", "profiles"], units="m",
     comparand=("the depth where the modelled liquid pressure crosses "
-               "atmospheric at each output time — the model's water table, "
-               "anchored to a fixed head at the bottom face — and the CONUS2 "
+               "atmospheric at each output time (the model's water table, "
+               "whose bottom face is anchored, sealed, or sealed with a "
+               "lateral sink; boundary_condition says which) and the CONUS2 "
                "depth the column was given (positive down)"),
     obs_quantity="depth to water in a well (positive down)",
     colocated=True, pair_on="distance",
@@ -187,7 +192,7 @@ def model_series(rows: List[Dict]) -> Dict[str, Dict[str, Any]]:
 
 
 def _boundary_condition(model: Dict[str, Dict]) -> Dict[str, Any]:
-    """The fact that reframes every pair below: the water table is anchored at the bottom face, not held."""
+    """The fact that reframes every pair below: the water table is solved, never held; the bottom face is anchored, sealed, or sealed with a lateral sink."""
     per = {c: {"given_m": m.get("given_m"), "moved_m": m.get("moved_m"),
                "moved_in_year_m": m.get("moved_in_year_m"),
                "transient": m.get("transient")} for c, m in model.items()}
@@ -195,11 +200,17 @@ def _boundary_condition(model: Dict[str, Dict]) -> Dict[str, Any]:
     moves_y = [m["moved_in_year_m"] for m in model.values()
                if m.get("moved_in_year_m") is not None]
     return {
-        "note": ("the bottom face of every column is a FIXED HEAD — hydrostatic "
-                 "at the CONUS2 water-table depth — and the column starts "
-                 "hydrostatic about it. The water table itself is solved: it is "
-                 "where the pressure crosses atmospheric, and it moves with the "
-                 "recharge, anchored to that pressure at the bottom face. "
+        "note": ("the bottom face of a column is in one of three states: "
+                 "ANCHORED, hydrostatic at the CONUS2 water-table depth (every "
+                 "framework site and coupled run, and the columns compared "
+                 "here); SEALED, no flow (the walk's --bottom none); or SEALED "
+                 "WITH A LATERAL SINK, no flow at the base and a band of side "
+                 "faces leaking to a drainage datum (the walk's --sink-datum, "
+                 "recorded in the column's sink_* keys). The column starts "
+                 "hydrostatic about the given depth in every state. The water "
+                 "table itself is solved: it is where the pressure crosses "
+                 "atmospheric, and it moves with the recharge and with what "
+                 "the bottom state lets out. "
                  "moved_m is across ALL output times (spin-up included, so it "
                  "shows the mounding the spin-up produced); moved_in_year_m is "
                  "within the forcing year. A well beside a column therefore "

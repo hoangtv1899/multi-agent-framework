@@ -59,10 +59,14 @@ design around a mechanism the runs can't represent and then claim to test it.
   • SNOW / SWE is simulated and IS in the default history output (H2OSNO,
     QSNOMELT, SNOW) → SNOTEL peak-SWE comparison is possible. Expect
     underestimation at ridgetop stations (12 km cells average over terrain).
-  • SINGLE-COLUMN, NO LATERAL TRANSPORT — columns are independent 1-D points:
-    no routing, no lateral/regional groundwater flow, no column-to-column
-    exchange → no native integrated streamflow for gage comparison (needs an
-    explicit aggregation/routing step) and no regional water table.
+  • SINGLE-COLUMN: columns are independent 1-D points with no routing and no
+    column-to-column exchange → no native integrated streamflow for gage
+    comparison (needs an explicit aggregation/routing step) and no regional
+    water table. A per-column lateral sink to a drainage datum IS available
+    on the coupled PFLOTRAN column (the walk's --sink-datum: groundwater
+    leaks sideways while the water table stands above the datum, giving a
+    baseflow per column that can be COMPARED in basin sum against a gauge);
+    there is still no column-to-column transport.
   • SPIN-UP: multi-year runs ARE supported (specify the year span) but are NOT
     the default. Without ~5+ spin-up years, slow states are initialization
     artifacts: every column COLD-STARTS at the same default water table
@@ -113,8 +117,10 @@ DESIGN ARCHETYPE — READ FIRST (from the brief's design_archetype)
   recharge QDRAI -> PFLOTRAN top recharge flux BC), the temporal mapping (ELM
   flux time series -> PFLOTRAN transient BC), the receiving-model domain/setup,
   and crucially WHAT TO COMPARE (coupled vs standalone — where the standalone
-  model's assumptions break: lateral groundwater flow, regional water table,
-  water-table feedback on the root zone). sampling_strategy/sampling_plan may be
+  model's assumptions break: the regional water table, water-table feedback
+  on the root zone; a per-column lateral sink to a drainage datum is available
+  on the PFLOTRAN column, there is still no column-to-column transport).
+  sampling_strategy/sampling_plan may be
   null. List the coupler itself (the unbuilt mechanism) under requires_capabilities.
 
 Echo the archetype as model_choice.design_archetype. The rest of this guidance

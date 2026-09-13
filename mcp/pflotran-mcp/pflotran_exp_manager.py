@@ -109,10 +109,16 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			"units": "m", "from": ["ParFlow CONUS2 ss_water_table_depth (site run)",
 								   "the design's level or held_fixed (controlled sweep)",
 								   "the driving model's solved mean water table (coupled run)"],
-			"note": ("the INITIAL condition, not a result — the column is "
-					 "initialised hydrostatic about it and its bottom face is "
-					 "anchored to it. Comparing it to the final saturation "
-					 "profile compares an input with an output"),
+			"note": ("the INITIAL condition, not a result: the column is "
+					 "initialised hydrostatic about it. What its bottom face "
+					 "does after that is one of three states, and the run's "
+					 "record says which: ANCHORED (hydrostatic at this depth; "
+					 "the framework's site and coupled runs), SEALED (no flow; "
+					 "the walk's --bottom none) or SEALED WITH A LATERAL SINK "
+					 "(no flow at the base, and a band of side faces leaking "
+					 "to a drainage datum; the walk's --sink-datum, recorded "
+					 "in the sink_* keys). Comparing it to the final "
+					 "saturation profile compares an input with an output"),
 		},
 		"unsaturated_m": {
 			"units": "m", "from": ["water_table_m", "domain_depth_m"],
@@ -197,6 +203,33 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					 "what a rain sweep varies at one total. NULL on a site "
 					 "run, whose rain is Daymet's"),
 		},
+		# A LATERAL SINK'S OWN OUTPUT (the walk's --sink-datum), read off the
+		# mass-balance file the sink writes. ABSENT, NOT ZERO, on a column
+		# without a sink.
+		"lateral_outflow_mm_day": {
+			"units": "mm/day",
+			"from": ["<cid>-mas.dat, column 'lateral_sink Water Mass [kg/y]'"],
+			"note": ("water LEAVING the column sideways through the sink band, "
+					 "positive outward (the file writes outflow negative; the "
+					 "sign is flipped once, at the extract). The column's plan "
+					 "area is 1 m^2, so 1 kg is 1 mm, and kg/y is mm/day over "
+					 "365.25 days. The sink is a Dirichlet-conductance face at "
+					 "atmospheric pressure over a band above the drainage "
+					 "datum (sink_datum_applied_m), so it leaks only while the "
+					 "water table stands above the datum: a baseflow per "
+					 "column, comparable in basin sum against a gauge, never "
+					 "validated by one"),
+		},
+		"lateral_outflow_window_mm": {
+			"units": "mm",
+			"from": ["<cid>-mas.dat, column 'lateral_sink Water Mass [kg]', "
+					 "last row"],
+			"note": ("the same outflow summed over one walk window, positive "
+					 "= leaving. The cumulative coupler mass is not "
+					 "checkpointed and each window runs in its own case "
+					 "directory, so the file's last cumulative value is that "
+					 "window's total"),
+		},
 		# WHAT IS ABSENT, said explicitly. A reader looking for these will not
 		# find them, and the reason is a design decision rather than a gap.
 		"_not_computed": {
@@ -204,9 +237,13 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 					   "drainage_flux", "recharge_fraction", "water_budget"],
 			"note": ("the extraction is RAW SERIES ONLY. These answer what the "
 					 "study asked and are the Analyzer's to derive from the "
-					 "series above — the server has particle-trajectory, "
+					 "series above; the server has particle-trajectory, "
 					 "residence-time and breakthrough-curve tools for it. "
-					 "Nothing in this file is any of them"),
+					 "Nothing in this file is any of them. The one exception "
+					 "is lateral outflow, which IS computed when a sink is "
+					 "present (lateral_outflow_mm_day, read off the mass-"
+					 "balance file the sink writes) and absent otherwise; "
+					 "drainage_flux through the bottom face stays uncomputed"),
 		},
 		"_forcing": {
 			"note": ("the top boundary was driven with PRECIPITATION applied as "
@@ -369,9 +406,17 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 			v = ((block.get("variables") or {}).get(var)) or {}
 			vals = v.get("values") or []
 			if not vals:
-				raise RuntimeError(
-					f"{cid}: the prior run's extract carries no {var} series "
-					f"— it has {sorted((block.get('variables') or {}).keys())}")
+				# THE SAME SKIP PATH AS THE UNSOLVED WATER TABLE BELOW (design,
+				# section 5): the Naches col_04 case, where QCHARGE is fill on
+				# a cell ELM never solved it for. Left out with its reason on
+				# the record while its siblings run; a traceback here sank
+				# every column for the one with nothing to send.
+				skipped.append({"id": cid, "reason": (
+					f"the prior run {src.name} wrote no {var} for this column "
+					f"(its extract has "
+					f"{sorted((block.get('variables') or {}).keys())}); "
+					f"left out while its siblings run")})
+				continue
 			units = str(v.get("units") or "")
 			if units != "mm/day":
 				raise RuntimeError(
@@ -531,6 +576,19 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 				# run drove this one, with which variable, and the sentence
 				# the deck's forcing_caveat carries. Absent elsewhere.
 				"coupled_from", "coupling_variable", "flux_description",
+				# A LATERAL SINK'S OWN FACTS (walk_setup --sink-datum; the
+				# contract in docs/coupling/lateral_sink_design.md, section
+				# 7): where the drainage datum is and where it was applied,
+				# the band, the specific yield and recession timescale
+				# behind the conductance, and the terrain numbers the datum
+				# was read from. Every one a scalar input; absent on a
+				# column without a sink.
+				"sink_datum_source", "sink_datum_m", "sink_datum_applied_m",
+				"sink_datum_clipped_to_domain", "sink_datum_raised_to_band", "sink_band_m", "sink_sy",
+				"sink_sy_source", "sink_tau_days", "sink_tau_source",
+				"sink_conductance_m", "sink_implied_tau_days", "hand_m",
+				"hand_path_km", "hand_stream_area_km2", "hand_threshold_km2",
+				"std_elev_m", "conus2_wtd_m",
 				# THE SERVER'S OWN SENTENCE ABOUT THIS COLUMN — "only 0.01 m
 				# of unsaturated column", "built steady, no daily rain". Step 0
 				# of the Analyzer turns a row's `warning` into a caveat naming
@@ -544,7 +602,13 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 		optional = ("recharge_mm_yr", "rain_borrowed_km", "rain_borrowed_from",
 					"warning", "incomplete",
 					"soil", "substrate", "soil_depth_m", "soil_source",
-					"coupled_from", "coupling_variable", "flux_description"),
+					"coupled_from", "coupling_variable", "flux_description",
+					"sink_datum_source", "sink_datum_m", "sink_datum_applied_m",
+					"sink_datum_clipped_to_domain", "sink_datum_raised_to_band", "sink_band_m", "sink_sy",
+					"sink_sy_source", "sink_tau_days", "sink_tau_source",
+					"sink_conductance_m", "sink_implied_tau_days", "hand_m",
+					"hand_path_km", "hand_stream_area_km2", "hand_threshold_km2",
+					"std_elev_m", "conus2_wtd_m"),
 		drop = {
 			"deck_status": "the run stage's `status` is the word the framework "
 						   "counts on; a deck that did not build has no output "
@@ -585,6 +649,17 @@ class PFLOTRANExpManager(ExperimentManagerBase):
 								 "was driven with; the deck encodes it, "
 								 "flux_description says what it is, and the "
 								 "prior run's extract is its source of truth",
+			# A SINK'S ARRAYS AND RECORDS go the same way as daily_flux_mm_day:
+			# the scalars above say what was built, the files hold the rest.
+			"lateral_sink": "the deck builder's record of the coupler it "
+							"wrote (boundary_name and the two -mas.dat column "
+							"names); the sink_* scalars say what was built and "
+							"the .in file is the record",
+			"lateral_outflow": "a series block (times, cumulative kg, rate, "
+							   "mm/day) belongs to the extract, where "
+							   "extract_column_series writes it per column; "
+							   "on a column it would be an output riding an "
+							   "input record",
 		},
 		source = "columns.json -> columns[*], as create_decks_from_columns wrote them",
 		where  = "mcp/pflotran-mcp/pflotran_exp_manager.py :: COLUMN_METADATA_EXTRA",
