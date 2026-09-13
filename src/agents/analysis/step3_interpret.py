@@ -474,11 +474,29 @@ after you answer, and a sentence that breaks one is sent back once:
     exact measured value goes in `values`, unrounded; the audit reads
     `values`, the reader reads the sentence.
   - No dashes as punctuation. Use a comma, a colon or a new sentence.
+  - Every figure you write with a unit or a percent sign is one of that
+    claim's `values`, rounded; a percent is a value times 100. "96 to 100
+    percent" over values of 0.991 to 0.999 is a wrong sentence, and the gate
+    will send it back. Design labels ("the 5 m column", "500 mm of rain")
+    are not values and are fine as integers.
+  - Say "compared with observations", never "validated" or "validation":
+    a 1-D column is compared with observations, never validated by them.
   - `headline`: ONE sentence of at most 25 words that answers the question
     with its key number, the sentence a slide title could carry. If the
     experiment cannot answer, the headline says so plainly.
+  - THE HEADLINE SAYS NO MORE THAN ONE CLAIM SAYS. It restates one of your
+    audited claims with that claim's scope: the same count of columns, the
+    same numbers, the same qualifier. A claim about four columns does not
+    become a headline about every column; "reached the water table in four
+    of 17 columns" may not become "reached the water table". If no single
+    claim carries the answer, the headline names the strongest claim and
+    stops there.
   - `answer`: 2 to 4 further sentences, same rules, in this order: what was
-    found, why (the mechanism in plain words), what it does not show.
+    found, why (the mechanism in plain words), what it does not show. Each
+    sentence restates a claim or a caveat you listed, with its scope; a
+    sentence that says more than any claim says is not allowed. The reader
+    will paste the headline and the answer onto a slide unread, so the
+    audit of the claims must cover them.
 
 Return ONLY JSON:
 {{"claims": [
@@ -490,7 +508,8 @@ Return ONLY JSON:
                   if the claim asserts no measurement.>],
       "caveats": ["<ids of any blocking caveat this claim falls under>"]}}
   ],
-  "headline": "<ONE plain sentence, at most 25 words, with the key number>",
+  "headline": "<ONE plain sentence, at most 25 words, with the key number, "
+              "saying no more than one of the claims above says>",
   "answer": "<2-4 plain sentences: what was found, why, what it does not show; "
             "or saying plainly that this experiment cannot answer it and why>",
   "verdict": "sufficient" | "insufficient",
@@ -530,6 +549,76 @@ JARGON = ("parameterisation", "parameterization", "bimodal", "diagnosed",
           "quasi-steady", "heteroscedastic", "ergodic", "stochastically",
           "ansatz")
 _CODE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+# NUMBERS IN A SENTENCE MUST BE THE CLAIM'S OWN VALUES (2026-09-13). The
+# audit reads `values`; it never reads the sentence. A live case: a claim
+# said "96 to 100 percent" over values of 0.991 to 0.999 and passed. So a
+# percent figure, and any decimal figure with a unit, must match one of the
+# claim's values (a percent may match a value times 100) at the precision
+# of whichever is coarser. Integers with a unit are left alone: "the 5 m
+# column" and "500 mm of rain" are design labels, not measurements, and the
+# task already tells the model that labels do not belong in `values`. The
+# headline and the answer are held to the union of every claim's values.
+_UNIT = (r"(?:mm per day|mm/day|square kilometres|saturation units|percent|%|"
+         r"km2|km|mm|cm|m|days?|years?)")
+_NUM = r"-?\d+(?:\.\d+)?"
+_NUMBERS_WITH_UNIT = re.compile(
+    rf"((?:{_NUM}\s*(?:,|to|and|or)\s*)*{_NUM})\s*({_UNIT})(?![A-Za-z0-9])")
+_BANNED = (
+    (re.compile(r"\bvalidat\w*", re.I),
+     'say "compared with observations" or "comparison"; a 1-D column is '
+     'compared with observations, never validated by them'),
+)
+
+
+def _decimals(x) -> int:
+    """Digits after the point as written; an integral value has none."""
+    t = x if isinstance(x, str) else repr(float(x))
+    if "e" in t or "." not in t:
+        return 0
+    frac = t.split(".")[1].rstrip("0")
+    return len(frac)
+
+
+def same_number(written, measured) -> bool:
+    """`written` (as it appears in a sentence) states `measured` at the
+    precision of whichever is coarser: 37 states 0.368 as a percent, 296.3
+    states 296, 0.011 states 0.0105; 96 does not state 0.991."""
+    a, b = abs(float(written)), abs(float(measured))
+    for coarse in (_decimals(written), _decimals(measured)):
+        if abs(a - b) <= 0.5 * 10.0 ** (-coarse) + 1e-9:
+            return True
+    return False
+
+
+def number_problems(text: str, values, where: str, any_claim: bool = False):
+    """Every figure in `text` that no value backs, as a sentence to act on."""
+    vals = []
+    for v in values or []:
+        try:
+            vals.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    problems = []
+    for group, unit in _NUMBERS_WITH_UNIT.findall(str(text or "")):
+        percent = unit in ("percent", "%")
+        for num in re.findall(_NUM, group):
+            if not percent and "." not in num:
+                continue                                  # a label, not a value
+            cands = vals + ([v * 100.0 for v in vals] if percent else [])
+            if any(same_number(num, v) for v in cands):
+                continue
+            shown = ", ".join(f"{v:g}" for v in vals) or "none"
+            problems.append(
+                f"{where}: \"{num} {unit}\" is not "
+                + ("among the values of any claim; the headline and the "
+                   "answer state only what a claim states"
+                   if any_claim else
+                   f"one of this claim's values ({shown}); state the measured "
+                   f"value, rounded to 2 or 3 significant figures"))
+    for pat, advice in _BANNED:
+        for w in sorted(set(m.group(0) for m in pat.finditer(str(text or "")))):
+            problems.append(f"{where}: \"{w}\": {advice}")
+    return problems
 _COL_ID = re.compile(r"\bcol_\d+\b")
 _LONG_NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d*\.\d{5,}\b")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"])")
@@ -607,6 +696,12 @@ def check_readability(spec: Dict[str, Any]):
     for i, c in enumerate(claims, 1):
         problems += readability_problems(c.get("claim"), glossed,
                                          f"claim {i}")
+    every = [v for c in claims for v in (c.get("values") or [])]
+    problems += number_problems(spec.get("headline"), every, "headline", True)
+    problems += number_problems(spec.get("answer"), every, "answer", True)
+    for i, c in enumerate(claims, 1):
+        problems += number_problems(c.get("claim"), c.get("values"),
+                                    f"claim {i}")
     return problems
 
 
@@ -614,7 +709,13 @@ REWRITE = """\
 The wording below failed the slide-reader rules listed after it. Rewrite ONLY
 the wording. Do not change, add, remove or re-round any number that carries
 meaning; do not add a measurement; keep every claim's meaning and its order.
+The one exception: where a PROBLEM says a figure is not among the values,
+replace that figure with the value the problem names, rounded to 2 or 3
+significant figures, or drop the sentence that carries it.
 A variable code stays present but glossed once, as "<plain words> (CODE)".
+The headline and every sentence of the answer say no more than one of the
+claims says: the same count of columns, the same numbers, the same qualifier.
+Say "compared with observations", never "validated".
 
 PROBLEMS:
 {problems}

@@ -21,8 +21,10 @@ BAD = {
                "intersect the drainage parameterisation QDRAI/P reaches 0.78 "
                "but col_11 recharges 804.5238 mm of QCHARGE with zero QDRAI "
                "and the water table sits below the soil in all columns."),
+    # the values also back the figures of the rewrite the stub returns
     "claims": [{"claim": "QOVER/P is 0.367648204485183 at col_04.",
-                "finding_id": "f1", "values": [0.367648204485183]}],
+                "finding_id": "f1",
+                "values": [0.367648204485183, 0.781, 0.843, 3.8]}],
 }
 GOOD = {
     "headline": "Drainage, not runoff, moves most water: 78 to 84 percent of "
@@ -35,7 +37,13 @@ GOOD = {
                "with observations."),
     "claims": [{"claim": "Runoff is 37 percent of precipitation at the lowest "
                          "column, at 471 m.",
-                "finding_id": "f1", "values": [0.367648204485183, 471.04]}],
+                "finding_id": "f1", "values": [0.367648204485183, 471.04]},
+               {"claim": "Drainage takes 78 to 84 percent of precipitation "
+                         "where the water table is shallow.",
+                "finding_id": "f2", "values": [0.781, 0.843]},
+               {"claim": "The water table sits below the 3.8 m of active "
+                         "soil in 10 of 19 columns.",
+                "finding_id": "f3", "values": [3.8, 10, 19]}],
 }
 
 
@@ -56,8 +64,10 @@ def test_plain_wording_with_glosses_passes():
 
 def test_a_gloss_anywhere_covers_the_code_everywhere():
     spec = dict(GOOD)
+    # the one claim backs every figure the headline and answer carry
     spec["claims"] = [{"claim": "QDRAI reaches 84 percent at 1913 m.",
-                       "finding_id": "f1", "values": [0.843]}]
+                       "finding_id": "f1",
+                       "values": [0.843, 1913, 0.781, 0.368, 3.8]}]
     assert s3.check_readability(spec) == []             # glossed in the answer
 
 
@@ -85,7 +95,7 @@ def test_gate_rewrites_once_and_leaves_the_numbers_alone():
     assert client.calls == 1
     assert record["rewritten"] is True
     assert record["problems_before"] and record["problems_after"] == []
-    assert spec["claims"][0]["values"] == [0.367648204485183]   # untouched
+    assert spec["claims"][0]["values"] == BAD["claims"][0]["values"]  # untouched
     assert spec["claims"][0]["finding_id"] == "f1"
     assert spec["headline"] == GOOD["headline"]
 
@@ -133,3 +143,49 @@ def test_report_md_carries_headline_claims_caveats_and_no_dashes():
     assert "Caveats that bind this answer" in md and "c1" in md
     assert "withheld (1)" in md
     assert "—" not in md
+
+
+def test_the_headline_and_answer_are_held_to_the_scope_of_a_claim():
+    """2026-09-13: a Gunnison headline said water reached the given water
+    table, while its own claim 3 said four of 17 columns did. The gate
+    cannot see a qualitative overreach, so the rule is in the prompt that
+    writes the wording and in the one that rewrites it."""
+    for prompt in (s3.TASK, s3.REWRITE):
+        assert "no more than one" in prompt and "same count of columns" in prompt
+    assert "paste the headline and the answer onto a slide unread" in s3.TASK
+
+
+def test_a_percent_or_decimal_figure_must_be_one_of_the_claims_values():
+    """The live case of 2026-09-13: "96 to 100 percent" over values of
+    0.991 to 0.999 passed the audit, which reads `values`, not the text."""
+    bad = number_problems = s3.number_problems
+    got = bad("in four columns it reached 96 to 100 percent of the thickness",
+              [0.991, 0.996, 0.999, 0.998], "claim 3")
+    assert len(got) == 1 and '"96 percent"' in got[0] and "0.991" in got[0]
+    assert bad("37 percent at the lowest column, 471 m, and 15 percent at "
+               "1913 m", [471, 1913, 0.368, 0.147], "claim 1") == []
+    assert bad("the deepest front was 296.3 m below the surface", [296],
+               "c") == []
+    assert bad("it falls by 0.029 m and 0.011 m", [-0.0289, -0.0105], "c") == []
+    assert bad("wetness rose at 19.75 m depth", [19.8, 20], "c") == []
+    # integers with a unit are design labels, not measurements
+    assert bad("in the 5 m column, 500 mm of rain", [-0.0729], "c") == []
+    # but a decimal with a unit that no value backs is caught
+    assert bad("the front stopped at 16.8 m", [11.8], "c")[0].startswith(
+        'c: "16.8 m" is not one of this claim\'s values (11.8)')
+
+
+def test_the_headline_and_answer_are_held_to_every_claims_values():
+    spec = dict(GOOD, headline="Drainage reaches 84.3 percent at 1913 m",
+                answer="It reached 12.5 m in one column.",
+                claims=[{"claim": "x", "values": [0.843, 1913], "finding_id": "f"}])
+    got = s3.check_readability(spec)
+    assert any('answer: "12.5 m" is not among the values of any claim' in p
+               for p in got)
+    assert not any(p.startswith("headline:") and "percent" in p for p in got)
+
+
+def test_validated_is_sent_back_as_compared():
+    got = s3.number_problems("the split itself was never validated", [], "claim 8")
+    assert len(got) == 1 and "validated" in got[0] and "compared with" in got[0]
+    assert "never \"validated\"" in s3.TASK
