@@ -37,6 +37,7 @@ Without this a reader cannot tell an answer that cost one LLM call from one
 that cost six, or a 19-column ensemble from a 200-column one.
 """
 import json
+import statistics
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -248,7 +249,7 @@ def _compute_accounting(run_dir) -> Dict[str, Any]:
                 "per_column_runtime_seconds": {
                     "n": len(per),
                     "total": round(sum(per), 1) if per else None,
-                    "median": (round(sorted(per)[len(per) // 2], 1)
+                    "median": (round(statistics.median(per), 1)
                                if per else None),
                     "max": round(max(per), 1) if per else None} if per else None}
 
@@ -274,7 +275,7 @@ def _compute_accounting(run_dir) -> Dict[str, Any]:
                 "per_column_runtime_seconds": {
                     "n": len(per),
                     "total": round(sum(per), 1),
-                    "median": round(sorted(per)[len(per) // 2], 1),
+                    "median": round(statistics.median(per), 1),
                     "max": round(max(per), 1)} if per else None}
     return {}
 

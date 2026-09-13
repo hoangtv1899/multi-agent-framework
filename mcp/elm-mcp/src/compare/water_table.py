@@ -147,13 +147,26 @@ def _below_active_soil(model: Dict) -> Dict[str, Any]:
 # 2.  THE THREE DISTRIBUTIONS — no pairing, no scoring
 # ═════════════════════════════════════════════════════════════════════════════
 def _quantiles(values: List[float]) -> Optional[Dict[str, Any]]:
-    """n, range, quartiles, and how many sit inside the simulated soil."""
+    """n, range, quartiles, and how many sit inside the simulated soil.
+
+    Quartiles interpolate between the neighbouring sorted values, as the
+    PFLOTRAN side and numpy's default do. The earlier v[n // 2] picked the
+    upper-middle VALUE for an even n: the Naches run of 2026-08-14 reported
+    a median water table of 12.087 m over 18 columns, which is the 10th
+    sorted value; the median of those 18 is 10.68 m (2026-09-13).
+    """
     v = sorted(x for x in values if x is not None)
     if not v:
         return None
     n = len(v)
-    return {"n": n, "min": round(v[0], 3), "p25": round(v[n // 4], 3),
-            "median": round(v[n // 2], 3), "p75": round(v[(3 * n) // 4], 3),
+
+    def q(p):
+        i = (n - 1) * p
+        lo, hi = int(i // 1), int(-(-i // 1))
+        return round(v[lo] + (v[hi] - v[lo]) * (i - lo), 3)
+
+    return {"n": n, "min": round(v[0], 3), "p25": q(0.25),
+            "median": q(0.5), "p75": q(0.75),
             "max": round(v[-1], 3),
             "n_inside_active_soil": sum(1 for x in v if x <= ACTIVE_SOIL_DEPTH_M),
             "values": [round(x, 3) for x in v]}
