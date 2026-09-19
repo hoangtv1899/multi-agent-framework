@@ -1,0 +1,32 @@
+# Scoped to mcp/elm-mcp so it travels with the published mirror, which has no
+# parent .gitignore to fall back on. Rules here are deliberately a superset of
+# the parent's for this subtree; nothing listed is currently tracked.
+
+# Per-host bulk-data paths. paths.json.example is the tracked template; the
+# real file names one machine's absolute directories and must never be pushed.
+# The parent repository does not cover this path, so this is the only guard.
+paths.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Logs. The server writes logs/mcp_servers.log, and src/compare/ writes its own.
+*.log
+logs/
+
+# Test and packaging artifacts
+.pytest_cache/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS and editor
+.DS_Store
+*.swp
+.ipynb_checkpoints/
