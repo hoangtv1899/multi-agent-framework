@@ -22,7 +22,7 @@ $ python3 src/framework_path.py
 
 `describe_elm_capabilities` then reports `ready: true` with no missing requirements. The server
 borrows only six small, self-contained modules from
-[multi-agent-framework](https://github.com/hoangtv1899/multi-agent-framework), and verbatim
+[multi-agent-framework](https://github.com/hoangtv1899/multi-agent-framework/tree/compy-port-agentic-pipeline), and verbatim
 copies of them ship in [src/_vendor/](src/_vendor/): `core.keyset`, `core.model_agent_base`,
 `core.basemap`, `core.static_wtd`, `agents.analysis.compare_common` and `figstyle`, 1,796 lines
 in total.
@@ -41,8 +41,15 @@ obscure `ModuleNotFoundError`.
 To use a real framework instead of the bundled copies:
 
 ```bash
-export IDEAS_FRAMEWORK_DIR=/path/to/multi-agent-framework
+git clone -b compy-port-agentic-pipeline \
+    https://github.com/hoangtv1899/multi-agent-framework.git
+export IDEAS_FRAMEWORK_DIR=$PWD/multi-agent-framework
 ```
+
+**Mind the branch.** The framework's default branch does not yet carry this work, and a checkout
+of it has none of the modules named above. Point `IDEAS_FRAMEWORK_DIR` at such a tree and the
+server says so and keeps using its bundled copies, rather than claiming to be fine and failing
+at the first import.
 
 When that points at a checkout, the framework's own files are used and the vendored copies never
 execute. That ordering is what keeps one source of truth.
@@ -91,6 +98,9 @@ never arrive. `paths.json` sits beside the server and is always read.
 
 ### Registering the server
 
+Write this to `.mcp.json` **in the directory you will start Claude Code from**, which is usually
+this clone's root. It is gitignored, because it names your interpreter and your directories.
+
 ```jsonc
 {
   "mcpServers": {
@@ -111,6 +121,21 @@ never arrive. `paths.json` sits beside the server and is always read.
   }
 }
 ```
+
+Then start Claude Code in that directory once and approve the server:
+
+```bash
+claude            # approve the project server when asked, then quit
+claude mcp list   # elm: ... Connected
+```
+
+The first `claude mcp list` before that approval reads `Pending approval`, which is normal rather
+than a failure: Claude Code only reads a project's `.mcp.json` after you have trusted the folder
+interactively. Committing a settings file does not shortcut it.
+
+To confirm the server is genuinely healthy rather than merely connected, ask it for
+`describe_elm_capabilities`; a good setup answers `"ready": true` with
+`"missing_requirements": []`.
 
 ### What else you need
 

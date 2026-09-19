@@ -1,5 +1,13 @@
 # multi-agent-framework
 
+> **This work lives on the `compy-port-agentic-pipeline` branch.** The default
+> branch is an older tree without this README or most of what it describes, so
+> clone the branch:
+>
+> ```bash
+> git clone -b compy-port-agentic-pipeline https://github.com/hoangtv1899/multi-agent-framework.git
+> ```
+
 Ask a watershed question in plain English; get a real land-model ensemble and a written answer
 whose every number traces back to a file on disk.
 
@@ -56,10 +64,8 @@ This project runs on PNNL's Compy cluster and is not portable as it stands; see
 #    This script lives OUTSIDE the repo and holds live credentials; never copy it in.
 source /qfs/people/tran289/IDEAS/env_compy.sh
 
-# 2. Server registry. The template ships placeholder paths; edit them to your own.
-#    WARNING: the template is behind the live config. It lists six servers, still
-#    registers the retired `geology`, and has no `elm`, `pflotran` or `daymet`
-#    entry, so a straight copy cannot run a study until you add those by hand.
+# 2. Server registry. The template lists all eight servers with placeholder
+#    paths; replace every /path/to/... with your own.
 cp mcp_config.template.json mcp_config.json
 
 # 3. Point the ELM server at your bulk data (all keys optional).
@@ -180,10 +186,11 @@ the same servers**. `mcp_config.json` is what the Python framework reads (the ei
 gitignored because it holds absolute paths). `.mcp.json` is what Claude Code reads (two servers,
 `elm` and `PFLOTRAN`). Changing one does not change the other.
 
-The shipped [mcp_config.template.json](mcp_config.template.json) is **not** a copy of the live
-registry: it lists six servers, still registers the retired `geology`, and omits `elm`,
-`pflotran` and `daymet`. Copy it for the path layout, then add the model servers yourself, or
-reception will find no model in `RUNNABLE` and the study will stop before it starts.
+[mcp_config.template.json](mcp_config.template.json) carries all eight with placeholder paths.
+Two spellings matter and neither is checked for you: the top-level key must be `mcp_servers`
+(not `mcpServers`, which is Claude Code's spelling and loads zero servers in silence), and at
+least one of `elm` or `pflotran` must be present, or reception finds no model in `RUNNABLE` and
+the study stops before it starts.
 
 One consequence worth internalising: every tool call spawns a **fresh** server process, so
 nothing can be cached in server memory between calls and no tool may block longer than its
@@ -250,6 +257,12 @@ pytest --runllm        # adds real LLM round-trips (needs PNNL_API_KEY)
 pytest --runcompute    # adds ELM builds and runs (needs an salloc node)
 ```
 
+**Plain `pytest` does not currently pass**, which you should know before reading a failure as
+something you caused. Two files, `tests/test_backends.py` and `tests/test_lambda_pflotran.py`,
+import names deleted in August 2026 and abort collection before a single test runs. Excluding
+them, about 70 of roughly 1,060 tests fail on stale expectations, and a few more fail in a fresh
+clone because they want bulk data that is not in git. Cleaning that up is outstanding work.
+
 The tiers are defined in [conftest.py](conftest.py) and declared as markers in
 [pytest.ini](pytest.ini). Plain `pytest` staying offline is a property worth protecting: it is
 what makes a green suite meaningful without a cluster or a gateway. See
@@ -284,8 +297,8 @@ description of the tiers is current.
 
 Cloning this repo does not give you a working system. You also need:
 
-- **The PFLOTRAN MCP server.** It is a separate repository (`reaction_sandbox_mcp-upstream`, branch `compy-port`), pip-installed into the `ideas` environment and launched as the `pflotran-mcp` console script. [mcp/pflotran-mcp/](mcp/pflotran-mcp/) holds only the framework's driving side. The two repositories must move together: the PFLOTRAN half of the lateral sink lives over there.
-- **The environment script**, `env_compy.sh`, which sits one directory above the repo and holds live credentials in plain text. It is correctly outside version control and must stay there. This README names variables (`PNNL_API_KEY`, `USGS_API_KEY`, `AMERIFLUX_USER_ID`) and never their values.
+- **The PFLOTRAN MCP server.** It is a separate repository (`river-corridors-sfa/reaction_sandbox_mcp`, branch `compy-port`) which is **not publicly readable**, so the `PFLOTRAN` entry in `.mcp.json` is dead for anyone outside that organisation. It is pip-installed into the `ideas` environment and launched as the `pflotran-mcp` console script. [mcp/pflotran-mcp/](mcp/pflotran-mcp/) holds only the framework's driving side. The two repositories must move together: the PFLOTRAN half of the lateral sink lives over there.
+- **The environment script**, `env_compy.sh`, which sits one directory above the repo and holds live credentials in plain text. It is correctly outside version control and must stay there. [env.sh.example](env.sh.example) lists every variable the framework reads, with names and no values; copy it somewhere outside the repository and fill it in.
 - **An E3SM source checkout** at `$E3SM_SRC_DIR`, plus the CONUS 1 km restart and surface files and NLDAS-2 forcing on scratch. NLDAS-2 covers 1979 to 2023 and is the only forcing path that works.
 - **A PFLOTRAN executable** for the coupled and walk paths.
 

@@ -5,12 +5,24 @@ model servers **directly** — no `workflow.py`, no Python driver, no LLM agents
 of ours in the loop. You type a sentence; Claude calls the MCP tool; the
 scheduler does the work.
 
+> **Two corrections before you start, from a check against the shipped files
+> on 2026-09-18.**
+>
+> 1. **The PFLOTRAN server is registered as `PFLOTRAN`, not `reaction`.** This
+>    guide calls it `reaction` throughout, which is what it was called when
+>    this was written. Everywhere below, read `reaction` as `PFLOTRAN`: the
+>    tools are `mcp__PFLOTRAN__*`, and `--allowedTools "mcp__reaction"` should
+>    be `--allowedTools "mcp__PFLOTRAN"`. The name that counts is the key in
+>    `.mcp.json`.
+> 2. **The tool counts below are stale.** The live servers answer 12 and 49.
+>    Ask `describe_elm_capabilities` rather than trusting a number in prose.
+
 Two servers are wired up:
 
 | server | what it is | tools |
 |---|---|---|
-| `elm` | E3SM Land Model, 1-D columns. Compiles and runs CIME cases. | 5 |
-| `reaction` | PFLOTRAN — variably-saturated flow, reactive transport, the LAMBDA sandbox. | 44 |
+| `elm` | E3SM Land Model, 1-D columns. Compiles and runs CIME cases. | 12 |
+| `PFLOTRAN` (called `reaction` below) | PFLOTRAN: variably-saturated flow, reactive transport, the LAMBDA sandbox. | 49 |
 
 **What was actually run.** Examples 1, 2, 4, 5 and 6 were executed on Compy on
 **2026-08-03** through a real MCP client, and every output shown for them is the

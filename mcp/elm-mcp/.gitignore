@@ -7,6 +7,10 @@
 # The parent repository does not cover this path, so this is the only guard.
 paths.json
 
+# The MCP client registration the README tells you to write. It names your own
+# interpreter and your own directories, so it belongs to the machine, not here.
+.mcp.json
+
 # Python cache
 __pycache__/
 *.py[cod]

@@ -1,49 +1,67 @@
 {
-  "_comment": "Copy this to mcp_config.json and update paths for your system",
+  "_comment": "Copy this to mcp_config.json and replace every /path/to/... with your own. mcp_config.json is gitignored because it holds absolute per-machine paths. This registry is what the PYTHON framework reads (src/core/mcp_manager.py); Claude Code reads .mcp.json instead, which is a different file with a different schema. The key below must be mcp_servers, not mcpServers: the loader reads mcp_servers and a file with the other spelling registers nothing and says nothing.",
+  "_geology": "The SSURGO soil server at mcp/geology-mcp/ is deliberately NOT registered. It was retired 2026-08-17: a soil survey stops at about 1.5 m, so a deep column built from it was 88 to 97 percent extrapolated. mcp/weather-mcp/ is likewise unregistered. Both still run if launched by hand.", "_models": "elm and pflotran are the two servers that can drive a whole study (src/core/model_servers.py RUNNABLE). Without at least one of them registered, reception has no model to name and no study can start.",
   "mcp_servers": {
+    "elm": {
+      "command": "/path/to/your/python3",
+      "args": [
+        "/path/to/multi-agent-framework/mcp/elm-mcp/main.py"
+      ],
+      "timeout": 600.0,
+      "description": "E3SM Land Model, 1-D columns: builds and submits CIME cases. Needs an E3SM source tree, a scratch filesystem and a working sbatch; no web credentials. The long timeout is deliberate, since a case build is slow."
+    },
+    "pflotran": {
+      "command": "/path/to/your/conda/env/bin/pflotran-mcp",
+      "timeout": 300.0,
+      "description": "PFLOTRAN: variably-saturated flow and reactive transport. NOT in this repository. It is a console script installed from the separate repo reaction_sandbox_mcp (branch compy-port), so this entry is dead until that is pip-installed into your environment. Note there is no args key: the console script takes none."
+    },
     "usgs_water": {
       "command": "/path/to/your/python3",
       "args": [
-        "/path/to/RCSFA/mcp/usgs-water-mcp/main.py"
+        "/path/to/multi-agent-framework/mcp/usgs-water-mcp/main.py"
       ],
-      "timeout": 300.0
-    },
-    "geology": {
-      "command": "/path/to/your/python3",
-      "args": [
-        "/path/to/RCSFA/mcp/geology-mcp/main.py"
-      ],
-      "timeout": 30.0
+      "timeout": 300.0,
+      "description": "USGS site discovery, streamflow and groundwater levels. Free and keyless; USGS_API_KEY is optional and only raises the rate limit."
     },
     "terrain": {
       "command": "/path/to/your/python3",
       "args": [
-        "/path/to/RCSFA/mcp/terrain-mcp/main.py"
+        "/path/to/multi-agent-framework/mcp/terrain-mcp/main.py"
       ],
-      "timeout": 150.0
+      "timeout": 150.0,
+      "description": "USGS 3DEP elevation and watershed boundaries. Free and keyless. This is what turns a basin name or HUC code into a real bounding box."
     },
     "snotel": {
       "command": "/path/to/your/python3",
       "args": [
-        "/path/to/RCSFA/mcp/snotel-mcp/main.py"
+        "/path/to/multi-agent-framework/mcp/snotel-mcp/main.py"
       ],
-      "timeout": 90.0
+      "timeout": 90.0,
+      "description": "NRCS SNOTEL snow water equivalent. Free and keyless."
+    },
+    "daymet": {
+      "command": "/path/to/your/python3",
+      "args": [
+        "/path/to/multi-agent-framework/mcp/daymet-mcp/main.py"
+      ],
+      "timeout": 300.0,
+      "description": "Daymet V4 daily 1 km weather from ORNL DAAC. Free and keyless. Note it returns HTTP 200 and the whole archive for an out-of-range year, and its calendar is always 365 days."
     },
     "ameriflux": {
       "command": "/path/to/your/python3",
       "args": [
-        "/path/to/RCSFA/mcp/ameriflux-mcp/main.py"
+        "/path/to/multi-agent-framework/mcp/ameriflux-mcp/main.py"
       ],
       "timeout": 120.0,
-      "description": "AmeriFlux eddy-covariance towers: ET validation sites (discovery only; series needs credentials)"
+      "description": "AmeriFlux eddy-covariance towers: ET comparison sites. Discovery is open; downloading series needs AMERIFLUX_USER_ID and AMERIFLUX_EMAIL."
     },
     "hydrodata": {
       "command": "/path/to/your/python3",
       "args": [
-        "/path/to/RCSFA/mcp/hydrodata-mcp/main.py"
+        "/path/to/multi-agent-framework/mcp/hydrodata-mcp/main.py"
       ],
       "timeout": 300.0,
-      "description": "ParFlow-CLM CONUS water-table depth (1 km) via HydroFrame. Needs `pip install hf_hydrodata` and a free Princeton email+PIN registered once per machine; see the server's data_status() tool."
+      "description": "ParFlow CONUS2 water-table depth (1 km) and Fan 2013 wells via HydroFrame. Needs `pip install hf_hydrodata` and a free Princeton email plus PIN registered once per machine; see the server's data_status() tool."
     }
   }
 }

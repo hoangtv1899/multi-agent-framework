@@ -69,18 +69,41 @@ def framework_dir() -> Path:
     return Path(os.environ.get(_ENV_VAR) or _IN_PLACE_DEFAULT).resolve()
 
 
+#: Proof that a directory is a CURRENT framework, not just any tree with a
+#: src/core/ in it.  An older checkout (the default branch, say) has src/core/
+#: but not these files, and testing the directory alone reported such a tree as
+#: usable and then failed on the first import, which is the exact failure this
+#: module exists to prevent.
+_PROOF = ("src/core/keyset.py", "src/core/model_agent_base.py")
+
+
 def have_framework() -> bool:
-    """True when :func:`framework_dir` really holds the framework source."""
-    return (framework_dir() / "src" / "core").is_dir()
+    """True when :func:`framework_dir` holds a framework this server can use."""
+    root = framework_dir()
+    return all((root / rel).is_file() for rel in _PROOF)
+
+
+def framework_problem() -> str | None:
+    """Why :func:`framework_dir` is unusable, or None when it is fine."""
+    root = framework_dir()
+    if have_framework():
+        return None
+    if not (root / "src" / "core").is_dir():
+        return f"{root} has no src/core/"
+    absent = [r for r in _PROOF if not (root / r).is_file()]
+    return (f"{root} looks like a framework but is missing {', '.join(absent)}; "
+            f"it is probably an older branch. elm-mcp needs a checkout that has "
+            f"them (on GitHub: the compy-port-agentic-pipeline branch).")
 
 
 def _explain() -> str:
+    problem = framework_problem()
     where = os.environ.get(_ENV_VAR)
     if where:
-        return f"{_ENV_VAR} is set to {where!r}, which does not hold the framework"
+        return f"{_ENV_VAR} is set to {where!r}, but {problem}"
     return (
         f"{_ENV_VAR} is unset, so it was guessed as {framework_dir()} "
-        "(correct only inside a multi-agent-framework checkout)"
+        f"(correct only inside a multi-agent-framework checkout), and {problem}"
     )
 
 
@@ -148,6 +171,7 @@ if __name__ == "__main__":
         "resolved": str(framework_dir()),
         "source": "environment" if where else "in-place default",
         "framework_present": have_framework(),
+        "framework_problem": framework_problem(),
         "vendor_present": _VENDOR.is_dir(),
     }
     try:
