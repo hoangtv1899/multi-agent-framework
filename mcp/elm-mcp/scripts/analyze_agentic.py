@@ -22,7 +22,8 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent                    # scripts/
 sys.path.insert(0, str(_HERE.parent / "src"))              # ELM modules
 from framework_path import ensure_on_path                  # noqa: E402
-_FRAMEWORK = ensure_on_path()                              # framework
+# require: the analysis steps are not vendored; these need a real checkout.
+_FRAMEWORK = ensure_on_path(require=True)                  # framework
 
 from agents.analysis import step2_derive as _drv
 

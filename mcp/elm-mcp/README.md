@@ -9,45 +9,76 @@ and domain files for a point, to submitting an ensemble and extracting its water
 than repeat a list that drifts, call **`describe_elm_capabilities`**, which reports the live
 surface.
 
-## Read this before cloning
+## Does it run on its own?
 
-**This repository is a component of [multi-agent-framework](https://github.com/hoangtv1899/multi-agent-framework),
-not a standalone package.** The server imports from the framework's `src/`: the experiment
-lifecycle (`core.exp_manager_base`), the key-copying contract (`core.keyset`), the model-agent
-contract (`core.model_agent_base`), the caveat catalogue (`core.limitations`), the observation
-comparison layer (`agents.analysis.compare_common`) and several more, plus `figstyle` from its
-`tools/`. That is roughly 4,000 lines at import time and more behind lazy imports.
+**The server does.** All twelve tools work from a bare clone with nothing beside it:
 
-So point it at a framework checkout:
+```
+$ python3 src/framework_path.py
+{ "framework_present": false, "mode": "vendored (standalone)",
+  "server_tools": "available",
+  "experiment_manager": "unavailable: needs a framework checkout" }
+```
+
+`describe_elm_capabilities` then reports `ready: true` with no missing requirements. The server
+borrows only six small, self-contained modules from
+[multi-agent-framework](https://github.com/hoangtv1899/multi-agent-framework), and verbatim
+copies of them ship in [src/_vendor/](src/_vendor/): `core.keyset`, `core.model_agent_base`,
+`core.basemap`, `core.static_wtd`, `agents.analysis.compare_common` and `figstyle`, 1,796 lines
+in total.
+
+**Two things do not, and deliberately so:**
+
+| Needs a framework checkout | Why |
+|---|---|
+| `src/elm_exp_manager.py` | It subclasses `core.exp_manager_base`, a 2,000-line base class that ELM **and** PFLOTRAN share. Copying it here would fork a contract two models depend on. |
+| `scripts/analyze_run.py`, `scripts/analyze_agentic.py` | They drive the framework's Analyzer (`agents.analysis.step2_derive`, `core.figure_registry`, `agents.analyzer_agent`). |
+
+Both are driven from the framework side rather than through MCP, so they do not affect anyone
+using this as a server. They fail with a message naming `IDEAS_FRAMEWORK_DIR` rather than an
+obscure `ModuleNotFoundError`.
+
+To use a real framework instead of the bundled copies:
 
 ```bash
 export IDEAS_FRAMEWORK_DIR=/path/to/multi-agent-framework
-python3 src/framework_path.py        # prints what resolved, and whether it is usable
 ```
 
-If that variable is unset and this directory is not sitting at
-`multi-agent-framework/mcp/elm-mcp/`, every entry point fails immediately with a message naming
-`IDEAS_FRAMEWORK_DIR`. That is deliberate. The failure used to be a silent `sys.path` entry
-pointing at a directory that did not exist, surfacing much later as
-`ModuleNotFoundError: No module named 'core'`.
+When that points at a checkout, the framework's own files are used and the vendored copies never
+execute. That ordering is what keeps one source of truth.
 
-**This repository is a mirror. The parent is the source of truth.** It is published with
-`git subtree split` from `multi-agent-framework/mcp/elm-mcp`. Commit here directly and the next
-mirror push is rejected as non-fast-forward. Send changes to the parent repository instead.
+### About the vendored copies
 
-The dependency also runs the other way: the framework imports back into this directory in half a
-dozen places (its model dispatch, its analyzer's comparison loader, the coupling walk, its test
-suite). The two are a mirror pair, not a separation.
+They are refreshed, never hand-edited:
+
+```bash
+python3 scripts/sync_vendor.py --check    # has anything drifted?
+python3 scripts/sync_vendor.py --write    # refresh from the framework
+```
+
+The framework's test suite runs that `--check`, so a drift is a test failure rather than a silent
+divergence.
+
+### This repository is a mirror
+
+It is published with `git subtree split` from `multi-agent-framework/mcp/elm-mcp`, and **the
+parent is the source of truth.** Commit here directly and the next mirror push overwrites it.
+Send changes to the parent instead.
+
+The dependency also runs the other way: the framework imports back into this directory for its
+model dispatch, its analyzer's comparison loader, the coupling walk and its test suite. The two
+are a mirror pair, not a separation.
 
 ## Setup
 
 ```bash
-# 1. Point at the framework (see above).
-export IDEAS_FRAMEWORK_DIR=/path/to/multi-agent-framework
-
-# 2. Point at your bulk data. Every key is optional.
+# 1. Point at your bulk data. Every key is optional.
 cp paths.json.example paths.json
 python3 src/paths.py                 # prints each path and which layer supplied it
+
+# 2. OPTIONAL: use a real framework checkout instead of the bundled copies.
+export IDEAS_FRAMEWORK_DIR=/path/to/multi-agent-framework
+python3 src/framework_path.py        # confirms which mode you are in
 ```
 
 Bulk-data paths resolve through four layers, in order: an explicit tool argument, then
@@ -67,11 +98,14 @@ never arrive. `paths.json` sits beside the server and is always read.
       "command": "/path/to/python3",
       "args": ["/path/to/elm-mcp/main.py"],
       "env": {
-        "IDEAS_FRAMEWORK_DIR": "/path/to/multi-agent-framework",
         "E3SM_SRC_DIR": "/path/to/E3SM",
         "PSCRATCH": "/path/to/scratch",
         "IDEAS_SLURM_ACCOUNT": "e3sm",
         "IDEAS_SLURM_QUEUE": "short"
+
+        // Optional: only to use a real framework checkout rather than
+        // the copies in src/_vendor/.
+        // "IDEAS_FRAMEWORK_DIR": "/path/to/multi-agent-framework"
       }
     }
   }
@@ -90,13 +124,15 @@ Python dependencies: `mcp`, `numpy`, `pandas`, `scipy`, `xarray`, `netCDF4`, `ma
 
 ```
 main.py                the server: twelve tools, and every environment default it needs
-src/framework_path.py  where the framework checkout is. The ONE place that decides.
+src/framework_path.py  framework or vendored copies. The ONE place that decides.
+src/_vendor/           verbatim copies of the six borrowed framework modules,
+                       used only when no framework checkout is present
 src/paths.py           where the bulk data is, with four-layer precedence
 src/                   input building, output reading, the conceptual sweep,
                        the ELM experiment manager, figures
 src/compare/           observation comparison: ET, SWE, streamflow, water table, maps
 scripts/               batch entry points: build_cases, analyze_run, analyze_agentic,
-                       ensemble_job, slice_proof_job
+                       ensemble_job, slice_proof_job, sync_vendor
 ```
 
 ## How it works with the scheduler

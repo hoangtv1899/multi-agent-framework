@@ -56,7 +56,9 @@ from typing   import Dict, Any, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from framework_path import ensure_on_path, framework_dir
-ensure_on_path()
+# require: this subclasses core.exp_manager_base, the base class ELM and
+# PFLOTRAN share. It is deliberately not vendored, so this needs a checkout.
+ensure_on_path(require=True)
 
 from core.exp_manager_base import ExperimentManagerBase, Pending
 from core.keyset import KeySet

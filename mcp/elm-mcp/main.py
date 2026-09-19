@@ -204,6 +204,23 @@ def _stdout_to_stderr(fn):
 # run_study.sh was the worse of the two: its job ended by running
 # `workflow.py --finalize`, so the server's job executed the framework's code.
 # Jobs A and B invert that (2026-08-10) and both scripts are gone from this side.
+SERVER_DIR    = Path(__file__).resolve().parent
+
+def _fw_export() -> str:
+    """The IDEAS_FRAMEWORK_DIR export line for a generated job script.
+
+    Empty when there is no framework: the job scripts below run this server's
+    own scripts/ensemble_job.py, which needs no framework, and exporting the
+    string "None" would send a job looking for a directory by that name.
+    """
+    return f"export IDEAS_FRAMEWORK_DIR={FRAMEWORK}" if FRAMEWORK else \
+           "# no framework checkout; running on elm-mcp's vendored modules"
+
+def _job_cwd() -> Path:
+    """Where a generated job script should cd. The framework when there is
+    one, else this server's directory, which is what the job actually uses."""
+    return FRAMEWORK if FRAMEWORK else SERVER_DIR
+
 BUILD_JOB     = Path(__file__).resolve().parent / "scripts" / "ensemble_job.py"
 ENSEMBLE_AB   = Path(__file__).resolve().parent / "scripts" / "ensemble_ab.sh"
 
@@ -239,7 +256,18 @@ def _requirements() -> dict:
     that at least one band resolves, because the file that lists them is a few
     kilobytes and the data it points at is ~43 GB in somebody else's scratch.
     """
-    def _dir(p):  return {"path": str(p), "present": Path(p).is_dir()}
+    def _dir(p):
+        if p is None:
+            # OPTIONAL, and excluded from `missing` below. Every tool this
+            # server registers runs on its vendored modules; the framework is
+            # needed only by the experiment manager and the analysis scripts,
+            # which are driven from the framework side, not from here.
+            return {"path": None, "present": False, "optional": True,
+                    "note": "no multi-agent-framework checkout; the server is "
+                            "running on its vendored modules. Tools are "
+                            "unaffected. Set IDEAS_FRAMEWORK_DIR to use a "
+                            "real checkout."}
+        return {"path": str(p), "present": Path(p).is_dir()}
     def _file(p): return {"path": str(p), "present": Path(p).is_file()}
 
     reqs = {
@@ -728,7 +756,8 @@ def describe_elm_capabilities() -> str:
     generation, and reading the results.
     """
     reqs = _requirements()
-    missing = sorted(k for k, v in reqs.items() if not v["present"])
+    missing = sorted(k for k, v in reqs.items()
+                     if not v["present"] and not v.get("optional"))
     imports = _imports()
     broken = sorted(k for k, v in imports.items() if v is not True)
     names = _referenced_names()
@@ -1247,7 +1276,7 @@ def run_elm_ensemble(run_dir:  str,
                          "Submit normally, or run inside salloc/sbatch."})
         log = rd / "ensemble_A.log"
         env = dict(os.environ,
-                   IDEAS_FRAMEWORK_DIR=str(FRAMEWORK),
+                   **({"IDEAS_FRAMEWORK_DIR": str(FRAMEWORK)} if FRAMEWORK else {}),
                    LC_ALL="en_US.utf8", LANG="en_US.utf8",
                    PATH=f"{Path(sys.executable).parent}:{os.environ.get('PATH','')}")
         t0 = time.time()
@@ -1283,7 +1312,7 @@ def run_elm_ensemble(run_dir:  str,
 #SBATCH -A {acct}
 #SBATCH -t {walltime}
 #SBATCH -o {rd}/ensemble_A.log
-export IDEAS_FRAMEWORK_DIR={FRAMEWORK}
+{_fw_export()}
 export PSCRATCH={os.environ['PSCRATCH']}
 export LC_ALL=en_US.utf8
 export LANG=en_US.utf8
@@ -1370,7 +1399,7 @@ def build_elm_cases(run_dir:  str,
 #SBATCH -A {acct}
 #SBATCH -t {walltime}
 #SBATCH -o {rd}/build_cases.log
-export IDEAS_FRAMEWORK_DIR={FRAMEWORK}
+{_fw_export()}
 export PSCRATCH={os.environ['PSCRATCH']}
 export LC_ALL=en_US.utf8
 export LANG=en_US.utf8
@@ -1379,7 +1408,7 @@ export LANG=en_US.utf8
 # script by hand, would otherwise get the python3 that create_newcase cannot
 # load (see the PATH note at the top of this server).
 export PATH={Path(sys.executable).parent}:$PATH
-cd {FRAMEWORK}
+cd {_job_cwd()}
 echo "building {n_cases} case(s) for {rd} on $(hostname)"
 {sys.executable} {BUILD_JOB} {rd}
 """)
