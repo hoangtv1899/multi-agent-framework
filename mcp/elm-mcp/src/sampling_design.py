@@ -30,10 +30,8 @@ from pathlib import Path
 # way for exactly the same reason. Presentation policy is neither ELM knowledge
 # nor framework logic, and duplicating it per server is how two houses' styles
 # start to drift.
-_FW = Path(__file__).resolve().parents[3]           # multi-agent-framework/
-for _d in (_FW / "tools", _FW / "src"):
-    if str(_d) not in sys.path:
-        sys.path.insert(0, str(_d))
+from framework_path import ensure_on_path                    # noqa: E402
+_FW = ensure_on_path(tools=True)   # figstyle lives in the framework's tools/
 
 import figstyle                                              # noqa: E402
 

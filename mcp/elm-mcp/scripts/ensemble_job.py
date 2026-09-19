@@ -33,16 +33,13 @@ import sys
 import traceback
 from pathlib import Path
 
-# parents[3], not [2]: this file is mcp/elm-mcp/scripts/, one level deeper than
-# the mcp/elm-mcp/ it used to live in. The fallback is only reached when
-# IDEAS_FRAMEWORK_DIR is unset — which is exactly the by-hand invocation this
-# script exists to support — so a wrong depth here fails only in the case
-# nobody tests.
-FRAMEWORK = Path(os.getenv(
-    "IDEAS_FRAMEWORK_DIR", str(Path(__file__).resolve().parents[3])))
-sys.path.insert(0, str(FRAMEWORK / "src"))
-# The ELM modules this job builds with live beside it now, not in the framework.
+# The ELM modules this job builds with live beside it, not in the framework.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# The framework itself. framework_path honours IDEAS_FRAMEWORK_DIR, which is
+# the by-hand invocation this script exists to support, and refuses a directory
+# that does not hold the framework rather than failing at the first import.
+from framework_path import ensure_on_path                       # noqa: E402
+FRAMEWORK = ensure_on_path()
 
 os.environ.setdefault("LC_ALL", "en_US.utf8")
 os.environ.setdefault("LANG", "en_US.utf8")

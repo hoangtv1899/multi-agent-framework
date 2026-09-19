@@ -25,7 +25,7 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "src")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def _fsurdat(case_dir):

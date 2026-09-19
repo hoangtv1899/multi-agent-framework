@@ -45,13 +45,12 @@ from typing import Any, Dict, List, Optional
 from extract import (EXTRACTED, RESULTS_DIR, TARGET_VARIABLES)
 from column_metrics import column_metrics
 
-# parents[3] is the framework root; keyset is the only thing taken from it and
-# it imports nothing but the standard library. The alternative was a second
+# keyset is the only thing taken from the framework and it imports nothing but
+# the standard library. The alternative was a second
 # copy of the same forty lines inside the server, and two copies of a rule is
 # how the rule stops being one.
-_FW = Path(__file__).resolve().parents[3]
-if str(_FW / "src") not in sys.path:
-    sys.path.insert(0, str(_FW / "src"))
+from framework_path import ensure_on_path                       # noqa: E402
+_FW = ensure_on_path()
 from core.keyset import KeySet                                  # noqa: E402
 
 

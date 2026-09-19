@@ -36,7 +36,7 @@ import shutil
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "src")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 DEFAULT_CONUS_MANIFEST = (
     "/qfs/people/tran289/conus_restart_transfer/MANIFEST_conus_restarts.txt")

@@ -24,9 +24,9 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore")          # quiet xarray/netCDF futurewarnings
 _HERE = Path(__file__).resolve().parent                    # scripts/
-_FRAMEWORK = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_HERE.parent / "src"))              # ELM modules
-sys.path.insert(0, str(_FRAMEWORK / "src"))                # framework
+from framework_path import ensure_on_path                  # noqa: E402
+_FRAMEWORK = ensure_on_path()                              # framework
 from extract import extract_run
 from column_rows import build_rows
 from agents.analysis import step2_derive as _drv

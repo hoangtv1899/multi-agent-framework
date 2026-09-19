@@ -51,9 +51,20 @@ of it.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agents.analysis import compare_common as C
+# This package is loaded both as `compare` (by the server, with src/ already on
+# the path) and by absolute path from the framework's analyzer.  Bootstrap both
+# ends here so every module below can import the framework plainly.
+_SRC = Path(__file__).resolve().parents[1]          # mcp/elm-mcp/src
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+from framework_path import ensure_on_path           # noqa: E402
+ensure_on_path()
+
+from agents.analysis import compare_common as C     # noqa: E402
 from . import et, maps, streamflow, swe, water_table
 
 # The registry. A new observable is a module plus a line here.

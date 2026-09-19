@@ -92,9 +92,8 @@ from typing import Any, Dict, List, Optional
 # ─────────────────────────────────────────────────────────────────────
 # ENVIRONMENT — every one of these has a default (see the header)
 # ─────────────────────────────────────────────────────────────────────
-FRAMEWORK = Path(os.getenv(
-    "IDEAS_FRAMEWORK_DIR",
-    str(Path(__file__).resolve().parents[2])))
+# FRAMEWORK is resolved below, once this server's own src/ is importable, by
+# src/framework_path.py, the single place that knows where the framework is.
 
 os.environ.setdefault("PSCRATCH", "/compyfs/tran289")
 os.environ.setdefault("E3SM_SRC_DIR", "/qfs/people/tran289/E3SM")
@@ -131,12 +130,15 @@ os.environ.setdefault("MODULEPATH", ":".join(
         "environment", "development/mpi", "development/mlib",
         "development/compilers", "development/tools")))
 
+# This server's own library, first: a name that exists both here and in the
+# framework must resolve HERE; the ELM code is migrating into this directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 # The framework's own modules. This server is a thin front for them rather than
 # a reimplementation — the case build is ELMExperimentBuilder either way.
-sys.path.insert(0, str(FRAMEWORK / "src"))
-# This server's own library. Inserted after the framework's so a name that
-# exists in both resolves HERE — the ELM code is migrating into this directory.
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+# framework_path honours IDEAS_FRAMEWORK_DIR and refuses a directory that does
+# not hold the framework, instead of failing later at the first `import core`.
+from framework_path import ensure_on_path                       # noqa: E402
+FRAMEWORK = ensure_on_path()
 
 from mcp.server.fastmcp import FastMCP                          # noqa: E402
 import paths                                                    # noqa: E402

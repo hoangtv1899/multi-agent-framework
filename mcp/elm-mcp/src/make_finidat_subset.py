@@ -42,7 +42,7 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "src")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Sub-grid dimensions that get sliced; everything else (levgrnd, levsno, ...)
 # is copied whole.

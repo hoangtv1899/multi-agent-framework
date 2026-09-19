@@ -33,11 +33,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from columns_to_plan import columns_to_elm_plan
 from elm_experiment_builder import ELMExperimentBuilder
 
-# parents[3] is the framework root. keyset imports nothing but the standard
-# library; it is here so this list and the framework's obey one rule.
-_FW = Path(__file__).resolve().parents[3]
-if str(_FW / "src") not in sys.path:
-    sys.path.insert(0, str(_FW / "src"))
+# keyset imports nothing but the standard library; it is here so this list and
+# the framework's obey one rule. framework_path owns the directory arithmetic.
+from framework_path import ensure_on_path                      # noqa: E402
+_FW = ensure_on_path()
 from core import keyset                                        # noqa: E402
 from core.keyset import KeySet                                  # noqa: E402
 

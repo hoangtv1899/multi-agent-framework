@@ -16,9 +16,18 @@ PFLOTRANInputAgent (and any future model agent) via the
 ModelAgentBase contract.
 """
 import logging
+import sys
+from pathlib import Path
 from typing import Optional, Dict, Any
 
-from core.model_agent_base import ModelAgentBase
+# This module is imported through elm_experiment_builder, which callers reach
+# before any of them has bootstrapped the framework, so it does its own.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from framework_path import ensure_on_path                       # noqa: E402
+ensure_on_path()
+
+from core.model_agent_base import ModelAgentBase                # noqa: E402
 from elm_wrapper import GeneratedELMAgent
 
 

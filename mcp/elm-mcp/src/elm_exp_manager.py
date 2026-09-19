@@ -53,7 +53,10 @@ from pathlib  import Path
 from datetime import datetime
 from typing   import Dict, Any, List, Optional
 
-sys.path.insert(0, "src")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from framework_path import ensure_on_path, framework_dir
+ensure_on_path()
 
 from core.exp_manager_base import ExperimentManagerBase, Pending
 from core.keyset import KeySet
@@ -204,7 +207,15 @@ class ELMExpManager(ExperimentManagerBase):
 
 		# the one function that owns "where PFLOTRAN's water table IS"
 		import importlib.util
-		pkg = Path(__file__).resolve().parents[2] / "pflotran-mcp" / "compare"
+		# Resolved through the framework, not by counting parents, so this still
+		# points at the sibling server when elm-mcp is checked out on its own.
+		pkg = framework_dir() / "mcp" / "pflotran-mcp" / "compare"
+		if not (pkg / "__init__.py").is_file():
+			raise RuntimeError(
+				f"two-way coupling needs the PFLOTRAN server's compare package "
+				f"at {pkg}, which is not there. It ships with "
+				f"multi-agent-framework; set IDEAS_FRAMEWORK_DIR to a checkout "
+				f"that has mcp/pflotran-mcp/.")
 		spec = importlib.util.spec_from_file_location(
 			"compare_pflotran", pkg / "__init__.py",
 			submodule_search_locations=[str(pkg)])
@@ -649,7 +660,7 @@ class ELMExpManager(ExperimentManagerBase):
 			print(f"   ⚠️  {self.run_dir} is on {fs}, a node-local filesystem — "
 				  f"job B not submitted. Put the run directory on $PSCRATCH.")
 			return None
-		fw = Path(__file__).resolve().parents[3]
+		fw = framework_dir()
 		sb = self.run_dir / "ensemble_B.sbatch"
 		mail = (f"#SBATCH --mail-user={email}\n#SBATCH --mail-type=END,FAIL"
 				if email else "")

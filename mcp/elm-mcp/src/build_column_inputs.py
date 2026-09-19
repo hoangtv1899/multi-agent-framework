@@ -45,9 +45,9 @@ from pathlib import Path
 from typing  import Any, Dict, List, Optional
 
 _HERE = Path(__file__).resolve().parent               # mcp/elm-mcp/src
-_ROOT = Path(__file__).resolve().parents[3]           # the framework
 sys.path.insert(0, str(_HERE))
-sys.path.insert(0, str(_ROOT / "src"))
+from framework_path import ensure_on_path             # noqa: E402
+_ROOT = ensure_on_path()
 
 
 def _warmstart_map(run_dir: Path) -> Dict[str, Dict[str, Any]]:

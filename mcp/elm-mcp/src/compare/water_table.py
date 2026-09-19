@@ -239,8 +239,8 @@ def _distributions(model: Dict, model_columns: List[Dict],
     # Read from the GeoTIFF reception wrote, through the one reader, so this
     # cannot drift from the cell the rest of the framework would have got.
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
+        from framework_path import ensure_on_path
+        ensure_on_path()
         from core.static_wtd import describe as _describe
         lats = [r.get("lat") for r in model_columns if r.get("lat") is not None]
         lons = [r.get("lon") for r in model_columns if r.get("lon") is not None]

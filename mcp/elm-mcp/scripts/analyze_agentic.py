@@ -20,9 +20,9 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent                    # scripts/
-_FRAMEWORK = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_HERE.parent / "src"))              # ELM modules
-sys.path.insert(0, str(_FRAMEWORK / "src"))                # framework
+from framework_path import ensure_on_path                  # noqa: E402
+_FRAMEWORK = ensure_on_path()                              # framework
 
 from agents.analysis import step2_derive as _drv
 
