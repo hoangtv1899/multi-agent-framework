@@ -196,7 +196,7 @@ Check any time with `/mcp` inside the session, or from the shell:
 ```bash
 claude mcp list
 # elm: ... - ✔ Connected
-# reaction: ... - ✔ Connected
+# PFLOTRAN: ... - ✔ Connected
 ```
 
 Before approval they read "⏸ Pending approval (run claude to approve)". That is
@@ -208,7 +208,7 @@ normal, not an error.
 ```bash
 claude mcp add elm      /qfs/people/tran289/.conda/envs/ideas/bin/python3 \
     /qfs/people/tran289/IDEAS/multi-agent-framework/mcp/elm-mcp/main.py
-claude mcp add reaction /qfs/people/tran289/.conda/envs/ideas/bin/pflotran-mcp
+claude mcp add PFLOTRAN "$CONDA_PREFIX/bin/pflotran-mcp"
 ```
 
 `claude mcp add` defaults to *local* scope (this directory, your account only);
@@ -253,7 +253,7 @@ on anything that submits a job, at least at first — those spend node hours.
 To pre-authorize a whole server for a session:
 
 ```bash
-claude --allowedTools "mcp__reaction"          # every reaction tool
+claude --allowedTools "mcp__PFLOTRAN"         # every PFLOTRAN tool
 claude --allowedTools "mcp__elm__check_elm_job"  # exactly one
 ```
 
@@ -458,7 +458,7 @@ Steady recharge 150 mm/yr, 20 years, write it under /compyfs/tran289/demo2.
 Validate the deck before running it, and tell me the saturation profile at the end.
 ```
 
-**What Claude calls** — `mcp__reaction__create_column_deck`:
+**What Claude calls** — `mcp__PFLOTRAN__create_column_deck`:
 
 ```json
 {"column": {"id": "demo_col", "fan_wtd_m": 8.0,
@@ -619,7 +619,7 @@ one thing on this machine that writes a LAMBDA block this PFLOTRAN accepts:
 python3 tools/build_reactive_demo.py --column col_01 --recharge 100 10
 ```
 
-Then the MCP runs it — `mcp__reaction__run_pflotran_simulation`:
+Then the MCP runs it — `mcp__PFLOTRAN__run_pflotran_simulation`:
 
 ```json
 {"input_file": ".../workflow_outputs/gunnison_reactive/r100/col_01_r100.in",
@@ -1019,7 +1019,7 @@ python3 tools/build_reactive_demo.py --column col_01 --recharge 100 10
 
 # headless
 claude -p "<prompt>" --mcp-config .mcp.json --strict-mcp-config \
-       --allowedTools "mcp__elm mcp__reaction" --output-format json
+       --allowedTools "mcp__elm mcp__PFLOTRAN" --output-format json
 ```
 
 **Further reading in this repo:** `docs/ELM_MCP_PLAN.md` (why the ELM server has

@@ -60,9 +60,16 @@ This project runs on PNNL's Compy cluster and is not portable as it stands; see
 [Not in this repository](#not-in-this-repository).
 
 ```bash
+# 0. Python. Conda env, Python 3.12. PIP_ONLY_BINARY is mandatory on CentOS 7:
+#    pip cannot build from source against glibc 2.17.
+conda create -y -n ideas python=3.12 && conda activate ideas
+PIP_ONLY_BINARY=":all:" pip install -r requirements.txt
+
 # 1. Environment. Every shell, and the first line of every job script.
-#    This script lives OUTSIDE the repo and holds live credentials; never copy it in.
-source /qfs/people/tran289/IDEAS/env_compy.sh
+#    Keep it OUTSIDE the repo: it holds live credentials.
+cp env.sh.example ../env_local.sh
+$EDITOR ../env_local.sh          # fill in your own values
+source ../env_local.sh
 
 # 2. Server registry. The template lists all eight servers with placeholder
 #    paths; replace every /path/to/... with your own.
@@ -76,7 +83,8 @@ python3 mcp/elm-mcp/src/paths.py      # prints what resolved, and from which lay
 python workflow.py --interactive
 ```
 
-There is no `setup.py` and no `pyproject.toml`. Imports rely on `sys.path.insert(0, "src")`
+Dependencies are in [requirements.txt](requirements.txt). There is no `setup.py` and no
+`pyproject.toml`, and imports rely on `sys.path.insert(0, "src")`
 ([workflow.py:26](workflow.py#L26)), so **every command must be typed from the repository root.**
 
 ### The eight flags
@@ -298,7 +306,7 @@ description of the tiers is current.
 Cloning this repo does not give you a working system. You also need:
 
 - **The PFLOTRAN MCP server.** It is a separate repository (`river-corridors-sfa/reaction_sandbox_mcp`, branch `compy-port`) which is **not publicly readable**, so the `PFLOTRAN` entry in `.mcp.json` is dead for anyone outside that organisation. It is pip-installed into the `ideas` environment and launched as the `pflotran-mcp` console script. [mcp/pflotran-mcp/](mcp/pflotran-mcp/) holds only the framework's driving side. The two repositories must move together: the PFLOTRAN half of the lateral sink lives over there.
-- **The environment script**, `env_compy.sh`, which sits one directory above the repo and holds live credentials in plain text. It is correctly outside version control and must stay there. [env.sh.example](env.sh.example) lists every variable the framework reads, with names and no values; copy it somewhere outside the repository and fill it in.
+- **The environment script**, `env_compy.sh`, which sits one directory above the repo and holds live credentials in plain text. It is correctly outside version control and must stay there. [env.sh.example](env.sh.example) names every variable you may need to set, with no values; copy it somewhere outside the repository and fill it in. (`LC_ALL`, `TMPDIR`, `SLURM_JOB_ID` and the PFLOTRAN install's own variables are read too, but the system, the scheduler or the install sets those.)
 - **An E3SM source checkout** at `$E3SM_SRC_DIR`, plus the CONUS 1 km restart and surface files and NLDAS-2 forcing on scratch. NLDAS-2 covers 1979 to 2023 and is the only forcing path that works.
 - **A PFLOTRAN executable** for the coupled and walk paths.
 

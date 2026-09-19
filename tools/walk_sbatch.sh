@@ -22,5 +22,5 @@ LOG_DIR=$(dirname "$WALK_DIR")
 REPO=/qfs/people/tran289/IDEAS/multi-agent-framework
 sbatch --job-name="$NAME" --account=e3sm --partition="$PART" --nodes=1 \
        --time="${HOURS}:00:00" --output="$LOG_DIR/${NAME}_%j.out" \
-       --mail-type=END,FAIL --mail-user=hoang.tran@pnnl.gov \
+       --mail-type=END,FAIL --mail-user="${IDEAS_NOTIFY_EMAIL:-$USER@pnnl.gov}" \
        --wrap="source /qfs/people/tran289/IDEAS/env_compy.sh && cd $REPO && python tools/walk_job.py $WALK_DIR"

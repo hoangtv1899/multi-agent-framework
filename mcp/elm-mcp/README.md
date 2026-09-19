@@ -101,7 +101,7 @@ never arrive. `paths.json` sits beside the server and is always read.
 Write this to `.mcp.json` **in the directory you will start Claude Code from**, which is usually
 this clone's root. It is gitignored, because it names your interpreter and your directories.
 
-```jsonc
+```json
 {
   "mcpServers": {
     "elm": {
@@ -112,15 +112,16 @@ this clone's root. It is gitignored, because it names your interpreter and your 
         "PSCRATCH": "/path/to/scratch",
         "IDEAS_SLURM_ACCOUNT": "e3sm",
         "IDEAS_SLURM_QUEUE": "short"
-
-        // Optional: only to use a real framework checkout rather than
-        // the copies in src/_vendor/.
-        // "IDEAS_FRAMEWORK_DIR": "/path/to/multi-agent-framework"
       }
     }
   }
 }
 ```
+
+Claude Code parses `.mcp.json` as **strict** JSON, so do not add `//` comments to it: one comment
+and the whole file is rejected and the server never appears at all. To use a real framework
+checkout rather than the bundled copies, add one more entry to `env`, remembering the comma:
+`"IDEAS_FRAMEWORK_DIR": "/path/to/multi-agent-framework"`.
 
 Then start Claude Code in that directory once and approve the server:
 

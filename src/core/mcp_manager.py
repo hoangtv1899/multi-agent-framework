@@ -44,7 +44,7 @@ class MCPManager:
                 client = MCPClient(
                     server_name = server_name,
                     command     = server_config['command'],
-                    args        = server_config['args'],
+                    args        = server_config.get('args', []),   # a console script has none
                     timeout     = server_config.get('timeout', 30.0)  # ← NEW
                 )
                 self.clients[server_name] = client

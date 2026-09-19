@@ -1,0 +1,47 @@
+# Python dependencies, collected from what the tree actually imports.
+#
+#   conda create -y -n ideas python=3.12 && conda activate ideas
+#   PIP_ONLY_BINARY=":all:" pip install -r requirements.txt
+#
+# PIP_ONLY_BINARY is not optional on CentOS 7 (glibc 2.17): pip cannot build
+# from source there, so anything without a usable wheel must come from conda.
+#
+# Versions are left unpinned on purpose; this is an install list, not a lock
+# file. docs/paper/requirements-lock.txt records the exact versions the
+# manuscript figures were made with. Do not try to install that one: one of its
+# lines is a bare "Python 3.12.11", which pip rejects.
+
+# --- the pipeline itself -------------------------------------------------
+mcp                   # the Model Context Protocol SDK; every server needs it
+openai                # client for the OpenAI-compatible LLM gateway
+
+# --- numerics and model I/O ----------------------------------------------
+numpy
+pandas
+scipy
+xarray
+netCDF4               # ELM history and restart files
+
+# --- figures --------------------------------------------------------------
+matplotlib
+Pillow                # imported as PIL, for the map backdrop tiles
+
+# --- HTTP -----------------------------------------------------------------
+requests
+httpx                 # the usgs-water server uses this rather than requests
+urllib3
+certifi               # some data endpoints need an explicit CA bundle
+
+# --- tests ----------------------------------------------------------------
+pytest
+
+# --- optional, per feature ------------------------------------------------
+# Each of these is needed by one feature only. The rest of the framework runs
+# without them, so install them when you reach the feature that wants one.
+#
+# rasterio            # reading the CONUS2 water-table GeoTIFF (core/static_wtd)
+# cartopy             # one figure path only, and awkward to build from source
+# python-pptx         # imported as pptx, for the analyzer's slide output
+# hf_hydrodata        # ONLY for the hydrodata server, and it needs a free
+#                     # Princeton email plus a PIN registered once per machine.
+#                     # See mcp/hydrodata-mcp/requirements.txt.

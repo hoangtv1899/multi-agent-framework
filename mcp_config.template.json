@@ -12,8 +12,9 @@
     },
     "pflotran": {
       "command": "/path/to/your/conda/env/bin/pflotran-mcp",
+      "args": [],
       "timeout": 300.0,
-      "description": "PFLOTRAN: variably-saturated flow and reactive transport. NOT in this repository. It is a console script installed from the separate repo reaction_sandbox_mcp (branch compy-port), so this entry is dead until that is pip-installed into your environment. Note there is no args key: the console script takes none."
+      "description": "PFLOTRAN: variably-saturated flow and reactive transport. NOT in this repository. It is a console script installed from the separate repo reaction_sandbox_mcp (branch compy-port), so this entry is dead until that is pip-installed into your environment. The console script takes no arguments, so args is an empty list; it must still be present."
     },
     "usgs_water": {
       "command": "/path/to/your/python3",
