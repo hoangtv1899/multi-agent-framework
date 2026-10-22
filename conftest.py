@@ -10,6 +10,8 @@ their flag is given, so plain `pytest` stays fast, offline and deterministic:
     pytest --runlive       # + live MCP data-source tests        (network)
     pytest --runllm        # + real reception/planner round-trip (needs PNNL_API_KEY)
     pytest --runcompute    # + ELM build/run tests               (needs an salloc node)
+    pytest --runlocaldata  # + checks against a finished run's output on disk
+                           #   (paths in tests/local_oracle_paths.json, not tracked)
 """
 import sys
 from pathlib import Path
@@ -25,6 +27,8 @@ _TIERS = {
     "live":    ("--runlive",    "live network APIs (MCP data sources)"),
     "llm":     ("--runllm",     "the live LLM endpoint (needs PNNL_API_KEY)"),
     "compute": ("--runcompute", "ELM build/run on SLURM (needs an salloc node)"),
+    "localdata": ("--runlocaldata",
+                  "a finished run's output and observations on local disk"),
 }
 
 

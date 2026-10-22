@@ -60,3 +60,8 @@ tools/make_manuscript_docx.py
 docs/paper/SAGE-Hydro_manuscript_draft.docx
 docs/paper/fig_gunnison_sampling.png
 docs/paper/fig_gunnison_coupled.png
+
+# Local paths for the --runlocaldata oracle tests. It names one machine's
+# directories and colleagues' input files; tests/local_oracle_paths.json.example
+# is the tracked template.
+tests/local_oracle_paths.json

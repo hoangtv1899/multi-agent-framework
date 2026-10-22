@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Copy to tests/local_oracle_paths.json (not tracked) to run",
+    "    pytest tests/test_gridded_naches_oracle.py --runlocaldata",
+    "against a finished whole-domain ELM-BGC run and the hand analysis of it.",
+    "Every path must exist, or the oracle tests skip and say which is missing."
+  ],
+  "naches_bgc": {
+    "run_dir": "/path/to/e3sm_scratch/<case>/run",
+    "surface": "/path/to/surfdata_<grid>.nc",
+    "fire_footprint": "/path/to/surfdata_<grid>_fire.nc",
+    "domain": "/path/to/domain.lnd.<grid>.nc",
+    "obs_dir": "/path/to/obs",
+    "results_dir": "/path/to/analysis/results",
+    "checks_dir": "/path/to/checks",
+    "two_run_comparison": "/path/to/analysis/results/<two-run comparison>.json"
+  }
+}

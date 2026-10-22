@@ -149,6 +149,25 @@ def open_history(files: List[Path]):
                              join='outer')
 
 
+def _n_cells(ds) -> int:
+    """How many grid cells the history covers: 1 for a column run.
+
+    A WHOLE-DOMAIN FILE IS NOT A COLUMN. Before this check, pointing this
+    reader at the 144 x 96 Naches run returned status 'ok' with 13 present
+    variables filed as absent (a reshape to one column fails) and the two
+    layered ones read as 207,360 'layers', each value a month late
+    (framework maps, 2026-10-15). gridded.py reads such runs.
+    """
+    sizes = getattr(ds, 'sizes', None) or getattr(ds, 'dims', {}) or {}
+    if 'lndgrid' in sizes:
+        return int(sizes['lndgrid'])
+    if 'lat' in sizes and 'lon' in sizes:
+        return int(sizes['lat']) * int(sizes['lon'])
+    if 'gridcell' in sizes:            # vector history (hist_dov2xy = .false.)
+        return int(sizes['gridcell'])
+    return 1
+
+
 def _drop_partial_days(ds) -> Tuple[Any, List[str]]:
     """Drop calendar days that were not fully sampled. Returns (ds, dates).
 
@@ -325,6 +344,14 @@ def extract_column(case_dir: str,
         ds = open_history(files)
     except Exception as e:                                      # noqa: BLE001
         meta['status'] = f'unreadable: {type(e).__name__}: {str(e)[:120]}'
+        return {}, meta
+
+    n_cells = _n_cells(ds)
+    if n_cells > 1:
+        ds.close()
+        meta['status'] = (f'multi-cell history ({n_cells} cells): this reader '
+                          f'takes one column; read a whole-domain run with '
+                          f'gridded.py')
         return {}, meta
 
     series: Dict[str, Any] = {}

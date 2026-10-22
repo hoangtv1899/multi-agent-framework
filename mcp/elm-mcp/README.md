@@ -154,6 +154,13 @@ src/framework_path.py  framework or vendored copies. The ONE place that decides.
 src/_vendor/           verbatim copies of the six borrowed framework modules,
                        used only when no framework checkout is present
 src/paths.py           where the bulk data is, with four-layer precedence
+src/extract.py         one column's daily series, from a single-column run
+src/gridded.py         a whole-domain run's history: every cell, each record
+                       labelled by the start of its interval, years assembled
+                       across files (refuses a single column; extract refuses a grid)
+src/regions.py         regions on that grid (vegetated cells, elevation bands, a
+                       basin polygon, station cells, burned cells) and area-weighted
+                       numbers over them; imported directly, never a tool call
 src/                   input building, output reading, the conceptual sweep,
                        the ELM experiment manager, figures
 src/compare/           observation comparison: ET, SWE, streamflow, water table, maps
