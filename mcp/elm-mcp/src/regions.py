@@ -680,8 +680,9 @@ class RegionSeries:
     values[(region, field)] and valid_fraction[(region, field)] are arrays
     over `keys`. valid_fraction is the share of the region's weight that had
     a value at that record; below 1 the mean covers fewer cells than named.
-    per[field] is 'day' for a rate converted to per day, 'second' for a rate
-    left per second, None for anything else.
+    nan_cells[(region, field)] counts the region's cells that missed a value
+    at one record or more. per[field] is 'day' for a rate converted to per
+    day, 'second' for a rate left per second, None for anything else.
     """
     stream: str
     cadence: str
@@ -696,6 +697,7 @@ class RegionSeries:
     region_table: Dict[str, Dict]
     field_parts: Dict[str, List[str]] = field(default_factory=dict)
     per: Dict[str, Optional[str]] = field(default_factory=dict)
+    nan_cells: Dict[Tuple[str, str], int] = field(default_factory=dict)
 
     @property
     def labels(self) -> List[str]:
@@ -792,7 +794,9 @@ class RegionSeries:
 def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
                    years: Sequence[int], regions: Optional[Sequence[str]] = None,
                    require_complete: bool = True,
-                   max_records: Optional[int] = None) -> RegionSeries:
+                   max_records: Optional[int] = None,
+                   weights: Optional[np.ndarray] = None,
+                   grid_tol_deg: float = 1e-9) -> RegionSeries:
     """Area-weighted, NaN-aware means of each field over each region, record
     by record, for the given calendar years (in calendar order).
 
@@ -802,6 +806,12 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
     cells that have a value; valid_fraction says how much of the region that
     was. A repeated region, field or year is refused: each would silently
     misalign the series against their labels.
+
+    weights replaces the stream's own area x landfrac, and grid_tol_deg loosens
+    the check that masks and stream share cells. Both are for a reference run
+    written on the same cells by another source: the Naches reference run's files
+    store the centres in float32 (4.6e-5 deg off) and a 1/8-degree area, so
+    they are weighted with our run's cells.
     """
     flds = [f if isinstance(f, Field) else Field(str(f)) for f in fields]
     names = [f.name for f in flds]
@@ -819,8 +829,11 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
     if max_records is not None and int(max_records) < 1:
         raise RegionError(f"max_records must be at least 1, not {max_records}")
     g = stream.grid
-    if not masks.grid.same_cells(g):
+    if not masks.grid.same_cells(g, tol_deg=grid_tol_deg):
         raise RegionError("the masks were built on a different grid from this stream")
+    wgrid = g.weight_km2 if weights is None else np.asarray(weights, dtype=np.float64)
+    if wgrid.shape != g.shape:
+        raise RegionError(f"weights have shape {wgrid.shape}, the grid {g.shape}")
     union = np.zeros(g.shape, dtype=bool)
     for r in regs:
         union |= masks[r]
@@ -837,11 +850,11 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
         window = (int(rows[0]), int(rows[-1]) + 1, int(cols[0]), int(cols[-1]) + 1)
         r0, r1, c0, c1 = window
         sub_union = union[r0:r1, c0:c1].ravel()
-        sub_w = g.weight_km2[r0:r1, c0:c1].ravel()[sub_union]
+        sub_w = wgrid[r0:r1, c0:c1].ravel()[sub_union]
         sub_masks = {r: masks[r][r0:r1, c0:c1].ravel()[sub_union] for r in regs}
     else:
         sub_union = union.ravel()
-        sub_w = g.weight_km2.ravel()[sub_union]
+        sub_w = wgrid.ravel()[sub_union]
         sub_masks = {r: masks[r].ravel()[sub_union] for r in regs}
     W = np.stack([np.where(sub_masks[r], sub_w, 0.0) for r in regs], axis=1)
     wtot = W.sum(axis=0)
@@ -880,6 +893,7 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
     keys_all: List[Tuple] = []
     vals = {(r, f.name): [] for r in regs for f in flds}
     vfrac = {(r, f.name): [] for r in regs for f in flds}
+    bad_cells = {f.name: np.zeros(int(sub_union.sum()), dtype=bool) for f in flds}
     if max_records is None:
         max_records = 31 * (stream.steps_per_day or 1) if stream.cadence == "subdaily" \
             else 10 ** 9
@@ -910,6 +924,7 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
                     total = x.copy() if total is None else total + x
                 total *= scale[f.name]
                 ok = np.isfinite(total)
+                bad_cells[f.name] |= ~ok.all(axis=0)
                 num = np.where(ok, total, 0.0) @ W
                 den = ok.astype(np.float64) @ W
                 with np.errstate(invalid="ignore", divide="ignore"):
@@ -935,7 +950,8 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
         steps_per_day=stream.steps_per_day, keys=keys_all, regions=regs,
         fields=names, units=units, values=values, valid_fraction=vf,
         region_table=table, field_parts={f.name: list(f.sources) for f in flds},
-        per=per)
+        per=per, nan_cells={(r, f.name): int((bad_cells[f.name] & sub_masks[r]).sum())
+                            for r in regs for f in flds})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

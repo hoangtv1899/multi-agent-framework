@@ -680,6 +680,20 @@ class Stream:
     def metadata_variables(self) -> List[str]:
         return list(self._meta)
 
+    def lacking(self, names: Sequence[str],
+                records: Optional[Sequence[Record]] = None) -> Dict[str, List[str]]:
+        """{name: files without it}, over the files that hold these records
+        (every file when none are given). `variables` lists the first file's
+        fields only; a later segment's files can carry other ones."""
+        files = sorted({r.file for r in records}) if records else range(len(self.files))
+        out: Dict[str, List[str]] = {}
+        for fi in files:
+            have = _file_index(self.files[fi])["variables"]
+            for n in names:
+                if n not in have:
+                    out.setdefault(n, []).append(self.files[fi].name)
+        return out
+
     def units(self, var: str) -> str:
         self._need(var)
         return self._vars[var]["units"]

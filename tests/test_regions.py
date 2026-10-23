@@ -1099,3 +1099,52 @@ class TestUnstructuredRegions:
         assert st["containing"]["flat"] == 3
         with pytest.raises(R.RegionError, match="corners"):
             R.station_cells(g, [{"id": "s", "lat": lat[3], "lon": lon[3]}])
+
+
+class TestNanCells:
+
+    def test_cells_missing_a_value_are_counted_per_region(self, reduced):
+        # GPP: cell (0,0) never, (1,1) on day 100, (2,2) on day 50 (2015).
+        assert reduced.nan_cells[("cell (1,1)", "GPP")] == 1
+        assert reduced.nan_cells[("row 2", "GPP")] == 1
+        assert reduced.nan_cells[("all", "GPP")] == 3
+        assert reduced.nan_cells[("east block", "GPP")] == 0
+        # ET: (1,2) lacks QSOIL on day 10.
+        assert reduced.nan_cells[("all", "ET")] == 1
+        assert reduced.nan_cells[("row 2", "TSA")] == 0
+
+
+class TestWeightsAndGridTolerance:
+    """reduce_regions(weights=, grid_tol_deg=), which the reference gate uses
+    to weight a reference run by our cells' area and accept its float32
+    centres."""
+
+    def test_weights_replace_the_streams_own(self, tmp_path):
+        fx.write_daily(tmp_path, [2015, 2016])
+        s = G.open_stream(tmp_path, "h1")
+        ms = R.MaskSet(s.grid)
+        ms.add("all", np.ones(s.grid.shape, bool), "every cell")
+        w = np.zeros(s.grid.shape)
+        w[1, 2] = 3.0                                   # one cell carries all the weight
+        rs = R.reduce_regions(s, ["TSA"], ms, [2016], weights=w)
+        want = [fx.expected("TSA", 2016, d, 1, 2, 2015, s.grid.shape[1]) for d in range(1, 366)]
+        np.testing.assert_allclose(rs.series("all", "TSA"), want, rtol=1e-12)
+        with pytest.raises(R.RegionError, match="weights have shape"):
+            R.reduce_regions(s, ["TSA"], ms, [2016], weights=np.ones((2, 2)))
+
+    def test_masks_from_cells_a_little_apart(self, tmp_path):
+        import netCDF4
+        fx.write_daily(tmp_path / "a", [2015, 2016])
+        fx.write_daily(tmp_path / "b", [2015, 2016])
+        for p in (tmp_path / "b").glob("*.nc"):
+            with netCDF4.Dataset(p, "a") as d:
+                d["lat"][:] = np.asarray(d["lat"][:], dtype=np.float64) + 5e-5
+        a, b = G.open_stream(tmp_path / "a", "h1"), G.open_stream(tmp_path / "b", "h1")
+        ms = R.MaskSet(a.grid)
+        ms.add("all", np.ones(a.grid.shape, bool), "every cell")
+        with pytest.raises(R.RegionError, match="different grid"):
+            R.reduce_regions(b, ["TSA"], ms, [2016])
+        rs = R.reduce_regions(b, ["TSA"], ms, [2016], grid_tol_deg=1e-4)
+        np.testing.assert_allclose(rs.series("all", "TSA"),
+                                   R.reduce_regions(a, ["TSA"], ms, [2016]).series("all", "TSA"),
+                                   rtol=1e-9)

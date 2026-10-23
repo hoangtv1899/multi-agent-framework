@@ -74,12 +74,35 @@ def value(var, year, doy, j, i, y0, nlon, step=0, layer=0):
         return 270.0 + 20.0 * season + 0.1 * cell
     if var == "SOILLIQ":
         return 100.0 * (layer + 1) + cell + 0.01 * doy
+    if var == "TLAI":                                    # m2/m2, a summer hump
+        return 1.0 + 1.5 * max(0.0, math.sin(math.pi * (doy - 90) / 200.0)) + 0.01 * cell
+    if var == "RAIN":                                    # mm/s
+        return 3e-5 * (1.0 + 0.5 * math.cos(2.0 * math.pi * doy / 365.0))
+    if var == "SNOW":
+        return 1e-5 * max(0.0, math.cos(2.0 * math.pi * doy / 365.0))
+    if var == "QRUNOFF":
+        return 1.5e-5 * season
+    if var == "TWS":                                     # mm
+        return 5000.0 + 50.0 * math.sin(2.0 * math.pi * doy / 365.0) + cell
+    if var == "TOTECOSYSC":                              # gC/m2
+        return 5000.0 + 0.1 * doy + 10.0 * cell + 2.0 * (year - y0)
+    if var == "TOTSOMC":
+        return 3000.0 + 5.0 * cell + 0.01 * doy
+    if var == "TOTVEGC":
+        return 1800.0 + 3.0 * cell + 0.02 * doy
+    if var == "LEAFC":
+        return 60.0 + 0.5 * cell + 0.1 * doy
+    if var == "BTRAN":                                   # 0-1, drier in summer
+        return 0.85 - 0.2 * max(0.0, math.sin(math.pi * (doy - 120) / 180.0)) - 0.002 * cell
     raise KeyError(var)
 
 
 UNITS = {"DOYCODE": "1", "CELLID": "1", "STEPCODE": "1", "GPP": "gC/m^2/s",
          "QVEGT": "mm/s", "QVEGE": "mm/s", "QSOIL": "mm/s", "H2OSNO": "mm",
-         "FAREA_BURNED": "proportion", "TSA": "K", "SOILLIQ": "kg/m2"}
+         "FAREA_BURNED": "proportion", "TSA": "K", "SOILLIQ": "kg/m2",
+         "TLAI": "1", "RAIN": "mm/s", "SNOW": "mm/s", "QRUNOFF": "mm/s", "TWS": "mm",
+         "TOTECOSYSC": "gC/m^2", "TOTSOMC": "gC/m^2", "TOTVEGC": "gC/m^2",
+         "LEAFC": "gC/m^2", "BTRAN": "1"}
 
 
 def is_fill(var, year, doy, j, i, y0):

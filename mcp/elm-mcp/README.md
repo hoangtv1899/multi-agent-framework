@@ -161,6 +161,14 @@ src/gridded.py         a whole-domain run's history: every cell, each record
 src/regions.py         regions on that grid (vegetated cells, elevation bands, a
                        basin polygon, station cells, burned cells) and area-weighted
                        numbers over them; imported directly, never a tool call
+src/domain_inputs.py   a whole-domain input set checked before any job against
+                       ELM's own rules (centres, percentage sums, the subgrid ELM
+                       lays out, weights, the saved state's record order), and
+                       the domain file written from the surface
+src/run_gate.py        this job's logs and the model dates it ran, one year's model
+                       facts, a warm start's first day, a year against a reference
+                       run: records with the numbers behind each verdict, and a
+                       command line for job scripts that always leaves its record
 src/                   input building, output reading, the conceptual sweep,
                        the ELM experiment manager, figures
 src/compare/           observation comparison: ET, SWE, streamflow, water table, maps

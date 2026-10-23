@@ -895,3 +895,24 @@ class TestExtractGuardShapes:
         case = self._case(tmp_path, writer)
         data, meta = extract.extract_column(case, variables=["TSA"], spinup_days=0)
         assert data == {} and meta["status"].startswith("multi-cell history (6 cells)")
+
+
+class TestLacking:
+    """Stream.lacking looks at the files that hold the records asked about:
+    `variables` lists the first file's fields only."""
+
+    def test_a_field_one_file_lacks(self, tmp_path):
+        import netCDF4
+        fx.write_daily(tmp_path, [2015, 2016])
+        first = tmp_path / "synth.elm.h1.2015-01-01-00000.nc"
+        with netCDF4.Dataset(first, "a") as d:
+            d.renameVariable("TSA", "TSA_OLD")
+        s = G.open_stream(tmp_path, "h1")
+        assert "TSA" not in s.variables
+        assert s.lacking(["TSA", "GPP"]) == {"TSA": [first.name]}
+        have, _ = s.year_records(2016)
+        assert s.lacking(["TSA", "GPP"], have) == {}
+        have, _ = s.year_records(2015)
+        assert s.lacking(["TSA"], have) == {"TSA": [first.name]}
+        assert s.lacking(["NOPE"], have) == {"NOPE": [first.name,
+                                                      "synth.elm.h1.2016-01-01-00000.nc"]}

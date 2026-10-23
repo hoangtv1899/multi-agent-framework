@@ -1,8 +1,9 @@
 {
   "_comment": [
     "Copy to tests/local_oracle_paths.json (not tracked) to run",
-    "    pytest tests/test_gridded_naches_oracle.py --runlocaldata",
-    "against a finished whole-domain ELM-BGC run and the hand analysis of it.",
+    "    pytest tests/test_gridded_naches_oracle.py tests/test_run_gate_naches_oracle.py --runlocaldata",
+    "against a finished whole-domain ELM-BGC run, its cases, logs and hand checks,",
+    "and (global_r05) any surface, domain and saved state ELM ran together.",
     "Every path must exist, or the oracle tests skip and say which is missing."
   ],
   "naches_bgc": {
@@ -14,5 +15,26 @@
     "results_dir": "/path/to/analysis/results",
     "checks_dir": "/path/to/checks",
     "two_run_comparison": "/path/to/analysis/results/<two-run comparison>.json"
+  },
+  "naches_bgc_gates": {
+    "surface": "/path/to/surfdata_<grid>.nc",
+    "domain": "/path/to/domain.lnd.<grid>.nc",
+    "restart": "/path/to/<reference case>.elm.r.<start>.nc",
+    "band_domain": "/path/to/a domain cut from another source.nc",
+    "pairing_record": "/path/to/the hand pairing check.json",
+    "fix_run_dir": "/path/to/e3sm_scratch/<case>/run",
+    "fix_case_dir": "/path/to/<case>",
+    "ctl_run_dir": "/path/to/e3sm_scratch/<bug case>/run",
+    "ctl_case_dir": "/path/to/<bug case>",
+    "rep_run_dir": "/path/to/e3sm_scratch/<smoke case>/run",
+    "rep_case_dir": "/path/to/<smoke case>",
+    "checks_dir": "/path/to/checks",
+    "reference_dir": "/path/to/reference daily output",
+    "reference_pattern": "<glob of the reference files inside reference_dir>"
+  },
+  "global_r05": {
+    "surface": "/path/to/surfdata_0.5x0.5_simyr1850_c190418.nc",
+    "domain": "/path/to/domain.lnd.r05_oEC60to30v3.190418.nc",
+    "restart": "/path/to/a/r05/elm.r.YYYY-01-01-00000.nc written on that surface"
   }
 }
