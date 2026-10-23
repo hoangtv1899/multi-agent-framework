@@ -111,6 +111,26 @@ def _is_coupling(strategy: Dict[str, Any],
     return bool((strategy or {}).get("coupling"))
 
 
+WHOLE_DOMAIN = "whole_domain"
+
+
+def _is_whole_domain(strategy: Dict[str, Any],
+                     brief: Optional[Dict[str, Any]] = None) -> bool:
+    """Is this ONE case over a whole model domain, rather than sampled columns?
+
+    The same sources as the two above, any one sufficient: reception's
+    archetype, the planner's sampling approach, or the strategy's
+    `domain_case` block, which names the case (a recipe, or an existing case
+    to copy). Such a study samples nothing: its one row is the case.
+    """
+    st = strategy or {}
+    arche = st.get("archetype") or (brief or {}).get("design_archetype") or ""
+    approach = (st.get("sampling") or {}).get("approach") or ""
+    return (str(arche).strip().lower() == WHOLE_DOMAIN
+            or str(approach).strip().lower() == WHOLE_DOMAIN
+            or bool(st.get("domain_case")))
+
+
 class Pending:
 	"""What _run returns when it SUBMITTED the ensemble instead of finishing it.
 
@@ -605,7 +625,14 @@ class ExperimentManagerBase:
 			# what happened. Only the interpretation is skipped, and the run state
 			# says why so a reader does not think the Analyzer crashed.
 			n_ok = sum(1 for v in self._outcome_map(results).values() if v)
-			if experiments and not n_ok:
+			# NOTHING SUCCEEDED decides first: a backend's own reason to skip the
+			# Analyzer must not hide a failed study as a deliberate skip.
+			skip_why = None if (experiments and not n_ok) else \
+				self._analysis_skip_reason(experiments)
+			if skip_why:
+				print(f"   ⏭  skipped: {skip_why}")
+				self._mark("analyze", status="skipped", reason=skip_why)
+			elif experiments and not n_ok:
 				print(f"   ⏭  skipped — 0/{len(experiments)} columns produced "
 					  f"output, so there is nothing to interpret")
 				self._mark("analyze", status="skipped",
@@ -926,7 +953,11 @@ class ExperimentManagerBase:
 			return st.upper()
 		# -X so a job's steps do not shadow the job itself; the step lines come
 		# back first and a step can read COMPLETED while the job is still going.
-		st = _run(["sacct", "-n", "-X", "-j", jid, "-o", "State"])
+		# -S: without a start time sacct looks back only to midnight, and a job
+		# that ended last evening reads as unknown the next morning.
+		from datetime import date, timedelta
+		since = (date.today() - timedelta(days=366)).isoformat()
+		st = _run(["sacct", "-n", "-X", "-S", since, "-j", jid, "-o", "State"])
 		if st:
 			# sacct spells cancellation "CANCELLED by 12345"
 			return st.split()[0].upper()
@@ -1016,6 +1047,24 @@ class ExperimentManagerBase:
 			f"asked for a cross-model follow-up, which needs this backend to "
 			f"turn the prior run's record into its own boundary conditions.")
 
+	def _build_domain_case(self, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""A whole-domain study's one row, from strategy['domain_case'].
+
+		Only the model server knows what a case is made of, so the base asks
+		and raises when a backend has not said: a backend that cannot run one
+		case over a whole domain must refuse the archetype, not run columns.
+		"""
+		raise NotImplementedError(
+			f"{type(self).__name__} cannot run a whole-domain case")
+
+	def _analysis_skip_reason(self, experiments) -> Optional[str]:
+		"""Why the Analyzer should not run on these results, or None.
+
+		A backend whose results the Analyzer cannot read yet says so here, and
+		the run state records the reason; running it anyway spends its LLM
+		calls on rows it was never built for."""
+		return None
+
 	def _draw_design(self, res: Dict[str, Any], config: Dict[str, Any]) -> None:
 		"""Draw the sampling-design figure, if this backend has one.
 
@@ -1070,6 +1119,7 @@ class ExperimentManagerBase:
 		strategy_in = config.get("strategy") or plan
 		is_sweep = _is_factor_sweep(strategy_in, brief)
 		is_coupled = _is_coupling(strategy_in, brief)
+		is_domain = _is_whole_domain(strategy_in, brief)
 
 		bbox = None if (is_sweep or is_coupled) else exp._bbox_from_brief(brief)
 		if not is_sweep and not is_coupled:
@@ -1100,6 +1150,24 @@ class ExperimentManagerBase:
 		#
 		# 5e0cfd5 fixed the DETECTION. This is the enforcement.
 		config = self.check(plan, config)
+
+		# ── the whole-domain path, and it rejoins below at _refine_columns ──
+		#
+		# ONE CASE OVER THE WHOLE DOMAIN, after the gate like the two below.
+		# Nothing is sampled: the backend reads the strategy's domain_case
+		# block, checks the input set before any compute, and returns the one
+		# row that stands for the case. Its numbers are sliced into regions
+		# after the run, not chosen before it.
+		if is_domain:
+			print("\n🗺️  STEP 0: Materializing a Whole-Domain Case")
+			print("-" * 40)
+			res = self._build_domain_case(config) or {}
+			columns = res.get("columns") or []
+			if len(columns) != 1:
+				raise RuntimeError(
+					f"a whole-domain study is one case, and the backend returned "
+					f"{len(columns)} rows")
+			return self._persist_columns(res, columns, plan, config)
 
 		# ── the coupling path, and it rejoins below at _refine_columns ──────
 		#
@@ -1910,6 +1978,28 @@ class ExperimentManagerBase:
 		n = summary['experiments_pending']
 		jid_a = record.get('job_id_a')
 		jid_b = record.get('job_id_b')
+		if record.get('scope') == 'domain':
+			# A WHOLE-DOMAIN CHAIN is several jobs, one per stage, and job B is
+			# only the finalize after all of them; name every one.
+			summary['chain'] = record.get('chain')
+			print(f"\n{'=' * 60}")
+			print(f"{self.MODEL.upper()} SUBMITTED: one whole-domain case as a chain "
+				  f"of jobs. NOTHING HAS RUN YET.")
+			for j in record.get('chain') or []:
+				print(f"  job {j.get('job_id')}   {j.get('stage')}")
+			if jid_b:
+				print(f"  job {jid_b}   finalizes the study when every stage has ended")
+			print(f"Output:  {self.run_dir}")
+			print(f"Answer:  {self.run_dir}/experiment.json  (and "
+				  f"{self.run_dir}/domain_case/STATUS.log as each stage ends)")
+			print(f"Watch:   squeue -u $USER")
+			print(f"If the finalize job never runs: {summary['resume_command']}")
+			print(f"{'=' * 60}\n")
+			try:
+				self._save_run_summary(summary)
+			except Exception:                                   # noqa: BLE001
+				pass
+			return summary
 		print(f"\n{'=' * 60}")
 		print(f"{self.MODEL.upper()} SUBMITTED — {n} column(s) queued. "
 			  f"NOTHING HAS RUN YET.")

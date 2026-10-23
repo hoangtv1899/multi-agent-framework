@@ -375,8 +375,10 @@ def _does_not(names: set) -> List[Dict[str, Any]]:
         {"claim": "decide whether a study is worth running, or write "
                   "experiment.json and its caveats",
          "contradicted_by": ("Analyzer", "limitations", "write_experiment")},
-        {"claim": "offer a verdict — compare_to_obs returns measurements, and "
-                  "what they mean belongs to whoever reads them",
+        {"claim": "offer a verdict on the science: compare_to_obs returns "
+                  "measurements, and what they mean belongs to whoever reads "
+                  "them; the checks on an input set and on a chain's years say "
+                  "only whether ELM will run them and whether they ran",
          "contradicted_by": ("verdict", "grade", "skill_score")},
     ]
     out = []
@@ -446,7 +448,7 @@ def _constraints(reqs: Dict[str, Any]) -> Dict[str, Any]:
             if w.get("exists") and w.get("yr_first") else None)
 
     return {
-        "model": "E3SM Land Model (ELM), 1-D columns",
+        "model": "E3SM Land Model (ELM), 1-D columns and whole-domain cases",
         # NOT CONDITIONAL ON ANYTHING. The compset is fixed in code, so no
         # path check and no argument makes these available.
         "fixed": [
@@ -707,6 +709,34 @@ def _workflow() -> List[Dict[str, Any]]:
                      "semantics that stay framework-side",
              "returns": "a SUMMARY and the path to 03_results/extracted.json; "
                         "the series never travel inline"},
+            # ── the whole-domain archetype only ──────────────────────────
+            # ONE case on a paired input set instead of sampled columns, run
+            # as a chain of one-year jobs, each gated before the next starts.
+            {"step": "2 (whole-domain only)", "tool": "read_domain_recipe",
+             "does": "the recipe of an existing CIME case from its own records "
+                     "(env_case.xml, create_newcase, xmlchanges in order, "
+                     "user_* files and SourceMods with sha256; a clone is "
+                     "refused), to rebuild it as a new case",
+             "returns": "DATA"},
+            {"step": "2a (whole-domain only)", "tool": "check_domain_inputs",
+             "does": "is this surface + domain + saved state one input set ELM "
+                     "will run: ELM's own initialisation rules and the "
+                     "framework's, each reason saying whose rule it is",
+             "returns": "DATA; a verdict with its numbers"},
+            {"step": "2b (whole-domain only)", "tool": "write_domain_case",
+             "does": "the case script and the stage script from 01_inputs/"
+                     "domain_recipe.json and domain_chain.json, for reading "
+                     "before any job is spent",
+             "returns": "DATA; paths and the job plan, nothing submitted"},
+            {"step": "4 (whole-domain only)", "tool": "submit_domain_chain",
+             "does": "check the input set again, then submit case > smoke > "
+                     "one job per year > report, afterok + "
+                     "--kill-on-invalid-dep along the chain and afterany for "
+                     "the report",
+             "returns": "JOB IDS"},
+            {"step": "5 (whole-domain only)", "tool": "check_domain_chain",
+             "does": "each job's SLURM state and each stage's check verdict",
+             "returns": "DATA: active, failed_stage, years_passed, chain_ok"},
             {"step": 7, "tool": "compare_to_obs",
              "does": "pair each column's daily series against the observations "
                      "reception already gathered and persisted in "
@@ -766,7 +796,7 @@ def describe_elm_capabilities() -> str:
 
     return json.dumps({
         "server": "elm",
-        "model": "E3SM Land Model (ELM), 1-D columns",
+        "model": "E3SM Land Model (ELM), 1-D columns and whole-domain cases",
         "ready": not missing and not broken,
         "missing_requirements": missing,
         "broken_imports": broken,
@@ -1722,7 +1752,11 @@ def _slurm_state(job_id: Any) -> Optional[str]:
         return st.upper()
     # -X so a job's steps do not shadow the job itself; the step lines come back
     # first and a step can read COMPLETED while the job is still going.
-    st = _ask(["sacct", "-n", "-X", "-j", jid, "-o", "State"])
+    # -S: without a start time sacct looks back only to midnight, and a job
+    # that ended last evening reads as unknown the next morning.
+    import datetime as _dt
+    since = (_dt.date.today() - _dt.timedelta(days=366)).isoformat()
+    st = _ask(["sacct", "-n", "-X", "-S", since, "-j", jid, "-o", "State"])
     if st:
         return st.split()[0].upper()    # sacct spells it "CANCELLED by 12345"
     return None
@@ -1796,6 +1830,248 @@ def check_elm_job(job_id: str, run_dir: str = "") -> str:
     out.setdefault("ready", not out["active"])
     return json.dumps(out, indent=2)
 
+
+# ─────────────────────────────────────────────────────────────────────
+# ONE CASE OVER A WHOLE DOMAIN (the whole_domain archetype)
+# ─────────────────────────────────────────────────────────────────────
+# A whole-domain study is one CIME case on a paired input set (surface data,
+# domain, saved state), run as a chain of one-year jobs, each gated before the
+# next may start (src/domain_case.py, src/run_gate.py). The framework writes
+# what it wants into 01_inputs/ and these tools read it; the chain writes its
+# record into <run_dir>/domain_case/.
+#
+# 01_inputs/domain_recipe.json   every setting of the case: domain_case.Recipe
+#                                (read_domain_recipe returns one to start from)
+# 01_inputs/domain_chain.json    the chain wanted, all keys optional:
+#     years          [first, ..., last], consecutive (default: the recipe's start year)
+#     smoke_days     5;   smoke true;   with_case true (false: re-arm later years
+#                    in a case an earlier chain built)
+#     partition      "short";   tag  (job-name prefix, default the case name)
+#     walls          {case_wall, smoke_wall, year_wall, report_wall} as HH:MM:SS
+#     reference      {run_dir, stream "h1", pattern, gate_years [...]}: years not
+#                    in gate_years are compared and reported, not gated
+#     allow_forcing_cycle  false: years past the forcing's own are refused
+DOMAIN_RECORD = "domain_case"          # the chain's record directory
+DOMAIN_RECIPE = "domain_recipe.json"   # 01_inputs/, every setting of the case
+DOMAIN_CHAIN  = "domain_chain.json"    # 01_inputs/, the years and gates asked for
+
+
+def _domain_setup(run_dir: str):
+    """(recipe, chain spec, record dir) from a run directory, or an error dict."""
+    import domain_case as DC
+    rd = Path(run_dir).resolve()
+    rp, cp = rd / "01_inputs" / DOMAIN_RECIPE, rd / "01_inputs" / DOMAIN_CHAIN
+    for f in (rp, cp):
+        if not f.is_file():
+            return None, None, None, {"ok": False, "error": f"no {f.name} in "
+                                      f"{rd / '01_inputs'}: write the recipe and the chain "
+                                      f"wanted (see main.py, ONE CASE OVER A WHOLE DOMAIN)"}
+    try:
+        recipe = DC.Recipe.from_json(rp.read_text())
+        spec = json.loads(cp.read_text())
+        bad = recipe.check() + DC.chain_spec_problems(spec)
+    except Exception as e:                                      # noqa: BLE001
+        return None, None, None, {"ok": False, "error": f"unreadable recipe or chain: "
+                                  f"{type(e).__name__}: {e}"}
+    if bad:
+        return None, None, None, {"ok": False, "error": "the recipe or chain cannot be used: "
+                                  + "; ".join(bad)}
+    return recipe, spec, rd / DOMAIN_RECORD, None
+
+
+def _chain_busy(rec: Path) -> Optional[str]:
+    """Why a chain armed in this record directory may still run, or None.
+    FAILS CLOSED: a chain.json that cannot be read means 'may still run'."""
+    import domain_case as DC
+    if not (rec / DC.CHAIN_FILE).is_file():
+        return None
+    try:
+        st = DC.chain_status(rec)
+    except Exception as e:                                      # noqa: BLE001
+        return f"cannot tell whether a chain armed here still runs: {e}"
+    if st["active"]:
+        live = [f"{j['stage']}={j['job_id']} {j['state']}" for j in st["jobs"]
+                if j["state"] in DC.ACTIVE or (j["state"] is None and not j["inferred"])]
+        return f"a chain armed here is still queued or running ({', '.join(live)})"
+    return None
+
+
+def _domain_write(recipe, spec, rec):
+    """Both scripts and the job plan, from the recipe and the chain spec."""
+    import domain_case as DC
+    ref = spec.get("reference")
+    DC.write_case_script(recipe, rec)
+    DC.write_stage_script(recipe, rec, smoke_days=int(spec.get("smoke_days", 5)),
+                          reference=DC.Reference(**ref) if ref else None)
+    walls = spec.get("walls") or {}
+    return DC.plan_chain(recipe, spec.get("years") or [recipe.first_year],
+                         tag=spec.get("tag"), with_case=bool(spec.get("with_case", True)),
+                         smoke=bool(spec.get("smoke", True)),
+                         partition=str(spec.get("partition", "short")),
+                         allow_forcing_cycle=bool(spec.get("allow_forcing_cycle", False)),
+                         **{k: v for k, v in walls.items() if k in DC.WALL_KEYS})
+
+
+def _domain_notes(spec) -> List[str]:
+    ref = spec.get("reference")
+    if ref and not ref.get("gate_years"):
+        return ["the reference gates no year: every year is compared and reported only"]
+    return []
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def read_domain_recipe(case_dir: str, case: str = "", case_root: str = "") -> str:
+    """The recipe of an existing CIME case, read from the case's own records.
+
+    env_case.xml gives the E3SM checkout, README.case create_newcase,
+    CaseStatus every xmlchange in order, the user_* files and SourceMods the
+    case's modifications (with their sha256). Settings each stage of a run
+    changes (CONTINUE_RUN, STOP_*, REST_*) and the case's own folders
+    (EXEROOT, RUNDIR, ...) are left out, with a note. A clone is refused.
+    `case` (and `case_root`) name the copy the recipe will build: without a
+    new name the recipe names the source case, and `problems` says so, since
+    a chain must never run in the case it copies.
+    """
+    from dataclasses import asdict
+    import domain_case as DC
+    try:
+        r = DC.recipe_from_case(case_dir, case=case or None, case_root=case_root or None)
+        return json.dumps({"ok": True, "recipe": asdict(r), "problems": r.check(),
+                           "inputs": r.inputs()}, indent=1, default=str)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def check_domain_inputs(surface: str, domain: str, finidat: str, run_dir: str = "") -> str:
+    """Do this surface, domain and saved state make one input set ELM will run?
+
+    ELM's own initialisation rules (centres within 0.001 deg, percentages
+    summing to 100, the subgrid ELM lays out, PFT weights within 5e-3) and
+    this framework's (the surface's exact centres, the saved state's record
+    order, land-unit weights, its grid). `pass` is the verdict, `reasons`
+    name every failure and say whose rule it is. With run_dir, the record is
+    also written to <run_dir>/domain_case/inputs_check.json, unless a chain
+    armed there may still run (its record is then left as it is).
+    """
+    import domain_inputs as D
+    try:
+        rec = D.check_pairing(surface, domain, finidat)
+        if run_dir:
+            out = Path(run_dir) / DOMAIN_RECORD / "inputs_check.json"
+            busy = _chain_busy(out.parent)
+            if busy:
+                rec["note"] = f"not written to {out}: {busy}"
+            else:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(json.dumps(rec, indent=1, default=str))
+                rec["path"] = str(out)
+        return json.dumps({"ok": True, **rec}, indent=1, default=str)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def write_domain_case(run_dir: str) -> str:
+    """Write the case script, the stage script and the job plan. Submits nothing.
+
+    From 01_inputs/domain_recipe.json and 01_inputs/domain_chain.json (keys in
+    main.py, ONE CASE OVER A WHOLE DOMAIN) into <run_dir>/domain_case/:
+    create_case.sh (create_newcase, settings, user_nl_*, user files and
+    SourceMods checked against their sha256, case.setup) and run_stage.sh
+    (stages case, smoke, y<YEAR>, report). For reading before any job is
+    spent; submit_domain_chain writes them again and submits. Refused while a
+    chain armed there may still run: its queued case job reads create_case.sh.
+    """
+    recipe, spec, rec, err = _domain_setup(run_dir)
+    if err:
+        return json.dumps(err)
+    try:
+        busy = _chain_busy(rec)
+        if busy:
+            return json.dumps({"ok": False, "error": busy})
+        recipe.inputs()                       # the same parse submit makes
+        jobs = _domain_write(recipe, spec, rec)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+    return json.dumps({"ok": True, "record_dir": str(rec),
+                       "case_script": str(rec / "create_case.sh"),
+                       "stage_script": str(rec / "run_stage.sh"),
+                       "notes": _domain_notes(spec),
+                       "jobs": [{k: getattr(j, k) for k in ("stage", "name", "partition",
+                                                            "walltime", "after")}
+                                for j in jobs]}, indent=1)
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def submit_domain_chain(run_dir: str) -> str:
+    """Check the input set, write the scripts and submit the chain. JOB IDS.
+
+    case (create and build) > smoke > one job per model year > report, on the
+    queue the chain spec names. Each waits on the one before with afterok and
+    --kill-on-invalid-dep=yes, so a failed stage cancels the rest; the report
+    waits on all of them with afterany and runs whatever happens. Refused,
+    before any sbatch: a recipe or chain spec with problems; an input set that
+    fails its check; a chain armed here that may still run (or a chain.json
+    that cannot be read); a run directory on a node-local filesystem; a chain
+    that would create a case whose directory exists. A re-armed chain (later
+    years, with_case and smoke false) is recorded beside the earlier one, so
+    the years that passed before stay in the record. A submission that fails
+    part way cancels what it queued, and says which cancellations SLURM took.
+    """
+    import domain_case as DC
+    import domain_inputs as D
+    recipe, spec, rec, err = _domain_setup(run_dir)
+    if err:
+        return json.dumps(err)
+    try:
+        busy = _chain_busy(rec)
+        if busy:
+            return json.dumps({"ok": False, "error": busy})
+        local = _shared_fs(Path(run_dir))
+        if local:
+            return json.dumps({"ok": False, "error": local})
+        if spec.get("with_case", True) and recipe.case_dir.exists():
+            return json.dumps({"ok": False, "error": f"the chain would create {recipe.case_dir}, "
+                               f"which exists: name a new case, or re-arm later years with "
+                               f"with_case and smoke false"})
+        inp = recipe.inputs()
+        pair = D.check_pairing(inp["surface"], inp["domain"], inp["finidat"])
+        rec.mkdir(parents=True, exist_ok=True)
+        (rec / "inputs_check.json").write_text(json.dumps(pair, indent=1, default=str))
+        if not pair["pass"]:
+            return json.dumps({"ok": False, "error": "the input set fails its check",
+                               "reasons": pair["reasons"]})
+        jobs = _domain_write(recipe, spec, rec)
+        out = DC.submit_chain(jobs, rec)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+    out["job_ids"] = [j["job_id"] for j in out.get("jobs", [])]
+    out["notes"] = _domain_notes(spec)
+    return json.dumps(out, indent=1, default=str)
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def check_domain_chain(run_dir: str) -> str:
+    """Where a whole-domain chain stands: each stage's SLURM state and check
+    verdict. `active` is the field to branch on (true while a stage may still
+    run; a stage SLURM no longer knows, or one an earlier failure stopped, has
+    ended and says so under `inferred`); `failed_stage` names the first stage
+    that ended without passing; `years_passed` the model years whose check
+    passed; `chain_ok` that every stage ended and passed. `ok` says only that
+    the question could be answered."""
+    import domain_case as DC
+    try:
+        st = DC.chain_status(Path(run_dir) / DOMAIN_RECORD)
+        st["chain_ok"] = st.pop("ok")
+        return json.dumps({"ok": True, **st}, indent=1)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

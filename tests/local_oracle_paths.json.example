@@ -1,7 +1,7 @@
 {
   "_comment": [
     "Copy to tests/local_oracle_paths.json (not tracked) to run",
-    "    pytest tests/test_gridded_naches_oracle.py tests/test_run_gate_naches_oracle.py --runlocaldata",
+    "    pytest tests/test_gridded_naches_oracle.py tests/test_run_gate_naches_oracle.py tests/test_domain_case_naches_oracle.py --runlocaldata",
     "against a finished whole-domain ELM-BGC run, its cases, logs and hand checks,",
     "and (global_r05) any surface, domain and saved state ELM ran together.",
     "Every path must exist, or the oracle tests skip and say which is missing."
@@ -36,5 +36,10 @@
     "surface": "/path/to/surfdata_0.5x0.5_simyr1850_c190418.nc",
     "domain": "/path/to/domain.lnd.r05_oEC60to30v3.190418.nc",
     "restart": "/path/to/a/r05/elm.r.YYYY-01-01-00000.nc written on that surface"
+  },
+  "naches_bgc_fw": {
+    "record_dir": "/path/to/<run>/domain_case (the chain's record)",
+    "case_dir": "/path/to/<rebuilt case>",
+    "run_dir": "/path/to/e3sm_scratch/<rebuilt case>/run"
   }
 }

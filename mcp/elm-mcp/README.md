@@ -4,14 +4,15 @@ An MCP server that fronts the **E3SM Land Model (ELM)**: it turns a latitude and
 configured single-column CIME case, builds it, submits it, and reads the output back as numbers
 an agent can reason over.
 
-Twelve tools cover the whole arc, from asking what the server can do, through building surface
-and domain files for a point, to submitting an ensemble and extracting its water fluxes. Rather
+Its tools cover the whole arc, from asking what the server can do, through building surface
+and domain files for a point (or checking a whole-domain input set and running it as a chain of
+gated one-year jobs), to submitting an ensemble and extracting its water fluxes. Rather
 than repeat a list that drifts, call **`describe_elm_capabilities`**, which reports the live
 surface.
 
 ## Does it run on its own?
 
-**The server does.** All twelve tools work from a bare clone with nothing beside it:
+**The server does.** All its tools work from a bare clone with nothing beside it:
 
 ```
 $ python3 src/framework_path.py
@@ -149,7 +150,7 @@ Python dependencies: `mcp`, `numpy`, `pandas`, `scipy`, `xarray`, `netCDF4`, `ma
 ## Layout
 
 ```
-main.py                the server: twelve tools, and every environment default it needs
+main.py                the server: its tools, and every environment default it needs
 src/framework_path.py  framework or vendored copies. The ONE place that decides.
 src/_vendor/           verbatim copies of the six borrowed framework modules,
                        used only when no framework checkout is present
@@ -165,6 +166,9 @@ src/domain_inputs.py   a whole-domain input set checked before any job against
                        ELM's own rules (centres, percentage sums, the subgrid ELM
                        lays out, weights, the saved state's record order), and
                        the domain file written from the surface
+src/domain_case.py     one whole-domain case from a recorded recipe (read back from
+                       an existing case if wanted), its scripts, and the chain of
+                       gated one-year jobs: afterok along the chain, a report after all
 src/run_gate.py        this job's logs and the model dates it ran, one year's model
                        facts, a warm start's first day, a year against a reference
                        run: records with the numbers behind each verdict, and a

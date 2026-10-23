@@ -35,7 +35,12 @@ given. Every function is imported directly; the command line at the bottom is
 for job scripts, and always writes its record and STATUS line:
 
     python run_gate.py year --case-dir C --run-dir R --job $SLURM_JOB_ID \\
-        --year 2016 --out C/checks --status C/STATUS.log
+        --year 2016 --out C/checks --status C/STATUS.log \\
+        [--reference REF_RUN_DIR [--reference-report-only]]
+
+With --reference, each year is also set against that run with reference_gate,
+gated unless --reference-report-only (for an experiment expected to differ).
+domain_case.py writes the job scripts that call this.
 """
 from __future__ import annotations
 
@@ -791,8 +796,37 @@ def _smoke(a, rec: Dict, reasons: List[str]) -> str:
                     if "median_rel_diff" in v)
 
 
+def _reference_stream(a) -> G.Stream:
+    """The reference run named on the command line: a run directory, or a
+    glob of files inside it."""
+    if a.reference_pattern:
+        import glob
+        files = sorted(glob.glob(str(Path(a.reference) / a.reference_pattern)))
+        if not files:
+            raise GateError(f"no reference files {a.reference_pattern} in {a.reference}")
+        return G.Stream("reference", files)
+    return G.open_stream(a.reference, a.reference_stream)
+
+
+def _reference_year(a, y: int, surface, ref: List) -> Dict:
+    """One year against the reference run: gated, or recorded only."""
+    try:
+        if not ref:
+            ref.append(_reference_stream(a))
+        if not surface:
+            nl, nl_path = case_namelist(a.case_dir, a.run_dir)
+            surface = (nl.get("fsurdat") or [None])[0]
+        rr = reference_gate(G.open_stream(a.run_dir, a.reference_stream), ref[0], y, surface)
+    except _GATE_ERRORS as e:
+        rr = {"pass": False, "reasons": [f"cannot compare: {e}"]}
+    rr["gated"] = not a.reference_report_only
+    rr["reference"] = a.reference + (f" ({a.reference_pattern})" if a.reference_pattern else "")
+    return rr
+
+
 def _years(a, rec: Dict, reasons: List[str]) -> str:
     rec["years"] = {}
+    ref: List = []
     for y in a.year:
         try:
             rec["years"][y] = year_check(a.run_dir, a.case_dir, y, surface=a.surface)
@@ -802,10 +836,25 @@ def _years(a, rec: Dict, reasons: List[str]) -> str:
         if why:
             rec["years"][y]["pass"] = False
             rec["years"][y]["reasons"].append(why)
+        if a.reference:
+            rr = _reference_year(a, y, a.surface or rec["years"][y].get("surface"), ref)
+            rec["years"][y]["reference"] = rr
+            if rr["gated"] and not rr["pass"]:
+                rec["years"][y]["pass"] = False
+                rec["years"][y]["reasons"] += [f"reference: {r}" for r in rr["reasons"]]
     reasons += [f"{y}: {r}" for y, v in rec["years"].items() for r in v["reasons"]]
+
+    def ref_note(v):
+        rr = v.get("reference")
+        if not rr:
+            return ""
+        gpp = ((rr.get("fields") or {}).get("GPP") or {}).get("bias_pct")
+        return (f" ref={'pass' if rr['pass'] else 'FAIL'}{'' if rr['gated'] else '(report)'}"
+                f" refGPP={_fmt(gpp, '+.2f')}%")
     return " | ".join(f"{y}: GPP={_fmt(v.get('gpp_gC_m2_yr'), '.1f')} "
                       f"peakLAI={_fmt(v.get('peak_tlai'), '.3f')} "
                       f"closure={_fmt(v.get('water_closure_frac_of_precip'), '.4g')}"
+                      + ref_note(v)
                       for y, v in rec["years"].items())
 
 
@@ -822,6 +871,14 @@ def main(argv=None) -> int:
     ap.add_argument("--out", required=True, help="folder for the check record")
     ap.add_argument("--status", help="a STATUS.log to append one line to")
     ap.add_argument("--stage", help="name in the record's file name (default: the mode)")
+    ap.add_argument("--reference", help="year: a reference run's directory, compared with "
+                                        "reference_gate")
+    ap.add_argument("--reference-pattern", help="year: a glob of the reference's files "
+                                                "inside --reference")
+    ap.add_argument("--reference-stream", default="h1",
+                    help="year: the stream compared, ours and the reference run's")
+    ap.add_argument("--reference-report-only", action="store_true",
+                    help="year: record the comparison without gating on it")
     a = ap.parse_args(argv)
     if not a.job:
         ap.error("--job (or SLURM_JOB_ID) is required: logs are found by it")

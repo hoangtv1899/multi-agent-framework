@@ -84,7 +84,29 @@ def build(run_dir: str, deferred: bool = False):
     # And the counts were already computed two lines up without being consulted.
     # This script exists to say whether the analysis is written; saying so while
     # the directory is empty is the one thing it must never do.
-    if not docs and not figs and not deferred:
+    # A SKIP WITH A REASON IS THE FOURTH STATE. A backend whose results the
+    # Analyzer cannot read yet (a whole-domain case, 2026-10-23) records why it
+    # was skipped, and experiment.json is the product; an empty 04_analysis is
+    # then the plan, not a failure. A skip because nothing succeeded is still
+    # a failed study.
+    an = stages.get("analyze") or {}
+    skipped = (an.get("status") == "skipped" and an.get("reason")
+               and an.get("reason") != "no successful columns"
+               and (rd / "experiment.json").is_file())
+    # A WHOLE-DOMAIN CHAIN is complete only when every year it planned passed:
+    # a failed year cancels the years after it, and those count as missing.
+    exp = _read(rd / "experiment.json")
+    if isinstance(exp, dict) and exp.get("kind") == "whole_domain":
+        ch = exp.get("chain") or {}
+        planned, passed = ch.get("years_planned") or [], ch.get("years_passed") or []
+        lines += ["", f"chain : years passed {passed} of {planned}"
+                  + (f"; first stage without a passing check: {ch['first_unpassed']}"
+                     if ch.get("first_unpassed") else "")]
+        if ch.get("first_unpassed") or not planned or sorted(planned) != sorted(passed):
+            bad.append(f"the chain stopped at {ch.get('first_unpassed') or '?'} "
+                       f"(years passed {passed} of {planned})")
+            skipped = False
+    if not docs and not figs and not deferred and not skipped:
         bad.append("04_analysis is empty")
 
     if deferred:
@@ -93,6 +115,10 @@ def build(run_dir: str, deferred: bool = False):
         lines = [f"INCOMPLETE — {', '.join(bad)}", ""] + lines
         lines += ["", "The model output is on disk. Finish or inspect with:",
                   f"    python workflow.py --resume {rd}"]
+    elif skipped:
+        lines = [f"ANALYSIS SKIPPED: model output and experiment.json complete; "
+                 f"{an['reason']}", ""] + lines
+        lines += ["", f"Read: {rd / 'experiment.json'}"]
     elif deferred:
         lines = ["DEFERRED — model output complete, analysis not run", ""] + lines
         lines += ["", "The history files are on disk. Analyse with:",

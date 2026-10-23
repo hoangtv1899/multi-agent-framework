@@ -153,6 +153,25 @@ def check(reception: Dict[str, Any],
     approach = str(sampling.get("approach") or "").strip().lower()
     is_sweep = (str(arche).strip().lower() == "conceptual"
                 or approach == "factor_sweep")
+    # ONE CASE OVER A WHOLE DOMAIN (exp_manager_base._is_whole_domain): a
+    # place and a period like a site study, but nothing to sample, so its
+    # column count is 1 by definition and its case must be named.
+    is_domain = (str(arche).strip().lower() == "whole_domain"
+                 or approach == "whole_domain" or bool(strategy.get("domain_case")))
+    if is_domain:
+        dc = strategy.get("domain_case") or {}
+        if not (isinstance(dc, dict) and (dc.get("recipe") or dc.get("from_case"))):
+            stop.append("a whole-domain strategy names no case: domain_case needs a "
+                        "recipe or an existing case to copy (from_case)")
+        elif dc.get("from_case") and not dc.get("case"):
+            stop.append("domain_case copies a case (from_case) but names no new case: the "
+                        "copy would be the case it copies")
+        if sampling.get("n_columns") != 1:
+            if sampling.get("n_columns") is not None:
+                corrections.append(f"n_columns: a whole-domain study is one case, not "
+                                   f"{sampling.get('n_columns')}; using 1")
+            sampling["n_columns"] = 1
+            strategy["sampling"] = sampling
 
     # ── STOP conditions ─────────────────────────────────────────────────
     if not is_sweep and not dom.get("bbox"):
@@ -257,7 +276,8 @@ def check(reception: Dict[str, Any],
                 f"n_columns: the request asked for {want}, but a sweep's size "
                 f"is its levels ({factorial}) — the request cannot be honoured "
                 f"without changing the factors, so it was not applied")
-    elif isinstance(want, int) and want > 0 and isinstance(n, int) and want != n:
+    elif not is_domain and isinstance(want, int) and want > 0 and isinstance(n, int) \
+            and want != n:
         corrections.append(
             f"n_columns: the request asked for {want}, the strategy designed "
             f"{n} — using the {want} that was asked for")
@@ -276,6 +296,7 @@ def check(reception: Dict[str, Any],
         "corrections": corrections,
         "checked": {
             "approach": approach or ("factor_sweep" if is_sweep
+                                     else "whole_domain" if is_domain
                                      else "elevation_bands"),
             "domain": dom.get("name") or dom.get("huc"),
             "period": f"{period.get('yr_start')}-{period.get('yr_end')}",
