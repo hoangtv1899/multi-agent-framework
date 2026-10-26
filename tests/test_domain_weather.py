@@ -1190,7 +1190,7 @@ class TestWhatIsPublished:
         import domain_analysis as DA
         text = " ".join(c["caveat"] for c in DA.LIMITATIONS["configuration"])
         assert "reads the control's own weather" not in text
-        assert "weather_scale" in text
+        assert "weather_scale" in text and "weather_repeat_year" in text
 
     def test_the_review_page_shows_the_run_and_the_whole_not_meaning(self):
         from agents.design_review import render

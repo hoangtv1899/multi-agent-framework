@@ -31,7 +31,7 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # A run's name becomes part of a case name and a folder name.
 RUN_NAME = re.compile(r"[a-z][a-z0-9_]{0,23}")
@@ -41,9 +41,12 @@ DEFAULT_HOURS_PER_YEAR = 0.83
 
 # THE LIST. Strings may hold {param} placeholders, filled when a change is
 # resolved. `alters` is what the run's recipe carries: user_nl lines (component,
-# key, value), XML settings (name, value), or {"inputs": writer}: files the
+# key, value), XML settings (name, value), {"inputs": writer}: files the
 # writer makes for the run when it is built (build_run), with the user_nl
-# lines and user files that read them. `checks.settings` are keys of the
+# lines and user files that read them, or {"years": writer}: settings each
+# year's job sets before it runs (the expectations' year_settings; the smoke
+# run takes the first year's), in neither the recipe nor the case stage's
+# check, and checked year by year by the writer's own rules. `checks.settings` are keys of the
 # resolved namelists (CaseDocs/<file>) and their values after the change;
 # `checks.output` are rules on history fields, checked by every year's gate;
 # a writer adds its own. A param with a `default` may be left out.
@@ -119,18 +122,43 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
      "cost": "the control's: one job per model year",
      "available": True},
     {"id": "weather_repeat_year",
-     "summary": "make chosen model years read another year's weather, such as a dry "
-                "year three times running",
-     "params": {}, "alters": [],
-     "meaning": "the difference from the control is the response to the weather of "
-                "the repeated year in the chosen years",
-     "not_meaning": "a drought of a kind the record has never held: only real years "
-                    "are repeated",
-     "checks": {"settings": [], "output": []},
+     "summary": "make chosen model years read another recorded year's weather, such as "
+                "a dry year three times running",
+     "params": {"map": {"kind": "year_map",
+                        "what": "model year -> the recorded year whose weather it reads, "
+                                "such as {\"2016\": 2015, \"2017\": 2015}; a year not "
+                                "named reads its own"}},
+     "alters": [{"years": "weather_repeat_year"}],
+     "meaning": "the difference from the control is the response to {map_text}, with "
+                "every other input the control's",
+     "menu_text": {"map_text": "the chosen model years reading the chosen recorded "
+                               "years' weather"},
+     "not_meaning": "a drought of a kind the record has never held, a forecast or a "
+                    "climate scenario: each repeated year is the recorded year, with its "
+                    "storms on the same dates, and the land carries its state over, so a "
+                    "repeated dry year meets the soil and vegetation the years before it "
+                    "left; where a year's recorded year does not follow the previous "
+                    "year's, its first model step has the record after the previous "
+                    "year's recorded year (E3SM carries the atmosphere's last output "
+                    "across the restart)",
+     "checks": {"settings": [], "output": [],
+                "by_writer": "every year: the datm_in the year's run read names the "
+                             "forcing streams with its recorded year and the year after, "
+                             "aligned to the model year; daily TBOT, RAIN and SNOW equal "
+                             "the control's for the recorded year, day by day and cell by "
+                             "cell, exactly, except 1 January of a year whose recorded "
+                             "year does not follow the previous year's, which is "
+                             "reported"},
      "cost": "the control's: one job per model year",
-     "available": False,
-     "requires": ["a weather tool that sets, year by year, which forcing year the "
-                  "model reads (piece 4b)"]},
+     "control": {"reuse": True,
+                 "why": "every year is checked against the control's output for the "
+                        "recorded year it reads"},
+     "limits": ["a recorded year read must be one of the control's output years, with "
+                "the year after it in the forcing the control's case reads, and the "
+                "control's daily history (h1) must hold TBOT, RAIN and SNOW for it",
+                "one weather change per run; with a change that leaves the weather alone "
+                "the run gives their joint effect"],
+     "available": True},
     {"id": "weather_scale",
      "summary": "warm or cool the air the land model receives, or multiply its rain "
                 "and snow, in chosen months and cells",
@@ -189,8 +217,8 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                 "after the last year",
                 "the control's daily history (h1) must hold TBOT, RAIN and SNOW for "
                 "every year of the experiment: each year is checked against it",
-                "a run that changes the weather and something else gives their joint "
-                "effect; each change's meaning is stated against the control alone"],
+                "one weather change per run; with a change that leaves the weather alone "
+                "the run gives their joint effect"],
      "available": True},
     {"id": "burn_footprint",
      "summary": "burn chosen cells on a chosen date, such as an observed fire's "
@@ -238,6 +266,8 @@ def declare() -> Dict[str, Any]:
             "a run's name is lowercase letters, digits and _ (at most 24), not "
             "'control'",
             "two changes in one run may not alter the same setting",
+            "a run changes the weather at most once (weather_scale, "
+            "weather_repeat_year)",
             "every run covers the experiment's years, consecutive, inside the "
             "forcing the control's case reads and, for a reused control, inside "
             "the years it has output for",
@@ -308,6 +338,14 @@ def _param_problems(change: Dict, params: Dict[str, Any]) -> List[str]:
             if v is not None and (not isinstance(v, str) or not v.strip()):
                 out.append(f"{change['id']} {k}={v!r} is not a region's name")
             continue
+        if p["kind"] == "year_map":
+            if not isinstance(v, dict) or not v or not all(
+                    re.fullmatch(r"\d{4}", str(a)) and isinstance(b, int)
+                    and not isinstance(b, bool) and 1 <= b <= 9999
+                    for a, b in v.items()):
+                out.append(f"{change['id']} {k}={v!r} is not a map of model years to "
+                           f"recorded years, such as {{\"2016\": 2015}}")
+            continue
         if p["kind"] in ("number", "integer"):
             if isinstance(v, bool) or not isinstance(v, (int, float)) or \
                     not math.isfinite(v):
@@ -346,6 +384,12 @@ def resolve(item: Dict[str, Any]) -> Dict[str, Any]:
             raise ChangeError("weather_scale changes nothing: temperature_K is 0 and "
                               "precip_factor is 1")
         fmt = dict(fmt, months=sorted(fmt["months"]))
+    if c["id"] == "weather_repeat_year":
+        fmt = dict(fmt, map={str(int(a)): int(b) for a, b in sorted(
+            fmt["map"].items(), key=lambda kv: int(kv[0]))})
+        if all(int(a) == b for a, b in fmt["map"].items()):
+            raise ChangeError("weather_repeat_year changes nothing: every year named reads "
+                              "its own year")
     out = {"id": c["id"], "params": fmt}
     text = dict(fmt, **_text(c["id"], fmt))
     for k in ("summary", "alters", "meaning", "not_meaning", "checks", "cost"):
@@ -359,6 +403,16 @@ _MONTH = ("January", "February", "March", "April", "May", "June", "July", "Augus
 
 def _text(change_id: str, p: Dict[str, Any]) -> Dict[str, str]:
     """Words a change's meaning is written with, made from its params."""
+    if change_id == "weather_repeat_year":
+        by_year: Dict[int, List[int]] = {}
+        for a, b in p["map"].items():
+            if int(a) != b:
+                by_year.setdefault(b, []).append(int(a))
+        def years(ys):
+            ys = sorted(ys)
+            return ys[0] if len(ys) == 1 else ", ".join(map(str, ys[:-1])) + f" and {ys[-1]}"
+        return {"map_text": "; ".join(f"{w}'s recorded weather in {years(ys)}"
+                                      for w, ys in sorted(by_year.items()))}
     if change_id != "weather_scale":
         return {}
     parts = []
@@ -376,14 +430,21 @@ def _text(change_id: str, p: Dict[str, Any]) -> Dict[str, str]:
 
 # The settings a writer's files are read through, for the one-change-per-
 # setting rule.
-_WRITER_TARGETS = {"weather_scale": ["user_nl_datm:anomaly_forcing", "user_nl_datm:tintalgo"]}
+_WRITER_TARGETS = {"weather_scale": ["user_nl_datm:anomaly_forcing", "user_nl_datm:tintalgo"],
+                   "weather_repeat_year": ["xml:DATM_CLMNCEP_YR_START",
+                                           "xml:DATM_CLMNCEP_YR_END",
+                                           "xml:DATM_CLMNCEP_YR_ALIGN"]}
+# Changes that change the weather the land model receives: two in one run
+# are refused, since each one's checks read the other's as the control's.
+WEATHER_CHANGES = ("weather_scale", "weather_repeat_year")
 
 
 def _targets(resolved: Dict) -> List[str]:
     out = []
     for a in resolved["alters"]:
-        if "inputs" in a:
-            out += _WRITER_TARGETS.get(a["inputs"], [f"inputs:{a['inputs']}"])
+        writer = a.get("inputs") or a.get("years")
+        if writer:
+            out += _WRITER_TARGETS.get(writer, [f"inputs:{writer}"])
         elif "user_nl" in a:
             out.append(f"user_nl_{a['user_nl']}:{a['key']}")
         else:
@@ -445,6 +506,17 @@ def run_recipe(control, run: Dict[str, Any], written: Optional[Dict[str, Dict]] 
     r.copied_from = control.copied_from or str(control.case_dir)
     for c in resolved:
         for a in c["alters"]:
+            if "years" in a:
+                # set by each year's job (expectations' year_settings), not in
+                # the recipe; built by build_run like a writer's files
+                w = (written or {}).get(c["id"])
+                if w is None:
+                    raise ChangeError(f"run {name}: {c['id']} sets each year's settings; "
+                                      f"build it with build_run")
+                r.notes.append("each year's job sets, before it runs: " + "; ".join(
+                    f"{y}: " + ",".join(f"{k}={v}" for k, v in kv)
+                    for y, kv in sorted((w.get("year_settings") or {}).items())))
+                continue
             if "inputs" in a:
                 w = (written or {}).get(c["id"])
                 if w is None:
@@ -484,26 +556,35 @@ def expectations(run: Dict[str, Any], control_case_dir: Optional[str] = None,
     settings: Dict[str, Dict[str, Any]] = {}
     output: List[Dict] = []
     case_files: Dict[str, str] = {}
+    year_settings: Dict[str, List] = {}
     for c in resolved:
         for s in c["checks"]["settings"]:
             settings.setdefault(s["file"], {})[s["key"]] = s["value"]
         for o in c["checks"]["output"]:
             output.append(dict(o, change=c["id"]))
         w = (written or {}).get(c["id"])
-        if w is None and any("inputs" in a for a in c["alters"]):
-            raise ChangeError(f"run {run.get('name')}: {c['id']} writes files for the run, "
-                              f"and its checks come from them; build it with build_run")
+        if w is None and any("inputs" in a or "years" in a for a in c["alters"]):
+            what = ("sets each year's settings" if any("years" in a for a in c["alters"])
+                    else "writes files for the run")
+            raise ChangeError(f"run {run.get('name')}: {c['id']} {what}, and its checks come "
+                              f"from them; build it with build_run")
         if w:
             for f, kv in (w.get("settings") or {}).items():
                 settings.setdefault(f, {}).update(kv)
             output += [dict(o, change=c["id"]) for o in w.get("output") or []]
             case_files.update(w.get("case_files") or {})
+            for y, kv in (w.get("year_settings") or {}).items():
+                year_settings.setdefault(str(y), []).extend(kv)
     out = {"run": run.get("name"), "control_case_dir": control_case_dir,
            "changes": [{k: c[k] for k in ("id", "params", "summary", "meaning",
                                            "not_meaning")} for c in resolved],
            "settings": settings, "output": output}
     if case_files:
         out["case_files"] = case_files
+    if year_settings:
+        # each model year's job sets these before it runs (domain_case's
+        # stage script), the smoke run with the first year's
+        out["year_settings"] = year_settings
     return out
 
 
@@ -514,12 +595,20 @@ def build_run(control, run: Dict[str, Any], inputs_dir, years,
     resolved = [resolve(c) for c in (run.get("changes") or [])]
     written: Dict[str, Dict] = {}
     for c in resolved:
-        if any("inputs" in a for a in c["alters"]):
+        writer = next((a.get("inputs") or a.get("years") for a in c["alters"]
+                       if "inputs" in a or "years" in a), None)
+        if writer:
             import domain_weather as W
+            ctl_dir = control_case_dir or control.case_dir
             try:
-                written[c["id"]] = W.inputs(c["params"], years, inputs_dir,
-                                            control_case_dir or control.case_dir,
-                                            control_entry)
+                if writer == "weather_scale":
+                    written[c["id"]] = W.inputs(c["params"], years, inputs_dir, ctl_dir,
+                                                control_entry)
+                elif writer == "weather_repeat_year":
+                    written[c["id"]] = W.repeat_inputs(c["params"], years, ctl_dir,
+                                                       control_entry)
+                else:
+                    raise ChangeError(f"run {run.get('name')}: no writer {writer!r}")
             except W.WeatherError as e:
                 raise ChangeError(f"run {run.get('name')}: {c['id']}: {e}") from None
     return (run_recipe(control, run, written),
@@ -665,6 +754,26 @@ def case_files_differences(run_case_dir, want: Dict[str, str]) -> Dict[str, Any]
 # ─────────────────────────────────────────────────────────────────────────────
 # THE CHECK OF AN EXPERIMENT
 # ─────────────────────────────────────────────────────────────────────────────
+def _h1_problems(cfacts: Optional[Dict], years: Sequence[int], here: str,
+                 wont: List[Dict], odd: List[Dict]) -> None:
+    """A weather change checks every year against the control's daily history
+    (h1): it must hold TBOT, RAIN and SNOW for each of `years`."""
+    h1 = ((cfacts or {}).get("streams") or {}).get("h1")
+    if not h1 or h1.get("error"):
+        odd.append({"where": here, "what": "could not confirm that the control's daily "
+                    "history (h1) holds TBOT, RAIN and SNOW: every year of the run is "
+                    "checked against it"})
+        return
+    lack = [f for f in ("TBOT", "RAIN", "SNOW") if f not in (h1.get("fields") or [])]
+    if lack:
+        wont.append({"where": here, "what": f"the control's daily history (h1) lacks "
+                     f"{lack}: no year of the run could be checked"})
+    gap = sorted(set(years) - set(h1.get("years") or []))
+    if gap:
+        wont.append({"where": here, "what": f"the control's daily history (h1) has no "
+                     f"complete year {gap}: those years of the run could not be checked"})
+
+
 def _years_problems(years, facts: Optional[Dict], reuse: bool) -> Tuple[List[str], List[str]]:
     bad, odd = [], []
     if not isinstance(years, list) or not years or \
@@ -698,6 +807,21 @@ def _years_problems(years, facts: Optional[Dict], reuse: bool) -> Tuple[List[str
 
 def _setting(facts: Optional[Dict], name: str):
     return ((facts or {}).get("settings") or {}).get(name)
+
+
+def _resolved(facts: Optional[Dict], name: str) -> Optional[int]:
+    """A whole-year setting of the control's facts, CIME's unresolved
+    references ($NAME, as compset defaults are stored) followed."""
+    v = _setting(facts, name)
+    for _ in range(5):
+        m = re.fullmatch(r"\$\{?(\w+)\}?", str(v or "").strip())
+        if not m:
+            break
+        v = _setting(facts, m.group(1))
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
@@ -780,29 +904,48 @@ def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
                     bad_years = W.year_problem(years)
                     if bad_years:
                         wont.append({"where": here, "what": bad_years})
-                h1 = ((cfacts or {}).get("streams") or {}).get("h1")
-                if not h1 or h1.get("error"):
-                    odd.append({"where": here, "what": "could not confirm that the "
-                                "control's daily history (h1) holds TBOT, RAIN and SNOW: "
-                                "every year of the run is checked against it"})
-                else:
-                    lack = [f for v in W.ANOMALY.values() for f in v["history"]
-                            if f not in (h1.get("fields") or [])]
-                    if lack:
-                        wont.append({"where": here, "what": f"the control's daily history "
-                                     f"(h1) lacks {lack}: no year of the run could be "
-                                     f"checked"})
-                    gap = sorted(set(years) - set(h1.get("years") or [])) \
-                        if whole_years else []
-                    if gap:
-                        wont.append({"where": here, "what": f"the control's daily history "
-                                     f"(h1) has no complete year {gap}: those years of "
-                                     f"the run could not be checked"})
+                _h1_problems(cfacts, years if whole_years else [], here, wont, odd)
                 if rc["params"].get("temperature_K", 0.0) < 0:
                     odd.append({"where": here, "what": "a cooler run: the recorded "
                                 "moisture can exceed saturation for the cooled air, so "
                                 "dew and frost form that the recorded weather would not "
                                 "make (most Naches winter hours at -2 K)"})
+            if rc["id"] == "weather_repeat_year":
+                import domain_weather as W
+                here = f"{where}, change {rc['id']}"
+                whole_years = isinstance(years, list) and years and all(
+                    isinstance(y, int) and not isinstance(y, bool) for y in years)
+                named = sorted(int(a) for a in rc["params"]["map"])
+                outside = [y for y in named if y not in years] if whole_years else []
+                if outside:
+                    wont.append({"where": here, "what": f"the map names model year(s) "
+                                 f"{outside}, which the experiment does not run"})
+                ymap = W.year_map(rc["params"], years) if whole_years else {}
+                read = sorted(set(ymap.values()))
+                oy = (cfacts or {}).get("output_years")
+                if oy and [w for w in read if not oy[0] <= w <= oy[1]]:
+                    wont.append({"where": here, "what": f"recorded year(s) "
+                                 f"{[w for w in read if not oy[0] <= w <= oy[1]]} are not in "
+                                 f"the control's output ({oy[0]}-{oy[1]}): those years "
+                                 f"could not be checked"})
+                f0, f1, fa = (_resolved(cfacts, "DATM_CLMNCEP_YR_START"),
+                              _resolved(cfacts, "DATM_CLMNCEP_YR_END"),
+                              _resolved(cfacts, "DATM_CLMNCEP_YR_ALIGN"))
+                if fa is not None and f0 is not None and fa != f0:
+                    wont.append({"where": here, "what": f"the control's model year Y reads "
+                                 f"recorded year {f0} + (Y - {fa}), not Y: its output years "
+                                 f"are not its recorded years"})
+                if f0 is not None and f1 is not None:
+                    beyond = [w for w in read if not int(f0) <= w < int(f1)]
+                    if beyond:
+                        wont.append({"where": here, "what": f"the control's forcing holds "
+                                     f"{int(f0)}-{int(f1)}, and a recorded year needs the "
+                                     f"year after it there too: {beyond} do not have it"})
+                else:
+                    odd.append({"where": here, "what": "could not confirm the forcing "
+                                "years the control's case reads (DATM_CLMNCEP_YR_START, "
+                                "_END)"})
+                _h1_problems(cfacts, read, here, wont, odd)
             if region:
                 regs = (control or {}).get("regions") or {}
                 if region not in regs:
@@ -837,11 +980,17 @@ def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
             rs.append(rc)
             facts.append({"where": f"{where}, change {rc['id']}",
                           "what": f"meaning: {rc['meaning']}. Not: {rc['not_meaning']}."})
-        if any(c["id"] == "weather_scale" for c in rs) and len(rs) > 1:
-            odd.append({"where": where, "what": "this run changes the weather and "
-                        f"{', '.join(c['id'] for c in rs if c['id'] != 'weather_scale')}: "
-                        "its difference from the control is their joint effect, and each "
-                        "change's meaning is stated against the control alone"})
+        weather = sorted({c["id"] for c in rs if c["id"] in WEATHER_CHANGES})
+        others = [c["id"] for c in rs if c["id"] not in WEATHER_CHANGES]
+        if len(weather) > 1:
+            wont.append({"where": where, "what": f"this run changes the weather twice "
+                         f"({' and '.join(weather)}): each one's checks read the other's "
+                         f"weather as the control's"})
+        elif weather and others:
+            odd.append({"where": where, "what": f"this run changes the weather and "
+                        f"{', '.join(others)}: its difference from the control is their "
+                        f"joint effect, and each change's meaning is stated against the "
+                        f"control alone"})
         if any(c["id"] == "fire_off" for c in rs):
             fire = (cfacts or {}).get("burned_area_km2") or {}
             if fire.get("model"):

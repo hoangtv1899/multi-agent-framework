@@ -47,13 +47,17 @@ expectations (domain_changes.expectations):
 
   settings mode      before the model is built, the run's resolved namelists
                      against the control's: exactly the keys its changes alter
-                     differ, with the values they set; and every file written
-                     for the run that the case must hold (a user stream file)
-                     is there unchanged
-  year --expect      every year, each change's rules on the output, such as
-                     FAREA_BURNED 0 everywhere with the fire model off, or
-                     the daily air temperature the control's plus the offset
-                     (that rule reads the control's output: --reference)
+                     differ, with the values they set (settings that each
+                     year's job sets are not among them: the year rules check
+                     those); and every file written for the run that the case
+                     must hold (a user stream file) is there unchanged
+  year --expect      every year, each change's rules on the output (and, for
+                     a change that sets each year's forcing years, on DATM's
+                     log for the year's job), such as
+                     FAREA_BURNED 0 everywhere with the fire model off, the
+                     daily air temperature the control's plus the amount, or
+                     the control's own for a repeated recorded year (those
+                     two read the control's output: --reference)
 
     python run_gate.py settings --case-dir C --control-case-dir CTL \\
         --expect REC/expectations.json --job $SLURM_JOB_ID --out REC/checks
@@ -843,18 +847,49 @@ def _reference_year(a, y: int, surface, ref: List) -> Dict:
 
 
 def expected_output(run_dir, year: int, rules: Sequence[Dict], reference=None,
-                    reference_error: Optional[str] = None) -> List[Dict]:
+                    reference_error: Optional[str] = None, job=None) -> List[Dict]:
     """A changed run's rules on its output for one calendar year, from its
     expectations (domain_changes): `all_zero`, the field is exactly 0 in every
-    cell and record of the year; `matches_anomaly`, the run's daily fields
+    cell and record of the year; `datm_stream_years`, DATM's log for the
+    year's job (`job`) names the forcing streams with the expected years;
+    `equals_control_year`, the run's daily fields against the control's for
+    the recorded year the run reads (domain_weather.check_control_year);
+    `matches_anomaly`, the run's daily fields
     against the control's under the anomaly file the run was built with
-    (domain_weather.check_year), which needs the control's history
+    (domain_weather.check_year). The last two need the control's history
     (`reference`, a Stream, opened on the rule's own stream; `reference_error`
     says why it could not be opened). A field that cannot be read fails,
     saying why."""
     out = []
     for r in rules:
         rec = {k: r.get(k) for k in ("change", "stream", "field", "fields", "rule", "why")}
+        if r.get("rule") == "datm_stream_years":
+            import domain_weather as W
+            try:
+                rec.update(W.check_stream_years(run_dir, r, year, job=job))
+            except (KeyError, OSError, W.WeatherError, *_GATE_ERRORS) as e:
+                rec.update({"pass": False, "reason": f"cannot check: {e}"})
+            out.append(rec)
+            continue
+        if r.get("rule") == "equals_control_year":
+            import domain_weather as W
+            try:
+                if reference is None:
+                    rec.update({"pass": False, "reason": (
+                        f"cannot read the control's output: {reference_error}"
+                        if reference_error else
+                        "it needs the control's output to compare with (--reference)")})
+                elif reference.name not in (r["stream"], "reference"):
+                    rec.update({"pass": False, "reason": f"the control's output was opened "
+                                f"as stream {reference.name}, and the rule reads "
+                                f"{r['stream']}"})
+                else:
+                    rec.update(W.check_control_year(G.open_stream(run_dir, r["stream"]),
+                                                    reference, r, year))
+            except (KeyError, OSError, W.WeatherError, *_GATE_ERRORS) as e:
+                rec.update({"pass": False, "reason": f"cannot check: {e}"})
+            out.append(rec)
+            continue
         if r.get("rule") == "matches_anomaly":
             import domain_weather as W
             try:
@@ -895,9 +930,10 @@ def expected_output(run_dir, year: int, rules: Sequence[Dict], reference=None,
 
 
 def _expected_reason(e: Dict) -> str:
-    field = e.get("field") or "+".join(e.get("fields") or [])
+    field = e.get("field") or "+".join(e.get("fields") or e.get("streams") or [])
     what = f"{e.get('change')}: {field} {e.get('rule')} ({e.get('why')})"
-    if e.get("rule") == "matches_anomaly" and e.get("reason"):
+    if e.get("rule") in ("matches_anomaly", "equals_control_year", "datm_stream_years") \
+            and e.get("reason"):
         return f"expected {what}; {e['reason']}"
     if e.get("max_abs") is not None:
         return f"expected {what}; the largest |value| is {e['max_abs']:.3g}"
@@ -937,7 +973,8 @@ def _years(a, rec: Dict, reasons: List[str]) -> str:
                     rs = ref[0] if ref else _reference_stream(a)
                 except _GATE_ERRORS as e:
                     rs_error = f"{a.reference}: {e}"
-            ex = expected_output(a.run_dir, y, rules, reference=rs, reference_error=rs_error)
+            ex = expected_output(a.run_dir, y, rules, reference=rs, reference_error=rs_error,
+                                 job=a.job)
             rec["years"][y]["expected"] = ex
             bad = [e for e in ex if not e["pass"]]
             if bad:

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""A run's own weather change, written for the data atmosphere's anomaly forcing.
+"""A run's own weather: the data atmosphere's anomaly forcing (weather_scale)
+and a recorded year read in another model year (weather_repeat_year).
 
-The weather tool of docs/ELM_DOMAIN_EXPERIMENTS.md, first part: the change
-`weather_scale` of domain_changes.py.
+The weather tool of docs/ELM_DOMAIN_EXPERIMENTS.md: the changes
+`weather_scale` and `weather_repeat_year` of domain_changes.py. The second
+is at the end of this file (REPEATING A YEAR).
 
 The part of E3SM that hands recorded weather to the land model, the data
 atmosphere (DATM, here in its CLMNCEP mode), can add a fixed amount to the
@@ -88,6 +90,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -575,6 +578,306 @@ def check_year(run_stream, ref_stream, rule: Dict[str, Any], year: int) -> Dict[
     if not offset and out["dry_days_with_precipitation"]:
         reasons.append(f"{out['dry_days_with_precipitation']} dry cell-day(s) of the "
                        f"control have precipitation in the run")
+    out["pass"] = not reasons
+    if reasons:
+        out["reason"] = "; ".join(reasons)
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REPEATING A YEAR (weather_repeat_year)
+# ─────────────────────────────────────────────────────────────────────────────
+# A model year reads another recorded year's weather when its job sets which
+# years of the forcing DATM reads (DATM_CLMNCEP_YR_START, _END, _ALIGN) before
+# it runs: each chain year is its own job, and CIME writes the namelists and
+# the stream's file list anew when a run starts. No file is written for the
+# run. Read in E3SM's code, and tested on a clone of the Naches control
+# (2026-10-26, job 791045: three 5-day runs restarted on 6 and 11 January
+# 2015, inside one year; records in workflow_outputs/elm_restart_test_20261026):
+#
+#   - after a restart DATM takes the years from the namelist, not from its
+#     restart file: shr_stream_restRead reads the stored years and discards
+#     them. It restores its stored record positions unless a file whose times
+#     it had read has another name at the same place in the new list, and
+#     finds them afresh otherwise. Both paths were run; each run's largest
+#     daily difference from the control's recorded year (0.36 K and 0.074 K
+#     in TBOT) is what one carried step on the first day gives.
+#   - the first land step after a restart takes the atmosphere's last output
+#     from the coupler's restart (driver-mct/main/seq_rest_mod.F90, a2x_ax),
+#     which the previous job computed at the restart instant with ITS years.
+#     At a year boundary that is the record for 00:00 on 1 January of the
+#     year after the previous year's recorded year: for 2016 reading 2015
+#     after 2015, 2016's own first record (the control's value), not 2015's.
+#     One model step (30 minutes on the Naches) is affected; 1 January of
+#     such a year is reported, not held to the control's (carried_first_days).
+#   - restored positions are wrong when the new file list starts with the old
+#     one but is shorter (they point past its end) or longer (the old end caps
+#     it, and the year wraps without an error). So every year of a run reads
+#     the same two-year form: its recorded year W and W+1, aligned so that the
+#     model year reads W. Two years' lists then have the same length, and
+#     differ in their first file (always read) unless they are the same list.
+#     The year after W also closes W's December as the control's run does.
+#
+# The form needs a forcing whose first record of each year is at 00:00 on 1
+# January (NLDAS, as the Naches control reads). Where the first record comes
+# later (GSWP3 at 01:30, CRUNCEP at 03:00), DATM would take the hours before
+# it from the end of W+1 (findBounds' cycle branch), and every 1 January would
+# differ from the control's: such a forcing is refused (a three-year form,
+# W-1 to W+1, would serve it, after its own proof).
+YEAR_KEYS = ("DATM_CLMNCEP_YR_START", "DATM_CLMNCEP_YR_END", "DATM_CLMNCEP_YR_ALIGN")
+REPEAT_FIELDS = ("TBOT", "RAIN", "SNOW")
+_STRDATA_STREAM = re.compile(r"\(shr_strdata_print\)\s+streams\s*\(\s*\d+\)\s*=\s*(\S+)"
+                             r"\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)")
+
+
+def year_map(params: Dict[str, Any], years: Sequence[int]) -> Dict[int, int]:
+    """{model year: the recorded year it reads} for every year of the run; a
+    year the map does not name reads its own."""
+    m = {int(k): int(v) for k, v in (params.get("map") or {}).items()}
+    return {int(y): m.get(int(y), int(y)) for y in years}
+
+
+def repeat_settings(ymap: Dict[int, int]) -> Dict[int, List[List[Any]]]:
+    """Each model year's DATM settings: its recorded year and the one after,
+    aligned so that the model year reads its recorded year (the two-year
+    form above)."""
+    return {y: [["DATM_CLMNCEP_YR_START", w], ["DATM_CLMNCEP_YR_END", w + 1],
+                ["DATM_CLMNCEP_YR_ALIGN", y]] for y, w in sorted(ymap.items())}
+
+
+def carried_first_days(ymap: Dict[int, int]) -> List[int]:
+    """Model years whose first step has another year's weather: the previous
+    job's last call read the record after its recorded year, and this year's
+    recorded year is not that one. The run's first year starts afresh."""
+    ys = sorted(ymap)
+    return [y for prev, y in zip(ys, ys[1:]) if ymap[y] != ymap[prev] + 1]
+
+
+def _case_value(case_dir: Path, name: str) -> Optional[str]:
+    """A case setting as its env files hold it, with CIME's unresolved
+    references ($NAME or ${NAME}, as compset defaults are stored) followed."""
+    import domain_case as DC
+    v = DC._env_value(case_dir, name)
+    for _ in range(5):
+        m = re.fullmatch(r"\$\{?(\w+)\}?", str(v or "").strip())
+        if not m:
+            break
+        v = DC._env_value(case_dir, m.group(1))
+    return v
+
+
+def forcing_streams(control_case_dir) -> Dict[str, Any]:
+    """The control's forcing years and the stream files they set, checked
+    for what the two-year form needs: model years that are recorded years
+    (ALIGN equal to START), a file list CIME makes from the years (no user
+    stream file), no bias correction or anomaly forcing on the model year,
+    and each year's first record at 00:00 on 1 January."""
+    cd = Path(control_case_dir)
+    raw = {k: _case_value(cd, k) for k in YEAR_KEYS}
+    cur = {k: _int(v) for k, v in raw.items()}
+    if any(v is None for v in cur.values()):
+        raise WeatherError("the control's case does not say, as whole years, which forcing "
+                           "years it reads: " + ", ".join(f"{k}={raw[k]!r}" for k in YEAR_KEYS))
+    align, first, last = (cur["DATM_CLMNCEP_YR_ALIGN"], cur["DATM_CLMNCEP_YR_START"],
+                          cur["DATM_CLMNCEP_YR_END"])
+    if align != first:
+        raise WeatherError(f"the control's model year Y reads recorded year {first} + "
+                           f"(Y - {align}), not Y, so its output years are not its "
+                           f"recorded years (DATM_CLMNCEP_YR_ALIGN {align}, _START {first})")
+    nl = control_datm(cd)
+    names = []
+    for entry in nl.get("streams") or []:
+        parts = str(entry).split()
+        if len(parts) == 4 and [_int(x) for x in parts[1:]] == [align, first, last]:
+            names.append(parts[0])
+    if not names:
+        raise WeatherError(f"no stream of the control's datm_in reads the forcing years its "
+                           f"case sets ({align} {first} {last})")
+    for n in names:
+        if (cd / f"user_{n}").exists():
+            raise WeatherError(f"the control's case holds user_{n}: its file list stays fixed "
+                               f"whatever years are set, so a year cannot be repeated")
+    nl_user = cd / "user_nl_datm"
+    if nl_user.is_file() and re.search(r"^\s*streams\s*=", nl_user.read_text(errors="replace"),
+                                       re.M | re.I):
+        raise WeatherError("the control's user_nl_datm sets the streams itself, so the "
+                           "forcing years each year's job sets would not take effect")
+    for key in ("bias_correct", "anomaly_forcing"):
+        if [str(s) for s in nl.get(key) or [] if str(s).strip() and str(s) != "null"]:
+            raise WeatherError(f"the control's data atmosphere also reads {key} streams, "
+                               f"which stay on the model year: a repeated year would mix "
+                               f"two years")
+    for n in names:
+        late = _first_record_after_midnight(cd / "CaseDocs" / n)
+        if late:
+            raise WeatherError(f"{n}'s records of each year start at {late} on 1 January, "
+                               f"not 00:00: DATM would take the hours before from the end of "
+                               f"the next recorded year, so every 1 January would differ")
+    return {"align": align, "first": first, "last": last, "streams": names}
+
+
+def _first_record_after_midnight(stream_file: Path) -> Optional[str]:
+    """When a stream's first record of its first file falls after 00:00 on
+    that day (its time plus the stream's <offset>), as HH:MM; else None."""
+    import xml.etree.ElementTree as ET
+    import netCDF4
+    if not stream_file.is_file():
+        raise WeatherError(f"{stream_file} is missing: the forcing's records cannot be read")
+    root = ET.fromstring(stream_file.read_text(errors="replace"))
+    fi = root.find("fieldInfo")
+    path = (fi.find("filePath").text or "").strip()
+    files = (fi.find("fileNames").text or "").split()
+    off = _int(((fi.find("offset").text if fi.find("offset") is not None else "0") or "0")
+               .strip()) or 0
+    if not files:
+        raise WeatherError(f"{stream_file.name} names no forcing file")
+    p = Path(path) / files[0]
+    try:
+        with netCDF4.Dataset(p) as f:
+            t0 = float(np.asarray(f["time"][:1], float)[0])
+            units = str(f["time"].units)
+    except (OSError, KeyError, IndexError) as e:
+        raise WeatherError(f"cannot read the first record of {p.name}: {e}") from None
+    m = re.match(r"\s*(days|hours|minutes|seconds)\s+since\s+\S+(?:[ T](\d+):(\d+)(?::(\d+))?)?",
+                 units)
+    if not m:
+        raise WeatherError(f"{p.name}: time units {units!r} are not read here")
+    scale = {"days": 86400.0, "hours": 3600.0, "minutes": 60.0, "seconds": 1.0}[m.group(1)]
+    base = sum(int(x or 0) * s for x, s in zip(m.groups()[1:], (3600, 60, 1)))
+    secs = (t0 * scale + base + off) % 86400.0
+    if abs(secs) < 1e-3 or abs(secs - 86400.0) < 1e-3:
+        return None
+    return f"{int(secs // 3600):02d}:{int(secs % 3600 // 60):02d}"
+
+
+def _int(x) -> Optional[int]:
+    try:
+        return int(str(x).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def repeat_inputs(params: Dict[str, Any], years: Sequence[int], control_case_dir,
+                  control_entry: Optional[Dict] = None) -> Dict[str, Any]:
+    """Everything one run's weather_repeat_year change needs. No file is
+    written for the run: each year's DATM settings go to the chain's year
+    jobs (year_settings), and two rules check every year: the forcing years
+    DATM's log says the year's run read, and its daily TBOT, RAIN and SNOW
+    against the control's for the recorded year."""
+    ymap = year_map(params, years)
+    if all(w == y for y, w in ymap.items()):
+        raise WeatherError("weather_repeat_year changes nothing: every model year reads "
+                           "its own year")
+    f = forcing_streams(control_case_dir)
+    bad = sorted({w for w in ymap.values() if not f["first"] <= w < f["last"]})
+    if bad:
+        raise WeatherError(f"the control's forcing holds {f['first']}-{f['last']}, and a "
+                           f"year read needs the year after it there too: {bad} do not have "
+                           f"it")
+    settings = repeat_settings(ymap)
+    carried = carried_first_days(ymap)
+    rules = [
+        {"stream": "datm_in", "rule": "datm_stream_years", "streams": f["streams"],
+         "years": {str(y): [y, w, w + 1] for y, w in ymap.items()},
+         "why": "DATM's log for the year's job names the forcing with the year's recorded "
+                "year and the next, aligned so the model year reads it"},
+        {"stream": "h1", "rule": "equals_control_year", "fields": list(REPEAT_FIELDS),
+         "years": {str(y): w for y, w in ymap.items()}, "carried_first_days": carried,
+         "tolerance": 0.0,
+         "why": "daily TBOT, RAIN and SNOW are the control's for the recorded year, day by "
+                "day and cell by cell (1 January of a year whose recorded year does not "
+                "follow the previous year's is reported, not held)"}]
+    return {"repeat": {"map": {str(y): w for y, w in ymap.items()}, "carried_first_days":
+                       carried, "streams": f["streams"]},
+            "year_settings": {str(y): v for y, v in settings.items()},
+            "settings": {}, "output": rules}
+
+
+def _recorded(rule: Dict[str, Any], year: int):
+    try:
+        return rule["years"][str(year)]
+    except KeyError:
+        raise WeatherError(f"the rule names no recorded year for model year {year}") from None
+
+
+def check_stream_years(run_dir, rule: Dict[str, Any], year: int, job=None) -> Dict[str, Any]:
+    """The forcing years the year's run read, from DATM's own log for the
+    year's job (atm.log.<job>.*: its "streams" lines): each forcing stream
+    named with the expected alignment and years. The run directory's datm_in
+    is not used: the next year's job writes it anew."""
+    from run_gate import _job_file, _read_text
+    want = [int(x) for x in _recorded(rule, year)]
+    if not job:
+        raise WeatherError("no job id: the year's DATM log cannot be found")
+    log = _job_file(Path(run_dir), "atm.log", str(job))
+    if log is None:
+        raise WeatherError(f"no atm.log.{job}.* in {run_dir}: the year's forcing years "
+                           f"cannot be read")
+    got: Dict[str, List[int]] = {}
+    for m in _STRDATA_STREAM.finditer(_read_text(log)):
+        got[m.group(1)] = [int(m.group(i)) for i in (2, 3, 4)]
+    seen = {n: got.get(n) for n in rule["streams"]}
+    wrong = {n: v for n, v in seen.items() if v != want}
+    out: Dict[str, Any] = {"expected": want, "streams": seen, "log": log.name,
+                           "pass": not wrong}
+    if wrong:
+        out["reason"] = "; ".join(
+            f"{n} reads {' '.join(map(str, v)) if v else 'nothing'}, not "
+            f"{' '.join(map(str, want))} (align, first, last)" for n, v in wrong.items())
+    return out
+
+
+def check_control_year(run_stream, ref_stream, rule: Dict[str, Any], year: int
+                       ) -> Dict[str, Any]:
+    """One year of a run's daily history against the control's for the
+    recorded year it reads, field by field, day of the year by day of the
+    year: equal within the tolerance (0: exactly), every cell-day reported by
+    both. 1 January of a carried year is reported apart."""
+    w = int(_recorded(rule, year))
+    carried = year in [int(y) for y in rule.get("carried_first_days") or []]
+    tol = float(rule.get("tolerance", 0.0))
+    per: Dict[str, Dict[str, Any]] = {}
+    for f in rule["fields"]:
+        a_blk, b_blk = run_stream.read(f, year), ref_stream.read(f, w)
+        ka = [tuple(k)[1:] for k in a_blk.keys]
+        kb = [tuple(k)[1:] for k in b_blk.keys]
+        if ka != kb:
+            raise WeatherError(f"the run's {year} records of {f} are not the control's "
+                               f"{w} records day for day ({len(ka)} against {len(kb)})")
+        a, b = a_blk.data.astype(float), b_blk.data.astype(float)
+        fa, fb = np.isfinite(a), np.isfinite(b)
+        ok = fa & fb
+        first = np.array([k[0] == 1 and k[1] == 1 for k in ka])
+        first = first.reshape((-1,) + (1,) * (a.ndim - 1))
+        held = ok & ~(first if carried else np.zeros_like(first))
+        diff = np.abs(a - b)
+        row: Dict[str, Any] = {"unpaired": int((fa != fb).sum()), "compared": int(held.sum()),
+                               "max_abs_difference": float(diff[held].max())
+                               if held.any() else None}
+        if carried:
+            fd = ok & first
+            row["first_day_max_abs_difference"] = float(diff[fd].max()) if fd.any() else None
+        per[f] = row
+    worsts = [r["max_abs_difference"] for r in per.values()
+              if r["max_abs_difference"] is not None]
+    worst = max(worsts) if worsts else None
+    out: Dict[str, Any] = {"how": "equals", "fields": list(rule["fields"]), "reads": w,
+                           "tolerance": tol, "max_abs_difference": worst,
+                           "compared": sum(r["compared"] for r in per.values()),
+                           "unpaired": sum(r["unpaired"] for r in per.values()),
+                           "first_day_carried": carried, "per_field": per}
+    reasons = []
+    if out["unpaired"]:
+        reasons.append(f"{out['unpaired']} cell-day(s) have a value in one run and not the "
+                       f"other (" + ", ".join(f"{f} {r['unpaired']}" for f, r in per.items()
+                                             if r["unpaired"]) + ")")
+    if not out["compared"]:
+        reasons.append(f"no cell-day of {year} could be compared with the control's {w}")
+    if worst is not None and worst > tol:
+        reasons.append(f"differs from the control's {w} by up to {worst:.3g} "
+                       f"(tolerance {tol:g}): " + ", ".join(
+                           f"{f} {r['max_abs_difference']:.3g}" for f, r in per.items()
+                           if r["max_abs_difference"] is not None))
     out["pass"] = not reasons
     if reasons:
         out["reason"] = "; ".join(reasons)

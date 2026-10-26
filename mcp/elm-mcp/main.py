@@ -1956,6 +1956,15 @@ def _domain_write(recipe, spec, rec, expect=None):
     a run of an experiment, the checks it is held to."""
     import domain_case as DC
     ref = spec.get("reference")
+    ys = (expect or {}).get("year_settings")
+    if ys:
+        # a year without its own settings would keep the previous year's
+        missing = [int(y) for y in spec.get("years") or [recipe.first_year]
+                   if str(int(y)) not in ys]
+        if missing:
+            raise ValueError(f"the chain runs {missing}, which the run's year settings do "
+                             f"not cover: build the run again for these years "
+                             f"(build_domain_runs)")
     DC.write_case_script(recipe, rec)
     DC.write_stage_script(recipe, rec, smoke_days=int(spec.get("smoke_days", 5)),
                           reference=DC.Reference(**ref) if ref else None,

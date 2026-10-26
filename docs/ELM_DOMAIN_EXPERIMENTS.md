@@ -78,7 +78,7 @@ The first list:
 | `co2_ppmv` | `CCSM_CO2_PPMV` (the control: 367, constant) | yes |
 | `ndep_year` | `stream_year_first_ndep` and `_last_ndep` (the control: 2000) | yes |
 | `nutrient_supplement` | `suplnitro`, `suplphos` (the control: NONE, ALL) | yes |
-| `weather_repeat_year` | which forcing year each model year reads | no: piece 4b |
+| `weather_repeat_year` | which recorded year each model year's weather comes from, set by that year's job | yes |
 | `weather_scale` | an added temperature and a precipitation factor, by month and cell, through the data atmosphere's anomaly forcing | yes |
 | `burn_footprint` | a burn imposed on chosen cells on a chosen date | no: a later piece |
 | `parameter_value` | one value in the parameter file | no: a later piece |
@@ -92,7 +92,10 @@ A change that cannot be written as a setting writes files for its run
 (`alters: [{"inputs": <writer>}]`). `build_run` writes them into the run's
 inputs folder before the recipe is made; the recipe then carries the user_nl
 lines and user files that read them, and the writer adds its own checks.
-`weather_scale` is the first (see "A run's own weather" below).
+`weather_scale` is the first (see "A run's own weather" below). A change can
+also set each year's settings in that year's job (`alters: [{"years":
+<writer>}]`): they are in neither the recipe nor the case stage's check, and
+the writer's own rules check them year by year (`weather_repeat_year`, below).
 
 ### A control's facts
 
@@ -196,8 +199,8 @@ analyzer     the LLM Analyzer on the same records: step 0's regional frame, the
 | 5 | framework: the regional numbers (5a), the report rendered from them (5b, option b) and the LLM Analyzer on the same rows (5b, option a) | offline on the Naches control's output: the hand analysis's numbers and headline; one live Analyzer run |
 | 6 | proof: a fire-off twin of the Naches, 2015-2016, against the reused control | real jobs, asked for first |
 
-Out of scope here: the rest of the weather tool (a repeated forcing year and a
-lapse rate, piece 4b), an imposed burn, and input sets for a new watershed.
+Out of scope here: the rest of the weather tool (a lapse rate), an imposed
+burn, and input sets for a new watershed.
 
 ---
 
@@ -271,6 +274,83 @@ the recorded weather would not make.
 
 ---
 
+## A recorded year in another model year (piece 4b, second part: `weather_repeat_year`)
+
+A run can make chosen model years read another recorded year's weather: a
+dry year three times running, say. The change's parameter is a map from model
+year to recorded year; a year it does not name reads its own. No file is
+written for the run. Every chain year is its own job, and the job sets which
+years of the forcing the data atmosphere reads before it runs
+(`DATM_CLMNCEP_YR_START`, `_END` and `_ALIGN`); CIME writes the namelists, and
+the forcing's list of files, anew when each run starts. The smoke run takes
+the first year's settings. These settings are not in the run's recipe, which
+keeps the control's forcing years: they are in its expectations
+(`year_settings`), in the year arms of its stage script, and in a line of the
+recipe's notes.
+
+Every year of such a run, its own years included, reads the same two-year
+form: its recorded year W and W+1, aligned so that the model year reads W.
+Model year 2016 reading 2015 sets 2015-2016 aligned to 2016. The last time
+the data atmosphere is called in that year's job, at 00:00 on the next 1
+January, it then reads 2016's first record, as the control's own 2015 does.
+
+What happens across a restart was read in E3SM's code and then tested on a
+clone of the Naches control (job 791045: three 5-day runs, restarted on 6
+and 11 January 2015, inside one year; 0.14 node-hours; records in
+`workflow_outputs/elm_restart_test_20261026`):
+
+- after a restart the data atmosphere takes the years from the namelist, not
+  from its restart file (`shr_stream_restRead` reads the stored years and
+  discards them). It restores its stored record positions unless a file whose
+  times it had read has another name at the same place in the new list, and
+  finds them afresh otherwise. Both paths were run. Each run's largest daily
+  difference from the control's recorded year, 0.36 K and 0.074 K in
+  temperature, is what one carried step on the first day gives; the proof's
+  2016 checks every other day at a tolerance of zero;
+- the first land step after a restart takes the atmosphere's last output from
+  the coupler's restart (`seq_rest_mod.F90`, `a2x_ax`), which the previous job
+  computed at the restart instant with its own years. At a year boundary that
+  is the record for 00:00 on 1 January of the year after the previous year's
+  recorded year: for 2016 reading 2015 after 2015, 2016's own first record,
+  the control's value. So where a year's recorded year does not follow the
+  previous year's, its first model step (30 minutes on the Naches) has that
+  record rather than its own recorded year's;
+- restored positions go wrong when the new list of files starts with the old
+  one but is shorter (they point past its end) or longer (the old end caps it,
+  and the year wraps without an error). The two-year form rules both out:
+  every year's list has the same length, and two different lists differ in
+  their first file, which is always read.
+
+The form needs a forcing whose records of each year start at 00:00 on 1
+January, as the Naches control's NLDAS records do. Where they start later
+(GSWP3 at 01:30, CRUNCEP at 03:00), the data atmosphere would take the hours
+before from the end of the next recorded year, so every 1 January would
+differ from the control's: such a forcing is refused, and so is a control
+whose model years are not its recorded years (`_ALIGN` other than `_START`),
+whose forcing has a fixed list of files (a user stream file), or which also
+reads bias-correction or anomaly streams (they stay on the model year). A
+three-year form, W-1 to W+1, would serve the later-starting forcings, after a
+proof of its own.
+
+The checks:
+
+| When | What must hold |
+|---|---|
+| the experiment check | the control is reused, and its model years are its recorded years; every model year the map names is one the experiment runs; every recorded year read is one of the control's output years, with the year after it in the forcing the control's case reads; the control's daily history holds TBOT, RAIN and SNOW for those years. A run changes the weather at most once: not with `weather_scale` too, since each change's checks read the other's weather as the control's |
+| building the run | the forcing as above (records from 00:00, a list of files CIME makes, no bias-correction or anomaly streams); a chain whose years the run's year settings do not cover is refused, and a year job without settings stops before its model runs |
+| every year | the data atmosphere's log for the year's job names the forcing streams with its recorded year and the year after, aligned so that the model year reads it; the run's daily TBOT, RAIN and SNOW equal the control's for the recorded year, day of the year by day of the year and cell by cell, exactly. 1 January of a year whose recorded year does not follow the previous year's is reported, not held |
+
+What a run does not mean (the change's `not_meaning`, in full): a drought of a
+kind the record has never held, a forecast or a climate scenario. Each
+repeated year is the recorded year, with its storms on the same dates, and the
+land carries its state over, so a repeated dry year meets the soil and
+vegetation the years before it left. Where a year's recorded year does not
+follow the previous year's, its first model step has the record after the
+previous year's recorded year, since E3SM carries the atmosphere's last output
+across the restart.
+
+---
+
 ## The Analyzer on a whole domain (step 5b, option a)
 
 The Analyzer's five steps read a whole-domain experiment through the same
@@ -303,3 +383,4 @@ Analyzer's preflight then stops before any model call.
 | 5 | 5a built 2026-10-24: domain_analysis.py, per run, region and year (a rate totalled, a state averaged), differences from the control, anomalies against normal years, the observed burned area per region; written to 03_results/regional.json and experiment.json; the Naches control's GPP and LAI by year, normals, 2015 and 2021 anomalies and the watershed's 4,127 cells reproduced from the monthly stream (7 real-data checks). 5b built 2026-10-25 as a report rendered from the records with no LLM (`src/agents/analysis/domain_report.py`): the headline is one claim with that claim's own numbers (the first run's difference from the control, else the target years against the normal, else the values), tables by region and year, what each change means beside what it does NOT mean, the caveats and two figures; the analyze stage renders it in place of the Analyzer, and a failed render, or regional numbers that could not be made, is a failed analysis rather than a skip; a control whose facts are stale says so instead of passing; 17 unit tests, 4 through the manager, 1 on the Naches output, 22/22 mutants killed. On the Naches control the headline is the hand analysis's: GPP 5.86 % above its 2016-2020 normal (460 gC/m^2/yr) in 2015 and 18.6 % below it in 2021. 5b option a built 2026-10-25: the Analyzer reads a whole-domain experiment (see "The Analyzer on a whole domain" below); the rendered report moved to DOMAIN_REPORT.md beside the Analyzer's REPORT.md; 22 tests of the Analyzer's steps, 5 of the server's additions (the model's burned area, the limitations, the chain's job times), 3 more through the manager, 2 more on the Naches output; 31 of 32 mutants killed (the survivor was a redundant clause, since removed); one live run on the Naches control (3 model calls) kept 10 of 10 claims, each recomputed from the table |
 | 6 | done 2026-10-25: a fire-off twin of the Naches, 2015-2016, against the reused control, through the framework's back half (one live planner call chose the analysis; the gate, the server's check, the run's recipe and checks, its chain and job B); chain 791021-791025, job B 791026. The first arming stopped before any job: materialize demanded a bounding box of a whole-domain study, which a real whole-domain reception does not have (the tests' brief carried one); fixed, and the tests now use a brief without one. Every check passed: the case stage's settings check (lnd_in differs from the control's only by use_nofire, datm_in not at all), the build from the control's own source tree (fingerprint 503a94c5d1a0), the smoke test, both years (FAREA_BURNED zero in every cell of every month; vegetation carbon the only field outside the reproduction limits, as fire off should give), the report stage's job times (6,842 s of model time) and job B: the numbers report, then the Analyzer (3 model calls, 6 of 6 claims kept, each recomputed from the table). The model's own fire lowers vegetation carbon over the vegetated domain by 6.96 gC/m2 (2015 mean) and 23.2 (2016 mean) while it burns 115 and 60.3 km2 against MODIS's 3.72 and 2.64 |
 | 4b, weather_scale | built 2026-10-25, PROVEN 2026-10-26: `domain_weather.py` (the anomaly file, the stream files, the user_nl_datm lines, the year check), writers in `domain_changes.py` (`build_run`, the `appends` expectation, the case files), the gate's `matches_anomaly` rule with the control's output as reference, and the case stage's checksum of each file written for the run; 95 tests in `tests/test_domain_weather.py`; 37 of 38 deliberate breaks caught before the review (the survivor converts longitudes the region code converts again), 23 of 23 of the review's fixes. Checked on the Naches control without a job: the file sits on its 96 x 144 cells with no offset from the history's; its watershed is 4,142 cells, exactly the analysis's 4,127 once cut to vegetated cells; on a scratch clone resolved by preview_namelists the case stage's check passed (14 differences in datm_in, all expected, none in lnd_in, both stream files unchanged), and failed when the tintalgo line was dropped, CIME's default for the anomaly streams being `nearest`. The first arming of the proof (chain 791029-791032, 2026-10-25) passed its case stage's settings check on the real job and was cancelled during the build, before any model year, when reading DATM's timing showed that records at midnight would leave the first step of 1 June with May's value (the 60 s offset above). The proof, re-armed with the offset (chain 791033-791036: a 2015 twin of the Naches with the air 2 K warmer and rain and snow times 0.8 in June-August over the watershed, against the reused control), passed every stage: the settings check, the build from the control's source (fingerprint 503a94c5d1a0), the smoke test and the year, whose gate compared 5,045,760 cell-days of TBOT (largest error 0.0 K) and 2,608,692 wet cell-days of rain plus snow (largest relative error 1.04e-7, no dry day made wet). An independent reading of the raw files agreed: the change in exactly the 4,142 watershed cells in June-August, 1 June and 1 September exact (2.0 and 0.0 K), rain and snow each times 0.8 (the 1,100 summer snow cell-days included, so the warming moved no snow into rain), the control's everywhere else. Reviewed 2026-10-26 by four independent reviewers, each finding then challenged by a skeptic: 34 findings, all confirmed, all fixed. The largest: the not-meaning said humidity and air density stay the control's, but the land model computes both from the warmed air, so a warmer run is drier air to it; the server's whole-domain note said every run reads the control's own weather; the year check now compares rain and snow one by one, with tolerances of 0.001 K and 1e-5, fails a cell-day reported by one run only and a change that reached no reported cell, and the experiment check confirms the control's daily history. The proof's output passes the stricter check: TBOT 0.0 K off over 5,045,760 cell-days, rain and snow 1.04e-7 and 9.5e-8 over 2,373,059 and 1,028,242 wet cell-days |
+| 4b, weather_repeat_year | built and PROVEN 2026-10-26: the year map, each year's DATM settings in the chain's job script (the smoke run takes the first year's), two year rules in the gate (`datm_stream_years` on the datm_in the year's run read, `equals_control_year` against the control's output for the recorded year), and the experiment check's rules; 55 tests in `tests/test_domain_repeat_year.py`; 18 of 18 deliberate breaks caught before the review, 20 of 20 of the review's fixes. Reviewed 2026-10-26 by four independent reviewers, each finding challenged by a skeptic: 34 findings, all confirmed, all fixed. The largest: the Analyzer's note on whole-domain differences named only `weather_scale`; the not-meaning described the carried step as the previous year's weather, where at a year boundary it is the record after the previous year's recorded year; forcings whose records start after midnight, fixed file lists, bias-correction or anomaly streams and model years that are not recorded years are now refused; and the year rule read the run directory's datm_in, which the next year's job overwrites, and now reads the data atmosphere's log for the year's job. The restart test (job 791045) measured the behaviour this rests on. The proof, a 2015-2016 twin of the Naches in which 2016 reads 2015 (chain 791046-791050, 1.8 node-hours), passed every stage: the case's settings check (no difference, as the year settings come later), the build from the control's source (fingerprint 503a94c5d1a0), the smoke run and both years, each year's job setting its own forcing years. 2015 equals the control's 2015 exactly on every day; 2016 equals the control's 2015 exactly on 364 days, over 5,031,936 cell-days of each of TBOT, RAIN and SNOW, and 1 January, the carried day, differs only in TBOT, by up to 0.14 K; against the control's own 2016 it differs by up to 18 K. The data atmosphere's logs show 2016's job restoring its stored positions (the same file list as 2015's) at the year boundary. An independent reading of the raw files agreed, and the reviewed checks pass on the same output |

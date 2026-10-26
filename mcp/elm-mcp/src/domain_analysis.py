@@ -66,10 +66,12 @@ LIMITATIONS = {
     "configuration": [
         {"applies_to": "differences between runs",
          "caveat": "every run starts from the control's starting state and reads the "
-                   "control's recorded weather; a run with weather_scale receives that "
-                   "weather with its own change applied, as that change's meaning says; the "
-                   "case stage checked that each run's settings differ from the control's "
-                   "only by its named changes.",
+                   "control's recorded weather, except as its weather change says: with "
+                   "weather_scale, that weather with its change applied; with "
+                   "weather_repeat_year, the mapped model years read another recorded "
+                   "year's weather, set by each year's job and checked in that year. The "
+                   "case stage checked that each run's settings at build differ from the "
+                   "control's only by its named changes.",
          "kind": "configuration", "severity": "context"},
     ],
 }

@@ -76,6 +76,16 @@ DEFAULT_MODEL = "claude-opus-5-project"
 
 
 
+def _param_text(k, v) -> str:
+    """A change's parameter in words: a map as "2016 to 2015", a list as
+    "6, 7, 8", rather than a Python literal."""
+    if isinstance(v, dict):
+        return f"{k} " + ", ".join(f"{a} to {b}" for a, b in v.items())
+    if isinstance(v, (list, tuple)):
+        return f"{k} " + ", ".join(str(x) for x in v)
+    return f"{k} {v}"
+
+
 def preflight_of(ctx) -> Dict[str, Any]:
     """ctx.preflight(), or {} for a context-like object that has none.
 
@@ -483,7 +493,7 @@ def domain_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
             name = r.get("run") or r.get("name")
             ch = r.get("changes") or []
             what = ", ".join(str(c.get("id")) + (" " + ", ".join(
-                f"{k} {v}" for k, v in (c.get("params") or {}).items())
+                _param_text(k, v) for k, v in (c.get("params") or {}).items())
                 if c.get("params") else "") for c in ch) or "no change"
             lines.append(f"      run {name}: the control with {what}"
                          + (f" (status {r.get('status')})" if r.get("status") else ""))

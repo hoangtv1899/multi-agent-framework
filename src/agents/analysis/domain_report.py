@@ -39,6 +39,16 @@ VEGETATED, BANDS, VEG_SUFFIX = "vegetated cells", "elevation bands", ", vegetate
 MAX_PANELS = 6
 
 
+def _param_text(k, v) -> str:
+    """A change's parameter in words: a map as "2016 to 2015", a list as
+    "6, 7, 8", rather than a Python literal."""
+    if isinstance(v, dict):
+        return f"{k} " + ", ".join(f"{a} to {b}" for a, b in v.items())
+    if isinstance(v, (list, tuple)):
+        return f"{k} " + ", ".join(str(x) for x in v)
+    return f"{k} {v}"
+
+
 def _read(p: Path) -> Dict[str, Any]:
     return json.loads(p.read_text()) if p.is_file() else {}
 
@@ -124,7 +134,8 @@ def _changes_text(run: Dict) -> str:
     out = []
     for c in run.get("changes") or []:
         p = c.get("params") or {}
-        out.append(c.get("id", "?") + (" " + ", ".join(f"{k} {v}" for k, v in p.items())
+        out.append(c.get("id", "?") + (" " + ", ".join(_param_text(k, v)
+                                                       for k, v in p.items())
                                        if p else ""))
     return ", ".join(out) or "no change"
 

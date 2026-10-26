@@ -679,6 +679,28 @@ def write_stage_script(recipe: Recipe, record_dir, *, smoke_days: int = 5,
         ref = (f"REF=({' '.join(_q(x) for x in items)})\n"
                f"          case \" {gated} \" in *\" $Y \"*) ;; *) REF+=(--reference-report-only) ;; esac")
     year_set = "CONTINUE_RUN={c},STOP_OPTION=nyears,STOP_N=1,REST_OPTION=nyears,REST_N=1"
+    # A change that sets each year's settings (weather_repeat_year: which
+    # recorded year the forcing reads) gives them in the expectations; the
+    # year's job adds them to its xmlchange, the smoke run takes the first
+    # year's. CIME writes the namelists anew when each run starts.
+    by_year = {int(y): "".join(f",{k}={v}" for k, v in kv)
+               for y, kv in ((expect or {}).get("year_settings") or {}).items()}
+    for y, extra in by_year.items():
+        if not re.fullmatch(r"(,[A-Z][A-Z0-9_]*=[\w.+-]+)*", extra):
+            raise DomainCaseError(f"year {y}'s settings {extra!r} are not NAME=value pairs")
+        if any(k in RUN_CONTROL for k in re.findall(r",([A-Z][A-Z0-9_]*)=", extra)):
+            raise DomainCaseError(f"year {y}'s settings {extra!r} set run control, which "
+                                  f"each stage sets itself")
+    year_case = 'YS=""'
+    if by_year:
+        # a year the settings do not name stops before its model runs: it
+        # would keep the previous year's settings, which persist in env_run.xml
+        year_case += ("\n          case \"$Y\" in\n" + "\n".join(
+            f"              {y:04d}) YS={_q(e)} ;;" for y, e in sorted(by_year.items()))
+            + '\n              *) log "FAILED no year settings for $Y in the expectations"; '
+              'log "finished rc=2"; exit 2 ;;'
+            + "\n          esac")
+    smoke_extra = by_year.get(recipe.first_year, "")
     src_mod = Path(__file__).resolve().parent
     text = f"""#!/bin/bash
 #SBATCH --account={recipe.project}
@@ -716,15 +738,16 @@ case $STAGE in
           fi
           log "$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import domain_case as D; D.case_stage_record(*sys.argv[2:6])' {_q(src_mod)} "$REC" "${{SLURM_JOB_ID:-none}}" "$rc" {_q(recipe.srcroot)} 2>&1 | tail -1)" ;;
   smoke)  into_case
-          model CONTINUE_RUN=FALSE,RUN_STARTDATE={s0},STOP_OPTION=ndays,STOP_N={smoke_days},REST_OPTION=ndays,REST_N={smoke_days} || note $?
+          model "CONTINUE_RUN=FALSE,RUN_STARTDATE={s0},STOP_OPTION=ndays,STOP_N={smoke_days},REST_OPTION=ndays,REST_N={smoke_days}{smoke_extra}" || note $?
           gate smoke --days {smoke_days} ;;
   y[0-9][0-9][0-9][0-9])
           into_case
           Y=${{STAGE#y}}
+          {year_case}
           if [ "$Y" = "{first}" ]; then
-              model {year_set.format(c="FALSE")},RUN_STARTDATE={s0} || note $?
+              model "{year_set.format(c="FALSE")},RUN_STARTDATE={s0}$YS" || note $?
           else
-              model {year_set.format(c="TRUE")} || note $?
+              model "{year_set.format(c="TRUE")}$YS" || note $?
           fi
           REF=()
           {ref}
