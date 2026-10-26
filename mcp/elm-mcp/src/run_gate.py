@@ -40,6 +40,20 @@ for job scripts, and always writes its record and STATUS line:
 
 With --reference, each year is also set against that run with reference_gate,
 gated unless --reference-report-only (for an experiment expected to differ).
+
+A RUN OF AN EXPERIMENT (docs/ELM_DOMAIN_EXPERIMENTS.md) differs from its control
+by named changes, and two checks hold it to them, both read from the run's
+expectations (domain_changes.expectations):
+
+  settings mode      before the model is built, the run's resolved namelists
+                     against the control's: exactly the keys its changes alter
+                     differ, with the values they set
+  year --expect      every year, each change's rules on the output, such as
+                     FAREA_BURNED 0 everywhere with the fire model off
+
+    python run_gate.py settings --case-dir C --control-case-dir CTL \\
+        --expect REC/expectations.json --job $SLURM_JOB_ID --out REC/checks
+
 domain_case.py writes the job scripts that call this.
 """
 from __future__ import annotations
@@ -824,9 +838,40 @@ def _reference_year(a, y: int, surface, ref: List) -> Dict:
     return rr
 
 
+def expected_output(run_dir, year: int, rules: Sequence[Dict]) -> List[Dict]:
+    """A changed run's rules on its output for one calendar year, from its
+    expectations (domain_changes): `all_zero`, the field is exactly 0 in every
+    cell and record of the year. A field that cannot be read fails, saying why."""
+    out = []
+    for r in rules:
+        rec = {k: r.get(k) for k in ("change", "stream", "field", "rule", "why")}
+        try:
+            blk = G.open_stream(run_dir, r["stream"]).read(r["field"], year)
+            fin = blk.data[np.isfinite(blk.data)]
+            if r.get("rule") != "all_zero":
+                rec.update({"pass": False, "reason": f"unknown rule {r.get('rule')!r}"})
+            elif not fin.size:
+                rec.update({"pass": False, "reason": "no finite value to check"})
+            else:
+                m = float(np.max(np.abs(fin)))
+                rec.update({"max_abs": m, "records": len(blk.keys), "pass": m == 0.0})
+        except (KeyError, *_GATE_ERRORS) as e:
+            rec.update({"pass": False, "reason": f"cannot check: {e}"})
+        out.append(rec)
+    return out
+
+
+def _expected_reason(e: Dict) -> str:
+    what = f"{e.get('change')}: {e.get('field')} {e.get('rule')} ({e.get('why')})"
+    if e.get("max_abs") is not None:
+        return f"expected {what}; the largest |value| is {e['max_abs']:.3g}"
+    return f"expected {what}; {e.get('reason')}"
+
+
 def _years(a, rec: Dict, reasons: List[str]) -> str:
     rec["years"] = {}
     ref: List = []
+    rules = (json.loads(Path(a.expect).read_text()).get("output") or []) if a.expect else []
     for y in a.year:
         try:
             rec["years"][y] = year_check(a.run_dir, a.case_dir, y, surface=a.surface)
@@ -842,6 +887,13 @@ def _years(a, rec: Dict, reasons: List[str]) -> str:
             if rr["gated"] and not rr["pass"]:
                 rec["years"][y]["pass"] = False
                 rec["years"][y]["reasons"] += [f"reference: {r}" for r in rr["reasons"]]
+        if rules:
+            ex = expected_output(a.run_dir, y, rules)
+            rec["years"][y]["expected"] = ex
+            bad = [e for e in ex if not e["pass"]]
+            if bad:
+                rec["years"][y]["pass"] = False
+                rec["years"][y]["reasons"] += [_expected_reason(e) for e in bad]
     reasons += [f"{y}: {r}" for y, v in rec["years"].items() for r in v["reasons"]]
 
     def ref_note(v):
@@ -851,18 +903,51 @@ def _years(a, rec: Dict, reasons: List[str]) -> str:
         gpp = ((rr.get("fields") or {}).get("GPP") or {}).get("bias_pct")
         return (f" ref={'pass' if rr['pass'] else 'FAIL'}{'' if rr['gated'] else '(report)'}"
                 f" refGPP={_fmt(gpp, '+.2f')}%")
+
+    def expect_note(v):
+        ex = v.get("expected")
+        if not ex:
+            return ""
+        return f" expect={'pass' if all(e['pass'] for e in ex) else 'FAIL'}"
     return " | ".join(f"{y}: GPP={_fmt(v.get('gpp_gC_m2_yr'), '.1f')} "
                       f"peakLAI={_fmt(v.get('peak_tlai'), '.3f')} "
                       f"closure={_fmt(v.get('water_closure_frac_of_precip'), '.4g')}"
-                      + ref_note(v)
+                      + ref_note(v) + expect_note(v)
                       for y, v in rec["years"].items())
+
+
+def _settings(a) -> int:
+    """The settings mode: a run's resolved namelists against its control's,
+    before the model is built. Reads no log: no model has run."""
+    rec: Dict = {"mode": "settings", "case_dir": a.case_dir,
+                 "control_case_dir": a.control_case_dir,
+                 "time": datetime.datetime.now().isoformat(timespec="seconds")}
+    summary = ""
+    try:
+        import domain_changes as CH
+        exp = json.loads(Path(a.expect).read_text())
+        sd = CH.settings_differences(a.case_dir, a.control_case_dir,
+                                     exp.get("settings") or {}, Path(a.case_dir).name,
+                                     Path(a.control_case_dir).name)
+        rec.update({k: sd[k] for k in ("files",)})
+        reasons = list(sd["reasons"])
+        summary = "settings " + ", ".join(
+            f"{f}: {len(v.get('differences') or {})} difference(s), "
+            f"{len(v.get('unexpected') or [])} unexpected"
+            for f, v in sd["files"].items())
+    except Exception as e:           # still leave a record that names the failure
+        reasons = [f"the gate itself failed: {type(e).__name__}: {e}"]
+        rec["traceback"] = traceback.format_exc()
+    rec["pass"], rec["reasons"] = not reasons, reasons
+    _write(rec, a.out, a.stage or "settings", str(a.job or "none"), a.status, summary)
+    return 0 if rec["pass"] else 1
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("mode", choices=("year", "smoke"))
+    ap.add_argument("mode", choices=("year", "smoke", "settings"))
     ap.add_argument("--case-dir", required=True)
-    ap.add_argument("--run-dir", required=True)
+    ap.add_argument("--run-dir", help="year and smoke: the run directory")
     ap.add_argument("--job", default=os.environ.get("SLURM_JOB_ID"))
     ap.add_argument("--year", type=int, action="append", default=[])
     ap.add_argument("--days", type=int, default=5, help="smoke: daily records expected")
@@ -879,7 +964,16 @@ def main(argv=None) -> int:
                     help="year: the stream compared, ours and the reference run's")
     ap.add_argument("--reference-report-only", action="store_true",
                     help="year: record the comparison without gating on it")
+    ap.add_argument("--expect", help="year and settings: a run's expectations.json "
+                                     "(domain_changes.expectations)")
+    ap.add_argument("--control-case-dir", help="settings: the control's case")
     a = ap.parse_args(argv)
+    if a.mode == "settings":
+        if not (a.expect and a.control_case_dir):
+            ap.error("settings mode needs --expect and --control-case-dir")
+        return _settings(a)
+    if not a.run_dir:
+        ap.error(f"{a.mode} mode needs --run-dir")
     if not a.job:
         ap.error("--job (or SLURM_JOB_ID) is required: logs are found by it")
     if a.mode == "year" and not a.year:

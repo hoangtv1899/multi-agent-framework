@@ -121,14 +121,16 @@ def _is_whole_domain(strategy: Dict[str, Any],
     The same sources as the two above, any one sufficient: reception's
     archetype, the planner's sampling approach, or the strategy's
     `domain_case` block, which names the case (a recipe, or an existing case
-    to copy). Such a study samples nothing: its one row is the case.
+    to copy), or its `domain_experiment` block, a control and runs that differ
+    from it by named changes (docs/ELM_DOMAIN_EXPERIMENTS.md). Such a study
+    samples nothing: its rows are its cases.
     """
     st = strategy or {}
     arche = st.get("archetype") or (brief or {}).get("design_archetype") or ""
     approach = (st.get("sampling") or {}).get("approach") or ""
     return (str(arche).strip().lower() == WHOLE_DOMAIN
             or str(approach).strip().lower() == WHOLE_DOMAIN
-            or bool(st.get("domain_case")))
+            or bool(st.get("domain_case")) or bool(st.get("domain_experiment")))
 
 
 class Pending:
@@ -629,6 +631,10 @@ class ExperimentManagerBase:
 			# Analyzer must not hide a failed study as a deliberate skip.
 			skip_why = None if (experiments and not n_ok) else \
 				self._analysis_skip_reason(experiments)
+			# Set by a backend that renders a report before the Analyzer (see
+			# below); `llm` False is config["analysis_llm"] switching it off.
+			extra, steps_before, prior_error = {}, None, None
+			llm = (config or {}).get("analysis_llm", True) is not False
 			if skip_why:
 				print(f"   ⏭  skipped: {skip_why}")
 				self._mark("analyze", status="skipped", reason=skip_why)
@@ -638,6 +644,33 @@ class ExperimentManagerBase:
 				self._mark("analyze", status="skipped",
 						   reason="no successful columns")
 			else:
+				# A WHOLE-DOMAIN EXPERIMENT'S NUMBERS FIRST, rendered by the
+				# backend from its records with no LLM (docs/
+				# ELM_DOMAIN_EXPERIMENTS.md, step 5b), so an Analyzer that
+				# fails, or is switched off with config["analysis_llm"] =
+				# False, still leaves them. Then the Analyzer, which reads the
+				# same records through step 0's regional frame.
+				if self._has_backend_report(experiments):
+					try:
+						out = self._backend_report(experiments, results, config) or {}
+						print(f"   ✓ numbers by region and year, from the records: "
+							  f"{out.get('report')}")
+						extra = {"report": out.get("report"), "figures": out.get("figures")}
+						steps_before = {"rendered_report": True}
+					except Exception as e:                      # noqa: BLE001
+						prior_error = f"the report could not be rendered ({e})"
+						steps_before = {"rendered_report": False}
+						print(f"   ⚠️  {prior_error}; experiment.json stands")
+					if not llm:
+						print("   ⏭  the Analyzer is switched off (analysis_llm: false)")
+						if prior_error:
+							self._mark("analyze", status="failed",
+									   error=prior_error[:200], steps=steps_before)
+						else:
+							self._mark("analyze", steps=steps_before,
+									   analyzer="switched off (analysis_llm: false)",
+									   **extra)
+			if not (skip_why or (experiments and not n_ok) or (steps_before and not llm)):
 				try:
 					from agents.analyzer import Analyzer
 					# THE RETURN VALUE IS THE ANSWER. Analyzer.run() reports a
@@ -651,6 +684,12 @@ class ExperimentManagerBase:
 					st = Analyzer(str(self.run_dir)).run(results=analyzer,
 														 config=config) or {}
 					steps = st.get("steps") if isinstance(st, dict) else None
+					# What ran before the Analyzer (a backend's rendered
+					# report) is recorded beside its steps, so its failure is
+					# a failed step and fails the stage whatever the Analyzer
+					# then did; its reason is the one recorded.
+					if steps_before:
+						steps = {**steps_before, **(steps or {})}
 					# A STEP THAT FAILED IS A FAILURE, even when the run
 					# carried on. Reading only status["error"] was not enough:
 					# steps 2-3 report their own collapse by setting
@@ -663,19 +702,20 @@ class ExperimentManagerBase:
 					failed_steps = [k for k, v in (steps or {}).items()
 									if v is False]
 					if isinstance(st, dict) and (st.get("error") or failed_steps):
-						why = st.get("error") or \
+						why = prior_error or st.get("error") or \
 							("these steps failed: " + ", ".join(failed_steps))
 						print(f"   ⚠️  analyzer incomplete: {why} — "
 							  f"experiment.json stands")
 						self._mark("analyze", status="failed",
 								   error=str(why)[:200], steps=steps,
-								   failed_steps=failed_steps or None)
+								   failed_steps=failed_steps or None, **extra)
 					else:
-						self._mark("analyze", steps=steps)
+						self._mark("analyze", steps=steps, **extra)
 				except Exception as e:                          # noqa: BLE001
 					print(f"   ⚠️  analyzer failed ({e}) — experiment.json "
 						  f"stands")
-					self._mark("analyze", status="failed", error=str(e)[:200])
+					self._mark("analyze", status="failed", error=str(e)[:200],
+							   **extra)
 
 			# STEP 5 IS GONE (2026-08-13). It wrote LLM_ANALYSIS_INPUT.json, an
 			# alias holding a prompt payload for the report agent that this
@@ -1057,6 +1097,17 @@ class ExperimentManagerBase:
 		raise NotImplementedError(
 			f"{type(self).__name__} cannot run a whole-domain case")
 
+	def _has_backend_report(self, experiments) -> bool:
+		"""True when the backend renders these results' report itself, from
+		its records (_backend_report), in place of the Analyzer."""
+		return False
+
+	def _backend_report(self, experiments, results, config) -> Dict[str, Any]:
+		"""Render the report of these results from the records, no LLM:
+		{"report": path, "figures": [paths]}. Only called when
+		_has_backend_report says so."""
+		raise NotImplementedError(f"{type(self).__name__} renders no report")
+
 	def _analysis_skip_reason(self, experiments) -> Optional[str]:
 		"""Why the Analyzer should not run on these results, or None.
 
@@ -1121,8 +1172,13 @@ class ExperimentManagerBase:
 		is_coupled = _is_coupling(strategy_in, brief)
 		is_domain = _is_whole_domain(strategy_in, brief)
 
-		bbox = None if (is_sweep or is_coupled) else exp._bbox_from_brief(brief)
-		if not is_sweep and not is_coupled:
+		# A WHOLE-DOMAIN STUDY SAMPLES NOTHING either: its case is the
+		# prepared domain, and reception fetches no grid or basin for it, so
+		# a real whole-domain brief has no bounding box to demand (found by
+		# the first fire-off twin, 2026-10-25; the tests' brief carried one).
+		bbox = None if (is_sweep or is_coupled or is_domain) else \
+			exp._bbox_from_brief(brief)
+		if not is_sweep and not is_coupled and not is_domain:
 			if not bbox:
 				raise ValueError(
 					"Cannot materialize sampling: no domain bbox in the reception "
@@ -1163,7 +1219,14 @@ class ExperimentManagerBase:
 			print("-" * 40)
 			res = self._build_domain_case(config) or {}
 			columns = res.get("columns") or []
-			if len(columns) != 1:
+			if "domain_experiment" in res:
+				names = [c.get("case_name") for c in columns]
+				if not columns or len(set(names)) != len(names):
+					raise RuntimeError(
+						f"a whole-domain experiment is a control and its runs, each "
+						f"its own case, and the backend returned {len(columns)} "
+						f"rows ({names})")
+			elif len(columns) != 1:
 				raise RuntimeError(
 					f"a whole-domain study is one case, and the backend returned "
 					f"{len(columns)} rows")
@@ -1982,16 +2045,24 @@ class ExperimentManagerBase:
 			# A WHOLE-DOMAIN CHAIN is several jobs, one per stage, and job B is
 			# only the finalize after all of them; name every one.
 			summary['chain'] = record.get('chain')
+			# An experiment's runs each have their own chain and record folder
+			# (domain_case/<run>/); a lone case has one, domain_case/ itself.
+			runs = sorted({j['run'] for j in record.get('chain') or [] if j.get('run')})
 			print(f"\n{'=' * 60}")
-			print(f"{self.MODEL.upper()} SUBMITTED: one whole-domain case as a chain "
-				  f"of jobs. NOTHING HAS RUN YET.")
+			print(f"{self.MODEL.upper()} SUBMITTED: "
+				  + (f"{len(runs)} run(s) of a whole-domain experiment, each a chain"
+					 if runs else "one whole-domain case as a chain")
+				  + " of jobs. NOTHING HAS RUN YET.")
 			for j in record.get('chain') or []:
-				print(f"  job {j.get('job_id')}   {j.get('stage')}")
+				run = f"{j['run']} " if j.get('run') else ""
+				print(f"  job {j.get('job_id')}   {run}{j.get('stage')}")
 			if jid_b:
 				print(f"  job {jid_b}   finalizes the study when every stage has ended")
 			print(f"Output:  {self.run_dir}")
-			print(f"Answer:  {self.run_dir}/experiment.json  (and "
-				  f"{self.run_dir}/domain_case/STATUS.log as each stage ends)")
+			status = ", ".join(f"domain_case/{r}/STATUS.log" for r in runs) or \
+				"domain_case/STATUS.log"
+			print(f"Answer:  {self.run_dir}/experiment.json  (and {status} "
+				  f"as each stage ends)")
 			print(f"Watch:   squeue -u $USER")
 			print(f"If the finalize job never runs: {summary['resume_command']}")
 			print(f"{'=' * 60}\n")

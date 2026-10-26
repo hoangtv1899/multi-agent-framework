@@ -147,6 +147,15 @@ def compare_all(ctx, out_dir, draw: bool = True) -> Dict[str, Any]:
                            "conceptual_no_observations caveat, which is "
                            "blocking on every quantitative claim."}
 
+    # A WHOLE-DOMAIN EXPERIMENT HAS NO STATIONS TO PAIR, and that is also the
+    # design: reception fetches no station observations for it. What it has
+    # is what the model's server set beside the model's own numbers in the
+    # regional table (a burned area per region and year), already measured.
+    # Checked before the model lookup, like the sweep: a property of the
+    # STUDY, and the server's registry pairs stations with columns.
+    if str((ctx.data or {}).get("kind") or "").strip().lower() == "whole_domain":
+        return domain_comparison(ctx, out_dir)
+
     model = str((ctx.data or {}).get("model") or "").lower() or "elm"
     mod_name = _COMPARE_MODULE.get(model)
     if mod_name is None:
@@ -207,6 +216,81 @@ def compare_all(ctx, out_dir, draw: bool = True) -> Dict[str, Any]:
     # against an archived directory.
     (out_dir / FILENAME).write_text(json.dumps(record, indent=2, default=str))
     return record
+
+
+DOMAIN_NOTE = ("no station comparison: reception fetches no station "
+               "observations for a whole-domain study, by design. The "
+               "observations registered for the control were set beside each "
+               "run's own value of the same quantity by the model's server, per "
+               "region and year, and are the findings here.")
+
+
+def domain_comparison(ctx, out_dir) -> Dict[str, Any]:
+    """A whole-domain experiment's comparison: each observation the server put
+    in the regional table beside the model's own, as a finding step 3 may
+    cite. Measurements only, copied from the table: nothing is computed here
+    but the count of region-years holding both."""
+    t = (ctx.data or {}).get("regional") or {}
+    summary: Dict[str, Any] = {}
+    findings: List[Dict[str, Any]] = []
+    for name, ob in ((t.get("observed") or {}) if isinstance(t, dict) else {}).items():
+        obs = ob.get("values") or {}
+        model = ob.get("model") or {}
+        held = set(obs) | {r for m in model.values() for r in (m or {})}
+        regions = [r for r in (t.get("regions") or {}) if r in held] + \
+            sorted(held - set(t.get("regions") or {}))
+        years = sorted({y for v in obs.values() for y in (v or {})}
+                       | {y for m in model.values() for v in (m or {}).values()
+                          for y in (v or {})})
+        both = sum(1 for reg in regions for y in years
+                   if (obs.get(reg) or {}).get(y) is not None
+                   and ((model.get("control") or {}).get(reg) or {}).get(y) is not None)
+        what = ob.get("what") or name
+        block = {"units": ob.get("units"),
+                 "model_comparand": f"each run's own {what} ({ob.get('model_field')}), "
+                                    f"per region and year",
+                 "obs_quantity": f"{what}: {ob.get('source')}",
+                 "n_regions": len(regions), "n_years": len(years),
+                 "n_region_years_with_both": both,
+                 "regions": regions, "years": [int(y) for y in years],
+                 "model": model, "observed": obs}
+        summary[name] = block
+        findings.append({
+            "id": f"compare_{name}",
+            "question": f"How does each run's own {what} stand against the observed "
+                        f"{what}, by region and year?",
+            "scale": "regions", "n": both, "result": block, "blocked_by": [],
+            "figure": None, "source": "step1_compare"})
+    record = {"observables": {}, "summary": summary, "caveats": [],
+              "findings": findings, "figures": {}, "note": DOMAIN_NOTE}
+    if not summary:
+        record["skipped"] = (DOMAIN_NOTE.split(". ")[0] + "; and no observation is "
+                             "registered beside the regional numbers of this run.")
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / FILENAME).write_text(json.dumps(record, indent=2, default=str))
+    return record
+
+
+def format_domain_block(name: str, b: Dict[str, Any]) -> List[str]:
+    """One observation beside the model's own, every value as the record holds
+    it (never rounded: the audit compares against the record)."""
+    lines = [f"  {name} [{b.get('units')}]: {b.get('n_regions')} region(s), "
+             f"{b.get('n_years')} year(s), {b.get('n_region_years_with_both')} "
+             f"region-years with both",
+             f"      model: {b.get('model_comparand')}",
+             f"      obs:   {b.get('obs_quantity')}"]
+    for reg in b.get("regions") or []:
+        for run, m in (b.get("model") or {}).items():
+            vals = (m or {}).get(reg) or {}
+            if vals:
+                lines.append(f"      {reg}, run {run}: "
+                             + ", ".join(f"{y}={_fmt(v)}" for y, v in vals.items()))
+        vals = (b.get("observed") or {}).get(reg) or {}
+        if vals:
+            lines.append(f"      {reg}, observed: "
+                         + ", ".join(f"{y}={_fmt(v)}" for y, v in vals.items()))
+    return lines
 
 
 def load(out_dir) -> Dict[str, Any]:
@@ -351,6 +435,9 @@ def format_comparison(summary: Dict[str, Any], max_rows: int = MAX_ROWS) -> str:
     lines: List[str] = []
     for name, b in (summary or {}).items():
         if not isinstance(b, dict):
+            continue
+        if "n_regions" in b:                   # a whole-domain observation
+            lines += format_domain_block(name, b)
             continue
         head = [f"{b.get('n_columns')} columns", f"{b.get('n_stations')} station(s)"]
         if b.get("colocated") is False:

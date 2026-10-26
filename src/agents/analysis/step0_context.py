@@ -81,7 +81,14 @@ _EXPERIMENT = KeySet(
             # a missing basin — an inference that reads a failed fetch as a
             # design decision. ctx.plan carries its own copy from the
             # strategy; both come from the same word.
-            "archetype"),
+            "archetype",
+            # ── a whole-domain run (docs/ELM_DOMAIN_EXPERIMENTS.md) ─────────
+            # `kind` says which: one case over a whole domain rather than
+            # sampled columns. `regional` is its evidence, the numbers by run,
+            # region and year the server made from each run's own history;
+            # `control_facts` are numbers measured from the control's output;
+            # `chain` is the record of what ran (years passed, job times).
+            "kind", "regional", "control_facts", "chain"),
     drop = {
         # ── routed to ctx.plan: the QUESTION, not the evidence ──────────
         "domain":     "-> ctx.plan.domain — what was asked about",
@@ -96,6 +103,18 @@ _EXPERIMENT = KeySet(
                        "promoted there, so it must not also be evidence",
         "assumptions_ledger": "-> _caveats()",
         "strategy_check":     "-> _caveats()",
+        "experiment": "-> ctx.plan.experiment: the control and the runs that "
+                      "differ from it, each change with what its difference "
+                      "means and does NOT mean (the design, not a result); "
+                      "and _caveats(): its not-meanings and the server's "
+                      "check notes",
+        # ── a lone whole-domain case (piece 3): no regional numbers, so the
+        # Analyzer is not run on it; classified so a reader pointed at one
+        # stops on the missing numbers, not on a key ──────────────────────
+        "case":         "a lone whole-domain case's recipe record, for the "
+                        "design review and a person rerunning it",
+        "inputs_check": "a lone whole-domain case's input check, read before "
+                        "any compute",
         # ── genuinely not carried ───────────────────────────────────────
         "run_dir":   "the context carries its own run_dir, resolved from the "
                      "directory actually opened rather than from a path "
@@ -173,6 +192,17 @@ class AnalysisContext:
     def profiles(self):
         """Depth profiles, or None. See _build_profiles."""
         return self._frame("profiles")
+
+    def regional(self):
+        """A whole-domain experiment's numbers, or None. See _build_regional."""
+        return self._frame("regional")
+
+    @property
+    def is_domain(self) -> bool:
+        """One case over a whole domain (a control and runs of named changes),
+        not sampled columns. Its evidence is `regional()`, and its rows in
+        `columns` are the run-years the year gates checked."""
+        return str((self.data or {}).get("kind") or "").strip().lower() == "whole_domain"
 
     # ── the rule the split exists to enforce ────────────────────────────
     @property
@@ -344,6 +374,60 @@ class AnalysisContext:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         return df
 
+    def _build_regional(self):
+        """A whole-domain experiment's numbers as a TIDY long frame, or None.
+
+            run | region | variable | year | value | units | how | source
+
+        THE FOURTH FRAME, for the fourth shape of output: one value per run,
+        region and model year, the server's reduction of each run's gridded
+        history (domain_analysis: rates totalled over the year, states
+        averaged, every region restricted to the vegetated cells). Nothing is
+        computed here; the numbers are copied from 03_results/regional.json as
+        the package carries them.
+
+        `how` is "sum" for a value totalled over the year and "mean" for a
+        value averaged over it. An observation the server put beside the
+        model's own (a burned area) is rows of its own: `run` "observed" and
+        `source` "observation" for the measurement, each run's own value of
+        the same quantity under that run with `source` "model". A region or
+        year the server could not make is absent, and its reason is in the
+        caveats, never a zero here.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            return None
+        t = (self.data or {}).get("regional") or {}
+        if not isinstance(t, dict) or t.get("error"):
+            return None
+        recs = []
+        for run, r in (t.get("runs") or {}).items():
+            fields = r.get("fields") or {}
+            for reg, by_var in (r.get("values") or {}).items():
+                for var, by_year in (by_var or {}).items():
+                    meta = fields.get(var) or {}
+                    for y, v in (by_year or {}).items():
+                        if v is not None:
+                            recs.append((run, reg, var, int(y), v, meta.get("units"),
+                                         meta.get("how"), "model"))
+        for name, ob in (t.get("observed") or {}).items():
+            units = ob.get("units")
+            for reg, by_year in (ob.get("values") or {}).items():
+                for y, v in (by_year or {}).items():
+                    if v is not None:
+                        recs.append(("observed", reg, name, int(y), v, units, "sum",
+                                     "observation"))
+            for run, by_reg in (ob.get("model") or {}).items():
+                for reg, by_year in (by_reg or {}).items():
+                    for y, v in (by_year or {}).items():
+                        if v is not None:
+                            recs.append((run, reg, name, int(y), v, units, "sum", "model"))
+        if not recs:
+            return None
+        return pd.DataFrame(recs, columns=["run", "region", "variable", "year", "value",
+                                           "units", "how", "source"])
+
     def _build_profiles(self):
         """Depth profiles as a TIDY long frame, or None when the run has none.
 
@@ -411,7 +495,7 @@ class AnalysisContext:
         """
         frames: Dict[str, Any] = {}
         available: set = set()
-        for name in ("series", "soil", "profiles"):
+        for name in ("series", "soil", "profiles", "regional"):
             f = self._frame(name)
             cols = getattr(f, "columns", None)
             if f is None or cols is None or not len(f):
@@ -437,7 +521,17 @@ class AnalysisContext:
         unmet = [c for c in self.planned_vs_actual() if not c.get("ok")]
 
         blocked = None
-        if not self.columns:
+        if self.is_domain:
+            # A WHOLE-DOMAIN RUN HAS NO COLUMNS TO MISS: its evidence is the
+            # regional table, and that is what is asked for.
+            if frames.get("regional") is None:
+                why = ((self.data.get("regional") or {}).get("error")
+                       if isinstance(self.data.get("regional"), dict) else None)
+                blocked = ("this whole-domain run has no regional numbers"
+                           + (f" ({why})" if why else
+                              " (its plan names no analysis, or none were made)")
+                           + ", so there is nothing to investigate")
+        elif not self.columns:
             blocked = ("this run packaged no columns, so there is nothing to "
                        "investigate")
         elif not any(frames.values()):
@@ -472,6 +566,14 @@ class AnalysisContext:
                         "planned_in": source,
                         "ok": (planned == actual) if ok is None else ok})
 
+        if self.is_domain:
+            # NOT COLUMNS, BANDS AND A START YEAR: a whole-domain plan names
+            # years, runs, regions and fields, and those are what it is held
+            # to. The column claims would all fail on a design that never
+            # asked for columns.
+            self._domain_claims(claim)
+            return out
+
         samp = (self.plan.get("sampling") or {})
         claim("n_columns", samp.get("n_columns"),
               self.data.get("columns_total"), "strategy.json")
@@ -502,6 +604,38 @@ class AnalysisContext:
                   "strategy.json", ok=(len(have) == len(pinned)))
         return out
 
+    def _domain_claims(self, claim) -> None:
+        """planned_vs_actual for a whole-domain experiment: the years planned
+        against the years whose checks passed, the runs planned against the
+        runs with numbers, and each planned region and field against the
+        table."""
+        from agents.analysis.domain_report import region_matches
+        de = (self.plan or {}).get("experiment") or {}
+        t = (self.data or {}).get("regional") or {}
+        ch = (self.data or {}).get("chain") or {}
+        years = [int(y) for y in (de.get("years") or [])]
+        claim("years", years or None, sorted(int(y) for y in ch.get("years_passed") or [])
+              or None, "strategy.json")
+        planned_runs = ["control"] + [str(r.get("name") or r.get("run"))
+                                      for r in (de.get("planned_runs") or de.get("runs") or [])
+                                      if isinstance(r, dict)
+                                      and (r.get("name") or r.get("run")) != "control"]
+        have_runs = sorted((t.get("runs") or {}).keys())
+        claim("runs", sorted(planned_runs), have_runs, "strategy.json")
+        analysis = de.get("analysis") or {}
+        have = list((t.get("regions") or {}).keys())
+        for r in analysis.get("regions") or []:
+            name = str(r.get("name") if isinstance(r, dict) else r)
+            got = region_matches(name, have)
+            claim(f"region:{name}", name, got or None, "strategy.json", ok=bool(got))
+        fields = {v for r in (t.get("runs") or {}).values() for v in (r.get("fields") or {})}
+        for v in analysis.get("variables") or []:
+            claim(f"variable:{v}", v, v if v in fields else None, "strategy.json",
+                  ok=v in fields)
+        if analysis.get("normal_years"):
+            claim("normal_years", [int(y) for y in analysis["normal_years"]],
+                  (t.get("event") or {}).get("normal_years"), "strategy.json")
+
 
 def _station_ids(observations: Dict[str, Any], kind: str) -> List[str]:
     blk = observations.get(kind) or {}
@@ -512,7 +646,8 @@ def _station_ids(observations: Dict[str, Any], kind: str) -> List[str]:
 
 # ── caveat construction ─────────────────────────────────────────────────
 def _caveats(experiment: Dict[str, Any],
-             reception: Dict[str, Any]) -> List[Dict[str, Any]]:
+             reception: Dict[str, Any],
+             strategy: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Every constraint on inference, as uniform records.
 
     Uniformity is the point. `{id, severity, statement, applies_to, source}`
@@ -562,7 +697,7 @@ def _caveats(experiment: Dict[str, Any],
             sev = str(lim.get("severity") or "").strip().lower() \
                 if isinstance(lim, dict) else ""
             add(f"limitation_{kind_}_{n}",
-                sev if sev in (BLOCKING, QUALIFY) else
+                sev if sev in (BLOCKING, QUALIFY, CONTEXT) else
                 (BLOCKING if str(kind_).startswith("structural") else QUALIFY),
                 text, where, "experiment.json:limitations")
 
@@ -650,6 +785,9 @@ def _caveats(experiment: Dict[str, Any],
             "the design as executed vs as planned",
             "experiment.json:strategy_check")
 
+    if str(experiment.get("kind") or "").strip().lower() == "whole_domain":
+        _domain_caveats(experiment, strategy or {}, add)
+
     # An observation source that failed is NOT an absence of observations.
     # Reporting the two the same way is how "no in-domain gauge had records"
     # became a finding about a basin whose gauge reports every year.
@@ -665,7 +803,92 @@ def _caveats(experiment: Dict[str, Any],
     return out
 
 
+def _domain_caveats(experiment: Dict[str, Any], strategy: Dict[str, Any], add) -> None:
+    """A whole-domain experiment's constraints, each from the record that
+    states it. Model-blind: the words are the server's and the planner's.
+
+        not-meaning   what a run's difference from the control must never be
+                      called, from the server's change list. BLOCKING: the
+                      claim it forbids is wrong, not merely unqualified
+        unusual       what the server's check found odd in the experiment
+        facts         what the server's check measured that bears on it
+        plan          the caveats the planner wrote into the design
+        field notes   what a field's label does not say (a rate per second)
+        problems      a region, field or year the server could not make
+        chain         years planned that did not pass their checks
+    """
+    ex = experiment.get("experiment") or {}
+    for r in ex.get("runs") or []:
+        if not isinstance(r, dict) or r.get("reused") or r.get("run") == "control":
+            continue
+        for c in r.get("changes") or []:
+            if isinstance(c, dict) and c.get("not_meaning"):
+                add(f"not_meaning_{r.get('run')}_{c.get('id')}", BLOCKING,
+                    f"run {r.get('run')} ({c.get('id')}): its difference from the "
+                    f"control is NOT {c['not_meaning']}",
+                    f"what run {r.get('run')}'s difference from the control is called",
+                    "experiment.json:experiment.runs (the model server's change list)")
+    check = ex.get("check") or {}
+    for i, u in enumerate(check.get("unusual") or [], 1):
+        add(f"experiment_unusual_{i}", QUALIFY,
+            f"{u.get('where')}: {u.get('what')}" if isinstance(u, dict) else u,
+            "the experiment as it was built",
+            "experiment.json:experiment.check.unusual (the model server's check)")
+    for i, f in enumerate(check.get("facts") or [], 1):
+        add(f"experiment_fact_{i}", CONTEXT,
+            f"{f.get('where')}: {f.get('what')}" if isinstance(f, dict) else f,
+            "the experiment as it was built",
+            "experiment.json:experiment.check.facts (the model server's check)")
+    for i, c in enumerate(((strategy.get("domain_experiment") or {}).get("caveats")) or [], 1):
+        add(f"plan_caveat_{i}", QUALIFY, c, "the experiment's design",
+            "strategy.json:domain_experiment.caveats (the planner)")
+    t = experiment.get("regional") or {}
+    notes: Dict[str, str] = {}
+    for run in (t.get("runs") or {}).values():
+        for v, meta in ((run or {}).get("fields") or {}).items():
+            if (meta or {}).get("note"):
+                notes.setdefault(v, meta["note"])
+    for v, note in sorted(notes.items()):
+        add(f"field_note_{v}", QUALIFY, f"{v}: {note}", v,
+            "experiment.json:regional.runs[*].fields (the model server)")
+    probs = list(t.get("problems") or [])
+    for run, r in (t.get("runs") or {}).items():
+        probs += [f"run {run}: {q}" for q in (r or {}).get("problems") or []]
+    for i, q in enumerate(probs, 1):
+        add(f"regional_problem_{i}", QUALIFY, f"not reported: {q}",
+            "completeness of the regional numbers", "experiment.json:regional.problems")
+    if isinstance(t, dict) and t.get("error"):
+        add("regional_not_made", BLOCKING,
+            f"the regional numbers could not be made: {t['error']}",
+            "every claim about the experiment's numbers", "experiment.json:regional")
+    ch = experiment.get("chain") or {}
+    planned, passed = ch.get("years_planned") or [], ch.get("years_passed") or []
+    if ch.get("first_unpassed") or sorted(planned) != sorted(passed):
+        add("chain_incomplete", BLOCKING,
+            f"the chain stopped at {ch.get('first_unpassed') or 'an unrecorded stage'}: "
+            f"the years {passed} of {planned} passed their checks",
+            "any claim about a year without a passing check",
+            "experiment.json:chain")
+
+
 # ── the loader ──────────────────────────────────────────────────────────
+def _experiment_plan(strategy: Dict[str, Any],
+                     experiment: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    de = strategy.get("domain_experiment") or {}
+    ex = experiment.get("experiment") or {}
+    if not (de or ex):
+        return None
+    return {"control": ex.get("control") or de.get("control"),
+            # as built, each change with its meaning and not-meaning (package)
+            "runs": ex.get("runs") or de.get("runs") or [],
+            # as planned (strategy), for planned_vs_actual
+            "planned_runs": de.get("runs") or [],
+            "years": de.get("years") or (experiment.get("chain") or {}).get("years_planned"),
+            "analysis": de.get("analysis") or {},
+            "caveats": de.get("caveats") or [],
+            "check": ex.get("check")}
+
+
 def load(run_dir: str) -> AnalysisContext:
     """Read the three boundary files and split them.
 
@@ -702,6 +925,11 @@ def load(run_dir: str) -> AnalysisContext:
         "sampling":       strategy.get("sampling"),
         "validation":     strategy.get("validation"),
         "feasibility":    strategy.get("feasibility"),
+        # A WHOLE-DOMAIN EXPERIMENT'S DESIGN: the control, the runs (each
+        # change with what its difference means and does not, as the server's
+        # list says, from the package), the years and the planner's analysis.
+        # The question's half, never evidence. None for any other study.
+        "experiment":     _experiment_plan(strategy, experiment),
     }
 
     # DATA — the evidence, and the only place a reported number may come from.
@@ -724,7 +952,7 @@ def load(run_dir: str) -> AnalysisContext:
         run_dir = str(rd),
         plan    = plan,
         data    = data,
-        caveats = _caveats(experiment, reception),
+        caveats = _caveats(experiment, reception, strategy),
         sources = {"reception":  str(p_rec) if p_rec else None,
                    "strategy":   str(p_str) if p_str else None,
                    "experiment": str(p_exp) if p_exp else None},

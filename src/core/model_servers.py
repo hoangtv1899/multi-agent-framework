@@ -243,11 +243,52 @@ def describe_sweep(clients, server: str,
     return {"server": server, "offers_a_sweep": True, "menu": got["menu"]}
 
 
+# The two whole-domain menus a model server may offer (docs/ELM_DOMAIN_EXPERIMENTS.md):
+# the prepared controls it has, and the changes an experiment may make to one.
+DOMAIN_MENUS = {"controls": "describe_domain_controls",
+                "changes": "describe_domain_changes"}
+_NO_DOMAIN_NOTE = ("this server runs no whole-domain experiment, or its menu could not be "
+                   "read. Do NOT name controls, changes or their meanings from memory; say "
+                   "so to the user, and record in run_settings.conflicts that the menu was "
+                   "not verified.")
+
+
+def describe_domain(clients, server: str, what: str,
+                    cache: Optional[Dict] = None) -> Dict[str, Any]:
+    """One server's whole-domain menu: `controls` (the prepared controls it
+    has, with the facts read from their output) or `changes` (what a run of an
+    experiment may change in its control, what each change means and does
+    not, and the tool an unavailable one needs).
+
+    The server's JSON, verbatim, as describe_sweep hands over a sweep menu;
+    the reading rules are in the reception prompt (STEP 2c). A server without
+    the tool is told so from the tool list, without a round trip."""
+    tool = DOMAIN_MENUS[what]
+    if (clients or {}).get(server) is None:
+        return {"error": f"no server named {server!r} is configured",
+                "configured": sorted(clients or {})}
+    g = _tools_of(clients, cache, server)
+    if g.get("reachable") and tool not in (g.get("tools") or []):
+        return {"server": server, "offers_whole_domain_experiments": False,
+                "why": f"this server has no {tool} tool", "note": _NO_DOMAIN_NOTE}
+    try:
+        out = clients[server].call_tool_json(tool, {})
+    except Exception as e:                                      # noqa: BLE001
+        return {"server": server, "offers_whole_domain_experiments": False,
+                "why": f"{type(e).__name__}: {e}"[:160], "note": _NO_DOMAIN_NOTE}
+    if not isinstance(out, dict) or out.get("ok") is False:
+        why = str((out or {}).get("error") if isinstance(out, dict) else
+                  "tool returned no JSON object")
+        return {"server": server, "offers_whole_domain_experiments": False,
+                "why": why[:160], "note": _NO_DOMAIN_NOTE}
+    return {"server": server, "offers_whole_domain_experiments": True, what: out}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # THE TOOLS, as the reception loop takes them
 # ─────────────────────────────────────────────────────────────────────────────
 def model_tools(clients) -> Dict[str, Any]:
-    """`local_tools` for ToolLoopAgent: the three questions, bound to clients.
+    """`local_tools` for ToolLoopAgent: the questions, bound to clients.
 
     THE CACHES LIVE HERE, one set per reception. Deliberately not module-level:
     a long-lived process that added or restarted a server would keep answering
@@ -338,5 +379,61 @@ def model_tools(clients) -> Dict[str, Any]:
             },
             "fn": lambda server: describe_sweep(clients, server,
                                                 cache=tool_cache),
+        },
+        # THE TWO WHOLE-DOMAIN MENUS, asked of the model the LLM chose, only on
+        # a whole_domain request (STEP 2c). Two calls, not one: together they
+        # would pass the 12,000 characters a tool result is cut at.
+        "describe_domain_controls": {
+            "schema": {
+                "type": "function",
+                "function": {
+                    "name": "describe_domain_controls",
+                    "description": (
+                        "The prepared WHOLE-DOMAIN CONTROLS one model server has: "
+                        "finished whole-domain runs an experiment is built on, "
+                        "each with its years, how it was shown to reproduce, its "
+                        "regions and gridded observations, and FACTS read from "
+                        "its own output (per-year GPP, LAI, ET, runoff, snow; the "
+                        "model's own burned area beside the observed one; the "
+                        "settings a change may alter). Call it ONLY for a "
+                        "whole_domain request, on the model you chose. A control "
+                        "not listed here does not exist on this machine."),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"server": {
+                            "type": "string",
+                            "description": "the exact name from list_servers"}},
+                        "required": ["server"],
+                    },
+                },
+            },
+            "fn": lambda server: describe_domain(clients, server, "controls",
+                                                 cache=tool_cache),
+        },
+        "describe_domain_changes": {
+            "schema": {
+                "type": "function",
+                "function": {
+                    "name": "describe_domain_changes",
+                    "description": (
+                        "What a run of a whole-domain experiment may CHANGE in "
+                        "its control, from the model's server: each change's id, "
+                        "parameters, what the difference from the control MEANS "
+                        "and what it does NOT mean, how it is checked, its cost, "
+                        "and, for a change marked available: false, the tool it "
+                        "needs. Call it ONLY for a whole_domain request, on the "
+                        "model you chose, and read changes[].id as the only "
+                        "string you may write into a run's changes."),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"server": {
+                            "type": "string",
+                            "description": "the exact name from list_servers"}},
+                        "required": ["server"],
+                    },
+                },
+            },
+            "fn": lambda server: describe_domain(clients, server, "changes",
+                                                 cache=tool_cache),
         },
     }

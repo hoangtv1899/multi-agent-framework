@@ -64,6 +64,16 @@ HISTORY_NAME = re.compile(
 # 1,000 times what stands there (verify_model_modis.json units_check, 2026-10-15).
 PER_SECOND_DESPITE_UNITS = {"FAREA_BURNED": "proportion/s"}
 
+# WHAT A FIELD'S NAME OR LABEL GETS WRONG, for whoever reads the field next. Each
+# was found by hand on the Naches run and checked against the ELM source.
+FIELD_NOTES = {
+    "FAREA_BURNED": "a fraction of the cell burned PER SECOND (FireMod.F90), although "
+                    "its label says 'timestep fractional area burned' in 'proportion'; "
+                    "a year's burned fraction is the rate times each record's seconds",
+    "FIRE": "emitted infrared (longwave) radiation in W/m^2, not fire; the fire "
+            "fields are FAREA_BURNED and COL_FIRE_CLOSS",
+}
+
 # A rate per second, in every spelling the Naches history uses: gC/m^2/s,
 # kg m-2 s-1, mm s^-1, counts/km2/sec (NFIRE), proportion/sec (BAF_*), per sec
 # (LFC2) and umol/m2s (FPSN). NOT kg/m/s^2 (TAUX, wind stress) or s-2: a second

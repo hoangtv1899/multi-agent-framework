@@ -104,9 +104,11 @@ def _source_case(tmp_path, restart_edit=None, user_nl_extra=""):
 
 
 def _config(srv, tmp_path, cd, **dc):
-    reception = {"brief": {"domain": {"bbox": {"min_lon": -121.6, "min_lat": 46.4,
-                                                 "max_lon": -121.5, "max_lat": 46.5},
-                                        "name": "synthetic"},
+    # NO BOUNDING BOX: reception fetches no grid or basin for a whole-domain
+    # study, so a real brief names the place and nothing else. A box here once
+    # hid that materialize still demanded one (the first fire-off twin,
+    # 2026-10-25, stopped on it before any job).
+    reception = {"brief": {"domain": {"name": "synthetic"},
                            "run_settings": {"resolved_period": {"yr_start": 2015,
                                                                 "yr_end": 2016}}},
                  "grid": {}, "observations": {}}
@@ -346,7 +348,8 @@ class TestTheLifecycle:
         assert exp["case"]["copied_from"] == str(cd)
         assert exp["artifacts"]["recipe"] == "domain_case/domain_recipe.json"
         an = _stages(mgr)["analyze"]
-        assert an["status"] == "skipped" and "whole-domain run's regional rows" in an["reason"]
+        assert an["status"] == "skipped" and "whole-domain run has no regional numbers" in \
+            an["reason"]
         body, rc = _notify().build(str(mgr.run_dir))
         assert rc == 0 and body.startswith("ANALYSIS SKIPPED: model output and experiment.json "
                                            "complete; the Analyzer reads sampled-column rows")

@@ -464,6 +464,14 @@ def _constraints(reqs: Dict[str, Any]) -> Dict[str, Any]:
                     "is compiled without it",
              "consequence": "it cannot be added, so do not propose it as a "
                             "next step"},
+            {"what": "a carbon and nitrogen cycle in sampled columns",
+             "why": "the column compset is satellite phenology (ELM%SP): leaf "
+                    "area is prescribed from satellite data and no carbon, "
+                    "nitrogen or fire is computed",
+             "consequence": "a carbon, vegetation, fire or nutrient question "
+                            "cannot be answered by sampled columns; a "
+                            "whole-domain experiment on a prepared control can "
+                            "(describe_domain_controls)"},
         ],
         "forcing": {
             "chosen_by": "the model, not the plan",
@@ -712,6 +720,30 @@ def _workflow() -> List[Dict[str, Any]]:
             # ── the whole-domain archetype only ──────────────────────────
             # ONE case on a paired input set instead of sampled columns, run
             # as a chain of one-year jobs, each gated before the next starts.
+            # An EXPERIMENT is a control and runs differing from it by named
+            # changes (docs/ELM_DOMAIN_EXPERIMENTS.md): its tools come first.
+            {"step": "1 (whole-domain experiment)", "tool": "describe_domain_controls",
+             "does": "the prepared controls this machine has, with facts read from "
+                     "their own output: per-year GPP, LAI, ET, runoff, snow, the "
+                     "model's own burned area beside the observed one, forcing and "
+                     "output years, the fields each stream holds",
+             "returns": "DATA"},
+            {"step": "1a (whole-domain experiment)", "tool": "refresh_domain_control_facts",
+             "does": "read one control's facts from its output and cache them (minutes)",
+             "returns": "DATA"},
+            {"step": "1b (whole-domain experiment)", "tool": "describe_domain_changes",
+             "does": "the change list: what a run may change in its control, what "
+                     "each change means and does not mean, how it is checked, its "
+                     "cost; an unavailable change names the tool it needs",
+             "returns": "DATA; the menu"},
+            {"step": "1c (whole-domain experiment)", "tool": "check_domain_experiment",
+             "does": "a proposed control and runs against the change list and the "
+                     "control's facts: wont_build, unusual, facts, cost",
+             "returns": "DATA; three lists, not a grade"},
+            {"step": "1d (whole-domain experiment)", "tool": "build_domain_runs",
+             "does": "each run's recipe, chain spec and checks under "
+                     "01_inputs/runs/<run>/, for the chain tools with run=<name>",
+             "returns": "DATA; what was written, nothing submitted"},
             {"step": "2 (whole-domain only)", "tool": "read_domain_recipe",
              "does": "the recipe of an existing CIME case from its own records "
                      "(env_case.xml, create_newcase, xmlchanges in order, "
@@ -725,8 +757,8 @@ def _workflow() -> List[Dict[str, Any]]:
              "returns": "DATA; a verdict with its numbers"},
             {"step": "2b (whole-domain only)", "tool": "write_domain_case",
              "does": "the case script and the stage script from 01_inputs/"
-                     "domain_recipe.json and domain_chain.json, for reading "
-                     "before any job is spent",
+                     "domain_recipe.json and domain_chain.json (or a run's, "
+                     "run=<name>), for reading before any job is spent",
              "returns": "DATA; paths and the job plan, nothing submitted"},
             {"step": "4 (whole-domain only)", "tool": "submit_domain_chain",
              "does": "check the input set again, then submit case > smoke > "
@@ -1856,27 +1888,50 @@ DOMAIN_RECIPE = "domain_recipe.json"   # 01_inputs/, every setting of the case
 DOMAIN_CHAIN  = "domain_chain.json"    # 01_inputs/, the years and gates asked for
 
 
-def _domain_setup(run_dir: str):
-    """(recipe, chain spec, record dir) from a run directory, or an error dict."""
+DOMAIN_EXPERIMENT = "domain_experiment.json"   # 01_inputs/, a control and named changes
+DOMAIN_EXPECT = "domain_expectations.json"     # 01_inputs/runs/<run>/, its checks
+DOMAIN_RUNS = "domain_runs.json"               # 01_inputs/, what build_domain_runs wrote
+
+
+def _run_inputs(rd: Path, run: str) -> Path:
+    """Where a run's recipe and chain spec are: 01_inputs/, or for a run of an
+    experiment 01_inputs/runs/<run>/ (build_domain_runs writes them)."""
+    import domain_changes as CH
+    if run and (run != "control" and not CH.RUN_NAME.fullmatch(run)):
+        raise ValueError(f"run {run!r} is not a run name")
+    return rd / "01_inputs" / "runs" / run if run else rd / "01_inputs"
+
+
+def _domain_setup(run_dir: str, run: str = ""):
+    """(recipe, chain spec, record dir, expectations) from a run directory, or
+    an error dict. `run` names one run of an experiment; without it, the single
+    case of piece 3's layout."""
     import domain_case as DC
     rd = Path(run_dir).resolve()
-    rp, cp = rd / "01_inputs" / DOMAIN_RECIPE, rd / "01_inputs" / DOMAIN_CHAIN
+    try:
+        inp = _run_inputs(rd, run)
+    except ValueError as e:
+        return None, None, None, None, {"ok": False, "error": str(e)}
+    rp, cp, ep = inp / DOMAIN_RECIPE, inp / DOMAIN_CHAIN, inp / DOMAIN_EXPECT
     for f in (rp, cp):
         if not f.is_file():
-            return None, None, None, {"ok": False, "error": f"no {f.name} in "
-                                      f"{rd / '01_inputs'}: write the recipe and the chain "
-                                      f"wanted (see main.py, ONE CASE OVER A WHOLE DOMAIN)"}
+            return None, None, None, None, {
+                "ok": False, "error": f"no {f.name} in {inp}: write the recipe and the "
+                                      f"chain wanted (see main.py, ONE CASE OVER A WHOLE "
+                                      f"DOMAIN), or build_domain_runs for an experiment"}
     try:
         recipe = DC.Recipe.from_json(rp.read_text())
         spec = json.loads(cp.read_text())
+        expect = json.loads(ep.read_text()) if ep.is_file() else None
         bad = recipe.check() + DC.chain_spec_problems(spec)
     except Exception as e:                                      # noqa: BLE001
-        return None, None, None, {"ok": False, "error": f"unreadable recipe or chain: "
-                                  f"{type(e).__name__}: {e}"}
+        return None, None, None, None, {"ok": False, "error": f"unreadable recipe or "
+                                        f"chain: {type(e).__name__}: {e}"}
     if bad:
-        return None, None, None, {"ok": False, "error": "the recipe or chain cannot be used: "
-                                  + "; ".join(bad)}
-    return recipe, spec, rd / DOMAIN_RECORD, None
+        return None, None, None, None, {"ok": False, "error": "the recipe or chain cannot "
+                                        "be used: " + "; ".join(bad)}
+    rec = rd / DOMAIN_RECORD / run if run else rd / DOMAIN_RECORD
+    return recipe, spec, rec, expect, None
 
 
 def _chain_busy(rec: Path) -> Optional[str]:
@@ -1896,13 +1951,15 @@ def _chain_busy(rec: Path) -> Optional[str]:
     return None
 
 
-def _domain_write(recipe, spec, rec):
-    """Both scripts and the job plan, from the recipe and the chain spec."""
+def _domain_write(recipe, spec, rec, expect=None):
+    """Both scripts and the job plan, from the recipe, the chain spec and, for
+    a run of an experiment, the checks it is held to."""
     import domain_case as DC
     ref = spec.get("reference")
     DC.write_case_script(recipe, rec)
     DC.write_stage_script(recipe, rec, smoke_days=int(spec.get("smoke_days", 5)),
-                          reference=DC.Reference(**ref) if ref else None)
+                          reference=DC.Reference(**ref) if ref else None,
+                          expect=expect)
     walls = spec.get("walls") or {}
     return DC.plan_chain(recipe, spec.get("years") or [recipe.first_year],
                          tag=spec.get("tag"), with_case=bool(spec.get("with_case", True)),
@@ -1975,7 +2032,7 @@ def check_domain_inputs(surface: str, domain: str, finidat: str, run_dir: str = 
 
 @mcp.tool()
 @_stdout_to_stderr
-def write_domain_case(run_dir: str) -> str:
+def write_domain_case(run_dir: str, run: str = "") -> str:
     """Write the case script, the stage script and the job plan. Submits nothing.
 
     From 01_inputs/domain_recipe.json and 01_inputs/domain_chain.json (keys in
@@ -1985,8 +2042,10 @@ def write_domain_case(run_dir: str) -> str:
     (stages case, smoke, y<YEAR>, report). For reading before any job is
     spent; submit_domain_chain writes them again and submits. Refused while a
     chain armed there may still run: its queued case job reads create_case.sh.
+    `run` names one run of an experiment (build_domain_runs wrote its inputs);
+    its record is <run_dir>/domain_case/<run>/.
     """
-    recipe, spec, rec, err = _domain_setup(run_dir)
+    recipe, spec, rec, expect, err = _domain_setup(run_dir, run)
     if err:
         return json.dumps(err)
     try:
@@ -1994,7 +2053,7 @@ def write_domain_case(run_dir: str) -> str:
         if busy:
             return json.dumps({"ok": False, "error": busy})
         recipe.inputs()                       # the same parse submit makes
-        jobs = _domain_write(recipe, spec, rec)
+        jobs = _domain_write(recipe, spec, rec, expect)
     except Exception as e:                                      # noqa: BLE001
         return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
     return json.dumps({"ok": True, "record_dir": str(rec),
@@ -2008,7 +2067,7 @@ def write_domain_case(run_dir: str) -> str:
 
 @mcp.tool()
 @_stdout_to_stderr
-def submit_domain_chain(run_dir: str) -> str:
+def submit_domain_chain(run_dir: str, run: str = "", after_job: str = "") -> str:
     """Check the input set, write the scripts and submit the chain. JOB IDS.
 
     case (create and build) > smoke > one job per model year > report, on the
@@ -2022,10 +2081,13 @@ def submit_domain_chain(run_dir: str) -> str:
     years, with_case and smoke false) is recorded beside the earlier one, so
     the years that passed before stay in the record. A submission that fails
     part way cancels what it queued, and says which cancellations SLURM took.
+    `run` names one run of an experiment; `after_job`, a job outside this chain
+    its first job also waits for (the case job of the control its settings
+    are compared with, when the experiment runs its control too).
     """
     import domain_case as DC
     import domain_inputs as D
-    recipe, spec, rec, err = _domain_setup(run_dir)
+    recipe, spec, rec, expect, err = _domain_setup(run_dir, run)
     if err:
         return json.dumps(err)
     try:
@@ -2046,8 +2108,8 @@ def submit_domain_chain(run_dir: str) -> str:
         if not pair["pass"]:
             return json.dumps({"ok": False, "error": "the input set fails its check",
                                "reasons": pair["reasons"]})
-        jobs = _domain_write(recipe, spec, rec)
-        out = DC.submit_chain(jobs, rec)
+        jobs = _domain_write(recipe, spec, rec, expect)
+        out = DC.submit_chain(jobs, rec, after_job=after_job or None)
     except Exception as e:                                      # noqa: BLE001
         return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
     out["job_ids"] = [j["job_id"] for j in out.get("jobs", [])]
@@ -2057,7 +2119,7 @@ def submit_domain_chain(run_dir: str) -> str:
 
 @mcp.tool()
 @_stdout_to_stderr
-def check_domain_chain(run_dir: str) -> str:
+def check_domain_chain(run_dir: str, run: str = "") -> str:
     """Where a whole-domain chain stands: each stage's SLURM state and check
     verdict. `active` is the field to branch on (true while a stage may still
     run; a stage SLURM no longer knows, or one an earlier failure stopped, has
@@ -2067,11 +2129,201 @@ def check_domain_chain(run_dir: str) -> str:
     the question could be answered."""
     import domain_case as DC
     try:
-        st = DC.chain_status(Path(run_dir) / DOMAIN_RECORD)
+        _run_inputs(Path(run_dir), run)
+        st = DC.chain_status(Path(run_dir) / DOMAIN_RECORD / run if run else
+                             Path(run_dir) / DOMAIN_RECORD)
         st["chain_ok"] = st.pop("ok")
         return json.dumps({"ok": True, **st}, indent=1)
     except Exception as e:                                      # noqa: BLE001
         return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+# ─────────────────────────────────────────────────────────────────────
+# AN EXPERIMENT ON A WHOLE DOMAIN: a control run and named changes
+# ─────────────────────────────────────────────────────────────────────
+# docs/ELM_DOMAIN_EXPERIMENTS.md. A what-if question on a prepared domain is a
+# control run and runs that differ from it by changes from this server's list.
+# Four tools in the order a study uses them, as the conceptual sweep's three:
+# which controls this machine has, what can be changed, does this experiment
+# hold together, and each run's inputs. The chain tools above then run each
+# run (run=<name>), the case stage checking its settings against the
+# control's and every year its changes' output rules.
+#
+# 01_inputs/domain_experiment.json   the experiment:
+#     control  {"name": <a prepared control>, "reuse": true}: compare with the
+#              control's existing output and spend nothing on it; or
+#              {"reuse": false}: the control is 01_inputs/domain_recipe.json and
+#              runs too, as run "control", before the others
+#     runs     [{"name": ..., "changes": [{"id": ..., "params": {...}}]}]
+#     years    [first, ..., last], consecutive, from the control's start
+#     chain    optional, beside the years in every run's chain spec: smoke_days,
+#              smoke, partition, tag (job-name prefix), walls
+def _experiment_control(exp) -> Optional[Dict[str, Any]]:
+    """The prepared control an experiment names, with its facts, or None."""
+    import domain_controls as DCT
+    name = ((exp or {}).get("control") or {}).get("name")
+    if not name:
+        return None
+    return dict(DCT.get(name), facts=DCT.facts(name))
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def describe_domain_controls() -> str:
+    """The prepared whole-domain controls this machine has, and their facts.
+
+    A control is a finished whole-domain run an experiment is built on: its
+    case, the years it has output for, how it was shown to reproduce, the
+    regions and gridded observations prepared for its grid, and FACTS read
+    from its own output: per-year GPP, LAI, ET, runoff, snow and water
+    closure, the model's own burned area beside the observed one, the forcing
+    years, the fields each history stream holds. Read the facts before
+    designing: they say what the control contains (its fire is the model's
+    own, not an observed fire) and which years can be compared. A control
+    whose facts were never computed says so: refresh_domain_control_facts.
+    """
+    import domain_controls as DCT
+    try:
+        return json.dumps(DCT.describe(), indent=1, default=str)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def refresh_domain_control_facts(name: str) -> str:
+    """Read one prepared control's facts from its own output, and cache them.
+
+    Minutes: each year's facts come from that year's daily history. The cache
+    sits beside the registry and is used until a history file is newer.
+    """
+    import domain_controls as DCT
+    try:
+        f = DCT.compute_facts(name)
+        return json.dumps({"ok": True, **DCT.summary(DCT.get(name), f)}, indent=1,
+                          default=str)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def describe_domain_changes() -> str:
+    """What a whole-domain experiment may change in its control. THE MENU.
+
+    Every run of an experiment is the control plus changes from this list.
+    Each change says what it alters in the case, what the difference from the
+    control MEANS and what it does NOT mean, how its effect is checked in the
+    run's jobs, and what it costs. A change marked available: false names, in
+    `requires`, the tool it needs: a question that needs it is answered
+    partial, with that tool named, never designed around.
+    """
+    import domain_changes as CH
+    return json.dumps(CH.declare(), indent=1)
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def check_domain_experiment(experiment: dict) -> str:
+    """Will this experiment do what it looks like it does? Ask before any job.
+
+    `experiment` is 01_inputs/domain_experiment.json's content (see main.py, AN
+    EXPERIMENT ON A WHOLE DOMAIN). Returns three lists, as the conceptual
+    sweep's check does: wont_build (each one a question for the user, never a
+    silent correction), unusual (it builds, but is odd), facts (measurements
+    the study's caveats are made from: each change's meaning and not-meaning,
+    the control's own fire beside the observed one), the runs resolved and
+    the cost. THIS SERVER DOES NOT GRADE.
+    """
+    import domain_changes as CH
+    try:
+        return json.dumps(CH.check(experiment or {}, _experiment_control(experiment)),
+                          indent=1, default=str)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def build_domain_runs(run_dir: str) -> str:
+    """Each run's recipe, chain spec and checks, from the experiment. Submits nothing.
+
+    From 01_inputs/domain_experiment.json, checked first (check_domain_experiment):
+    for every run, 01_inputs/runs/<run>/ gets the run's recipe (the control's,
+    with the run's changes made, as case <control case>_<run>), its chain spec
+    (the experiment's years; for a reused control, the control's output as a
+    reported, ungated reference) and its expectations (the settings its case
+    stage compares with the control's, the output rules its years check). A
+    control that runs too gets 01_inputs/runs/control/, and every other run
+    waits for its case job. Then write_domain_case or submit_domain_chain with
+    run=<name>. 01_inputs/domain_runs.json records what was written.
+    """
+    import domain_case as DC
+    import domain_changes as CH
+    rd = Path(run_dir).resolve()
+    try:
+        exp = json.loads((rd / "01_inputs" / DOMAIN_EXPERIMENT).read_text())
+        ctl = _experiment_control(exp)
+        chk = CH.check(exp, ctl)
+        if not chk["ok"]:
+            return json.dumps({"ok": False, "error": "the experiment will not build",
+                               "wont_build": chk["wont_build"], "unusual": chk["unusual"]},
+                              indent=1, default=str)
+        reuse = bool((exp.get("control") or {}).get("reuse"))
+        if reuse:
+            if not ctl:
+                raise ValueError("a reused control must be a prepared control "
+                                 "(control.name; describe_domain_controls)")
+            control_recipe = DC.recipe_from_case(ctl["case_dir"])
+            control_case_dir, control_run_dir = ctl["case_dir"], ctl["run_dir"]
+        else:
+            control_recipe = DC.Recipe.from_json(
+                (rd / "01_inputs" / DOMAIN_RECIPE).read_text())
+            bad = control_recipe.check()
+            if bad:
+                raise ValueError("the control's recipe cannot be used: " + "; ".join(bad))
+            control_case_dir, control_run_dir = str(control_recipe.case_dir), None
+        base = dict(exp.get("chain") or {})
+        tag = base.pop("tag", None) or control_recipe.case
+        bad = DC.chain_spec_problems(dict(base, years=exp["years"]))
+        if bad:
+            raise ValueError("the chain spec cannot be used: " + "; ".join(bad))
+        rows = []
+
+        def write(name, recipe, expect, reference):
+            inp = _run_inputs(rd, name)
+            inp.mkdir(parents=True, exist_ok=True)
+            (inp / DOMAIN_RECIPE).write_text(recipe.to_json())
+            spec = dict(base, years=list(exp["years"]), tag=f"{tag}_{name}")
+            if reference:
+                spec["reference"] = reference
+            (inp / DOMAIN_CHAIN).write_text(json.dumps(spec, indent=1))
+            if expect is not None:
+                (inp / DOMAIN_EXPECT).write_text(json.dumps(expect, indent=1))
+            elif (inp / DOMAIN_EXPECT).exists():
+                (inp / DOMAIN_EXPECT).unlink()
+        if not reuse:
+            write("control", control_recipe, None, None)
+            rows.append({"name": "control", "case": control_recipe.case,
+                         "case_dir": str(control_recipe.case_dir), "changes": [],
+                         "after": None})
+        for run in exp["runs"]:
+            r = CH.run_recipe(control_recipe, run)
+            write(run["name"], r, CH.expectations(run, control_case_dir),
+                  {"run_dir": control_run_dir, "stream": "h1", "gate_years": []}
+                  if control_run_dir else None)
+            rows.append({"name": run["name"], "case": r.case, "case_dir": str(r.case_dir),
+                         "changes": [c["id"] for c in run.get("changes") or []],
+                         "after": None if reuse else "control"})
+        out = {"ok": True,
+               "control": {"name": (exp.get("control") or {}).get("name"), "reuse": reuse,
+                           "case_dir": control_case_dir, "run_dir": control_run_dir},
+               "runs": rows, "years": exp["years"], "cost": chk["cost"],
+               "unusual": chk["unusual"], "facts": chk["facts"]}
+        (rd / "01_inputs" / DOMAIN_RUNS).write_text(json.dumps(out, indent=1, default=str))
+        return json.dumps(out, indent=1, default=str)
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

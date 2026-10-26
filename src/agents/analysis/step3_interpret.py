@@ -156,6 +156,8 @@ def run_facts(ctx) -> set:
     many points it rests on is quoting the record, not inventing.
     """
     out = set()
+    if getattr(ctx, "is_domain", False):
+        return _domain_facts(ctx)
     try:
         out.add(str(len(ctx.columns)))
         p = (ctx.plan or {}).get("period") or {}
@@ -163,6 +165,26 @@ def run_facts(ctx) -> set:
             if p.get(k) is not None:
                 out.add(str(p[k]))
     except Exception:
+        pass
+    return out
+
+
+def _domain_facts(ctx) -> set:
+    """A whole-domain experiment's facts of record: each region's cell count
+    and area, the model years, the normal years, and how many regions and
+    runs there are. NOT the number of run-year rows in ctx.columns: that is a
+    count of records, not a fact about the domain, and a claim quoting it as
+    one would be describing the bookkeeping."""
+    out = set()
+    try:
+        t = (ctx.data or {}).get("regional") or {}
+        for info in (t.get("regions") or {}).values():
+            out |= _flatten_numbers({k: (info or {}).get(k) for k in ("cells", "area_km2")})
+        out |= _flatten_numbers(t.get("years") or [])
+        out |= _flatten_numbers((t.get("event") or {}).get("normal_years") or [])
+        out.add(str(len(t.get("regions") or {})))
+        out.add(str(len(t.get("runs") or {})))
+    except Exception:                                           # noqa: BLE001
         pass
     return out
 
@@ -355,6 +377,42 @@ def _plan_text(investigation: Dict[str, Any]) -> str:
     return body[:PLAN_CAP] + f"\n…CUT at {PLAN_CAP} of {len(body)} chars."
 
 
+def domain_reading(ctx) -> List[str]:
+    """For a whole-domain experiment: which fields are stocks averaged over
+    the year and which are totals over it, read off the regional table, and
+    what a difference in each may be called. [] for any other study.
+
+    ADDED 2026-10-25 after the fire-off twin's headline said the model's fire
+    "removes" 23.2 gC/m2 of vegetation carbon in 2016: a gap between two
+    yearly-mean stocks, which carries 2015's fire too, while the fire took
+    7.92 that year. The audit proves every number is real; it cannot tell a
+    stock from a flux, so the brief says which is which."""
+    if not getattr(ctx, "is_domain", False):
+        return []
+    t = (ctx.data or {}).get("regional") or {}
+    how: Dict[str, str] = {}
+    for r in (t.get("runs") or {}).values():
+        for v, meta in ((r or {}).get("fields") or {}).items():
+            how.setdefault(v, (meta or {}).get("how") or "")
+    for name in (t.get("observed") or {}):
+        how.setdefault(name, "sum")
+    stocks = sorted(v for v, h in how.items() if h == "mean")
+    totals = sorted(v for v, h in how.items() if h == "sum")
+    if not (stocks or totals):
+        return []
+    out = ["", "HOW TO READ A NUMBER OF THIS EXPERIMENT:"]
+    if stocks:
+        out += [f"    stocks, averaged over the year: {', '.join(stocks)}",
+                "        A difference in one, between runs or between a year and the normal,",
+                "        is how much larger or smaller the stock is. Never call it an amount",
+                "        added, removed, emitted or lost in that year: a gap that grows from",
+                "        one year to the next can carry the earlier years too."]
+    if totals:
+        out += [f"    totals over the year: {', '.join(totals)}",
+                "        An amount moved in that year."]
+    return out
+
+
 def review_brief(ctx, comparison: Dict[str, Any],
                  investigation: Dict[str, Any]) -> str:
     plan = ctx.plan or {}
@@ -372,6 +430,7 @@ def review_brief(ctx, comparison: Dict[str, Any],
     for c in blocking:
         lines.append(f"    [{c.get('id')}] applies to: {c.get('applies_to')}")
         lines.append(f"        {str(c.get('statement'))[:240]}")
+    lines += domain_reading(ctx)
 
     # ONE LIST, AND IT IS THE LIST THE AUDIT CHECKS AGAINST (2026-08-13).
     #

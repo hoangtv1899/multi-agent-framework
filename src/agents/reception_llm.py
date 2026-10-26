@@ -65,6 +65,13 @@ def _is_coupling(brief: Dict[str, Any]) -> bool:
         == "coupling"
 
 
+def _is_whole_domain(brief: Dict[str, Any]) -> bool:
+    """A whole-domain experiment: a prepared control and runs that differ from
+    it by named changes (docs/ELM_DOMAIN_EXPERIMENTS.md)."""
+    return str((brief or {}).get("design_archetype") or "").strip().lower() \
+        == "whole_domain"
+
+
 def _carry_prior_forward(brief, run_dir, prov):
     """A coupling run's gather: the PRIOR run's, copied — not refetched.
 
@@ -436,6 +443,32 @@ class LLMReceptionAgent:
                             "fetch them for. This is a decision, not a "
                             "failure."),
                 "domain_dropped": skipped or None,
+            })
+            pkg["provenance"] = prov
+            return pkg
+
+        # ── A WHOLE-DOMAIN EXPERIMENT FETCHES NOTHING EITHER ──
+        # Its grid is its control's, every cell of it: there is no column to
+        # place, so the DEM grid, the rain at grid points, the water table and
+        # the hydrodata calls all serve a design it does not have. What it is
+        # compared with is registered for its control (regions and gridded
+        # observations, describe_domain_controls). Station observations for the
+        # control's box are not fetched yet. Recorded, as the conceptual skip is,
+        # so an empty observations block reads as a decision.
+        if _is_whole_domain(brief):
+            ctl = ((brief.get("domain_experiment") or {}).get("control") or {})
+            prov.append({
+                "tool": None,
+                "args": {"design_archetype": "whole_domain",
+                         "control": ctl.get("name")},
+                "fetched_at": None,
+                "ok": True,
+                "error": None,
+                "skipped": ("no DEM grid, rain, water table or station observations "
+                            "were fetched: a whole-domain experiment runs on its "
+                            "control's own grid and compares with the regions and "
+                            "gridded observations registered for that control. "
+                            "This is a decision, not a failure."),
             })
             pkg["provenance"] = prov
             return pkg

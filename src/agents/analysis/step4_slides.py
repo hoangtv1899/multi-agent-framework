@@ -126,7 +126,9 @@ def build(report: Dict[str, Any], out_dir) -> Optional[str]:
     # ── 1 · the question and what kind of answer this is ────────────────
     s = prs.slides.add_slide(blank)
     _text(s, M, int(0.8 * _EMU_IN), W, int(0.4 * _EMU_IN), 13,
-          f"IDEAS · {str(report.get('model') or 'model').upper()} ensemble",
+          f"IDEAS · {str(report.get('model') or 'model').upper()} "
+          + ("whole-domain experiment" if report.get("kind") == "whole_domain"
+             else "ensemble"),
           rgb=(0x7A, 0x89, 0x8C))
     _text(s, M, int(1.3 * _EMU_IN), W, int(2.4 * _EMU_IN), 26,
           str(report.get("question") or "(no question recorded)"), bold=True)
@@ -141,6 +143,7 @@ def build(report: Dict[str, Any], out_dir) -> Optional[str]:
         _text(s, M, int(5.5 * _EMU_IN), W, int(0.5 * _EMU_IN), 12,
               "steps that did not complete: " + ", ".join(failed),
               rgb=(0xA6, 0x34, 0x2B))
+    from agents.analysis.step4_report import scope_line
     cost = (report.get("cost") or {})
     comp = (cost.get("compute") or {})
     llm = (cost.get("llm") or {})
@@ -148,8 +151,9 @@ def build(report: Dict[str, Any], out_dir) -> Optional[str]:
     spend = ("model spend not measured" if llm.get("measured") is False
              else f"{an.get('calls', 0)} model call(s)")
     _text(s, M, int(6.3 * _EMU_IN), W, int(0.5 * _EMU_IN), 11,
-          f"{comp.get('columns_succeeded')}/{comp.get('columns_total')} columns · "
-          f"{len(prov.get('rounds') or [])} round(s) · {spend} · "
+          (f"{scope_line(report)} · " if report.get("kind") == "whole_domain" else
+           f"{comp.get('columns_succeeded')}/{comp.get('columns_total')} columns · ")
+          + f"{len(prov.get('rounds') or [])} round(s) · {spend} · "
           f"{report.get('generated_at')}", rgb=(0x7A, 0x89, 0x8C))
 
     # ── 2 · the answer, verbatim ────────────────────────────────────────

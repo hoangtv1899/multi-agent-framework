@@ -437,6 +437,8 @@ class ELMExpManager(ExperimentManagerBase):
 		that fails stops the study with the check's reasons.
 		"""
 		cfg = config or {}
+		if (cfg.get("strategy") or {}).get("domain_experiment"):
+			return self._build_domain_experiment(cfg)
 		dc = dict(((cfg.get("strategy") or {}).get("domain_case")) or {})
 		client = self._domain_client(cfg)
 		if dc.get("from_case") and not dc.get("case"):
@@ -505,6 +507,8 @@ class ELMExpManager(ExperimentManagerBase):
 
 	def _submit_domain(self, experiments, config) -> "Pending":
 		"""The chain through the server, then job B on every one of its jobs."""
+		if self._is_experiment_rows(experiments):
+			return self._submit_experiment(experiments, config)
 		client = self._domain_client(config)
 		email = self._notify_email(config)
 		out = self._mcp_call(client, "submit_domain_chain",
@@ -549,6 +553,8 @@ class ELMExpManager(ExperimentManagerBase):
 			print(f"   job {jb} (the finalize) is still queued or running; it will "
 				  f"collect the chain")
 			return None
+		if self._is_experiment_rows(experiments):
+			return self._poll_experiment(experiments, config)
 		st = self._mcp_call(self._domain_client(config), "check_domain_chain",
 							{"run_dir": str(self.run_dir)})
 		if not st.get("ok"):
@@ -565,6 +571,8 @@ class ELMExpManager(ExperimentManagerBase):
 		return experiments
 
 	def _adopt_domain(self, experiments) -> Dict[str, Any]:
+		if self._is_experiment_rows(experiments):
+			return self._adopt_experiment(experiments)
 		recs = self._domain_records()
 		ok = self._attach_chain(experiments, recs)
 		self._save_case_inputs(experiments)
@@ -575,6 +583,8 @@ class ELMExpManager(ExperimentManagerBase):
 		return {"build_cases": len(experiments), "run": len(experiments)}
 
 	def _collect_domain(self, experiments) -> Dict[str, bool]:
+		if self._is_experiment_rows(experiments):
+			return self._collect_experiment(experiments)
 		recs = self._domain_records()
 		ok = self._attach_chain(experiments, recs)
 		lines = [f"whole-domain case {e['case_name']}: years passed "
@@ -591,6 +601,8 @@ class ELMExpManager(ExperimentManagerBase):
 		"""One row per model year whose check record exists: the year gate's
 		numbers over vegetated cells and, where a reference run was compared,
 		its per-field bias and correlation and the elevation-band totals."""
+		if self._is_experiment_rows(experiments):
+			return self._extract_experiment(experiments)
 		import re
 		recs = self._domain_records()
 		case = (experiments or [{}])[0].get("case_name")
@@ -640,6 +652,8 @@ class ELMExpManager(ExperimentManagerBase):
 		"""experiment.json for a whole-domain case: the case, its input check,
 		its chain and the year rows (under `columns`, where a resumed run reads
 		them back)."""
+		if self._is_experiment_rows(self._rehydrate_case_inputs() or []):
+			return self._package_experiment(plan, results, config)
 		cfg = config or {}
 		rows = [dict(r) for r in self._extract_rows(results) if isinstance(r, dict)]
 		recipe, recipe_path = {}, None
@@ -699,11 +713,480 @@ class ELMExpManager(ExperimentManagerBase):
 		return super()._package(plan, results, config)
 
 	def _analysis_skip_reason(self, experiments):
+		if self._has_backend_report(experiments):
+			return None
 		if self._is_domain_rows(experiments):
-			return ("the Analyzer reads sampled-column rows; a whole-domain run's "
-					"regional rows are the next framework piece, so experiment.json "
-					"holds the year gates' numbers only")
+			return ("the Analyzer reads sampled-column rows, and this whole-domain "
+					"run has no regional numbers (they come from an experiment's "
+					"analysis, and its plan names none), so experiment.json holds "
+					"the year gates' numbers only")
 		return None
+
+	def _has_backend_report(self, experiments) -> bool:
+		"""A whole-domain experiment whose plan named an analysis: its report
+		is rendered from the regional numbers (agents.analysis.domain_report),
+		no LLM. Numbers that could not be made are a failed report, not a skip:
+		the plan asked for them (03_results/regional.json then holds the error,
+		and the renderer raises with it)."""
+		return self._is_experiment_rows(experiments) and bool(self._regional_from_disk())
+
+	def _backend_report(self, experiments, results, config) -> Dict[str, Any]:
+		from agents.analysis.domain_report import build
+		return build(self.run_dir)
+
+	# ─────────────────────────────────────────────────────────
+	# WHOLE-DOMAIN EXPERIMENTS: a control and runs of named changes
+	# ─────────────────────────────────────────────────────────
+	# docs/ELM_DOMAIN_EXPERIMENTS.md. strategy['domain_experiment'] names a
+	# control (a prepared one the server lists, reused: its output is compared
+	# and nothing is spent on it; or a recipe that runs too) and runs that
+	# differ from it by changes from the server's list. The server checks the
+	# experiment and writes every run's inputs (build_domain_runs); each run
+	# that executes is a piece-3 chain in its own record directory,
+	# domain_case/<run>/. One row per run, the control's included, each with
+	# its "run" name: that key is what marks an experiment's rows.
+	DOMAIN_EXPERIMENT = "domain_experiment.json"
+	DOMAIN_CONTROL_FACTS = "domain_control_facts.json"
+	# The year numbers a changed run is set against its control on.
+	DIFF_KEYS = ("gpp_gC_m2_yr", "peak_tlai", "et_mm", "runoff_mm", "swe_apr1_mm",
+				 "totecosysc_change_frac")
+
+	@classmethod
+	def _is_experiment_rows(cls, rows) -> bool:
+		rows = list(rows or [])
+		return cls._is_domain_rows(rows) and all("run" in r for r in rows)
+
+	def _run_record(self, row) -> Path:
+		return self.run_dir / self.DOMAIN_RECORD / row["run"]
+
+	@staticmethod
+	def _executed(rows):
+		return [r for r in rows if not r.get("reused")]
+
+	def _control_recipe(self, ctl, client) -> Dict[str, Any]:
+		"""The recipe of a control that runs too: given whole, or read from an
+		existing case under a new name, as piece 3's domain_case is."""
+		if ctl.get("recipe"):
+			return dict(ctl["recipe"])
+		if not (ctl.get("from_case") and ctl.get("case")):
+			raise RuntimeError("an experiment whose control runs too needs the control's "
+							   "recipe, or from_case with a new case name")
+		out = self._mcp_call(client, "read_domain_recipe", {
+			"case_dir": str(ctl["from_case"]), "case": str(ctl["case"]),
+			"case_root": str(ctl.get("case_root") or "")})
+		if not out.get("ok"):
+			raise RuntimeError(f"read_domain_recipe: {out.get('error')}")
+		if out.get("problems"):
+			raise RuntimeError("the control's recipe cannot be used: "
+							   + "; ".join(out["problems"]))
+		return out["recipe"]
+
+	def _build_domain_experiment(self, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""The rows of a whole-domain experiment, one per run: checked by the
+		server against its change list and the control's facts, then each
+		run's inputs written by it (build_domain_runs). The input set, which
+		every run shares, is checked here, before any job."""
+		cfg = config or {}
+		exp = dict((cfg.get("strategy") or {}).get("domain_experiment") or {})
+		client = self._domain_client(cfg)
+		ctl = dict(exp.get("control") or {})
+		reuse = bool(ctl.get("reuse"))
+		if not isinstance(exp.get("runs"), list):
+			raise RuntimeError("domain_experiment's runs must be a list: runs that differ "
+							   "from the control by named changes, or none to read the "
+							   "control alone")
+		if reuse and not ctl.get("name"):
+			raise RuntimeError("a reused control is a prepared one: name it "
+							   "(describe_domain_controls)")
+		if not reuse:
+			(self.input_dir / self.DOMAIN_RECIPE).write_text(
+				json.dumps(self._control_recipe(ctl, client), indent=1))
+		if exp.get("years"):
+			years = [int(y) for y in exp["years"]]
+		elif cfg.get("yr_start"):
+			y0 = int(cfg["yr_start"])
+			years = list(range(y0, int(cfg.get("yr_end") or y0) + 1))
+		else:
+			raise RuntimeError("domain_experiment names no years and the study has no "
+							   "period")
+		chain = {k: exp[k] for k in ("smoke_days", "smoke", "partition", "tag", "walls",
+									 "allow_forcing_cycle") if k in exp}
+		if "partition" not in chain and cfg.get("queue"):
+			chain["partition"] = str(cfg["queue"])
+		record = {"control": {"name": ctl.get("name"), "reuse": reuse},
+				  "runs": exp["runs"], "years": years, "chain": chain}
+		(self.input_dir / self.DOMAIN_EXPERIMENT).write_text(json.dumps(record, indent=1))
+		chk = self._mcp_call(client, "check_domain_experiment", {"experiment": record},
+							 budget=600)
+		if chk.get("error") or chk.get("wont_build"):
+			raise RuntimeError("the experiment will not build: " + "; ".join(
+				[str(chk["error"])] if chk.get("error") else
+				[f"{w['where']}: {w['what']}" for w in chk["wont_build"]]))
+		facts = None
+		if ctl.get("name"):
+			d = self._mcp_call(client, "describe_domain_controls", {}, budget=120)
+			facts = next((c for c in d.get("controls") or [] if c.get("name") == ctl["name"]),
+						 None)
+		built = self._mcp_call(client, "build_domain_runs", {"run_dir": str(self.run_dir)},
+							   budget=600)
+		if not built.get("ok"):
+			raise RuntimeError(f"build_domain_runs: {built.get('error')}")
+		(self.input_dir / self.DOMAIN_CONTROL_FACTS).write_text(json.dumps(
+			{"control": built["control"], "facts": facts, "check": chk}, indent=1, default=str))
+		DC = self._sibling_module("domain_case")
+		inputs, ic = None, {}
+		if built["runs"]:
+			# The input set every executed run shares; a control read alone ran
+			# with its inputs already and spends nothing now.
+			first = built["runs"][0]["name"]
+			inputs = DC.Recipe.from_json((self.input_dir / "runs" / first /
+										  self.DOMAIN_RECIPE).read_text()).inputs()
+			ic = self._mcp_call(client, "check_domain_inputs", {
+				"surface": str(inputs["surface"]), "domain": str(inputs["domain"]),
+				"finidat": str(inputs["finidat"]), "run_dir": str(self.run_dir)}, budget=600)
+			if not ic.get("ok"):
+				raise RuntimeError(f"check_domain_inputs: {ic.get('error')}")
+			if not ic.get("pass"):
+				raise RuntimeError("the input set fails its check, so nothing was submitted: "
+								   + "; ".join(ic.get("reasons") or []))
+		base = {"kind": self.KIND_DOMAIN, "years": years, "forcing_start": years[0],
+				"forcing_end": years[-1], "inputs": inputs, "inputs_check": ic.get("path")}
+		rows = []
+		if reuse:
+			c = built["control"]
+			rows.append(dict(base, case_name=Path(c["case_dir"]).name, run="control",
+							 reused=True, case_dir=c["case_dir"], run_dir=c["run_dir"],
+							 changes=[], after=None))
+		for r in built["runs"]:
+			rows.append(dict(base, case_name=r["case"], run=r["name"], reused=False,
+							 case_dir=r["case_dir"], changes=r["changes"], after=r["after"]))
+		(self.input_dir / self.CASE_INPUTS).write_text(json.dumps(rows, indent=2))
+		print(f"   experiment on {ctl.get('name') or 'its own control'}: "
+			  + ", ".join(r["run"] + (" (reused)" if r.get("reused") else "") for r in rows)
+			  + f"; years {years[0]}-{years[-1]}; about "
+			  f"{(chk.get('cost') or {}).get('node_hours')} node-hours")
+		return {"columns": rows,
+				"domain_experiment": {"experiment": f"01_inputs/{self.DOMAIN_EXPERIMENT}",
+									  "runs": "01_inputs/runs",
+									  "control_facts": f"01_inputs/{self.DOMAIN_CONTROL_FACTS}"}}
+
+	def _submit_experiment(self, experiments, config) -> "Pending":
+		"""Each executed run's chain, the control's first; a run compared with
+		a control that runs too waits for the control's case job. Job B waits
+		on every job of every run."""
+		if not self._executed(experiments):
+			# THE CONTROL ALONE: nothing to run. The rows go straight on to
+			# extraction, as a finished run's would.
+			self._attach_runs(experiments)
+			print("   nothing to run: the experiment reads the reused control alone")
+			return experiments
+		client = self._domain_client(config)
+		email = self._notify_email(config)
+		jobs: List[Dict[str, str]] = []
+		case_job: Dict[str, str] = {}
+		for e in self._executed(experiments):
+			after = case_job.get(e.get("after")) if e.get("after") else ""
+			if e.get("after") and not after:
+				raise RuntimeError(f"run {e['run']} waits for {e['after']}, whose case job "
+								   f"was not submitted")
+			out = self._mcp_call(client, "submit_domain_chain", {
+				"run_dir": str(self.run_dir), "run": e["run"], "after_job": after or ""},
+				budget=600)
+			if not out.get("ok"):
+				raise RuntimeError(
+					f"submit_domain_chain for run {e['run']}: {out.get('error')}"
+					+ (": " + "; ".join(out["reasons"]) if out.get("reasons") else "")
+					+ (f"; already queued for earlier runs: "
+					   f"{', '.join(j['run'] + '/' + j['stage'] + '=' + j['job_id'] for j in jobs)}"
+					   if jobs else ""))
+			for j in out["jobs"]:
+				jobs.append({"run": e["run"], "stage": j["stage"], "job_id": str(j["job_id"])})
+				print(f"   {e['run']:>12} {j['stage']:>8}  job {j['job_id']}")
+			case_job[e["run"]] = next((str(j["job_id"]) for j in out["jobs"]
+									   if j["stage"] == "case"), "")
+		ids = [j["job_id"] for j in jobs]
+		job_b = self._submit_job_b(":".join(ids), config, email)
+		return Pending(job_b or ids[-1], scope="domain", n_cases=len(experiments),
+					   chain=jobs, job_ids=ids, job_id_b=job_b or None, via="mcp",
+					   notify=email or None)
+
+	def _attach_runs(self, experiments) -> bool:
+		"""Every executed run's chain record attached to its row (piece 3's
+		rule per run: it succeeded only when every planned year passed). A
+		reused control spent nothing and is marked so."""
+		DC = self._sibling_module("domain_case")
+		ok = True
+		for e in experiments:
+			if e.get("reused"):
+				e["status"] = "reused"
+				continue
+			rd = self._run_record(e)
+			if not (rd / DC.CHAIN_FILE).is_file():
+				e["status"], e["chain"] = "not submitted", None
+				ok = False
+				continue
+			ok = self._attach_chain([e], DC.chain_records(rd)) and ok
+		return ok
+
+	def _poll_experiment(self, experiments, config):
+		client = self._domain_client(config)
+		going = []
+		for e in self._executed(experiments):
+			st = self._mcp_call(client, "check_domain_chain",
+								{"run_dir": str(self.run_dir), "run": e["run"]})
+			if not st.get("ok"):
+				raise RuntimeError(f"check_domain_chain for run {e['run']}: {st.get('error')}")
+			if st.get("active"):
+				going.append(e["run"])
+		if going:
+			print(f"   runs still going: {', '.join(going)}; nothing to collect yet")
+			return None
+		self._attach_runs(experiments)
+		print("   ✓ every run's chain ended: " + ", ".join(
+			f"{e['run']} {e.get('status')}" for e in experiments))
+		return experiments
+
+	def _adopt_experiment(self, experiments) -> Dict[str, Any]:
+		self._attach_runs(experiments)
+		self._save_case_inputs(experiments)
+		n_ok = sum(1 for e in experiments if e.get("status") in ("completed", "reused"))
+		self._mark("build_cases", n_experiments=len(experiments), n_ok=n_ok,
+				   adopted_from=f"{self.DOMAIN_RECORD}/<run>/chain.json")
+		self._mark("run", n_results=len(experiments), n_ok=n_ok,
+				   adopted_from=f"{self.DOMAIN_RECORD}/<run>/checks")
+		return {"build_cases": len(experiments), "run": len(experiments)}
+
+	def _collect_experiment(self, experiments) -> Dict[str, bool]:
+		DC = self._sibling_module("domain_case")
+		self._attach_runs(experiments)
+		lines = []
+		for e in experiments:
+			if e.get("reused"):
+				lines.append(f"run control: reused {e['case_dir']} (nothing spent)")
+				continue
+			recs = DC.chain_records(self._run_record(e)) if \
+				(self._run_record(e) / DC.CHAIN_FILE).is_file() else {}
+			lines.append(f"run {e['run']} (case {e['case_name']}): years passed "
+						 f"{recs.get('years_passed')}, first stage without a passing check "
+						 f"{recs.get('first_unpassed')}")
+			lines += [f"  {s['stage']:>8} job {s['job_id']} check "
+					  f"{'none' if s['check_pass'] is None else 'PASS' if s['check_pass'] else 'FAIL'}"
+					  for s in recs.get("stages") or []]
+		(self.results_dir / "execution_report.txt").write_text("\n".join(lines) + "\n")
+		print("\n".join(lines))
+		return {e["case_name"]: e.get("status") in ("completed", "reused") for e in experiments}
+
+	def _control_facts(self) -> Dict[str, Any]:
+		p = self.input_dir / self.DOMAIN_CONTROL_FACTS
+		return json.loads(p.read_text()) if p.is_file() else {}
+
+	def _extract_experiment(self, experiments, config=None) -> Dict[str, Any]:
+		"""One row per run and model year: an executed run's from its year
+		checks, the reused control's from its facts; every changed run's row
+		carries its difference from the control in that year."""
+		import re
+		DC = self._sibling_module("domain_case")
+		cf = ((self._control_facts().get("facts") or {}).get("facts") or {}).get("per_year") or {}
+		rows, ctl_rows = [], {}
+		for e in experiments:
+			if e.get("reused"):
+				for y in e["years"]:
+					m = cf.get(str(y)) or {}
+					row = {"case_name": e["case_name"], "kind": self.KIND_DOMAIN, "run": "control",
+						   "year": int(y), "region": "vegetated cells (PCT_NATVEG = 100)",
+						   "status": "reused" if m else "not available",
+						   "metrics": {k: m[k] for k in self.DOMAIN_YEAR_UNITS if m.get(k) is not None},
+						   "source": "the reused control's facts (describe_domain_controls)",
+						   "reasons": [] if m else [f"the control's facts hold no {y}"]}
+					rows.append(row)
+					ctl_rows[int(y)] = row
+				continue
+			rd = self._run_record(e)
+			recs = DC.chain_records(rd) if (rd / DC.CHAIN_FILE).is_file() else {"stages": []}
+			have = set()
+			for st in recs.get("stages") or []:
+				if not re.fullmatch(r"y\d{4}", st["stage"]) or not st.get("check"):
+					continue
+				y = st["stage"][1:]
+				yr = (json.loads(Path(st["check"]).read_text()).get("years") or {}).get(y) or {}
+				row = {"case_name": e["case_name"], "kind": self.KIND_DOMAIN, "run": e["run"],
+					   "year": int(y), "region": "vegetated cells (PCT_NATVEG = 100)",
+					   "status": "completed" if yr.get("pass") else "failed",
+					   "job_id": st["job_id"], "check": st["check"],
+					   "metrics": {k: yr[k] for k in self.DOMAIN_YEAR_UNITS if k in yr},
+					   "expected": yr.get("expected"),
+					   "reasons": yr.get("reasons") or []}
+				rows.append(row)
+				have.add(int(y))
+				if e["run"] == "control":
+					ctl_rows[int(y)] = row
+			for y in e["years"]:
+				if int(y) not in have:
+					rows.append({"case_name": e["case_name"], "kind": self.KIND_DOMAIN,
+								 "run": e["run"], "year": int(y), "status": "not run",
+								 "metrics": {}, "reasons": [
+									 f"the chain stopped before this year (first stage without "
+									 f"a passing check: {recs.get('first_unpassed')})"]})
+		for row in rows:
+			c = ctl_rows.get(row["year"])
+			if row["run"] != "control" and c and c["metrics"] and row["metrics"]:
+				row["difference_from_control"] = {
+					k: row["metrics"][k] - c["metrics"][k] for k in self.DIFF_KEYS
+					if row["metrics"].get(k) is not None and c["metrics"].get(k) is not None}
+		rows.sort(key=lambda r: (r["run"] != "control", r["run"], r["year"]))
+		(self.results_dir / "extracted.json").write_text(json.dumps(
+			{"kind": self.KIND_DOMAIN, "experiment": True, "rows": rows,
+			 "source": f"{self.DOMAIN_RECORD}/<run>/checks/y<YEAR>_<job>.json, and the reused "
+					   f"control's facts"}, indent=1, default=str))
+		print(f"   ✓ {len(rows)} run-year row(s) read")
+		regional = self._regional(experiments, config)
+		return {"rows": rows, "units": dict(self.DOMAIN_YEAR_UNITS), "extra_summary": {},
+				"spinup_dropped": {}, "regional": regional}
+
+	def _experiment_analysis(self, config) -> Dict[str, Any]:
+		"""The plan's analysis of a whole-domain experiment: from the study's
+		strategy, or strategy.json beside the run when a finalize job has no
+		strategy in its config."""
+		st = (config or {}).get("strategy")
+		if not st and (self.run_dir / "strategy.json").is_file():
+			st = json.loads((self.run_dir / "strategy.json").read_text())
+		return ((st or {}).get("domain_experiment") or {}).get("analysis") or {}
+
+	def _regional(self, experiments, config) -> Optional[Dict[str, Any]]:
+		"""The experiment's numbers by region (domain_analysis), for every run
+		with output, written to 03_results/regional.json. None when the plan
+		names no analysis; the reason, when they cannot be made."""
+		analysis = self._experiment_analysis(config)
+		if not analysis.get("variables"):
+			return None
+		A = self._sibling_module("domain_analysis")
+		DC = self._sibling_module("domain_case")
+		DCT = self._sibling_module("domain_controls")
+		try:
+			ctl = self._control_facts().get("control") or {}
+			control, runs = None, {}
+			for e in experiments:
+				if e.get("reused"):
+					entry = DCT.get(ctl.get("name"))
+					control, runs["control"] = entry, entry["run_dir"]
+					continue
+				rd = self._run_record(e)
+				if not (rd / DC.CHAIN_FILE).is_file():
+					continue
+				checks = [s["check"] for s in DC.chain_records(rd)["stages"]
+						  if s["stage"].startswith("y") and s.get("check")]
+				if not checks:
+					continue
+				runs[e["run"]] = json.loads(Path(checks[0]).read_text())["run_dir"]
+				if e["run"] == "control":
+					control = {"case_dir": e["case_dir"], "regions": {}, "observations": {}}
+			if control is None:
+				raise RuntimeError("the control has no output to read")
+			table = A.experiment(control, runs, analysis,
+								 [int(y) for y in experiments[0]["years"]])
+		except Exception as e:                                      # noqa: BLE001
+			table = {"error": f"{type(e).__name__}: {e}"}
+			print(f"   ⚠️  the regional numbers could not be made: {table['error']}")
+		(self.results_dir / "regional.json").write_text(json.dumps(table, indent=1, default=str))
+		if "error" not in table:
+			print(f"   ✓ regional numbers: {len(table['regions'])} region(s), "
+				  f"{len(table['runs'])} run(s), {len(table['problems'])} problem(s)")
+		return table
+
+	def _regional_from_disk(self) -> Optional[Dict[str, Any]]:
+		p = self.results_dir / "regional.json"
+		return json.loads(p.read_text()) if p.is_file() else None
+
+	def _package_experiment(self, plan, results, config) -> Dict[str, Any]:
+		"""experiment.json for a whole-domain experiment: the control and every
+		run with its changes (what each means and does not, as the server's
+		list says), the run-year rows with their differences from the control,
+		each run's chain, and one chain summary across the executed runs."""
+		DC = self._sibling_module("domain_case")
+		cfg = config or {}
+		rows = [dict(r) for r in self._extract_rows(results) if isinstance(r, dict)]
+		experiments = self._rehydrate_case_inputs() or []
+		cf = self._control_facts()
+		runs, chains = [], {}
+		for e in experiments:
+			ep = self.input_dir / "runs" / e["run"] / "domain_expectations.json"
+			changes = (json.loads(ep.read_text()).get("changes") if ep.is_file() else []) or []
+			rp = self._run_record(e) / DC.RECIPE_FILE
+			recipe = json.loads(rp.read_text()) if rp.is_file() else {}
+			built = None
+			if not e.get("reused") and (self._run_record(e) / DC.CHAIN_FILE).is_file():
+				chains[e["run"]] = DC.chain_records(self._run_record(e))
+				for st in chains[e["run"]]["stages"]:
+					if st["stage"] == "case" and st.get("check"):
+						built = (json.loads(Path(st["check"]).read_text()) or {}).get("source")
+			runs.append({"run": e["run"], "case": e["case_name"], "case_dir": e.get("case_dir"),
+						 "reused": bool(e.get("reused")), "status": e.get("status"),
+						 "changes": changes, "source": recipe.get("source"),
+						 "built_from": built, "after": e.get("after")})
+		planned = sorted({int(y) for e in experiments for y in e.get("years") or []})
+		executed = [c for c in chains.values()]
+		if executed:
+			passed = sorted(set.intersection(*[set(c["years_passed"]) for c in executed]))
+		else:
+			# THE CONTROL ALONE: its years are there when its facts hold them.
+			passed = sorted({r["year"] for r in rows
+							 if r.get("run") == "control" and r.get("status") == "reused"})
+		first = next((f"{r}: {c['first_unpassed']}" for r, c in chains.items()
+					  if c.get("first_unpassed")), None)
+		if len(chains) < len(self._executed(experiments)):
+			first = first or "a run was not submitted"
+		missing = sorted(r["year"] for r in rows
+						 if r.get("run") == "control" and r.get("status") != "reused")
+		if not executed and missing:
+			# The facts are stale (a history file is newer than them) or were
+			# never computed for these years: refresh_domain_control_facts.
+			first = first or f"control: its facts hold no {missing}"
+		# WHAT THE RUNS COST, as each chain's report stage read it back from
+		# the scheduler (STATUS.log); a reused control spent nothing.
+		compute = {"runs": {}, "seconds": 0, "note": None}
+		for r, c in chains.items():
+			jobs = DC.report_lines(c["record_dir"])
+			secs = [j["seconds"] for j in jobs if isinstance(j.get("seconds"), int)]
+			compute["runs"][r] = {"jobs": jobs, "seconds": sum(secs) if secs else None}
+			compute["seconds"] += sum(secs)
+		if any(not v["jobs"] for v in compute["runs"].values()):
+			compute["note"] = ("a run's report stage has not written its job times "
+							   "(it runs after every other job of the chain)")
+		if any(e.get("reused") for e in experiments):
+			compute["control"] = "reused: its output was read, nothing was spent on it"
+		brief = cfg.get("brief") or {}
+		pkg = {
+			"model": self.MODEL, "kind": self.KIND_DOMAIN, "archetype": self.KIND_DOMAIN,
+			"run_dir": str(self.run_dir), "created": datetime.now().isoformat(timespec="seconds"),
+			"domain": {k: (brief.get("domain") or {}).get(k) for k in ("name", "huc", "bbox")},
+			"experiment": {"control": cf.get("control"), "runs": runs,
+						   "check": {k: (cf.get("check") or {}).get(k)
+									 for k in ("facts", "unusual", "cost")}},
+			"control_facts": (cf.get("facts") or {}).get("facts"),
+			"chain": {"years_planned": planned, "years_passed": passed,
+					  "first_unpassed": first, "runs": chains, "compute": compute},
+			# What a regional number of a whole-domain run cannot support, from
+			# the server's list; step 0 of the Analyzer reads it as it reads a
+			# site run's limitations.
+			"limitations": json.loads(json.dumps(
+				self._sibling_module("domain_analysis").LIMITATIONS)),
+			"columns_total": len(rows),
+			"columns_succeeded": sum(1 for r in rows if r.get("status") in ("completed", "reused")),
+			"variable_units": dict(self.DOMAIN_YEAR_UNITS),
+			"strategy_check": self.strategy_report, "goals": (plan or {}).get("goals"),
+			"columns": rows,
+			"regional": (results or {}).get("regional") if isinstance(results, dict)
+						 and "regional" in results else self._regional_from_disk(),
+			"artifacts": {"experiment": f"01_inputs/{self.DOMAIN_EXPERIMENT}",
+						  "runs": "01_inputs/runs", "records": f"{self.DOMAIN_RECORD}/<run>",
+						  "control_facts": f"01_inputs/{self.DOMAIN_CONTROL_FACTS}",
+						  "extracted": "03_results/extracted.json",
+						  "regional": "03_results/regional.json"},
+		}
+		(self.run_dir / "experiment.json").write_text(json.dumps(pkg, indent=1, default=str))
+		print(f"✓ experiment.json: {len(runs)} run(s), {pkg['columns_succeeded']}/{len(rows)} "
+			  f"run-year row(s)")
+		return pkg
 
 	# ─────────────────────────────────────────────────────────
 	# MAIN ENTRY POINT
@@ -1212,6 +1695,10 @@ exit $?
 		"""Which columns produced output — the one definition of success: a
 		column succeeded if ELM wrote it a history file. A whole-domain case
 		succeeded if at least one model year passed its check."""
+		if self._is_experiment_rows(experiments):
+			rows = [dict(e) for e in experiments]
+			self._attach_runs(rows)
+			return {e['case_name']: e.get('status') in ('completed', 'reused') for e in rows}
 		if self._is_domain_rows(experiments):
 			ok = self._attach_chain([dict(e) for e in experiments], self._domain_records())
 			return {e['case_name']: ok for e in experiments}
@@ -1366,6 +1853,8 @@ exit $?
 		experiment.json and step 0 turns into the caveats that bind the
 		interpreter.
 		"""
+		if self._is_experiment_rows(experiments):
+			return self._extract_experiment(experiments, config)
 		if self._is_domain_rows(experiments):
 			return self._extract_domain(experiments)
 		cfg  = config or {}

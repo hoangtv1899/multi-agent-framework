@@ -1018,3 +1018,164 @@ class TestStatus:
         _pass(rec, ("smoke", "2"), ("y2015", "3"))
         recs = DC.chain_records(rec)
         assert recs["years_passed"] == [2015] and recs["segments"] == 1
+
+
+# ── a run of an experiment: held to its changes ──────────────────────────────
+def _resolving_e3sm(tmp_path):
+    """create_newcase whose preview_namelists resolves user_nl_elm into
+    CaseDocs/lnd_in, as CIME does, so the settings check reads what the
+    recipe asked for."""
+    src = _fake_e3sm(tmp_path)
+    nc = src / "cime" / "scripts" / "create_newcase"
+    nc.write_text(nc.read_text() + '''
+cat > "$case/preview_namelists" <<'PREVIEW'
+#!/bin/bash
+echo "preview_namelists $*" >> calls
+mkdir -p CaseDocs
+{ echo "&elm_inparm"; grep -v '^\\s*!' user_nl_elm; echo "/"; } > CaseDocs/lnd_in
+printf '&shr_strdata_nml\\n presaero = .true.\\n/\\n' > CaseDocs/datm_in
+PREVIEW
+chmod +x "$case/preview_namelists"
+''')
+    return src
+
+
+def _control_docs(root, recipe):
+    """A control case's CaseDocs, resolved from its recipe as the stub does."""
+    cd = root / recipe.case
+    (cd / "CaseDocs").mkdir(parents=True)
+    (cd / "CaseDocs" / "lnd_in").write_text(
+        "&elm_inparm\n" + "\n".join(l for l in recipe.user_nl["elm"]
+                                    if not l.strip().startswith("!")) + "\n/\n")
+    (cd / "CaseDocs" / "datm_in").write_text("&shr_strdata_nml\n presaero = .true.\n/\n")
+    return cd
+
+
+class TestARunOfAnExperiment:
+
+    def _run(self, tmp_path, edit=None):
+        import domain_changes as CH
+        src = _resolving_e3sm(tmp_path)
+        ctl = _recipe(tmp_path / "cases", case="ctl", srcroot=src,
+                      user_nl={"elm": ["finidat = '/in/finidat.nc'", "fsurdat = '/in/surf.nc'",
+                                       "use_nofire = .false."]})
+        ctl_dir = _control_docs(tmp_path / "controls", ctl)
+        run = {"name": "nofire", "changes": [{"id": "fire_off"}]}
+        r = CH.run_recipe(ctl, run)
+        if edit:
+            edit(r)
+        rec = tmp_path / "rec"
+        DC.write_case_script(r, rec)
+        script = DC.write_stage_script(r, rec, expect=CH.expectations(run, str(ctl_dir)))
+        return r, rec, script
+
+    def test_its_settings_are_checked_before_its_model_is_built(self, tmp_path):
+        r, rec, script = self._run(tmp_path)
+        p = _run_stage(script, "case", job="10")
+        assert p.returncode == 0, (rec / DC.STATUS_FILE).read_text()
+        assert (r.case_dir / "calls").read_text().splitlines()[-1] == "case.build "
+        chk = json.loads((rec / "checks" / "settings_10.json").read_text())
+        assert chk["pass"] and chk["files"]["lnd_in"]["differences"] == {
+            "use_nofire": {"control": [False], "run": [True]}}
+        status = (rec / DC.STATUS_FILE).read_text()
+        assert "stage=settings CHECK PASS settings datm_in: 0 difference(s), 0 unexpected, " \
+               "lnd_in: 1 difference(s), 0 unexpected" in status
+
+    def test_a_difference_its_changes_do_not_explain_stops_the_build(self, tmp_path):
+        r, rec, script = self._run(tmp_path, edit=lambda r: r.user_nl["elm"].append(
+            "co2_ppmv = 400.0"))
+        p = _run_stage(script, "case", job="10")
+        assert p.returncode == 1
+        assert "case.build" not in (r.case_dir / "calls").read_text()
+        chk = json.loads((rec / "checks" / "settings_10.json").read_text())
+        assert chk["reasons"] == ["lnd_in: co2_ppmv differs from the control (unset -> [400.0]), "
+                                  "and no change of this run alters it"]
+        assert json.loads((rec / "checks" / "case_10.json").read_text())["pass"] is False
+
+    def test_expectations_changed_after_arming_are_refused(self, tmp_path):
+        r, rec, script = self._run(tmp_path)
+        e = json.loads((rec / DC.EXPECT_FILE).read_text())
+        e["settings"] = {}
+        (rec / DC.EXPECT_FILE).write_text(json.dumps(e))
+        p = _run_stage(script, "case", job="10")
+        assert p.returncode == 3 and "case.build" not in (r.case_dir / "calls").read_text()
+        assert "expectations.json is not the file this chain was armed with" in \
+            (rec / DC.STATUS_FILE).read_text()
+
+    def test_a_run_without_its_control_named_is_refused(self, tmp_path):
+        with pytest.raises(DC.DomainCaseError, match="no control_case_dir"):
+            DC.write_stage_script(_recipe(tmp_path), tmp_path / "rec",
+                                  expect={"settings": {}, "output": []})
+
+    def test_every_year_checks_its_output_rules(self, tmp_path):
+        import netCDF4
+        c, r = _stage_case(tmp_path)
+        fx.write_monthly(c["run_dir"], [2015, 2016], case="synth",
+                         variables=("GPP", "TSA", "CELLID", "FAREA_BURNED"))
+        rec = tmp_path / "rec"
+        ctl = tmp_path / "ctl"
+        (ctl / "CaseDocs").mkdir(parents=True)
+        expect = {"control_case_dir": str(ctl), "settings": {},
+                  "output": [{"stream": "h0", "field": "FAREA_BURNED", "rule": "all_zero",
+                              "why": "no fire can burn with the fire model off",
+                              "change": "fire_off"}]}
+        script = DC.write_stage_script(r, rec, expect=expect)
+        _run_stage(script, "y2016")
+        y = json.loads((rec / "checks" / "y2016_111.json").read_text())["years"]["2016"]
+        assert y["pass"] is False and y["expected"][0]["pass"] is False
+        assert any(x.startswith("expected fire_off: FAREA_BURNED all_zero (no fire can burn "
+                                "with the fire model off); the largest |value| is")
+                   for x in y["reasons"])
+        assert "expect=FAIL" in (rec / DC.STATUS_FILE).read_text()
+        h0 = c["run_dir"] / "synth.elm.h0.2016-02-01-00000.nc"
+        with netCDF4.Dataset(h0, "a") as d:
+            d["FAREA_BURNED"][:] = 0.0
+        import run_gate as RG
+        ex = RG.expected_output(c["run_dir"], 2016, expect["output"])
+        assert ex[0]["pass"] is True and ex[0]["max_abs"] == 0.0 and ex[0]["records"] == 12
+        bad = RG.expected_output(c["run_dir"], 2016, [{"stream": "h0", "field": "NOPE",
+                                                      "rule": "all_zero"}])
+        assert bad[0]["pass"] is False and bad[0]["reason"].startswith("cannot check")
+
+    def test_its_first_job_waits_for_the_controls_case_job(self, tmp_path):
+        slurm = FakeSlurm(start=2000)
+        r = _recipe(tmp_path)
+        rec = tmp_path / "rec"
+        DC.write_stage_script(r, rec)
+        out = DC.submit_chain(DC.plan_chain(r, [2015], tag="nb"), rec, run=slurm,
+                              after_job="1999")
+        assert out["ok"] and out["after_job"] == "1999"
+        sb = [c for c in slurm.calls if c[0] == "sbatch"]
+        assert "--dependency=afterok:1999" in sb[0] and "--kill-on-invalid-dep=yes" in sb[0]
+        assert "--dependency=afterok:2001" in sb[1] and "1999" not in " ".join(sb[1])
+        assert sb[-1][sb[-1].index("-J") + 2] == "--dependency=afterany:2001:2002:2003"
+        with pytest.raises(DC.DomainCaseError, match="is not a job id"):
+            DC.submit_chain(DC.plan_chain(r, [2015]), rec, run=slurm, after_job="x; rm")
+
+
+class TestTheReportStagesJobTimes:
+    """The report stage writes one sacct line per job into STATUS.log; the
+    experiment's package reads them back as the chain's compute."""
+
+    def test_its_lines_read_back(self, tmp_path):
+        (tmp_path / DC.STATUS_FILE).write_text(
+            "2026-10-24 01:00:00 job=9 stage=report REPORT nb_case job=101 state=COMPLETED "
+            "elapsed=00:12:30 exit=0:0\n"
+            "2026-10-24 01:00:01 job=9 stage=report REPORT nb_y2015 job=103 "
+            "state=COMPLETED elapsed=1-01:00:05 exit=0:0\n"
+            "2026-10-24 01:00:02 job=9 stage=report REPORT job=104 state=UNKNOWN (no "
+            "accounting record: cancelled before it started)\n"
+            "2026-10-24 01:00:03 job=9 stage=y2015 finished rc=0\n"
+            "2026-10-25 02:00:00 job=19 stage=report REPORT nb_case job=101 state=COMPLETED "
+            "elapsed=00:12:31 exit=0:0\n")
+        jobs = DC.report_lines(tmp_path)
+        assert jobs == [
+            {"name": "nb_case", "job_id": "101", "state": "COMPLETED", "elapsed": "00:12:31",
+             "seconds": 751, "exit": "0:0"},
+            {"name": "nb_y2015", "job_id": "103", "state": "COMPLETED",
+             "elapsed": "1-01:00:05", "seconds": 90005, "exit": "0:0"}]
+
+    def test_before_the_report_stage_there_is_nothing(self, tmp_path):
+        assert DC.report_lines(tmp_path) == []
+        (tmp_path / DC.STATUS_FILE).write_text("x stage=case finished rc=0\n")
+        assert DC.report_lines(tmp_path) == []

@@ -69,9 +69,17 @@ import itself:
     caveats   the constraint records — so a script can read what it must respect
     out_path  where to save the figure
 
-A run supplies df + soil (ELM) or prof (PFLOTRAN); a script must check which
-before using it. All three being None is refused below rather than passed
-through.
+  and for a whole-domain experiment (docs/ELM_DOMAIN_EXPERIMENTS.md):
+
+    reg       its numbers: run | region | variable | year | value | units |
+              how | source, one row per run, region and model year
+    regions   {region: {cells, area_km2, rule}}
+    runs      each run: its name, whether it was reused, and its changes with
+              what each one's difference means and does NOT mean
+
+A run supplies df + soil (ELM columns), prof (PFLOTRAN) or reg (a whole
+domain); a script must check which before using it. All four being None is
+refused below rather than passed through.
 
 A COLUMN MEAN OVER `soil` IS THICKNESS-WEIGHTED, always: ELM's layers span
 1.75 cm to 13.85 m, so an unweighted mean reports the bedrock.
@@ -332,6 +340,9 @@ prof     = _ctx["prof"]
 soil     = _ctx["soil"]
 columns  = _ctx["columns"]
 caveats  = _ctx["caveats"]
+reg      = _ctx.get("reg")
+regions  = _ctx.get("regions") or {{}}
+runs     = _ctx.get("runs") or []
 out_path = {out_path!r}
 
 result = None
@@ -423,11 +434,27 @@ def _payload(ctx) -> Dict[str, Any]:
     # what each was derived from.
     cols = [{k: v for k, v in c.items() if k != "variables"} for c in ctx.columns]
 
+    # A WHOLE-DOMAIN EXPERIMENT'S NUMBERS, by run, region and year, with the
+    # regions' sizes and the runs' changes beside them. getattr, because a
+    # context object older than the frame has no whole-domain output, which
+    # is the same answer as a site run's None.
+    try:
+        reg = ctx.regional() if callable(getattr(ctx, "regional", None)) else None
+    except Exception:                                           # noqa: BLE001
+        reg = None
+    t = (getattr(ctx, "data", None) or {}).get("regional") or {}
+    exp = (getattr(ctx, "plan", None) or {}).get("experiment") or {}
+    runs = [{k: r.get(k) for k in ("run", "reused", "status", "changes")}
+            for r in (exp.get("runs") or []) if isinstance(r, dict)]
+
     return {"df": df,
             "prof": prof,
             "soil": soil,
             "columns": cols,
             "caveats": list(getattr(ctx, "caveats", []) or []),
+            "reg": reg,
+            "regions": dict(t.get("regions") or {}) if isinstance(t, dict) else {},
+            "runs": runs,
             "converted_to_daily": converted}
 
 
@@ -461,11 +488,11 @@ def run(code: str, ctx, out_path, script_path=None,
                 "objections": objections}
 
     payload = _payload(ctx)
-    if all(payload[k] is None for k in ("df", "prof", "soil")):
+    if all(payload.get(k) is None for k in ("df", "prof", "soil", "reg")):
         return {"ok": False,
-                "error": "no tidy frame to run against — the run has no daily "
-                         "series, no soil layers and no depth profiles (or "
-                         "pandas is unavailable)",
+                "error": "no tidy frame to run against: the run has no daily "
+                         "series, no soil layers, no depth profiles and no "
+                         "regional numbers (or pandas is unavailable)",
                 "result": None, "figure": None, "script": code}
 
     tmp = Path(tempfile.mkdtemp(prefix="step2_"))

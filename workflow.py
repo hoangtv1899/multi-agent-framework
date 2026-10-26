@@ -396,6 +396,28 @@ class WorkflowCoordinator:
 				  f"feasible may not be.")
 			return None
 
+	def _domain_rulebook(self, mcp_clients: dict, model: str) -> Optional[dict]:
+		"""A whole-domain study's rulebook: the chosen model server's prepared
+		controls and its change list (docs/ELM_DOMAIN_EXPERIMENTS.md).
+
+		None, said aloud, when either cannot be read: the planner then judges
+		the study without them, and the materialize step asks the server
+		again, so nothing runs on a design that was never checked."""
+		from core.model_servers import describe_domain
+		rb = {}
+		for what in ("controls", "changes"):
+			got = describe_domain(mcp_clients or {}, model, what)
+			if not got.get("offers_whole_domain_experiments"):
+				print(f"⚠️  could not read the whole-domain {what} from {model} "
+					  f"({got.get('why') or got.get('error')}): the planner will "
+					  f"judge this study without them")
+				return None
+			rb[what] = got[what]
+		print(f"✓ whole-domain rulebook from {model}: "
+			  f"{len((rb['controls'] or {}).get('controls') or [])} control(s), "
+			  f"{len((rb['changes'] or {}).get('changes') or [])} change(s)")
+		return rb
+
 	# ═════════════════════════════════════════════════════════
 	# MAIN ENTRY POINT
 	# ═════════════════════════════════════════════════════════
@@ -427,9 +449,16 @@ class WorkflowCoordinator:
 		self.planner.pinning = self._pinning_block(self.mcp_clients, self.model)
 		self.planner.constraints = self._constraints_block(
 			self.mcp_clients, self.model)
+		arche = str(((result or {}).get("brief") or {}).get("design_archetype")
+					or "").strip().lower()
+		self.planner.domain_rulebook = (
+			self._domain_rulebook(self.mcp_clients, self.model)
+			if arche == "whole_domain" else None)
 		plan = self.planner.plan(result)
 		if self.planner.pinning:
 			plan["pinning"] = self.planner.pinning
+		if self.planner.domain_rulebook:
+			plan["domain_rulebook"] = self.planner.domain_rulebook
 		(Path(run_dir) / "strategy.json").write_text(
 			json.dumps(plan, indent=2, default=str))
 		return plan

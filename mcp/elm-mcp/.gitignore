@@ -7,6 +7,12 @@
 # The parent repository does not cover this path, so this is the only guard.
 paths.json
 
+# The prepared whole-domain controls (domain_controls.py): local case and run
+# paths, and the facts read from those runs. domain_controls.json.example is
+# the tracked template.
+domain_controls.json
+domain_control_facts/
+
 # The MCP client registration the README tells you to write. It names your own
 # interpreter and your own directories, so it belongs to the machine, not here.
 .mcp.json

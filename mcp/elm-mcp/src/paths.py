@@ -68,6 +68,12 @@ DATA_PATHS: Dict[str, Tuple[str, str, str]] = {
         "IDEAS_ELM_INPUT_FILES",
         "ELM input-file templates",
     ),
+    "domain_controls": (
+        str(Path(__file__).resolve().parents[1] / "domain_controls.json"),
+        "IDEAS_DOMAIN_CONTROLS",
+        "the prepared whole-domain controls (domain_controls.py): each one's case, "
+        "run, reproduction, regions and gridded observations",
+    ),
 }
 
 # A manifest row: band, lat range, ..., absolute path. Mirrors

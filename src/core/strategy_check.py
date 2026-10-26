@@ -157,8 +157,27 @@ def check(reception: Dict[str, Any],
     # place and a period like a site study, but nothing to sample, so its
     # column count is 1 by definition and its case must be named.
     is_domain = (str(arche).strip().lower() == "whole_domain"
-                 or approach == "whole_domain" or bool(strategy.get("domain_case")))
-    if is_domain:
+                 or approach == "whole_domain" or bool(strategy.get("domain_case"))
+                 or bool(strategy.get("domain_experiment")))
+    if is_domain and strategy.get("domain_experiment") is not None:
+        # AN EXPERIMENT: a control and runs of named changes. Which changes
+        # exist and what they need is the model server's to say
+        # (check_domain_experiment, at materialize); the gate holds only the
+        # shape, and the planner's own verdict.
+        de = strategy.get("domain_experiment")
+        ctl = (de.get("control") if isinstance(de, dict) else None) or {}
+        if not isinstance(de, dict):
+            stop.append("domain_experiment is not an object")
+        elif not isinstance(de.get("runs"), list):
+            stop.append("a whole-domain experiment's runs must be a list: runs that differ "
+                        "from the control by named changes, or none for the control alone")
+        elif not (ctl.get("name") or ctl.get("recipe") or
+                  (ctl.get("from_case") and ctl.get("case"))):
+            stop.append("a whole-domain experiment names no control: a prepared control "
+                        "(control.name), its recipe, or a case to copy under a new name")
+        elif ctl.get("reuse") and not ctl.get("name"):
+            stop.append("a reused control is a prepared one: control.name names it")
+    elif is_domain:
         dc = strategy.get("domain_case") or {}
         if not (isinstance(dc, dict) and (dc.get("recipe") or dc.get("from_case"))):
             stop.append("a whole-domain strategy names no case: domain_case needs a "
@@ -166,6 +185,16 @@ def check(reception: Dict[str, Any],
         elif dc.get("from_case") and not dc.get("case"):
             stop.append("domain_case copies a case (from_case) but names no new case: the "
                         "copy would be the case it copies")
+    if is_domain:
+        # THE VERDICT IS ACTED ON, for a whole-domain study: a planner that says
+        # the question cannot be answered with what the model offers is right
+        # to stop it before any job (docs/ELM_DOMAIN_EXPERIMENTS.md, rule 3).
+        fz = strategy.get("feasibility") or {}
+        if str(fz.get("verdict") or "").strip().lower() == "infeasible":
+            needs = fz.get("requires") or strategy.get("requires") or []
+            stop.append("the planner judged this whole-domain study infeasible: "
+                        + str(fz.get("why") or "no reason given")
+                        + (f" (requires: {'; '.join(map(str, needs))})" if needs else ""))
         if sampling.get("n_columns") != 1:
             if sampling.get("n_columns") is not None:
                 corrections.append(f"n_columns: a whole-domain study is one case, not "
@@ -174,7 +203,8 @@ def check(reception: Dict[str, Any],
             strategy["sampling"] = sampling
 
     # ── STOP conditions ─────────────────────────────────────────────────
-    if not is_sweep and not dom.get("bbox"):
+    # A whole-domain study samples nothing: its domain is its case's grid.
+    if not is_sweep and not is_domain and not dom.get("bbox"):
         stop.append("reception resolved no bbox — there is nowhere to sample")
 
     # A SWEEP STILL NEEDS YEARS, from one of two places: reception resolved a
@@ -184,6 +214,9 @@ def check(reception: Dict[str, Any],
                  and isinstance(period.get("yr_end"), int))
     if not has_years and is_sweep:
         has_years = bool(_sweep_years(sampling))
+    if not has_years and is_domain:
+        de = strategy.get("domain_experiment")
+        has_years = bool(isinstance(de, dict) and de.get("years"))
     if not has_years:
         stop.append("reception resolved no simulation period — the run has no "
                     "years to force")

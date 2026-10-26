@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "Copy to domain_controls.json (not tracked) to name the whole-domain controls",
+    "this machine has. A control is a finished whole-domain run that experiments are",
+    "built on: its case (the recipe is read from it), its run directory (its output),",
+    "how it was shown to reproduce, and the regions and observations prepared for its",
+    "grid. Every path must exist, or the control is listed as unusable and says why.",
+    "",
+    "regions: a polygon (GeoJSON, a cell belongs when its centre is inside) or a field",
+    "on the model grid (a cell belongs when var op value). observations: gridded files",
+    "on the model grid; one whose var is burned_fraction_year (fraction per cell and",
+    "year, with a year axis) gives the control's observed burned area.",
+    "",
+    "Facts are read from the run by refresh_domain_control_facts and cached beside",
+    "this file, in domain_control_facts/<name>.json."
+  ],
+  "controls": {
+    "my_basin": {
+      "description": "one whole-domain ELM-BGC case over my basin, years Y0-Y1",
+      "case_dir": "/path/to/cases/my_basin_control",
+      "run_dir": "/path/to/scratch/my_basin_control/run",
+      "reproduced": {
+        "record_dir": "/path/to/<run>/domain_case (a rebuild's chain record)",
+        "years": [2015, 2016],
+        "fingerprint": "<the rebuild's source fingerprint>",
+        "how": "rebuilt from its own records; every numeric history variable identical"
+      },
+      "regions": {
+        "watershed": {"polygon": "/path/to/basin.geojson",
+                      "what": "the drainage basin above the gauge"}
+      },
+      "observations": {
+        "burned_area": {"path": "/path/to/burned_area_on_the_model_grid.nc",
+                        "var": "burned_fraction_year",
+                        "what": "observed burned fraction per cell and year"}
+      }
+    }
+  }
+}

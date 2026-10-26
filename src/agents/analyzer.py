@@ -77,7 +77,14 @@ class Analyzer:
             ctx = step0_context.load(self.run_dir)
             n_block = sum(1 for c in (ctx.caveats or [])
                           if c.get("severity") == "blocking")
-            self._say(f"✓ step 0  context: {len(ctx.columns)} columns, "
+            if getattr(ctx, "is_domain", False):
+                t = ctx.data.get("regional") or {}
+                scope = (f"a whole-domain experiment, {len(t.get('runs') or {})} run(s), "
+                         f"{len(t.get('regions') or {})} region(s), "
+                         f"{len(t.get('years') or [])} year(s)")
+            else:
+                scope = f"{len(ctx.columns)} columns"
+            self._say(f"✓ step 0  context: {scope}, "
                       f"{len(ctx.caveats or [])} caveats ({n_block} blocking)")
             status["steps"]["context"] = True
         except Exception as e:

@@ -102,6 +102,11 @@ class Planner:
         # from the chosen model's own server; neither is stated in planner.txt
         # any more, because both were ELM's answers written as the framework's.
         self.constraints = constraints
+        # A WHOLE-DOMAIN STUDY'S RULEBOOK, set by the caller for a whole_domain
+        # brief: the model server's prepared controls (with facts measured
+        # from their output) and its change list. Like the two above, the
+        # server's answers, never stated in planner.txt.
+        self.domain_rulebook: Optional[Dict[str, Any]] = None
 
     def plan(self, reception: Dict[str, Any]) -> Dict[str, Any]:
         payload = _summary_for_prompt(reception)
@@ -113,6 +118,13 @@ class Planner:
                        "is the fence referred to above.\n━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                        + json.dumps(self.constraints, indent=1, default=str))
+        if self.domain_rulebook:
+            system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                       "━━━━━━\nWHOLE-DOMAIN RULEBOOK: the prepared controls and "
+                       "the change list,\nfrom the server that will run this "
+                       "study\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                       "━━━━━━━━━━━\n"
+                       + json.dumps(self.domain_rulebook, indent=1, default=str))
         if self.pinning:
             system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━\nPINNING RULES — from the model server that "

@@ -346,12 +346,11 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
     a basin, a variable set, or a station network. A run with no SNOTEL in the
     basin simply carries a caveat saying so, and the model plans around it.
     """
+    if getattr(ctx, "is_domain", False):
+        return domain_brief(ctx, step1)
     plan = ctx.plan or {}
     lo, hi = _elevation_span(ctx)
     period = plan.get("period") or {}
-
-    blocking = [c for c in (ctx.caveats or []) if c.get("severity") == "blocking"]
-    other = [c for c in (ctx.caveats or []) if c.get("severity") != "blocking"]
 
     lines = [
         "THE USER ASKED:",
@@ -382,7 +381,16 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
         "    " + ", ".join(_live_metadata_keys(ctx)),
         "",
     ] + _treatment_labels(ctx)
+    return "\n".join(lines + _brief_tail(ctx, step1))
 
+
+def _brief_tail(ctx, step1: Optional[Dict[str, Any]] = None) -> List[str]:
+    """The half of a brief every study shares: the caveats, the planner's
+    verdict on the design, what the design named and the run lacks, and what
+    the comparison with observations measured."""
+    blocking = [c for c in (ctx.caveats or []) if c.get("severity") == "blocking"]
+    other = [c for c in (ctx.caveats or []) if c.get("severity") != "blocking"]
+    lines: List[str] = []
     if blocking:
         lines.append("BLOCKING CAVEATS — a claim of these kinds must NOT be made:")
         for c in blocking:
@@ -435,8 +443,85 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
                       "(step 1; these are measurements, not verdicts — no",
                       " metric below is a statement that the model is good):",
                       text, ""]
+    return lines
 
-    return "\n".join(lines)
+
+def _span(years) -> str:
+    from agents.analysis.domain_report import span
+    return span(years)
+
+
+def domain_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
+    """The brief for a whole-domain experiment: a control run over a whole
+    prepared domain and, for a what-if question, runs that differ from it by
+    named changes, reported by region and year. Built from ctx alone, like
+    context_brief; what a change means and does not mean is quoted from the
+    model server's change list, never written here."""
+    plan = ctx.plan or {}
+    de = plan.get("experiment") or {}
+    t = (ctx.data or {}).get("regional") or {}
+    model_name = str((ctx.data or {}).get("model") or "model").upper()
+    ctl = de.get("control") or {}
+    years = [int(y) for y in (t.get("years") or de.get("years") or [])]
+    lines = ["THE USER ASKED:",
+             f"    {plan.get('question') or '(no question recorded)'}", "",
+             "THE PLANNER DECOMPOSED THAT INTO:"]
+    for g in (plan.get("goals") or []):
+        lines.append(f"    - {g}")
+    lines += ["", "WHAT THIS EXPERIMENT IS:",
+              f"    One {model_name} case over the whole prepared domain of the control "
+              f"\"{ctl.get('name') or '?'}\", model years {_span(years)}.",
+              ("    The control was REUSED: its existing output was read, and nothing "
+               "was run for it." if ctl.get("reuse") else
+               "    The control was run again from its recorded recipe.")]
+    changed = [r for r in (de.get("runs") or []) if isinstance(r, dict)
+               and not r.get("reused") and (r.get("run") or r.get("name")) != "control"]
+    if changed:
+        lines.append("    Runs that differ from the control by named changes, and what "
+                     "each difference means, as the model's server states it:")
+        for r in changed:
+            name = r.get("run") or r.get("name")
+            ch = r.get("changes") or []
+            what = ", ".join(str(c.get("id")) + (" " + ", ".join(
+                f"{k} {v}" for k, v in (c.get("params") or {}).items())
+                if c.get("params") else "") for c in ch) or "no change"
+            lines.append(f"      run {name}: the control with {what}"
+                         + (f" (status {r.get('status')})" if r.get("status") else ""))
+            for c in ch:
+                if c.get("meaning"):
+                    lines.append(f"          {c.get('id')} MEANS: {c['meaning']}")
+                if c.get("not_meaning"):
+                    lines.append(f"          it does NOT mean: {c['not_meaning']}")
+    else:
+        lines.append("    No run differs from the control: the question is about the "
+                     "control itself, its years against each other.")
+    lines += ["", "REGIONS (where the numbers are reported; every one is restricted to "
+                  "the vegetated cells):"]
+    for reg, info in (t.get("regions") or {}).items():
+        lines.append(f"    {reg}: {info.get('cells')} cells, {info.get('area_km2')} km2 "
+                     f"({info.get('rule')})")
+    ev = t.get("event") or {}
+    if ev.get("normal_years"):
+        lines += ["", f"NORMAL YEARS (the planner's, for a question about an event): "
+                      f"{_span(ev['normal_years'])}; the years compared with them: "
+                      f"{', '.join(str(y) for y in ev.get('target_years') or [])}."]
+    lines += ["", "VARIABLES IN `reg` (name, units, how a year's value is made):"]
+    fields: Dict[str, Dict[str, Any]] = {}
+    for r in (t.get("runs") or {}).values():
+        for v, meta in ((r or {}).get("fields") or {}).items():
+            fields.setdefault(v, meta or {})
+    for v, meta in fields.items():
+        how = "total over the year" if meta.get("how") == "sum" else "mean over the year"
+        lines.append(f"    {v:16s} {str(meta.get('units')):16s} {how}")
+        if meta.get("note"):
+            lines.append(f"    {'':16s} NOTE: {str(meta['note'])[:300]}")
+    for name, ob in (t.get("observed") or {}).items():
+        lines.append(f"    {name:16s} {str(ob.get('units')):16s} total over the year: the "
+                     f"observed {ob.get('what') or name} (run \"observed\", source "
+                     f"\"observation\": {ob.get('source')}) and each run's own (source "
+                     f"\"model\", from {ob.get('model_field')})")
+    lines.append("")
+    return "\n".join(lines + _brief_tail(ctx, step1))
 
 
 TASK = f"""\
@@ -458,7 +543,8 @@ Rules:
     cannot be addressed by this experiment, say so in `notes` and propose only
     what can.
   - Report as-is. No interpretation drawn on the figure, no titles that state a
-    conclusion. Axis labels >= 16pt, tick labels >= 13pt.
+    conclusion, and no caveat, note or other sentence written on the plot:
+    caveats travel in the records. Axis labels >= 16pt, tick labels >= 13pt.
   - Sanity-check magnitudes before saving. An annual flux in a mountain
     watershed is order 10-2000 mm/yr and a fraction is between 0 and 1. If your
     numbers land orders of magnitude outside that, something is wrong — say so
@@ -501,6 +587,83 @@ Return ONLY JSON:
 """
 
 
+# THE SAME JOB FOR A WHOLE DOMAIN (docs/ELM_DOMAIN_EXPERIMENTS.md, step 5b).
+# Not a column ensemble: one case over a prepared domain, reported by region
+# and year, so a regional total is the answer rather than a sum the brief must
+# forbid; and a run's difference from the control means exactly what the
+# server's change list says it means, which the brief quotes.
+DOMAIN_TASK = f"""\
+You are an earth-system scientist analysing this whole-domain experiment of the
+model named in the brief above: a control run and, for a what-if question, runs
+that differ from it by named changes, reported by region and year. Decide which
+figures answer what the user asked, and write the code that draws them.
+
+Report at TWO scales:
+  1. overall: the domain as a whole (its largest region) through the years,
+     with each run against the control, or each year against the normal years.
+  2. regions: where in the domain the answer differs (the elevation bands, a
+     watershed). A region that departs from the domain-wide pattern is usually
+     the interesting result.
+
+Rules:
+  - At most {MAX_PLOTS} figures. Fewer is correct if the experiment supports
+    fewer; say why in `notes` rather than padding to {MAX_PLOTS}.
+  - Do not propose anything a blocking caveat forbids. A run's difference from
+    the control means what WHAT THIS EXPERIMENT IS says it means, and never
+    what it says it does NOT mean. If the question cannot be addressed by this
+    experiment, say so in `notes` and propose only what can.
+  - Report as-is. No interpretation drawn on the figure, no titles that state a
+    conclusion, and no caveat, note or other sentence written on the plot:
+    caveats travel in the records. Axis labels >= 16pt, tick labels >= 13pt.
+  - Region and variable names are long. Give every label room: rotate the
+    ticks, wrap them, or move them into a legend. Two labels that overlap are
+    two labels nobody can read.
+  - The values in `reg` are already annual: a total over the year or a mean
+    over it, per region, as the catalog says. Do not rescale them. Compute a
+    difference between runs, or a year against the normal years, from `reg`.
+  - A "mean over the year" is a stock. Label a difference in it as a
+    difference in the stock, never as an amount removed or added that year.
+
+Each figure's `code` is a Python snippet run with these already bound:
+    reg       tidy frame: run | region | variable | year | value | units | how |
+              source. One row per run, region, variable and model year; `run`
+              is "control" or a run's name, and an observation's rows have run
+              "observed" and source "observation".
+    regions   dict: region name -> {{"cells", "area_km2", "rule"}}
+    runs      list of runs: {{"run", "reused", "status", "changes": [{{"id",
+              "params", "meaning", "not_meaning"}}]}}
+    caveats   the caveat records
+    plt, np, pd, out_path
+    df, prof and soil are None for this experiment: do not use them.
+It MUST save the figure to out_path, and MUST assign a dict named `result`
+containing the numbers it plotted plus an integer `n` = how many data points
+(region-years, or run-region-years) the figure rests on. A result with n below
+3, or with no n, is rejected.
+
+Return ONLY JSON:
+{{"reasoning": "<2-5 sentences: which of this model's variables and regions you
+                decided answer what the user asked, and why those and not
+                others. Name anything you considered computing and rejected,
+                with the reason. This is read by the reviewer, so say what you
+                actually decided rather than restating the question.>",
+  "notes": "<what you could and could not address, and why>",
+  "figures": [
+    {{"id": "snake_case_name",
+      "question": "<the question this figure answers>",
+      "why": "<one sentence: what this figure adds that the others do not>",
+      "scale": "overall" | "regions",
+      "variables": ["variable names used, as `reg` holds them"],
+      "code": "<python>"}}
+  ]}}
+"""
+
+
+def task_for(ctx) -> str:
+    """The task a study's brief is followed by: the whole-domain one for a
+    whole-domain experiment, the column one otherwise."""
+    return DOMAIN_TASK if getattr(ctx, "is_domain", False) else TASK
+
+
 # ─────────────────────────────────────────────────────────────────────
 # PROPOSE + EXECUTE
 # ─────────────────────────────────────────────────────────────────────
@@ -541,7 +704,7 @@ def propose(ctx, step1=None, model: str = DEFAULT_MODEL,
         from agents.llm_agent import SimpleLLMClient
         client = SimpleLLMClient(model=model)
         client.label = "step2_investigate"      # so step 4 can attribute the spend
-    prompt = context_brief(ctx, step1) + "\n" + TASK
+    prompt = context_brief(ctx, step1) + "\n" + task_for(ctx)
     if feedback:
         prompt += ("\n\nA PREVIOUS ROUND OF THESE FIGURES WAS REVIEWED AND "
                    "JUDGED INSUFFICIENT. Address this and propose a revised "

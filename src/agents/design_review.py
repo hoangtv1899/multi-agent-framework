@@ -77,6 +77,68 @@ def _domain_line(brief):
     return ", ".join(bits)
 
 
+def _whole_domain_lines(brief, strategy):
+    """A control and runs of named changes (docs/ELM_DOMAIN_EXPERIMENTS.md),
+    every line quoted or counted from the records: the experiment Reception
+    settled, the analysis the planner chose, and the server's rulebook the
+    plan was made under (strategy.domain_rulebook), which says what each
+    change means and does not mean."""
+    de = dict(brief.get("domain_experiment") or {})
+    de.update(strategy.get("domain_experiment") or {})
+    rb = strategy.get("domain_rulebook") or {}
+    menu = {c.get("id"): c for c in ((rb.get("changes") or {}).get("changes") or [])}
+    ctl = de.get("control") or {}
+    row = next((c for c in ((rb.get("controls") or {}).get("controls") or [])
+                if c.get("name") == ctl.get("name")), {})
+    facts = row.get("facts") or {}
+    out = [f"- the control: **{ctl.get('name', '?')}**"
+           + ("; reused, so its existing output is compared and nothing is spent on it"
+              if ctl.get("reuse") else "; run again from its recipe")
+           + (f"; it is {_trim(row.get('description'), 170)}" if row.get("description")
+              else "")]
+    oy = facts.get("output_years") or []
+    if oy:
+        out.append(f"- its output covers {oy[0]}–{oy[-1]}, from the saved state of "
+                   f"{facts.get('start_year')}")
+    runs = de.get("runs") or []
+    if not runs:
+        out.append("- no run differs from the control: its output is read as it is, "
+                   "at no cost")
+    for r in runs:
+        ch = r.get("changes") or []
+        out.append(f"- run **{r.get('name')}**: the control with "
+                   + (", ".join(c.get("id", "?") + (f" {json.dumps(c['params'])}"
+                                                    if c.get("params") else "")
+                                for c in ch) or "no change"))
+        for c in ch:
+            m = menu.get(c.get("id")) or {}
+            if m.get("meaning"):
+                out.append(f"  - {c.get('id')} means {_trim(m['meaning'], 160)}; it is "
+                           f"NOT {_trim(m.get('not_meaning'), 160)}")
+    years = de.get("years") or []
+    n_exec = len(runs) + (0 if ctl.get("reuse") else 1)
+    hp = facts.get("hours_per_model_year")
+    if years:
+        out.append(f"- {len(years)} model year(s), {years[0]}–{years[-1]}, for "
+                   f"{n_exec} run(s) to execute"
+                   + (f": about {round(n_exec * len(years) * hp, 1)} node-hours"
+                      if hp else ""))
+    an = de.get("analysis") or {}
+    if an.get("regions"):
+        out.append("- reported over: " + "; ".join(
+            str(x.get("name")) + (f" ({_trim(x.get('why'), 90)})" if x.get("why") else "")
+            for x in an["regions"][:5]))
+    if an.get("normal_years"):
+        out.append(f"- compared with the normal years {an['normal_years']}")
+    for cv in (de.get("caveats") or [])[:3]:
+        out.append(f"- caveat: {_trim(cv, 200)}")
+    if runs:
+        out.append("- each run's settings are compared with the control's before its "
+                   "model is built, and each change's rule on the output is checked "
+                   "every year")
+    return out
+
+
 def _design_lines(brief, strategy):
     """The archetype-specific middle: what will actually be built."""
     arch = str(brief.get("design_archetype")
@@ -113,6 +175,8 @@ def _design_lines(brief, strategy):
         out.append("- nothing is fetched: domain, grid, observations and rain "
                    "are carried from the prior run's record")
         return "coupling follow-up", out
+    if arch == "whole_domain":
+        return "whole-domain experiment", _whole_domain_lines(brief, strategy)
     # site
     sm = strategy.get("sampling") or {}
     if sm.get("approach"):
@@ -207,11 +271,23 @@ def render(reception, strategy, run_name="this run"):
             L.append(f"- data gap: {_trim(item, 200)}")
         L.append("")
     L.append("## What happens next")
-    L.append("The Experiment Manager re-checks this design against the data "
-             "record before any compute (it stops on a design that cannot be "
-             "placed and records what it corrects), then builds real columns "
-             "and runs them. Declining here costs nothing — the records above "
-             "stay on disk.")
+    if str(brief.get("design_archetype") or strategy.get("archetype") or "") \
+            .lower() == "whole_domain":
+        L.append("The Experiment Manager has the model's server check this "
+                 "experiment against its change list and the control's facts, "
+                 "and the input set, before any compute; then each run is built "
+                 "as its own case and run as a chain of one-year jobs, each year "
+                 "checked before the next starts. When the chains end, the numbers "
+                 "by region and year are written from the runs' own records, and "
+                 "the Analyzer interprets them against the question, under the "
+                 "caveats above. Declining here costs nothing: the records above "
+                 "stay on disk.")
+    else:
+        L.append("The Experiment Manager re-checks this design against the data "
+                 "record before any compute (it stops on a design that cannot be "
+                 "placed and records what it corrects), then builds real columns "
+                 "and runs them. Declining here costs nothing — the records above "
+                 "stay on disk.")
     L.append("")
     L.append("---")
     L.append(_PENDING)

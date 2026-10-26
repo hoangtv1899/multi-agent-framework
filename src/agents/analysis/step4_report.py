@@ -280,6 +280,43 @@ def _compute_accounting(run_dir) -> Dict[str, Any]:
     return {}
 
 
+def _domain_compute(ctx) -> Dict[str, Any]:
+    """A whole-domain experiment's compute, as its chains recorded it.
+
+    Not RUN_SUMMARY and not job A: a whole-domain experiment is one chain of
+    one-year jobs per executed run, and each chain's report stage read every
+    job's elapsed time back from the scheduler into its STATUS.log, which the
+    manager packaged as chain.compute. A reused control spent nothing, and
+    the record says so rather than leaving a zero to be read as a fast run.
+    """
+    ch = (ctx.data or {}).get("chain") or {}
+    c = ch.get("compute") or {}
+    return {"source": "experiment.json chain.compute (each chain's report stage, "
+                      "read from the scheduler)",
+            "runs": {r: (v or {}).get("seconds") for r, v in (c.get("runs") or {}).items()},
+            "model_seconds": c.get("seconds"),
+            "control": c.get("control"),
+            "note": c.get("note"),
+            "years_planned": ch.get("years_planned"),
+            "years_passed": ch.get("years_passed"),
+            "first_unpassed": ch.get("first_unpassed"),
+            "ensemble": None}
+
+
+def scope_line(report: Dict[str, Any]) -> str:
+    """What the run covered, in one line: columns for a sampled study; years,
+    runs and model time for a whole-domain experiment."""
+    comp = ((report.get("cost") or {}).get("compute") or {})
+    if report.get("kind") == "whole_domain":
+        runs = comp.get("runs") or {}
+        return (f"years passed {comp.get('years_passed')} of {comp.get('years_planned')}; "
+                f"{len(runs)} run(s) executed"
+                + (f", {comp.get('model_seconds')} s of model time" if runs else "")
+                + ("; the control reused" if comp.get("control") else ""))
+    return (f"{comp.get('columns_succeeded')} of {comp.get('columns_total')} "
+            f"columns succeeded")
+
+
 # ─────────────────────────────────────────────────────────────────────
 # WHAT KIND OF RESULT THIS IS
 # ─────────────────────────────────────────────────────────────────────
@@ -325,6 +362,11 @@ def _status(steps: Optional[Dict[str, Any]],
     if verdict != "sufficient":
         return INSUFFICIENT
     return SUPPORTED if n_claims else NO_CLAIMS
+
+
+def _domain_report_name(run_dir) -> Optional[str]:
+    from agents.analysis.domain_report import REPORT_MD as DOMAIN_MD
+    return DOMAIN_MD if (Path(run_dir) / "04_analysis" / DOMAIN_MD).is_file() else None
 
 
 def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
@@ -377,6 +419,13 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         # WHICH MODEL RAN, from the package: the deck's title and any reader
         # branching on it read this rather than assume (2026-08-18).
         "model": (ctx.data or {}).get("model"),
+        # WHICH KIND OF RUN: "whole_domain" for one case over a whole domain,
+        # whose scope is years and runs rather than columns. None otherwise.
+        "kind": (ctx.data or {}).get("kind"),
+        # ITS NUMBERS BY REGION AND YEAR, written from the records before the
+        # Analyzer ran (agents.analysis.domain_report). None otherwise.
+        "domain_report": (_domain_report_name(run_dir)
+                          if getattr(ctx, "is_domain", False) else None),
         # WHAT KIND OF RESULT THIS IS, before what it says. A reader — or a
         # mailer, or a dashboard — that branches on `verdict` alone cannot tell
         # a crash from a conclusion, because a crash has no verdict at all.
@@ -454,8 +503,9 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
             # not the science. They were one field called
             # `total_runtime_seconds` and it reported the second while reading
             # as the first.
-            "compute": {**_compute_accounting(run_dir),
-                        "ensemble": _slurm_elapsed(run_dir) or None},
+            "compute": (_domain_compute(ctx) if getattr(ctx, "is_domain", False) else
+                        {**_compute_accounting(run_dir),
+                         "ensemble": _slurm_elapsed(run_dir) or None}),
         },
     }
 
@@ -570,11 +620,15 @@ def render_markdown(report: Dict[str, Any]) -> str:
               f"{prov.get('stopped_because')}",
               f"- audit: {(prov.get('audit') or {}).get('n_claims')} claims made, "
               f"{(prov.get('audit') or {}).get('n_struck')} struck",
-              f"- columns: {comp.get('columns_succeeded')} of "
-              f"{comp.get('columns_total')} succeeded",
+              (f"- {scope_line(report)}" if report.get("kind") == "whole_domain" else
+               f"- columns: {comp.get('columns_succeeded')} of "
+               f"{comp.get('columns_total')} succeeded"),
               f"- model calls in the Analyzer: {llm.get('calls', 'not measured')}",
               "", "*Values are shown to 3 significant figures; the exact "
               "measured values are in analysis.json beside this file.*", ""]
+    if report.get("domain_report"):
+        lines[-3:-3] = [f"- the numbers by region and year, written from the records "
+                        f"before this analysis: {report['domain_report']}"]
     return "\n".join(lines)
 
 
@@ -644,9 +698,10 @@ def summary(report: Dict[str, Any]) -> str:
          f"llm      : {llm.get('calls')} calls, "
          f"{(llm.get('prompt_tokens') or 0) + (llm.get('completion_tokens') or 0)} "
          f"tokens, {llm.get('seconds')} s"),
-        f"compute  : {(comp.get('ensemble') or {}).get('elapsed') or '?'} "
-        f"({(comp.get('ensemble') or {}).get('job_id') or 'no job id'}) over "
-        f"{comp.get('columns_succeeded')}/{comp.get('columns_total')} columns",
+        (f"compute  : {scope_line(report)}" if report.get("kind") == "whole_domain" else
+         f"compute  : {(comp.get('ensemble') or {}).get('elapsed') or '?'} "
+         f"({(comp.get('ensemble') or {}).get('job_id') or 'no job id'}) over "
+         f"{comp.get('columns_succeeded')}/{comp.get('columns_total')} columns"),
     ]
     for step, u in sorted(((cost.get("llm") or {}).get("by_step") or {}).items()):
         lines.append(f"    {step:20s} {u['calls']} calls  "

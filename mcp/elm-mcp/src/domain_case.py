@@ -74,6 +74,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 LOCALE = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
 RECIPE_FILE, CHAIN_FILE, STATUS_FILE = "domain_recipe.json", "chain.json", "STATUS.log"
 CASE_SCRIPT, STAGE_SCRIPT = "create_case.sh", "run_stage.sh"
+# A run of an experiment: what its jobs check against its control
+# (domain_changes.expectations), frozen into the record at arming.
+EXPECT_FILE = "expectations.json"
 # Settings changed per stage by the chain itself, never part of a recipe.
 RUN_CONTROL = {"CONTINUE_RUN", "STOP_OPTION", "STOP_N", "STOP_DATE", "REST_OPTION", "REST_N",
                "RESUBMIT"}
@@ -622,7 +625,8 @@ def case_stage_record(record_dir, job: str, rc: int, srcroot) -> Path:
 
 def write_stage_script(recipe: Recipe, record_dir, *, smoke_days: int = 5,
                        reference: Optional[Reference] = None,
-                       python: str = sys.executable) -> Path:
+                       python: str = sys.executable,
+                       expect: Optional[Dict] = None) -> Path:
     """The job script every stage of the chain runs: run_stage.sh <stage> [args].
 
     Stages: case (create and build, with its own check record), smoke
@@ -635,6 +639,13 @@ def write_stage_script(recipe: Recipe, record_dir, *, smoke_days: int = 5,
     The case script's sha256 is written into this script, which SLURM keeps
     as it was at submission: a case script changed after the chain was armed
     is refused by the case stage.
+
+    A RUN OF AN EXPERIMENT passes `expect` (domain_changes.expectations): it is
+    written to expectations.json beside the scripts, its sha256 frozen here
+    too, and two checks hold the run to its changes. The case stage compares
+    the run's resolved namelists with its control's before building the model
+    (run_gate.py settings); every year stage checks the changes' output rules
+    (run_gate.py year --expect).
     """
     rd = Path(record_dir)
     if re.search(r"\s", str(rd)):
@@ -644,6 +655,19 @@ def write_stage_script(recipe: Recipe, record_dir, *, smoke_days: int = 5,
     (rd / "checks").mkdir(parents=True, exist_ok=True)
     case_script = rd / CASE_SCRIPT
     case_sha = sha256(case_script) if case_script.is_file() else "none"
+    expect_sha, expect_args, settings = "none", "", ":"
+    if expect is not None:
+        if not expect.get("control_case_dir"):
+            raise DomainCaseError("a run's expectations name no control_case_dir to "
+                                  "compare its settings with")
+        _write_json(rd / EXPECT_FILE, expect)
+        expect_sha = sha256(rd / EXPECT_FILE)
+        expect_args = f' --expect "$REC/{EXPECT_FILE}"'
+        settings = (f'expect_ok && {{ "$PY" "$GATE" settings --case-dir "$CASEDIR" '
+                    f'--control-case-dir {_q(expect["control_case_dir"])} '
+                    f'--expect "$REC/{EXPECT_FILE}" --job "${{SLURM_JOB_ID:-none}}" '
+                    f'--out "$REC/checks" --status "$REC/{STATUS_FILE}" --stage settings '
+                    f'|| note $?; }}')
     s0 = recipe.start
     first = f"{recipe.first_year:04d}"
     ref = ""
@@ -669,7 +693,7 @@ set -uo pipefail
 export {" ".join(f"{k}={v}" for k, v in LOCALE.items())}
 STAGE=$1; shift
 REC={_q(rd)}; CASEDIR={_q(recipe.case_dir)}; PY={_q(python)}; GATE={_q(RUN_GATE)}
-CASE_SCRIPT_SHA256={case_sha}
+CASE_SCRIPT_SHA256={case_sha}; EXPECT_SHA256={expect_sha}
 log() {{ echo "$(date '+%F %T') job=${{SLURM_JOB_ID:-none}} stage=$STAGE $*" >> "$REC/{STATUS_FILE}"; }}
 log "started on $(hostname) case={recipe.case}"
 rc=0
@@ -677,6 +701,9 @@ note() {{ [ "$rc" -eq 0 ] && rc=$1; return 0; }}      # keep the first failure
 model() {{ ./xmlchange "$1" && ./case.submit --no-batch; }}
 gate() {{ "$PY" "$GATE" "$@" --case-dir "$CASEDIR" --run-dir "$RUNDIR" --job "${{SLURM_JOB_ID:-none}}" \\
            --out "$REC/checks" --status "$REC/{STATUS_FILE}" --stage "$STAGE" || note $?; }}
+expect_ok() {{ [ "$EXPECT_SHA256" = none ] && return 0
+              echo "$EXPECT_SHA256  $REC/{EXPECT_FILE}" | sha256sum -c - >/dev/null 2>&1 && return 0
+              log "FAILED $REC/{EXPECT_FILE} is not the file this chain was armed with"; note 3; return 1; }}
 into_case() {{ cd "$CASEDIR" || {{ log "FAILED no case dir $CASEDIR"; exit 2; }}
               RUNDIR=$(./xmlquery RUNDIR --value) || {{ log "FAILED xmlquery RUNDIR"; exit 2; }}; }}
 case $STAGE in
@@ -684,6 +711,7 @@ case $STAGE in
               log "FAILED $REC/{CASE_SCRIPT} is not the script this chain was armed with"; note 3
           else
               bash "$REC/{CASE_SCRIPT}" || note $?
+              if [ "$rc" -eq 0 ]; then {settings}; fi
               if [ "$rc" -eq 0 ]; then (cd "$CASEDIR" && ./case.build) || note $?; fi
           fi
           log "$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import domain_case as D; D.case_stage_record(*sys.argv[2:6])' {_q(src_mod)} "$REC" "${{SLURM_JOB_ID:-none}}" "$rc" {_q(recipe.srcroot)} 2>&1 | tail -1)" ;;
@@ -700,7 +728,8 @@ case $STAGE in
           fi
           REF=()
           {ref}
-          gate year --year "$Y" ${{REF[@]+"${{REF[@]}}"}} ;;
+          expect_ok
+          gate year --year "$Y" ${{REF[@]+"${{REF[@]}}"}}{expect_args} ;;
   report) for j in "$@"; do
               sacct -j "$j" -X -n -P -S "$(date -d '{SACCT_LOOKBACK_DAYS} days ago' +%F)" \\
                     -o JobID,JobName,State,Elapsed,ExitCode | \\
@@ -877,7 +906,8 @@ def read_chain(record_dir) -> Dict:
     return d
 
 
-def submit_chain(jobs: List[Job], record_dir, run: Callable = None) -> Dict:
+def submit_chain(jobs: List[Job], record_dir, run: Callable = None,
+                 after_job: Optional[str] = None) -> Dict:
     """sbatch the chain in order. A record of this arming (a segment of
     chain.json, kept beside any earlier ones).
 
@@ -887,6 +917,10 @@ def submit_chain(jobs: List[Job], record_dir, run: Callable = None) -> Dict:
     which it did not. chain.json is replaced atomically after every job, so a
     queued job is never left unrecorded by a half-written file. A record on a
     node-local filesystem is refused before anything is submitted.
+
+    after_job: a job outside this chain the first job must also wait for
+    (afterok), such as the case job of the control a run of an experiment
+    compares its settings with.
     """
     run = run or _run
     rd = Path(record_dir)
@@ -896,10 +930,14 @@ def submit_chain(jobs: List[Job], record_dir, run: Callable = None) -> Dict:
     local = node_local(rd)
     if local:
         raise DomainCaseError(local)
+    if after_job is not None and not str(after_job).isdigit():
+        raise DomainCaseError(f"after_job {after_job!r} is not a job id")
     chain = read_chain(rd) if (rd / CHAIN_FILE).is_file() else {"segments": []}
     seg: Dict = {"record_dir": str(rd), "script": str(script),
                  "armed": datetime.datetime.now().isoformat(timespec="seconds"),
                  "jobs": [], "ok": False}
+    if after_job:
+        seg["after_job"] = str(after_job)
     chain["segments"].append(seg)
     by_stage: Dict[str, str] = {}
 
@@ -927,8 +965,10 @@ def submit_chain(jobs: List[Job], record_dir, run: Callable = None) -> Dict:
                 ids = list(by_stage.values())
                 argv += [f"--dependency=afterany:{':'.join(ids)}"] if ids else []
                 extra = ids
-            elif j.after:
-                argv += [f"--dependency=afterok:{by_stage[j.after]}", "--kill-on-invalid-dep=yes"]
+            elif j.after or (after_job and not by_stage):
+                deps = ([str(after_job)] if after_job and not by_stage else []) + \
+                    ([by_stage[j.after]] if j.after else [])
+                argv += [f"--dependency=afterok:{':'.join(deps)}", "--kill-on-invalid-dep=yes"]
             rc, out, err = run(argv + [str(script), j.stage] + extra)
             jid = out.strip().split(";")[0] if rc == 0 else ""
             if not jid.isdigit():
@@ -1046,6 +1086,35 @@ def chain_records(record_dir) -> Dict:
             if chain["segments"] else None, "segments": len(chain["segments"]),
             "stages": rows, "years_planned": planned, "years_passed": years,
             "first_unpassed": first}
+
+
+_REPORT_LINE = re.compile(r"\bREPORT (\S+) job=(\S+) state=(\S+) elapsed=(\S+) exit=(\S+)")
+
+
+def report_lines(record_dir) -> List[Dict]:
+    """The report stage's account of every job (the sacct lines it wrote into
+    STATUS.log): name, job id, state, elapsed and its seconds, exit code. []
+    before the report stage has run. A job reported more than once (a re-armed
+    chain) keeps its last line."""
+    p = Path(record_dir) / STATUS_FILE
+    if not p.is_file():
+        return []
+    out: Dict[str, Dict] = {}
+    for line in p.read_text().splitlines():
+        m = _REPORT_LINE.search(line)
+        if not m:
+            continue
+        name, job, state, el, ex = m.groups()
+        secs = None
+        try:
+            d, _, hms = el.rpartition("-")
+            h, mi, se = (int(x) for x in hms.split(":"))
+            secs = int(d or 0) * 86400 + h * 3600 + mi * 60 + se
+        except ValueError:
+            pass
+        out[job] = {"name": name, "job_id": job, "state": state, "elapsed": el,
+                    "seconds": secs, "exit": ex}
+    return list(out.values())
 
 
 def chain_status(record_dir, run: Callable = None) -> Dict:
