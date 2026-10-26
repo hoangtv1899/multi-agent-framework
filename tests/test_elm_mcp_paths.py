@@ -76,6 +76,15 @@ class TestItFailsLoudly:
         assert src == "default", "a typo must not be indistinguishable from absence"
         assert "paths.json is unreadable" in capfd.readouterr().out
 
+    def test_a_missing_controls_registry_is_reported_as_optional(self, monkeypatch,
+                                                                 tmp_path):
+        # a machine with no prepared whole-domain control is still ready
+        monkeypatch.setenv("IDEAS_DOMAIN_CONTROLS", str(tmp_path / "none.json"))
+        d = P.describe("domain_controls")
+        assert d["present"] is False and d["optional"] is True
+        assert "no prepared control" in d["note"]
+        assert "optional" not in P.describe("conus_surfdata")
+
     def test_a_missing_path_says_so(self, monkeypatch):
         monkeypatch.setenv("IDEAS_CONUS_SURFDATA", "/nope/not/here")
         d = P.describe("conus_surfdata")

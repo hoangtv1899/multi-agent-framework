@@ -76,6 +76,15 @@ DATA_PATHS: Dict[str, Tuple[str, str, str]] = {
     ),
 }
 
+# Paths a machine may lack and still be ready: reported, with this note, but
+# left out of describe_elm_capabilities' missing requirements. A machine with
+# no controls registry has no prepared whole-domain control (domain_controls.py
+# says the same); every other tool works.
+OPTIONAL = {
+    "domain_controls": "only whole-domain experiments read it; without it this machine "
+                       "has no prepared control, and every other tool works",
+}
+
 # A manifest row: band, lat range, ..., absolute path. Mirrors
 # make_warmstart.py's _MANIFEST_ROW — if that changes, this must too.
 _MANIFEST_ROW = re.compile(r"^(lat\d+)\s+(\d+)-(\d+)N\s+\S+\s+\S+\s+(/\S+)")
@@ -160,6 +169,9 @@ def describe(name: str, override: Optional[str] = None) -> Dict[str, Any]:
         "override_with": {"argument": name, "env": env_var,
                           "file": f"{PATHS_FILE.name} key {name!r}"},
     }
+    if name in OPTIONAL:
+        info["optional"] = True
+        info["note"] = OPTIONAL[name]
     if not exists:
         info["error"] = "does not exist"
         return info
