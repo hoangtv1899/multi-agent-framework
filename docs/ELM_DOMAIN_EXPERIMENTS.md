@@ -79,7 +79,7 @@ The first list:
 | `ndep_year` | `stream_year_first_ndep` and `_last_ndep` (the control: 2000) | yes |
 | `nutrient_supplement` | `suplnitro`, `suplphos` (the control: NONE, ALL) | yes |
 | `weather_repeat_year` | which forcing year each model year reads | no: piece 4b |
-| `weather_scale` | rain, snow or temperature scaled in the forcing | no: piece 4b |
+| `weather_scale` | an added temperature and a precipitation factor, by month and cell, through the data atmosphere's anomaly forcing | yes |
 | `burn_footprint` | a burn imposed on chosen cells on a chosen date | no: a later piece |
 | `parameter_value` | one value in the parameter file | no: a later piece |
 
@@ -87,6 +87,12 @@ Setting-only changes go into the run's recipe (`user_nl` lines or XML settings)
 and need nothing new to run. Their meaning is checked twice: in the case stage,
 the run's resolved namelists must differ from the control's only by the change;
 after each year, the output checks must hold.
+
+A change that cannot be written as a setting writes files for its run
+(`alters: [{"inputs": <writer>}]`). `build_run` writes them into the run's
+inputs folder before the recipe is made; the recipe then carries the user_nl
+lines and user files that read them, and the writer adds its own checks.
+`weather_scale` is the first (see "A run's own weather" below).
 
 ### A control's facts
 
@@ -190,8 +196,78 @@ analyzer     the LLM Analyzer on the same records: step 0's regional frame, the
 | 5 | framework: the regional numbers (5a), the report rendered from them (5b, option b) and the LLM Analyzer on the same rows (5b, option a) | offline on the Naches control's output: the hand analysis's numbers and headline; one live Analyzer run |
 | 6 | proof: a fire-off twin of the Naches, 2015-2016, against the reused control | real jobs, asked for first |
 
-Out of scope here: weather changes (piece 4b), an imposed burn, and input sets
-for a new watershed.
+Out of scope here: the rest of the weather tool (a repeated forcing year and a
+lapse rate, piece 4b), an imposed burn, and input sets for a new watershed.
+
+---
+
+## A run's own weather (piece 4b, first part: `weather_scale`)
+
+The part of E3SM that hands recorded weather to the land model, the data
+atmosphere (DATM), can add a fixed amount to the air temperature and multiply
+the precipitation, cell by cell and at every model step, after the recorded
+weather has been mapped onto the model's cells (E3SM maint-2.0,
+`datm_comp_mod.F90`; E3SM calls this anomaly forcing). `weather_scale` uses it,
+so no forcing file is copied or rewritten. `domain_weather.py` writes, for each
+run:
+
+| File | What it holds |
+|---|---|
+| `weather/weather_anomaly_<checksum>.nc` | the amount added to the temperature (`tas`, K) and the precipitation factor (`pr`), one record per month at the month's first instant, from the year before the run's first to the year after its last; the change in the chosen months and active cells, 0 and 1 elsewhere; the domain file's own `xc`, `yc`, `area` and `mask`. Named by its content, so building a run again never overwrites a file a chain reads |
+| `weather/user_datm.streams.txt.Anomaly.Forcing.Temperature`, `...Precip` | the stream file through which DATM reads each changed field; the anomaly file describes its own grid |
+| `user_nl_datm` lines | `anomaly_forcing` naming the streams, and `tintalgo` as the control's list with `lower` for each stream |
+
+Six facts of DATM and CIME fix this shape, each read in the code:
+
+- the anomaly streams' years are 2006-2300, with the data year equal to the
+  model year (`namelist_definition_datm.xml`), and DATM reads no record dated
+  before 1 January 2006; the first year's January value takes effect just
+  before that year begins (the lead, below), and the last time DATM is called
+  in a year's job is 00:00 on 1 January after the run's last year, so a run's
+  years must lie in 2007-2299;
+- a stream's record spacing may vary by at most `dtlimit` (1.5), so the
+  records are monthly, and with `lower` interpolation each moment takes its
+  own month's record (CIME's default for these streams is `nearest`, which
+  would give the second half of every month the next month's record);
+- the file's cells are the model's to well within DATM's 0.01 degrees, so DATM
+  maps nothing (`shr_strdata_mod.F90`) and each cell takes its own value; only
+  active cells (domain mask 1) are changed, and a change that reaches none is
+  refused;
+- CIME copies a user stream file into the case unchanged (`CIME/nmlgen.py`);
+- each land step takes the weather DATM computed at the step's start (the
+  driver runs the land, then the atmosphere, after each clock advance:
+  `cime_comp_mod.F90`), and DATM moves to the next pair of records only when
+  the time is strictly past the later one (`shr_dmodel_readLBUB`). With
+  records at midnight, the step that starts at 00:00 on the 1st would keep the
+  previous month's value, so each stream file moves its records 60 s earlier
+  (the lead, written as the stream's `<offset>`). `tests/test_domain_weather.py`
+  replays these rules step by step on the written files, and the proof found
+  1 June and 1 September exact;
+- DATM splits rain from snow, caps the air's moisture (specific humidity) at
+  saturation and sets the potential temperature from the recorded temperature,
+  before it adds the amount and multiplies rain and snow, each, by the factor;
+  the land model then computes relative humidity and air density itself, from
+  the temperature it receives (`lnd_import_export.F90`).
+
+The checks:
+
+| When | What must hold |
+|---|---|
+| the experiment check | the control is reused (the file is written on the grid of its resolved datm_in, and every year is checked against its output); a region is one registered for the control; the years lie in 2007-2299; the control's daily history (h1) holds TBOT, RAIN and SNOW for every year of the experiment. It notes, without refusing, a cooler run (below) and a run that changes the weather and something else (each change's meaning is stated against the control alone, so the difference is their joint effect) |
+| the case stage | the run's datm_in names the anomaly streams; every per-stream list is the control's with the streams' entries appended and nothing else changed; the case holds the stream files written for the run (checksums) |
+| every year | in every cell-day both runs report, the run's daily TBOT minus the control's equals the amount added (to 0.001 K), and its daily rain and its daily snow over the control's each equal the factor (to 1e-5), so a change of phase is caught; a day without precipitation in the control stays dry. Both fields are checked even when one is left alone, and outside the chosen months and cells each must be the control's. A cell-day reported by one run only fails, and so does a change that reached no cell the history reports |
+
+Building a run's inputs again is refused while a chain armed for any run of
+the experiment may still run, since the model reads the weather files while it
+runs.
+
+What a run does not mean (the change's `not_meaning`): a consistent change of
+climate. A warmer run does not turn snow into rain, and the air's moisture,
+radiation and wind are the control's; so warmer air is also drier air to the
+land model, its relative humidity about 6-7 % of its value lower per kelvin,
+and ELM's fire model and leaves respond to that. In a cooler run the recorded
+moisture can exceed saturation for the cooled air, so dew and frost form that
+the recorded weather would not make.
 
 ---
 
@@ -226,3 +302,4 @@ Analyzer's preflight then stops before any model call.
 | 4 | built 2026-10-24: reception's whole_domain archetype, STEP 2c and two menu tools; its gather skips every fetch; the planner's whole-domain section and rulebook block, written beside strategy.json; the gate needs no basin and takes the experiment's years; Design Review v2's whole-domain page; the server states that sampled columns have no carbon cycle; an experiment may be the control alone; 11 tests. One live planner call (2026-10-24) on a fire question with a moved burn returned `partial`, the burn tool in `requires`, the change's not-meaning and the control's burned-area facts as caveats, and passed the gate |
 | 5 | 5a built 2026-10-24: domain_analysis.py, per run, region and year (a rate totalled, a state averaged), differences from the control, anomalies against normal years, the observed burned area per region; written to 03_results/regional.json and experiment.json; the Naches control's GPP and LAI by year, normals, 2015 and 2021 anomalies and the watershed's 4,127 cells reproduced from the monthly stream (7 real-data checks). 5b built 2026-10-25 as a report rendered from the records with no LLM (`src/agents/analysis/domain_report.py`): the headline is one claim with that claim's own numbers (the first run's difference from the control, else the target years against the normal, else the values), tables by region and year, what each change means beside what it does NOT mean, the caveats and two figures; the analyze stage renders it in place of the Analyzer, and a failed render, or regional numbers that could not be made, is a failed analysis rather than a skip; a control whose facts are stale says so instead of passing; 17 unit tests, 4 through the manager, 1 on the Naches output, 22/22 mutants killed. On the Naches control the headline is the hand analysis's: GPP 5.86 % above its 2016-2020 normal (460 gC/m^2/yr) in 2015 and 18.6 % below it in 2021. 5b option a built 2026-10-25: the Analyzer reads a whole-domain experiment (see "The Analyzer on a whole domain" below); the rendered report moved to DOMAIN_REPORT.md beside the Analyzer's REPORT.md; 22 tests of the Analyzer's steps, 5 of the server's additions (the model's burned area, the limitations, the chain's job times), 3 more through the manager, 2 more on the Naches output; 31 of 32 mutants killed (the survivor was a redundant clause, since removed); one live run on the Naches control (3 model calls) kept 10 of 10 claims, each recomputed from the table |
 | 6 | done 2026-10-25: a fire-off twin of the Naches, 2015-2016, against the reused control, through the framework's back half (one live planner call chose the analysis; the gate, the server's check, the run's recipe and checks, its chain and job B); chain 791021-791025, job B 791026. The first arming stopped before any job: materialize demanded a bounding box of a whole-domain study, which a real whole-domain reception does not have (the tests' brief carried one); fixed, and the tests now use a brief without one. Every check passed: the case stage's settings check (lnd_in differs from the control's only by use_nofire, datm_in not at all), the build from the control's own source tree (fingerprint 503a94c5d1a0), the smoke test, both years (FAREA_BURNED zero in every cell of every month; vegetation carbon the only field outside the reproduction limits, as fire off should give), the report stage's job times (6,842 s of model time) and job B: the numbers report, then the Analyzer (3 model calls, 6 of 6 claims kept, each recomputed from the table). The model's own fire lowers vegetation carbon over the vegetated domain by 6.96 gC/m2 (2015 mean) and 23.2 (2016 mean) while it burns 115 and 60.3 km2 against MODIS's 3.72 and 2.64 |
+| 4b, weather_scale | built 2026-10-25, PROVEN 2026-10-26: `domain_weather.py` (the anomaly file, the stream files, the user_nl_datm lines, the year check), writers in `domain_changes.py` (`build_run`, the `appends` expectation, the case files), the gate's `matches_anomaly` rule with the control's output as reference, and the case stage's checksum of each file written for the run; 95 tests in `tests/test_domain_weather.py`; 37 of 38 deliberate breaks caught before the review (the survivor converts longitudes the region code converts again), 23 of 23 of the review's fixes. Checked on the Naches control without a job: the file sits on its 96 x 144 cells with no offset from the history's; its watershed is 4,142 cells, exactly the analysis's 4,127 once cut to vegetated cells; on a scratch clone resolved by preview_namelists the case stage's check passed (14 differences in datm_in, all expected, none in lnd_in, both stream files unchanged), and failed when the tintalgo line was dropped, CIME's default for the anomaly streams being `nearest`. The first arming of the proof (chain 791029-791032, 2026-10-25) passed its case stage's settings check on the real job and was cancelled during the build, before any model year, when reading DATM's timing showed that records at midnight would leave the first step of 1 June with May's value (the 60 s offset above). The proof, re-armed with the offset (chain 791033-791036: a 2015 twin of the Naches with the air 2 K warmer and rain and snow times 0.8 in June-August over the watershed, against the reused control), passed every stage: the settings check, the build from the control's source (fingerprint 503a94c5d1a0), the smoke test and the year, whose gate compared 5,045,760 cell-days of TBOT (largest error 0.0 K) and 2,608,692 wet cell-days of rain plus snow (largest relative error 1.04e-7, no dry day made wet). An independent reading of the raw files agreed: the change in exactly the 4,142 watershed cells in June-August, 1 June and 1 September exact (2.0 and 0.0 K), rain and snow each times 0.8 (the 1,100 summer snow cell-days included, so the warming moved no snow into rain), the control's everywhere else. Reviewed 2026-10-26 by four independent reviewers, each finding then challenged by a skeptic: 34 findings, all confirmed, all fixed. The largest: the not-meaning said humidity and air density stay the control's, but the land model computes both from the warmed air, so a warmer run is drier air to it; the server's whole-domain note said every run reads the control's own weather; the year check now compares rain and snow one by one, with tolerances of 0.001 K and 1e-5, fails a cell-day reported by one run only and a change that reached no reported cell, and the experiment check confirms the control's daily history. The proof's output passes the stricter check: TBOT 0.0 K off over 5,045,760 cell-days, rain and snow 1.04e-7 and 9.5e-8 over 2,373,059 and 1,028,242 wet cell-days |

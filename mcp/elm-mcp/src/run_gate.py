@@ -47,9 +47,13 @@ expectations (domain_changes.expectations):
 
   settings mode      before the model is built, the run's resolved namelists
                      against the control's: exactly the keys its changes alter
-                     differ, with the values they set
+                     differ, with the values they set; and every file written
+                     for the run that the case must hold (a user stream file)
+                     is there unchanged
   year --expect      every year, each change's rules on the output, such as
-                     FAREA_BURNED 0 everywhere with the fire model off
+                     FAREA_BURNED 0 everywhere with the fire model off, or
+                     the daily air temperature the control's plus the offset
+                     (that rule reads the control's output: --reference)
 
     python run_gate.py settings --case-dir C --control-case-dir CTL \\
         --expect REC/expectations.json --job $SLURM_JOB_ID --out REC/checks
@@ -838,13 +842,42 @@ def _reference_year(a, y: int, surface, ref: List) -> Dict:
     return rr
 
 
-def expected_output(run_dir, year: int, rules: Sequence[Dict]) -> List[Dict]:
+def expected_output(run_dir, year: int, rules: Sequence[Dict], reference=None,
+                    reference_error: Optional[str] = None) -> List[Dict]:
     """A changed run's rules on its output for one calendar year, from its
     expectations (domain_changes): `all_zero`, the field is exactly 0 in every
-    cell and record of the year. A field that cannot be read fails, saying why."""
+    cell and record of the year; `matches_anomaly`, the run's daily fields
+    against the control's under the anomaly file the run was built with
+    (domain_weather.check_year), which needs the control's history
+    (`reference`, a Stream, opened on the rule's own stream; `reference_error`
+    says why it could not be opened). A field that cannot be read fails,
+    saying why."""
     out = []
     for r in rules:
-        rec = {k: r.get(k) for k in ("change", "stream", "field", "rule", "why")}
+        rec = {k: r.get(k) for k in ("change", "stream", "field", "fields", "rule", "why")}
+        if r.get("rule") == "matches_anomaly":
+            import domain_weather as W
+            try:
+                if reference is None:
+                    rec.update({"pass": False, "reason": (
+                        f"cannot read the control's output: {reference_error}"
+                        if reference_error else
+                        "it needs the control's output to compare with (--reference)")})
+                elif reference.name not in (r["stream"], "reference"):
+                    rec.update({"pass": False, "reason": f"the control's output was opened "
+                                f"as stream {reference.name}, and the rule reads "
+                                f"{r['stream']}"})
+                elif r.get("anomaly_sha256") and \
+                        W.sha256(r["anomaly_file"]) != r["anomaly_sha256"]:
+                    rec.update({"pass": False, "reason": "the anomaly file is not the one the "
+                                                         "run was built with (sha256 differs)"})
+                else:
+                    rec.update(W.check_year(G.open_stream(run_dir, r["stream"]), reference,
+                                            r, year))
+            except (KeyError, OSError, W.WeatherError, *_GATE_ERRORS) as e:
+                rec.update({"pass": False, "reason": f"cannot check: {e}"})
+            out.append(rec)
+            continue
         try:
             blk = G.open_stream(run_dir, r["stream"]).read(r["field"], year)
             fin = blk.data[np.isfinite(blk.data)]
@@ -862,9 +895,19 @@ def expected_output(run_dir, year: int, rules: Sequence[Dict]) -> List[Dict]:
 
 
 def _expected_reason(e: Dict) -> str:
-    what = f"{e.get('change')}: {e.get('field')} {e.get('rule')} ({e.get('why')})"
+    field = e.get("field") or "+".join(e.get("fields") or [])
+    what = f"{e.get('change')}: {field} {e.get('rule')} ({e.get('why')})"
+    if e.get("rule") == "matches_anomaly" and e.get("reason"):
+        return f"expected {what}; {e['reason']}"
     if e.get("max_abs") is not None:
         return f"expected {what}; the largest |value| is {e['max_abs']:.3g}"
+    if e.get("max_error") is not None:
+        return (f"expected {what}; off by up to {e['max_error']:.3g} "
+                f"(tolerance {e.get('tolerance'):g})")
+    if e.get("max_relative_error") is not None:
+        return (f"expected {what}; relative error up to {e['max_relative_error']:.3g} "
+                f"(tolerance {e.get('tolerance'):g}), "
+                f"{e.get('dry_days_with_precipitation')} dry cell-days with precipitation")
     return f"expected {what}; {e.get('reason')}"
 
 
@@ -888,7 +931,13 @@ def _years(a, rec: Dict, reasons: List[str]) -> str:
                 rec["years"][y]["pass"] = False
                 rec["years"][y]["reasons"] += [f"reference: {r}" for r in rr["reasons"]]
         if rules:
-            ex = expected_output(a.run_dir, y, rules)
+            rs, rs_error = None, None
+            if a.reference:
+                try:
+                    rs = ref[0] if ref else _reference_stream(a)
+                except _GATE_ERRORS as e:
+                    rs_error = f"{a.reference}: {e}"
+            ex = expected_output(a.run_dir, y, rules, reference=rs, reference_error=rs_error)
             rec["years"][y]["expected"] = ex
             bad = [e for e in ex if not e["pass"]]
             if bad:
@@ -935,6 +984,12 @@ def _settings(a) -> int:
             f"{f}: {len(v.get('differences') or {})} difference(s), "
             f"{len(v.get('unexpected') or [])} unexpected"
             for f, v in sd["files"].items())
+        if exp.get("case_files"):
+            cf = CH.case_files_differences(a.case_dir, exp["case_files"])
+            rec["case_files"] = cf["files"]
+            reasons += cf["reasons"]
+            summary += f"; {sum(1 for v in cf['files'].values() if v.get('same'))} of " \
+                       f"{len(cf['files'])} written file(s) in the case unchanged"
     except Exception as e:           # still leave a record that names the failure
         reasons = [f"the gate itself failed: {type(e).__name__}: {e}"]
         rec["traceback"] = traceback.format_exc()

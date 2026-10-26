@@ -72,6 +72,8 @@ def value(var, year, doy, j, i, y0, nlon, step=0, layer=0):
         return 1e-10 * (1.0 + cell)
     if var == "TSA":
         return 270.0 + 20.0 * season + 0.1 * cell
+    if var == "TBOT":                                    # K, the forcing's air
+        return 268.0 + 22.0 * season + 0.2 * cell
     if var == "SOILLIQ":
         return 100.0 * (layer + 1) + cell + 0.01 * doy
     if var == "TLAI":                                    # m2/m2, a summer hump
@@ -99,7 +101,7 @@ def value(var, year, doy, j, i, y0, nlon, step=0, layer=0):
 
 UNITS = {"DOYCODE": "1", "CELLID": "1", "STEPCODE": "1", "GPP": "gC/m^2/s",
          "QVEGT": "mm/s", "QVEGE": "mm/s", "QSOIL": "mm/s", "H2OSNO": "mm",
-         "FAREA_BURNED": "proportion", "TSA": "K", "SOILLIQ": "kg/m2",
+         "FAREA_BURNED": "proportion", "TSA": "K", "TBOT": "K", "SOILLIQ": "kg/m2",
          "TLAI": "1", "RAIN": "mm/s", "SNOW": "mm/s", "QRUNOFF": "mm/s", "TWS": "mm",
          "TOTECOSYSC": "gC/m^2", "TOTSOMC": "gC/m^2", "TOTVEGC": "gC/m^2",
          "LEAFC": "gC/m^2", "BTRAN": "1"}

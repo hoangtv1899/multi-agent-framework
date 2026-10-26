@@ -61,7 +61,10 @@ class TestTheList:
         for c in d["changes"]:
             assert c["summary"] and c["meaning"] and c["not_meaning"] and c["cost"], c["id"]
             if c["available"]:
-                assert c["alters"] and c["checks"]["settings"], c["id"]
+                # a change that writes files states its checks in words; the
+                # writer makes them when the run is built
+                assert c["alters"] and (c["checks"]["settings"]
+                                        or c["checks"].get("by_writer")), c["id"]
             else:
                 assert c["requires"] and not c["alters"], c["id"]
 
@@ -138,7 +141,8 @@ class TestARunsRecipe:
         ({"name": "control", "changes": []}, "not 'control'"),
         ({"name": "twice", "changes": [{"id": "fire_off"}, {"id": "fire_off"}]},
          "fire_off and fire_off both alter user_nl_elm:use_nofire"),
-        ({"name": "n", "changes": [{"id": "weather_scale"}]}, "is not available here"),
+        ({"name": "n", "changes": [{"id": "burn_footprint"}]}, "is not available here"),
+        ({"name": "n", "changes": [{"id": "weather_scale"}]}, "weather_scale changes nothing"),
     ])
     def test_what_is_refused(self, tmp_path, run, problem):
         with pytest.raises(CH.ChangeError, match=re.escape(problem)):

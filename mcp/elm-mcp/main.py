@@ -2253,9 +2253,13 @@ def build_domain_runs(run_dir: str) -> str:
     (the experiment's years; for a reused control, the control's output as a
     reported, ungated reference) and its expectations (the settings its case
     stage compares with the control's, the output rules its years check). A
-    control that runs too gets 01_inputs/runs/control/, and every other run
-    waits for its case job. Then write_domain_case or submit_domain_chain with
-    run=<name>. 01_inputs/domain_runs.json records what was written.
+    change that writes files for its run writes them there too (weather_scale:
+    weather/, which the model reads while it runs; the anomaly file is named by
+    its content, so a rebuild never overwrites one a chain read). A control
+    that runs too gets 01_inputs/runs/control/, and every other run waits for
+    its case job. Then write_domain_case or submit_domain_chain with
+    run=<name>. 01_inputs/domain_runs.json records what was written. Refused
+    while a chain armed for any of the experiment's runs may still run.
     """
     import domain_case as DC
     import domain_changes as CH
@@ -2269,6 +2273,12 @@ def build_domain_runs(run_dir: str) -> str:
                                "wont_build": chk["wont_build"], "unusual": chk["unusual"]},
                               indent=1, default=str)
         reuse = bool((exp.get("control") or {}).get("reuse"))
+        names = [r.get("name") for r in exp["runs"]] + ([] if reuse else ["control"])
+        for name in names:
+            busy = _chain_busy(rd / DOMAIN_RECORD / str(name))
+            if busy:
+                return json.dumps({"ok": False, "error": f"run {name}: {busy}; its inputs "
+                                   f"are not rebuilt while its chain may still run"})
         if reuse:
             if not ctl:
                 raise ValueError("a reused control must be a prepared control "
@@ -2307,8 +2317,12 @@ def build_domain_runs(run_dir: str) -> str:
                          "case_dir": str(control_recipe.case_dir), "changes": [],
                          "after": None})
         for run in exp["runs"]:
-            r = CH.run_recipe(control_recipe, run)
-            write(run["name"], r, CH.expectations(run, control_case_dir),
+            # A change that writes files (weather_scale's anomaly file and the
+            # stream files that read it) writes them into the run's inputs.
+            r, expect = CH.build_run(control_recipe, run, _run_inputs(rd, run["name"]),
+                                     exp["years"], control_case_dir=control_case_dir,
+                                     control_entry=ctl)
+            write(run["name"], r, expect,
                   {"run_dir": control_run_dir, "stream": "h1", "gate_years": []}
                   if control_run_dir else None)
             rows.append({"name": run["name"], "case": r.case, "case_dir": str(r.case_dir),

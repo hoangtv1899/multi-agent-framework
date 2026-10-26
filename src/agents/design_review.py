@@ -77,6 +77,15 @@ def _domain_line(brief):
     return ", ".join(bits)
 
 
+def _with_params(text, params):
+    """A change's published text with a run's parameters where it names them
+    ({ppmv}); a placeholder the run does not give stays as written."""
+    out = str(text or "")
+    for k, v in (params or {}).items():
+        out = out.replace("{" + str(k) + "}", f"{v:g}" if isinstance(v, float) else str(v))
+    return out
+
+
 def _whole_domain_lines(brief, strategy):
     """A control and runs of named changes (docs/ELM_DOMAIN_EXPERIMENTS.md),
     every line quoted or counted from the records: the experiment Reception
@@ -113,8 +122,13 @@ def _whole_domain_lines(brief, strategy):
         for c in ch:
             m = menu.get(c.get("id")) or {}
             if m.get("meaning"):
-                out.append(f"  - {c.get('id')} means {_trim(m['meaning'], 160)}; it is "
-                           f"NOT {_trim(m.get('not_meaning'), 160)}")
+                # the menu's text with this run's parameters in it; the
+                # not-meaning in full, since it says what the difference must
+                # never be called
+                out.append(f"  - {c.get('id')} means "
+                           f"{_trim(_with_params(m['meaning'], c.get('params')), 240)}")
+                if m.get("not_meaning"):
+                    out.append(f"  - it is NOT {' '.join(str(m['not_meaning']).split())}")
     years = de.get("years") or []
     n_exec = len(runs) + (0 if ctl.get("reuse") else 1)
     hp = facts.get("hours_per_model_year")
