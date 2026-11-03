@@ -761,6 +761,18 @@ class ExperimentManagerBase:
 					'summary_error':         str(e),
 				}
 
+			# THE STUDY RECORD (2026-11-03): STUDY_RECORD.md, the study from
+			# question to answer drawn by code from this folder, written last
+			# so its index of files includes RUN_SUMMARY.json. A page for
+			# people and nothing reads it, so whatever goes wrong here is
+			# printed and the study carries on.
+			try:
+				from agents.study_record import write_record
+				print(f"   study record: {write_record(self.run_dir)}")
+			except Exception as e:                              # noqa: BLE001
+				print(f"   the study record could not be written "
+					  f"({type(e).__name__}: {e}); the study stands")
+
 			n_ok  = run_summary['experiments_success']
 			n_tot = run_summary['experiments_total']
 			rt    = run_summary['total_runtime_seconds']
