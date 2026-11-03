@@ -1452,7 +1452,9 @@ def summary(run_dir) -> Optional[Dict[str, Any]]:
             "largest_relative_difference": w.get("rel_diff"),
             "largest_at": _where(w) if w else None,
             "checked_at": rec.get("checked_at"), "record": CHECK_REL,
-            "error": rec.get("error")}
+            "error": rec.get("error"),
+            "not_checked": [str(k) for k in rec.get("not_checked") or []],
+            "notes": [str(n) for n in rec.get("notes") or []]}
 
 
 def _count(n) -> str:
@@ -1467,15 +1469,40 @@ def page_line(s: Optional[Dict[str, Any]], lead: str) -> str:
     if not s:
         return (f"**Numbers check: none on record.** There is no {CHECK_REL} for the "
                 f"current {TABLE}, so its numbers were not made a second time.")
+    # A CHECK THAT STOPPED IS NOT A FAILED COMPARISON (2026-11-03): its record
+    # holds an error and no number compared, and "0 of 0 numbers did not
+    # reproduce" said nothing true; it is said as the study record says it.
+    if not s.get("pass") and s.get("error") and not s.get("n_compared"):
+        return (f"**Numbers check: did not run to the end:** {_one_line(s['error'])}; so the "
+                f"numbers in {TABLE} were not made a second time ({s['record']}).")
     if not s.get("pass"):
         return (f"**Numbers check: did not pass.** {_count(s.get('n_mismatched'))} of "
                 f"{_count(s.get('n_compared'))} numbers in {TABLE} did not reproduce "
                 f"({s['record']}).")
     w = s.get("largest_relative_difference")
+    worst = f"the largest relative difference {f'{float(w):.3g}' if w is not None else 'none'}"
+    # A PARTIAL CHECK IS NOT A FULL ONE (2026-11-03): a table key the check
+    # does not know is listed under not_checked, and what it could not remake
+    # is in its notes; with either, the line says how many numbers were made
+    # again and quotes what was left, never "every number".
+    left, notes = s.get("not_checked") or [], s.get("notes") or []
+    if left or notes:
+        return (f"**Numbers check: passed, for what it checked.** {lead}; "
+                f"{_count(s.get('n_compared'))} numbers in that table were made again from "
+                f"the model output by an independent reading before this page was written, "
+                f"{worst} ({s['record']})."
+                + (f" Not checked: the table's {', '.join(left)}." if left else "")
+                + (f" The check's notes: {'; '.join(_one_line(n) for n in notes)}."
+                   if notes else ""))
     return (f"**Numbers check: passed.** {lead}, and every number in that table was made "
             f"again from the model output by an independent reading before this page was "
-            f"written: {_count(s.get('n_compared'))} numbers compared, the largest relative "
-            f"difference {f'{float(w):.3g}' if w is not None else 'none'} ({s['record']}).")
+            f"written: {_count(s.get('n_compared'))} numbers compared, {worst} "
+            f"({s['record']}).")
+
+
+def _one_line(x, n: int = 300) -> str:
+    t = " ".join(str(x).split()).rstrip(".")
+    return t if len(t) <= n else t[:n - 3] + "..."
 
 
 # AN EARLIER ANALYSIS IS SET ASIDE WHEN THE NUMBERS ARE WITHHELD (2026-11-03).

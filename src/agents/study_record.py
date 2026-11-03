@@ -771,6 +771,14 @@ def _numbers_check_lines(rd):
                 f"of `03_results/regional.json` were made again from the model output by an "
                 f"independent reading; the largest relative difference is "
                 + (f"{float(w):.3g}" if w is not None else "none") + ".")
+        # what the check left (2026-11-03): a passing check is a full one only
+        # when it lists no table key it did not check and no note
+        left, notes = rec.get("not_checked") or [], rec.get("notes") or []
+        if left:
+            line += f" Not checked: the table's {', '.join(str(k) for k in left)}."
+        if notes:
+            line += " The check's notes: " + "; ".join(
+                _one_line(x, 300).rstrip(".") for x in notes) + "."
     elif rec.get("error") and not rec.get("n_compared"):
         line = (f"The numbers check, `04_analysis/numbers_check.json`: **did not run to the "
                 f"end**: {_one_line(rec['error'], 300)}.")
@@ -876,10 +884,9 @@ ROLES = (
     ("experiment.json", "the Experiment Manager's product: the experiment, its chains and its numbers"),
     ("RUN_SUMMARY.json", "the run's summary: start, end and each case's status"),
     ("ERROR_LOG.json", "the Experiment Manager's account of the error that stopped the study"),
-    # written by tools/notify_study.py AFTER this page, so one on the folder
-    # when the page is drawn is an earlier pass's (_index_lines)
-    (NOTICE_NAME, "the notice tools/notify_study.py wrote when the study last ended; it is "
-                  "written after this page, so this one is from an earlier pass"),
+    # written by tools/notify_study.py after the manager draws this page; which
+    # pass it is from is read from its time (_notice_role, _index_lines)
+    (NOTICE_NAME, "the notice tools/notify_study.py wrote when the study ended"),
     ("DESIGN_REVIEW.md", "the design page shown before any compute, with the decision on it"),
     ("PLAN_CORRECTED.md", "a note of a correction made to the plan after the decision"),
     ("ensemble_A.sbatch", "the script of job A, which builds the model's cases and runs them"),
@@ -957,7 +964,7 @@ ROLES = (
     ("04_analysis/DOMAIN_REPORT.md", "the numbers report, written by code from the records"),
     ("04_analysis/domain_report.json", "the numbers report's record"),
     ("04_analysis/domain_fig_*.png", "a figure of the numbers report"),
-    ("04_analysis/numbers_check.json", "the numbers check: every number of 03_results/regional.json made again from the model output by an independent reading, and how the two compare"),
+    ("04_analysis/numbers_check.json", "the numbers check: the numbers of 03_results/regional.json made again from the model output by an independent reading, how the two compare, and what it did not check"),
     ("04_analysis/superseded/*", "a file of an earlier analysis, set aside when the numbers did not reproduce"),
     ("04_analysis/REPORT.md", "the Analyzer's report"),
     ("04_analysis/analysis.json", "the Analyzer's record: answer, audited claims, struck claims, cost"),
@@ -982,6 +989,42 @@ def file_role(rel):
     return "no role on record for this file"
 
 
+# WHICH PASS THE NOTICE IS FROM, BY ITS TIME (2026-11-03). The manager draws
+# this page inside job B and the notice is written after it, so a notice on the
+# folder then is an earlier pass's; but the page can be drawn again later
+# (python src/agents/study_record.py RUN_DIR), after this pass's notice. A
+# notice newer than the last stage run_state.json records is this pass's.
+def _last_stage_time(rd):
+    try:
+        st = _read_json(rd / "run_state.json") or {}
+    except _Unreadable:
+        return None
+    times = []
+    for e in ((st.get("stages") or {}) if isinstance(st, dict) else {}).values():
+        try:
+            times.append(datetime.fromisoformat(str((e or {}).get("at"))))
+        except (TypeError, ValueError, AttributeError):
+            pass
+    return max(times) if times else None
+
+
+def _notice_role(rd):
+    base = file_role(NOTICE_NAME)
+    last = _last_stage_time(rd)
+    try:
+        written = datetime.fromtimestamp((rd / NOTICE_NAME).stat().st_mtime)
+    except OSError:
+        return base
+    if last is None:
+        return (f"{base}; run_state.json records no stage time, so which pass it is from "
+                f"is not on record")
+    which, than = (("this pass", "newer") if written >= last else
+                   ("an earlier pass", "older"))
+    return (f"the notice tools/notify_study.py wrote when {which} of the study ended (it is "
+            f"{than} than the last stage run_state.json records, "
+            f"{last.isoformat(timespec='seconds')})")
+
+
 def _index_lines(rd, page):
     files = set()
     for root, dirs, names in os.walk(rd):        # links to folders are not followed
@@ -994,7 +1037,7 @@ def _index_lines(rd, page):
     L = [f"## Every file in this folder ({len(files)})", "",
          "| file | what it is |", "|---|---|"]
     for rel in sorted(files):
-        L.append(f"| `{rel}` | {file_role(rel)} |")
+        L.append(f"| `{rel}` | {_notice_role(rd) if rel == NOTICE_NAME else file_role(rel)} |")
     # WRITTEN AFTER THIS PAGE (2026-11-03): job B's notice is written once
     # this page is, so a fresh study's index cannot hold it; it is named here.
     if NOTICE_NAME not in files and (rd / "ensemble_B.sbatch").is_file():

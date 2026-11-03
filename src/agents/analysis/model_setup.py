@@ -210,21 +210,36 @@ def older_lines(rec: Dict[str, Any]) -> Dict[str, str]:
         parts.append(f"{d} ({FROM_DESCRIPTION})")
     if parts:
         out["fire"] = "; ".join(parts)
-    t, ppm = st.get("co2_type") or st.get("ELM_CO2_TYPE"),         st.get("co2_ppmv") if st.get("co2_ppmv") is not None else st.get("CCSM_CO2_PPMV")
-    if t or ppm is not None:
+    t, ppm = st.get("co2_type") or st.get("ELM_CO2_TYPE"), \
+        st.get("co2_ppmv") if st.get("co2_ppmv") is not None else st.get("CCSM_CO2_PPMV")
+    # ONLY WHAT THE RECORD HOLDS (2026-11-03): _settings writes a key the
+    # namelist lacks as None, so an older record may hold the CO2 level without
+    # its type, or one deposition year without the other; the missing one is
+    # marked as not held, never quoted as "None".
+    if t and ppm is not None:
         out["co2"] = ((f"held constant at {_num(ppm)} ppmv" if t == "constant" else
                        f"of type {t} (co2_ppmv {_num(ppm)})")
                       + f" (co2_type {t}, co2_ppmv {_num(ppm)}; {OLDER})")
+    elif ppm is not None:
+        out["co2"] = f"co2_ppmv {_num(ppm)} ({OLDER}); co2_type: {NOT_HELD}"
+    elif t:
+        out["co2"] = f"co2_type {t} ({OLDER}); co2_ppmv: {NOT_HELD}"
     a, b = st.get("stream_year_first_ndep"), st.get("stream_year_last_ndep")
     if a is not None or b is not None:
         span = st.get("ndep_stream_years")
-        out["deposition"] = (
-            ("nitrogen deposition held at year " + _num(a) if a == b else
-             f"nitrogen deposition read for {_num(a)}-{_num(b)}")
-            + f" (stream_year_first_ndep {_num(a)}, stream_year_last_ndep {_num(b)}"
-            + (f"; its file is named for {span[0]}-{span[1]}"
-               if isinstance(span, list) and len(span) == 2 else "")
-            + f"; {OLDER}); phosphorus deposition: {NOT_HELD}")
+        named = (f"; its file is named for {span[0]}-{span[1]}"
+                 if isinstance(span, list) and len(span) == 2 else "")
+        if a is not None and b is not None:
+            said = (("nitrogen deposition held at year " + _num(a) if a == b else
+                     f"nitrogen deposition read for {_num(a)}-{_num(b)}")
+                    + f" (stream_year_first_ndep {_num(a)}, stream_year_last_ndep {_num(b)}"
+                    + f"{named}; {OLDER})")
+        else:
+            held, k, other = ((a, "first", "last") if a is not None else (b, "last", "first"))
+            said = (f"nitrogen deposition's {k} year is {_num(held)} "
+                    f"(stream_year_{k}_ndep {_num(held)}{named}; {OLDER}); its {other} year "
+                    f"(stream_year_{other}_ndep): {NOT_HELD}")
+        out["deposition"] = f"{said}; phosphorus deposition: {NOT_HELD}"
     sup = [(k, st.get(f"supl{tag}")) for k, tag in (("nitrogen", "nitro"),
                                                      ("phosphorus", "phos"))]
     if any(v is not None for _, v in sup):

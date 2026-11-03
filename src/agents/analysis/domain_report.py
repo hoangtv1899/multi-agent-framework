@@ -237,6 +237,13 @@ def span(years) -> str:
     return _join([str(y) for y in ys])
 
 
+# THE YEARS A FIGURE DRAWS (2026-11-03): an event study's figures hold its
+# target years only, and a caption saying "each year" named years not drawn.
+def _years_drawn(years) -> str:
+    ys = list(years or [])
+    return f"the year {span(ys)}" if len(ys) == 1 else f"each of the years {span(ys)}"
+
+
 def _year(a: Dict, y) -> Dict:
     """One target year of an anomaly record; its keys are ints in process and
     strings once the record has been through JSON."""
@@ -687,8 +694,8 @@ def overview_figures(table, runs, regions, variables, years, out_dir: Path,
         notes[p.name] = (f"{', '.join(pv)} over {reg}, "
                          + ("each run minus the control in each year, in percent of the "
                             "control" if changed else
-                            f"each year compared against its {span(normal)} mean, in "
-                            f"percent of the mean")
+                            f"{_years_drawn(ev.get('target_years'))} against "
+                            f"its {span(normal)} mean, in percent of the mean")
                          + (f" (a field in kelvin is left out: "
                             f"{', '.join(v for v in vs if v not in pv)})"
                             if len(pv) < len(vs) else ""))
@@ -960,8 +967,8 @@ def monthly_figures(table, runs, regions, variables, years, out_dir: Path,
             f"{var} ({units}) by month, a panel per region "
             f"({_regions_said(regs, every, f'03_results/{MONTHLY_CSV}')}): "
             + ("each run, and beneath each panel each run minus the control" if changed else
-               f"each year compared against the mean of the same month over "
-               f"{span(ev['normal_years'])}" if event else
+               f"{_years_drawn(ev['target_years'])} against the mean of the "
+               f"same month over {span(ev['normal_years'])}" if event else
                "the control through every month"))
     return paths
 
@@ -1034,15 +1041,51 @@ def with_burned_area(variables: List[str], fields: Dict[str, Dict]) -> List[str]
 # answer was read from the model's output only (2026-10-27) may still name
 # observations in its analysis; the table no longer carries them, and the page
 # says so once rather than leave the reader to look for them.
+# ONLY WHERE A COMPARISON IS ON RECORD (2026-11-03): the design page carries
+# "- against observations:" only when the control's row holds an evaluation
+# (design_review._whole_domain_lines), so the note names the design page only
+# when that line is on it, and the control's card only when its row holds one.
+AGAINST_OBSERVATIONS = "- against observations:"
+
+
+def _control_evaluated(rd: Path) -> bool:
+    """Whether the control's row (01_inputs/domain_control_facts.json, else the
+    rulebook strategy.json carries) holds an evaluation against observations."""
+    def _safe(p):
+        try:
+            d = _read(p)
+        except (OSError, ValueError):
+            return {}
+        return d if isinstance(d, dict) else {}
+    rows = [_safe(rd / "01_inputs" / "domain_control_facts.json").get("facts") or {}]
+    rb = _safe(rd / "strategy.json").get("domain_rulebook") or {}
+    ctl = (rb.get("controls") or {}) if isinstance(rb, dict) else {}
+    rows += (ctl.get("controls") or []) if isinstance(ctl, dict) else []
+    return any(isinstance(r, dict) and isinstance(r.get("evaluation"), dict)
+               and r["evaluation"].get("summary") for r in rows)
+
+
+def _design_page_compares(rd: Path) -> bool:
+    try:
+        text = (rd / "DESIGN_REVIEW.md").read_text()
+    except OSError:
+        return False
+    return any(l.lstrip().startswith(AGAINST_OBSERVATIONS) for l in text.splitlines())
+
+
 def observations_note(analysis: Dict[str, Any], rd: Path) -> Optional[str]:
     obs = [str(o) for o in (analysis.get("observations") or [])]
     if not obs:
         return None
-    page = " (DESIGN_REVIEW.md)" if (rd / "DESIGN_REVIEW.md").is_file() else ""
-    return (f"observations named by the plan ({', '.join(obs)}): not part of the answer, "
-            f"which is read from the model's output only; how the control compares with "
-            f"observations is shown before the design, on the control's card and on the "
-            f"design page{page}")
+    where = ([f"on the control's card (01_inputs/domain_control_facts.json)"]
+             if _control_evaluated(rd) else []) + \
+        (["on the design page (DESIGN_REVIEW.md)"] if _design_page_compares(rd) else [])
+    head = (f"observations named by the plan ({', '.join(obs)}): not part of the answer, "
+            f"which is read from the model's output only; ")
+    if not where:
+        return head + "no comparison of the control with observations is on record in this run"
+    return head + ("how the control compares with observations is shown before the design, "
+                   + " and ".join(where))
 
 
 # THE NUMBERS CHECK ON THE PAGE (2026-11-03): numbers_check.summary of the

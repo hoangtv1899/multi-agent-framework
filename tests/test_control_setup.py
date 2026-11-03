@@ -653,3 +653,26 @@ def test_the_naches_controls_setup():
     assert c["sentences"]["co2"] == "held constant at 367 ppmv"
     assert c["deposition"]["nitrogen"]["years"] == [2000, 2000]
     assert c["weather"]["source"] == "NLDAS" and c["weather"]["years"] == [2013, 2023]
+
+
+# ONLY WHAT AN OLDER RECORD HOLDS (2026-11-03): a setting the record holds as
+# None is marked as not held, never quoted as "None".
+def test_older_lines_quote_only_the_settings_held():
+    from agents.analysis.model_setup import older_lines
+    co2 = older_lines({"older": {"settings": {"CCSM_CO2_PPMV": "367.0"}}})["co2"]
+    assert co2 == "co2_ppmv 367 (older facts); co2_type: not in the control's facts"
+    co2 = older_lines({"older": {"settings": {"co2_type": "constant",
+                                              "co2_ppmv": None}}})["co2"]
+    assert co2 == "co2_type constant (older facts); co2_ppmv: not in the control's facts"
+    dep = older_lines({"older": {"settings": {"stream_year_first_ndep": 2000,
+                                              "stream_year_last_ndep": None}}})["deposition"]
+    assert dep == ("nitrogen deposition's first year is 2000 (stream_year_first_ndep 2000; "
+                   "older facts); its last year (stream_year_last_ndep): not in the control's "
+                   "facts; phosphorus deposition: not in the control's facts")
+    dep = older_lines({"older": {"settings": {"stream_year_last_ndep": 2001,
+                                              "ndep_stream_years": [1849, 2106]}}})
+    assert dep["deposition"].startswith(
+        "nitrogen deposition's last year is 2001 (stream_year_last_ndep 2001; its file is "
+        "named for 1849-2106; older facts); its first year (stream_year_first_ndep): not in")
+    for line in (co2, dep["deposition"]):
+        assert "None" not in line

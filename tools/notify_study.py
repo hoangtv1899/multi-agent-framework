@@ -86,11 +86,19 @@ def build(run_dir: str, deferred: bool = False):
     numbers_md = (rd / "04_analysis" / NUMBERS_REPORT).is_file()
     analyzer_md = (rd / "04_analysis" / ANALYZER_REPORT).is_file()
     off = an.get("analyzer")
+    # WHICH REPORT WAS WITHHELD (2026-11-03). The manager writes "withheld" on
+    # two paths: the numbers check failing (DOMAIN_REPORT.md rewritten
+    # withheld, the Analyzer not run, numbers_check the record's path) and the
+    # Analyzer's own withhold (its headline could not be traced, REPORT.md
+    # written withheld, beside a numbers report whose check passed and with
+    # the Analyzer's steps recorded).
+    numbers_withheld, analyzer_withheld = withheld_reports(an)
     reports = ([f"{NUMBERS_REPORT} (the numbers report"
-                + (", written WITHHELD)" if an.get("status") == "withheld" else ")")]
+                + (", written WITHHELD)" if numbers_withheld else ")")]
                if numbers_md else []) + \
         ([f"{ANALYZER_REPORT} (the Analyzer's report"
-          + (", from an earlier pass: the Analyzer did not run in this one)" if off else ")")]
+          + (", from an earlier pass: the Analyzer did not run in this one)" if off else
+             ", written WITHHELD)" if analyzer_withheld else ")")]
          if analyzer_md else [])
     lines += [f"reports: {'; '.join(reports) if reports else 'none'}"]
 
@@ -159,6 +167,18 @@ def build(run_dir: str, deferred: bool = False):
         lines = [f"WITHHELD: {an.get('reason') or 'the report is withheld'}",
                  f"    see {rd / '04_analysis'}", ""] + lines
     return "\n".join(lines), (1 if bad else 0)
+
+
+def withheld_reports(an):
+    """(the numbers report withheld, the Analyzer's report withheld) from the
+    analyze stage's entry. The Analyzer's withhold is recorded with its steps,
+    or beside a numbers check that passed (a dict with pass true); any other
+    withheld entry is the numbers check's."""
+    if (an or {}).get("status") != "withheld":
+        return False, False
+    nc = an.get("numbers_check")
+    analyzer = bool(an.get("steps")) or (isinstance(nc, dict) and nc.get("pass") is True)
+    return (not analyzer), analyzer
 
 
 def ExpectedOrder(stages):

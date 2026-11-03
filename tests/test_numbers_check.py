@@ -687,8 +687,9 @@ class TestTheAnalyzeStage:
                 f"{rec['n_compared']:,} numbers of `03_results/regional.json` were made "
                 f"again from the model output by an independent reading; the largest "
                 f"relative difference is {w:.3g}.") in record
-        assert ("| `04_analysis/numbers_check.json` | the numbers check: every number of "
-                "03_results/regional.json made again") in record
+        assert ("| `04_analysis/numbers_check.json` | the numbers check: the numbers of "
+                "03_results/regional.json made again from the model output by an independent "
+                "reading, how the two compare, and what it did not check |") in record
         assert "no role on record" not in record
         body, rc = _notify().build(str(m.run_dir))
         assert rc == 0 and body.splitlines()[0] == (

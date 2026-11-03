@@ -22,6 +22,7 @@ from agents.analysis import numbers_check as N       # noqa: E402
 from agents import study_record as SR                # noqa: E402
 import test_domain_report as T                       # noqa: E402
 import test_domain_months_report as M                # noqa: E402
+from test_domain_months_report import drawn          # noqa: E402,F401
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -123,6 +124,48 @@ class TestTheNumbersCheckOnThePages:
         assert "The numbers check: none on record" in SR.render(rd)
 
 
+    # A PARTIAL CHECK, A STOPPED CHECK (2026-11-03): keys the check does not
+    # know and what it could not remake are said; a check that stopped is not
+    # "0 of 0 numbers did not reproduce".
+    def test_a_check_that_left_keys_does_not_say_every_number(self, tmp_path):
+        rd = tmp_path / "run"
+        (rd / "03_results").mkdir(parents=True)
+        (rd / "03_results" / "regional.json").write_text(json.dumps(T._table()))
+        rec = _check_record(rd, n=120, w=1e-12)
+        rec.update(not_checked=["daily", "observed_monthly"],
+                   notes=["the table's observed burned area: no registered observation to "
+                          "recompute it from"])
+        (rd / "04_analysis" / N.CHECK_JSON).write_text(json.dumps(rec))
+        line = N.page_line(N.summary(rd), DR.NUMBERS_LEAD)
+        assert "every number in that table" not in line
+        assert line == (
+            "**Numbers check: passed, for what it checked.** " + DR.NUMBERS_LEAD + "; 120 "
+            "numbers in that table were made again from the model output by an independent "
+            "reading before this page was written, the largest relative difference 1e-12 "
+            "(04_analysis/numbers_check.json). Not checked: the table's daily, "
+            "observed_monthly. The check's notes: the table's observed burned area: no "
+            "registered observation to recompute it from.")
+        page = SR.render(rd)
+        assert ("Not checked: the table's daily, observed_monthly. The check's notes: the "
+                "table's observed burned area: no registered observation to recompute it "
+                "from.") in page
+        assert "every number of 03_results/regional.json" not in page
+
+    def test_a_check_that_stopped_says_so(self, tmp_path):
+        rd = tmp_path / "run"
+        (rd / "03_results").mkdir(parents=True)
+        (rd / "03_results" / "regional.json").write_text(json.dumps(T._table()))
+        (rd / "04_analysis").mkdir()
+        (rd / "04_analysis" / N.CHECK_JSON).write_text(json.dumps(
+            {"kind": "numbers_check", "pass": False, "n_compared": 0, "n_mismatched": 0,
+             "error": "CheckError: the table has no control run"}))
+        line = N.page_line(N.summary(rd), DR.NUMBERS_LEAD)
+        assert line == ("**Numbers check: did not run to the end:** CheckError: the table "
+                        "has no control run; so the numbers in 03_results/regional.json were "
+                        "not made a second time (04_analysis/numbers_check.json).")
+        assert "0 of 0" not in line
+
+
 class TestTheFileIndex:
 
     def test_every_file_of_the_numbers_has_a_role(self, tmp_path):
@@ -137,13 +180,37 @@ class TestTheFileIndex:
         assert ("Written after this page: `STUDY_REPORT.txt`, the notice "
                 "tools/notify_study.py writes when job B ends") in page
         assert "## Every file in this folder (5)" in page
-        # one already in the folder is an earlier pass's
+        # one already in the folder: which pass it is from is read from its time
         (rd / "STUDY_REPORT.txt").write_text("OK")
         page = SR.render(rd)
         assert ("| `STUDY_REPORT.txt` | the notice tools/notify_study.py wrote when the study "
-                "last ended; it is written after this page, so this one is from an earlier "
-                "pass |") in page
+                "ended; run_state.json records no stage time, so which pass it is from is not "
+                "on record |") in page
         assert "Written after this page" not in page
+
+    # THE NOTICE'S PASS BY ITS TIME (2026-11-03): drawn inside job B, a notice
+    # on the folder is older than the analyze stage and an earlier pass's;
+    # drawn again after notify_study.py, it is newer and this pass's.
+    def test_the_notice_is_this_pass_or_an_earlier_one_by_its_time(self, tmp_path):
+        rd = tmp_path / "run"
+        rd.mkdir()
+        (rd / "run_state.json").write_text(json.dumps({"stages": {
+            "run": {"status": "done", "at": "2026-11-03T15:00:00"},
+            "analyze": {"status": "done", "at": "2026-11-03T15:36:57.660000"}}}))
+        n = rd / "STUDY_REPORT.txt"
+        n.write_text("OK")
+        later = time.mktime((2026, 11, 3, 15, 36, 58, 0, 0, -1))
+        os.utime(n, (later, later))
+        assert ("| `STUDY_REPORT.txt` | the notice tools/notify_study.py wrote when this pass "
+                "of the study ended (it is newer than the last stage run_state.json records, "
+                "2026-11-03T15:36:57) |") in SR.render(rd)
+        earlier = time.mktime((2026, 11, 3, 14, 0, 0, 0, 0, -1))
+        os.utime(n, (earlier, earlier))
+        page = SR.render(rd)
+        assert ("| `STUDY_REPORT.txt` | the notice tools/notify_study.py wrote when an earlier "
+                "pass of the study ended (it is older than the last stage run_state.json "
+                "records, 2026-11-03T15:36:57) |") in page
+        assert "this pass of the study" not in page
 
 
 # ── 2. burned area, 5. wording that fits the study ──────────────────────────
@@ -233,16 +300,63 @@ class TestWordingThatFitsTheStudy:
     def test_observations_an_older_plan_names_are_said_once(self, tmp_path):
         rd = T._run_dir(tmp_path, T._table(), [T.CONTROL_ROW, T.NOFIRE],
                         dict(T.ANALYSIS, observations=["modis_gpp", "modis_lai"]))
-        (rd / "DESIGN_REVIEW.md").write_text("# the design")
+        (rd / "DESIGN_REVIEW.md").write_text("# the design\n\n- the control: **naches**\n"
+                                             "- against observations: it holds a third of "
+                                             "the snow (a hand analysis)\n")
+        (rd / "01_inputs").mkdir(exist_ok=True)
+        (rd / "01_inputs" / "domain_control_facts.json").write_text(json.dumps(
+            {"facts": {"name": "naches", "evaluation": {"summary": "a third of the snow"}}}))
         DR.build(rd)
         page = (rd / "04_analysis" / "DOMAIN_REPORT.md").read_text()
         line = ("- observations named by the plan (modis_gpp, modis_lai): not part of the "
                 "answer, which is read from the model's output only; how the control compares "
-                "with observations is shown before the design, on the control's card and on "
-                "the design page (DESIGN_REVIEW.md)")
+                "with observations is shown before the design, on the control's card "
+                "(01_inputs/domain_control_facts.json) and on the design page "
+                "(DESIGN_REVIEW.md)")
         assert page.count(line) == 1 and page.count("observations named by the plan") == 1
         rd, page = _build(tmp_path / "b", T._table())
         assert "observations named by the plan" not in page
+
+    # A PAGE WITHOUT THE COMPARISON IS NOT NAMED (2026-11-03): Demos 2 and 3's
+    # design pages carry no "against observations" line and their control row
+    # no evaluation, so no comparison is pointed to.
+    def test_no_comparison_on_record_is_said_so(self, tmp_path):
+        rd = T._run_dir(tmp_path, T._table(), [T.CONTROL_ROW, T.NOFIRE],
+                        dict(T.ANALYSIS, observations=["modis_gpp"]))
+        (rd / "DESIGN_REVIEW.md").write_text(
+            "# the design\n\n- caveat: MODIS GPP and LAI are the control's own gridded "
+            "observations\n- data gap: observations are fetched later\n")
+        (rd / "01_inputs").mkdir(exist_ok=True)
+        (rd / "01_inputs" / "domain_control_facts.json").write_text(json.dumps(
+            {"facts": {"name": "naches", "observations": ["modis_gpp"]}}))
+        DR.build(rd)
+        page = (rd / "04_analysis" / "DOMAIN_REPORT.md").read_text()
+        assert ("- observations named by the plan (modis_gpp): not part of the answer, which "
+                "is read from the model's output only; no comparison of the control with "
+                "observations is on record in this run") in page
+        assert "DESIGN_REVIEW.md" not in page and "control's card" not in page
+        # the design page's line alone is named alone
+        (rd / "DESIGN_REVIEW.md").write_text("- against observations: a third of the snow\n")
+        DR.build(rd)
+        page = (rd / "04_analysis" / "DOMAIN_REPORT.md").read_text()
+        assert ("how the control compares with observations is shown before the design, on "
+                "the design page (DESIGN_REVIEW.md)") in page
+        assert "control's card" not in page
+
+    # THE CAPTION NAMES THE YEARS DRAWN (2026-11-03): an event study draws its
+    # target years against the normal mean, not each year of the table.
+    def test_an_event_caption_names_the_years_drawn(self, tmp_path, drawn):
+        rd, page = _build(tmp_path, _event_table(), runs=[T.CONTROL_ROW], analysis=EVENT)
+        fig = drawn["domain_fig_monthly_GPP.png"]
+        assert sorted(fig.legends[0].texts[i].get_text()
+                      for i in range(len(fig.legends[0].texts))) == ["2015", "2016 mean"]
+        assert ("*domain_fig_monthly_GPP.png: GPP (gC/m^2/month) by month, a panel per region "
+                "(vegetated cells): the year 2015 against the mean of the same month over "
+                "2016.*") in page
+        assert ("*domain_fig_changes.png: GPP over vegetated cells, the year 2015 against its "
+                "2016 mean, in percent of the mean.*") in page
+        assert "each year compared against" not in page
+        assert DR._years_drawn([2021, 2015]) == "each of the years 2015 and 2021"
 
     def test_a_kilogram_is_not_a_kelvin(self, tmp_path):
         assert DR._no_percent("K") and DR._no_percent("K/s")
@@ -301,3 +415,26 @@ class TestTheNoticeNamesItsReports:
         assert rc == 0 and "the analysis is written" in body.splitlines()[0]
         assert ("reports: DOMAIN_REPORT.md (the numbers report); REPORT.md (the Analyzer's "
                 "report)") in body
+
+    # TWO WITHHOLDS (2026-11-03): the gate's (the numbers report withheld, the
+    # Analyzer not run) and the Analyzer's (its headline untraced, REPORT.md
+    # withheld beside a numbers report whose check passed).
+    def test_the_numbers_check_withheld_the_numbers_report(self, tmp_path):
+        rd = _folder(tmp_path, {"status": "withheld",
+                                "reason": "3 of 2,340 numbers did not reproduce",
+                                "numbers_check": "/x/04_analysis/numbers_check.json",
+                                "report": "/x/04_analysis/DOMAIN_REPORT.md"},
+                     ["DOMAIN_REPORT.md"])
+        body, _ = _notify().build(str(rd))
+        assert "reports: DOMAIN_REPORT.md (the numbers report, written WITHHELD)" in body
+        assert body.splitlines()[0] == "WITHHELD: 3 of 2,340 numbers did not reproduce"
+
+    def test_the_analyzer_withheld_its_own_report(self, tmp_path):
+        rd = _folder(tmp_path, {"status": "withheld",
+                                "reason": "the headline's numbers could not be traced",
+                                "steps": {"rendered_report": True, "report": True},
+                                "numbers_check": {"pass": True, "n_compared": 120}},
+                     ["DOMAIN_REPORT.md", "REPORT.md"])
+        body, _ = _notify().build(str(rd))
+        assert ("reports: DOMAIN_REPORT.md (the numbers report); REPORT.md (the Analyzer's "
+                "report, written WITHHELD)") in body
