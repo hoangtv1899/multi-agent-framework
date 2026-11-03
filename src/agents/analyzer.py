@@ -195,6 +195,11 @@ class Analyzer:
             status["steps"]["report"] = True
             status["report"] = path
             status["verdict"] = report.get("verdict")
+            # A HEADLINE THAT CANNOT BE TRACED TO THE NUMBERS withholds REPORT.md
+            # (2026-11-03); the caller records the stage as withheld, with why.
+            if report.get("withheld_because"):
+                status["withheld"] = report["withheld_because"]
+                self._say(f"   WITHHELD: REPORT.md, because {report['withheld_because']}")
         except Exception as e:
             self._say(f"   ⚠️  step 4 report failed: {e}")
             status["steps"]["report"] = False

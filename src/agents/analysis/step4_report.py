@@ -419,7 +419,7 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
     status = _status(steps, interpretation, len(claims), preflight)
     failed_steps = [k for k, v in (steps or {}).items() if v is False]
 
-    return {
+    report = {
         "schema": "analysis/1",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_dir": str(run_dir),
@@ -522,6 +522,27 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
                          "ensemble": _slurm_elapsed(run_dir) or None}),
         },
     }
+    # CLAIMS TRACED TO THE NUMBERS (2026-11-03). The audit of step 3 checks a
+    # claim's values against the figure script's own result, so a value the
+    # script computed wrongly passed it. On a whole-domain run each value is
+    # traced to the regional table the numbers check reproduced from the model
+    # output, by a small set of derivations (claim_trace), and the derivation
+    # travels with the claim; a headline whose values cannot be traced is
+    # withheld (render_markdown).
+    if getattr(ctx, "is_domain", False):
+        try:
+            from agents.analysis import claim_trace
+            report["numbers_trace"] = claim_trace.trace(
+                report["claims"], report.get("headline"),
+                (ctx.data or {}).get("regional") or {})
+        except Exception as e:                                  # noqa: BLE001
+            report["numbers_trace"] = {
+                "error": f"{type(e).__name__}: {e}",
+                "withheld_because": f"the claims could not be traced to the numbers "
+                                    f"({type(e).__name__}: {e})"}
+        if report["numbers_trace"].get("withheld_because"):
+            report["withheld_because"] = report["numbers_trace"]["withheld_because"]
+    return report
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -569,6 +590,12 @@ def _plain(text) -> str:
 
 def render_markdown(report: Dict[str, Any]) -> str:
     """REPORT.md from the assembled report dict. Pure."""
+    # WITHHELD WHEN THE HEADLINE CANNOT BE TRACED (2026-11-03): the page then
+    # says which values could not be traced and lists every claim's derivations
+    # in place of the answer; analysis.json keeps the whole record.
+    if report.get("withheld_because"):
+        from agents.analysis.claim_trace import withheld_markdown
+        return withheld_markdown(report)
     q = _plain(report.get("question") or "(no question recorded)")
     model = report.get("model") or "model"
     status = report.get("status") or "unknown"
@@ -599,6 +626,12 @@ def render_markdown(report: Dict[str, Any]) -> str:
         for cid in (c.get("caveats") or []):
             tail.append(f"caveat `{cid}`")
         lines.append("   " + "; ".join(tail))
+        # Each value's derivation from the regional table (claim_trace).
+        for d in (c.get("derivations") or []):
+            if d.get("text"):
+                lines.append(f"   - {d['text']}")
+        if c.get("trace"):
+            lines.append(f"   - **{c['trace']}**")
         lines.append("")
 
     caveats = report.get("caveats") or []
@@ -669,7 +702,9 @@ def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
     except Exception as e:                                      # noqa: BLE001
         print(f"   ⚠️  REPORT.md not written: {e}")
 
-    if slides:
+    # A WITHHELD REPORT HAS NO DECK (2026-11-03): slides would present the
+    # headline the trace could not support.
+    if slides and not report.get("withheld_because"):
         try:
             from agents.analysis import step4_slides
             deck = step4_slides.build(report, out_dir)
@@ -677,6 +712,16 @@ def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
                 print(f"   ✓ slides → {Path(deck).name}")
         except Exception as e:                                  # noqa: BLE001
             print(f"   ⚠️  slide deck failed ({e}) — analysis.json stands")
+    # A DECK FROM AN EARLIER PASS IS SET ASIDE WHEN THIS ONE IS WITHHELD
+    # (2026-11-03): left in place it would present the headline that no longer
+    # traces. Moved into superseded/, never deleted.
+    if report.get("withheld_because"):
+        try:
+            from agents.analysis.numbers_check import set_aside
+            for name in set_aside(out_dir, ("analysis.pptx",), figures=False):
+                print(f"   moved the earlier deck aside: {name}")
+        except Exception as e:                                  # noqa: BLE001
+            print(f"   the earlier deck could not be set aside ({e})")
     return str(p)
 
 

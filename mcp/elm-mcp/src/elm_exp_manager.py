@@ -734,6 +734,15 @@ class ELMExpManager(ExperimentManagerBase):
 		from agents.analysis.domain_report import build
 		return build(self.run_dir)
 
+	def _numbers_gate(self, experiments) -> Optional[Dict[str, Any]]:
+		"""EVERY REGIONAL NUMBER MADE TWICE (2026-11-03). The framework's
+		numbers check recomputes 03_results/regional.json from each run's own
+		history by code that shares none of domain_analysis's reduction; when
+		they differ, DOMAIN_REPORT.md is written withheld and the Analyzer is
+		not run."""
+		from agents.analysis.numbers_check import gate
+		return gate(self.run_dir)
+
 	# ─────────────────────────────────────────────────────────
 	# WHOLE-DOMAIN EXPERIMENTS: a control and runs of named changes
 	# ─────────────────────────────────────────────────────────
