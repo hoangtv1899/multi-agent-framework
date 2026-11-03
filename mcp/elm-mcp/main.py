@@ -2193,7 +2193,10 @@ def describe_domain_controls() -> str:
     regions and gridded observations prepared for its grid, and FACTS read
     from its own output: per-year GPP, LAI, ET, runoff, snow and water
     closure, the model's own burned area beside the observed one, the forcing
-    years, the fields each history stream holds. Read the facts before
+    years, the fields each history stream holds, and its setup read from its
+    case: the fire model and its inputs, the grid (cells, cell size, land
+    area) and the configuration (compset, nutrients, CO2, deposition,
+    weather), each with a sentence to quote. Read the facts before
     designing: they say what the control contains (its fire is the model's
     own, not an observed fire) and which years can be compared. A control
     whose facts were never computed says so: refresh_domain_control_facts.

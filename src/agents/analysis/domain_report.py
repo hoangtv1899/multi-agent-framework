@@ -622,6 +622,7 @@ def build(run_dir) -> Dict[str, Any]:
                     "experiment": "experiment.json", "design": "strategy.json"},
     }
     record["markdown_tables"] = _tables(table, runs, regions, variables, years)
+    record["model_setup"] = _model_setup(rd, variables)
     (out / REPORT_JSON).write_text(json.dumps(record, indent=1, default=str))
     (out / REPORT_MD).write_text(render(record))
     return {"report": str(out / REPORT_MD), "record": str(out / REPORT_JSON),
@@ -671,4 +672,23 @@ def render(record: Dict[str, Any]) -> str:
               f"- the design and its caveats: {src.get('design')}", "",
               "*Values are shown to 3 significant figures; the exact values are in "
               f"{src.get('numbers')}.*", ""]
+    lines = _with_model_setup(lines, record)
     return "\n".join(lines)
+
+
+# THE MODEL SETUP NEAR THE TOP (2026-11-03): the control, its grid, the years,
+# its configuration and the runs, from the experiment's own records
+# (agents.analysis.model_setup), under the answer. A record that cannot be
+# drawn says why in the block rather than failing the report.
+def _model_setup(rd: Path, variables: List[str]) -> Dict[str, Any]:
+    from agents.analysis import model_setup as MS
+    try:
+        return MS.collect(rd, variables)
+    except Exception as e:                                          # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+def _with_model_setup(lines: List[str], record: Dict[str, Any]) -> List[str]:
+    from agents.analysis import model_setup as MS
+    return MS.insert_after_answer(lines, [_plain(x) for x in MS.render(
+        record.get("model_setup"))])

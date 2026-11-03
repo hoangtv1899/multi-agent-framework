@@ -364,6 +364,15 @@ def _status(steps: Optional[Dict[str, Any]],
     return SUPPORTED if n_claims else NO_CLAIMS
 
 
+def _model_setup(run_dir) -> Dict[str, Any]:
+    """The model-setup record of a whole-domain run, or why it is missing."""
+    from agents.analysis import model_setup as MS
+    try:
+        return MS.collect(run_dir)
+    except Exception as e:                                          # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 def _domain_report_name(run_dir) -> Optional[str]:
     from agents.analysis.domain_report import REPORT_MD as DOMAIN_MD
     return DOMAIN_MD if (Path(run_dir) / "04_analysis" / DOMAIN_MD).is_file() else None
@@ -426,6 +435,11 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         # Analyzer ran (agents.analysis.domain_report). None otherwise.
         "domain_report": (_domain_report_name(run_dir)
                           if getattr(ctx, "is_domain", False) else None),
+        # THE MODEL SETUP (2026-11-03): the control, grid, years, configuration
+        # and runs, read from the experiment's records (agents.analysis.
+        # model_setup) for the block near the top of REPORT.md. None otherwise.
+        "model_setup": (_model_setup(run_dir)
+                        if getattr(ctx, "is_domain", False) else None),
         # WHAT KIND OF RESULT THIS IS, before what it says. A reader — or a
         # mailer, or a dashboard — that branches on `verdict` alone cannot tell
         # a crash from a conclusion, because a crash has no verdict at all.
@@ -629,6 +643,10 @@ def render_markdown(report: Dict[str, Any]) -> str:
     if report.get("domain_report"):
         lines[-3:-3] = [f"- the numbers by region and year, written from the records "
                         f"before this analysis: {report['domain_report']}"]
+    if report.get("model_setup"):
+        from agents.analysis import model_setup as MS
+        lines = MS.insert_after_answer(lines, [_plain(x) for x in MS.render(
+            report["model_setup"])])
     return "\n".join(lines)
 
 
