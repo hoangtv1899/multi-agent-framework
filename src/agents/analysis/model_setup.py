@@ -38,6 +38,25 @@ CONFIG_ORDER = (("compset", "compset"), ("carbon_nutrient", "carbon and nutrient
 MISSING = ("not in the control's facts (they were read before this part existed; "
            "refresh_domain_control_facts reads it)")
 
+# WHAT OLDER FACTS DO HOLD (2026-11-03). Facts read before the fire, grid and
+# configuration parts existed said MISSING for every line, although they hold
+# the namelist settings (co2_type, co2_ppmv, use_nofire, suplnitro, suplphos,
+# the nitrogen deposition years), the weather years, and a description that
+# states the grid and the weather. Those are shown, each line saying which
+# record it is quoted from; "not in the control's facts" is kept for what the
+# older record truly lacks.
+OLDER = "older facts"
+FROM_DESCRIPTION = "the control's description"
+NOT_HELD = "not in the control's facts"
+# What a part of the description must name to be quoted for a line.
+DESCRIPTION_WORDS = {"grid": ("degree", " box", " grid", "cells"), "weather": ("weather",),
+                     "fire": ("fire",)}
+# The supplement settings in words, as the server's sentence says them
+# (domain_controls.SUPPLEMENT_WORDS).
+SUPPLEMENT_WORDS = {"NONE": "not supplemented",
+                    "ALL": "supplemented to meet plant demand everywhere",
+                    "PROG_CROP_ONLY": "supplemented for prognostic crops only"}
+
 
 def _read(p: Path) -> Dict[str, Any]:
     try:
@@ -112,6 +131,10 @@ def collect(run_dir, variables: Optional[List[str]] = None) -> Dict[str, Any]:
                     "description": row.get("description"), "reused": ctl.get("reuse")},
         "grid": facts.get("grid"), "fire": facts.get("fire"),
         "configuration": facts.get("configuration"),
+        # the settings every facts record holds, for a record older than the
+        # parts above (older_lines)
+        "older": {"settings": facts.get("settings") or {},
+                  "forcing_years": facts.get("forcing_years")},
         "years": {"reported": table.get("years"), "planned": chain.get("years_planned"),
                   "passed": chain.get("years_passed"),
                   "control_output": facts.get("output_years"),
@@ -121,6 +144,105 @@ def collect(run_dir, variables: Optional[List[str]] = None) -> Dict[str, Any]:
         "sources": [s for s, ok in ((CONTROL_FACTS, bool(cf)),
                                     ("experiment.json", bool(exp)),
                                     ("03_results/regional.json", bool(table))) if ok]}
+
+
+def _absent(part: Any) -> bool:
+    """A part the facts were read without: absent, or the server's note that
+    these facts predate it (domain_controls._setup_summary)."""
+    return not isinstance(part, dict) or str(part.get("error") or "").startswith(
+        "not in these facts")
+
+
+def _clauses(text: Optional[str]) -> List[str]:
+    """The description in its parts: split at ", " outside parentheses, the
+    control's name before the first ": " left out."""
+    out, cur, depth = [], "", 0
+    for k, ch in enumerate(str(text or "")):
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if ch == "," and depth == 0 and text[k + 1:k + 2] == " ":
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    out.append(cur.strip())
+    if out and ": " in out[0]:
+        out[0] = out[0].split(": ", 1)[1]
+    return [c for c in out if c]
+
+
+def _described(rec: Dict[str, Any], what: str) -> Optional[str]:
+    """The parts of the control's description that name `what` (a key of
+    DESCRIPTION_WORDS), quoted, or None."""
+    words = DESCRIPTION_WORDS[what]
+    hit = [c for c in _clauses((rec.get("control") or {}).get("description"))
+           if any(w in c.lower() for w in words)]
+    return "; ".join(hit) or None
+
+
+def _num(v) -> str:
+    """A setting as the namelist reads: 367 not 367.0, true or false."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    try:
+        x = float(v)
+        return f"{x:g}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def older_lines(rec: Dict[str, Any]) -> Dict[str, str]:
+    """For each line the newer parts would give, what the older record holds:
+    {"grid", "fire", "co2", "deposition", "supplements", "weather"}, each
+    saying in brackets which record it is quoted from; a line the older record
+    does not hold is left out (render says NOT_HELD)."""
+    st = ((rec.get("older") or {}).get("settings")) or {}
+    fy = (rec.get("older") or {}).get("forcing_years")
+    out: Dict[str, str] = {}
+    d = _described(rec, "grid")
+    if d:
+        out["grid"] = f"{d} ({FROM_DESCRIPTION})"
+    parts = []
+    if st.get("use_nofire") is not None:
+        parts.append(f"the switch that turns the fire model off, use_nofire, is "
+                     f"{_num(st['use_nofire'])} ({OLDER})")
+    d = _described(rec, "fire")
+    if d:
+        parts.append(f"{d} ({FROM_DESCRIPTION})")
+    if parts:
+        out["fire"] = "; ".join(parts)
+    t, ppm = st.get("co2_type") or st.get("ELM_CO2_TYPE"),         st.get("co2_ppmv") if st.get("co2_ppmv") is not None else st.get("CCSM_CO2_PPMV")
+    if t or ppm is not None:
+        out["co2"] = ((f"held constant at {_num(ppm)} ppmv" if t == "constant" else
+                       f"of type {t} (co2_ppmv {_num(ppm)})")
+                      + f" (co2_type {t}, co2_ppmv {_num(ppm)}; {OLDER})")
+    a, b = st.get("stream_year_first_ndep"), st.get("stream_year_last_ndep")
+    if a is not None or b is not None:
+        span = st.get("ndep_stream_years")
+        out["deposition"] = (
+            ("nitrogen deposition held at year " + _num(a) if a == b else
+             f"nitrogen deposition read for {_num(a)}-{_num(b)}")
+            + f" (stream_year_first_ndep {_num(a)}, stream_year_last_ndep {_num(b)}"
+            + (f"; its file is named for {span[0]}-{span[1]}"
+               if isinstance(span, list) and len(span) == 2 else "")
+            + f"; {OLDER}); phosphorus deposition: {NOT_HELD}")
+    sup = [(k, st.get(f"supl{tag}")) for k, tag in (("nitrogen", "nitro"),
+                                                     ("phosphorus", "phos"))]
+    if any(v is not None for _, v in sup):
+        out["supplements"] = "; ".join(
+            f"{k} {SUPPLEMENT_WORDS.get(str(v).upper(), f'supplement setting {v}')} "
+            f"(supl{'nitro' if k == 'nitrogen' else 'phos'} {v})"
+            for k, v in sup if v is not None) + f" ({OLDER})"
+    parts = []
+    d = _described(rec, "weather")
+    if d:
+        parts.append(f"{d} ({FROM_DESCRIPTION})")
+    if isinstance(fy, list) and len(fy) == 2:
+        parts.append(f"weather for the model years {fy[0]}-{fy[1]} ({OLDER})")
+    if st.get("DATM_MODE"):
+        parts.append(f"DATM mode {st['DATM_MODE']} ({OLDER})")
+    if parts:
+        out["weather"] = "; ".join(parts)
+    return out
 
 
 def _sentence(part: Any, key: Optional[str] = None) -> str:
@@ -152,13 +274,28 @@ def render(rec: Optional[Dict[str, Any]]) -> List[str]:
         return ([HEADING, "", f"- not drawn: {rec['error']}", ""]
                 if isinstance(rec, dict) and rec.get("error") else [])
     ctl = rec.get("control") or {}
+    conf = rec.get("configuration")
+    old = (_absent(rec.get("grid")) or _absent(rec.get("fire")) or _absent(conf))
+    held = older_lines(rec) if old else {}
     L = [HEADING, "",
          "*Read from this experiment's own records (" + ", ".join(rec.get("sources") or [])
          + "); the setup sentences are the model server's, read from the control's "
            "own files.*", ""]
+    if old:
+        L += [f"*The control's facts were read before the server read its grid, fire and "
+              f"configuration (refresh_domain_control_facts reads them). A line marked "
+              f"({OLDER}) quotes the settings that older record holds, one marked "
+              f"({FROM_DESCRIPTION}) quotes the description above, and \"{NOT_HELD}\" marks "
+              f"what neither holds.*", ""]
+
+    def _line(part: Any, key: str, conf_key: Optional[str] = None) -> str:
+        if old and _absent(part):
+            return held.get(key) or NOT_HELD
+        return _sentence(part, conf_key)
+
     L.append(f"- the control: **{ctl.get('name') or '?'}**"
              + (f", {ctl['description']}" if ctl.get("description") else ""))
-    L.append(f"- grid: {_sentence(rec.get('grid'))}")
+    L.append(f"- grid: {_line(rec.get('grid'), 'grid')}")
     y = rec.get("years") or {}
     parts = []
     if _span(y.get("reported")):
@@ -173,9 +310,9 @@ def render(rec: Optional[Dict[str, Any]]) -> List[str]:
     L.append("- years: " + ("; ".join(parts) or "not recorded"))
     L.append("- configuration (the control's; each run differs from it only by its "
              "changes, listed under runs):")
-    conf = rec.get("configuration")
     for key, label in CONFIG_ORDER:
-        text = (_sentence(rec.get("fire")) if key == "fire" else _sentence(conf, key))
+        text = (_line(rec.get("fire"), "fire") if key == "fire" else
+                _line(conf, key, key))
         L.append(f"  - {label}: {text}")
     runs = rec.get("runs") or []
     if runs:

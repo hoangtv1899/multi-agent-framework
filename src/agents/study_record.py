@@ -33,6 +33,8 @@ from datetime import datetime
 from pathlib import Path
 
 RECORD_NAME = "STUDY_RECORD.md"
+# The notice tools/notify_study.py writes at the end of job B (its REPORT_NAME).
+NOTICE_NAME = "STUDY_REPORT.txt"
 # How the coordinator appends a change asked for at the design review to the
 # request (workflow.py); the same mark design_review.py splits on.
 REVISION_MARK = "\n\nRevision requested at the design review: "
@@ -691,6 +693,7 @@ def _numbers_lines(rd, page_dir):
         if head:
             L.append(f"> {_one_line(head, 1200)}")
     L.append("")
+    L += _numbers_check_lines(rd)
     try:
         reg = _read_json(rd / "03_results" / "regional.json")
     except _Unreadable as e:
@@ -745,6 +748,46 @@ def _numbers_lines(rd, page_dir):
     for p in reg.get("problems") or []:
         L.append(f"- problem: {_one_line(p, 300)}")
     return L + [""]
+
+
+# THE CHECK'S VERDICT (2026-11-03). A passing numbers check left no trace on
+# this page; it is quoted from its own record, with its age against the table
+# it checked (a check older than the table checked an earlier one).
+def _numbers_check_lines(rd):
+    p = rd / "04_analysis" / "numbers_check.json"
+    try:
+        rec = _read_json(p)
+    except _Unreadable as e:
+        return [f"The numbers check: `04_analysis/numbers_check.json` is in the folder but {e}.", ""]
+    if rec is None:
+        return ["The numbers check: none on record (there is no "
+                "`04_analysis/numbers_check.json`), so the regional numbers were not made a "
+                "second time.", ""]
+    w = (rec.get("largest_relative_difference") or {}).get("rel_diff")
+    n = rec.get("n_compared")
+    n = f"{n:,}" if isinstance(n, int) else str(n)
+    if rec.get("pass"):
+        line = (f"The numbers check, `04_analysis/numbers_check.json`: **passed**. {n} numbers "
+                f"of `03_results/regional.json` were made again from the model output by an "
+                f"independent reading; the largest relative difference is "
+                + (f"{float(w):.3g}" if w is not None else "none") + ".")
+    elif rec.get("error") and not rec.get("n_compared"):
+        line = (f"The numbers check, `04_analysis/numbers_check.json`: **did not run to the "
+                f"end**: {_one_line(rec['error'], 300)}.")
+    else:
+        line = (f"The numbers check, `04_analysis/numbers_check.json`: **did not pass**. "
+                f"{rec.get('n_mismatched')} of {n} numbers of `03_results/regional.json` did "
+                f"not reproduce when made again from the model output.")
+    if rec.get("checked_at"):
+        line += f" Checked {rec['checked_at']}."
+    t = rd / "03_results" / "regional.json"
+    try:
+        if t.is_file() and p.stat().st_mtime < t.stat().st_mtime:
+            line += (" The check is older than `03_results/regional.json`, so it checked an "
+                     "earlier table.")
+    except OSError:
+        pass
+    return [line, ""]
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -833,7 +876,10 @@ ROLES = (
     ("experiment.json", "the Experiment Manager's product: the experiment, its chains and its numbers"),
     ("RUN_SUMMARY.json", "the run's summary: start, end and each case's status"),
     ("ERROR_LOG.json", "the Experiment Manager's account of the error that stopped the study"),
-    ("STUDY_REPORT.txt", "the notice written when the study ended"),
+    # written by tools/notify_study.py AFTER this page, so one on the folder
+    # when the page is drawn is an earlier pass's (_index_lines)
+    (NOTICE_NAME, "the notice tools/notify_study.py wrote when the study last ended; it is "
+                  "written after this page, so this one is from an earlier pass"),
     ("DESIGN_REVIEW.md", "the design page shown before any compute, with the decision on it"),
     ("PLAN_CORRECTED.md", "a note of a correction made to the plan after the decision"),
     ("ensemble_A.sbatch", "the script of job A, which builds the model's cases and runs them"),
@@ -904,12 +950,15 @@ ROLES = (
     (f"{DOMAIN_RECORD}/logs/*", "one job's log from the scheduler"),
     (f"{DOMAIN_RECORD}/SourceMods/*", "a model source file copied into the case"),
     ("03_results/regional.json", "the numbers by region, field and year, computed by the model server from the model's output"),
+    ("03_results/regional_monthly.csv", "every month and season of 03_results/regional.json as one table, written with the numbers report"),
     ("03_results/extracted.json", "the record of what was read from the model's output"),
     ("03_results/execution_report.txt", "the Experiment Manager's account of each case"),
     ("03_results/results_summary.csv", "one row per case, from the results"),
     ("04_analysis/DOMAIN_REPORT.md", "the numbers report, written by code from the records"),
     ("04_analysis/domain_report.json", "the numbers report's record"),
     ("04_analysis/domain_fig_*.png", "a figure of the numbers report"),
+    ("04_analysis/numbers_check.json", "the numbers check: every number of 03_results/regional.json made again from the model output by an independent reading, and how the two compare"),
+    ("04_analysis/superseded/*", "a file of an earlier analysis, set aside when the numbers did not reproduce"),
     ("04_analysis/REPORT.md", "the Analyzer's report"),
     ("04_analysis/analysis.json", "the Analyzer's record: answer, audited claims, struck claims, cost"),
     ("04_analysis/analysis.pptx", "the Analyzer's slides"),
@@ -946,6 +995,12 @@ def _index_lines(rd, page):
          "| file | what it is |", "|---|---|"]
     for rel in sorted(files):
         L.append(f"| `{rel}` | {file_role(rel)} |")
+    # WRITTEN AFTER THIS PAGE (2026-11-03): job B's notice is written once
+    # this page is, so a fresh study's index cannot hold it; it is named here.
+    if NOTICE_NAME not in files and (rd / "ensemble_B.sbatch").is_file():
+        L += ["", f"Written after this page: `{NOTICE_NAME}`, the notice tools/notify_study.py "
+                  f"writes when job B ends (which stages ran, which reports exist, and "
+                  f"whether the study is usable)."]
     return L + [""]
 
 

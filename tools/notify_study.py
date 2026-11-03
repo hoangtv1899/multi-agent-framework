@@ -26,6 +26,10 @@ LOAD_BEARING = ("build_cases", "run", "extract", "package", "analyze")
 # The tail, which --deferred says was intentionally not run.
 TAIL = ("extract", "package", "analyze")
 
+# The two reports a study can leave in 04_analysis: the numbers report, drawn
+# by code (agents.analysis.domain_report), and the Analyzer's.
+NUMBERS_REPORT, ANALYZER_REPORT = "DOMAIN_REPORT.md", "REPORT.md"
+
 
 def _read(p):
     try:
@@ -72,6 +76,23 @@ def build(run_dir: str, deferred: bool = False):
     figs = sorted((rd / "04_analysis").glob("*.png")) if (rd / "04_analysis").is_dir() else []
     docs = sorted((rd / "04_analysis").glob("*.json")) if (rd / "04_analysis").is_dir() else []
     lines += ["", f"04_analysis: {len(docs)} json, {len(figs)} figures"]
+    an = stages.get("analyze") or {}
+
+    # WHICH REPORTS EXIST (2026-11-03). With the Analyzer switched off or
+    # skipped, a whole-domain study has its numbers report and no Analyzer
+    # report, and the notice said "the analysis is written" all the same. It
+    # names the reports on disk, and an Analyzer report beside an Analyzer
+    # that did not run in this pass as an earlier pass's.
+    numbers_md = (rd / "04_analysis" / NUMBERS_REPORT).is_file()
+    analyzer_md = (rd / "04_analysis" / ANALYZER_REPORT).is_file()
+    off = an.get("analyzer")
+    reports = ([f"{NUMBERS_REPORT} (the numbers report"
+                + (", written WITHHELD)" if an.get("status") == "withheld" else ")")]
+               if numbers_md else []) + \
+        ([f"{ANALYZER_REPORT} (the Analyzer's report"
+          + (", from an earlier pass: the Analyzer did not run in this one)" if off else ")")]
+         if analyzer_md else [])
+    lines += [f"reports: {'; '.join(reports) if reports else 'none'}"]
 
     # AN EMPTY LEDGER IS NOT A CLEAN RUN. `bad` is built only from stages that
     # were RECORDED and failed, so a run that recorded nothing at all walked
@@ -89,7 +110,6 @@ def build(run_dir: str, deferred: bool = False):
     # was skipped, and experiment.json is the product; an empty 04_analysis is
     # then the plan, not a failure. A skip because nothing succeeded is still
     # a failed study.
-    an = stages.get("analyze") or {}
     skipped = (an.get("status") == "skipped" and an.get("reason")
                and an.get("reason") != "no successful columns"
                and (rd / "experiment.json").is_file())
@@ -123,6 +143,10 @@ def build(run_dir: str, deferred: bool = False):
         lines = ["DEFERRED — model output complete, analysis not run", ""] + lines
         lines += ["", "The history files are on disk. Analyse with:",
                   f"    python workflow.py --finalize {rd}"]
+    elif numbers_md and (off or not analyzer_md):
+        lines = ["OK: the numbers report is written; there is no Analyzer report from this "
+                 "pass" + (f" (the Analyzer did not run: {off})" if off else ""), ""] + lines
+        lines += ["", f"Read: {rd / '04_analysis' / NUMBERS_REPORT}"]
     else:
         lines = ["OK — the analysis is written", ""] + lines
         lines += ["", f"Read: {rd / '04_analysis'}"]

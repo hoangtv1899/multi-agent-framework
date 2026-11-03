@@ -336,6 +336,33 @@ class ExperimentManagerBase:
 		except Exception as e:                                  # noqa: BLE001
 			print(f"   ⚠️  could not record stage '{stage}' ({e})")
 
+	def _restore_strategy_report(self, state: Dict[str, Any]) -> None:
+		"""The strategy check of a materialize stage this process did not run:
+		from the stage's entry in the run state, else from an experiment.json
+		packaged before (a run materialized before 2026-11-03 kept it only
+		there). Left None when neither holds one."""
+		if self.strategy_report is not None:
+			return
+		rep = ((state.get("stages") or {}).get("materialize") or {}).get("strategy_check")
+		if rep is None:
+			try:
+				rep = json.loads((self.run_dir / "experiment.json").read_text()) \
+					.get("strategy_check")
+			except Exception:                                   # noqa: BLE001
+				rep = None
+		self.strategy_report = rep if isinstance(rep, dict) else None
+
+	def _unmark(self, stage: str) -> None:
+		"""Forget one stage's entry, so the next _mark starts it afresh. Never
+		raises, like _mark."""
+		try:
+			st = self._load_state()
+			if stage in st["stages"]:
+				del st["stages"][stage]
+				self._state_path().write_text(json.dumps(st, indent=2, default=str))
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   ⚠️  could not reset stage '{stage}' ({e})")
+
 	def _artifacts(self, *names: str) -> List[str]:
 		"""Of the named files, the ones that actually exist. Recording a file
 		that was never written would make the run state a claim rather than a
@@ -539,11 +566,18 @@ class ExperimentManagerBase:
 			if rehydrated is not None:
 				_reuse("materialize", "run_plan.json")
 				experiment_plan = rehydrated
+				self._restore_strategy_report(state)
 			else:
 				experiment_plan = self._materialize(experiment_plan, config)
+			# THE STRATEGY CHECK OUTLIVES A RESUME (2026-11-03). check() runs
+			# inside _materialize, so a resume or a finalize that reused the
+			# materialize stage packaged experiment.json with strategy_check
+			# null. Its report rides on the stage's entry and is read back above.
 			self._mark("materialize", artifacts=self._artifacts(
 				"columns.json", "run_plan.json", "plan.json",
-				"assumptions.json", "reception.json", "reception_brief.json"))
+				"assumptions.json", "reception.json", "reception_brief.json"),
+				**({"strategy_check": self.strategy_report}
+				   if self.strategy_report is not None else {}))
 
 			print(f"📋 STEP 1: Building Case Inputs")
 			print("-" * 40)
@@ -630,6 +664,12 @@ class ExperimentManagerBase:
 
 			print("\n🔭 STEP 4c: Analyzer")
 			print("-" * 40)
+			# THIS PASS'S ENTRY ONLY (2026-11-03). _mark merges into the stage's
+			# entry, so a withheld pass's reason, or an "Analyzer switched off"
+			# note, stayed on the entry of a later pass that passed or ran the
+			# Analyzer, and the study record and the notice quoted it. The
+			# analyze stage always runs again, so its entry starts empty.
+			self._unmark("analyze")
 			# NOTHING SUCCEEDED — there is nothing to interpret.
 			#
 			# The Analyzer is four LLM calls; on a 0/2 ensemble it spent 140 s
@@ -690,6 +730,13 @@ class ExperimentManagerBase:
 						print(f"   ✓ numbers by region and year, from the records: "
 							  f"{out.get('report')}")
 						extra = {"report": out.get("report"), "figures": out.get("figures")}
+						# A PASSING CHECK IS RECORDED TOO (2026-11-03), not only a
+						# failing one: how many numbers were made again and the largest
+						# relative difference, beside the report it vouches for.
+						if gate is not None:
+							extra["numbers_check"] = {k: gate.get(k) for k in (
+								"pass", "record", "n_compared", "n_mismatched",
+								"largest_relative_difference")}
 						steps_before = {"rendered_report": True}
 					except Exception as e:                      # noqa: BLE001
 						prior_error = f"the report could not be rendered ({e})"

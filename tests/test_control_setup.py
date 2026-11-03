@@ -537,7 +537,55 @@ class TestTheModelSetup:
     def test_facts_from_before_the_setup_say_so(self, tmp_path):
         from agents.analysis import model_setup as MS
         lines = MS.render(MS.collect(_run_dir(tmp_path, with_setup=False)))
-        assert f"- grid: {MS.MISSING}" in lines and f"  - fire: {MS.MISSING}" in lines
+        # nothing in the older record or the description: said so, line by line
+        assert f"- grid: {MS.NOT_HELD}" in lines and f"  - fire: {MS.NOT_HELD}" in lines
+        assert f"  - compset: {MS.NOT_HELD}" in lines
+        assert any("refresh_domain_control_facts reads them" in x for x in lines)
+
+    def test_older_facts_show_what_they_hold(self, tmp_path):
+        # THE OLDER RECORD'S SETTINGS AND DESCRIPTION (2026-11-03), as the
+        # Naches control's facts of 2026-10-24 hold them
+        from agents.analysis import model_setup as MS
+        rd = _run_dir(tmp_path, with_setup=False)
+        p = rd / "01_inputs" / "domain_control_facts.json"
+        d = json.loads(p.read_text())
+        d["facts"]["description"] = (
+            "the Naches ELM-BGC control: one case over the 144 x 96 box at 1/120 degree "
+            "(cells about 0.6 km east-west by 0.9 km north-south; 8,126 km2 of land, about "
+            "3.3 times the watershed region), 2015-2021 from a saved state at 2015-01-01, "
+            "NLDAS weather, fire model on, CO2 constant")
+        d["facts"]["facts"].update({
+            "forcing_years": [2013, 2023],
+            "settings": {"use_nofire": False, "co2_ppmv": 367.0, "co2_type": "constant",
+                         "stream_year_first_ndep": 2000, "stream_year_last_ndep": 2000,
+                         "ndep_stream_years": [1849, 2106], "suplnitro": "NONE",
+                         "suplphos": "ALL"}})
+        p.write_text(json.dumps(d))
+        e = json.loads((rd / "experiment.json").read_text())
+        e.pop("control_facts")
+        (rd / "experiment.json").write_text(json.dumps(e))
+        lines = MS.render(MS.collect(rd))
+        for line in (
+                "- grid: one case over the 144 x 96 box at 1/120 degree (cells about 0.6 km "
+                "east-west by 0.9 km north-south; 8,126 km2 of land, about 3.3 times the "
+                "watershed region) (the control's description)",
+                f"  - compset: {MS.NOT_HELD}",
+                f"  - carbon and nutrients: {MS.NOT_HELD}",
+                "  - fire: the switch that turns the fire model off, use_nofire, is false "
+                "(older facts); fire model on (the control's description)",
+                "  - CO2: held constant at 367 ppmv (co2_type constant, co2_ppmv 367; older "
+                "facts)",
+                "  - deposition: nitrogen deposition held at year 2000 "
+                "(stream_year_first_ndep 2000, stream_year_last_ndep 2000; its file is named "
+                "for 1849-2106; older facts); phosphorus deposition: not in the control's "
+                "facts",
+                "  - nutrient supplements: nitrogen not supplemented (suplnitro NONE); "
+                "phosphorus supplemented to meet plant demand everywhere (suplphos ALL) "
+                "(older facts)",
+                "  - weather: NLDAS weather (the control's description); weather for the "
+                "model years 2013-2023 (older facts)"):
+            assert line in lines, line
+        assert not any(MS.MISSING in x for x in lines)
 
     def test_a_run_that_is_not_whole_domain_has_no_block(self):
         from agents.analysis import model_setup as MS

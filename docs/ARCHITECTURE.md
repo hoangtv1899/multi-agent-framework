@@ -342,7 +342,7 @@ Every top-level package imported by framework code (`src/`, `workflow.py`, the e
 10. **The numbers report, rendered from the records (job B)**
    - code: `src/agents/analysis/domain_report.py::build`
    - language model: no; code only
-   - reads: `domain_control_facts.json`, `experiment.json`, `reception.json`, `regional.json`, `strategy.json`
+   - reads: `DESIGN_REVIEW.md`, `domain_control_facts.json`, `experiment.json`, `reception.json`, `regional.json`, `strategy.json`
    - writes: `DOMAIN_REPORT.md`, `domain_report.json`
 11. **Analyzer step 0: read the records into one context (job B)**
    - code: `src/agents/analysis/step0_context.py::load`

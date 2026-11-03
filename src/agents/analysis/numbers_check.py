@@ -1399,8 +1399,10 @@ def gate(run_dir, registry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     except Exception as e:                                          # noqa: BLE001
         rec = {"pass": False, "n_compared": 0, "n_mismatched": 0,
                "error": f"{type(e).__name__}: {e}"}
+    w = rec.get("largest_relative_difference") or {}
     out = {"pass": bool(rec.get("pass")), "record": str(rd / "04_analysis" / CHECK_JSON),
            "n_compared": rec.get("n_compared"), "n_mismatched": rec.get("n_mismatched"),
+           "largest_relative_difference": w.get("rel_diff"),
            "reason": None, "report": None}
     if not out["pass"]:
         p = rd / "04_analysis" / "DOMAIN_REPORT.md"
@@ -1417,6 +1419,63 @@ def gate(run_dir, registry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         except OSError as e:
             out["reason"] += f" (the withheld report could not be written: {e})"
     return out
+
+
+# A PASSING CHECK SAYS SO ON THE PAGE (2026-11-03). A failing check rewrote
+# the report as WITHHELD, but a passing one left no trace a reader could see:
+# nothing on DOMAIN_REPORT.md or REPORT.md said the numbers had been made
+# twice. summary() reads the check's record back for the pages, the run state
+# and the study record; page_line() is the one sentence both reports print.
+# A record older than the table it checked is not this table's check, and is
+# reported as none.
+CHECK_REL = f"04_analysis/{CHECK_JSON}"
+
+
+def summary(run_dir) -> Optional[Dict[str, Any]]:
+    """The check of the run's current table, from 04_analysis/numbers_check.json:
+    {"pass", "n_compared", "n_mismatched", "largest_relative_difference",
+    "checked_at", "record", "error"}; None when there is no record, or the
+    record is older than 03_results/regional.json (an earlier table's)."""
+    rd = Path(run_dir)
+    p, t = rd / "04_analysis" / CHECK_JSON, rd / TABLE
+    rec = _read_json(p) if p.is_file() else {}
+    if not isinstance(rec, dict) or rec.get("kind") != "numbers_check":
+        return None
+    try:
+        if t.is_file() and p.stat().st_mtime < t.stat().st_mtime:
+            return None
+    except OSError:
+        return None
+    w = rec.get("largest_relative_difference") or {}
+    return {"pass": bool(rec.get("pass")), "n_compared": rec.get("n_compared"),
+            "n_mismatched": rec.get("n_mismatched"),
+            "largest_relative_difference": w.get("rel_diff"),
+            "largest_at": _where(w) if w else None,
+            "checked_at": rec.get("checked_at"), "record": CHECK_REL,
+            "error": rec.get("error")}
+
+
+def _count(n) -> str:
+    return f"{n:,}" if isinstance(n, int) else str(n)
+
+
+def page_line(s: Optional[Dict[str, Any]], lead: str) -> str:
+    """The sentence a report prints near its top about the check of its numbers.
+    `lead` says how the page's numbers come from the table (the numbers report:
+    "Every number in the answer and under The numbers is read from
+    03_results/regional.json"); the check's own record supplies the rest."""
+    if not s:
+        return (f"**Numbers check: none on record.** There is no {CHECK_REL} for the "
+                f"current {TABLE}, so its numbers were not made a second time.")
+    if not s.get("pass"):
+        return (f"**Numbers check: did not pass.** {_count(s.get('n_mismatched'))} of "
+                f"{_count(s.get('n_compared'))} numbers in {TABLE} did not reproduce "
+                f"({s['record']}).")
+    w = s.get("largest_relative_difference")
+    return (f"**Numbers check: passed.** {lead}, and every number in that table was made "
+            f"again from the model output by an independent reading before this page was "
+            f"written: {_count(s.get('n_compared'))} numbers compared, the largest relative "
+            f"difference {f'{float(w):.3g}' if w is not None else 'none'} ({s['record']}).")
 
 
 # AN EARLIER ANALYSIS IS SET ASIDE WHEN THE NUMBERS ARE WITHHELD (2026-11-03).

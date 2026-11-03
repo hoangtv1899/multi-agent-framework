@@ -658,6 +658,85 @@ class TestTheAnalyzeStage:
         assert not (m.run_dir / "04_analysis" / "DOMAIN_REPORT.md").read_text().startswith(
             "# WITHHELD")
 
+    def test_a_passing_check_leaves_its_trace(self, study, tmp_path):
+        """A PASSING CHECK IS SEEN (2026-11-03): the run state, the numbers
+        report, the study record and the notice each say the numbers were made
+        again, how many and the largest relative difference."""
+        m, cfg = _Through._with_history(study, tmp_path)
+        m.execute_plan(dict(cfg["strategy"]), cfg)
+        rec = json.loads((m.run_dir / "04_analysis" / N.CHECK_JSON).read_text())
+        an = _stages(m)["analyze"]
+        w = rec["largest_relative_difference"]["rel_diff"]
+        assert an["numbers_check"] == {
+            "pass": True, "record": str(m.run_dir / "04_analysis" / N.CHECK_JSON),
+            "n_compared": rec["n_compared"], "n_mismatched": 0,
+            "largest_relative_difference": w}
+        page = (m.run_dir / "04_analysis" / "DOMAIN_REPORT.md").read_text().splitlines()
+        line = [x for x in page if x.startswith("**Numbers check")]
+        assert line == [
+            "**Numbers check: passed.** Every number in the answer and under The numbers is "
+            "read from 03_results/regional.json (a percent there is one of its numbers "
+            "divided by another), and every number in that table was made again from the "
+            "model output by an independent reading before this page was written: "
+            f"{rec['n_compared']:,} numbers compared, the largest relative difference "
+            f"{w:.3g} (04_analysis/numbers_check.json)."]
+        # near the top: before the answer
+        assert page.index(line[0]) < page.index("## The answer")
+        record = (m.run_dir / "STUDY_RECORD.md").read_text()
+        assert (f"The numbers check, `04_analysis/numbers_check.json`: **passed**. "
+                f"{rec['n_compared']:,} numbers of `03_results/regional.json` were made "
+                f"again from the model output by an independent reading; the largest "
+                f"relative difference is {w:.3g}.") in record
+        assert ("| `04_analysis/numbers_check.json` | the numbers check: every number of "
+                "03_results/regional.json made again") in record
+        assert "no role on record" not in record
+        body, rc = _notify().build(str(m.run_dir))
+        assert rc == 0 and body.splitlines()[0] == (
+            "OK: the numbers report is written; there is no Analyzer report from this pass "
+            "(the Analyzer did not run: switched off (analysis_llm: false))")
+        assert "reports: DOMAIN_REPORT.md (the numbers report)" in body
+        assert "the analysis is written" not in body
+
+    def test_an_earlier_pass_leaves_nothing_on_the_stage(self, study, tmp_path):
+        """THIS PASS'S ENTRY ONLY (2026-11-03): a withheld pass's reason stayed
+        on the entry of the next pass, which passed."""
+        m, cfg = _Through._with_history(study, tmp_path)
+        m.run_dir.mkdir(parents=True, exist_ok=True)
+        (m.run_dir / "run_state.json").write_text(json.dumps({"stages": {"analyze": {
+            "status": "withheld", "reason": "1 of 9 regional numbers did not reproduce",
+            "analyzer": "switched off earlier"}}}))
+        m.execute_plan(dict(cfg["strategy"]), cfg)
+        an = _stages(m)["analyze"]
+        assert an["status"] == "done" and "reason" not in an
+        assert an["analyzer"] == "switched off (analysis_llm: false)"
+
+    def test_the_strategy_check_outlives_a_resume(self, study, tmp_path):
+        """THE STRATEGY CHECK OUTLIVES A RESUME (2026-11-03): a finalize reused
+        the materialize stage, whose check never ran again, and packaged
+        experiment.json with strategy_check null."""
+        m, cfg = _Through._with_history(study, tmp_path)
+        m.execute_plan(dict(cfg["strategy"]), cfg)
+        first = json.loads((m.run_dir / "experiment.json").read_text())["strategy_check"]
+        assert isinstance(first, dict) and first.get("ok") is True
+        assert _stages(m)["materialize"]["strategy_check"] == first
+        def _no_check(*a, **k):
+            raise AssertionError("the resume ran the strategy check again")
+        again = type(m)(base_output_dir=str(m.run_dir.parent), run_dir=str(m.run_dir))
+        assert again.strategy_report is None
+        again.check = _no_check
+        again.execute_plan(dict(cfg["strategy"]), dict(cfg, resume=True))
+        assert json.loads((m.run_dir / "experiment.json").read_text())["strategy_check"] \
+            == first
+        # a run materialized before the report rode on the stage: experiment.json's
+        st = json.loads((m.run_dir / "run_state.json").read_text())
+        del st["stages"]["materialize"]["strategy_check"]
+        (m.run_dir / "run_state.json").write_text(json.dumps(st))
+        third = type(m)(base_output_dir=str(m.run_dir.parent), run_dir=str(m.run_dir))
+        third.check = _no_check
+        third.execute_plan(dict(cfg["strategy"]), dict(cfg, resume=True))
+        assert json.loads((m.run_dir / "experiment.json").read_text())["strategy_check"] \
+            == first
+
     def test_a_number_that_does_not_reproduce_withholds_everything(self, study, tmp_path,
                                                                    monkeypatch):
         """The server's table one part in a thousand off: the numbers report is
