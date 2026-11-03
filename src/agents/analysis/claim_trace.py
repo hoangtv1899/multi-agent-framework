@@ -14,6 +14,12 @@ model output, by one of a small set of derivations:
                          year (two runs, or two regions), either way round
   a percent change       100 x (a - b) / b, of two such values
   a region's size        its cell count or area
+  a month or a season    a run's value of one month or season, a run minus
+                         the control in it, or the event's normal of it, and
+                         a difference or percent change of two such values of
+                         the same field and period; only when the claim names
+                         that month ('July') or season ('June-August',
+                         'summer', 'JJA')
 
 A derivation may use only a field the claim names (its `variables`, a field
 code in its text, or a framework field's words such as "burned area"); a
@@ -80,7 +86,7 @@ def norm_unit(u) -> Optional[str]:
     if x.startswith("square kilomet"):
         return "km2"
     x = re.sub(r"\s*m-2", "/m2", x).replace(" ", "")
-    x = re.sub(r"(/(yr|year|y|a)|yr-1|y-1)$", "", x)
+    x = re.sub(r"(/(yr|year|y|a|month|mon|season)|yr-1|y-1)$", "", x)
     return {"cell": "cells"}.get(x, x)
 
 
@@ -210,6 +216,81 @@ def allowed_regions(text: str, regions) -> Optional[set]:
     return out
 
 
+# MONTHS AND SEASONS A CLAIM NAMES (2026-11-03). The table carries each
+# field by month and by season, and the report draws them, so a claim about a
+# July or a summer may trace to those numbers; only when it names that month
+# or season, so a year's number is never matched by one of its 16 periods by
+# chance. The labels are the table's own (domain_analysis.month_key and
+# season_key: "2015-07", "2015-JJA"; DJF is the year of its January).
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August",
+          "September", "October", "November", "December")
+SEASON_MONTHS = {"DJF": (12, 2), "MAM": (3, 5), "JJA": (6, 8), "SON": (9, 11)}
+_SEASON_WORDS = {"winter": "DJF", "spring": "MAM", "summer": "JJA", "autumn": "SON"}
+# a month by its name or its three-letter form, capitalised ('May' the month,
+# not 'may' the verb; 'Sept' too)
+_MONTH_WORDS = "|".join(sorted({m for n in MONTHS for m in (n, n[:3])} | {"Sept"},
+                               key=len, reverse=True))
+_MONTH_RX = re.compile(r"\b(" + _MONTH_WORDS + r")\b\.?")
+_RANGE_RX = re.compile(r"\b(?P<a>" + _MONTH_WORDS + r")\b\.?\s*(?:-|\u2013|to|through|until)"
+                       r"\s*(?P<b>" + _MONTH_WORDS + r")\b\.?")
+
+
+def _month_number(word: str) -> Optional[int]:
+    w = word.rstrip(".")
+    for i, n in enumerate(MONTHS, 1):
+        if w in (n, n[:3]) or (w == "Sept" and i == 9):
+            return i
+    return None
+
+
+def named_periods(text: str) -> set:
+    """The months and seasons a claim names, as ("month", "07") and
+    ("season", "JJA"): a month by name ('July', 'Jul'); a season by its code
+    ('JJA'), its months as a range ('June-August', 'Dec to Feb') or its word
+    ('summer'; 'fall' only as 'the fall', 'in fall'). A range that is a season
+    names the season, not its two end months."""
+    t = str(text or "")
+    out = set()
+    for m in list(_RANGE_RX.finditer(t)):
+        ab = (_month_number(m.group("a")), _month_number(m.group("b")))
+        for name, ends in SEASON_MONTHS.items():
+            if ab == ends:
+                out.add(("season", name))
+                t = t.replace(m.group(0), " ")
+    for m in _MONTH_RX.finditer(t):
+        out.add(("month", f"{_month_number(m.group(1)):02d}"))
+    out |= {("season", c) for c in re.findall(r"\b(DJF|MAM|JJA|SON)\b", t)}
+    low = t.lower()
+    out |= {("season", c) for w, c in _SEASON_WORDS.items()
+            if re.search(rf"\b{w}s?\b", low)}
+    if re.search(r"\b(?:the|in|during|over|this|that|last|of)\s+fall\b", low):
+        out.add(("season", "SON"))
+    return out
+
+
+def period_of(key) -> Optional[Tuple[str, str]]:
+    """("month", "07") of "2015-07", ("season", "JJA") of "2015-JJA" or of
+    "JJA", ("month", "07") of "07"; None of a year."""
+    k = str(key)
+    tail = k.split("-", 1)[1] if re.match(r"^\d{4}-", k) else k
+    if tail in SEASON_MONTHS:
+        return ("season", tail)
+    if re.fullmatch(r"\d{2}", tail) and 1 <= int(tail) <= 12:
+        return ("month", tail)
+    return None
+
+
+def when(key) -> str:
+    """A table's year or period in words: '2015', 'July 2015', 'JJA 2015'."""
+    p = period_of(key)
+    k = str(key)
+    if p is None:
+        return k
+    y = k.split("-", 1)[0] if re.match(r"^\d{4}-", k) else ""
+    name = MONTHS[int(p[1]) - 1] if p[0] == "month" else p[1]
+    return f"{name} {y}".strip()
+
+
 def entries(table: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Every number of the table, each with where it is, what it says and its
     unit (when the table records it)."""
@@ -233,6 +314,22 @@ def entries(table: Dict[str, Any]) -> List[Dict[str, Any]]:
                 for y, x in (years or {}).items():
                     add(x, "difference_table", f"{f}, {_short(reg)}: {run} minus control, {y}",
                         run=run, minus="control", region=reg, field=f, year=str(y))
+    # each month and season: a run's value, and a run minus the control
+    for kind in ("monthly", "seasonal"):
+        for run, r in (table.get("runs") or {}).items():
+            for reg, fields in (r.get(kind) or {}).items():
+                for f, keys in (fields or {}).items():
+                    for k, x in (keys or {}).items():
+                        add(x, "value", f"{f}, {_short(reg)}: {run}, {when(k)}", run=run,
+                            region=reg, field=f, year=str(k), period=period_of(k))
+        for run, regs in (table.get(f"{kind}_differences") or {}).items():
+            for reg, fields in (regs or {}).items():
+                for f, keys in (fields or {}).items():
+                    for k, x in (keys or {}).items():
+                        add(x, "difference_table",
+                            f"{f}, {_short(reg)}: {run} minus control, {when(k)}", run=run,
+                            minus="control", region=reg, field=f, year=str(k),
+                            period=period_of(k))
     ev = table.get("event") or {}
     ny = sorted(int(y) for y in ev.get("normal_years") or [])
     span = "" if not ny else str(ny[0]) if len(ny) == 1 else f"{ny[0]}-{ny[-1]}"
@@ -251,6 +348,13 @@ def entries(table: Dict[str, Any]) -> List[Dict[str, Any]]:
                 add(yy.get("anomaly_pct"), "event",
                     f"{base}, {y} against the {span} normal, percent", run="control",
                     region=reg, field=f, year=str(y), what="anomaly_pct", units="percent")
+    for kind in ("monthly_normal", "seasonal_normal"):
+        for reg, fields in (ev.get(kind) or {}).items():
+            for f, labels in (fields or {}).items():
+                for lab, x in (labels or {}).items():
+                    add(x, "event", f"{f}, {_short(reg)}: control, the {span} normal of "
+                                    f"{when(lab)}", run="control", region=reg, field=f,
+                        what=kind, period=period_of(lab))
     for reg, info in (table.get("regions") or {}).items():
         add((info or {}).get("cells"), "size", f"{_short(reg)}: its cells", region=reg,
             what="cells", units="cells")
@@ -286,6 +390,13 @@ def _pairs(table: Dict[str, Any]) -> Dict[Tuple[str, str], List[Tuple[str, str, 
                     if _is_num(x):
                         out.setdefault((f, str(y)), []).append((run, reg, float(x)))
                         seen.add((run, reg, f, str(y)))
+        # a month's or a season's values pair within that month or season
+        for kind in ("monthly", "seasonal"):
+            for reg, fields in (r.get(kind) or {}).items():
+                for f, keys in (fields or {}).items():
+                    for k, x in (keys or {}).items():
+                        if _is_num(x):
+                            out.setdefault((f, str(k)), []).append((run, reg, float(x)))
     for name, o in (table.get("observed") or {}).items():
         for run, regs in (o.get("model") or {}).items():
             for reg, years in (regs or {}).items():
@@ -362,19 +473,23 @@ def trace_value(v: float, text: str, ents: List[Dict[str, Any]], pairs,
                 used: Optional[set] = None,
                 sizes: Optional[Dict[str, int]] = None,
                 years: Optional[set] = None,
-                regions: Optional[set] = None) -> Dict[str, Any]:
+                regions: Optional[set] = None,
+                periods: Optional[set] = None) -> Dict[str, Any]:
     """The derivation of one value, or why there is none.
 
     hint_fields are the fields the claim names (named_fields; the field codes
     in `text` when None): a derivation of any other field is not one.
     `regions` are the regions it may use (allowed_regions over the regions
-    of the entries when None). When
+    of the entries when None); `periods` the months and seasons it names
+    (named_periods of `text` when None): a month's or a season's number is
+    used only when the claim names it, and is preferred then. When
     several derivations give the value, the table's own number before a pair
     of numbers, and among equals the one whose year and region the claim
     names, and one not already given to another value of the same claim (two
     zeros in "burns nothing in 2015 or 2016" are two years, not one twice)."""
     low = str(text or "").lower()
     fields = set(hint_fields) if hint_fields is not None else named_fields(text)
+    periods = set(periods) if periods is not None else named_periods(text)
     if regions is None:
         regions = allowed_regions(text, {e["region"] for e in ents if e.get("region")})
     printed, in_text = _printed(v, text, years)
@@ -394,8 +509,9 @@ def trace_value(v: float, text: str, ents: List[Dict[str, Any]], pairs,
 
     def score(c, d):
         reg = _short(c.get("region") or "").split(",")[0].strip().lower()
-        return (d > exact, _RANK.get(c["how"], 9),
-                not (hint_years and c.get("year") in hint_years),
+        return (d > exact, bool(periods) and c.get("period") not in periods,
+                _RANK.get(c["how"], 9),
+                not (hint_years and str(c.get("year") or "")[:4] in hint_years),
                 # the smallest region the claim names: "the watershed's
                 # vegetated cells" names the watershed
                 (0, (sizes or {}).get(c.get("region"), 0)) if reg and reg in low
@@ -407,11 +523,16 @@ def trace_value(v: float, text: str, ents: List[Dict[str, Any]], pairs,
             continue
         if c.get("region") is not None and c["region"] not in regions:
             continue
+        if c.get("period") is not None and c["period"] not in periods:
+            continue
         d = abs(c["value"] - v)
         if d <= tol:
             cands.append((score(c, d), c))
     for (f, y), vals in pairs.items():
         if f not in fields:
+            continue
+        per = period_of(y)
+        if per is not None and per not in periods:
             continue
         for ra, ga, a in vals:
             if ga not in regions:
@@ -421,29 +542,29 @@ def trace_value(v: float, text: str, ents: List[Dict[str, Any]], pairs,
                 if (ra == rb) == (ga == gb) or gb not in regions:
                     continue
                 same = ga == gb
-                where = (f"{f}, {_short(ga)}: {ra} minus {rb}, {y}" if same else
-                         f"{f}, {y}: {ra} {_short(ga)} minus {rb} {_short(gb)}")
+                where = (f"{f}, {_short(ga)}: {ra} minus {rb}, {when(y)}" if same else
+                         f"{f}, {when(y)}: {ra} {_short(ga)} minus {rb} {_short(gb)}")
                 d = abs((a - b) - v)
                 if d <= tol:
                     c = {"value": a - b, "how": "difference", "text": where, "run": ra,
                          "minus": rb, "region": ga, "minus_region": gb, "field": f,
-                         "year": y, "units": fu.get(f)}
+                         "year": y, "period": per, "units": fu.get(f)}
                     cands.append((score(c, d) + (not same,), c))
                 if b != 0:
                     p = 100.0 * (a - b) / b
                     d = abs(p - v)
                     if d <= tol:
-                        where = (f"{f}, {_short(ga)}: {ra} against {rb}, percent, {y}"
+                        where = (f"{f}, {_short(ga)}: {ra} against {rb}, percent, {when(y)}"
                                  if same else
-                                 f"{f}, {y}: {ra} {_short(ga)} against {rb} {_short(gb)}, "
-                                 f"percent")
+                                 f"{f}, {when(y)}: {ra} {_short(ga)} against {rb} "
+                                 f"{_short(gb)}, percent")
                         c = {"value": p, "how": "percent_change", "text": where, "run": ra,
                              "against": rb, "region": ga, "against_region": gb, "field": f,
-                             "year": y, "units": "percent"}
+                             "year": y, "period": per, "units": "percent"}
                         cands.append((score(c, d) + (not same,), c))
     if not cands:
         rec["text"] = f"{_signed(v, printed)}: {NOT_TRACED}"
-        rec["why"] = ("no value of the table of a field and region the claim names, "
+        rec["why"] = ("no value of the table of a field, region and period the claim names, "
                       "difference or percent change of two of its values with the same field "
                       "and year (two runs in one region, or two regions of one run), nor a "
                       "region's size, gives it "
@@ -516,7 +637,8 @@ def trace(claims: List[Dict[str, Any]], headline: Optional[str],
                 continue
             d = trace_value(float(v), text, ents, pairs, hy, hf,
                             used={x.get("source") for x in ds}, sizes=sizes, years=years,
-                            regions=allowed_regions(text, regs))
+                            regions=allowed_regions(text, regs),
+                            periods=named_periods(text))
             ds.append(d)
             n_vals += 1
             n_ok += bool(d["traced"])
@@ -534,6 +656,9 @@ def trace(claims: List[Dict[str, Any]], headline: Optional[str],
                "in one region, or two regions of one run",
                "a percent change of one such value relative to another",
                "a region's cell count or area",
+               "a month's or a season's value, run minus control or normal, and the "
+               "difference or percent change of two values of one month or season, only "
+               "when the claim names that month or season",
                "only of a field the claim names, and of a region it names (an elevation "
                "band only when it names the band; any region when it names none)"],
            "precision": "exact (1e-9) when the claim's value carries more digits than its "

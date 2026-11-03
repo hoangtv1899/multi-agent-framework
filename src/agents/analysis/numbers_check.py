@@ -25,6 +25,16 @@ and where the inputs are: the manager's records name each run's output
 directory (never the table under test), and the control registry names each
 registered region's file.
 
+MONTHS AND SEASONS (2026-11-03) are made by the same means as a year: a
+month is the records' overlap with that calendar month, a season with its
+three months (MAM, JJA and SON within the year; DJF from 1 December of the
+year before, made only when the history covers a day or more of that
+December), each made directly from the records, not from the table's months.
+The monthly and seasonal differences and the event's normals of each month
+and season follow by their definitions. The provenance block is held to the
+files on disk (each named file exists with its stated size) and to the masks
+(each region's cells and area).
+
   check(run_dir)  the comparison record, written to 04_analysis/numbers_check.json
   gate(run_dir)   the analyze stage's gate: the check, and when it fails, the
                   numbers report written WITHHELD in place of the numbers
@@ -92,7 +102,8 @@ VEG_SUFFIX = ", vegetated"
 # The keys of a regional table this check knows how to recompute; any other
 # top-level key is listed as not checked, never failed and never silent.
 KNOWN = ("regions", "years", "runs", "problems", "differences", "event",
-         "changed_share", "observed", "error")
+         "changed_share", "observed", "error", "monthly_differences",
+         "seasonal_differences", "provenance")
 MAX_ROWS_SHOWN = 40
 
 
@@ -342,11 +353,18 @@ class History:
         index into the grid). A record counts for the overlap of its own
         time_bounds with [1 Jan year, 1 Jan year+1); the records found must tile
         that interval exactly, or the year is not whole."""
-        import cftime
+        chunks = self.records(stream, var, W, cells, (year, 1, 1), (year + 1, 1, 1))
+        return span(chunks, (year, 1, 1), (year + 1, 1, 1), var, str(year))
+
+    def records(self, stream: str, var: str, W: np.ndarray, cells: np.ndarray,
+                start: Tuple[int, int, int], end: Tuple[int, int, int]
+                ) -> List[Dict[str, Any]]:
+        """Every record of var that overlaps [start, end), read once, as the
+        region means at each record and its time_bounds, file by file:
+        [{"units", "calendar", "bounds" (n, 2), "means" (n, regions)}]. Any
+        period inside [start, end) is then made from these (span)."""
         import netCDF4
-        means: List[np.ndarray] = []
-        spans: List[Tuple[float, float]] = []
-        length = None
+        out: List[Dict[str, Any]] = []
         for p in self.files[stream]:
             with netCDF4.Dataset(p) as d:
                 if var not in d.variables:
@@ -358,11 +376,8 @@ class History:
                 cal = str(getattr(t, "calendar", "standard"))
                 units = str(t.units)
                 tb = np.asarray(d[bname][:], dtype=np.float64)
-                y0 = float(netCDF4.date2num(cftime.datetime(year, 1, 1, calendar=cal),
-                                            units, calendar=cal))
-                y1 = float(netCDF4.date2num(cftime.datetime(year + 1, 1, 1, calendar=cal),
-                                            units, calendar=cal))
-                lo, hi = np.maximum(tb[:, 0], y0), np.minimum(tb[:, 1], y1)
+                a, b = _day(start, units, cal), _day(end, units, cal)
+                lo, hi = np.maximum(tb[:, 0], a), np.minimum(tb[:, 1], b)
                 idx = np.flatnonzero(hi - lo > TIME_TOL_DAYS)
                 if not idx.size:
                     continue
@@ -376,24 +391,67 @@ class History:
                 num = np.where(ok, x, 0.0) @ W
                 den = ok.astype(np.float64) @ W
                 with np.errstate(invalid="ignore", divide="ignore"):
-                    means.append(np.where(den > 0, num / np.where(den > 0, den, 1.0),
-                                          np.nan))
-                spans += [(float(lo[k] - y0), float(hi[k] - y0)) for k in idx]
-                length = y1 - y0
-        if not spans:
-            return None, np.zeros(0), f"no record of {var} in {year}"
-        order = np.argsort([s[0] for s in spans])
-        sp = [spans[k] for k in order]
-        m = np.concatenate(means, axis=0)[order]
-        edge = 0.0
-        for a, b in sp:
-            if abs(a - edge) > TIME_TOL_DAYS:
-                return None, np.zeros(0), (f"{year}: the records leave a gap or overlap at "
-                                           f"day {edge:.4f}")
-            edge = b
-        if abs(edge - length) > TIME_TOL_DAYS:
-            return None, np.zeros(0), f"{year}: the records end at day {edge:.4f} of {length:g}"
-        return m, np.array([b - a for a, b in sp]), None
+                    means = np.where(den > 0, num / np.where(den > 0, den, 1.0), np.nan)
+                out.append({"units": units, "calendar": cal, "bounds": tb[idx],
+                            "means": means})
+        return out
+
+
+def _day(date: Tuple[int, int, int], units: str, cal: str) -> float:
+    """A date as a number in a file's own time units and calendar."""
+    import cftime
+    import netCDF4
+    return float(netCDF4.date2num(cftime.datetime(*date, calendar=cal), units, calendar=cal))
+
+
+def span(chunks: List[Dict[str, Any]], start: Tuple[int, int, int],
+         end: Tuple[int, int, int], var: str, label: str
+         ) -> Tuple[Optional[np.ndarray], np.ndarray, Optional[str]]:
+    """(region means per record, each record's days inside [start, end), why
+    the period is not whole or None), from History.records. A record counts
+    for the overlap of its own time_bounds with the period; the records found
+    must tile it exactly."""
+    means: List[np.ndarray] = []
+    spans: List[Tuple[float, float]] = []
+    length = None
+    for c in chunks:
+        a = _day(start, c["units"], c["calendar"])
+        b = _day(end, c["units"], c["calendar"])
+        tb = c["bounds"]
+        lo, hi = np.maximum(tb[:, 0], a), np.minimum(tb[:, 1], b)
+        idx = np.flatnonzero(hi - lo > TIME_TOL_DAYS)
+        if not idx.size:
+            continue
+        means.append(c["means"][idx])
+        spans += [(float(lo[k] - a), float(hi[k] - a)) for k in idx]
+        length = b - a
+    if not spans:
+        return None, np.zeros(0), f"no record of {var} in {label}"
+    order = np.argsort([s[0] for s in spans])
+    sp = [spans[k] for k in order]
+    m = np.concatenate(means, axis=0)[order]
+    edge = 0.0
+    for a, b in sp:
+        if abs(a - edge) > TIME_TOL_DAYS:
+            return None, np.zeros(0), (f"{label}: the records leave a gap or overlap at "
+                                       f"day {edge:.4f}")
+        edge = b
+    if abs(edge - length) > TIME_TOL_DAYS:
+        return None, np.zeros(0), f"{label}: the records end at day {edge:.4f} of {length:g}"
+    return m, np.array([b - a for a, b in sp]), None
+
+
+def covered_days(chunks: List[Dict[str, Any]], start: Tuple[int, int, int],
+                 end: Tuple[int, int, int]) -> float:
+    """How many days of [start, end) the records cover."""
+    tot = 0.0
+    for c in chunks:
+        a = _day(start, c["units"], c["calendar"])
+        b = _day(end, c["units"], c["calendar"])
+        tb = c["bounds"]
+        tot += float(np.clip(np.minimum(tb[:, 1], b) - np.maximum(tb[:, 0], a), 0.0,
+                             None).sum())
+    return tot
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -585,6 +643,22 @@ class _Ledger:
             row["allowed"] = allowed
             self.bad.append(row)
 
+    def mismatch(self, where: Dict[str, Any], table, mine, why: str) -> None:
+        """A number compared that disagrees whatever its value: a period one
+        side leaves out and the other makes."""
+        self.n += 1
+        self.bad.append(dict(where, table=table, recomputed=mine, why=why))
+
+    def agree_absent(self) -> None:
+        self.absent += 1
+
+    def same(self, where: Dict[str, Any], table, mine) -> None:
+        """A fact that is not a number (a path, a list of years), equal or not."""
+        self.n += 1
+        if table != mine:
+            self.bad.append(dict(where, table=table, recomputed=mine,
+                                 why="the table and the check differ"))
+
 
 def _year_value(means, days, rate: bool) -> Tuple[Optional[np.ndarray], Optional[str]]:
     if means is None:
@@ -596,10 +670,38 @@ def _year_value(means, days, rate: bool) -> Tuple[Optional[np.ndarray], Optional
     return (means * days[:, None]).sum(axis=0) / days.sum(), None
 
 
+# MONTHS AND SEASONS, MADE HERE TOO (2026-11-03). The table carries each
+# run's value per month and per season beside its year's, and the report draws
+# and writes them, so they are made again here by the same means as a year's:
+# the records' overlap with the period, by their own time_bounds. A season is
+# made directly over its three months (a total is the sum over them, a mean
+# is weighted by time), not from the table's months. DJF of a year runs from
+# 1 December of the year before to 1 March; it is made only when the history
+# covers at least a day of that December, so the run's first model step, which
+# ELM writes before 1 January, is not a December.
+# (year offset, month) of each season's first day, and of the first day after it
+SEASONS = {"DJF": ((-1, 12), (0, 3)), "MAM": ((0, 3), (0, 6)), "JJA": ((0, 6), (0, 9)),
+           "SON": ((0, 9), (0, 12))}
+HELD_DAYS = 1.0
+
+
+def _month_bounds(y: int, m: int) -> Tuple[Tuple[int, int, int], Tuple[int, int, int]]:
+    return (y, m, 1), ((y, m + 1, 1) if m < 12 else (y + 1, 1, 1))
+
+
+def _season_bounds(y: int, name: str):
+    """[start, end) of a season of year y: its first month's first day to the
+    first day of the month after its last."""
+    (da, ma), (db, mb) = SEASONS[name]
+    return (y + da, ma, 1), (y + db, mb, 1)
+
+
 def recompute_runs(table, masks: Dict[str, np.ndarray], grid,
                    extra_fields: Sequence[str] = (),
                    dirs: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """{run: {"values": {region: {field: {year: v}}}, "how": {field: ...},
+    """{run: {"values": {region: {field: {year: v}}}, "monthly": {region:
+    {field: {"2015-06": v}}}, "seasonal": {... "2015-JJA": v}, "left_out":
+    {field: [season keys the history cannot make]}, "how": {field: ...},
     "stream": {field: ...}, "why": {...}}} from each run's own history, in the
     directory `dirs` names for it (run_dirs); a run it does not name is not
     recomputed, and every number of it is then a mismatch."""
@@ -624,7 +726,9 @@ def recompute_runs(table, masks: Dict[str, np.ndarray], grid,
         fields += [f for f in extra_fields if f not in fields]
         ys = sorted(set(years) | {int(y) for reg in (r.get("values") or {}).values()
                                   for f in (reg or {}).values() for y in (f or {})})
-        rec = {"values": {k: {} for k in regs}, "how": {}, "stream": {}, "why": {}}
+        rec = {"values": {k: {} for k in regs}, "monthly": {k: {} for k in regs},
+               "seasonal": {k: {} for k in regs}, "left_out": {}, "how": {},
+               "stream": {}, "why": {}}
         for f in fields:
             st = h.stream_for(f)
             if st is None:
@@ -632,14 +736,32 @@ def recompute_runs(table, masks: Dict[str, np.ndarray], grid,
                 continue
             rate = per_second(f, h.units(st, f))
             rec["how"][f], rec["stream"][f] = ("sum" if rate else "mean"), st
-            for y in ys:
-                means, days, why = h.year(st, f, y, W, cells)
+            if not ys:
+                continue
+            chunks = h.records(st, f, W, cells, (ys[0] - 1, 12, 1), (ys[-1] + 1, 1, 1))
+
+            def put(kind, key, a, b, label):
+                means, days, why = span(chunks, a, b, f, label)
                 vals, why2 = _year_value(means, days, rate)
                 for j, k in enumerate(regs):
-                    rec["values"][k].setdefault(f, {})[str(y)] = \
+                    rec[kind][k].setdefault(f, {})[key] = \
                         None if vals is None else float(vals[j])
                 if why or why2:
-                    rec["why"][f"{f} {y}"] = why or why2
+                    rec["why"][f"{f} {key}"] = why or why2
+
+            for y in ys:
+                put("values", str(y), (y, 1, 1), (y + 1, 1, 1), str(y))
+                for mo in range(1, 13):
+                    a, b = _month_bounds(y, mo)
+                    put("monthly", f"{y}-{mo:02d}", a, b, f"{y}-{mo:02d}")
+                for name in SEASONS:
+                    a, b = _season_bounds(y, name)
+                    key = f"{y}-{name}"
+                    if name == "DJF" and covered_days(chunks, *_month_bounds(y - 1, 12)) \
+                            < HELD_DAYS - TIME_TOL_DAYS:
+                        rec["left_out"].setdefault(f, []).append(key)
+                        continue
+                    put("seasonal", key, a, b, key)
         out[run] = rec
     return out
 
@@ -677,7 +799,8 @@ def _yearkey(d) -> Dict[str, Any]:
 
 
 def compare(table: Dict[str, Any], mine: Dict[str, Any], masks, grid,
-            registered: Dict[str, Dict], observations: Dict[str, Dict]) -> Dict[str, Any]:
+            registered: Dict[str, Dict], observations: Dict[str, Dict],
+            dirs: Optional[Dict[str, str]] = None, surface=None) -> Dict[str, Any]:
     L = _Ledger()
     notes: List[str] = []
     w = grid["weight"]
@@ -793,7 +916,214 @@ def compare(table: Dict[str, Any], mine: Dict[str, Any], masks, grid,
             for y, x in _yearkey(years).items():
                 L.add({"section": "observed", "what": "observation", "region": reg,
                        "year": y}, x, (obs.get(reg) or {}).get(y))
+    # each month and season, and where the numbers come from (2026-11-03)
+    compare_periods(table, mine, area, L, notes)
+    compare_provenance(table, masks, area, dirs or {}, surface, registered, L)
     return {"ledger": L, "notes": notes}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MONTHS, SEASONS AND WHERE THE NUMBERS COME FROM
+# ─────────────────────────────────────────────────────────────────────────────
+# THE MONTHS AND SEASONS ARE CHECKED (2026-11-03). The table's monthly and
+# seasonal values, their differences from the control and the event's normals
+# were listed as not checked, so the numbers the report draws and writes to
+# its CSV by month were never made a second time. Each is now compared, and a
+# period is held to both ways: a value the table has that the check leaves
+# out, and a period the table leaves out that the check makes, are mismatches.
+MONTH_LABELS = tuple(f"{m:02d}" for m in range(1, 13))
+PERIOD_KINDS = ("monthly", "seasonal")
+
+
+def _period_keys(kind: str, years) -> List[str]:
+    """The periods of the years a field has a value for: 12 months, or 4
+    seasons, each year."""
+    ys = sorted({int(y) for y in years})
+    if kind == "monthly":
+        return [f"{y}-{m}" for y in ys for m in MONTH_LABELS]
+    return [f"{y}-{s}" for y in ys for s in SEASONS]
+
+
+def _left_out(mine, run, f) -> set:
+    src = BURNED_FRACTION if f == BURNED_AREA else f
+    return set(((mine.get(run) or {}).get("left_out") or {}).get(src) or [])
+
+
+def _pval(mine, area, run, kind, reg, f, key):
+    """A run's recomputed value of one month or season; burned area is the
+    period's burned fraction times the region's area."""
+    t = ((mine.get(run) or {}).get(kind) or {}).get(reg) or {}
+    if f == BURNED_AREA:
+        x = (t.get(BURNED_FRACTION) or {}).get(key)
+        return None if x is None or reg not in area else x * area[reg]
+    return (t.get(f) or {}).get(key)
+
+
+def _pwhy(mine, run, f, key):
+    w = (mine.get(run) or {}).get("why") or {}
+    src = BURNED_FRACTION if f == BURNED_AREA else f
+    return w.get(f"{src} {key}") or w.get(src)
+
+
+PERIOD_KEYS = ("monthly_differences", "seasonal_differences", "provenance")
+
+
+def compare_periods(table: Dict[str, Any], mine: Dict[str, Any], area: Dict[str, float],
+                    L: "_Ledger", notes: List[str]) -> None:
+    """Each run's monthly and seasonal values, each run minus the control by
+    month and season, and the event's monthly and seasonal normals.
+
+    A table made before months and seasons were reported (before 2026-11-03)
+    carries none of them, and says so in the notes; a table that carries any
+    of them is held to all of them."""
+    runs = table.get("runs") or {}
+    if not any(k in table for k in PERIOD_KEYS) and \
+            not any(k in (r or {}) for r in runs.values() for k in PERIOD_KINDS):
+        notes.append("the table was made before months and seasons were reported: it "
+                     "has none to check")
+        return
+    # which (region, field) each run has, and the years it has values for
+    have: Dict[str, Dict[Tuple[str, str], set]] = {}
+    for run, r in runs.items():
+        hv = have.setdefault(run, {})
+        for reg, fields in (r.get("values") or {}).items():
+            for f, years in (fields or {}).items():
+                hv.setdefault((reg, f), set()).update(str(y) for y in (years or {}))
+        for kind in PERIOD_KINDS:
+            for reg, fields in (r.get(kind) or {}).items():
+                for f in (fields or {}):
+                    hv.setdefault((reg, f), set())
+    # each run's values
+    for run, r in runs.items():
+        why_left = r.get("seasons_left_out") or {}
+        for (reg, f), years in sorted(have[run].items()):
+            for kind in PERIOD_KINDS:
+                tab = ((r.get(kind) or {}).get(reg) or {}).get(f) or {}
+                left = _left_out(mine, run, f) if kind == "seasonal" else set()
+                for key in sorted(set(_period_keys(kind, years)) | set(tab)):
+                    at = {"section": kind, "run": run, "region": reg, "field": f,
+                          "period": key}
+                    if key in left:
+                        if key in tab:
+                            L.mismatch(at, tab[key], None,
+                                       "the table has this season, which the check leaves "
+                                       "out: the history holds no December before it")
+                        else:
+                            L.agree_absent()
+                        continue
+                    m = _pval(mine, area, run, kind, reg, f, key)
+                    if key not in tab:
+                        L.mismatch(at, None, m,
+                                   f"the table leaves this period out "
+                                   f"({why_left.get(key) or 'with no reason'}), and the check "
+                                   f"makes it from the history")
+                        continue
+                    L.add(at, tab[key], m, why=_pwhy(mine, run, f, key))
+    # each run minus the control
+    ctl = have.get("control") or {}
+    for kind in PERIOD_KINDS:
+        sec = f"{kind}_differences"
+        tab_all = table.get(sec) or {}
+        for run in runs:
+            if run == "control":
+                continue
+            pairs = {k: v for k, v in (have.get(run) or {}).items() if k in ctl}
+            for reg, fields in (tab_all.get(run) or {}).items():
+                for f in (fields or {}):
+                    pairs.setdefault((reg, f), set())
+            for (reg, f), years in sorted(pairs.items()):
+                tab = ((tab_all.get(run) or {}).get(reg) or {}).get(f) or {}
+                for key in sorted(set(_period_keys(kind, years)) | set(tab)):
+                    a = _pval(mine, area, run, kind, reg, f, key)
+                    b = _pval(mine, area, "control", kind, reg, f, key)
+                    d = None if a is None or b is None else a - b
+                    if d is None and key not in tab:
+                        continue
+                    L.add({"section": sec, "run": run, "region": reg, "field": f,
+                           "period": key}, tab.get(key), d,
+                          scale=max(abs(a or 0.0), abs(b or 0.0)),
+                          why=None if key in tab else
+                          "the table has no difference where both runs have a value")
+    # the event's normals of each month and season
+    ev = table.get("event") or {}
+    if not any(k in ev for k in ("monthly_normal", "seasonal_normal")):
+        return
+    normal = [int(y) for y in ev.get("normal_years") or []]
+    target = {int(y) for y in ev.get("target_years") or []}
+    skip = [y for y in normal if y - 1 in target]
+    used = [y for y in normal if y not in skip]
+    if skip or ev.get("normal_years_used") or ev.get("normal_left_out"):
+        L.same({"section": "event", "what": "normal_years_used", "period": "DJF"},
+               (ev.get("normal_years_used") or {}).get("DJF"), used if skip else None)
+        L.same({"section": "event", "what": "normal_left_out", "period": "DJF"},
+               bool((ev.get("normal_left_out") or {}).get("DJF")), bool(skip))
+    counts = ev.get("normal_counts") or {}
+    for kind, labels in (("monthly_normal", MONTH_LABELS), ("seasonal_normal", tuple(SEASONS))):
+        per = "monthly" if kind == "monthly_normal" else "seasonal"
+        tab_k = ev.get(kind) or {}
+        pairs = set(ctl) | {(reg, f) for reg, fs in tab_k.items() for f in (fs or {})}
+        for reg, f in sorted(pairs):
+            tab = (tab_k.get(reg) or {}).get(f) or {}
+            for lab in sorted(set(labels) | set(tab)):
+                ys = used if lab == "DJF" else normal
+                xs = [_pval(mine, area, "control", per, reg, f, f"{y}-{lab}") for y in ys]
+                xs = [x for x in xs if x is not None]
+                m = float(sum(xs) / len(xs)) if xs else None
+                at = {"section": "event", "region": reg, "field": f, "what": kind,
+                      "period": lab}
+                L.add(at, tab.get(lab), m, scale=max([abs(x) for x in xs] + [0.0]))
+                tc = ((counts.get(reg) or {}).get(f) or {}).get(lab)
+                if tc is not None or len(xs) != len(normal):
+                    L.add(dict(at, what="normal_count"),
+                          tc if tc is not None else len(normal), len(xs), exact=True)
+
+
+def compare_provenance(table: Dict[str, Any], masks: Dict[str, np.ndarray],
+                       area: Dict[str, float], dirs: Dict[str, str], surf_path,
+                       registered: Dict[str, Dict], L: "_Ledger") -> None:
+    """The table's record of where its numbers come from: each file it names
+    exists with the size it states, its surface file and region files are the
+    ones the check read, its run directories the manager's, and each region's
+    cells and area are the masks'."""
+    pv = table.get("provenance")
+    if pv is None:
+        return
+    at = {"section": "provenance"}
+    sf = pv.get("surface_file")
+    L.same(dict(at, what="surface_file"), _real(sf), _real(surf_path))
+    for name, p in sorted((pv.get("registered_files") or {}).items()):
+        r = registered.get(name) or {}
+        L.same(dict(at, what="registered_file", region=name), _real(p),
+               _real(r.get("polygon") or r.get("field")))
+    for name, info in sorted((pv.get("regions") or {}).items()):
+        w = dict(at, region=name)
+        L.add(dict(w, what="cells"), (info or {}).get("cells"),
+              int(masks[name].sum()) if name in masks else None, exact=True,
+              why=None if name in masks else "the table's regions have no such region")
+        L.add(dict(w, what="area_km2"), (info or {}).get("area_km2"), area.get(name))
+    for name in sorted(set(table.get("regions") or {}) - set(pv.get("regions") or {})):
+        L.mismatch(dict(at, region=name, what="cells"), None, int(masks[name].sum())
+                   if name in masks else None, "the provenance block leaves this region out")
+    runs = pv.get("runs") or {}
+    for run in sorted(set(table.get("runs") or {}) | set(runs)):
+        p = runs.get(run) or {}
+        w = dict(at, run=run)
+        if run not in runs:
+            L.mismatch(dict(w, what="run_dir"), None, dirs.get(run),
+                       "the provenance block leaves this run out")
+            continue
+        L.same(dict(w, what="run_dir"), _real(p.get("run_dir")), _real(dirs.get(run)))
+        base = Path(str(p.get("run_dir") or ""))
+        for st, s in sorted((p.get("streams") or {}).items()):
+            for fi in (s or {}).get("files") or []:
+                q = base / str((fi or {}).get("name"))
+                L.add(dict(w, what="bytes", stream=st, file=(fi or {}).get("name")),
+                      (fi or {}).get("bytes"), q.stat().st_size if q.is_file() else None,
+                      exact=True, why=None if q.is_file() else "the file does not exist")
+
+
+def _real(p) -> Optional[str]:
+    return os.path.realpath(str(p)) if p else None
 
 
 def _observed(o, observations, masks, grid, notes) -> Dict[str, Dict[str, float]]:
@@ -860,7 +1190,8 @@ def check(run_dir, registry: Optional[Dict[str, Any]] = None,
             masks[name] = region_mask(name, grid, surface, inp["regions"], cache)
         extra = [BURNED_FRACTION] if table.get("observed") else []
         mine = recompute_runs(table, masks, grid, extra, dirs=dirs)
-        res = compare(table, mine, masks, grid, inp["regions"], inp["observations"])
+        res = compare(table, mine, masks, grid, inp["regions"], inp["observations"],
+                      dirs=dirs, surface=surf_path)
         L = res["ledger"]
         L.bad[:0] = dir_bad
         rec.update({
@@ -902,7 +1233,15 @@ METHOD = (
     "on cell centres, a gridded-field region by its rule on the file; burned area is "
     "the year's burned fraction times the region's area; differences, the event's "
     "normal, anomalies, percents and ranks by their definitions from the recomputed "
-    "values.")
+    "values. Each month and season the same way over its own days (DJF from 1 December "
+    "of the year before, made only when the history covers a day or more of that "
+    "December), with the run-minus-control differences and the event's normals of "
+    "each month and season (the mean over the normal years, DJF without a normal "
+    "year whose December is an event year's) by their definitions; a period one side "
+    "leaves out and the other makes is a mismatch. The provenance block: each file it "
+    "names exists with the size it states, its surface, region files and run "
+    "directories are the ones the check read, and each region's cells and area are the "
+    "masks'; the files' modification times and record counts are not compared.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -918,7 +1257,7 @@ def _fmt(x) -> str:
 
 def _where(row: Dict[str, Any]) -> str:
     parts = [row.get("section")]
-    for k in ("run", "region", "field", "what", "year"):
+    for k in ("run", "region", "field", "what", "year", "period", "stream", "file"):
         if row.get(k) is not None:
             parts.append(str(row[k]))
     return ", ".join(str(p) for p in parts if p)

@@ -321,6 +321,197 @@ class TestTheRules:
         assert N.band_rule("watershed") is None
 
 
+# ── months, seasons and where the numbers come from ─────────────────────────
+def _at(t, where):
+    d = t
+    for k in where[:-1]:
+        d = d[k]
+    return d, where[-1]
+
+
+class TestMonthsAndSeasonsAreChecked:
+    """MONTHS AND SEASONS ARE CHECKED (2026-11-03): every monthly and seasonal
+    value, difference and normal, and the provenance block, made again by the
+    check's own path; nothing of the table is left unchecked."""
+
+    def test_every_period_is_compared(self, made, tmp_path):
+        t = made["table"]
+        assert {"monthly_differences", "seasonal_differences", "provenance"} <= set(t)
+        n_periods = sum(1 for r in t["runs"].values() for k in ("monthly", "seasonal")
+                        for f in r[k].values() for ys in f.values() for _ in ys)
+        n_diff = sum(1 for k in ("monthly_differences", "seasonal_differences")
+                     for r in t[k].values() for f in r.values() for ys in f.values()
+                     for _ in ys)
+        n_norm = sum(1 for k in ("monthly_normal", "seasonal_normal")
+                     for f in t["event"][k].values() for ls in f.values() for _ in ls)
+        assert n_periods and n_diff and n_norm
+        rec = N.check(_run_folder(tmp_path, made), registry=made["registry"], write=False)
+        assert rec["pass"] and rec["not_checked"] == []
+        assert rec["n_compared"] > n_periods + n_diff + n_norm
+        assert rec["largest_relative_difference"]["rel_diff"] < 1e-9
+
+    def test_the_checks_months_add_up_to_its_year(self, made):
+        """The check's own path: a rate's months sum to its year, a state's
+        months weighted by their days average to it."""
+        mine = N.recompute_runs(made["table"], {A.VEGETATED: _veg(made)},
+                                N.History(made["ctl"]["run_dir"]).grid(),
+                                dirs={"control": str(made["ctl"]["run_dir"])})["control"]
+        days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        for f, how in (("GPP", "sum"), ("TSA", "mean"), ("QVEGT", "sum")):
+            assert mine["how"][f] == how
+            mon = mine["monthly"][A.VEGETATED][f]
+            xs = [mon[f"2016-{m:02d}"] for m in range(1, 13)]
+            y = sum(xs) if how == "sum" else sum(x * d for x, d in zip(xs, days)) / 365
+            assert y == pytest.approx(mine["values"][A.VEGETATED][f]["2016"], rel=1e-12)
+            sea = mine["seasonal"][A.VEGETATED][f]
+            jja = xs[5:8] if how == "sum" else None
+            if jja:
+                assert sea["2016-JJA"] == pytest.approx(sum(jja), rel=1e-12)
+
+    def test_the_runs_first_step_is_not_a_december(self, made):
+        """ELM writes the run's first model step before 1 January (folded into
+        January in the monthly stream): DJF of the first year is left out, as
+        the table leaves it out; DJF of the second year is made."""
+        mine = N.recompute_runs(made["table"], {A.VEGETATED: _veg(made)},
+                                N.History(made["ctl"]["run_dir"]).grid(),
+                                dirs={"control": str(made["ctl"]["run_dir"])})["control"]
+        for f in ("GPP", "QVEGT", "TSA"):
+            assert mine["left_out"][f] == ["2015-DJF"]
+            assert mine["seasonal"][A.VEGETATED][f]["2016-DJF"] is not None
+        assert "2015-DJF" in made["table"]["runs"]["control"]["seasons_left_out"]
+
+    # One number of each new kind moved by 1e-4 of itself: exactly that one
+    # number fails.
+    @pytest.mark.parametrize("where", [
+        ("runs", "control", "monthly", A.VEGETATED, "GPP", "2015-07"),
+        ("runs", "twin", "monthly", "box, vegetated", "TSA", "2016-01"),
+        ("runs", "control", "monthly", "burned, vegetated", "burned_area_km2", "2016-08"),
+        ("runs", "twin", "seasonal", "1000-1500 m", "QVEGT", "2016-DJF"),
+        ("runs", "control", "seasonal", A.VEGETATED, "H2OSNO", "2015-SON"),
+        ("monthly_differences", "twin", "box, vegetated", "GPP", "2015-06"),
+        ("seasonal_differences", "twin", A.VEGETATED, "GPP", "2016-JJA"),
+        ("event", "monthly_normal", A.VEGETATED, "GPP", "07"),
+        ("event", "seasonal_normal", "box, vegetated", "TSA", "MAM"),
+        ("provenance", "regions", "box, vegetated", "area_km2"),
+    ])
+    def test_one_value_changed_by_a_little(self, made, tmp_path, where):
+        t = copy.deepcopy(made["table"])
+        d, k = _at(t, where)
+        d[k] *= 1.0 + 1e-4
+        rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"], write=False)
+        assert not rec["pass"] and rec["n_mismatched"] == 1, rec["mismatches"]
+        bad = rec["mismatches"][0]
+        assert N.RTOL < bad["rel_diff"] < 2e-4
+        sec = where[2] if where[0] == "runs" else where[0]
+        assert bad["section"] == sec
+        assert bad.get("period", bad.get("what")) == where[-1]
+
+    def test_a_season_the_history_cannot_make_is_given_a_value(self, made, tmp_path):
+        t = copy.deepcopy(made["table"])
+        t["runs"]["control"]["seasonal"][A.VEGETATED]["GPP"]["2015-DJF"] = 1.0
+        rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"], write=False)
+        assert [(b["section"], b["period"]) for b in rec["mismatches"]] == \
+            [("seasonal", "2015-DJF")]
+        assert "leaves out" in rec["mismatches"][0]["why"]
+
+    def test_a_period_left_out_that_the_history_makes(self, made, tmp_path):
+        """A month dropped, and a winter dropped with a reason the history
+        does not bear out: both are mismatches."""
+        t = copy.deepcopy(made["table"])
+        del t["runs"]["twin"]["monthly"]["box, vegetated"]["GPP"]["2016-03"]
+        del t["runs"]["twin"]["seasonal"]["box, vegetated"]["GPP"]["2016-DJF"]
+        t["runs"]["twin"]["seasons_left_out"]["2016-DJF"] = "no December 2015"
+        rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"], write=False)
+        rows = sorted((b["section"], b["period"], b["why"]) for b in rec["mismatches"])
+        assert [r[:2] for r in rows] == [("monthly", "2016-03"), ("seasonal", "2016-DJF")]
+        assert "(no December 2015)" in rows[1][2]
+        assert "(with no reason)" in rows[0][2]
+
+    def test_a_difference_left_out(self, made, tmp_path):
+        t = copy.deepcopy(made["table"])
+        del t["seasonal_differences"]["twin"][A.VEGETATED]["GPP"]["2016-SON"]
+        rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"], write=False)
+        assert [(b["section"], b["period"]) for b in rec["mismatches"]] == \
+            [("seasonal_differences", "2016-SON")]
+
+    def test_the_normal_winter_and_its_years(self, made, tmp_path):
+        """The fixture's normal year 2016 follows its event year 2015, so its
+        winter holds the event's December: the DJF normal is of no year. A
+        table that counts it, or names other years, fails."""
+        ev = made["table"]["event"]
+        assert ev["normal_years_used"] == {"DJF": []}
+        assert ev["seasonal_normal"][A.VEGETATED]["GPP"]["DJF"] is None
+        t = copy.deepcopy(made["table"])
+        t["event"]["normal_years_used"]["DJF"] = [2016]
+        t["event"]["normal_counts"][A.VEGETATED]["GPP"]["DJF"] = 1
+        rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"], write=False)
+        assert sorted(b["what"] for b in rec["mismatches"]) == \
+            ["normal_count", "normal_years_used"]
+
+    @pytest.mark.parametrize("change", ["bytes", "name", "surface", "cells", "run_dir"])
+    def test_the_provenance_block(self, made, tmp_path, change):
+        t = copy.deepcopy(made["table"])
+        pv = t["provenance"]
+        fi = pv["runs"]["twin"]["streams"]["h0"]["files"][0]
+        if change == "bytes":
+            fi["bytes"] += 1
+        elif change == "name":
+            fi["name"] = "synth.elm.h0.2099-02-01-00000.nc"
+        elif change == "surface":
+            pv["surface_file"] = str(made["root"] / "other_surfdata.nc")
+        elif change == "cells":
+            pv["regions"]["burned, vegetated"]["cells"] -= 1
+        else:
+            pv["runs"]["twin"]["run_dir"] = str(made["ctl"]["run_dir"])
+        rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"], write=False)
+        assert not rec["pass"]
+        assert {b["section"] for b in rec["mismatches"]} == {"provenance"}
+        want = {"bytes": "bytes", "name": "bytes", "surface": "surface_file",
+                "cells": "cells", "run_dir": "run_dir"}[change]
+        assert [b["what"] for b in rec["mismatches"]] == [want]
+        if change == "name":
+            assert rec["mismatches"][0]["why"] == "the file does not exist"
+
+    def test_a_table_made_before_months(self, made, tmp_path):
+        """A table from before months and seasons were reported carries none of
+        them: its years are checked, and the notes say there are no months;
+        a table that carries any of them is held to all of them."""
+        t = copy.deepcopy(made["table"])
+        for k in N.PERIOD_KEYS:
+            t.pop(k)
+        for r in t["runs"].values():
+            for k in ("monthly", "seasonal", "seasons_left_out", "period_units"):
+                r.pop(k, None)
+        for k in ("monthly_normal", "seasonal_normal", "normal_counts", "normal_left_out",
+                  "normal_years_used"):
+            t["event"].pop(k)
+        rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"], write=False)
+        assert rec["pass"] and rec["notes"] == [
+            "the table was made before months and seasons were reported: it has none "
+            "to check"]
+        t = copy.deepcopy(made["table"])
+        t["runs"]["twin"].pop("monthly")
+        rec = N.check(_run_folder(tmp_path / "b", made, t), registry=made["registry"],
+                      write=False)
+        assert not rec["pass"]
+        assert {b["section"] for b in rec["mismatches"]} == {"monthly"}
+        assert {b["run"] for b in rec["mismatches"]} == {"twin"}
+
+    def test_a_monthly_mismatch_withholds_the_numbers_report(self, made, tmp_path):
+        t = copy.deepcopy(made["table"])
+        t["runs"]["control"]["monthly"][A.VEGETATED]["GPP"]["2015-07"] += 1.0
+        g = N.gate(_run_folder(tmp_path, made, t), registry=made["registry"])
+        assert not g["pass"] and g["n_mismatched"] == 1
+        page = Path(g["report"]).read_text()
+        assert "| monthly, control, vegetated cells, GPP, 2015-07 |" in page
+
+
+def _veg(made):
+    h = N.History(made["ctl"]["run_dir"])
+    surf = N._fsurdat(made["ctl"]["case_dir"])
+    return N.read_surface(surf, h.grid())["veg"]
+
+
 # ── the gate ────────────────────────────────────────────────────────────────
 class TestTheGate:
 
@@ -609,6 +800,78 @@ class TestOnlyWhatTheClaimSays:
         assert not claims[0]["traced"]
 
 
+class TestClaimsAboutAMonthOrASeason:
+    """A claim may trace to a month's or a season's number only when it names
+    that month or season (2026-11-03); B's rules on fields, regions and the
+    printed precision hold for them too."""
+
+    def test_what_a_claim_names(self):
+        assert T.named_periods("GPP in July 2015 fell") == {("month", "07")}
+        assert T.named_periods("June-August GPP") == {("season", "JJA")}
+        assert T.named_periods("over the summer of 2015") == {("season", "JJA")}
+        assert T.named_periods("from Dec to Feb") == {("season", "DJF")}
+        assert T.named_periods("JJA GPP") == {("season", "JJA")}
+        assert T.named_periods("GPP may fall in 2015") == set()
+        assert T.named_periods("GPP fell in May") == {("month", "05")}
+        assert T.named_periods("in the fall of 2016") == {("season", "SON")}
+
+    def test_a_months_and_a_seasons_numbers_trace(self, made):
+        t = made["table"]
+        md = t["monthly_differences"]["twin"]["box, vegetated"]["GPP"]["2015-07"]
+        c = [_claim(f"GPP over the box was {md:.2f} gC/m2 higher in the twin in July 2015.",
+                    [md])]
+        T.trace(c, None, t)
+        assert c[0]["traced"], c[0]["derivations"]
+        assert c[0]["derivations"][0]["source"] == "GPP, box: twin minus control, July 2015"
+        # the same claim naming June, or no month, does not trace to July's number
+        for when in ("June 2015", "2015"):
+            c = [_claim(f"GPP over the box was {md:.2f} gC/m2 higher in the twin in {when}.",
+                        [md])]
+            T.trace(c, None, t)
+            assert not c[0]["traced"], c[0]["derivations"]
+        sn = t["event"]["seasonal_normal"][A.VEGETATED]["TSA"]["JJA"]
+        c = [_claim(f"The domain's summer air temperature (TSA) normal is {sn:.2f} K.", [sn])]
+        T.trace(c, None, t)
+        # the fixture's years repeat, so a summer's own value gives it too
+        d = c[0]["derivations"][0]
+        assert c[0]["traced"] and d["period"] == ("season", "JJA") and "JJA" in d["source"]
+        assert d["value"] == sn
+        a = t["runs"]["twin"]["seasonal"]["box, vegetated"]["GPP"]["2016-JJA"]
+        b = t["runs"]["control"]["seasonal"]["box, vegetated"]["GPP"]["2016-JJA"]
+        p = 100.0 * (a - b) / b
+        c = [_claim(f"June-August GPP over the box was {p:.1f} percent higher in the twin "
+                    f"in 2016.", [round(p, 1)])]
+        T.trace(c, None, t)
+        assert c[0]["derivations"][0]["source"] == \
+            "GPP, box: twin against control, percent, JJA 2016"
+
+    def test_a_normal_of_a_month(self):
+        t = copy.deepcopy(TABLE)
+        t["event"]["monthly_normal"] = {"vegetated cells": {"GPP": {"07": 61.3}}}
+        c = [_claim("The July GPP normal over the domain is 61.3 gC/m2.", [61.3])]
+        T.trace(c, None, t)
+        assert c[0]["derivations"][0]["source"] == \
+            "GPP, vegetated cells: control, the 2016 normal of July"
+        c = [_claim("The August GPP normal over the domain is 61.3 gC/m2.", [61.3])]
+        T.trace(c, None, t)
+        assert not c[0]["traced"]
+
+    def test_the_months_numbers_keep_the_other_rules(self, made):
+        """Another field's July value, or July's value given with more digits
+        than printed and off in them, does not trace."""
+        t = made["table"]
+        x = t["runs"]["control"]["monthly"]["box, vegetated"]["TSA"]["2015-07"]
+        c = [_claim(f"GPP over the box was {x:.1f} in July 2015.", [x])]
+        T.trace(c, None, t)
+        assert not c[0]["traced"]
+        c = [_claim(f"TSA over the box was {x:.1f} K in July 2015.", [x * 1.0001])]
+        T.trace(c, None, t)
+        assert not c[0]["traced"] and "exactly" in c[0]["derivations"][0]["why"]
+        c = [_claim(f"TSA over the box was {x:.1f} K in July 2015.", [x])]
+        T.trace(c, None, t)
+        assert c[0]["derivations"][0]["source"] == "TSA, box: control, July 2015"
+
+
 class TestThroughStep4AndTheAnalyzer:
 
     def test_report_md_lists_each_values_derivation(self, tmp_path):
@@ -708,3 +971,59 @@ def test_a_demo_runs_numbers_reproduce(src, tmp_path):
                            for v in c["values"]]
     out = T.trace(claims, a["headline"].replace(first, moved), table)
     assert out.get("withheld_because"), out["headline"]
+
+
+@pytest.mark.localdata
+@pytest.mark.parametrize("src", _demo_dirs() or ["(no numbers_check_demos block)"])
+def test_a_demo_runs_months_and_seasons_reproduce(src, tmp_path):
+    """The demo run's records copied (read-only), its regional.json made again
+    by the server as the manager makes it, now with months, seasons and the
+    provenance block: every number reproduces, nothing is left unchecked, and
+    one monthly value moved by 1e-4 of itself fails (2026-11-03)."""
+    import domain_controls as DCT
+    if not Path(src).is_dir():
+        pytest.skip(f"{src} is not on this machine")
+    rd = tmp_path / Path(src).name
+    for sub in ("03_results", "01_inputs"):
+        shutil.copytree(Path(src) / sub, rd / sub)
+    for ck in Path(src).glob("domain_case/*/checks"):
+        shutil.copytree(ck, rd / ck.relative_to(src))
+    old = json.loads((rd / "03_results" / "regional.json").read_text())
+    analysis = json.loads((Path(src) / "strategy.json").read_text())[
+        "domain_experiment"]["analysis"]
+    name = json.loads((rd / "01_inputs" / "domain_control_facts.json").read_text())[
+        "control"]["name"]
+    t = A.experiment(DCT.get(name), {n: r["run_dir"] for n, r in old["runs"].items()},
+                     analysis, old["years"],
+                     confined={n: v["region"] for n, v in
+                               (old.get("changed_share") or {}).items()} or None)
+    t = json.loads(json.dumps(t, default=str))
+    assert {"monthly_differences", "seasonal_differences", "provenance"} <= set(t)
+    (rd / "03_results" / "regional.json").write_text(json.dumps(t, indent=1))
+    rec = N.check(rd, write=False)
+    assert rec["pass"], (rec.get("error"), rec["mismatches"][:5])
+    assert rec["not_checked"] == []
+    assert rec["largest_relative_difference"]["rel_diff"] < 1e-9 or \
+        rec["largest_relative_difference"]["section"] == "changed_share"
+    # the run's claims trace to the rebuilt table as to the one they were made
+    # from, except a burned area the old table carried beside an observation
+    # (the server stopped making it on 2026-10-27)
+    a = json.loads((Path(src) / "04_analysis" / "analysis.json").read_text())
+    before, after = copy.deepcopy(a["claims"]), copy.deepcopy(a["claims"])
+    T.trace(before, None, old)
+    out = T.trace(after, a.get("headline"), t)
+    assert "withheld_because" not in out
+    for cb, ca in zip(before, after):
+        for db, da in zip(cb["derivations"], ca["derivations"]):
+            if da.get("traced") or not db.get("traced"):
+                assert da.get("text") == db.get("text"), (db, da)
+            else:
+                assert db.get("field") == "burned_area_km2" and "observed" in old, db
+    reg = next(iter(t["regions"]))
+    f = next(f for f in t["runs"]["control"]["monthly"][reg]
+             if t["runs"]["control"]["monthly"][reg][f].get(f"{t['years'][0]}-07"))
+    t["runs"]["control"]["monthly"][reg][f][f"{t['years'][0]}-07"] *= 1.0 + 1e-4
+    (rd / "03_results" / "regional.json").write_text(json.dumps(t, indent=1))
+    rec = N.check(rd, write=False)
+    assert [(b["section"], b["field"], b["period"]) for b in rec["mismatches"]] == \
+        [("monthly", f, f"{t['years'][0]}-07")]
