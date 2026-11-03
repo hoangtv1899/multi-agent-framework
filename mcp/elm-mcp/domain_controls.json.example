@@ -35,7 +35,11 @@
       },
       "regions": {
         "watershed": {"polygon": "/path/to/basin.geojson",
-                      "what": "the drainage basin above the gauge"}
+                      "what": "the drainage basin above the gauge"},
+        "burned_any_year": {"field": "/path/to/burned_area_on_the_model_grid.nc",
+                            "var": "burned_fraction_year", "op": ">", "value": 0.0,
+                            "over": "any",
+                            "what": "cells where MODIS saw fire in any year 2015-2021: where real fires burned, not where the model's fire burns"}
       },
       "observations": {
         "burned_area": {"path": "/path/to/burned_area_on_the_model_grid.nc",

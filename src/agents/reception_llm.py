@@ -256,6 +256,26 @@ def _drop_domain(brief: Dict[str, Any]) -> Dict[str, Any]:
     return had
 
 
+# THE FIRE AND THE GRID ON THE CARD (2026-11-03). A person reading the card
+# could not tell whose fire the control burns or how fine its grid is, and
+# both decide what a question can ask of it. Each line quotes the sentence the
+# model server read from the control's own files (domain_controls.setup_facts);
+# a control whose facts lack it says so rather than leaving the line out.
+def control_setup_lines(row: Dict[str, Any], prefix: str = "") -> List[str]:
+    """The fire-setup and grid lines of one control, quoted from its facts."""
+    facts = row.get("facts") or {}
+    out = []
+    for part, label in (("fire", "Fire"), ("grid", "Grid")):
+        v = facts.get(part) if isinstance(facts, dict) else None
+        if isinstance(v, dict) and v.get("sentence"):
+            out.append(f"{prefix}{label}: {v['sentence']}")
+        elif facts:
+            out.append(f"{prefix}{label}: not in the control's facts"
+                       + (f" ({v['error']})" if isinstance(v, dict) and v.get("error")
+                          else ""))
+    return out
+
+
 def control_card(rows: List[Dict[str, Any]]) -> str:
     """The prepared controls as the person sees them before Reception's first
     question: what each is, how it compares with observations and what it
@@ -263,6 +283,7 @@ def control_card(rows: List[Dict[str, Any]]) -> str:
     lines = ["", "  ── The prepared run, in the model server's own words ──"]
     for r in rows:
         lines.append(f"  {r.get('name')}: {r.get('description') or 'no description'}")
+        lines += control_setup_lines(r, prefix="  ")
         ev = r.get("evaluation") or {}
         if isinstance(ev, dict) and ev.get("summary"):
             lines.append(f"  Against observations: {ev['summary']}")

@@ -110,6 +110,23 @@ def _with_params(text, params):
     return out
 
 
+# THE CONTROL'S FIRE AND GRID ON THE PAGE (2026-11-03), quoted from the
+# sentences the model server read from the control's own files, as the
+# card shows them: a reviewer sees whose fire burns in it and how fine its
+# grid is before saying yes. Facts that lack a part say so.
+def _control_setup_lines(facts):
+    out = []
+    for part, label in (("fire", "its fire"), ("grid", "its grid")):
+        v = (facts or {}).get(part)
+        if isinstance(v, dict) and v.get("sentence"):
+            out.append(f"- {label}: {v['sentence']}")
+        elif facts:
+            out.append(f"- {label}: not in the control's facts"
+                       + (f" ({v['error']})" if isinstance(v, dict) and v.get("error")
+                          else ""))
+    return out
+
+
 def _whole_domain_lines(brief, strategy):
     """A control and runs of named changes (docs/ELM_DOMAIN_EXPERIMENTS.md),
     every line quoted or counted from the records: the experiment Reception
@@ -133,6 +150,7 @@ def _whole_domain_lines(brief, strategy):
     if oy:
         out.append(f"- its output covers {oy[0]}–{oy[-1]}, from the saved state of "
                    f"{facts.get('start_year')}")
+    out += _control_setup_lines(facts)
     ev = row.get("evaluation") or {}
     if isinstance(ev, dict) and ev.get("summary"):
         # measured outside the server and entered with its source: what the
