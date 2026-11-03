@@ -168,7 +168,8 @@ class TestTheFireSetup:
                                           "present": True, "min": 4.0, "max": 9.0}
         assert fire["sentence"] == (
             "the fire is ELM's own fire model (use_nofire false), lit by lightning from "
-            "lnfm_climo.nc (held at year 1) with population density held at year 1850 "
+            "lnfm_climo.nc (one year of data used the same way every year, stream year 1) "
+            "with population density held at year 1850 "
             "(hdm_simyr1850-2100.nc); no observed fire is prescribed: the land namelist "
             "names no burned-area input")
 
@@ -178,6 +179,53 @@ class TestTheFireSetup:
         assert fire["on"] is False
         assert fire["sentence"].startswith("the fire model is off (use_nofire true), so "
                                            "nothing burns in the run; no observed fire")
+
+
+    # WHOSE FIRE, AND "NOTHING BURNS" ONLY WHEN THE CASE SAYS SO (2026-11-03)
+    @pytest.mark.parametrize("nl, on, sentence", [
+        ({"use_cn": [False], "use_fates": [True], "fates_spitfire_mode": [1]}, True,
+         "the fire is FATES's own fire model, not ELM's (fates_spitfire_mode 1)"),
+        ({"use_fates": [True], "fates_spitfire_mode": [0]}, False,
+         "FATES runs the vegetation with its fire model off (fates_spitfire_mode 0)"),
+        ({"use_fates": [True]}, None,
+         "FATES runs the vegetation and the land namelist does not say whether its fire "
+         "model is on (no fates_spitfire_mode)"),
+        ({"use_cn": [False], "use_fates": [False]}, False,
+         "ELM's fire model does not run: it is part of the carbon-nutrient cycle, which "
+         "is off (use_cn false, use_nofire not set)"),
+        ({}, False, "the fire setup could not be read: the land namelist sets neither "
+                    "use_nofire nor use_cn"),
+        ({"use_cn": [True]}, True, "the fire is ELM's own fire model (use_nofire not set), "
+                                   "with no lightning file named"),
+    ])
+    def test_whose_fire_without_use_nofire(self, nl, on, sentence):
+        fire = DCT.fire_setup(nl)
+        assert fire["on"] is on
+        assert fire["sentence"].startswith(sentence)
+        assert "None" not in fire["sentence"]
+        assert "nothing burns" not in fire["sentence"]
+
+    def test_fates_fire_settings_are_listed(self):
+        fire = DCT.fire_setup({"use_fates": [True], "fates_spitfire_mode": [1]})
+        assert fire["namelist"] == {"fates_spitfire_mode": 1}
+
+
+class TestTheWords:
+    """The idea before the code (2026-11-03)."""
+
+    def test_a_year_with_no_calendar_date_is_not_called_a_year(self):
+        assert DCT._held([1, 1]) == ("one year of data used the same way every year, "
+                                     "stream year 1")
+        assert DCT._held([1850, 1850]) == "held at year 1850"
+        assert DCT._held([2013, 2023]) == "read for 2013-2023"
+
+    def test_century_and_an_unknown_competition_code(self, tmp_path):
+        cd, _ = _case(tmp_path, env=dict(ENV, ELM_BLDNML_OPTS="-bgc bgc -soil_decomp century"))
+        lnd = cd / "CaseDocs" / "lnd_in"
+        lnd.write_text(lnd.read_text().replace("nu_com = 'RD'", "nu_com = 'XYZ'"))
+        words = DCT.setup_facts(cd)["configuration"]["sentences"]["carbon_nutrient"]
+        assert "nutrient competition set by nu_com XYZ" in words
+        assert "soil decomposition by the CENTURY scheme," in words
 
 
 class TestTheGrid:
@@ -231,7 +279,9 @@ class TestTheConfiguration:
         assert c["sentences"] == {
             "compset": ENV["COMPSET"] + " (land namelist use case 2000_control)",
             "carbon_nutrient": "carbon, nitrogen and phosphorus cycles (use_cn true), "
-                               "nutrient competition RD (nu_com), CTC soil decomposition, "
+                               "plants and microbes share nutrients by relative demand "
+                               "(nu_com RD), soil decomposition by the converging trophic "
+                               "cascade scheme (CTC), "
                                "soil carbon resolved by depth, methane on",
             "co2": "held constant at 367 ppmv",
             "deposition": "nitrogen deposition held at year 2000 from "
@@ -239,9 +289,10 @@ class TestTheConfiguration:
                           "2000 from fpdep_simyr2000.nc",
             "supplements": "nitrogen not supplemented (suplnitro NONE); phosphorus "
                            "supplemented to meet plant demand everywhere (suplphos ALL)",
-            "weather": "the data atmosphere in CLMMOSARTTEST mode (CLMNCEP data) reads "
-                       "NLDAS weather, years 2013-2023, model year Y reading weather year "
-                       "Y, repeated in a cycle past the last year"}
+            "weather": "weather read from NLDAS files by the data atmosphere, years "
+                       "2013-2023, model year Y reading weather year Y, repeated in a "
+                       "cycle past the last year (DATM mode CLMMOSARTTEST, data mode "
+                       "CLMNCEP)"}
 
     def test_a_shifted_weather_year_is_said(self, tmp_path):
         cd, _ = _case(tmp_path, env=dict(ENV, DATM_CLMNCEP_YR_ALIGN="2015"))
@@ -297,6 +348,63 @@ class TestTheCache:
         # still stale once a history file is newer than the year facts
         os.utime(h[0], (t + 60, t + 60))
         assert DCT.facts("synth", str(reg)) is None
+
+    # A CACHE THE SERVER CANNOT WRITE, AND A PART THAT FAILED (2026-11-03)
+    def _old_cache(self, c, reg):
+        f = DCT.compute_facts("synth", str(reg))
+        p = Path(reg).parent / DCT.FACTS_DIR / "synth.json"
+        old = {k: v for k, v in f.items()
+               if k not in ("version", "fire", "grid", "configuration")}
+        p.write_text(json.dumps(old, default=str))
+        t = time.time() + 5
+        os.utime(p, (t, t))
+        return p, old
+
+    def test_a_cache_the_server_cannot_write_still_gives_the_facts(self, control):
+        import stat
+        c, reg = control
+        p, old = self._old_cache(c, reg)
+        os.chmod(p.parent, stat.S_IRUSR | stat.S_IXUSR)
+        try:
+            if os.access(str(p.parent), os.W_OK):
+                pytest.skip("this user can write a read-only folder")
+            d = DCT.describe(str(reg))
+            got = DCT.facts("synth", str(reg))
+        finally:
+            os.chmod(p.parent, stat.S_IRWXU)
+        assert d["controls"][0]["facts"]["grid"]["cells"] == 12
+        assert got["version"] == DCT.FACTS_VERSION and got["fire"]["on"] is True
+        assert json.loads(p.read_text()) == json.loads(json.dumps(old, default=str))
+        assert sorted(q.name for q in p.parent.iterdir()) == ["synth.json"]
+
+    def test_a_setup_part_that_failed_is_not_written_and_is_read_again(self, control):
+        c, reg = control
+        p, old = self._old_cache(c, reg)
+        lnd = Path(c["case_dir"]) / "CaseDocs" / "lnd_in"
+        lnd.rename(lnd.with_suffix(".away"))
+        try:
+            first = DCT.facts("synth", str(reg))
+        finally:
+            lnd.with_suffix(".away").rename(lnd)
+        assert "error" in first["grid"]
+        assert "version" not in json.loads(p.read_text())
+        again = DCT.facts("synth", str(reg))
+        assert "error" not in again["grid"] and again["grid"]["cells"] == 12
+        assert json.loads(p.read_text())["grid"]["cells"] == 12
+
+    def test_a_cache_of_this_format_with_a_failed_part_reads_it_again(self, control):
+        c, reg = control
+        f = DCT.compute_facts("synth", str(reg))
+        p = Path(reg).parent / DCT.FACTS_DIR / "synth.json"
+        d = json.loads(p.read_text())
+        d["fire"] = {"error": "FileNotFoundError: lnd_in"}
+        p.write_text(json.dumps(d))
+        t = time.time() + 5
+        os.utime(p, (t, t))
+        got = DCT.facts("synth", str(reg))
+        assert got["fire"]["sentence"] == f["fire"]["sentence"]
+        assert json.loads(p.read_text())["fire"]["sentence"] == f["fire"]["sentence"]
+        assert p.stat().st_mtime == pytest.approx(t, abs=1e-3)
 
     def test_a_format_this_code_does_not_know_is_not_used(self, control):
         c, reg = control

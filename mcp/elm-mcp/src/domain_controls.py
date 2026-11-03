@@ -113,29 +113,58 @@ def facts(name: str, override: Optional[str] = None) -> Optional[Dict[str, Any]]
                  default=0.0)
     if newest > p.stat().st_mtime:
         return None
-    if f.get("version") != FACTS_VERSION:
+    if f.get("version") != FACTS_VERSION or _setup_failed(f):
         f = _upgrade(f, e, p)
     return f
 
 
+SETUP_PARTS = ("fire", "grid", "configuration")
+
+
+def _setup_failed(f: Dict[str, Any]) -> bool:
+    """True when a setup part is missing or holds an error."""
+    return any(not isinstance(f.get(k), dict) or f[k].get("error") for k in SETUP_PARTS)
+
+
+# A SETUP PART THAT FAILED IS READ AGAIN; A CACHE THAT CANNOT BE WRITTEN IS
+# NOT AN ERROR (2026-11-03). The setup is read in about 2 s, so a part that
+# could not be read (lnd_in briefly away, inputdata not mounted) is not
+# written down: the cache keeps its old content and the next call reads the
+# case again, where a stored error would stay until the full refresh. A cache
+# folder the server may not write (a shared or read-only install, a full
+# disk) leaves the facts in memory only; the caller still gets them, so
+# describe_domain_controls does not report the control as unusable. Each
+# process writes its own temporary file, so two servers upgrading at once
+# cannot rename each other's.
 def _upgrade(f: Dict[str, Any], e: Dict[str, Any], p: Path) -> Optional[Dict[str, Any]]:
     """A cache of an older format brought to FACTS_VERSION. A cache from
     before the version key (format 1) gains the setup parts, read from the
     case in seconds; its year facts are kept, since their format did not
-    change. The rewritten cache keeps its old modification time, so a history
-    file written after the year facts still makes it stale. A format this
-    code does not know is not used: refresh_domain_control_facts."""
+    change. A cache of this format whose setup parts failed reads them again.
+    The rewritten cache keeps its old modification time, so a history file
+    written after the year facts still makes it stale; it is rewritten only
+    when every setup part was read. A format this code does not know is not
+    used: refresh_domain_control_facts."""
     import os
-    if f.get("version") not in (None, 1):
+    if f.get("version") not in (None, 1, FACTS_VERSION):
         return None
-    st = p.stat()
-    f = dict(f, version=FACTS_VERSION, **setup_facts(e["case_dir"]),
-             setup_computed=datetime.datetime.now().isoformat(timespec="seconds"))
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps(f, indent=1, default=str))
-    os.utime(tmp, (st.st_atime, st.st_mtime))
-    tmp.replace(p)
-    return json.loads(json.dumps(f, default=str))
+    f = json.loads(json.dumps(dict(f, version=FACTS_VERSION, **setup_facts(e["case_dir"])),
+                              default=str))
+    if _setup_failed(f):
+        return f
+    f["setup_computed"] = datetime.datetime.now().isoformat(timespec="seconds")
+    tmp = p.with_name(f"{p.name}.{os.getpid()}.tmp")
+    try:
+        st = p.stat()
+        tmp.write_text(json.dumps(f, indent=1))
+        os.utime(tmp, (st.st_atime, st.st_mtime))
+        tmp.replace(p)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+    return f
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +274,11 @@ SUPPLEMENT_WORDS = {"NONE": "not supplemented",
                     "ALL": "supplemented to meet plant demand everywhere",
                     "PROG_CROP_ONLY": "supplemented for prognostic crops only"}
 NUTRIENT_WORDS = {"cnp": "carbon, nitrogen and phosphorus", "cn": "carbon and nitrogen"}
+# THE IDEA BEFORE THE CODE (2026-11-03). The setup sentences are quoted on
+# the card, the page and every report, so a scheme's code (RD, CTC) comes
+# after what it does, never alone.
+NU_COM_WORDS = {"RD": "relative demand", "ECA": "equilibrium chemistry approximation"}
+DECOMP_WORDS = {"ctc": "converging trophic cascade", "century": "CENTURY"}
 
 
 def _first(nl: Dict[str, list], key: str):
@@ -268,8 +302,13 @@ def _word(v) -> str:
 
 
 def _held(ys: Optional[List[int]]) -> str:
+    """How a stream's years are used. A single year below 1000 is a stream
+    of one year with no calendar date (the lightning climatology's year 1),
+    which a reader would otherwise take for a calendar year."""
     if not ys:
         return "for years not stated"
+    if ys[0] == ys[1] and ys[0] < 1000:
+        return f"one year of data used the same way every year, stream year {ys[0]}"
     return f"held at year {ys[0]}" if ys[0] == ys[1] else f"read for {ys[0]}-{ys[1]}"
 
 
@@ -301,7 +340,14 @@ def fire_setup(nl: Dict[str, list]) -> Dict[str, Any]:
     """The fire model's setup as the land namelist states it, with the
     surface data's fire inputs, and one sentence a reader can quote."""
     nofire = _first(nl, "use_nofire")
-    on = nofire is False or (nofire is None and bool(_first(nl, "use_cn")))
+    use_cn, fates = _first(nl, "use_cn"), _first(nl, "use_fates") is True
+    spit = _first(nl, "fates_spitfire_mode")
+    try:
+        spit_on = None if spit is None else int(spit) > 0
+    except (TypeError, ValueError):
+        spit_on = None
+    on = (spit_on if fates else
+          nofire is False or (nofire is None and use_cn is True))
     pop, light = _stream(nl, "popdens"), _stream(nl, "lightng")
     for s, tag in ((pop, "popdens"), (light, "lightng")):
         s["map"] = _first(nl, f"{tag}mapalgo")
@@ -319,18 +365,36 @@ def fire_setup(nl: Dict[str, list]) -> Dict[str, Any]:
     observed = ("no observed fire is prescribed: the land namelist names no burned-area "
                 "input" if not out["prescribed_burned_area"] else
                 "the land namelist names " + ", ".join(out["prescribed_burned_area"]))
-    if not on:
-        out["sentence"] = (f"the fire model is off (use_nofire {_word(nofire)}), so nothing burns "
-                           f"in the run; {observed}")
+    # WHOSE FIRE, AND ONLY "NOTHING BURNS" WHEN THE CASE SAYS SO (2026-11-03).
+    # Under FATES the fire is FATES's own (fates_spitfire_mode), not ELM's.
+    # Without the carbon-nutrient cycle ELM's fire model does not run, which
+    # is not the same as a switch set off. A namelist that states none of the
+    # switches is said to be unread, never fire-free.
+    nf = "use_nofire not set" if nofire is None else f"use_nofire {_word(nofire)}"
+    if fates:
+        out["sentence"] = (
+            (f"the fire is FATES's own fire model, not ELM's (fates_spitfire_mode "
+             f"{_word(spit)})" if spit_on else
+             f"FATES runs the vegetation with its fire model off (fates_spitfire_mode "
+             f"{_word(spit)})" if spit_on is False else
+             "FATES runs the vegetation and the land namelist does not say whether its "
+             "fire model is on (no fates_spitfire_mode)") + f"; {observed}")
+    elif nofire is True:
+        out["sentence"] = (f"the fire model is off ({nf}), so nothing burns in the run; "
+                           f"{observed}")
+    elif not on and use_cn is False:
+        out["sentence"] = (f"ELM's fire model does not run: it is part of the carbon-nutrient "
+                           f"cycle, which is off (use_cn false, {nf}); {observed}")
+    elif not on:
+        out["sentence"] = (f"the fire setup could not be read: the land namelist sets "
+                           f"neither use_nofire nor use_cn; {observed}")
     else:
         lit = (f"lit by lightning from {light['file_name']} ({_held(light['years'])})"
                if light["file_name"] else "with no lightning file named")
         people = (f" with population density {_held(pop['years'])} "
                   f"({pop['file_name']})" if pop["file_name"] else
                   " with no population-density file named")
-        out["sentence"] = (f"the fire is ELM's own fire model (use_nofire "
-                           f"{'not set' if nofire is None else _word(nofire)}), {lit}{people}; "
-                           f"{observed}")
+        out["sentence"] = f"the fire is ELM's own fire model ({nf}), {lit}{people}; {observed}"
     return out
 
 
@@ -428,11 +492,16 @@ def configuration_setup(case_dir: Path, nl: Dict[str, list]) -> Dict[str, Any]:
     if cn["use_fates"]:
         words.append("FATES vegetation")
     if cn["nu_com"]:
-        words.append(f"nutrient competition {cn['nu_com']} (nu_com)")
+        how = NU_COM_WORDS.get(str(cn["nu_com"]).upper())
+        words.append(f"plants and microbes share nutrients by {how} (nu_com {cn['nu_com']})"
+                     if how else f"nutrient competition set by nu_com {cn['nu_com']}")
     decomp = flags.get("soil_decomp") or ({True: "century", False: "ctc"}
                                           .get(cn["use_century_decomp"]))
     if decomp:
-        words.append(f"{str(decomp).upper()} soil decomposition")
+        name, code = DECOMP_WORDS.get(str(decomp).lower()), str(decomp).upper()
+        words.append(f"soil decomposition by the {name} scheme"
+                     + (f" ({code})" if name != code else "") if name else
+                     f"soil decomposition by the {code} scheme")
     if cn["use_vertsoilc"]:
         words.append("soil carbon resolved by depth")
     if cn["use_lch4"]:
@@ -475,14 +544,17 @@ def configuration_setup(case_dir: Path, nl: Dict[str, list]) -> Dict[str, Any]:
     except Exception as e:                                          # noqa: BLE001
         weather["error"] = f"{type(e).__name__}: {e}"
     ys, al = weather["years"], weather["align"]
-    w = (f"the data atmosphere in {weather['mode']} mode"
-         + (f" ({weather['data_mode']} data)" if weather.get("data_mode") else "")
-         + (f" reads {weather['source']} weather" if weather.get("source") else "")
+    w = ("weather read from "
+         + (f"{weather['source']} files" if weather.get("source") else "files")
+         + " by the data atmosphere"
          + (f", years {ys[0]}-{ys[1]}" if ys else "")
          + ((", model year Y reading weather year Y" if al == ys[0] else
              f", year {ys[0]} read as model year {al}") if ys and al is not None else "")
          + (f", repeated in a {weather['time_axis']} past the last year"
-            if weather.get("time_axis") == "cycle" else ""))
+            if weather.get("time_axis") == "cycle" else "")
+         + (f" (DATM mode {weather['mode']}"
+            + (f", data mode {weather['data_mode']}" if weather.get("data_mode") else "")
+            + ")" if weather.get("mode") else ""))
     out = {"compset": env["COMPSET"], "use_case": env["ELM_NML_USE_CASE"],
            "carbon_nutrient": cn, "co2": co2, "deposition": dep, "supplements": sup,
            "weather": weather,
