@@ -365,6 +365,7 @@ class History:
         period inside [start, end) is then made from these (span)."""
         import netCDF4
         out: List[Dict[str, Any]] = []
+        prev_end = None
         for p in self.files[stream]:
             with netCDF4.Dataset(p) as d:
                 if var not in d.variables:
@@ -376,6 +377,7 @@ class History:
                 cal = str(getattr(t, "calendar", "standard"))
                 units = str(t.units)
                 tb = np.asarray(d[bname][:], dtype=np.float64)
+                tb, prev_end = restart_clip(tb, prev_end, units, cal)
                 a, b = _day(start, units, cal), _day(end, units, cal)
                 lo, hi = np.maximum(tb[:, 0], a), np.minimum(tb[:, 1], b)
                 idx = np.flatnonzero(hi - lo > TIME_TOL_DAYS)
@@ -395,6 +397,44 @@ class History:
                 out.append({"units": units, "calendar": cal, "bounds": tb[idx],
                             "means": means})
         return out
+
+
+# A RUN SEGMENT RESTARTED AT A MONTH'S START (2026-11-03). ELM folds a
+# segment's first model step into its first monthly record, so a segment
+# restarted on 1 January 2016 writes January 2016 from one step before
+# midnight: it overlaps December 2015 by that step, and the tiling test found
+# a gap or overlap in 2015 and in DJF 2016 that the history does not have.
+# The longest step taken as such is 6 hours (ELM steps 30 or 60 minutes).
+MAX_STEP_DAYS = 0.25
+
+
+def _on_month_start(x: float, units: str, cal: str) -> bool:
+    """True when x (in the file's own time units) is the start of a month."""
+    import netCDF4
+    dt = netCDF4.num2date(x, units, calendar=cal, only_use_cftime_datetimes=True)
+    nxt = (dt.year + 1, 1) if dt.month == 12 else (dt.year, dt.month + 1)
+    return any(abs(_day((y, m, 1), units, cal) - x) <= TIME_TOL_DAYS
+               for y, m in ((dt.year, dt.month), nxt))
+
+
+def restart_clip(tb: np.ndarray, prev_end: Optional[float], units: str, cal: str
+                 ) -> Tuple[np.ndarray, Optional[float]]:
+    """(time_bounds with each restart step clipped, the last record's end).
+
+    A record that starts before the previous record ends, by no more than one
+    model step (MAX_STEP_DAYS), and ends on the first of a month is a month
+    with a restart step folded in: its start is moved to the previous end, so
+    it counts for its own month only. Any other overlap is left for span to
+    find. prev_end carries the last end over from the file before."""
+    tb = np.array(tb, dtype=np.float64, copy=True)
+    for k in range(tb.shape[0]):
+        if prev_end is not None:
+            ov = prev_end - tb[k, 0]
+            if TIME_TOL_DAYS < ov <= MAX_STEP_DAYS + TIME_TOL_DAYS and \
+                    _on_month_start(tb[k, 1], units, cal):
+                tb[k, 0] = prev_end
+        prev_end = float(tb[k, 1])
+    return tb, prev_end
 
 
 def _day(date: Tuple[int, int, int], units: str, cal: str) -> float:
@@ -966,6 +1006,16 @@ def _pwhy(mine, run, f, key):
 
 
 PERIOD_KEYS = ("monthly_differences", "seasonal_differences", "provenance")
+# the event's keys the server writes whenever it has normal years
+NORMAL_KEYS = ("monthly_normal", "seasonal_normal", "normal_counts")
+
+
+def carries_periods(table: Dict[str, Any]) -> bool:
+    """True for a table made since months and seasons were reported: it has
+    any of their keys at the top, or months or seasons in a run."""
+    runs = table.get("runs") or {}
+    return any(k in table for k in PERIOD_KEYS) or \
+        any(k in (r or {}) for r in runs.values() for k in PERIOD_KINDS)
 
 
 def compare_periods(table: Dict[str, Any], mine: Dict[str, Any], area: Dict[str, float],
@@ -977,8 +1027,7 @@ def compare_periods(table: Dict[str, Any], mine: Dict[str, Any], area: Dict[str,
     carries none of them, and says so in the notes; a table that carries any
     of them is held to all of them."""
     runs = table.get("runs") or {}
-    if not any(k in table for k in PERIOD_KEYS) and \
-            not any(k in (r or {}) for r in runs.values() for k in PERIOD_KINDS):
+    if not carries_periods(table):
         notes.append("the table was made before months and seasons were reported: it "
                      "has none to check")
         return
@@ -1046,8 +1095,15 @@ def compare_periods(table: Dict[str, Any], mine: Dict[str, Any], area: Dict[str,
                           "the table has no difference where both runs have a value")
     # the event's normals of each month and season
     ev = table.get("event") or {}
-    if not any(k in ev for k in ("monthly_normal", "seasonal_normal")):
+    # A NORMALS BLOCK DELETED IS NOT A PASS (2026-11-03): this table carries
+    # months, and the server writes every one of these keys beside its normal
+    # years, so a key missing is a block the table dropped, not one it never had.
+    if not ev.get("normal_years"):
         return
+    for k in NORMAL_KEYS:
+        if k not in ev:
+            L.mismatch({"section": "event", "what": k}, None, None,
+                       f"the table has normal years but no {k} block")
     normal = [int(y) for y in ev.get("normal_years") or []]
     target = {int(y) for y in ev.get("target_years") or []}
     skip = [y for y in normal if y - 1 in target]
@@ -1059,6 +1115,8 @@ def compare_periods(table: Dict[str, Any], mine: Dict[str, Any], area: Dict[str,
                bool((ev.get("normal_left_out") or {}).get("DJF")), bool(skip))
     counts = ev.get("normal_counts") or {}
     for kind, labels in (("monthly_normal", MONTH_LABELS), ("seasonal_normal", tuple(SEASONS))):
+        if kind not in ev:
+            continue                    # one mismatch for the block, above
         per = "monthly" if kind == "monthly_normal" else "seasonal"
         tab_k = ev.get(kind) or {}
         pairs = set(ctl) | {(reg, f) for reg, fs in tab_k.items() for f in (fs or {})}
@@ -1087,6 +1145,11 @@ def compare_provenance(table: Dict[str, Any], masks: Dict[str, np.ndarray],
     cells and area are the masks'."""
     pv = table.get("provenance")
     if pv is None:
+        # A PROVENANCE BLOCK DELETED IS NOT A PASS (2026-11-03): only a table
+        # made before months were reported was made without one.
+        if carries_periods(table):
+            L.mismatch({"section": "provenance", "what": "provenance"}, None, None,
+                       "the table carries months and seasons but no provenance block")
         return
     at = {"section": "provenance"}
     sf = pv.get("surface_file")

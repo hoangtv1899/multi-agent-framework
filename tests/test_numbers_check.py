@@ -497,6 +497,27 @@ class TestMonthsAndSeasonsAreChecked:
         assert {b["section"] for b in rec["mismatches"]} == {"monthly"}
         assert {b["run"] for b in rec["mismatches"]} == {"twin"}
 
+    def test_a_normals_or_provenance_block_deleted(self, made, tmp_path):
+        """A table that carries months is held to every block the server
+        writes with them: its normals deleted, or its provenance block
+        deleted, fails, each block once (2026-11-03)."""
+        t = copy.deepcopy(made["table"])
+        for k in ("monthly_normal", "seasonal_normal", "normal_counts"):
+            t["event"].pop(k)
+        rec = N.check(_run_folder(tmp_path / "n", made, t), registry=made["registry"],
+                      write=False)
+        assert not rec["pass"] and rec["not_checked"] == []
+        assert sorted((b["section"], b["what"]) for b in rec["mismatches"]) == [
+            ("event", "monthly_normal"), ("event", "normal_counts"),
+            ("event", "seasonal_normal")]
+        t = copy.deepcopy(made["table"])
+        t.pop("provenance")
+        rec = N.check(_run_folder(tmp_path / "p", made, t), registry=made["registry"],
+                      write=False)
+        assert not rec["pass"]
+        assert [(b["section"], b["what"]) for b in rec["mismatches"]] == \
+            [("provenance", "provenance")]
+
     def test_a_monthly_mismatch_withholds_the_numbers_report(self, made, tmp_path):
         t = copy.deepcopy(made["table"])
         t["runs"]["control"]["monthly"][A.VEGETATED]["GPP"]["2015-07"] += 1.0
@@ -510,6 +531,61 @@ def _veg(made):
     h = N.History(made["ctl"]["run_dir"])
     surf = N._fsurdat(made["ctl"]["case_dir"])
     return N.read_surface(surf, h.grid())["veg"]
+
+
+# ── a run segment restarted at a month's start ───────────────────────────────
+def _restarted(root, month_index):
+    """A control and a twin whose 2016 output is a segment restarted at the
+    start of month `month_index` (0 = 1 January 2016): ELM folds the segment's
+    first model step into that month's record, which then starts one step
+    before the month does, inside the month before."""
+    ctl, twin = _case(root, "ctl"), _case(root, "twin", 1.1)
+    for c in (ctl, twin):
+        p = Path(c["run_dir"]) / "synth.elm.h0.2016-02-01-00000.nc"
+        with netCDF4.Dataset(p, "a") as d:
+            tb = d["time_bounds"][:]
+            tb[month_index, 0] -= fx.DT
+            d["time_bounds"][:] = tb
+    registry = {"case_dir": str(ctl["case_dir"]),
+                "regions": {"box": {"polygon": str(_polygon(root / "box.geojson", ctl))}}}
+    table = A.experiment({"case_dir": str(ctl["case_dir"]), "regions": registry["regions"]},
+                         {"control": ctl["run_dir"], "twin": twin["run_dir"]},
+                         {"regions": [A.VEGETATED, "box"], "variables": ["GPP", "TSA"],
+                          "normal_years": [2016]}, YEARS, confined=None)
+    table = json.loads(json.dumps(table, default=str))
+    return {"root": root, "ctl": ctl, "twin": twin, "registry": registry, "table": table}
+
+
+class TestARestartedSegment:
+    """A RUN SEGMENT RESTARTED AT A MONTH'S START (2026-11-03): its first
+    monthly record carries one model step of the month before, as the reader
+    accepts it; the check counts that record for its own month only, so the
+    year before, DJF and the months around it are made, not refused."""
+
+    @pytest.mark.parametrize("month_index", [0, 6], ids=["1 January", "1 July"])
+    def test_every_number_agrees(self, tmp_path, month_index):
+        made = _restarted(tmp_path / "nc", month_index)
+        t = made["table"]
+        assert t["problems"] == []
+        assert t["runs"]["control"]["seasonal"][A.VEGETATED]["GPP"]["2016-DJF"] is not None
+        rec = N.check(_run_folder(tmp_path, made), registry=made["registry"], write=False)
+        assert rec["pass"], rec["mismatches"][:3] or rec.get("error")
+        assert rec["largest_relative_difference"]["rel_diff"] < 1e-9
+
+    def test_only_one_step_into_a_month_is_clipped(self):
+        """An overlap of one step by a record that ends on a month's first is
+        clipped; a longer overlap, or one by a record that ends mid-month, is
+        left for the tiling test to refuse."""
+        units, cal = "days since 2015-01-01 00:00:00", "noleap"
+        prev = 365.0                                    # December 2015 ends
+        tb, end = N.restart_clip(np.array([[365.0 - fx.DT, 396.0]]), prev, units, cal)
+        assert tb[0, 0] == 365.0 and end == 396.0
+        for row in ([[364.0, 396.0]], [[365.0 - fx.DT, 380.0]]):
+            tb, _ = N.restart_clip(np.array(row), prev, units, cal)
+            assert tb[0, 0] == row[0][0]
+        # the run's own first step has no record before it to overlap
+        tb, _ = N.restart_clip(np.array([[-fx.DT, 31.0]]), None, units, cal)
+        assert tb[0, 0] == -fx.DT
 
 
 # ── the gate ────────────────────────────────────────────────────────────────
@@ -870,6 +946,53 @@ class TestClaimsAboutAMonthOrASeason:
         c = [_claim(f"TSA over the box was {x:.1f} K in July 2015.", [x])]
         T.trace(c, None, t)
         assert c[0]["derivations"][0]["source"] == "TSA, box: control, July 2015"
+
+
+    def test_a_fall_in_a_field_is_not_autumn(self, made):
+        """'The fall in GPP' is a decrease, not a season: it names no period,
+        so the claim does not trace to an SON number (2026-11-03)."""
+        assert T.named_periods("the fall in GPP") == set()
+        assert T.named_periods("The fall in GPP over the box was 9.40 gC/m2.") == set()
+        assert T.named_periods("the rate of fall") == set()
+        assert T.named_periods("a fall of 4.6 gC/m2 from control to twin") == set()
+        assert T.named_periods("GPP in fall 2016") == {("season", "SON")}
+        assert T.named_periods("during the fall, GPP rose") == {("season", "SON")}
+        assert T.named_periods("summer and fall") == {("season", "JJA"), ("season", "SON")}
+        t = made["table"]
+        son = t["seasonal_differences"]["twin"]["box, vegetated"]["GPP"]["2016-SON"]
+        c = [_claim(f"The fall in GPP over the box from control to twin was {son:.2f} "
+                    f"gC/m2 in 2016.", [round(son, 2)])]
+        T.trace(c, None, t)
+        assert not c[0]["traced"], c[0]["derivations"]
+
+    def test_a_headline_cannot_give_a_seasons_number_as_the_years(self, made):
+        """A traced SON value does not state a headline number unless the
+        headline names autumn (2026-11-03)."""
+        t = made["table"]
+        son = t["seasonal_differences"]["twin"]["box, vegetated"]["GPP"]["2016-SON"]
+        yr = t["differences"]["twin"]["box, vegetated"]["GPP"]["2016"]
+        assert abs(son - yr) > 1.0
+
+        def claims():
+            return [_claim(f"In September-November 2016, GPP over the box was {son:.2f} "
+                           f"gC/m2 higher in the twin than in the control.",
+                           [round(son, 2)])]
+        c = claims()
+        out = T.trace(c, f"The twin raised GPP over the box by {son:.2f} gC/m2 in 2016.", t)
+        assert c[0]["traced"]
+        assert out.get("withheld_because"), out["headline"]
+        assert out["headline"][0]["why"] == \
+            "a claim states it for SON, which the headline does not name"
+        c = claims()
+        out = T.trace(c, f"The twin raised GPP over the box by {son:.2f} gC/m2 in "
+                         f"autumn 2016.", t)
+        assert out.get("withheld_because") is None and out["headline"][0]["traced"]
+        # a derivation read back from analysis.json carries its period as a list
+        c = json.loads(json.dumps(claims()))
+        T.trace(c, None, t)
+        c = json.loads(json.dumps(c))
+        assert T.trace_headline(f"GPP rose by {son:.2f} gC/m2 in 2016.", c)[0][
+            "traced"] is False
 
 
 class TestThroughStep4AndTheAnalyzer:

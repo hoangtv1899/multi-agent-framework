@@ -247,8 +247,8 @@ def named_periods(text: str) -> set:
     """The months and seasons a claim names, as ("month", "07") and
     ("season", "JJA"): a month by name ('July', 'Jul'); a season by its code
     ('JJA'), its months as a range ('June-August', 'Dec to Feb') or its word
-    ('summer'; 'fall' only as 'the fall', 'in fall'). A range that is a season
-    names the season, not its two end months."""
+    ('summer'; 'fall' only where it cannot be a decrease, _FALL_RX). A range
+    that is a season names the season, not its two end months."""
     t = str(text or "")
     out = set()
     for m in list(_RANGE_RX.finditer(t)):
@@ -263,9 +263,25 @@ def named_periods(text: str) -> set:
     low = t.lower()
     out |= {("season", c) for w, c in _SEASON_WORDS.items()
             if re.search(rf"\b{w}s?\b", low)}
-    if re.search(r"\b(?:the|in|during|over|this|that|last|of)\s+fall\b", low):
+    if any(m for m in _FALL_RX.finditer(low)):
         out.add(("season", "SON"))
     return out
+
+
+# 'FALL' IS A DECREASE MORE OFTEN THAN A SEASON (2026-11-03). "The fall in GPP"
+# and "the rate of fall" named autumn, so a claim about a decrease traced to an
+# SON number. 'fall' names the season only next to a year ('fall 2016', 'fall
+# of 2016'), another season ('summer and fall'), or after a word of time ('in
+# fall', 'during the fall'), and never when 'in', 'of', 'to', 'from' or 'by'
+# follows it with anything but a year ('a fall in GPP', 'a fall of 4.6').
+_NOT_A_DECREASE = r"(?!\s+(?:in|of|to|from|by)\s+(?!(?:19|20)\d{2}\b))"
+_OTHER_SEASON = r"(?:summer|winter|spring|autumn)s?"
+_FALL_RX = re.compile(
+    r"\bfall\s+(?:of\s+)?(?:19|20)\d{2}\b"
+    r"|\b(?:in|during|over|through|this|that|last|next|each|every)\s+"
+    r"(?:the\s+)?(?:early\s+|late\s+)?fall\b" + _NOT_A_DECREASE +
+    r"|\b" + _OTHER_SEASON + r"\s*(?:,|-|and|or|to|through)\s*fall\b" + _NOT_A_DECREASE +
+    r"|\bfall\s*(?:,|-|and|or|to|through)\s*" + _OTHER_SEASON + r"\b")
 
 
 def period_of(key) -> Optional[Tuple[str, str]]:
@@ -278,6 +294,12 @@ def period_of(key) -> Optional[Tuple[str, str]]:
     if re.fullmatch(r"\d{2}", tail) and 1 <= int(tail) <= 12:
         return ("month", tail)
     return None
+
+
+def when_period(p) -> str:
+    """A period of named_periods or period_of in words: 'July', 'JJA'."""
+    kind, lab = tuple(p)
+    return MONTHS[int(lab) - 1] if kind == "month" else lab
 
 
 def when(key) -> str:
@@ -686,7 +708,8 @@ def trace_headline(headline: Optional[str], claims: List[Dict[str, Any]],
     precisions (the headline's as written, a whole number to the unit; the
     claim's as its text prints it), the claim value is traced, and its
     derivation fits the headline: a percent for a percent, the same unit for a
-    number with a unit, and a field the headline names when it names any. A
+    number with a unit, a field the headline names when it names any, and a
+    month or season only when the headline names it (named_periods). A
     year of the table with no unit after it is a date. A whole number that no
     claim states and that carries no measured unit (percent, gC/m2, kg/m2,
     W/m2, km2, mm) is a label ('2 K warmer', 'the 2000 m band'); any other
@@ -695,6 +718,10 @@ def trace_headline(headline: Optional[str], claims: List[Dict[str, Any]],
     vals = [(d, c) for c in claims for d in (c.get("derivations") or [])
             if _is_num(d.get("value")) and d.get("how") != "year"]
     names = {f for f in named_fields(text, None, known) if f in set(known or ())}
+    # A SEASON'S NUMBER IS NOT A YEAR'S (2026-11-03): the claims' rule holds for
+    # the headline too, so a headline that names no month or season cannot
+    # print a claim's July or JJA value as the year's change.
+    hp = named_periods(text)
     out = []
     for m in _NUMBER.finditer(text):
         w = m.group(0).replace(",", "").lstrip("-")
@@ -703,13 +730,15 @@ def trace_headline(headline: Optional[str], claims: List[Dict[str, Any]],
             continue
         h = float(w)
 
-        def fits(d):
+        def fits(d, by_period=True):
             du = d.get("units")
             if unit == "percent" and du != "percent":
                 return False
             if unit and unit != "percent" and (du == "percent" or (du and du != unit)):
                 return False
             if names and d.get("field") and d["field"] not in names:
+                return False
+            if by_period and d.get("period") and tuple(d["period"]) not in hp:
                 return False
             tol = max(_half_unit(w), _unit(str(d.get("printed") or "0")))
             return abs(h - abs(float(d["value"]))) <= tol + 1e-9 * max(1.0, h)
@@ -723,8 +752,12 @@ def trace_headline(headline: Optional[str], claims: List[Dict[str, Any]],
         if unit:
             rec["unit"] = unit
         if not hits:
+            other = sorted({when_period(d["period"]) for d, _ in vals
+                            if d.get("traced") and d.get("period") and fits(d, False)})
             rec["why"] = ("a claim states it, but that value is not traced to the numbers"
-                          if near else "no claim states this value"
+                          if near else
+                          f"a claim states it for {' and '.join(other)}, which the headline "
+                          f"does not name" if other else "no claim states this value"
                           + (f" in {unit}" if unit else ""))
         out.append(rec)
     return out
