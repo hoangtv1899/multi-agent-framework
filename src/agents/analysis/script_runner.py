@@ -341,6 +341,8 @@ soil     = _ctx["soil"]
 columns  = _ctx["columns"]
 caveats  = _ctx["caveats"]
 reg      = _ctx.get("reg")
+reg_monthly  = _ctx.get("reg_monthly")
+reg_seasonal = _ctx.get("reg_seasonal")
 regions  = _ctx.get("regions") or {{}}
 runs     = _ctx.get("runs") or []
 out_path = {out_path!r}
@@ -442,6 +444,13 @@ def _payload(ctx) -> Dict[str, Any]:
         reg = ctx.regional() if callable(getattr(ctx, "regional", None)) else None
     except Exception:                                           # noqa: BLE001
         reg = None
+    # its months and seasons (2026-11-03), bound as reg_monthly and reg_seasonal
+    periods = {}
+    for k in ("regional_monthly", "regional_seasonal"):
+        try:
+            periods[k] = getattr(ctx, k)() if callable(getattr(ctx, k, None)) else None
+        except Exception:                                       # noqa: BLE001
+            periods[k] = None
     t = (getattr(ctx, "data", None) or {}).get("regional") or {}
     exp = (getattr(ctx, "plan", None) or {}).get("experiment") or {}
     runs = [{k: r.get(k) for k in ("run", "reused", "status", "changes")}
@@ -453,6 +462,8 @@ def _payload(ctx) -> Dict[str, Any]:
             "columns": cols,
             "caveats": list(getattr(ctx, "caveats", []) or []),
             "reg": reg,
+            "reg_monthly": periods["regional_monthly"],
+            "reg_seasonal": periods["regional_seasonal"],
             "regions": dict(t.get("regions") or {}) if isinstance(t, dict) else {},
             "runs": runs,
             "converted_to_daily": converted}

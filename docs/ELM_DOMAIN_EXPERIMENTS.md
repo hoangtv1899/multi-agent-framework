@@ -157,7 +157,8 @@ directory `domain_case/<run>/`, laid out as piece 3's: recipe, scripts,
 `chain.json`, `STATUS.log`, `checks/`.
 
 `experiment.json` gains `runs` (their changes, with meaning and not-meaning
-quoted from the change list), regional rows per run and per year, the
+quoted from the change list), regional rows per run and per year (and per month
+and season, in 03_results/regional.json and regional_monthly.csv), the
 difference of each run from the control per region and year, and the control's
 facts.
 

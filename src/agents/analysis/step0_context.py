@@ -197,6 +197,14 @@ class AnalysisContext:
         """A whole-domain experiment's numbers, or None. See _build_regional."""
         return self._frame("regional")
 
+    def regional_monthly(self):
+        """Its months, or None. See _build_regional_monthly."""
+        return self._frame("regional_monthly")
+
+    def regional_seasonal(self):
+        """Its seasons, or None. See _build_regional_seasonal."""
+        return self._frame("regional_seasonal")
+
     @property
     def is_domain(self) -> bool:
         """One case over a whole domain (a control and runs of named changes),
@@ -427,6 +435,64 @@ class AnalysisContext:
             return None
         return pd.DataFrame(recs, columns=["run", "region", "variable", "year", "value",
                                            "units", "how", "source"])
+
+    # MONTHS AND SEASONS (2026-11-03). The regional frame holds one value per
+    # year, so a figure about a summer could only be drawn from the year that
+    # holds its winters too. The server now makes each run's months and
+    # seasons (domain_analysis.months_and_seasons), and these two frames carry
+    # them as the regional frame carries the years: copied, never computed.
+    def _period_frame(self, kind: str, diffs: str, period: str):
+        try:
+            import pandas as pd
+        except ImportError:
+            return None
+        t = (self.data or {}).get("regional") or {}
+        if not isinstance(t, dict) or t.get("error"):
+            return None
+        recs = []
+        for run, r in (t.get("runs") or {}).items():
+            units = r.get("period_units") or {}
+            fields = r.get("fields") or {}
+            d = (t.get(diffs) or {}).get(run) or {}
+            for reg, by_var in (r.get(kind) or {}).items():
+                for var, by_p in (by_var or {}).items():
+                    u = (units.get(var) or {}).get(period)
+                    how = (fields.get(var) or {}).get("how")
+                    for p, v in (by_p or {}).items():
+                        if v is None:
+                            continue
+                        dv = ((d.get(reg) or {}).get(var) or {}).get(p)
+                        recs.append((run, reg, var, p, v, u, how, dv))
+        if not recs:
+            return None
+        f = pd.DataFrame(recs, columns=["run", "region", "variable", period, "value",
+                                        "units", "how", "minus_control"])
+        if period == "season":
+            f.insert(3, "year", f["season"].str.slice(0, 4).astype(int))
+            f["season"] = f["season"].str.slice(5)
+        return f
+
+    def _build_regional_monthly(self):
+        """A whole-domain experiment's months as a TIDY long frame, or None.
+
+            run | region | variable | month | value | units | how | minus_control
+
+        `month` is "YYYY-MM". A rate's value is its total over the month
+        (units such as gC/m^2/month), a state's its mean over the month.
+        `minus_control` is the run's difference from the control that month,
+        as the server made it (None for the control). A month without a value
+        is absent, its reason in the table's records, never a zero."""
+        return self._period_frame("monthly", "monthly_differences", "month")
+
+    def _build_regional_seasonal(self):
+        """Its seasons as a TIDY long frame, or None.
+
+            run | region | variable | year | season | value | units | how | minus_control
+
+        `season` is DJF, MAM, JJA or SON. DJF belongs to the year of its
+        January and holds the December before it; a run whose output starts
+        in January has no DJF in its first year, and that row is absent."""
+        return self._period_frame("seasonal", "seasonal_differences", "season")
 
     def _build_profiles(self):
         """Depth profiles as a TIDY long frame, or None when the run has none.
