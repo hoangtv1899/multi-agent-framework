@@ -127,6 +127,13 @@ def build(run_dir: str, deferred: bool = False):
         lines = ["OK — the analysis is written", ""] + lines
         lines += ["", f"Read: {rd / '04_analysis'}"]
 
+    # WITHHELD SAYS SO FIRST (2026-11-03). A whole-domain study whose regional
+    # numbers did not reproduce when recomputed from the model output, or whose
+    # headline cannot be traced to them, has its report written withheld; the
+    # mail leads with that and why, above the INCOMPLETE line it also earns.
+    if an.get("status") == "withheld":
+        lines = [f"WITHHELD: {an.get('reason') or 'the report is withheld'}",
+                 f"    see {rd / '04_analysis'}", ""] + lines
     return "\n".join(lines), (1 if bad else 0)
 
 

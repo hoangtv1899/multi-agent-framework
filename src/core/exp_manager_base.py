@@ -665,7 +665,20 @@ class ExperimentManagerBase:
 				# fails, or is switched off with config["analysis_llm"] =
 				# False, still leaves them. Then the Analyzer, which reads the
 				# same records through step 0's regional frame.
-				if self._has_backend_report(experiments):
+				#
+				# THE NUMBERS ARE CHECKED BEFORE THEY ARE REPORTED (2026-11-03).
+				# A backend may recompute its records by a second code path
+				# (_numbers_gate); when they do not reproduce, its report is
+				# written withheld, the Analyzer is not run, and the stage says
+				# so, because every later reader would repeat a wrong number.
+				gate = self._numbers_gate(experiments) \
+					if self._has_backend_report(experiments) else None
+				if gate is not None and not gate.get("pass"):
+					skip_why = gate.get("reason") or "the numbers did not reproduce"
+					print(f"   WITHHELD: {skip_why}")
+					self._mark("analyze", status="withheld", reason=skip_why,
+							   numbers_check=gate.get("record"), report=gate.get("report"))
+				if not skip_why and self._has_backend_report(experiments):
 					try:
 						out = self._backend_report(experiments, results, config) or {}
 						print(f"   ✓ numbers by region and year, from the records: "
@@ -716,7 +729,13 @@ class ExperimentManagerBase:
 					# added to prevent, one level finer.
 					failed_steps = [k for k, v in (steps or {}).items()
 									if v is False]
-					if isinstance(st, dict) and (st.get("error") or failed_steps):
+					if isinstance(st, dict) and st.get("withheld") and not (
+							st.get("error") or failed_steps or prior_error):
+						# The Analyzer ran, and its headline could not be traced
+						# to the numbers: REPORT.md is written withheld.
+						self._mark("analyze", status="withheld", reason=st["withheld"],
+								   steps=steps, **extra)
+					elif isinstance(st, dict) and (st.get("error") or failed_steps):
 						why = prior_error or st.get("error") or \
 							("these steps failed: " + ", ".join(failed_steps))
 						print(f"   ⚠️  analyzer incomplete: {why} — "
@@ -1116,6 +1135,13 @@ class ExperimentManagerBase:
 		"""True when the backend renders these results' report itself, from
 		its records (_backend_report), in place of the Analyzer."""
 		return False
+
+	def _numbers_gate(self, experiments) -> Optional[Dict[str, Any]]:
+		"""Recompute the records a backend report is rendered from, by a second
+		code path, before the report: {"pass", "reason", "record", "report"},
+		or None when the backend has no such check (2026-11-03). On a failure
+		the backend writes its report withheld and the Analyzer is not run."""
+		return None
 
 	def _backend_report(self, experiments, results, config) -> Dict[str, Any]:
 		"""Render the report of these results from the records, no LLM:

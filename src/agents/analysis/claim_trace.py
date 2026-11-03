@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""Each value an audited claim states, traced to the regional table.
+
+The audit of step 3 checks that a claim's values are in the finding it cites;
+the finding is a figure script's own result, so a value the script computed
+wrongly passes. Here each value of a whole-domain claim is traced instead to
+03_results/regional.json, the table the numbers check has reproduced from the
+model output, by one of a small set of derivations:
+
+  the value itself       any number of the table: a run's value for a region,
+                         field and year; a run minus the control; the event's
+                         normal, anomaly or percent; a burned area; a share
+  a difference           of two values of the table with the same field and
+                         year (two runs, or two regions), either way round
+  a percent change       100 x (a - b) / b, of two such values
+  a region's size        its cell count or area
+
+A value is traced when a derivation gives it within the precision it is
+printed to in the claim (half a unit of its last printed digit; when the
+claim does not print it, of the three significant figures REPORT.md shows).
+A value no derivation gives marks its claim "not traced to the numbers"; when
+a value of the headline cannot be traced, REPORT.md is withheld.
+
+Nothing here is loosened to make a run pass: a year-to-year change, a sum of
+two fields, a mean over regions or a value from outside the table does not
+trace, and says so.
+
+  trace(claims, headline, table)   the derivations, written into each claim
+  withheld_markdown(report)        REPORT.md when the headline cannot be traced
+"""
+from __future__ import annotations
+
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+TABLE_FILE = "03_results/regional.json"
+NOT_TRACED = "not traced to the numbers"
+_NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d+(?:,\d{3})*(?:\.\d+)?")
+_YEARLIKE = re.compile(r"^(19|20)\d{2}$")
+VEG_SUFFIX = ", vegetated"
+# How a derivation ranks when several give the value: the table's own number
+# first, a pair of its numbers last.
+_RANK = {"value": 0, "difference_table": 1, "event": 1, "size": 2, "difference": 3,
+         "percent_change": 4}
+
+
+def _short(region: str) -> str:
+    return str(region).replace(VEG_SUFFIX, "")
+
+
+def _is_num(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def entries(table: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every number of the table, each with where it is and what it says."""
+    out: List[Dict[str, Any]] = []
+
+    def add(x, kind, text, **where):
+        if _is_num(x):
+            out.append(dict(where, value=float(x), how=kind, text=text))
+
+    for run, r in (table.get("runs") or {}).items():
+        for reg, fields in (r.get("values") or {}).items():
+            for f, years in (fields or {}).items():
+                for y, x in (years or {}).items():
+                    add(x, "value", f"{f}, {_short(reg)}: {run}, {y}", run=run,
+                        region=reg, field=f, year=str(y))
+    for run, regs in (table.get("differences") or {}).items():
+        for reg, fields in (regs or {}).items():
+            for f, years in (fields or {}).items():
+                for y, x in (years or {}).items():
+                    add(x, "difference_table", f"{f}, {_short(reg)}: {run} minus control, {y}",
+                        run=run, minus="control", region=reg, field=f, year=str(y))
+    ev = table.get("event") or {}
+    ny = sorted(int(y) for y in ev.get("normal_years") or [])
+    span = "" if not ny else str(ny[0]) if len(ny) == 1 else f"{ny[0]}-{ny[-1]}"
+    for reg, fields in (ev.get("anomalies") or {}).items():
+        for f, a in (fields or {}).items():
+            base = f"{f}, {_short(reg)}: control"
+            add(a.get("normal"), "event", f"{base}, the {span} normal", run="control",
+                region=reg, field=f, what="normal")
+            for k in ("normal_min", "normal_max", "normal_sd"):
+                add(a.get(k), "event", f"{base}, the {span} {k.replace('normal_', '')}",
+                    run="control", region=reg, field=f, what=k)
+            for y, yy in (a.get("years") or {}).items():
+                yy = yy or {}
+                add(yy.get("anomaly"), "event", f"{base}, {y} minus the {span} normal",
+                    run="control", region=reg, field=f, year=str(y), what="anomaly")
+                add(yy.get("anomaly_pct"), "event",
+                    f"{base}, {y} against the {span} normal, percent", run="control",
+                    region=reg, field=f, year=str(y), what="anomaly_pct")
+    for reg, info in (table.get("regions") or {}).items():
+        add((info or {}).get("cells"), "size", f"{_short(reg)}: its cells", region=reg,
+            what="cells")
+        add((info or {}).get("area_km2"), "size", f"{_short(reg)}: its area, km2", region=reg,
+            what="area_km2")
+    for run, cs in (table.get("changed_share") or {}).items():
+        for reg, x in ((cs or {}).get("share") or {}).items():
+            add(x, "value", f"{_short(reg)}: the share run {run}'s change reaches",
+                run=run, region=reg, what="changed_share")
+    for name, o in (table.get("observed") or {}).items():
+        for run, regs in (o.get("model") or {}).items():
+            for reg, years in (regs or {}).items():
+                for y, x in (years or {}).items():
+                    add(x, "value", f"{name}, {_short(reg)}: {run}, {y}", run=run,
+                        region=reg, field=name, year=str(y))
+        for reg, years in (o.get("values") or {}).items():
+            for y, x in (years or {}).items():
+                add(x, "value", f"{name}, {_short(reg)}: observed ({o.get('source')}), {y}",
+                    run="observed", region=reg, field=name, year=str(y))
+    return out
+
+
+def _pairs(table: Dict[str, Any]) -> Dict[Tuple[str, str], List[Tuple[str, str, float]]]:
+    """{(field, year): [(run, region, value)]}: the model's values that a
+    difference or a percent change may pair. An older table's burned area
+    beside an observation counts as the run's burned area."""
+    out: Dict[Tuple[str, str], List[Tuple[str, str, float]]] = {}
+    seen = set()
+    for run, r in (table.get("runs") or {}).items():
+        for reg, fields in (r.get("values") or {}).items():
+            for f, years in (fields or {}).items():
+                for y, x in (years or {}).items():
+                    if _is_num(x):
+                        out.setdefault((f, str(y)), []).append((run, reg, float(x)))
+                        seen.add((run, reg, f, str(y)))
+    for name, o in (table.get("observed") or {}).items():
+        for run, regs in (o.get("model") or {}).items():
+            for reg, years in (regs or {}).items():
+                for y, x in (years or {}).items():
+                    if _is_num(x) and (run, reg, name, str(y)) not in seen:
+                        out.setdefault((name, str(y)), []).append((run, reg, float(x)))
+    return out
+
+
+def _unit(printed: str) -> float:
+    """Half a unit of the last digit a number is printed with: '25.0' 0.05,
+    '28' 0.5, '1950' 5 (a trailing zero of a whole number is not a digit)."""
+    s = printed.replace(",", "").lstrip("-")
+    if "." in s:
+        return 0.5 * 10.0 ** -len(s.split(".")[1])
+    tz = len(s) - len(s.rstrip("0")) if s.strip("0") else 0
+    return 0.5 * 10.0 ** tz
+
+
+def _three_sig(v: float) -> str:
+    """v to 3 significant figures, trailing zeros kept: 25.0, 1950, 0.00199."""
+    import math
+    if v == 0 or not math.isfinite(v):
+        return "0"
+    e = int(math.floor(math.log10(abs(v))))
+    if e >= 2:
+        return f"{round(abs(v), 2 - e):.0f}"
+    return f"{abs(v):.{2 - e}f}"
+
+
+def printed_form(v: float, text: str) -> str:
+    """How the claim prints value v: the number in its text that states it at
+    its own precision (closest first), else v to 3 significant figures."""
+    best = None
+    for w in _NUMBER.findall(str(text or "")):
+        ww = w.replace(",", "")
+        if _YEARLIKE.match(ww.lstrip("-")):
+            continue
+        d = abs(abs(float(ww)) - abs(v))
+        if d <= _unit(ww) + 1e-9 and (best is None or d < best[0]):
+            best = (d, ww.lstrip("-"))
+    return best[1] if best else _three_sig(abs(v))
+
+
+def _signed(v: float, printed: str) -> str:
+    """v, with its sign, at the precision the claim prints it: -25.0, 1950."""
+    s = printed.replace(",", "")
+    if "." in s:
+        return f"{v:.{len(s.split('.')[1])}f}"
+    tz = len(s) - len(s.rstrip("0")) if s.strip("0") else 0
+    return f"{round(v, -tz):.0f}"
+
+
+def trace_value(v: float, text: str, ents: List[Dict[str, Any]], pairs,
+                hint_years: Optional[set] = None,
+                hint_fields: Optional[set] = None,
+                used: Optional[set] = None,
+                sizes: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+    """The derivation of one value, or why there is none.
+
+    When several derivations give it, the table's own number before a pair of
+    numbers, and among equals the one whose year, field and region the claim
+    names, and one not already given to another value of the same claim (two
+    zeros in "burns nothing in 2015 or 2016" are two years, not one twice)."""
+    low = str(text or "").lower()
+    printed = printed_form(v, text)
+    tol = _unit(printed) + 1e-9 * max(1.0, abs(v))
+    exact = 1e-9 * max(1.0, abs(v))
+    rec = {"value": v, "printed": printed, "traced": False, "file": TABLE_FILE}
+    cands = []
+
+    def score(c, d):
+        reg = _short(c.get("region") or "").split(",")[0].strip().lower()
+        return (d > exact, _RANK.get(c["how"], 9),
+                not (hint_years and c.get("year") in hint_years),
+                not (hint_fields and c.get("field") in hint_fields),
+                # the smallest region the claim names: "the watershed's
+                # vegetated cells" names the watershed
+                (0, (sizes or {}).get(c.get("region"), 0)) if reg and reg in low
+                else (1, 0),
+                c["text"] in (used or set()), d)
+
+    for c in ents:
+        d = abs(c["value"] - v)
+        if d <= tol:
+            cands.append((score(c, d), c))
+    for (f, y), vals in pairs.items():
+        for ra, ga, a in vals:
+            for rb, gb, b in vals:
+                if (ra, ga) == (rb, gb):
+                    continue
+                same = ga == gb
+                where = (f"{f}, {_short(ga)}: {ra} minus {rb}, {y}" if same else
+                         f"{f}, {y}: {ra} {_short(ga)} minus {rb} {_short(gb)}")
+                d = abs((a - b) - v)
+                if d <= tol:
+                    c = {"value": a - b, "how": "difference", "text": where, "run": ra,
+                         "minus": rb, "region": ga, "minus_region": gb, "field": f,
+                         "year": y}
+                    cands.append((score(c, d) + (not same,), c))
+                if b != 0:
+                    p = 100.0 * (a - b) / b
+                    d = abs(p - v)
+                    if d <= tol:
+                        where = (f"{f}, {_short(ga)}: {ra} against {rb}, percent, {y}"
+                                 if same else
+                                 f"{f}, {y}: {ra} {_short(ga)} against {rb} {_short(gb)}, "
+                                 f"percent")
+                        c = {"value": p, "how": "percent_change", "text": where, "run": ra,
+                             "against": rb, "region": ga, "against_region": gb, "field": f,
+                             "year": y}
+                        cands.append((score(c, d) + (not same,), c))
+    if not cands:
+        rec["text"] = f"{_signed(v, printed)}: {NOT_TRACED}"
+        rec["why"] = ("no value of the table, difference or percent change of two of its "
+                      "values with the same field and year, nor a region's size, gives it "
+                      f"to the precision it is printed with ({printed})")
+        return rec
+    cands.sort(key=lambda t: t[0])
+    c = cands[0][1]
+    rec.update({k: c[k] for k in c if k not in ("text",)})
+    rec.update(value=v, derived=c["value"], traced=True, source=c["text"],
+               match="exact" if abs(c["value"] - v) <= exact else
+               "within the printed precision",
+               text=f"{_signed(v, printed)} = {c['text']}",
+               n_alternatives=len(cands) - 1)
+    return rec
+
+
+def _years(text: str) -> set:
+    return {w for w in re.findall(r"\b(?:19|20)\d{2}\b", str(text or ""))}
+
+
+def trace(claims: List[Dict[str, Any]], headline: Optional[str],
+          table: Dict[str, Any]) -> Dict[str, Any]:
+    """Trace every claim value and the headline's values to the table.
+
+    Each claim gains "derivations" (one per value) and "traced"; a claim with
+    a value that cannot be traced gains "trace": "not traced to the numbers".
+    Returns the summary analysis.json carries under "numbers_trace", with
+    "withheld_because" set when a value of the headline cannot be traced."""
+    ents = entries(table or {})
+    pairs = _pairs(table or {})
+    sizes = {k: (v or {}).get("cells") or 0 for k, v in ((table or {}).get("regions") or {}
+                                                         ).items()}
+    n_vals = n_ok = 0
+    not_traced = []
+    for i, c in enumerate(claims, 1):
+        text = str(c.get("claim") or "")
+        hy = _years(text)
+        hf = set(c.get("variables") or []) | {w for w in re.findall(r"\b[A-Z][A-Z0-9_]{2,}\b",
+                                                                     text)}
+        ds = []
+        for v in c.get("values") or []:
+            if not _is_num(v):
+                continue
+            if float(v).is_integer() and _YEARLIKE.match(str(int(v))):
+                ds.append({"value": v, "traced": True, "how": "year",
+                           "text": f"{int(v)} = a year"})
+                continue
+            d = trace_value(float(v), text, ents, pairs, hy, hf,
+                            used={x.get("source") for x in ds}, sizes=sizes)
+            ds.append(d)
+            n_vals += 1
+            n_ok += bool(d["traced"])
+        c["derivations"] = ds
+        c["traced"] = all(d["traced"] for d in ds)
+        if not c["traced"]:
+            c["trace"] = NOT_TRACED
+            not_traced.append(i)
+    head = trace_headline(headline, claims)
+    out = {"file": TABLE_FILE, "n_values": n_vals, "n_traced": n_ok,
+           "claims_not_traced": not_traced, "headline": head,
+           "derivations_allowed": [
+               "the value itself (any number of the table)",
+               "the difference of two table values of the same field and year",
+               "a percent change of one such value relative to another",
+               "a region's cell count or area"],
+           "precision": "half a unit of the last digit the value is printed with"}
+    bad = [h["printed"] for h in head if not h["traced"]]
+    if bad:
+        out["withheld_because"] = (f"the headline's value{'s' if len(bad) > 1 else ''} "
+                                   f"{', '.join(bad)} cannot be traced to the numbers")
+    return out
+
+
+def trace_headline(headline: Optional[str], claims: List[Dict[str, Any]]
+                   ) -> List[Dict[str, Any]]:
+    """Each number the headline prints, with the claim values it states.
+
+    A year is a date. A whole number that no claim value states and that is
+    not a percent is a label ('2 K warmer'), as the wording gate reads it; any
+    other number must state a claim value that traces."""
+    text = str(headline or "")
+    vals = [(d, c) for c in claims for d in (c.get("derivations") or [])
+            if _is_num(d.get("value")) and d.get("how") != "year"]
+    out = []
+    for m in _NUMBER.finditer(text):
+        w = m.group(0).replace(",", "").lstrip("-")
+        if _YEARLIKE.match(w):
+            continue
+        after = text[m.end():m.end() + 9].lower()
+        percent = after.lstrip().startswith(("percent", "%"))
+        hits = [d for d, _ in vals if abs(abs(float(d["value"])) - float(w)) <= _unit(w)
+                + 1e-9]
+        if not hits and "." not in w and not percent:
+            continue
+        out.append({"printed": w, "traced": any(d["traced"] for d in hits),
+                    "derivations": [d.get("text") for d in hits if d.get("traced")][:3],
+                    **({} if hits else {"why": "no claim states this value"})})
+    return out
+
+
+def withheld_markdown(report: Dict[str, Any]) -> str:
+    """REPORT.md when the headline's values cannot be traced: what could not
+    be traced, then every claim with its derivations. The answer and the
+    headline are not presented as findings. A renderer of the record."""
+    from agents.analysis.step4_report import _plain
+    t = report.get("numbers_trace") or {}
+    lines = [f"# WITHHELD: {t.get('withheld_because')}", "",
+             f"*Question: {_plain(report.get('question') or '(no question recorded)')}*", "",
+             "Each value a claim states was traced to the regional numbers "
+             f"({t.get('file')}), which were made again from the model output before the "
+             "Analyzer ran. The headline states a value that no claim traces to them, so "
+             "this report is withheld. The record, analysis.json, is kept whole beside it.",
+             "", f"The headline held back: \"{_plain(report.get('headline'))}\"", ""]
+    for h in t.get("headline") or []:
+        lines.append(f"- {h['printed']}: "
+                     + ("traced, " + "; ".join(h.get("derivations") or [])
+                        if h.get("traced") else (h.get("why") or NOT_TRACED)))
+    lines += ["", f"## The claims and what their values trace to "
+                  f"({t.get('n_traced')} of {t.get('n_values')} values traced)", ""]
+    for i, c in enumerate(report.get("claims") or [], 1):
+        lines.append(f"{i}. {_plain(c.get('claim'))}"
+                     + (f" **({c['trace']})**" if c.get("trace") else ""))
+        for d in c.get("derivations") or []:
+            lines.append(f"   - {d.get('text') or (str(d.get('printed')) + ': ' + str(d.get('why')))}")
+        lines.append("")
+    return "\n".join(lines)
