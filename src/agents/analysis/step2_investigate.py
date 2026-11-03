@@ -486,7 +486,8 @@ def _period_brief(t: Dict[str, Any]) -> List[str]:
 def domain_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
     """The brief for a whole-domain experiment: a control run over a whole
     prepared domain and, for a what-if question, runs that differ from it by
-    named changes, reported by region and year. Built from ctx alone, like
+    named changes, reported by region, year, month and season. Built from
+    ctx alone, like
     context_brief; what a change means and does not mean is quoted from the
     model server's change list, never written here."""
     plan = ctx.plan or {}
@@ -628,8 +629,9 @@ Return ONLY JSON:
 DOMAIN_TASK = f"""\
 You are an earth-system scientist analysing this whole-domain experiment of the
 model named in the brief above: a control run and, for a what-if question, runs
-that differ from it by named changes, reported by region and year. Decide which
-figures answer what the user asked, and write the code that draws them.
+that differ from it by named changes, reported by region, year, month and
+season. Decide which figures answer what the user asked,
+and write the code that draws them.
 
 Report at TWO scales:
   1. overall: the domain as a whole (its largest region) through the years,

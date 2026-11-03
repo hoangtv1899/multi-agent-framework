@@ -249,7 +249,8 @@ def run_values(run_dir, ms: R.MaskSet, variables: Sequence[str], years: Sequence
                     str(y): (None if vals.get(y) is None else float(vals[y])) for y in ys}
                 if why:
                     out["missing"].setdefault(reg, {})[v] = {str(y): w for y, w in why.items()}
-        months_and_seasons(out, rs, st, ms.names(), vs, ys, prev)
+        months_and_seasons(out, rs, st, ms.names(), vs, ys, prev,
+                           first_year=min(s.years()) if s.years() else None)
         out.setdefault("provenance", {"run_dir": str(run_dir), "streams": {}})[
             "streams"][st] = stream_record(s, vs, sorted(ys + prev))
     return out
@@ -295,13 +296,28 @@ def _previous_years(stream: G.Stream, years: Sequence[int]) -> List[int]:
     return sorted(({int(y) - 1 for y in years} - {int(y) for y in years}) & have)
 
 
+# WHY A WINTER HAS NO DECEMBER (2026-11-03). The reason quoted the earliest
+# year asked for as the year the output starts, which is false when the year
+# before an asked year is missing from a stream that holds earlier ones. It now
+# quotes the stream's own first year, or says the year itself is missing.
+def _no_december_why(year: int, first_year: Optional[int]) -> str:
+    if first_year is None:
+        return "it holds no records"
+    if int(first_year) > int(year) - 1:
+        return f"its output starts in {int(first_year)}"
+    return f"it holds no records of {int(year) - 1}, though its output starts in " \
+           f"{int(first_year)}"
+
+
 def months_and_seasons(out: Dict[str, Any], rs: R.RegionSeries, stream: str,
                        regions: Sequence[str], variables: Sequence[str],
-                       years: Sequence[int], previous: Sequence[int] = ()) -> None:
+                       years: Sequence[int], previous: Sequence[int] = (),
+                       first_year: Optional[int] = None) -> None:
     """Fill out["monthly"] and out["seasonal"] ({region: {field: {key: value}}})
     for one stream's fields, with out["period_units"], and the reason for a
     value that is None (out["monthly_missing"], out["seasonal_missing"]) or a
-    season left out (out["seasons_left_out"])."""
+    season left out (out["seasons_left_out"]). first_year is the first year
+    the stream holds records of, quoted in that reason."""
     ys = sorted(int(y) for y in years)
     prev = sorted(int(y) for y in previous)
     for v in variables:
@@ -342,8 +358,8 @@ def months_and_seasons(out: Dict[str, Any], rs: R.RegionSeries, stream: str,
                     if parts[0] not in by:
                         out.setdefault("seasons_left_out", {})[key] = (
                             f"{name} {y} needs December {y - 1}, which the run's {stream} "
-                            f"stream does not hold (its output starts in "
-                            f"{min(ys + prev)}), so it is not made from two months")
+                            f"stream does not hold ({_no_december_why(y, first_year)}), "
+                            f"so it is not made from two months")
                         continue
                     xs = [by[p] for p in parts]
                     if any(x is None for x in xs):
@@ -382,14 +398,30 @@ def period_differences(runs: Dict[str, Dict], key: str, control: str = "control"
     return out
 
 
-def period_normals(run: Dict[str, Any], normal_years: Sequence[int]) -> Dict[str, Any]:
+def period_normals(run: Dict[str, Any], normal_years: Sequence[int],
+                   target_years: Sequence[int] = ()) -> Dict[str, Any]:
     """The normal years' mean of each calendar month ("01" to "12") and each
     season, every region and field of one run: what an event year's months
     are set against. A month with no value in any normal year has no normal,
-    and a normal over fewer years than named says how many it holds."""
+    and a normal over fewer years than named says how many it holds.
+
+    NO EVENT DECEMBER IN A NORMAL WINTER (2026-11-03). DJF of a year holds
+    the December before it, so the DJF of the normal year after an event year
+    (target_years) holds that event year's December. That winter is left out
+    of the DJF normal; out["normal_left_out"] gives the reason per season and
+    out["normal_years_used"] the years each such normal is the mean of."""
     ny = [int(y) for y in normal_years]
+    ty = {int(y) for y in target_years}
     out: Dict[str, Any] = {"monthly_normal": {}, "seasonal_normal": {},
                            "normal_counts": {}}
+    skip = [y for y in ny if y - 1 in ty]
+    if skip:
+        out["normal_left_out"] = {"DJF": (
+            f"DJF {', '.join(str(y) for y in skip)} "
+            f"{'is' if len(skip) == 1 else 'are'} left out of the normal winter: "
+            f"{'it holds' if len(skip) == 1 else 'they hold'} the December of "
+            f"{', '.join(str(y - 1) for y in skip)}, an event year")}
+        out["normal_years_used"] = {"DJF": [y for y in ny if y not in skip]}
     for kind, table, labels in (
             ("monthly_normal", run.get("monthly") or {},
              [(f"{m:02d}", lambda y, m=m: month_key(y, m)) for m in range(1, 13)]),
@@ -398,7 +430,8 @@ def period_normals(run: Dict[str, Any], normal_years: Sequence[int]) -> Dict[str
         for reg, fields in table.items():
             for v, periods in fields.items():
                 for lab, key_of in labels:
-                    xs = [periods.get(key_of(y)) for y in ny]
+                    xs = [periods.get(key_of(y)) for y in ny
+                          if not (lab == "DJF" and y in skip)]
                     xs = [x for x in xs if x is not None]
                     out[kind].setdefault(reg, {}).setdefault(v, {})[lab] = \
                         (float(sum(xs) / len(xs)) if xs else None)
@@ -555,6 +588,7 @@ def experiment(control: Dict[str, Any], runs: Dict[str, str], analysis: Dict[str
             table["problems"].append(f"run {name}: {type(e).__name__}: {e}")
     if BURNED_FRACTION in variables:
         burned_area_field(table)
+        burned_area_periods(table)
     table["differences"] = differences(table["runs"])
     # months, seasons and where the numbers come from (2026-11-03)
     table["monthly_differences"] = period_differences(table["runs"], "monthly")
@@ -571,7 +605,8 @@ def experiment(control: Dict[str, Any], runs: Dict[str, str], analysis: Dict[str
         target = [int(y) for y in years if int(y) not in normal]
         ev = event(table["runs"]["control"], normal, target)
         table["event"] = {"normal_years": normal, "target_years": target, **ev}
-        table["event"].update(period_normals(table["runs"]["control"], normal))
+        table["event"].update(period_normals(table["runs"]["control"], normal,
+                                               target_years=target))
     # THE MODEL'S OUTPUT ONLY (2026-10-27). The table carried the control's
     # observed burned area beside the model's, and the Analyzer argued from it
     # ("MODIS saw 340 km2, so the carbon drop is not a fire response"), which
@@ -669,3 +704,30 @@ def burned_area_field(table: Dict[str, Any]) -> None:
                 "note": f"the model's own burned area: the region's burned fraction for "
                         f"the year ({BURNED_FRACTION}) times the region's area"}
 
+
+# BURNED AREA BY MONTH AND SEASON (2026-11-03). burned_area_field gave each
+# run its burned area by year only, while the prompts say every number is
+# reported by month and by season, so a summer's burned area was designed as
+# answerable and then had no value to be read from. Each month's and season's
+# burned area is made by the same rule: that period's burned fraction
+# (BURNED_FRACTION totalled over it) times the region's area, with the
+# fraction's reasons for a missing value copied across. Run before the period
+# differences are taken, so those carry it too.
+def burned_area_periods(table: Dict[str, Any]) -> None:
+    for name, r in (table.get("runs") or {}).items():
+        made = False
+        for kind in ("monthly", "seasonal"):
+            per = r.get(kind) or {}
+            for reg, info in table["regions"].items():
+                by = (per.get(reg) or {}).get(BURNED_FRACTION) or {}
+                if not by:
+                    continue
+                per[reg][BURNED_AREA] = {
+                    k: (None if x is None else float(x) * info["area_km2"])
+                    for k, x in by.items()}
+                made = True
+                why = ((r.get(f"{kind}_missing") or {}).get(reg) or {}).get(BURNED_FRACTION)
+                if why:
+                    r[f"{kind}_missing"][reg][BURNED_AREA] = dict(why)
+        if made:
+            r.setdefault("period_units", {})[BURNED_AREA] = {"month": "km2", "season": "km2"}

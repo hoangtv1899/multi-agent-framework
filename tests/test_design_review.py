@@ -325,3 +325,36 @@ class TestThePageShowsEachChange:
     def test_reception_reads_the_place_in_the_question(self):
         text = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
         assert "A change that takes a region applies where the QUESTION says" in text
+
+
+class TestThePageSaysMonthsAndSeasons:
+    """MONTHS AND SEASONS (2026-11-03): the page a scientist approves said the
+    numbers are by region and year only, while the server also reports each
+    field by month and by season."""
+
+    def test_the_field_table_is_followed_by_the_months_line(self, tmp_path):
+        preview = {"analysis": {"fields": [{"name": "GPP", "stream": "h0",
+                                            "how": "total over the year",
+                                            "units": "gC/m^2/yr"}]}}
+        L = dr._appendix(preview, tmp_path, {}, {"domain_experiment": {"years": [2015]}})
+        text = "\n".join(L)
+        assert "| GPP | h0 | total over the year | gC/m^2/yr |" in text
+        assert dr.MONTHS_AND_SEASONS_LINE in text
+        assert "needs the December before it" in dr.MONTHS_AND_SEASONS_LINE
+
+    def test_the_control_alone_says_months_and_seasons(self):
+        reception = {"user_request": "q", "brief": {
+            "design_archetype": "whole_domain", "model": "elm",
+            "domain_experiment": {"control": {"name": "naches", "reuse": True},
+                                  "runs": [], "years": [2015]}}}
+        strategy = {"archetype": "whole_domain", "goals": ["g"],
+                    "feasibility": {"verdict": "full", "why": "w"},
+                    "domain_experiment": {"runs": []}}
+        page = dr.render(reception, strategy, "x")
+        assert "by region, year, month and season" in page
+        assert "by region and year" not in page
+
+    def test_the_analyzers_task_says_months_and_seasons(self):
+        from agents.analysis import step2_investigate as S2
+        assert "reported by region, year, month and\nseason" in S2.DOMAIN_TASK
+        assert "write the code that draws them" in S2.DOMAIN_TASK

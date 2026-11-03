@@ -626,12 +626,17 @@ def monthly_rows(table) -> List[Dict[str, Any]]:
     ev = table.get("event") or {}
     if ev.get("normal_years"):
         tag = f"mean of {span(ev['normal_years'])}"
+        # a normal over fewer years (the DJF after an event year is left out,
+        # 2026-11-03) names the years it is the mean of
+        used = ev.get("normal_years_used") or {}
         for kind, period in (("monthly_normal", "month"), ("seasonal_normal", "season")):
             for reg, fields in (ev.get(kind) or {}).items():
                 for var, vals in fields.items():
                     for p, x in vals.items():
+                        ptag = (f"mean of {span(used[p])}" if used.get(p) else
+                                "mean of no year" if p in used else tag)
                         rows.append({"run": CONTROL, "region": reg, "variable": var,
-                                     "period_kind": f"{period}, {tag}", "period": p,
+                                     "period_kind": f"{period}, {ptag}", "period": p,
                                      "value": x,
                                      "units": _period_units(table, var, period),
                                      "minus_control": None})

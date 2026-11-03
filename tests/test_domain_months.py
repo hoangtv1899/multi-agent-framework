@@ -7,6 +7,8 @@ monthly stream holding GPP, TSA and FAREA_BURNED for 2015 and 2016), each
 month's value computed here from the fixture's own formulas, never by the
 reader under test.
 """
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -155,9 +157,14 @@ class TestAnExperimentsMonths:
         for m in range(1, 13):
             assert mn[f"{m:02d}"] == pytest.approx(c[A.month_key(2016, m)], rel=1e-12)
         sn = ev["seasonal_normal"][A.VEGETATED]["GPP"]
-        assert sn["DJF"] == pytest.approx(
-            t["runs"]["control"]["seasonal"][A.VEGETATED]["GPP"]["2016-DJF"])
-        assert ev["normal_counts"] == {}
+        assert sn["JJA"] == pytest.approx(
+            t["runs"]["control"]["seasonal"][A.VEGETATED]["GPP"]["2016-JJA"])
+        # DJF 2016 holds December 2015, an event year, so it is no normal
+        # winter (2026-11-03): the DJF normal holds no year, and says so
+        assert sn["DJF"] is None
+        assert ev["normal_counts"][A.VEGETATED]["GPP"] == {"DJF": 0}
+        assert "December of 2015" in ev["normal_left_out"]["DJF"]
+        assert ev["normal_years_used"] == {"DJF": []}
 
     def test_a_normal_short_of_a_year_says_so(self):
         run = {"monthly": {"r": {"GPP": {"2016-01": 1.0, "2017-01": None, "2016-02": None,
@@ -183,3 +190,100 @@ class TestAnExperimentsMonths:
         assert r["cells"] == t["regions"]["box, vegetated"]["cells"]
         assert r["sources"] == ["box.geojson", ctl["surface"].name if hasattr(
             ctl["surface"], "name") else str(ctl["surface"]).rsplit("/", 1)[-1]]
+
+
+# REVIEW FIXES (2026-11-03): burned area by month and season, the normal
+# winter without an event year's December, and the reason a winter is left out.
+
+class TestBurnedAreaByMonthAndSeason:
+
+    def test_each_month_and_season_of_burned_area(self, tmp_path):
+        """FAREA_BURNED's month or season total times the region's area, as the
+        year's is, in both runs, with units and differences."""
+        ctl = _case(tmp_path, name="ctl")
+        twin = _case(tmp_path, gpp_scale=1.1, name="twin")
+        t = A.experiment({"case_dir": str(ctl["case_dir"])},
+                         {"control": ctl["run_dir"], "twin": twin["run_dir"]},
+                         {"regions": [A.VEGETATED], "variables": ["GPP", "FAREA_BURNED"]},
+                         [2015, 2016])
+        area = t["regions"][A.VEGETATED]["area_km2"]
+        for run in ("control", "twin"):
+            r = t["runs"][run]
+            for kind in ("monthly", "seasonal"):
+                frac = r[kind][A.VEGETATED][A.BURNED_FRACTION]
+                km2 = r[kind][A.VEGETATED][A.BURNED_AREA]
+                assert set(km2) == set(frac) and frac
+                for k, x in frac.items():
+                    assert km2[k] == pytest.approx(x * area, rel=1e-12), (run, kind, k)
+            assert r["period_units"][A.BURNED_AREA] == {"month": "km2", "season": "km2"}
+            # the months add up to the year's burned area
+            months = r["monthly"][A.VEGETATED][A.BURNED_AREA]
+            assert sum(x for k, x in months.items() if k.startswith("2016")) == \
+                pytest.approx(r["values"][A.VEGETATED][A.BURNED_AREA]["2016"], rel=1e-9)
+        for key in ("monthly_differences", "seasonal_differences"):
+            assert A.BURNED_AREA in t[key]["twin"][A.VEGETATED]
+
+    def test_a_missing_months_reason_is_copied(self):
+        t = {"regions": {"r": {"area_km2": 2.0}},
+             "runs": {"control": {
+                 "monthly": {"r": {A.BURNED_FRACTION: {"2015-01": None, "2015-02": 0.5}}},
+                 "seasonal": {"r": {A.BURNED_FRACTION: {"2015-MAM": 0.25}}},
+                 "monthly_missing": {"r": {A.BURNED_FRACTION: {"2015-01": "no records"}}}}}}
+        A.burned_area_periods(t)
+        r = t["runs"]["control"]
+        assert r["monthly"]["r"][A.BURNED_AREA] == {"2015-01": None, "2015-02": 1.0}
+        assert r["seasonal"]["r"][A.BURNED_AREA] == {"2015-MAM": 0.5}
+        assert r["monthly_missing"]["r"][A.BURNED_AREA] == {"2015-01": "no records"}
+
+
+class TestNormalWinter:
+
+    RUN = {"monthly": {"r": {"X": {}}},
+           "seasonal": {"r": {"X": {"2016-DJF": 100.0, "2017-DJF": 10.0,
+                                    "2018-DJF": 20.0, "2016-JJA": 1.0, "2017-JJA": 2.0,
+                                    "2018-JJA": 3.0}}}}
+
+    def test_a_winter_holding_an_event_december_is_left_out(self):
+        out = A.period_normals(self.RUN, [2016, 2017, 2018], target_years=[2015, 2019])
+        sn = out["seasonal_normal"]["r"]["X"]
+        assert sn["DJF"] == pytest.approx(15.0)       # 2017 and 2018, not 2016
+        assert sn["JJA"] == pytest.approx(2.0)        # summers keep every normal year
+        assert out["normal_counts"]["r"]["X"]["DJF"] == 2
+        assert out["normal_years_used"] == {"DJF": [2017, 2018]}
+        assert out["normal_left_out"]["DJF"].startswith("DJF 2016 is left out")
+
+    def test_without_event_years_nothing_is_left_out(self):
+        out = A.period_normals(self.RUN, [2016, 2017, 2018])
+        assert out["seasonal_normal"]["r"]["X"]["DJF"] == pytest.approx(130.0 / 3)
+        assert "normal_left_out" not in out and "normal_years_used" not in out
+
+    def test_the_tables_label_names_the_years_of_the_winter(self):
+        from agents.analysis import domain_report as DR
+        out = A.period_normals(self.RUN, [2016, 2017, 2018], target_years=[2015])
+        t = {"runs": {}, "event": {"normal_years": [2016, 2017, 2018],
+                                   "target_years": [2015], **out}}
+        kinds = {r["period"]: r["period_kind"] for r in DR.monthly_rows(t)
+                 if r["period_kind"].startswith("season")}
+        assert kinds["DJF"] == "season, mean of 2017-2018"
+        assert kinds["JJA"] == "season, mean of 2016-2018"
+
+
+class TestWhyAWinterIsLeftOut:
+
+    def test_a_gap_before_the_year_is_not_called_the_start(self, tmp_path):
+        """The stream holds 2015 and 2017, not 2016: DJF 2017 is left out and
+        the reason says 2016 is missing, not that the output starts in 2017."""
+        import elm_case_fixtures as cf
+        c = cf.write_case(tmp_path / "gap")
+        fx.write_monthly(c["run_dir"], [2015, 2016, 2017], case="synth", variables=("GPP",))
+        for p in Path(c["run_dir"]).glob("synth.elm.h0.2016-*"):
+            p.unlink()
+        ms = A.masks(_grid(c), c["surface"], [A.VEGETATED])["masks"]
+        out = A.run_values(c["run_dir"], ms, ["GPP"], [2017])
+        why = out["seasons_left_out"]["2017-DJF"]
+        assert "starts in 2017" not in why
+        assert "no records of 2016" in why and "starts in 2015" in why
+
+    def test_the_first_year_is_still_called_the_start(self, one):
+        _, out = one
+        assert "its output starts in 2015" in out["seasons_left_out"]["2015-DJF"]
