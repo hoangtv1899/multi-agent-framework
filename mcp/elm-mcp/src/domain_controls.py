@@ -260,6 +260,43 @@ def compute_facts(name: str, override: Optional[str] = None,
 # ─────────────────────────────────────────────────────────────────────────────
 # WHAT RECEPTION AND THE PLANNER ARE SHOWN
 # ─────────────────────────────────────────────────────────────────────────────
+def not_in_it(f: Optional[Dict[str, Any]]) -> List[str]:
+    """What the control does not contain that a question may assume, in plain
+    words, from its facts: the observed fires, when the facts set the model's
+    burned area beside an observed one (Reception tells the user before a
+    design is settled)."""
+    fire = (f or {}).get("burned_area_km2") or {}
+    m, o = fire.get("model") or {}, fire.get("observed") or {}
+    ys = sorted(set(m) & set(o))
+    if not ys:
+        return []
+    src = fire.get("observed_source") or "the observation"
+    pairs = "; ".join(f"{y} {m[y]:.0f} against {o[y]:.0f} km2" for y in ys)
+    if not any(m[y] for y in ys):
+        return [f"{_FIRE_NONE}; burned area observed by {src}: "
+                + "; ".join(f"{y} {o[y]:.0f} km2" for y in ys)]
+    return [f"{_FIRE_MODEL_ONLY}; burned area over the grid, the model against {src}: "
+            f"{pairs}"]
+
+
+# THE SAME ITEMS WITHOUT THE OBSERVATIONS' NUMBERS (2026-11-03), for the
+# Planner: its caveats go to the Analyzer, which reads the model's output
+# only, so the observed burned area must not ride along in them.
+_FIRE_MODEL_ONLY = ("the observed fires: the run's fire is the model's own, lit and spread "
+                    "in its own places and years, so a fire that happened is not in it")
+_FIRE_NONE = "the observed fires: the run has no fire"
+
+
+def not_in_it_words(f: Optional[Dict[str, Any]]) -> List[str]:
+    """not_in_it's items in words only, with no observed number or source."""
+    fire = (f or {}).get("burned_area_km2") or {}
+    m, o = fire.get("model") or {}, fire.get("observed") or {}
+    ys = sorted(set(m) & set(o))
+    if not ys:
+        return []
+    return [_FIRE_MODEL_ONLY if any(m[y] for y in ys) else _FIRE_NONE]
+
+
 def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """One control as reception sees it: small enough for a tool result (cut
     at 12,000 characters), so field lists are counts plus the fields the case
@@ -268,6 +305,9 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
     out = {"name": entry["name"], "description": entry.get("description"),
            "usable": entry.get("usable"),
            "reproduced": entry.get("reproduced"),
+           # how well it matches observations, measured outside the server and
+           # entered with its source, as `reproduced` is
+           "evaluation": entry.get("evaluation"),
            "regions": {k: v.get("what") for k, v in (entry.get("regions") or {}).items()},
            "observations": {k: v.get("what")
                             for k, v in (entry.get("observations") or {}).items()}}
@@ -292,6 +332,8 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
         "requested_fields": s.get("requested_fields"),
         "field_notes": f.get("field_notes"),
         "computed": f.get("computed")}
+    out["not_in_it"] = not_in_it(f)
+    out["not_in_it_words"] = not_in_it_words(f)
     return out
 
 

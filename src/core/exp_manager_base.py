@@ -161,6 +161,21 @@ class Pending:
 		return f"Pending(job_id={self.job_id!r}, {self.detail!r})"
 
 
+class RefusedBeforeAnyJob(RuntimeError):
+	"""The model server's check refused the design before any job was
+	submitted: what to change, for the person who asked, not a crash. The
+	coordinator says so in plain words, without a traceback (2026-10-27: an
+	earlier study's case name, refused as it should be, read as a crash).
+
+	`findings` keeps the server's own list ({where, what}, as its check
+	returns them), so the coordinator can hand them back to the planner
+	before the design review rather than only print them (2026-10-28)."""
+
+	def __init__(self, message, findings=None):
+		super().__init__(message)
+		self.findings = list(findings or [])
+
+
 class ExperimentManagerBase:
 	"""Sampling, the strategy gate, and packaging — no model in sight."""
 
@@ -1981,7 +1996,10 @@ class ExperimentManagerBase:
 			if isinstance(r, dict):
 				name = r.get('case_name') or r.get('id')
 				if name:
-					out[str(name)] = (r.get('status') == 'completed'
+					# 'reused': a prepared control read as it is, which ran
+					# before this study and is as good as a completed run. Read
+					# as a failure, a finished experiment summarised as "1/2".
+					out[str(name)] = (r.get('status') in ('completed', 'reused')
 									  if 'status' in r else True)
 		return out
 
@@ -2114,10 +2132,11 @@ class ExperimentManagerBase:
 				# A queued column has not failed — it has not been asked yet.
 				# Calling it 'failed' would put 19 failures in the summary of a
 				# run whose job is sitting healthily in the queue.
-				'status':            'completed'
-									 if ok.get(str(e.get('case_name')
-													or e.get('id')))
-									 else ('pending' if pending else 'failed'),
+				'status':            ('reused' if e.get('status') == 'reused' else
+									  'completed'
+									  if ok.get(str(e.get('case_name')
+													 or e.get('id')))
+									  else ('pending' if pending else 'failed')),
 				'forcing_period':    e.get('forcing_period'),
 				'forcing_start':     e.get('forcing_start'),
 				'forcing_end':       e.get('forcing_end'),

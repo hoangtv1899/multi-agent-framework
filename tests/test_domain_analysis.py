@@ -169,38 +169,41 @@ class TestAnExperiment:
         a = ev["anomalies"][A.VEGETATED]["GPP"]
         assert a["normal"] == pytest.approx(
             t["runs"]["control"]["values"][A.VEGETATED]["GPP"]["2016"])
-        ob = t["observed"]["burned_area_km2"]
-        w = _weights(ctl)
-        assert ob["values"][A.VEGETATED]["2016"] == pytest.approx(
-            float(np.sum((burn * w)[veg])), rel=1e-6)
-        assert ob["values"][A.VEGETATED]["2015"] == 0.0
-        # each run's own burned area beside it, read by the server although the
-        # plan did not ask for the field: the mean burned fraction times the area
-        assert ob["units"] == "km2" and ob["model_field"] == "FAREA_BURNED"
-        for run, case in (("control", ctl), ("twin", twin)):
-            for y in (2015, 2016):
-                frac = _expected_total("FAREA_BURNED", y, veg, case)
-                assert ob["model"][run][A.VEGETATED][str(y)] == pytest.approx(
-                    frac * t["regions"][A.VEGETATED]["area_km2"], rel=1e-6)
-        assert set(ob["model"]["control"]) == {A.VEGETATED, "box, vegetated"}
-        assert "FAREA_BURNED" not in t["runs"]["control"]["fields"]
+        # THE MODEL'S OUTPUT ONLY: an observation registered for the control
+        # is not read into the table (2026-10-27)
+        assert "observed" not in t
+        # no fire field asked for, no burned area made
+        assert "burned_area_km2" not in t["runs"]["control"]["fields"]
         assert t["problems"] == []
 
-    def test_the_burned_area_from_fields_the_plan_asked_for(self, tmp_path):
-        """Asked for, the field is not read twice: the same numbers come from
-        the table's own values."""
+    def test_each_runs_own_burned_area_is_a_field_of_its_values(self, tmp_path):
+        """Asked for FAREA_BURNED, each run gets its burned area in km2 beside
+        its other fields: the year's burned fraction times the region's area,
+        with its difference from the control like any field."""
         ctl = _case(tmp_path, name="ctl")
+        twin = _case(tmp_path, name="twin")
         obs, _ = _burn_obs(tmp_path, ctl)
         control = {"case_dir": str(ctl["case_dir"]),
                    "observations": {"burn": {"path": str(obs),
                                              "var": "burned_fraction_year"}}}
-        t = A.experiment(control, {"control": ctl["run_dir"]},
+        t = A.experiment(control, {"control": ctl["run_dir"], "twin": twin["run_dir"]},
                          {"regions": [A.VEGETATED], "variables": ["GPP", "FAREA_BURNED"]},
                          [2015, 2016])
-        m = t["observed"]["burned_area_km2"]["model"]["control"][A.VEGETATED]
-        v = t["runs"]["control"]["values"][A.VEGETATED]["FAREA_BURNED"]
+        assert "observed" not in t
+        veg, _ = _veg(ctl)
         area = t["regions"][A.VEGETATED]["area_km2"]
-        assert m == {y: pytest.approx(v[y] * area, rel=1e-12) for y in ("2015", "2016")}
+        for run, case in (("control", ctl), ("twin", twin)):
+            km2 = t["runs"][run]["values"][A.VEGETATED]["burned_area_km2"]
+            frac = t["runs"][run]["values"][A.VEGETATED]["FAREA_BURNED"]
+            for y in ("2015", "2016"):
+                assert km2[y] == pytest.approx(frac[y] * area, rel=1e-12)
+                assert frac[y] == pytest.approx(
+                    _expected_total("FAREA_BURNED", int(y), veg, case), rel=1e-6)
+        meta = t["runs"]["control"]["fields"]["burned_area_km2"]
+        assert meta["how"] == "sum" and meta["units"] == "km2"
+        assert "the model's own burned area" in meta["note"]
+        assert t["differences"]["twin"][A.VEGETATED]["burned_area_km2"]["2016"] == \
+            pytest.approx(0.0, abs=1e-9)
         assert t["problems"] == []
 
     def test_a_run_without_the_field_is_a_problem_not_a_zero(self, tmp_path):
@@ -209,15 +212,12 @@ class TestAnExperiment:
             q.unlink()                     # the daily streams hold the field too
         fx.write_monthly(c["run_dir"], [2015, 2016], case="synth",
                          variables=("GPP", "TSA", "CELLID"))
-        obs, _ = _burn_obs(tmp_path, c)
-        t = A.experiment({"case_dir": str(c["case_dir"]),
-                          "observations": {"burn": {"path": str(obs),
-                                                    "var": "burned_fraction_year"}}},
-                         {"control": c["run_dir"]},
-                         {"regions": [A.VEGETATED], "variables": ["GPP"]}, [2015, 2016])
-        assert t["observed"]["burned_area_km2"]["model"] == {}
-        assert any("run control: FAREA_BURNED is in none of the run's streams" in q
-                   for q in t["problems"])
+        t = A.experiment({"case_dir": str(c["case_dir"])}, {"control": c["run_dir"]},
+                         {"regions": [A.VEGETATED], "variables": ["GPP", "FAREA_BURNED"]},
+                         [2015, 2016])
+        assert "burned_area_km2" not in t["runs"]["control"]["fields"]
+        assert any("FAREA_BURNED is in none of the run's streams" in q
+                   for q in t["runs"]["control"]["problems"])
 
     def test_the_limitations_are_in_the_shape_step_0_reads(self):
         for kind, items in A.LIMITATIONS.items():

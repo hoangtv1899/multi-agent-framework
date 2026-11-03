@@ -311,6 +311,70 @@ def source_state(srcroot) -> Dict:
             "fingerprint": h.hexdigest()}
 
 
+def source_patch(srcroot) -> str:
+    """The checkout's local changes as text a person can apply; see
+    source_patch_parts, which also says which files were left out."""
+    return source_patch_parts(srcroot)[0]
+
+
+def source_patch_parts(srcroot) -> Tuple[str, List[str]]:
+    """The checkout's local changes as one patch a person applies with
+    `git apply` at the checkout root, once the commit and its submodules are
+    checked out, and the untracked files left out of it (each larger than
+    _UNTRACKED_HASH_MAX, or unreadable). For the design page, beside
+    source_state's fingerprint of the same changes, so the code a run builds
+    can be made again from the page's record (2026-10-28).
+
+    ONE PATCH FROM THE ROOT (2026-11-03): each submodule's diff used to keep
+    paths inside the submodule (a/f.txt, not a/cime/f.txt), with "Entering"
+    lines between them, and untracked files were not in it, though E3SM's
+    CMake compiles them and the fingerprint counts them; so `git apply`
+    stopped at the first submodule file. Now the top-level diff leaves the
+    submodule lines out, each submodule's diff is prefixed with its path,
+    and each untracked file is a new-file hunk. Git runs from the checkout,
+    as in source_state, and all of it works on Compy's git 1.8.3."""
+    root = Path(srcroot)
+
+    def git(*args, ok=(0,)):
+        try:
+            p = subprocess.run(["git", *args], capture_output=True, timeout=300,
+                               cwd=str(root))
+            # bytes kept as they are, so a file that is not UTF-8 survives
+            return (p.stdout.decode("utf-8", "surrogateescape")
+                    if p.returncode in ok else None)
+        except Exception:                                           # noqa: BLE001
+            return None
+    head = (git("rev-parse", "HEAD") or "").strip()
+    subs = git("submodule", "status") or ""
+    top = git("diff", "HEAD", "--ignore-submodules", "--binary") or ""
+    sub = git("submodule", "foreach", "--quiet",
+              "git diff HEAD --binary --src-prefix=a/$path/ --dst-prefix=b/$path/") or ""
+    others = (git("ls-files", "-z", "--others", "--exclude-standard") or "").split("\0")
+    new, left_out = [], []
+    for name in sorted(n for n in others if n):
+        try:
+            small = (root / name).stat().st_size <= _UNTRACKED_HASH_MAX
+        except OSError:
+            small = False
+        # --no-index exits 1 when the two differ, which a new file always does
+        hunk = git("diff", "--no-index", "--binary", "/dev/null", name, ok=(0, 1)) \
+            if small else None
+        if hunk:
+            new.append(hunk)
+        else:
+            left_out.append(name)
+    text = (f"# E3SM checkout {root} at commit {head or '(unreadable)'}\n"
+            f"# submodules (git submodule status):\n"
+            + "".join(f"#   {l}\n" for l in subs.splitlines())
+            + (f"# untracked files left out of this patch (over "
+               f"{_UNTRACKED_HASH_MAX >> 20} MB, or unreadable), to copy by hand:\n"
+               + "".join(f"#   {n}\n" for n in left_out) if left_out else "")
+            + "# apply with `git apply` at the checkout root, once that commit and its "
+              "submodules are checked out\n"
+            + top + sub + "".join(new))
+    return text, left_out
+
+
 _XMLCHANGE = re.compile(r"xmlchange success <command> (\S*xmlchange)\s+(.*?)\s*</command>")
 _ENTRY = r'<entry id="{}" value="([^"]*)"'
 

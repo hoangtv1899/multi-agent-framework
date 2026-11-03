@@ -444,3 +444,64 @@ class TestTheModelExchangeIsKept:
         monkeypatch.setattr(Path, "write_text",
                             lambda *a, **k: (_ for _ in ()).throw(OSError("ro")))
         assert sr.save_exchange(tmp_path, "step2", 1, "p", "r") == {}
+
+
+class TestAMissingVerdictIsAskedFor:
+    """A live whole-domain run (2026-10-27) returned a complete answer, every
+    claim kept, and no `verdict` key; read as "insufficient" it reached the
+    user labelled insufficient. One follow-up asks for the verdict alone."""
+
+    def _interpret(self, tmp_path, replies):
+        class FakeClient:
+            label = None
+            calls = []
+            def ask(self, messages):
+                FakeClient.calls.append(messages)
+                r = replies.pop(0)
+                if isinstance(r, Exception):
+                    raise r
+                return r
+        inv = {"round": 1, "findings": [{"id": "f1", "n": 9, "question": "q",
+                                         "result": {"mean": 1.0}}],
+               "caveats": [], "figures": [], "notes": "n"}
+        out = step3.interpret(_ctx(), {}, inv, tmp_path,
+                              client=FakeClient(), with_images=False)
+        return out, FakeClient.calls
+
+    NO_VERDICT = '{"claims": [], "headline": "h", "answer": "a"}'
+
+    @staticmethod
+    def _verdict_asks(calls):
+        """Follow-ups asking for the verdict (the wording gate may also call)."""
+        return sum("gave no verdict" in str(m[-1]["content"]) for m in calls)
+
+    def test_the_verdict_is_asked_for_and_kept(self, tmp_path):
+        out, calls = self._interpret(
+            tmp_path, [self.NO_VERDICT, '{"verdict": "sufficient", "feedback": ""}'])
+        assert out["verdict"] == "sufficient" and out["verdict_asked_again"]
+        follow_up = calls[1]
+        assert [m["role"] for m in follow_up] == ["user", "assistant", "user"]
+        assert follow_up[1]["content"] == self.NO_VERDICT
+        assert "gave no verdict" in follow_up[2]["content"]
+
+    def test_an_insufficient_answer_brings_its_feedback(self, tmp_path):
+        out, _ = self._interpret(
+            tmp_path, [self.NO_VERDICT,
+                       '{"verdict": "insufficient", "feedback": "plot 2021 too"}'])
+        assert out["verdict"] == "insufficient" and out["feedback"] == "plot 2021 too"
+
+    def test_still_no_verdict_is_not_a_pass(self, tmp_path):
+        out, calls = self._interpret(tmp_path, [self.NO_VERDICT, '{"answer": "a"}'])
+        assert out["verdict"] == "insufficient" and out["verdict_asked_again"]
+        assert self._verdict_asks(calls) == 1, "asked once more, not in a loop"
+
+    def test_a_failed_follow_up_is_not_a_pass(self, tmp_path):
+        out, _ = self._interpret(tmp_path, [self.NO_VERDICT, RuntimeError("down")])
+        assert out["verdict"] == "insufficient" and out["verdict_asked_again"]
+
+    def test_a_reply_with_a_verdict_is_not_asked_again(self, tmp_path):
+        out, calls = self._interpret(
+            tmp_path, ['{"claims": [], "headline": "h", "answer": "a", '
+                       '"verdict": "sufficient"}'])
+        assert out["verdict"] == "sufficient" and not out["verdict_asked_again"]
+        assert self._verdict_asks(calls) == 0

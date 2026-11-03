@@ -182,20 +182,34 @@ YOU DECIDE the analysis:
   regions        where numbers are reported: regions the control has
                  (controls[].regions) or the standard "vegetated cells" and
                  "elevation bands", each with one clause on why it answers
-                 the question.
+                 the question. The standard bands cover the whole domain;
+                 {"name": "elevation bands", "within": "<a control region>"}
+                 makes them inside that region only. When a run's change
+                 applies in one region, report only that region or bands
+                 within it: a region reaching outside it averages changed and
+                 unchanged cells. Always name the regions: with none named,
+                 the numbers cover "vegetated cells" and "elevation bands"
+                 over the whole domain.
   variables      history fields the control's streams hold
-                 (facts.requested_fields): the ones the question turns on.
+                 (facts.requested_fields): the ones the question turns on,
+                 each a single-level field. A field with levels (soil layers)
+                 has no one number per cell; the rulebook's changes.rules say
+                 which fields those are and what stands in for them.
+                 burned_area_km2 is not a history field: it is made from
+                 FAREA_BURNED. Name FAREA_BURNED among the variables and the
+                 burned area in km2 comes with it.
   normal_years   for a question about an event in the control (a dry year, a
                  fire year): the years it is compared with, inside the
                  control's output years, and why those. [] otherwise.
-  observations   gridded observations registered for the control
-                 (controls[].observations) the answer can be set against.
+The answer is read from the model's output alone: no observation enters the
+analysis. How the control compares with observations was told to the
+scientist before the design, and is not in your rulebook.
 
 THE VERDICT
   full        every change a run needs is available, and the regions,
               variables and years the answer needs are in the control.
   partial     part of the question needs a change marked available: false,
-              or a field or observation the control lacks: name it in
+              or a field the control lacks: name it in
               `requires`, and design the part that can run.
   infeasible  no run on this control can answer it: say why in
               feasibility.why and name what it requires. An infeasible
@@ -203,9 +217,11 @@ THE VERDICT
 
 THE CAVEATS ARE WRITTEN NOW. For every run, copy each change's `not_meaning`
 into domain_experiment.caveats: it is what the difference between the runs
-must never be called. Where the question is about something the facts
-measure, say what they show (for a fire question, the model's own burned area
-beside the observed one).
+must never be called. Where the control does not contain something the
+question names or its years hold, say so in one caveat, written from the
+control's `not_in_it_words` (the same items without the observations'
+numbers). No caveat carries an observation's numbers: the scientist read
+those before the design, and the answer is the model's.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 THE COLUMN BUDGET — arithmetic, not judgement   (SITE ONLY)
@@ -378,12 +394,11 @@ OUTPUT — this JSON, nothing else
     "runs": [<copied from brief.domain_experiment.runs>],
     "years": [<copied from brief.domain_experiment.years>],
     "analysis": {
-      "regions": [{"name": "<a region>", "why": "<one clause>"}],
+      "regions": [{"name": "<a region>", "why": "<one clause>"}],  // bands in a region: add "within": "<a control region>"
       "variables": ["<a history field the control holds>"],
-      "normal_years": [<int>, ...],
-      "observations": ["<a name from controls[].observations>"]
+      "normal_years": [<int>, ...]
     },
-    "caveats": ["<each run's change not_meaning, and what the facts show>"]
+    "caveats": ["<each run's change not_meaning, and what the run does not contain>"]
   },
 
   "validation": [

@@ -12,7 +12,11 @@
     "year, with a year axis) gives the control's observed burned area.",
     "",
     "Facts are read from the run by refresh_domain_control_facts and cached beside",
-    "this file, in domain_control_facts/<name>.json."
+    "this file, in domain_control_facts/<name>.json.",
+    "",
+    "evaluation (optional): how well the control matches observations, as measured by",
+    "an analysis outside the server, with that analysis named as its source. Reception",
+    "tells the user about it before a design is settled."
   ],
   "controls": {
     "my_basin": {
@@ -24,6 +28,10 @@
         "years": [2015, 2016],
         "fingerprint": "<the rebuild's source fingerprint>",
         "how": "rebuilt from its own records; every numeric history variable identical"
+      },
+      "evaluation": {
+        "summary": "against the gauge and snow pillows, Y0-Y1: what it reproduces and what it misses, with numbers",
+        "source": "the analysis that measured it, and its date"
       },
       "regions": {
         "watershed": {"polygon": "/path/to/basin.geojson",

@@ -112,7 +112,8 @@ class TestTheHeadline:
         assert "The control against its 2016 normal" in page
         assert "| vegetated cells | 536 | -9.23 % (rank 1 of 2) |" in page
         figs = sorted(p.name for p in (rd / "04_analysis").glob("*.png"))
-        assert figs == ["domain_fig_GPP_anomaly.png", "domain_fig_GPP_by_year.png"]
+        assert figs == ["domain_fig_GPP_anomaly.png", "domain_fig_GPP_by_year.png",
+                        "domain_fig_changes.png", "domain_fig_overview.png"]
 
     def test_an_event_of_two_years_names_the_normal_once(self, tmp_path):
         t = _table(with_twin=False, with_event=True)
@@ -215,8 +216,20 @@ class TestThePage:
     def test_the_figures(self, tmp_path):
         rd, page = self._page(tmp_path)
         figs = sorted(p.name for p in (rd / "04_analysis").glob("*.png"))
-        assert figs == ["domain_fig_GPP_by_year.png", "domain_fig_GPP_difference.png"]
+        # the headline variable's two, then every variable at a glance: each
+        # year of each run, and each run minus the control in one panel
+        assert figs == ["domain_fig_GPP_by_year.png", "domain_fig_GPP_difference.png",
+                        "domain_fig_changes.png", "domain_fig_overview.png"]
         assert "![domain_fig_GPP_by_year.png](domain_fig_GPP_by_year.png)" in page
+        assert "![domain_fig_overview.png](domain_fig_overview.png)" in page
+
+    def test_an_event_draws_each_variable_against_its_normal(self, tmp_path):
+        rd = _run_dir(tmp_path, _table(with_twin=False, with_event=True), [CONTROL_ROW],
+                      {"regions": [{"name": "vegetated cells"}], "variables": ["GPP"],
+                       "normal_years": [2016]})
+        DR.build(rd)
+        figs = sorted(p.name for p in (rd / "04_analysis").glob("*.png"))
+        assert "domain_fig_overview.png" in figs and "domain_fig_changes.png" in figs
 
     def test_an_incomplete_chain_says_so(self, tmp_path):
         rd = _run_dir(tmp_path, _table(), [CONTROL_ROW, NOFIRE], ANALYSIS)
@@ -243,3 +256,99 @@ class TestThePage:
         (rd / "experiment.json").write_text("{}")
         with pytest.raises(ValueError, match="no regional table"):
             DR.build(rd)
+
+
+class TestTheChangesFigure:
+    """The overview's percent panel draws only what a percent means
+    (2026-11-03): a kelvin field is left out, and a value with no percent
+    (none, or over a control or normal at or below zero) is no bar marked
+    n/a, never a bar at 0."""
+
+    @pytest.fixture
+    def drawn(self, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        from matplotlib.figure import Figure
+        saved = {}
+        real = Figure.savefig
+
+        def keep(fig, path, *a, **kw):
+            saved[Path(path).name] = fig
+            return real(fig, path, *a, **kw)
+        monkeypatch.setattr(Figure, "savefig", keep)
+        return saved
+
+    @staticmethod
+    def _panel(fig):
+        ax = fig.axes[0]
+        names = [t.get_text() for t in ax.get_xticklabels()]
+        heights = [b.get_height() for b in ax.patches]
+        nas = [t for t in ax.texts if t.get_text() == "n/a"]
+        return names, heights, nas
+
+    def test_a_kelvin_field_and_a_negative_control_have_no_percent(self, tmp_path, drawn):
+        t = _table()
+        fields = dict(FIELDS, TSA={"stream": "h0", "how": "mean", "units": "K"},
+                      NEE={"stream": "h0", "how": "sum", "units": "gC/m^2/yr"})
+        for name, tsa, nee in (("control", 280.0, -100.0), ("nofire", 282.0, -90.0)):
+            t["runs"][name]["fields"] = fields
+            for reg in t["runs"][name]["values"].values():
+                reg["TSA"] = {"2015": tsa, "2016": tsa}
+                reg["NEE"] = {"2015": nee, "2016": nee}
+        for reg in t["differences"]["nofire"].values():
+            reg["TSA"] = {"2015": 2.0, "2016": 2.0}
+            reg["NEE"] = {"2015": 10.0, "2016": 10.0}
+        rd = _run_dir(tmp_path, t, [CONTROL_ROW, NOFIRE],
+                      dict(ANALYSIS, variables=["GPP", "TSA", "NEE"]))
+        DR.build(rd)
+        names, heights, nas = self._panel(drawn["domain_fig_changes.png"])
+        # +2 K is not drawn as +0.7 % of absolute temperature
+        assert names == ["GPP", "NEE"]
+        # GPP's two years are bars; NEE over a control of -100 is not -10 %
+        gpp = [h for h in heights if h == h]
+        assert len(gpp) == 2 and all(h < 0 for h in gpp)
+        assert sum(1 for h in heights if h != h) == 2 and len(nas) == 2
+        assert 0.0 not in heights
+
+    def test_a_missing_anomaly_is_not_drawn_as_zero(self, tmp_path, drawn):
+        t = _table(with_twin=False, with_event=True)
+        t["runs"]["control"]["fields"] = dict(FIELDS, ET={"stream": "h0", "how": "sum",
+                                                          "units": "mm/yr"})
+        for reg in t["runs"]["control"]["values"].values():
+            reg["ET"] = {"2015": 400.0, "2016": 0.0}
+        t["event"]["anomalies"]["vegetated cells"]["ET"] = {
+            "normal": 0.0, "years": {"2015": {"value": 400.0, "anomaly": 400.0,
+                                              "anomaly_pct": None, "rank_lowest_first": 2,
+                                              "of": 2}}}
+        rd = _run_dir(tmp_path, t, [CONTROL_ROW],
+                      {"regions": ["vegetated cells"], "variables": ["GPP", "ET"],
+                       "normal_years": [2016]})
+        DR.build(rd)
+        names, heights, nas = self._panel(drawn["domain_fig_changes.png"])
+        assert names == ["GPP", "ET"]
+        assert heights[0] == pytest.approx(-9.2264)
+        assert heights[1] != heights[1] and len(nas) == 1      # no bar, marked n/a
+
+    def test_only_kelvin_fields_draw_no_percent_panel(self, tmp_path, drawn):
+        t = _table(with_twin=False, with_event=True)
+        t["runs"]["control"]["fields"] = {"TSA": {"stream": "h0", "how": "mean", "units": "K"}}
+        t["runs"]["control"]["values"] = {"vegetated cells": {"TSA": {"2015": 281.5,
+                                                                      "2016": 280.0}}}
+        t["event"]["anomalies"] = {"vegetated cells": {"TSA": {
+            "normal": 280.0, "years": {"2015": {"value": 281.5, "anomaly": 1.5,
+                                                "anomaly_pct": None}}}}}
+        rd = _run_dir(tmp_path, t, [CONTROL_ROW],
+                      {"regions": ["vegetated cells"], "variables": ["TSA"]})
+        DR.build(rd)
+        assert "domain_fig_changes.png" not in drawn
+        assert "domain_fig_overview.png" in drawn
+
+    def test_a_missing_difference_in_the_headline_figure_is_not_zero(self, tmp_path, drawn):
+        t = _table()
+        del t["differences"]["nofire"]["watershed, vegetated"]["GPP"]["2016"]
+        rd = _run_dir(tmp_path, t, [CONTROL_ROW, NOFIRE], ANALYSIS)
+        DR.build(rd)
+        ax = drawn["domain_fig_GPP_difference.png"].axes[0]
+        heights = [b.get_height() for b in ax.patches]
+        assert 0.0 not in heights and sum(1 for h in heights if h != h) == 1
+        assert [x.get_text() for x in ax.texts] == ["n/a"]

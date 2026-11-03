@@ -133,6 +133,46 @@ def _drop_if_empty(d) -> None:
 		pass
 
 
+# What a revision carries of the brief: the decisions a user settles. The rest
+# of the brief (framing, observations, rationale) is re-derived for the change.
+_SETTLED_KEYS = ("model", "design_archetype", "domain", "domain_experiment")
+_SETTLED_RUN_SETTINGS = ("resolved_period", "initialization", "forcing_data")
+
+
+def _revision_of(result: dict, change: str) -> dict:
+	"""The design under review, for the reception that revises it.
+
+	A change asked for at the design review re-runs reception, which sees the
+	request again from the start. What the user already settled with it (the
+	runs, each change and its parameters, the years, the region) lives only in
+	the brief and in the answers they typed, so both are handed over: the
+	settled parts of the brief, every question reception asked with the
+	user's answer, and every change asked for so far. A second revision
+	carries the first one's answers forward, since its own conversation may
+	have asked nothing.
+	"""
+	brief = result.get("brief") or {}
+	settled = {k: brief[k] for k in _SETTLED_KEYS if brief.get(k)}
+	rs = brief.get("run_settings") or {}
+	kept = {k: rs[k] for k in _SETTLED_RUN_SETTINGS if rs.get(k)}
+	if kept:
+		settled["run_settings"] = kept
+	before = result.get("revision_of") or {}
+	answers = list(before.get("user_answers") or [])
+	for step in result.get("trace") or []:
+		if step.get("tool") != "ask_user":
+			continue
+		answers.append({
+			"question": str((step.get("args") or {}).get("question", ""))[:800],
+			"answer":   str((step.get("result") or {}).get("answer", "")),
+		})
+	return {
+		"settled":      settled,
+		"user_answers": answers,
+		"changes":      list(before.get("changes") or []) + [change],
+	}
+
+
 from agents.planner               import Planner
 from core.mcp_manager             import MCPManager
 
@@ -421,7 +461,8 @@ class WorkflowCoordinator:
 	# ═════════════════════════════════════════════════════════
 	# MAIN ENTRY POINT
 	# ═════════════════════════════════════════════════════════
-	def _plan(self, result: dict, run_dir) -> dict:
+	def _plan(self, result: dict, run_dir, findings: Optional[list] = None,
+			  previous: Optional[dict] = None) -> dict:
 		"""reception.json -> strategy.json, with the rulebook it was made under.
 
 		ONE METHOD, so the step can be driven on its own — against an archived
@@ -454,7 +495,11 @@ class WorkflowCoordinator:
 		self.planner.domain_rulebook = (
 			self._domain_rulebook(self.mcp_clients, self.model)
 			if arche == "whole_domain" else None)
-		plan = self.planner.plan(result)
+		# A REFUSED DESIGN COMES BACK WITH THE SERVER'S FINDINGS (2026-10-28):
+		# the planner sees the design it emitted and the server's words, and
+		# changes only what they require (see _review_ready).
+		plan = (self.planner.plan(result, findings=findings, previous=previous)
+				if findings else self.planner.plan(result))
 		if self.planner.pinning:
 			plan["pinning"] = self.planner.pinning
 		if self.planner.domain_rulebook:
@@ -519,7 +564,8 @@ class WorkflowCoordinator:
 
 	def process_request(self,
 						user_request: str,
-						output_dir:   Optional[str] = None
+						output_dir:   Optional[str] = None,
+						revision:     Optional[dict] = None
 						) -> str:
 		print("\n" + "=" * 70)
 		print("COORDINATOR")
@@ -581,10 +627,16 @@ class WorkflowCoordinator:
 		# Without this every failed request left a dated, empty run directory
 		# behind, and those accumulate in exactly the place someone looks for
 		# real runs. Before the mint there is nothing to drop.
+		context = self._reception_context()
+		if revision:
+			# A change asked for at the design review: the design under review
+			# and the user's earlier answers ride along, so the new reception
+			# keeps them (see _revision_of).
+			context = dict(context or {}, revision_of=revision)
 		try:
 			result = self.reception.process(
 				user_request = user_request,
-				context      = self._reception_context(),
+				context      = context,
 				run_dir      = _mint,
 			)
 		except BaseException:
@@ -592,6 +644,8 @@ class WorkflowCoordinator:
 				_drop_if_empty(minted["dir"])
 			raise
 		run_dir = minted.get("dir")
+		if revision:
+			result["revision_of"] = revision
 		# Reception returns the whole package now: route (dispatch), brief
 		# (science), observations + grid (what was fetched), provenance.
 		# The adapter that used to flatten this into a dataclass is gone — it
@@ -785,11 +839,47 @@ class WorkflowCoordinator:
 			# the terminal the pipeline STOPS here and asks; unattended it
 			# records the review and continues. Declining costs nothing: the
 			# records stay on disk and nothing has been built.
-			from agents.design_review import write_review, record_decision
-			review_path = write_review(run_dir, reception=result, strategy=plan)
+			from agents.design_review import (write_review, record_decision,
+											  REVISION_MARK, decision_part)
+			# THE SERVER'S CHECK AND BUILD COME FIRST (2026-10-28), so the page
+			# can say how to make every run by hand, and a design the server
+			# refuses goes back to the planner before anyone reads it. Nothing
+			# is submitted here; the yes below still decides that.
+			plan, preview = self._review_ready(result, plan, run_dir, output_dir)
+			self.conversation_context['last_plan'] = plan
+			blocked = bool(preview) and bool(preview.get("refused") or preview.get("error"))
+			# The preview is passed even when there is none, so the page is never
+			# drawn from an older record left on disk (2026-11-03).
+			review_path = write_review(run_dir, reception=result, strategy=plan,
+									   preview=preview)
 			print(f"📝 Design review: {review_path}\n")
+			# A REFUSAL IS NOT AN ERROR (2026-11-03): a design the server refused
+			# names the change that would let it run; one that could not be
+			# built (a server out of reach, a failed input check, a run whose
+			# scripts could not be written) names no change, and the terminal
+			# and the recorded decision say which, as the page does.
+			refused = bool(blocked and preview.get("refused"))
+			not_run = ("not run: the model server refused the design" if refused else
+					   "not run: the design could not be built")
+			if blocked and not getattr(self, "interactive_reception", False):
+				record_decision(run_dir, not_run)
+				if refused:
+					return (f"🛑 The model server's check refused this design, so nothing "
+							f"was submitted.\n   "
+							+ "; ".join((f"{f.get('where')}: {f.get('what')}"
+										 if isinstance(f, dict) else str(f))
+										for f in preview["refused"])
+							+ f"\n   Ask again with that change; the design and its records "
+							  f"stay in {run_dir}.")
+				return (f"🛑 The design could not be built before the review, so nothing "
+						f"was submitted.\n   {preview.get('error')}\n   The design and its "
+						f"records stay in {run_dir}.")
 			if getattr(self, "interactive_reception", False):
-				print(review_path.read_text())
+				head, more = decision_part(review_path.read_text())
+				print(head)
+				if more:
+					print(f"(The page's second part, how to make these runs by hand, is "
+						  f"in {review_path}.)\n")
 				# ONLY AN EXPLICIT YES RUNS. The first live battery showed
 				# the old parsing treated anything that was not "n" as
 				# consent — typing "change the year to 2015" at this prompt
@@ -800,14 +890,25 @@ class WorkflowCoordinator:
 				# revision re-runs reception so its records are re-derived
 				# for the change (a new period means new observations),
 				# never patched in place.
+				# A REFUSED DESIGN HAS NO YES: it can be changed, or left.
+				prompt = ("This design cannot run as it is. Type a change, or press "
+						  "Enter to stop: " if blocked else
+						  "Run this design? [Y/n, or type a change] ")
 				try:
-					ans = input("Run this design? "
-								"[Y/n, or type a change] ").strip()
+					ans = input(prompt).strip()
 				except (EOFError, KeyboardInterrupt):
 					ans = "n"          # no consent is a no
 				low = ans.lower()
-				if low in ("n", "no"):
-					record_decision(run_dir, "DECLINED at the terminal")
+				if low in ("n", "no") or (blocked and low in ("", "y", "yes")):
+					record_decision(run_dir, not_run if blocked else
+											 "DECLINED at the terminal")
+					if blocked:
+						return ((f"🛑 The model server's check refused this design, "
+								 if refused else
+								 f"🛑 The design could not be built before the review, ")
+								+ f"so nothing was submitted. reception.json, "
+								  f"strategy.json and {review_path.name} are saved "
+								  f"in {run_dir}.")
 					return (f"🛑 Design declined — nothing was run. "
 							f"reception.json, strategy.json and "
 							f"{review_path.name} are saved in {run_dir}.")
@@ -818,10 +919,19 @@ class WorkflowCoordinator:
 					print("\n🔁 Revising the design — reception re-reads "
 						  "the request with your change.\n")
 					original = result.get("user_request") or ""
+					# THE REVISION KEEPS WHAT WAS SETTLED (2026-10-27). The
+					# re-run reception used to see only the request text and
+					# the change, so every answer the user gave in the first
+					# conversation was lost: asked only to add elevation bands
+					# to the reporting, a live revision dropped the agreed
+					# region and warmed the whole domain instead of the
+					# watershed. It now gets the design under review and the
+					# user's answers, and is told to change only what the
+					# change asks.
 					return self.process_request(
-						f"{original}\n\nRevision requested at the design "
-						f"review: {ans}",
+						f"{original}{REVISION_MARK}{ans}",
 						output_dir=output_dir,
+						revision=_revision_of(result, ans),
 					)
 				record_decision(run_dir, "accepted at the terminal")
 			else:
@@ -847,7 +957,16 @@ class WorkflowCoordinator:
 			# NOTHING. The manager already knows the difference; it sets
 			# status="pending" and records both job ids.
 			submitted = run_summary.get('status') == 'pending'
-			if submitted:
+			# A WHOLE-DOMAIN EXPERIMENT IS CHAINS OF JOBS, NOT COLUMNS. Its
+			# summary carries the chain (run, stage, job id); the column wording
+			# and the single job A belong to the site ensemble and printed
+			# "2 column(s)" and "job ? runs the ensemble" for one fire-off run.
+			chain = run_summary.get('chain') or []
+			if submitted and chain:
+				n_runs = len({c.get('run') for c in chain})
+				print(f"⏳ Submitted: {n_runs} run(s) as {len(chain)} chained "
+					  f"job(s); nothing has run yet\n")
+			elif submitted:
 				print(f"⏳ Submitted: "
 					  f"{run_summary.get('experiments_pending') or run_summary['experiments_total']}"
 					  f" column(s) queued — nothing has run yet\n")
@@ -871,19 +990,26 @@ class WorkflowCoordinator:
 				jid_b = run_summary.get('job_id_b') or run_summary.get('job_id')
 				print("📊 STEP 3: Analysis — deferred to the scheduler")
 				print("-" * 50)
-				if jid_b and jid_b != jid_a:
+				if chain and jid_b:
+					print(f"   the {len(chain)} chained job(s) run the model; job "
+						  f"{jid_b} analyses the runs when every one has ended.")
+				elif jid_b and jid_b != jid_a:
 					print(f"   job {jid_a or '?'} runs the ensemble; job {jid_b} "
 						  f"analyses it when that finishes.")
 				else:
 					print(f"   job {jid_b or jid_a or '?'} is queued.")
 				print(f"   You can close this terminal.\n")
+				size = (f"{len(chain)} chained job(s)" if chain else
+						f"{run_summary['experiments_total']} column(s)")
+				progress = ("/domain_case/*/STATUS.log" if chain else
+							"/ensemble_A.log")
 				return (
 					f"⏳ Submitted — the run is queued, not finished.\n"
-					f"   {run_summary['experiments_total']} column(s) · "
+					f"   {size} · "
 					f"{run_summary['run_directory']}\n\n"
 					f"   watch    squeue -u $USER\n"
 					f"            tail -f {run_summary['run_directory']}"
-					f"/ensemble_A.log\n"
+					f"{progress}\n"
 					f"   answer   {run_summary['run_directory']}"
 					f"/04_analysis/analysis.json  (written by job "
 					f"{run_summary.get('job_id_b') or run_summary.get('job_id')})\n\n"
@@ -939,6 +1065,12 @@ class WorkflowCoordinator:
 			)
 	
 		except Exception as e:
+			from core.exp_manager_base import RefusedBeforeAnyJob
+			if isinstance(e, RefusedBeforeAnyJob):
+				# an answer, not a crash: the check did its job before any job
+				return (f"🛑 The model server's check refused this design, so nothing "
+						f"was submitted.\n   {e}\n   Ask again with that change; the "
+						f"design and its records stay in {run_dir}.")
 			return (f"❌ Pipeline failed: {e}\n\n"
 					f"{traceback.format_exc()}")
 	
@@ -1171,6 +1303,75 @@ class WorkflowCoordinator:
 		if email:
 			cfg['notify_email'] = email
 		return executor.execute_plan(plan, cfg)
+
+	# How many times a design the model server refuses goes back to the
+	# planner before the page shows the refusal instead (2026-10-28).
+	PREVIEW_ROUNDS = 2
+
+	def _preview(self, plan: dict, run_dir: Path, reception: dict,
+				 output_dir: str) -> Optional[dict]:
+		"""The model server's check and build of the design, before the design
+		review, submitting nothing (the manager's preview_design). None when
+		the model's manager previews nothing, or the design is not a kind it
+		previews. A failure of the preview itself is returned as its error, so
+		the page says the design could not be built rather than the pipeline
+		dying before the person sees anything."""
+		model = getattr(self, "model", None)
+		if not (plan or {}).get("domain_experiment") or not model:
+			return None
+		Manager = _manager_for(model)
+		if Manager is None or not hasattr(Manager, "preview_design"):
+			return None
+		brief = (reception or {}).get('brief') or {}
+		rs = brief.get('run_settings') or {}
+		try:
+			executor = Manager(base_output_dir=output_dir, run_dir=str(run_dir))
+			cfg = _config_for(
+				self.model,
+				{'brief': brief, 'reception': reception, 'strategy': plan,
+				 'mcp_clients': self.mcp_clients,
+				 'last_run_dir': self.conversation_context.get('last_run_dir')},
+				period=rs.get('resolved_period'),
+				initialization=rs.get('initialization'))
+			return executor.preview_design(plan, cfg)
+		except Exception as e:                                  # noqa: BLE001
+			return {"refused": [], "error": f"{type(e).__name__}: {e}", "runs": []}
+
+	def _review_ready(self, result: dict, plan: dict, run_dir: Path,
+					  output_dir: str):
+		"""(plan, preview): the server's check and build before the page, and a
+		design it refuses handed back to the planner with the server's own
+		findings, up to PREVIEW_ROUNDS times. Each refused design is kept
+		beside the run as strategy.refused_<n>.json, and the rounds are listed
+		on the page, so what the person reads says what was changed and why."""
+		preview = self._preview(plan, run_dir, result, output_dir)
+		rounds = []
+		while preview and preview.get("refused") and len(rounds) < self.PREVIEW_ROUNDS:
+			print("🔁 The model server refused the design, so the planner changes it:")
+			for f in preview["refused"]:
+				print(f"   - {f.get('where')}: {f.get('what')}" if isinstance(f, dict)
+					  else f"   - {f}")
+			kept = Path(run_dir) / f"strategy.refused_{len(rounds) + 1}.json"
+			kept.write_text(json.dumps(plan, indent=2, default=str))
+			rounds.append({"findings": preview["refused"], "design": kept.name})
+			plan = self._plan(result, run_dir, findings=preview["refused"], previous=plan)
+			preview = self._preview(plan, run_dir, result, output_dir)
+		# A DESIGN REFUSED, THEN CHANGED INTO ONE THE SERVER CANNOT CHECK
+		# (2026-11-03): the planner's changed design has no whole-domain
+		# experiment, so there is no preview of it. Left as None, the page fell
+		# back to the refused record on disk while the terminal offered a yes.
+		# It is an error instead, so the person gets no yes, and the record on
+		# disk is replaced by it.
+		if preview is None and rounds:
+			preview = {"refused": [], "runs": [],
+					   "error": ("the planner's changed design is not a whole-domain "
+								 "experiment any more, so the server could not check it")}
+		if preview is not None and rounds:
+			preview["rounds"] = rounds
+			p = Path(run_dir) / "01_inputs" / "design_preview.json"
+			p.parent.mkdir(parents=True, exist_ok=True)
+			p.write_text(json.dumps(preview, indent=1, default=str))
+		return plan, preview
 
 	def _ask_notify_email(self, Manager) -> str:
 		"""Where to mail the result, for a backend whose runs outlive the session.

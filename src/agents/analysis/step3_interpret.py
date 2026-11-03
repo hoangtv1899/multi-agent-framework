@@ -400,7 +400,11 @@ def domain_reading(ctx) -> List[str]:
     totals = sorted(v for v, h in how.items() if h == "sum")
     if not (stocks or totals):
         return []
-    out = ["", "HOW TO READ A NUMBER OF THIS EXPERIMENT:"]
+    out = ["", "THE MODEL'S OUTPUT ONLY: every number of this experiment is the model's.",
+           "    Never use an observation to explain, support or rule out a result. A",
+           "    caveat that says the run does not contain an observed event is said as",
+           "    that, and nothing is inferred from it.",
+           "", "HOW TO READ A NUMBER OF THIS EXPERIMENT:"]
     if stocks:
         out += [f"    stocks, averaged over the year: {', '.join(stocks)}",
                 "        A difference in one, between runs or between a year and the normal,",
@@ -550,8 +554,13 @@ after you answer, and a sentence that breaks one is sent back once:
     of 17 columns" may not become "reached the water table". If no single
     claim carries the answer, the headline names the strongest claim and
     stops there.
+  - CAUSES REST ON NUMBERS. A cause ("because", "so", "drove", "led to", or
+    a mechanism such as leaves closing their pores or a shorter growing
+    season) is written only where a field in the numbers you were given
+    shows it, for that region and year. A cause no field shows is left out,
+    or said only as possible ("may").
   - `answer`: 2 to 4 further sentences, same rules, in this order: what was
-    found, why (the mechanism in plain words), what it does not show. Each
+    found, why as far as the numbers show it, what it does not show. Each
     sentence restates a claim or a caveat you listed, with its scope; a
     sentence that says more than any claim says is not allowed. The reader
     will paste the headline and the answer onto a slide unread, so the
@@ -917,6 +926,34 @@ def _content(brief: str, figures: List[str], with_images: bool):
     return parts
 
 
+VERDICT_ASK = """\
+Your reply above gave no verdict. Judge it as the instructions asked and return
+ONLY JSON: {"verdict": "sufficient" | "insufficient",
+            "feedback": "<if insufficient: what step 2 should do differently>"}
+"""
+
+
+def _ask_verdict(client, content, reply) -> Dict[str, Any]:
+    """The verdict alone, asked once after a reply that gave none.
+
+    Returns the fields to merge into the spec: `verdict_asked_again` always,
+    and `verdict` with its `feedback` only when the answer is one of the two
+    allowed. Any failure returns just the marker, so the caller's default
+    ("insufficient") stands.
+    """
+    out: Dict[str, Any] = {"verdict_asked_again": True}
+    try:
+        again = _parse(client.ask([{"role": "user", "content": content},
+                                   {"role": "assistant", "content": reply},
+                                   {"role": "user", "content": VERDICT_ASK}]))
+    except Exception:                                            # noqa: BLE001
+        return out
+    if again.get("verdict") in ("sufficient", "insufficient"):
+        out["verdict"] = again["verdict"]
+        out["feedback"] = again.get("feedback") or None
+    return out
+
+
 def interpret(ctx, comparison, investigation, out_dir,
               model: str = DEFAULT_MODEL, client=None,
               with_images: bool = True) -> Dict[str, Any]:
@@ -947,6 +984,14 @@ def interpret(ctx, comparison, investigation, out_dir,
     content = _content(brief, figures, with_images)
     reply = client.ask([{"role": "user", "content": content}])
     spec = _parse(reply)
+    # A REPLY WITH NO VERDICT IS ASKED ONCE MORE, FOR THE VERDICT ALONE
+    # (2026-10-27). A live whole-domain run returned a complete answer whose
+    # every claim the audit kept, but no `verdict` key. Read as "insufficient",
+    # it reached the user labelled insufficient, with no feedback to drive a
+    # second round. One short follow-up now asks for the verdict on the reply
+    # just given; a reply that still gives none stays "insufficient" below.
+    if spec.get("verdict") not in ("sufficient", "insufficient"):
+        spec = dict(spec, **_ask_verdict(client, content, reply))
     # THE WORDING IS GATED LIKE THE NUMBERS. Deterministic checks, one
     # bounded rewrite of the wording alone, then the audit as before.
     spec, readability = gate_wording(spec, client)
@@ -970,6 +1015,7 @@ def interpret(ctx, comparison, investigation, out_dir,
 
     out = {"headline": spec.get("headline"),
            "answer": spec.get("answer"), "verdict": verdict,
+           "verdict_asked_again": bool(spec.get("verdict_asked_again")),
            "readability": readability,
            "feedback": spec.get("feedback") or None,
            "claims": result["kept"], "struck": result["struck"],

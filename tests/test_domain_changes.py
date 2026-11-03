@@ -237,8 +237,10 @@ class TestTheCheck:
         assert facts[0].startswith("meaning: the difference from the control is what the "
                                    "model's own fire does")
         assert "Not: the effect of an observed fire" in facts[0]
+        # the model's own fire only: these facts reach the Analyzer (2026-10-27)
         assert facts[1] == ("the control's own fire burns 115-133 km2 a year (spread over "
-                            "2903-5296 cells); MODIS MCD64A1: 2015 4, 2021 344 km2")
+                            "2903-5296 cells); it is the model's fire, and the fires "
+                            "observed in those years are not in the run")
         assert facts[2].startswith("reused; reproduced bit for bit (2015-2016), source "
                                    "fingerprint 503a94c5d1a0")
         assert out["cost"] == {"runs_executed": 1, "model_years": 2,

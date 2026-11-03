@@ -316,6 +316,74 @@ def write_anomaly(path, dom: Dict[str, np.ndarray], params: Dict[str, Any],
             "years": [ym[0][0], ym[-1][0]]}
 
 
+def forcing_summary(control_case_dir) -> List[Dict[str, Any]]:
+    """The data atmosphere's streams in the control's resolved datm_in, each
+    read from its CaseDocs stream file: the years it reads (align, first,
+    last), the grid file it sits on, the folder its data come from, its first
+    and last file and how many there are, and the fields it supplies. For
+    the design page (2026-10-28): the weather every run reads unless its own
+    changes say otherwise. A stream file that cannot be read says why."""
+    import xml.etree.ElementTree as ET
+    cd = Path(control_case_dir)
+    out: List[Dict[str, Any]] = []
+    for entry in control_datm(cd).get("streams") or []:
+        parts = str(entry).split()
+        if not parts:
+            continue
+        row: Dict[str, Any] = {"stream": parts[0], "years": [_int(x) for x in parts[1:4]]}
+        try:
+            root = ET.parse(str(cd / "CaseDocs" / parts[0])).getroot()
+            dom, fld = root.find("domainInfo"), root.find("fieldInfo")
+            dn = (dom.findtext("fileNames") or "").split()
+            fn = (fld.findtext("fileNames") or "").split()
+            names = (fld.findtext("variableNames") or "").split()
+            row.update(domain=(f"{(dom.findtext('filePath') or '').strip()}/{dn[0]}"
+                               if dn else None),
+                       data_dir=(fld.findtext("filePath") or "").strip(), n_files=len(fn),
+                       first=fn[0] if fn else None, last=fn[-1] if fn else None,
+                       fields=names[0::2])
+        except Exception as e:                                      # noqa: BLE001
+            row["error"] = f"{type(e).__name__}: {e}"
+        out.append(row)
+    return out
+
+
+def summarize_anomaly(path) -> Dict[str, Any]:
+    """What an anomaly file holds, counted from the file itself: for each
+    field, how it acts on the weather (added, or a factor), the value that
+    changes nothing, and the months and cells where it differs, with the
+    values it takes there. For the design page, so a person can make the file
+    again from the page alone (2026-10-28)."""
+    import netCDF4
+    p = Path(path)
+    out: Dict[str, Any] = {"file": p.name, "path": str(p), "sha256": sha256(p),
+                           "fields": {}}
+    with netCDF4.Dataset(str(p)) as f:
+        if "params" in f.ncattrs():
+            out["params"] = json.loads(f.getncattr("params"))
+        t = f["time"]
+        dates = netCDF4.num2date(np.asarray(t[:]), t.units,
+                                 calendar=getattr(t, "calendar", "standard"))
+        ym = [f"{d.year:04d}-{d.month:02d}" for d in dates]
+        out["records"] = {"first": ym[0], "last": ym[-1], "n": len(ym),
+                          "each": str(getattr(t, "long_name", ""))}
+        out["grid"] = {"shape": list(f["xc"].shape),
+                       "active_cells": int((np.asarray(f["mask"][:]) == 1).sum())}
+        for a in ANOMALY.values():
+            if a["var"] not in f.variables:
+                continue
+            x = np.asarray(f[a["var"]][:], dtype=np.float32)
+            off = x != np.float32(a["identity"])
+            when = off.reshape(off.shape[0], -1).any(axis=1)
+            vals = np.unique(x[off]) if off.any() else np.array([], dtype=np.float32)
+            out["fields"][a["var"]] = {
+                "how": a["how"], "units": a["units"], "identity": a["identity"],
+                "acts_on": a["model_var"], "months": [m for m, w in zip(ym, when) if w],
+                "cells": int(off.any(axis=0).sum()),
+                "values": [float(f"{float(v):.6g}") for v in vals[:5]]}
+    return out
+
+
 def stream_text(stream: str, data_dir, data_file: str) -> str:
     """The user stream file through which DATM reads one anomaly field: the
     file describes its own grid (xc, yc, area, mask on the model's cells),

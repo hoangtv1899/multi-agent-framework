@@ -2166,6 +2166,14 @@ def check_domain_chain(run_dir: str, run: str = "") -> str:
 #     years    [first, ..., last], consecutive, from the control's start
 #     chain    optional, beside the years in every run's chain spec: smoke_days,
 #              smoke, partition, tag (job-name prefix), walls
+#     analysis optional, the numbers the answer is read from: regions (names,
+#              or {"name": "elevation bands", "within": <registered region>};
+#              vegetated cells and elevation bands when none) and variables.
+#              check_domain_experiment refuses a region that cannot be made, a
+#              field the control's history lacks or holds with levels, and a
+#              region reaching outside the one a run's change applies in
+# check_domain_experiment also refuses a run whose case <control case>_<run>
+# exists already, made by an earlier study.
 def _experiment_control(exp) -> Optional[Dict[str, Any]]:
     """The prepared control an experiment names, with its facts, or None."""
     import domain_controls as DCT
@@ -2240,13 +2248,23 @@ def check_domain_experiment(experiment: dict) -> str:
     sweep's check does: wont_build (each one a question for the user, never a
     silent correction), unusual (it builds, but is odd), facts (measurements
     the study's caveats are made from: each change's meaning and not-meaning,
-    the control's own fire beside the observed one), the runs resolved and
-    the cost. THIS SERVER DOES NOT GRADE.
+    the control's own fire, which is the model's: observed fires are not in
+    the run), the runs resolved and the cost. The optional `analysis` (regions
+    and variables) is refused when the numbers cannot give it, and a run whose
+    case <control case>_<run> exists already is refused. THIS SERVER DOES NOT
+    GRADE.
     """
     import domain_changes as CH
     try:
-        return json.dumps(CH.check(experiment or {}, _experiment_control(experiment)),
-                          indent=1, default=str)
+        ctl = _experiment_control(experiment)
+        out = CH.check(experiment or {}, ctl)
+        # Asked here, before any job, and not inside build_domain_runs, which
+        # may run again for a study whose own cases exist by then.
+        clash = CH.case_collisions(experiment or {}, ctl)
+        if clash:
+            out["wont_build"] = list(out.get("wont_build") or []) + clash
+            out["ok"] = False
+        return json.dumps(out, indent=1, default=str)
     except Exception as e:                                      # noqa: BLE001
         return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
 

@@ -609,7 +609,7 @@ class AnalysisContext:
         against the years whose checks passed, the runs planned against the
         runs with numbers, and each planned region and field against the
         table."""
-        from agents.analysis.domain_report import region_matches
+        from agents.analysis.domain_report import region_label, region_matches
         de = (self.plan or {}).get("experiment") or {}
         t = (self.data or {}).get("regional") or {}
         ch = (self.data or {}).get("chain") or {}
@@ -625,8 +625,8 @@ class AnalysisContext:
         analysis = de.get("analysis") or {}
         have = list((t.get("regions") or {}).keys())
         for r in analysis.get("regions") or []:
-            name = str(r.get("name") if isinstance(r, dict) else r)
-            got = region_matches(name, have)
+            name = region_label(r)
+            got = region_matches(r, have)
             claim(f"region:{name}", name, got or None, "strategy.json", ok=bool(got))
         fields = {v for r in (t.get("runs") or {}).values() for v in (r.get("fields") or {})}
         for v in analysis.get("variables") or []:
@@ -815,6 +815,8 @@ def _domain_caveats(experiment: Dict[str, Any], strategy: Dict[str, Any], add) -
         plan          the caveats the planner wrote into the design
         field notes   what a field's label does not say (a rate per second)
         problems      a region, field or year the server could not make
+        changed share a region only partly inside the one a run's change
+                      applies in, as the server measured it. BLOCKING
         chain         years planned that did not pass their checks
     """
     ex = experiment.get("experiment") or {}
@@ -857,6 +859,25 @@ def _domain_caveats(experiment: Dict[str, Any], strategy: Dict[str, Any], add) -
     for i, q in enumerate(probs, 1):
         add(f"regional_problem_{i}", QUALIFY, f"not reported: {q}",
             "completeness of the regional numbers", "experiment.json:regional.problems")
+    # A RUN WHOSE CHANGE APPLIES IN ONE REGION: over a region reaching outside
+    # it, the difference averages changed and unchanged cells (measured by the
+    # server as the share of the region's area the change reached).
+    k = 0
+    for run, cs in sorted((t.get("changed_share") or {}).items()):
+        where = (cs or {}).get("region")
+        for reg, s in sorted(((cs or {}).get("share") or {}).items()):
+            if s is None or s >= 0.999:
+                continue
+            k += 1
+            what = (f"run {run}'s change applies only in {where} and does not reach {reg}: "
+                    f"its difference from the control there is no response to the change"
+                    if s <= 0.001 else
+                    f"run {run}'s change applies only in {where}, which covers "
+                    f"{100 * s:.0f}% of the area of {reg}: its difference from the control "
+                    f"there averages changed and unchanged cells, so it is not the "
+                    f"response of {reg}")
+            add(f"changed_share_{k}", BLOCKING, what, f"run {run}'s difference over {reg}",
+                "experiment.json:regional.changed_share (the model server)")
     if isinstance(t, dict) and t.get("error"):
         add("regional_not_made", BLOCKING,
             f"the regional numbers could not be made: {t['error']}",

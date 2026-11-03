@@ -74,6 +74,45 @@ def _summary_for_prompt(reception: Dict[str, Any]) -> Dict[str, Any]:
                 "observations_summary") or {}}
 
 
+# OBSERVED NUMBERS STAY AWAY FROM THE PLANNER (2026-11-03). The rulebook the
+# server returns carries how each control compares with observations (its
+# evaluation, its observation list, the not-in-the-run items with their
+# observed numbers, the observed burned area). The design page shows the
+# scientist all of it, so strategy.json keeps the whole rulebook; but the
+# planner's caveats go on to the Analyzer, which reads the model's output
+# only, and a caveat copied from the text the planner was shown would carry
+# an observed number there. So the planner's copy has none of it, and keeps
+# `not_in_it_words`, the same items without their numbers.
+_CONTROL_KEYS_NOT_FOR_PLANNER = ("evaluation", "observations", "not_in_it")
+_FIRE_KEYS_NOT_FOR_PLANNER = ("observed", "observed_source")
+
+
+def _rulebook_for_prompt(rulebook: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The rulebook as the planner is shown it: every control without its
+    comparison with observations. A copy; the rulebook given is not changed."""
+    if not rulebook:
+        return rulebook
+    out = dict(rulebook)
+    ctl = rulebook.get("controls")
+    if isinstance(ctl, dict) and isinstance(ctl.get("controls"), list):
+        rows = []
+        for c in ctl["controls"]:
+            if not isinstance(c, dict):
+                rows.append(c)
+                continue
+            c = {k: v for k, v in c.items() if k not in _CONTROL_KEYS_NOT_FOR_PLANNER}
+            facts = c.get("facts")
+            if isinstance(facts, dict) and isinstance(facts.get("burned_area_km2"), dict):
+                facts = dict(facts)
+                facts["burned_area_km2"] = {
+                    k: v for k, v in facts["burned_area_km2"].items()
+                    if k not in _FIRE_KEYS_NOT_FOR_PLANNER}
+                c["facts"] = facts
+            rows.append(c)
+        out["controls"] = dict(ctl, controls=rows)
+    return out
+
+
 class Planner:
     """reception.json -> planner.json."""
 
@@ -108,7 +147,25 @@ class Planner:
         # server's answers, never stated in planner.txt.
         self.domain_rulebook: Optional[Dict[str, Any]] = None
 
-    def plan(self, reception: Dict[str, Any]) -> Dict[str, Any]:
+    # THE SERVER'S FINDINGS COME BACK HERE (2026-10-28). The model server
+    # checks a design before the design review now, and a design it refuses
+    # (a run named after an earlier study's case, a field with soil levels, a
+    # region reaching outside the one a change applies in) is handed back with
+    # its own words, once or twice, before anyone reads the page. Only what
+    # each finding needs may change: the design the person agreed with
+    # Reception stays.
+    FINDINGS_NOTE = (
+        "THE MODEL SERVER CHECKED THE DESIGN YOU EMITTED AND REFUSED IT. Its "
+        "findings, in its own words, are below, after the design it refused. "
+        "Emit the whole design again, changed only as each finding requires, "
+        "and keep everything else as it was: the question, the region, the "
+        "years, the runs' changes and the analysis the person agreed to. Never "
+        "drop a run or a region to make a finding go away when a finding names "
+        "the change that fixes it.")
+
+    def plan(self, reception: Dict[str, Any],
+             findings: Optional[list] = None,
+             previous: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         payload = _summary_for_prompt(reception)
         system = self.system
         if self.constraints:
@@ -124,17 +181,27 @@ class Planner:
                        "the change list,\nfrom the server that will run this "
                        "study\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━━━━━━\n"
-                       + json.dumps(self.domain_rulebook, indent=1, default=str))
+                       + json.dumps(_rulebook_for_prompt(self.domain_rulebook),
+                                    indent=1, default=str))
         if self.pinning:
             system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━\nPINNING RULES — from the model server that "
                        "will run this study\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━━━━━━━━━━━━━━━━━━\n"
                        + json.dumps(self.pinning, indent=1, default=str))
+        content = json.dumps(payload, indent=1, default=str)
+        if findings:
+            # the refused design without the blocks this code adds after the
+            # planner (they come back from the server's own answers)
+            prior = {k: v for k, v in (previous or {}).items()
+                     if k not in ("pinning", "domain_rulebook")}
+            content += ("\n\n" + self.FINDINGS_NOTE
+                        + "\n\nTHE DESIGN IT REFUSED:\n"
+                        + json.dumps(prior, indent=1, default=str)
+                        + "\n\nTHE SERVER'S FINDINGS:\n"
+                        + json.dumps(list(findings), indent=1, default=str))
         raw = self.llm.ask(
-            [{"role": "user",
-              "content": json.dumps(payload, indent=1, default=str)
-                         + "\n\nEmit ONLY the JSON."}],
+            [{"role": "user", "content": content + "\n\nEmit ONLY the JSON."}],
             system_message=system)
         return self._parse(raw)
 

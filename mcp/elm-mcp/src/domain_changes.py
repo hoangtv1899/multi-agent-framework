@@ -273,6 +273,19 @@ def declare() -> Dict[str, Any]:
             "the years it has output for",
             "a run's resolved namelists must differ from the control's only by "
             "its changes, checked before its model is built",
+            "the analysis reports single-level history fields: a field with "
+            "levels (H2OSOI, SOILLIQ, TSOI) has no one number per cell; for soil "
+            "water, SOILWATER_10CM holds the top 10 cm",
+            "the standard \"elevation bands\" cover the whole domain; "
+            "{\"name\": \"elevation bands\", \"within\": <a registered region>} "
+            "makes them inside that region only",
+            "when a run's change applies in one region (weather_scale's region), "
+            "every region the analysis reports lies inside it: that region, or "
+            "elevation bands within it; a region reaching outside would average "
+            "changed and unchanged cells; with no regions named the analysis "
+            "reports vegetated cells and elevation bands over the whole domain",
+            "burned_area_km2 is not a history field: name FAREA_BURNED and the "
+            "burned area in km2 comes with it",
         ],
     }
 
@@ -824,13 +837,115 @@ def _resolved(facts: Optional[Dict], name: str) -> Optional[int]:
         return None
 
 
+def case_collisions(experiment: Dict[str, Any], control: Optional[Dict[str, Any]]
+                    ) -> List[Dict[str, str]]:
+    """Runs on a reused prepared control whose case exists already, made by an
+    earlier study: each one a question for the user, asked before any job
+    rather than met when the chain is submitted."""
+    cd = (control or {}).get("case_dir")
+    if not cd or not ((experiment or {}).get("control") or {}).get("reuse"):
+        return []
+    out = []
+    for run in (experiment or {}).get("runs") or []:
+        name = run.get("name") if isinstance(run, dict) else None
+        if not RUN_NAME.fullmatch(str(name or "")) or name == "control":
+            continue
+        there = Path(cd).parent / run_case_name(Path(cd).name, name)
+        if there.exists():
+            out.append({"where": f"run {name}",
+                        "what": f"a case named {there.name} exists already ({there}), made "
+                                f"by an earlier study: this run would be built over it. "
+                                f"Give the run another name (for example {name}_2) to "
+                                f"run it again"})
+    return out
+
+
+def _confined_to(rc: Dict[str, Any]) -> Optional[str]:
+    """The registered region a resolved change applies in, or None for the
+    whole domain."""
+    return rc["params"].get("region") if rc["id"] == "weather_scale" else None
+
+
+def _analysis_problems(analysis: Dict[str, Any], control: Optional[Dict[str, Any]],
+                       resolved_runs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """What the plan's analysis asks of the numbers that they cannot give:
+    a region that cannot be made, a field the control's history lacks or
+    holds with levels, and a region reaching outside the one a run's change
+    applies in, whose difference would average changed and unchanged cells."""
+    import domain_analysis as A
+    wont: List[Dict[str, str]] = []
+    regs = (control or {}).get("regions") or {}
+    specs = [A.region_spec(r) for r in A.plan_regions(analysis)]
+    for name, within in specs:
+        label = f"{name} within {within}" if within else name
+        where = f"analysis, region {label}"
+        if within and not A.is_bands(name):
+            wont.append({"where": where, "what": f"within applies to {A.BANDS} only"})
+        elif within and within not in regs:
+            wont.append({"where": where, "what": f"{within!r} is not registered for the "
+                         f"control (registered: {sorted(regs) or 'none'})"})
+        elif not within and not A.is_bands(name) and \
+                name.lower() not in (A.VEGETATED, "vegetated") and name not in regs:
+            wont.append({"where": where, "what": f"neither a standard region ({A.VEGETATED}, "
+                         f"{A.BANDS}) nor registered for the control (registered: "
+                         f"{sorted(regs) or 'none'})"})
+    for run in resolved_runs:
+        for rc in run["changes"]:
+            inside = _confined_to(rc)
+            if not inside:
+                continue
+            for name, within in specs:
+                if (name == inside and not within) or (A.is_bands(name) and within == inside):
+                    continue
+                label = f"{name} within {within}" if within else name
+                wont.append({"where": f"analysis, region {label}",
+                             "what": f"run {run['name']}'s {rc['id']} applies only in "
+                                     f"{inside}, and {label} reaches outside it: its "
+                                     f"difference would average changed and unchanged "
+                                     f"cells. Report {inside}, or {A.BANDS} within "
+                                     f"{inside} ({{\"name\": \"{A.BANDS}\", \"within\": "
+                                     f"\"{inside}\"}})"})
+    rd = (control or {}).get("run_dir")
+    variables = [str(v) for v in (analysis.get("variables") or [])]
+    # burned_area_km2 is a field of the answer, made from FAREA_BURNED, and
+    # never a history field itself (2026-11-03): say how to get it
+    for v in [v for v in variables if v == A.BURNED_AREA]:
+        wont.append({"where": f"analysis, variable {v}",
+                     "what": f"{A.BURNED_AREA} is made from {A.BURNED_FRACTION}: name "
+                             f"{A.BURNED_FRACTION} and the burned area in km2 comes with it"})
+    variables = [v for v in variables if v != A.BURNED_AREA]
+    if rd and variables:
+        import gridded as G
+        # AN UNREADABLE HISTORY IS A REFUSAL OF ITS OWN (2026-11-03): it used
+        # to raise out of here, losing the region refusals above, and check()
+        # recorded one unusual line, so a design that should be refused passed.
+        try:
+            streams = {s: G.open_stream(rd, s) for s in A.STREAM_ORDER if s in G.discover(rd)}
+        except Exception as e:                                      # noqa: BLE001
+            wont.append({"where": "analysis, variables",
+                         "what": f"the control's history cannot be read, so the fields "
+                                 f"cannot be checked: {type(e).__name__}: {e}"})
+            return wont
+        for v in variables:
+            st = A._stream_for(streams, v)
+            if st is None:
+                wont.append({"where": f"analysis, variable {v}",
+                             "what": f"{v} is in none of the control's history streams "
+                                     f"({sorted(streams)})"})
+            elif streams[st].levels(v):
+                wont.append({"where": f"analysis, variable {v}",
+                             "what": A.layered_problem(v, streams[st].levels(v))})
+    return wont
+
+
 def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
           ) -> Dict[str, Any]:
     """A proposed experiment against the change list and the control's facts.
 
     experiment  {"control": {"name": ..., "reuse": true|false},
                  "runs": [{"name": ..., "changes": [{"id": ..., "params": {...}}]}],
-                 "years": [first, ..., last]}
+                 "years": [first, ..., last],
+                 "analysis": the plan's regions and variables (optional)}
     control     the control's registry entry with its facts, or None
 
     Returns wont_build (each one a question for the user, never a silent
@@ -995,15 +1110,22 @@ def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
             fire = (cfacts or {}).get("burned_area_km2") or {}
             if fire.get("model"):
                 m = fire["model"]
+                # the model's own fire only: these facts reach the Analyzer, which
+                # reads the model's output alone (the observed burned area is the
+                # control's card and the design page's, for the scientist)
                 txt = (f"the control's own fire burns {min(m.values()):.0f}-"
-                       f"{max(m.values()):.0f} km2 a year ({fire.get('pattern', '')})")
-                obs = fire.get("observed")
-                if obs:
-                    txt += (f"; {fire.get('observed_source', 'observed')}: "
-                            + ", ".join(f"{y} {v:.0f}" for y, v in sorted(obs.items()))
-                            + " km2")
+                       f"{max(m.values()):.0f} km2 a year ({fire.get('pattern', '')}); "
+                       f"it is the model's fire, and the fires observed in those years "
+                       f"are not in the run")
                 facts.append({"where": f"{where}, change fire_off", "what": txt})
         resolved_runs.append({"name": name, "changes": rs, "executes": True})
+    an = exp.get("analysis")
+    if isinstance(an, dict) and an:
+        try:
+            wont += _analysis_problems(an, control, resolved_runs)
+        except Exception as e:                                      # noqa: BLE001
+            odd.append({"where": "analysis", "what": f"the analysis could not be checked: "
+                                                     f"{type(e).__name__}: {e}"})
     hp = (cfacts or {}).get("hours_per_model_year") or DEFAULT_HOURS_PER_YEAR
     n_years = len(years) if isinstance(years, list) else 0
     executed = len(resolved_runs) + (0 if reuse else 1)

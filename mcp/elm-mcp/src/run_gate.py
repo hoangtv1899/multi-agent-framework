@@ -86,6 +86,28 @@ import regions as R
 
 SECONDS_PER_DAY = 86400.0
 
+# WHAT EACH JOB OF A RUN'S CHAIN CHECKS, in words the design page quotes
+# (its recipe, 2026-10-28), so a person reading the page before any job
+# knows what will be held and what only reported. Each line restates the
+# gate named in this module's docstring; the gates are the authority.
+CHECKS_IN_WORDS = {
+    "case": "before the model is built, the run's resolved namelists against the "
+            "control's: exactly the keys its changes alter differ, with the values they "
+            "set; and every file written for the run that the case must hold (a user "
+            "stream file) is there unchanged",
+    "smoke": "a few days from the starting state: this job's own logs (found by its job "
+             "id) end cleanly, and the first day's means match the saved state it starts "
+             "from, over vegetated cells (a cold start differs by about 100 %)",
+    "year": "this job's own logs show the model dates it ran and a clean end; every "
+            "history tape is complete with the fields its namelist asks for; a restart "
+            "exists for the next year; no vegetated cell misses a value; GPP, peak LAI, "
+            "water closure and the carbon stock lie within sanity bounds",
+    "expect": "each change's rules on the output, every year (listed with the run)",
+    "reference": "each year set against the control's same year (per-field bias and "
+                 "daily correlation), reported and not held, since the run is meant to "
+                 "differ",
+}
+
 
 class GateError(Exception):
     """A gate cannot be run, and the message says why."""

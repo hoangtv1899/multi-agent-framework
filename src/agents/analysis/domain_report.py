@@ -79,15 +79,31 @@ def _signed(x: Optional[float], units: str = "") -> str:
     return ("+" if x > 0 else "") + _fv(x, units)
 
 
-def region_matches(name: str, have: List[str]) -> List[str]:
+def region_label(region) -> str:
+    """A planned region in words: its name, or "elevation bands within
+    watershed" for {"name": "elevation bands", "within": "watershed"}."""
+    if isinstance(region, dict):
+        n, w = str(region.get("name") or "").strip(), region.get("within")
+        return f"{n} within {str(w).strip()}" if w else n
+    return str(region).strip()
+
+
+def region_matches(region, have: List[str]) -> List[str]:
     """The table's regions one planned region stands for: a plan names
     "watershed" and the table holds "watershed, vegetated"; "elevation bands"
-    stands for every band the table holds. [] when the table has none."""
-    n = str(name).strip()
+    stands for every band the table holds over the domain, and with within W
+    for every band inside W ("W, vegetated, 1000-1500 m"). [] when the table
+    has none. `region` is a name or the plan's {"name", "within"} object."""
+    n = str(region.get("name") if isinstance(region, dict) else region).strip()
+    w = str(region.get("within") or "").strip() if isinstance(region, dict) else ""
+    if n.lower() in (BANDS, "elevation_bands", "bands"):
+        if w:
+            return [k for k in have if k.startswith(f"{w}{VEG_SUFFIX}, ")]
+        return [k for k in have if k != VEGETATED and VEG_SUFFIX not in k]
+    if w:
+        return []
     if n.lower() in (VEGETATED, "vegetated"):
         return [VEGETATED] if VEGETATED in have else []
-    if n.lower() in (BANDS, "elevation_bands", "bands"):
-        return [k for k in have if k != VEGETATED and not k.endswith(VEG_SUFFIX)]
     if n in have:
         return [n]
     return [n + VEG_SUFFIX] if n + VEG_SUFFIX in have else []
@@ -99,7 +115,7 @@ def region_keys(table: Dict[str, Any], analysis: Dict[str, Any]) -> List[str]:
     have = list((table.get("regions") or {}).keys())
     out: List[str] = []
     for r in analysis.get("regions") or []:
-        out += region_matches(r.get("name") if isinstance(r, dict) else r, have)
+        out += region_matches(r, have)
     seen, keep = set(), []
     for k in out or have:
         if k not in seen:
@@ -339,6 +355,38 @@ def _figure_style():
     return figstyle
 
 
+def _label(reg: str) -> str:
+    """A region as a figure names it. Every region is restricted to the
+    vegetated cells, so ", vegetated" is not repeated on each label:
+    "watershed, vegetated, 1000-1500 m" is "watershed, 1000-1500 m"."""
+    return reg if reg == VEGETATED else reg.replace(VEG_SUFFIX, "")
+
+
+def _no_percent(units) -> bool:
+    """A field in kelvin has no percent: +2 K is not 0.7 % of anything a
+    reader means. The server's own rule for an anomaly (domain_analysis.event)."""
+    return str(units or "").strip().upper().startswith("K")
+
+
+def _pct_of(diff: Optional[float], base: Optional[float]) -> Optional[float]:
+    """A percent the figure may draw: none over a base at or below zero, where
+    a percent flips the sign (a sink weakened from -100 by +10 is not -10 %)."""
+    if diff is None or base is None or base <= 0:
+        return None
+    return 100.0 * diff / base
+
+
+def _bars(ax, xs, vals, width, **kw) -> None:
+    """Bars at xs, a missing value drawn as no bar with "n/a" on the zero line.
+    MISSING IS NOT ZERO (2026-11-03): a missing value drawn at 0 read as "no
+    change" on the slide."""
+    ax.bar(xs, [float("nan") if x is None else x for x in vals], width=width, **kw)
+    for x, v in zip(xs, vals):
+        if v is None:
+            ax.text(x, 0.0, "n/a", ha="center", va="bottom", rotation=90,
+                    fontsize="x-small", color="0.3")
+
+
 def figures(table, runs, regions, var, years, out_dir: Path) -> List[str]:
     """The headline variable by year, a panel per region, a line per run; and
     each changed run's difference from the control, or the control's anomaly
@@ -366,7 +414,8 @@ def figures(table, runs, regions, var, years, out_dir: Path) -> List[str]:
             ys = [(y, v) for y, v in ys if v is not None]
             if ys:
                 ax.plot([y for y, _ in ys], [v for _, v in ys], marker="o", label=n)
-        ax.set_title(reg)
+        # a band within a region: the region over the band, on two lines
+        ax.set_title(_label(reg).replace(", ", "\n", 1))
         ax.set_xticks(years)
         ax.set_xticklabels([str(y)[2:] for y in years])
         if k % ncol == 0:
@@ -395,18 +444,128 @@ def figures(table, runs, regions, var, years, out_dir: Path) -> List[str]:
             else:
                 a = ((ev["anomalies"].get(reg) or {}).get(var)) or {}
                 vs = [_year(a, y).get("anomaly") for y in xs]
-            ax.bar([i - 0.4 + width * (k + 0.5) for i in range(len(xs))],
-                   [v if v is not None else 0.0 for v in vs], width=width, label=reg)
+            _bars(ax, [i - 0.4 + width * (k + 0.5) for i in range(len(xs))], vs, width,
+                  label=_label(reg))
         ax.axhline(0.0, color="0.3", linewidth=0.6)
         ax.set_xticks(range(len(xs)))
         ax.set_xticklabels([str(y) for y in xs])
         ax.set_ylabel(_shown(units) or "dimensionless")
-        ax.legend(ncol=min(3, len(regs)), loc="upper center", bbox_to_anchor=(0.5, -0.14),
-                  frameon=False)
+        # outside the axes, in space the layout keeps for it: a legend
+        # anchored below the axes is cut off at the canvas edge
+        fig.legend(ncol=min(3, len(regs)), loc="outside lower center", frameon=False)
         ax.set_title(f"{var}: run {changed[0]} minus the control" if changed else
                      f"{var}: the control minus its {span(ev['normal_years'])} normal")
         fs.check_titles(fig)
         p = out_dir / (f"{FIG_PREFIX}{var}_{'difference' if changed else 'anomaly'}.png")
+        fig.savefig(p, dpi=300)
+        plt.close(fig)
+        paths.append(str(p))
+    return paths
+
+
+MAX_OVERVIEW = 5
+
+
+def overview_figures(table, runs, regions, variables, years, out_dir: Path) -> List[str]:
+    """Every variable at a glance, for the first region the plan reports, in
+    talk-sized type on one row (2026-10-27: the deck showed one figure of one
+    variable for a question about carbon AND water). Two figures:
+
+      overview   each year of each run, one panel per variable, the normal-
+                 year mean dashed when the question names normal years
+      changes    every variable in one panel: each event year against its
+                 normal, or each changed run minus the control, in percent;
+                 a kelvin field is left out, and a missing percent is n/a
+
+    Measurements only: no claim is written on a plot."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fields = _fields(table)
+    vs = [v for v in variables if v in fields][:MAX_OVERVIEW]
+    if not regions or not vs:
+        return []
+    fs = _figure_style()
+    reg = regions[0]
+    names = [CONTROL] + [r["run"] for r in runs
+                         if not r.get("reused") and r.get("run") != CONTROL
+                         and r["run"] in (table.get("runs") or {})]
+    ev = table.get("event") or {}
+    normal = ev.get("normal_years") or []
+    paths: List[str] = []
+    fs.manuscript(fs.WIDTH["double"], base_pt=10)
+
+    fig, axes = plt.subplots(1, len(vs), figsize=(fs.WIDTH["double"], 2.3),
+                             constrained_layout=True, squeeze=False)
+    # a narrow panel holds every other year's label, and a long field name in
+    # a smaller face, so neither runs into its neighbour
+    ticks = years if len(years) <= 5 else years[::2]
+    for ax, v in zip(axes[0], vs):
+        for n in names:
+            ys = [(y, _val(table, n, reg, v, y)) for y in years]
+            ys = [(y, x) for y, x in ys if x is not None]
+            if ys:
+                ax.plot([y for y, _ in ys], [x for _, x in ys], marker="o", label=n)
+        a = ((ev.get("anomalies") or {}).get(reg) or {}).get(v) or {}
+        if normal and a.get("normal") is not None:
+            ax.axhline(a["normal"], color="0.4", linestyle="--", linewidth=1,
+                       label=f"{span(normal)} mean")
+        ax.set_title(v, fontsize=("x-small" if len(v) > 10 else
+                                  "small" if len(v) > 8 else None))
+        ax.set_ylabel(_shown((fields.get(v) or {}).get("units")) or "dimensionless")
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([str(y) if len(ticks) <= 3 else str(y)[2:] for y in ticks])
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    if len(labels) > 1:
+        fig.legend(handles, labels, ncol=len(labels), loc="outside lower center",
+                   frameon=False)
+    fig.suptitle(_label(reg))
+    fs.check_titles(fig)
+    p = out_dir / f"{FIG_PREFIX}overview.png"
+    fig.savefig(p, dpi=300)
+    plt.close(fig)
+    paths.append(str(p))
+
+    # ONLY WHAT A PERCENT MEANS (2026-11-03): a kelvin field drew +2 K as
+    # +0.7 % of absolute temperature, so it is left out of the percent panel;
+    # a bar over a control or normal at or below zero, or with no value, is
+    # drawn as no bar marked n/a (_pct_of, _bars), never as 0.
+    changed = names[1:]
+    pv = [v for v in vs if not _no_percent((fields.get(v) or {}).get("units"))]
+    series: List[Tuple[str, List[Optional[float]]]] = []
+    if changed:
+        for n in changed:
+            for y in years:
+                vals = []
+                for v in pv:
+                    d, c = _diff(table, n, reg, v, y), _val(table, CONTROL, reg, v, y)
+                    vals.append(_pct_of(d, c))
+                series.append((f"{n}, {y}" if len(changed) > 1 else str(y), vals))
+        ylab = "run minus the control, % of the control"
+    elif ev.get("anomalies"):
+        for y in ev.get("target_years") or []:
+            vals = []
+            for v in pv:
+                a = (ev["anomalies"].get(reg) or {}).get(v) or {}
+                d = _year(a, y).get("anomaly_pct")
+                n0 = a.get("normal")
+                vals.append(d if d is not None and n0 is not None and n0 > 0 else None)
+            series.append((str(y), vals))
+        ylab = f"% of the {span(normal)} mean"
+    if pv and any(x is not None for _, vals in series for x in vals):
+        fig, ax = plt.subplots(figsize=(fs.WIDTH["double"], 2.5), constrained_layout=True)
+        width = 0.8 / len(series)
+        for k, (lab, vals) in enumerate(series):
+            _bars(ax, [i - 0.4 + width * (k + 0.5) for i in range(len(pv))], vals, width,
+                  label=lab)
+        ax.axhline(0.0, color="0.3", linewidth=0.6)
+        ax.set_xticks(range(len(pv)))
+        ax.set_xticklabels(pv)
+        ax.set_ylabel(ylab)
+        ax.set_title(_label(reg))
+        fig.legend(ncol=len(series), loc="outside lower center", frameon=False)
+        fs.check_titles(fig)
+        p = out_dir / f"{FIG_PREFIX}changes.png"
         fig.savefig(p, dpi=300)
         plt.close(fig)
         paths.append(str(p))
@@ -442,6 +601,10 @@ def build(run_dir) -> Dict[str, Any]:
     except Exception as e:                                          # noqa: BLE001
         figs = []
         claim["figure_error"] = f"{type(e).__name__}: {e}"
+    try:
+        figs += overview_figures(table, runs, regions, variables, years, out)
+    except Exception as e:                                          # noqa: BLE001
+        claim["overview_error"] = f"{type(e).__name__}: {e}"
     ctl = (exp.get("experiment") or {}).get("control") or {}
     record = {
         "kind": "whole_domain_report",
@@ -493,8 +656,8 @@ def render(record: Dict[str, Any]) -> str:
                              f"{_plain(c.get('not_meaning'))}")
     ys = record.get("years") or []
     if ys:
-        lines.append(f"- years {ys[0]}-{ys[-1]}; regions: " + "; ".join(record.get("regions")
-                                                                     or []))
+        lines.append(f"- {'year' if len(ys) == 1 else 'years'} {span(ys)}; regions: "
+                     + "; ".join(record.get("regions") or []))
     lines += ["", "## The numbers", ""] + list(record.get("markdown_tables") or [])
     for f in record.get("figures") or []:
         lines += [f"![{f}]({f})", ""]

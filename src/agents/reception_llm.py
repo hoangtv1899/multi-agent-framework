@@ -15,7 +15,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from agents.prompts import load_prompt
 from core.model_servers import model_tools
@@ -256,6 +256,21 @@ def _drop_domain(brief: Dict[str, Any]) -> Dict[str, Any]:
     return had
 
 
+def control_card(rows: List[Dict[str, Any]]) -> str:
+    """The prepared controls as the person sees them before Reception's first
+    question: what each is, how it compares with observations and what it
+    does not contain, quoted from the server's entry and nothing added."""
+    lines = ["", "  ── The prepared run, in the model server's own words ──"]
+    for r in rows:
+        lines.append(f"  {r.get('name')}: {r.get('description') or 'no description'}")
+        ev = r.get("evaluation") or {}
+        if isinstance(ev, dict) and ev.get("summary"):
+            lines.append(f"  Against observations: {ev['summary']}")
+        for item in r.get("not_in_it") or []:
+            lines.append(f"  Not in this run: {item}")
+    return "\n".join(lines)
+
+
 class LLMReceptionAgent:
     """Tool-using reception: request -> framed brief (+ tool trace)."""
 
@@ -309,6 +324,22 @@ class LLMReceptionAgent:
             interactive=interactive,
             local_tools=model_tools(self._clients),
         )
+        self._card_shown = False
+        # THE CARD IS SHOWN WHEN THE CONTROLS ARE READ (2026-10-27), not before
+        # Reception's first question: on a live try it asked nothing and went
+        # straight to the design page, and the card never appeared
+        dc = self.loop.local.get("describe_domain_controls")
+        if dc:
+            read = dc["fn"]
+
+            def described(**kw):
+                out = read(**kw)
+                card = self._control_card([{"tool": "describe_domain_controls",
+                                            "result": out}])
+                if card:
+                    print(card)
+                return out
+            dc["fn"] = described
 
     @property
     def exposed_tools(self):
@@ -343,6 +374,8 @@ class LLMReceptionAgent:
         raw} — `route` carries the framework's dispatch (design / clarify /
         analyze_existing) so the brief stays science.
         """
+        # a revision continues a conversation in which the card was shown
+        self._card_shown = bool((context or {}).get("revision_of"))
         msg = f"User request: {user_request}\n\n"
         if context:
             msg += ("CONVERSATION CONTEXT (a prior experiment this session):\n"
@@ -352,19 +385,47 @@ class LLMReceptionAgent:
                 "collected for you once the period is fixed.")
         out = self.loop.run(self.system, msg)
         brief = self._parse(out["content"])
+        first = out["content"] or ""
+        if brief.get("intent") == "parse_error" and out.get("messages"):
+            out = self._ask_for_the_json(out, brief)
+            brief = self._parse(out["content"])
 
         pkg = {"route": self._route(brief), "brief": brief,
                "observations": {}, "grid": {}, "precipitation": {},
                "subsurface": {}, "provenance": [],
                "trace": out["trace"], "rounds": out["rounds"],
                "raw": out["content"]}
+        # A BRIEF ASKED FOR TWICE SAYS SO (2026-11-03): the second reply
+        # replaces the first in `raw`, so without this a reader of
+        # reception.json could not tell the brief came from a second request,
+        # nor see what the unreadable first reply said.
+        if out.get("json_asked_again"):
+            pkg["json_asked_again"] = True
+            pkg["raw_first"] = first[:400]
+            pkg["provenance"] = [{
+                "tool": None, "args": {}, "fetched_at": None, "ok": True,
+                "error": None,
+                "skipped": ("the final reply was not readable JSON and was "
+                            "asked for once more"),
+                "first_reply": first[:400]}]
         if pkg["route"]["action"] != "design":
             return pkg                       # nothing to gather for yet
         if callable(run_dir):
             run_dir = run_dir(brief)         # named for the model, see above
         pkg["run_dir"] = str(run_dir) if run_dir else None
 
-        prov: list = []
+        prov: list = list(pkg["provenance"])   # the re-ask's record, if any
+        # A PLACE GIVEN AS A NAME (2026-10-28). A live whole-domain question
+        # came back with "domain": "naches" and the gather died on dom.get.
+        # The brief's domain is a record everywhere downstream (the design
+        # page's Where line read a bare name as "no basin"), so a name
+        # becomes {"name": ...} here, once, and anything else that is not a
+        # record becomes none.
+        if isinstance(brief.get("domain"), str):
+            name = brief["domain"].strip()
+            brief["domain"] = {"name": name} if name else {}
+        elif brief.get("domain") is not None and not isinstance(brief["domain"], dict):
+            brief["domain"] = {}
         dom = (brief.get("domain") or {})
         bbox = dom.get("bbox") or {}
         period = ((brief.get("run_settings") or {}).get("resolved_period") or {})
@@ -450,11 +511,11 @@ class LLMReceptionAgent:
         # ── A WHOLE-DOMAIN EXPERIMENT FETCHES NOTHING EITHER ──
         # Its grid is its control's, every cell of it: there is no column to
         # place, so the DEM grid, the rain at grid points, the water table and
-        # the hydrodata calls all serve a design it does not have. What it is
-        # compared with is registered for its control (regions and gridded
-        # observations, describe_domain_controls). Station observations for the
-        # control's box are not fetched yet. Recorded, as the conceptual skip is,
-        # so an empty observations block reads as a decision.
+        # the hydrodata calls all serve a design it does not have. Its answer
+        # is read from the model's output alone, over the regions registered
+        # for its control (describe_domain_controls); no observation enters
+        # it (2026-11-03). Recorded, as the conceptual skip is, so an empty
+        # observations block reads as a decision.
         if _is_whole_domain(brief):
             ctl = ((brief.get("domain_experiment") or {}).get("control") or {})
             prov.append({
@@ -466,8 +527,8 @@ class LLMReceptionAgent:
                 "error": None,
                 "skipped": ("no DEM grid, rain, water table or station observations "
                             "were fetched: a whole-domain experiment runs on its "
-                            "control's own grid and compares with the regions and "
-                            "gridded observations registered for that control. "
+                            "control's own grid and its answer is read from the "
+                            "model's output over the control's registered regions. "
                             "This is a decision, not a failure."),
             })
             pkg["provenance"] = prov
@@ -537,19 +598,68 @@ class LLMReceptionAgent:
         pkg["provenance"] = prov
         return pkg
 
-    @staticmethod
-    def _route(brief: Dict[str, Any]) -> Dict[str, Any]:
+    def _control_card(self, trace) -> Optional[str]:
+        """Shown once, when a prepared control has been described
+        (2026-10-27): asked to introduce the control itself, Reception left
+        out a different fact on each of four live tries, so the facts are
+        shown by code, in the server's own words."""
+        if getattr(self, "_card_shown", False):
+            return None
+        rows: List[Dict[str, Any]] = []
+        for step in trace:
+            if step.get("tool") == "describe_domain_controls":
+                res = step.get("result") or {}
+                rows = list(((res.get("controls") or {}).get("controls")) or [])
+        rows = [r for r in rows if isinstance(r, dict) and r.get("usable")]
+        if not rows:
+            return None
+        self._card_shown = True
+        return control_card(rows)
+
+    # A FINAL REPLY THAT IS NOT THE JSON (2026-10-27). A live reception that
+    # had introduced the control and been answered ended without the brief,
+    # and the study stopped on "I need some clarification:" with nothing under
+    # it. The model is asked once more, as the Analyzer is for a missing
+    # verdict; a reply still unreadable becomes a sentence the user can act on.
+    JSON_AGAIN = ("Your last reply could not be read as the final JSON object the OUTPUT "
+                  "section asks for ({error}). Reply with that JSON object only, nothing "
+                  "before or after it, and call no tool.")
+    UNREADABLE = ("my last reply could not be read as a design, so nothing was set up; "
+                  "please ask the question again")
+    NOTHING_TO_ASK = ("I could not settle a design from that exchange, so nothing was set "
+                      "up; please ask again, saying what you would like changed")
+
+    def _ask_for_the_json(self, out: Dict[str, Any], brief: Dict[str, Any]
+                          ) -> Dict[str, Any]:
+        messages = list(out["messages"]) + [{"role": "user", "content": self.JSON_AGAIN
+                                             .format(error=brief.get("error") or
+                                                     "no JSON found")}]
+        try:
+            msg = self.loop._create(messages).choices[0].message
+        except Exception:                                   # noqa: BLE001
+            return out
+        return dict(out, content=msg.content or "", json_asked_again=True,
+                    messages=messages + [{"role": "assistant",
+                                          "content": msg.content or ""}])
+
+    @classmethod
+    def _route(cls, brief: Dict[str, Any]) -> Dict[str, Any]:
         """Framework dispatch, kept OUT of the science brief.
 
         `intent` used to live inside the brief, where it was the only key the
-        planner prompt never mentions — it is routing, not science.
+        planner prompt never mentions — it is routing, not science. A
+        clarification always carries a question: an unreadable reply, or one
+        that asks nothing, says so instead of printing an empty list.
         """
         raw = brief.get("intent", "parse_error")
         action = {"design": "design",
                   "analyze_existing": "analyze_existing",
                   "resume": "resume"}.get(raw, "clarify")
+        questions = list(brief.get("questions") or [])
+        if action == "clarify" and not questions:
+            questions = [cls.UNREADABLE if raw == "parse_error" else cls.NOTHING_TO_ASK]
         return {"action": action,
-                "questions": list(brief.get("questions") or []),
+                "questions": questions,
                 "prior_run_dir": brief.get("run_dir"),
                 "llm_intent": raw}
 

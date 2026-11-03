@@ -83,14 +83,11 @@ def test_the_annual_mean_lai(table, hand):
     assert table["runs"]["control"]["fields"]["TLAI"]["how"] == "mean"
 
 
-def test_the_watershed_and_the_observed_burned_area(table):
+def test_the_watershed_and_no_observation(table):
     ws = table["regions"]["watershed, vegetated"]
     assert ws["cells"] == 4127 and ws["area_km2"] == pytest.approx(2425.32, abs=0.01)
-    ob = table["observed"]["burned_area_km2"]["values"]
-    # MODIS's 2021 burn inside the box: 343.8 km2 (all cells; vegetated cells hold
-    # all but a little of it), and inside the watershed somewhat less
-    assert 330.0 < ob[A.VEGETATED]["2021"] <= 343.9
-    assert ob["watershed, vegetated"]["2021"] < ob[A.VEGETATED]["2021"]
+    # the model's output only: the control's MODIS burned area is not in the table
+    assert "observed" not in table
     assert table["problems"] == []
 
 
@@ -124,7 +121,9 @@ def test_the_report_of_the_event(table, hand, tmp_path):
         assert f"| {band} | " in page, band
     assert "### TLAI (dimensionless, mean over the year)" in page
     assert sorted(Path(f).name for f in out["figures"]) == ["domain_fig_GPP_anomaly.png",
-                                                            "domain_fig_GPP_by_year.png"]
+                                                            "domain_fig_GPP_by_year.png",
+                                                            "domain_fig_changes.png",
+                                                            "domain_fig_overview.png"]
     assert "\u2014" not in page and "validated" not in page.lower()
 
 
@@ -136,7 +135,10 @@ def test_the_models_own_burned_area_is_the_controls_facts(table):
     f = DCT.facts("naches")
     if not f:
         pytest.skip("the naches facts are not cached (refresh_domain_control_facts)")
-    got = table["observed"]["burned_area_km2"]["model"]["control"][A.VEGETATED]
+    e = DCT.get("naches")
+    t = A.experiment(e, {"control": e["run_dir"]},
+                     {"regions": [A.VEGETATED], "variables": ["FAREA_BURNED"]}, YEARS)
+    got = t["runs"]["control"]["values"][A.VEGETATED]["burned_area_km2"]
     for y in YEARS:
         # the facts keep one decimal: equal to within half of it
         assert got[str(y)] == pytest.approx(f["burned_area_km2"]["model"][str(y)],
@@ -146,7 +148,7 @@ def test_the_models_own_burned_area_is_the_controls_facts(table):
 def test_the_analyzer_reads_the_control_offline(table, tmp_path):
     """Steps 0 and 1 of the Analyzer on the Naches control alone, no LLM: the
     regional frame is the table, the plan's targets are met, no column caveat
-    appears, and the comparison holds the burned area beside MODIS's."""
+    appears, and no observation is compared: the table is the model's alone."""
     from agents.analysis import step0_context as S0
     from agents.analysis import step1_compare as S1
     from agents.analysis import step2_investigate as S2
@@ -178,8 +180,6 @@ def test_the_analyzer_reads_the_control_offline(table, tmp_path):
     assert all(c["ok"] for c in ctx.planned_vs_actual()), ctx.planned_vs_actual()
     assert not any("column" in c["statement"].lower() for c in ctx.caveats)
     rec = S1.compare_all(ctx, rd / "04_analysis")
-    (fd,) = rec["findings"]
-    assert fd["n"] == len(table["regions"]) * len(YEARS)
-    assert 330.0 < fd["result"]["observed"][A.VEGETATED]["2021"] <= 343.9
+    assert rec["findings"] == []
     brief = S2.context_brief(ctx, rec)
     assert "    watershed, vegetated: 4127 cells, " in brief and "1-D" not in brief

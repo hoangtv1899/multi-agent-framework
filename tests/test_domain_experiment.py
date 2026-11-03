@@ -61,6 +61,28 @@ class TestTheMenus:
         assert row["name"] == "synth" and row["usable"] is True
         assert row["facts"] is None and "refresh_domain_control_facts" in row["facts_note"]
 
+    def test_what_the_run_lacks_in_words_carries_no_observed_number(self):
+        """not_in_it_words, the Planner's copy of not_in_it: the same items
+        with no observation's number or source (2026-11-03)."""
+        import domain_controls as D
+        fire = {"model": {"2020": 115.8, "2021": 132.4},
+                "observed": {"2020": 285.7, "2021": 343.8},
+                "observed_source": "MODIS MCD64A1"}
+        row = D.summary({"name": "x", "description": "d", "usable": True},
+                        {"burned_area_km2": fire, "settings": {}})
+        assert row["not_in_it_words"] == [
+            "the observed fires: the run's fire is the model's own, lit and spread in its "
+            "own places and years, so a fire that happened is not in it"]
+        assert row["not_in_it"][0].startswith(row["not_in_it_words"][0] + "; ")
+        assert "286" in row["not_in_it"][0]
+        none = D.summary({"name": "x", "usable": True}, {"burned_area_km2": dict(
+            fire, model={"2020": 0.0, "2021": 0.0}), "settings": {}})
+        assert none["not_in_it_words"] == ["the observed fires: the run has no fire"]
+        for words in (row["not_in_it_words"], none["not_in_it_words"]):
+            assert not any(c.isdigit() for c in words[0]) and "MODIS" not in words[0]
+        assert D.not_in_it_words({"burned_area_km2": {"model": {"2021": 1.0}}}) == []
+        assert D.not_in_it_words(None) == []
+
     def test_the_check(self, lab):
         out = json.loads(lab["srv"].check_domain_experiment(
             {"control": {"name": "synth", "reuse": True}, "years": [2015, 2016],
@@ -470,9 +492,30 @@ class TestAnExperimentThroughTheManager:
         body, rc = _notify().build(str(m.run_dir))
         assert rc == 1 and "control: its facts hold no [2015, 2016]" in body.splitlines()[0]
 
-    def test_regional_numbers_that_cannot_be_made_are_a_failed_analysis(self, study):
+    def test_an_analysis_the_numbers_cannot_give_stops_before_any_job(self, study):
+        """The plan's analysis goes to the server's check with the runs: a field
+        the control's history lacks is refused at materialize, before any job."""
+        m, cfg = study["mgr"], study["cfg"]
+        an = {"regions": [{"name": "vegetated cells"}], "variables": ["GPP"]}
+        cfg["strategy"]["domain_experiment"]["analysis"] = an
+        from core.exp_manager_base import RefusedBeforeAnyJob
+        with pytest.raises(RefusedBeforeAnyJob, match="the experiment will not build: "
+                           "analysis, variable GPP: GPP is in none of the control's "
+                           "history streams"):
+            m._materialize(dict(cfg["strategy"]), cfg)
+        exp = json.loads((m.input_dir / "domain_experiment.json").read_text())
+        assert exp["analysis"] == an
+        assert not m.slurm.sbatch()
+
+    def test_regional_numbers_that_cannot_be_made_are_a_failed_analysis(self, study,
+                                                                         monkeypatch):
         """The plan asked for an analysis and did not get one (here the control
-        has no history to read): a failure, never a deliberate skip."""
+        has no history to read): a failure, never a deliberate skip. The check
+        before any job refuses this plan (test_domain_analysis_plan), so it is
+        set aside here: a history that goes missing after the check still
+        fails the analysis."""
+        import domain_changes as CH
+        monkeypatch.setattr(CH, "_analysis_problems", lambda *a: [])
         m, cfg = study["mgr"], study["cfg"]
         de = cfg["strategy"]["domain_experiment"]
         de["runs"] = []
@@ -486,10 +529,13 @@ class TestAnExperimentThroughTheManager:
         body, rc = _notify().build(str(m.run_dir))
         assert rc == 1 and "analyze (failed)" in body.splitlines()[0]
 
-    def test_numbers_that_cannot_be_made_spend_no_llm_call(self, study):
+    def test_numbers_that_cannot_be_made_spend_no_llm_call(self, study, monkeypatch):
         """The Analyzer on, the regional numbers missing: its preflight stops it
         before any model is asked (the fixture's guard fails on a client), and
-        the stage fails with the cause."""
+        the stage fails with the cause. The check before any job is set aside,
+        as in the test above."""
+        import domain_changes as CH
+        monkeypatch.setattr(CH, "_analysis_problems", lambda *a: [])
         m, cfg = study["mgr"], study["cfg"]
         cfg["analysis_llm"] = True
         de = cfg["strategy"]["domain_experiment"]
@@ -536,6 +582,85 @@ class TestAnExperimentThroughTheManager:
             exp["chain"]["first_unpassed"] is None
         body, rc = _notify().build(str(m.run_dir))
         assert rc == 0, body.splitlines()[0]
+
+
+# ── the preview before the design page (2026-11-03) ─────────────────────────
+def _preview_of(study, **control):
+    m, cfg = study["mgr"], study["cfg"]
+    st = json.loads(json.dumps(cfg["strategy"]))
+    st["domain_experiment"]["control"].update(control)
+    return m, cfg, m.preview_design(st, dict(cfg, strategy=st))
+
+
+class TestThePreview:
+
+    def test_a_run_whose_scripts_cannot_be_written_is_an_error(self, study, monkeypatch):
+        """Not a problem beside a pass: the yes would submit the runs before
+        it, and its own submit would fail the same way."""
+        srv = study["cfg"]["mcp_clients"]["elm"].srv
+        monkeypatch.setattr(srv, "write_domain_case", lambda **kw: json.dumps(
+            {"ok": False, "error": "the chain runs [2014] which the run's year settings "
+                                   "do not cover"}))
+        m, cfg, p = _preview_of(study)
+        assert p["refused"] == []
+        assert p["error"] == ("run nofire: its scripts could not be written: the chain "
+                              "runs [2014] which the run's year settings do not cover")
+        assert p["runs"][0]["error"].startswith("the chain runs [2014]")
+        assert json.loads((m.input_dir / "design_preview.json").read_text())["error"] \
+            == p["error"]
+        assert not m.slurm.sbatch()
+
+    def test_a_reused_control_reads_the_weather_from_its_own_case(self, study, monkeypatch):
+        m = study["mgr"]
+        W = m._sibling_module("domain_weather")
+        seen = []
+        monkeypatch.setattr(W, "forcing_summary",
+                            lambda cd: seen.append(str(cd)) or [{"stream": "s"}])
+        m, cfg, p = _preview_of(study)
+        assert p["error"] is None, p
+        assert seen == [str(study["control_dir"])]
+        assert p["forcing"] == [{"stream": "s"}] and "forcing_from" not in p
+
+    def _runs_too(self, study, tmp_path):
+        return dict(reuse=False, from_case=str(study["control_dir"]), case="ctl_new",
+                    case_root=str(tmp_path / "cases"))
+
+    def test_a_control_that_runs_too_reads_the_case_it_is_copied_from(self, study,
+                                                                      tmp_path, monkeypatch):
+        """Its case does not exist before its chain makes it, so the weather
+        is read from the case its recipe was copied from, which the new case
+        inherits it from; never reported as unreadable."""
+        m = study["mgr"]
+        W = m._sibling_module("domain_weather")
+        seen = []
+        monkeypatch.setattr(W, "forcing_summary",
+                            lambda cd: seen.append(str(cd)) or [{"stream": "s"}])
+        m, cfg, p = _preview_of(study, **self._runs_too(study, tmp_path))
+        assert p["error"] is None and p["refused"] == [], p
+        assert p["control"]["reuse"] is False
+        assert seen == [str(study["control_dir"])]
+        assert p["forcing_from"] == str(study["control_dir"])
+        assert not [x for x in p["problems"] if "weather streams" in x]
+
+    def test_a_gone_source_case_leaves_the_weather_out_without_a_problem(
+            self, study, tmp_path, monkeypatch):
+        m = study["mgr"]
+        W = m._sibling_module("domain_weather")
+        monkeypatch.setattr(W, "forcing_summary",
+                            lambda cd: pytest.fail(f"read a case that is gone: {cd}"))
+        real_build = m._build_domain_experiment
+
+        def build_then_purge(cfg):
+            out = real_build(cfg)
+            rp = m.input_dir / m.DOMAIN_RECIPE
+            rec = json.loads(rp.read_text())
+            rp.write_text(json.dumps(dict(rec, copied_from=str(tmp_path / "purged"))))
+            return out
+        monkeypatch.setattr(m, "_build_domain_experiment", build_then_purge)
+        m, cfg, p = _preview_of(study, **self._runs_too(study, tmp_path))
+        assert p["error"] is None, p
+        assert "forcing" not in p and "forcing_from" not in p
+        assert not [x for x in p["problems"] if "weather streams" in x]
 
 
 class TestTheGate:

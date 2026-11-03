@@ -60,7 +60,7 @@ from framework_path import ensure_on_path, framework_dir
 # PFLOTRAN share. It is deliberately not vendored, so this needs a checkout.
 ensure_on_path(require=True)
 
-from core.exp_manager_base import ExperimentManagerBase, Pending
+from core.exp_manager_base import ExperimentManagerBase, Pending, RefusedBeforeAnyJob
 from core.keyset import KeySet
 
 
@@ -815,13 +815,19 @@ class ELMExpManager(ExperimentManagerBase):
 			chain["partition"] = str(cfg["queue"])
 		record = {"control": {"name": ctl.get("name"), "reuse": reuse},
 				  "runs": exp["runs"], "years": years, "chain": chain}
+		if exp.get("analysis"):
+			# Checked with the runs: a region or field the numbers cannot give
+			# is refused here, before any job, not found missing after them.
+			record["analysis"] = exp["analysis"]
 		(self.input_dir / self.DOMAIN_EXPERIMENT).write_text(json.dumps(record, indent=1))
 		chk = self._mcp_call(client, "check_domain_experiment", {"experiment": record},
 							 budget=600)
-		if chk.get("error") or chk.get("wont_build"):
-			raise RuntimeError("the experiment will not build: " + "; ".join(
-				[str(chk["error"])] if chk.get("error") else
-				[f"{w['where']}: {w['what']}" for w in chk["wont_build"]]))
+		if chk.get("error"):
+			raise RuntimeError(f"the experiment will not build: {chk['error']}")
+		if chk.get("wont_build"):
+			raise RefusedBeforeAnyJob("the experiment will not build: " + "; ".join(
+				f"{w['where']}: {w['what']}" for w in chk["wont_build"]),
+				findings=chk["wont_build"])
 		facts = None
 		if ctl.get("name"):
 			d = self._mcp_call(client, "describe_domain_controls", {}, budget=120)
@@ -869,6 +875,171 @@ class ELMExpManager(ExperimentManagerBase):
 				"domain_experiment": {"experiment": f"01_inputs/{self.DOMAIN_EXPERIMENT}",
 									  "runs": "01_inputs/runs",
 									  "control_facts": f"01_inputs/{self.DOMAIN_CONTROL_FACTS}"}}
+
+	# THE DESIGN PAGE'S RECIPE (2026-10-28). The design review's test: a
+	# person could make the runs from the page alone. Every setting
+	# already existed, written by the server, but at materialize, after the
+	# yes, so the page drawn before it could only summarise the design. The
+	# server's check and its build of each run (recipe, chain spec, checks,
+	# and the scripts the jobs would run) now come before the page and submit
+	# nothing; the page is drawn from what they wrote. After the yes the same
+	# calls run again and write the same files (the anomaly file is named by
+	# its content), then the chains are submitted: the preview never stands in
+	# for the build.
+	DESIGN_PREVIEW = "design_preview.json"
+	CONTROL_RECIPE = "control_recipe.json"
+	SOURCE_PATCH = "source_changes.patch"
+
+	def preview_design(self, plan: Dict[str, Any],
+					   config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+		"""The server's check and build of a whole-domain experiment, before the
+		design review, submitting nothing. Returns the record the page is drawn
+		from, also written to 01_inputs/design_preview.json; None for a study
+		that is not a whole-domain experiment. A refusal is recorded, not
+		raised: the coordinator hands it to the planner, and the page shows it."""
+		exp = (plan or {}).get("domain_experiment")
+		if not exp:
+			return None
+		cfg = dict(config or {}, strategy=plan)
+		rec: Dict[str, Any] = {"made": datetime.now().isoformat(timespec="seconds"),
+							   "refused": [], "error": None, "problems": [], "runs": []}
+		try:
+			self._build_domain_experiment(cfg)
+		except RefusedBeforeAnyJob as e:
+			rec["refused"] = e.findings or [{"where": "the experiment", "what": str(e)}]
+			return self._write_preview(rec)
+		except Exception as e:                                      # noqa: BLE001
+			rec["error"] = f"{type(e).__name__}: {e}"
+			return self._write_preview(rec)
+		client = self._domain_client(cfg)
+		DC = self._sibling_module("domain_case")
+		facts = self._control_facts()
+		rec["check"] = {k: (facts.get("check") or {}).get(k)
+						for k in ("unusual", "facts", "cost")}
+		rec["control"] = facts.get("control") or {}
+		ic = self.run_dir / self.DOMAIN_RECORD / "inputs_check.json"
+		if ic.is_file():
+			d = json.loads(ic.read_text())
+			rec["inputs_check"] = {"path": str(ic.relative_to(self.run_dir)),
+								   **{k: d.get(k) for k in ("pass", "reasons", "surface",
+															 "domain", "restart", "checks")}}
+		ctl = rec["control"]
+		control_recipe = None
+		if ctl.get("reuse") and ctl.get("case_dir"):
+			# HOW THE CONTROL WAS MADE, read from its case: the recipe of a
+			# question answered from the control alone, and what each run's
+			# recipe is compared with on the page.
+			out = self._mcp_call(client, "read_domain_recipe",
+								 {"case_dir": str(ctl["case_dir"])}, budget=300)
+			if out.get("ok"):
+				control_recipe = out["recipe"]
+				(self.input_dir / self.CONTROL_RECIPE).write_text(
+					json.dumps(control_recipe, indent=1, default=str))
+				rec["control_recipe"] = f"01_inputs/{self.CONTROL_RECIPE}"
+			else:
+				rec["problems"].append(f"the control's recipe could not be read: "
+									   f"{out.get('error')}")
+		elif (self.input_dir / self.DOMAIN_RECIPE).is_file():
+			control_recipe = json.loads((self.input_dir / self.DOMAIN_RECIPE).read_text())
+			rec["control_recipe"] = f"01_inputs/{self.DOMAIN_RECIPE}"
+		rows = json.loads((self.input_dir / self.CASE_INPUTS).read_text())
+		W = self._sibling_module("domain_weather")
+		# the weather every run reads unless its changes say otherwise.
+		# A CONTROL THAT RUNS TOO (2026-11-03) has no case yet: its case_dir is
+		# the one its chain will create, so the streams are read from the case
+		# its recipe was copied from, which the new case inherits them from;
+		# when that case is gone too they are left out, not called unreadable.
+		weather_case = ctl.get("case_dir") if ctl.get("reuse") else \
+			(control_recipe or {}).get("copied_from")
+		if weather_case and (ctl.get("reuse") or Path(weather_case).is_dir()):
+			try:
+				rec["forcing"] = W.forcing_summary(weather_case)
+				if not ctl.get("reuse"):
+					rec["forcing_from"] = str(weather_case)
+			except Exception as e:                                  # noqa: BLE001
+				rec["problems"].append(f"the control's weather streams could not be read: "
+									   f"{type(e).__name__}: {e}")
+		rep = ((facts.get("facts") or {}).get("reproduced") or {})
+		if rep:
+			ctl["reproduced"] = {k: rep.get(k) for k in ("fingerprint", "years", "how")}
+		for r in self._executed(rows):
+			inp = f"01_inputs/runs/{r['run']}"
+			entry = {"name": r["run"], "case": r["case_name"], "case_dir": r["case_dir"],
+					 "changes": r.get("changes") or [], "after": r.get("after"),
+					 "recipe": f"{inp}/{self.DOMAIN_RECIPE}",
+					 "chain_spec": f"{inp}/{self.DOMAIN_CHAIN}",
+					 "expectations": f"{inp}/domain_expectations.json"}
+			w = self._mcp_call(client, "write_domain_case",
+							   {"run_dir": str(self.run_dir), "run": r["run"]}, budget=600)
+			if w.get("ok"):
+				entry.update(
+					case_script=str(Path(w["case_script"]).relative_to(self.run_dir)),
+					stage_script=str(Path(w["stage_script"]).relative_to(self.run_dir)),
+					jobs=w.get("jobs") or [], notes=w.get("notes") or [])
+			else:
+				# A RUN THAT CANNOT BE BUILT IS AN ERROR (2026-11-03), not a
+				# problem beside a pass: the yes would submit the runs before
+				# it, and its own submit would fail the same way.
+				entry["error"] = w.get("error")
+				msg = f"run {r['run']}: its scripts could not be written: {w.get('error')}"
+				rec["problems"].append(msg)
+				rec["error"] = f"{rec['error']}; {msg}" if rec["error"] else msg
+			ep = self.run_dir / entry["expectations"]
+			files = set()
+			if ep.is_file():
+				files = {o["anomaly_file"] for o in json.loads(ep.read_text()).get("output") or []
+						 if o.get("anomaly_file")}
+			entry["weather_files"] = []
+			for p in sorted(files):
+				try:
+					entry["weather_files"].append(W.summarize_anomaly(p))
+				except Exception as e:                              # noqa: BLE001
+					rec["problems"].append(f"run {r['run']}: {Path(p).name} could not be "
+										   f"read back: {type(e).__name__}: {e}")
+			rec["runs"].append(entry)
+		# what each job of a chain holds a run to, in the gate module's words
+		rec["checks_in_words"] = dict(self._sibling_module("run_gate").CHECKS_IN_WORDS)
+		# THE CODE every run builds: the checkout's commit and fingerprint (the
+		# case stage records the same fingerprint after it builds), and its
+		# local changes saved beside the records as a patch.
+		src, state = (control_recipe or {}).get("srcroot"), None
+		for e in rec["runs"]:
+			# the case script's writer read the checkout already, into the
+			# recipe it keeps beside the script (domain_case.write_case_script)
+			kept = self.run_dir / self.DOMAIN_RECORD / e["name"] / self.DOMAIN_RECIPE
+			if kept.is_file():
+				d = json.loads(kept.read_text())
+				src, state = d.get("srcroot") or src, d.get("source") or None
+				if state:
+					break
+		if src:
+			rec["source"] = dict(state or DC.source_state(src), patch_left_out=[])
+			if rec["source"].get("changed") or rec["source"].get("untracked"):
+				# untracked files are in the patch as new files, except any too
+				# large to carry, which the page lists (2026-11-03)
+				text, left_out = DC.source_patch_parts(src)
+				(self.input_dir / self.SOURCE_PATCH).write_text(
+					text, encoding="utf-8", errors="surrogateescape")
+				rec["source"].update(patch=f"01_inputs/{self.SOURCE_PATCH}",
+									 patch_left_out=left_out)
+		# THE ANALYSIS, made concrete on the control's own grid: each region's
+		# rule, files and cells, each field's stream and whether a year is its
+		# total or its mean.
+		an = exp.get("analysis") or {}
+		if an and ctl.get("name"):
+			A = self._sibling_module("domain_analysis")
+			DCT = self._sibling_module("domain_controls")
+			try:
+				rec["analysis"] = A.analysis_plan(DCT.get(ctl["name"]), an)
+			except Exception as e:                                  # noqa: BLE001
+				rec["problems"].append(f"the analysis could not be made concrete: "
+									   f"{type(e).__name__}: {e}")
+		return self._write_preview(rec)
+
+	def _write_preview(self, rec: Dict[str, Any]) -> Dict[str, Any]:
+		(self.input_dir / self.DESIGN_PREVIEW).write_text(
+			json.dumps(rec, indent=1, default=str))
+		return rec
 
 	def _submit_experiment(self, experiments, config) -> "Pending":
 		"""Each executed run's chain, the control's first; a run compared with
@@ -1083,7 +1254,8 @@ class ELMExpManager(ExperimentManagerBase):
 			if control is None:
 				raise RuntimeError("the control has no output to read")
 			table = A.experiment(control, runs, analysis,
-								 [int(y) for y in experiments[0]["years"]])
+								 [int(y) for y in experiments[0]["years"]],
+								 confined=self._confined(runs))
 		except Exception as e:                                      # noqa: BLE001
 			table = {"error": f"{type(e).__name__}: {e}"}
 			print(f"   ⚠️  the regional numbers could not be made: {table['error']}")
@@ -1092,6 +1264,24 @@ class ELMExpManager(ExperimentManagerBase):
 			print(f"   ✓ regional numbers: {len(table['regions'])} region(s), "
 				  f"{len(table['runs'])} run(s), {len(table['problems'])} problem(s)")
 		return table
+
+	def _confined(self, runs) -> Dict[str, str]:
+		"""{run: region} for each run whose change applies in one registered
+		region, read from the experiment as it was checked."""
+		CH = self._sibling_module("domain_changes")
+		p = self.input_dir / self.DOMAIN_EXPERIMENT
+		out: Dict[str, str] = {}
+		for r in (json.loads(p.read_text()).get("runs") or []) if p.is_file() else []:
+			if r.get("name") not in runs:
+				continue
+			for c in r.get("changes") or []:
+				try:
+					where = CH._confined_to(CH.resolve(c))
+				except Exception:                                   # noqa: BLE001
+					where = None
+				if where:
+					out[r["name"]] = where
+		return out
 
 	def _regional_from_disk(self) -> Optional[Dict[str, Any]]:
 		p = self.results_dir / "regional.json"
