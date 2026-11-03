@@ -446,3 +446,50 @@ class TestTheModelsOutputOnly:
         lines = "\n".join(S3.domain_reading(Ctx()))
         assert "THE MODEL'S OUTPUT ONLY" in lines
         assert "Never use an observation to explain, support or rule out a result" in lines
+
+
+class TestThePlanSaysMonthsAndSeasons:
+    """MONTHS AND SEASONS ON THE PAGE (2026-11-03): the server's analysis plan
+    says how each field's month and season are made, in what units, and over
+    which months each season runs, from the definitions the table uses; the
+    design page quotes it."""
+
+    def test_each_field_by_month_and_season(self, tmp_path):
+        c = _case(tmp_path, variables=("GPP", "TSA", "CELLID", "FAREA_BURNED"))
+        out = A.analysis_plan({"case_dir": str(c["case_dir"]), "run_dir": str(c["run_dir"]),
+                               "regions": {}},
+                              {"regions": [A.VEGETATED], "variables": ["GPP", "TSA",
+                                                                       "FAREA_BURNED"]})
+        f = {x["name"]: x for x in out["fields"]}
+        assert (f["GPP"]["how"], f["GPP"]["by_month"], f["GPP"]["by_season"]) == \
+            ("total over the year", "total over the month", "total over the season")
+        assert (f["GPP"]["units"], f["GPP"]["month_units"], f["GPP"]["season_units"]) == \
+            ("gC/m^2/yr", "gC/m^2/month", "gC/m^2/season")
+        assert (f["TSA"]["by_month"], f["TSA"]["month_units"]) == ("mean over the month", "K")
+        assert (f[A.BURNED_AREA]["by_season"], f[A.BURNED_AREA]["season_units"]) == \
+            ("total over the season", "km2")
+        seasons = {s["name"]: s["months"] for s in out["periods"]["seasons"]}
+        assert seasons == {"DJF": ["December of the year before", "January", "February"],
+                           "MAM": ["March", "April", "May"],
+                           "JJA": ["June", "July", "August"],
+                           "SON": ["September", "October", "November"]}
+        # the periods are the table's own: its seasons, and the reason it gives
+        # for a winter it leaves out
+        assert [n for n, _ in A.SEASONS] == list(seasons)
+        assert A.SEASON_LEFT_OUT in out["periods"]["season_left_out"]
+
+    def test_the_design_page_quotes_them(self, tmp_path):
+        preview = {"analysis": {"fields": [
+            {"name": "GPP", "stream": "h0", "how": "total over the year", "units": "gC/m^2/yr",
+             "by_month": "total over the month", "month_units": "gC/m^2/month",
+             "by_season": "total over the season", "season_units": "gC/m^2/season"}],
+            "periods": A.periods_plan()}}
+        text = "\n".join(DR._appendix(preview, tmp_path, {},
+                                      {"domain_experiment": {"years": [2015]}}))
+        assert ("| GPP | h0 | total over the year | gC/m^2/yr | total over the month "
+                "(gC/m^2/month) | total over the season (gC/m^2/season) |") in text
+        assert ("each season: DJF (December of the year before, January, February); MAM "
+                "(March, April, May); JJA (June, July, August); SON (September, October, "
+                "November). A season whose December the run's output does not hold is left "
+                "out, not made from two months.") in text
+        assert DR.MONTHS_AND_SEASONS_LINE not in text

@@ -591,6 +591,26 @@ MONTHS_AND_SEASONS_LINE = (
     "has no DJF in its first year.")
 
 
+def _period_cell(f, period: str) -> str:
+    how = f.get(f"by_{period}")
+    units = f.get(f"{period}_units")
+    return f"{how} ({units})" if how and units else (how or "")
+
+
+def _periods_line(periods) -> str:
+    """The periods every field is reported over, in the server's words
+    (domain_analysis.periods_plan); empty when the plan carries none."""
+    p = periods or {}
+    seasons = p.get("seasons") or []
+    if not seasons:
+        return ""
+    return ("Each field is reported for " + ", ".join(
+        x for x in (p.get("year"), p.get("month")) if x)
+        + " and each season: "
+        + "; ".join(f"{s.get('name')} ({', '.join(s.get('months') or [])})" for s in seasons)
+        + (f". {p['season_left_out']}." if p.get("season_left_out") else "."))
+
+
 def _appendix(preview, run_dir, strategy, brief):
     """The page's second part. Empty when the server built nothing."""
     if not preview or preview.get("refused") or preview.get("error"):
@@ -714,13 +734,24 @@ def _appendix(preview, run_dir, strategy, brief):
             L += [f"| {r['name']} | {r['cells']:,} | {r['area_km2']:,} | {r['rule']} | "
                   f"{', '.join(r.get('sources') or [])} |" for r in an["regions"]]
         if an.get("fields"):
-            L += ["", "| field | read from | a year's value | units | note |",
-                  "|---|---|---|---|---|"]
-            L += [f"| {f['name']} | {f.get('stream') or 'the field above'} | {f['how']} | "
-                  f"{f.get('units') or ''} | {f.get('note') or ''} |" for f in an["fields"]]
-            # MONTHS AND SEASONS (2026-11-03): the table above gives a year's
-            # value; the page also says each field is reported by month and season
-            L += ["", MONTHS_AND_SEASONS_LINE]
+            # A MONTH'S AND A SEASON'S VALUE, AS THE SERVER SAYS (2026-11-03):
+            # each field's how and units for a month and a season come from the
+            # server's analysis plan, and so does the line on the periods; a
+            # plan written before it carried them keeps the page's own line.
+            per = any(f.get("by_month") for f in an["fields"])
+            if per:
+                L += ["", "| field | read from | a year's value | units | a month's value | "
+                          "a season's value | note |", "|---|---|---|---|---|---|---|"]
+                L += [f"| {f['name']} | {f.get('stream') or 'the field above'} | {f['how']} | "
+                      f"{f.get('units') or ''} | {_period_cell(f, 'month')} | "
+                      f"{_period_cell(f, 'season')} | {f.get('note') or ''} |"
+                      for f in an["fields"]]
+            else:
+                L += ["", "| field | read from | a year's value | units | note |",
+                      "|---|---|---|---|---|"]
+                L += [f"| {f['name']} | {f.get('stream') or 'the field above'} | {f['how']} | "
+                      f"{f.get('units') or ''} | {f.get('note') or ''} |" for f in an["fields"]]
+            L += ["", _periods_line(an.get("periods")) or MONTHS_AND_SEASONS_LINE]
         for p in an.get("problems") or []:
             L.append(f"- cannot be made: {_trim(p, 300)}")
         L.append("")

@@ -271,6 +271,36 @@ SEASONS = (("DJF", (12, 1, 2)), ("MAM", (3, 4, 5)), ("JJA", (6, 7, 8)),
            ("SON", (9, 10, 11)))
 
 
+def season_parts(year: int, name: str, months: Sequence[int]) -> List[Tuple[int, int]]:
+    """(year, month) of each month of a season of `year`: DJF's December is
+    the year before's."""
+    return [((int(year) - 1) if (name == "DJF" and m == 12) else int(year), m)
+            for m in months]
+
+
+SEASON_LEFT_OUT = "is left out, not made from two months"
+
+
+def periods_plan() -> Dict[str, Any]:
+    """The periods every field is reported over, as months_and_seasons makes
+    them, for the design page: each month, and each season by its months."""
+    import calendar
+    seasons = []
+    for name, months in SEASONS:
+        seasons.append({"name": name, "months": [
+            calendar.month_name[m] + (" of the year before" if py < 1 else "")
+            for py, m in season_parts(1, name, months)]})
+    return {"year": "each calendar year", "month": "each calendar month of each year",
+            "seasons": seasons,
+            "season_left_out": f"A season whose December the run's output does not hold "
+                               f"{SEASON_LEFT_OUT}"}
+
+
+def how_text(rate: bool, period: str) -> str:
+    """How a field's value over a period is made, in words."""
+    return f"{'total' if rate else 'mean'} over the {period}"
+
+
 def month_key(year: int, month: int) -> str:
     """A month as the table names it: 2015-06."""
     return f"{int(year)}-{int(month):02d}"
@@ -352,14 +382,13 @@ def months_and_seasons(out: Dict[str, Any], rs: R.RegionSeries, stream: str,
             sea = out.setdefault("seasonal", {}).setdefault(reg, {})[v] = {}
             for y in ys:
                 for name, months in SEASONS:
-                    parts = [((y - 1) if (name == "DJF" and m == 12) else y, m)
-                             for m in months]
+                    parts = season_parts(y, name, months)
                     key = season_key(y, name)
                     if parts[0] not in by:
                         out.setdefault("seasons_left_out", {})[key] = (
                             f"{name} {y} needs December {y - 1}, which the run's {stream} "
                             f"stream does not hold ({_no_december_why(y, first_year)}), "
-                            f"so it is not made from two months")
+                            f"so it {SEASON_LEFT_OUT}")
                         continue
                     xs = [by[p] for p in parts]
                     if any(x is None for x in xs):
@@ -622,15 +651,22 @@ def analysis_plan(control: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str
 
     Each region as masks() makes it on the control's own grid (its rule, the
     files it is drawn from, its cells and area), and each field as run_values
-    will read it (the stream, whether a year is the field's total or its
-    mean, the units). Read from the control's existing history: a control
+    will read it (the stream, whether a year, a month and a season is the
+    field's total or its mean over it, the units of each), with the periods
+    every field is reported over (periods_plan). Read from the control's
+    existing history: a control
     that has none yet (one that runs too) gives no counts, and says so in
     `problems`, as a region or field that cannot be made does.
 
     control   {"case_dir", "run_dir", "regions": {...registered...}}
     analysis  the plan's: regions, variables, normal_years
     """
-    out: Dict[str, Any] = {"regions": [], "fields": [], "problems": []}
+    # MONTHS AND SEASONS ON THE PAGE (2026-11-03). Each field was described by
+    # its year's value only, while the table also reports it by month and by
+    # season; each field now carries how and in what units those are made, and
+    # the plan the periods, from the definitions months_and_seasons uses.
+    out: Dict[str, Any] = {"regions": [], "fields": [], "problems": [],
+                           "periods": periods_plan()}
     names = plan_regions(analysis)
     variables = [str(v) for v in (analysis.get("variables") or [])]
     run_dir = control.get("run_dir")
@@ -667,15 +703,20 @@ def analysis_plan(control: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str
         units = str(s.units(v) or "")
         if rate:
             units = G.per_day_units(v, units).replace("/d", "/yr")
-        out["fields"].append({"name": v, "stream": st,
-                              "how": "total over the year" if rate else "mean over the year",
-                              "units": units, "note": G.FIELD_NOTES.get(v)})
+        out["fields"].append({"name": v, "stream": st, "how": how_text(rate, "year"),
+                              "units": units, "note": G.FIELD_NOTES.get(v),
+                              "by_month": how_text(rate, "month"),
+                              "month_units": period_units(units, rate, "month"),
+                              "by_season": how_text(rate, "season"),
+                              "season_units": period_units(units, rate, "season")})
     if BURNED_FRACTION in variables:
-        out["fields"].append({"name": BURNED_AREA, "stream": None, "how": "total over the year",
+        out["fields"].append({"name": BURNED_AREA, "stream": None, "how": how_text(True, "year"),
                               "units": "km2",
                               "note": f"the model's own burned area: the region's burned "
                                       f"fraction for the year ({BURNED_FRACTION}) times the "
-                                      f"region's area"})
+                                      f"region's area",
+                              "by_month": how_text(True, "month"), "month_units": "km2",
+                              "by_season": how_text(True, "season"), "season_units": "km2"})
     return out
 
 
