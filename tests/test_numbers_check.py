@@ -88,7 +88,10 @@ def made(tmp_path_factory):
     return {"root": root, "ctl": ctl, "twin": twin, "registry": registry, "table": table}
 
 
-def _run_folder(base, made, table=None):
+def _run_folder(base, made, table=None, records=None):
+    """A run folder as the manager leaves it: the table, the control's record
+    and, for each executed run, the year checks its chain wrote (each naming
+    the run directory it checked); `records` overrides {run: run_dir}."""
     rd = base / "run"
     (rd / "03_results").mkdir(parents=True)
     (rd / "01_inputs").mkdir()
@@ -98,6 +101,12 @@ def _run_folder(base, made, table=None):
         {"control": {"name": "synth", "reuse": True,
                      "case_dir": str(made["ctl"]["case_dir"]),
                      "run_dir": str(made["ctl"]["run_dir"])}}))
+    for run, d in (records if records is not None else
+                   {"twin": made["twin"]["run_dir"]}).items():
+        ck = rd / "domain_case" / run / "checks"
+        ck.mkdir(parents=True)
+        for y in YEARS:
+            (ck / f"y{y}_1.json").write_text(json.dumps({"run_dir": str(d), "pass": True}))
     return rd
 
 
@@ -162,17 +171,17 @@ class TestTheServersTableReproduces:
 
 class TestASmallChangeFails:
 
-    # A difference is judged against the two values it subtracts (the
-    # tolerance's scale), so the twin's GPP difference, a tenth of its values,
-    # is moved by a thousandth of itself: a ten-thousandth of those values. A
-    # percent against the normal is judged the same way, and the fixture's
-    # 2015 is 0.2 % below its normal, so that percent is moved by 5 % of itself.
+    # Every number, a difference, an anomaly and a percent among them, is held
+    # to RTOL of itself (2026-11-03): each is moved by 1e-4 of itself. The
+    # fixture's 2015 is 0.2 % below its normal, so its anomaly and percent are
+    # small numbers made from large ones, the case the operands' scale hid.
     @pytest.mark.parametrize("where,by", [
         (("runs", "control", "values", A.VEGETATED, "GPP", "2015"), 1e-4),
         (("runs", "twin", "values", "box, vegetated", "H2OSNO", "2016"), 1e-4),
         (("runs", "control", "values", "burned, vegetated", "burned_area_km2", "2016"), 1e-4),
-        (("differences", "twin", "box, vegetated, 1000-1500 m", "GPP", "2015"), 1e-3),
-        (("event", "anomalies", A.VEGETATED, "GPP", "years", "2015", "anomaly_pct"), 5e-2),
+        (("differences", "twin", "box, vegetated, 1000-1500 m", "GPP", "2015"), 1e-4),
+        (("event", "anomalies", A.VEGETATED, "GPP", "years", "2015", "anomaly_pct"), 1e-4),
+        (("event", "anomalies", A.VEGETATED, "GPP", "years", "2015", "anomaly"), 1e-4),
         (("event", "anomalies", "box, vegetated", "TSA", "normal"), 1e-4),
         (("regions", "box, vegetated", "area_km2"), 1e-4),
     ])
@@ -188,6 +197,30 @@ class TestASmallChangeFails:
         assert N.RTOL < bad["rel_diff"] < 2 * by
         assert bad["section"] == {"runs": "values"}.get(where[0], where[0])
         assert bad.get("region") in where
+
+    def test_a_small_difference_of_large_values(self, made, tmp_path_factory):
+        """A twin 0.05 % above the control: its GPP difference is 1/2000 of the
+        values it subtracts. Moved by 1e-3 of itself (5e-7 of those values,
+        inside RTOL of them) it must fail: the difference is held to itself."""
+        root = tmp_path_factory.mktemp("near")
+        near = _case(root, "near", 1.0005)
+        t = A.experiment({"case_dir": str(made["ctl"]["case_dir"]),
+                          "regions": made["registry"]["regions"]},
+                         {"control": made["ctl"]["run_dir"], "near": near["run_dir"]},
+                         {"regions": [A.VEGETATED], "variables": ["GPP"]}, YEARS)
+        t = json.loads(json.dumps(t, default=str))
+        d = t["differences"]["near"][A.VEGETATED]["GPP"]
+        big = t["runs"]["control"]["values"][A.VEGETATED]["GPP"]["2015"]
+        assert 0 < abs(d["2015"]) < 1e-3 * big
+        rd = _run_folder(root, made, t, records={"near": near["run_dir"]})
+        assert N.check(rd, registry=made["registry"], write=False)["pass"]
+        d["2015"] *= 1.0 + 1e-3
+        (rd / "03_results" / "regional.json").write_text(json.dumps(t))
+        rec = N.check(rd, registry=made["registry"], write=False)
+        assert not rec["pass"]
+        assert [(b["section"], b["year"]) for b in rec["mismatches"]] == \
+            [("differences", "2015")]
+        assert rec["mismatches"][0]["abs_diff"] < N.RTOL * big
 
     def test_below_the_tolerance_it_passes(self, made, tmp_path):
         t = copy.deepcopy(made["table"])
@@ -223,6 +256,45 @@ class TestASmallChangeFails:
         rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"], write=False)
         assert any(b["section"] == "fields" and b["field"] == "QVEGT"
                    for b in rec["mismatches"])
+
+    def test_a_table_read_from_the_wrong_runs_history(self, made, tmp_path):
+        """The twin's numbers made from the control's history, and the table
+        naming the control's directory for it: the check must not read the
+        directory from the table it checks (2026-11-03)."""
+        t = copy.deepcopy(made["table"])
+        t["runs"]["twin"] = copy.deepcopy(t["runs"]["control"])
+        for reg in t["differences"]["twin"].values():
+            for ys in reg.values():
+                for y in ys:
+                    ys[y] = 0.0
+        t.pop("changed_share", None)
+        rec = N.check(_run_folder(tmp_path, made, t), registry=made["registry"],
+                      write=False)
+        assert not rec["pass"]
+        runs = [b for b in rec["mismatches"] if b["section"] == "runs"]
+        assert [(b["run"], b["recomputed"]) for b in runs] == \
+            [("twin", str(made["twin"]["run_dir"]))]
+        assert "another output directory" in runs[0]["why"]
+        assert rec["sources"]["runs"]["twin"] == str(made["twin"]["run_dir"])
+        assert any(b["section"] == "differences" for b in rec["mismatches"])
+        assert "do not match the manager's records" in N.reason(rec) or \
+            "does not match the manager's records" in N.reason(rec)
+
+    def test_two_runs_on_one_directory(self, made, tmp_path):
+        rec = N.check(_run_folder(tmp_path, made,
+                                  records={"twin": made["ctl"]["run_dir"]}),
+                      registry=made["registry"], write=False)
+        assert not rec["pass"]
+        assert any("resolve to one output directory" in (b.get("why") or "")
+                   for b in rec["mismatches"])
+
+    def test_a_run_no_record_names(self, made, tmp_path):
+        rec = N.check(_run_folder(tmp_path, made, records={}), registry=made["registry"],
+                      write=False)
+        assert not rec["pass"]
+        assert [b["why"] for b in rec["mismatches"] if b["section"] == "runs"] == [
+            "no record of the manager names this run's output directory, so its numbers "
+            "cannot be recomputed"]
 
     def test_a_missing_input_is_not_a_pass(self, made, tmp_path):
         rec = N.check(_run_folder(tmp_path, made), registry={"regions": {}}, write=False)
@@ -270,6 +342,32 @@ class TestTheGate:
         assert page.splitlines()[0] == f"# WITHHELD: {g['reason']}"
         assert "| differences, twin, vegetated cells, GPP, 2016 |" in page
         assert "the Analyzer was not run" in page
+
+    def test_a_failure_sets_an_earlier_analysis_aside(self, made, tmp_path):
+        """A run analysed before, whose numbers now fail: nothing of the earlier
+        analysis stays beside the withheld page (2026-11-03)."""
+        t = copy.deepcopy(made["table"])
+        t["differences"]["twin"][A.VEGETATED]["GPP"]["2016"] *= 1.05
+        rd = _run_folder(tmp_path, made, t)
+        out = rd / "04_analysis"
+        out.mkdir()
+        earlier = ["REPORT.md", "analysis.json", "analysis.pptx", "domain_report.json",
+                   "domain_fig_GPP_by_year.png", "gpp_by_band.py", "gpp_by_band.png",
+                   "interpretation.json", "step3_round1_reply.txt"]
+        for n in earlier:
+            (out / n).write_text("the earlier answer")
+        (out / "notes.txt").write_text("not an analysis product")
+        g = N.gate(rd, registry=made["registry"])
+        assert not g["pass"]
+        assert sorted(p.name for p in out.iterdir() if p.is_file()) == \
+            sorted(["DOMAIN_REPORT.md", N.CHECK_JSON, "notes.txt"])
+        (moved,) = list((out / N.SUPERSEDED).iterdir())
+        assert sorted(p.name for p in moved.iterdir()) == sorted(earlier)
+        assert sorted(g["set_aside"]) == sorted(f"{N.SUPERSEDED}/{moved.name}/{n}"
+                                                for n in earlier)
+        page = (out / "DOMAIN_REPORT.md").read_text()
+        assert page.startswith("# WITHHELD: 1 of ")
+        assert f"9 file(s) were moved to 04_analysis/{N.SUPERSEDED}/{moved.name}/" in page
 
     def test_a_table_without_numbers_is_left_to_the_report(self, made, tmp_path):
         rd = _run_folder(tmp_path, made, {"error": "ValueError: boom"})
@@ -319,6 +417,23 @@ class TestTheAnalyzeStage:
         assert not (m.run_dir / "04_analysis" / "domain_report.json").exists()
         body, rc = _notify().build(str(m.run_dir))
         assert rc == 1 and body.splitlines()[0] == f"WITHHELD: {an['reason']}"
+
+    def test_a_check_that_cannot_run_withholds_and_the_run_survives(self, study, tmp_path,
+                                                                    monkeypatch):
+        """The gate itself raising ends neither the run nor its summary: the
+        stage is withheld with why (2026-11-03)."""
+        m, cfg = _Through._with_history(study, tmp_path)
+
+        def boom(run_dir, registry=None):
+            raise RuntimeError("no netCDF4 here")
+        monkeypatch.setattr(N, "gate", boom)
+        m.execute_plan(dict(cfg["strategy"]), cfg)
+        an = _stages(m)["analyze"]
+        assert an["status"] == "withheld"
+        assert an["reason"] == "the numbers check could not run (no netCDF4 here)"
+        assert (m.run_dir / "experiment.json").is_file()
+        assert (m.run_dir / "RUN_SUMMARY.json").is_file()
+        assert not (m.run_dir / "04_analysis" / "domain_report.json").exists()
 
 
 # ── claims traced to the numbers ────────────────────────────────────────────
@@ -410,6 +525,90 @@ class TestClaimsTracedToTheNumbers:
         assert out["headline"] == [] and "withheld_because" not in out
 
 
+class TestOnlyWhatTheClaimSays:
+    """A derivation uses a field and region the claim names, pairs two runs in
+    one region or two regions of one run, and matches exactly a value the
+    claim gives with more digits than it prints (2026-11-03)."""
+
+    def test_another_fields_value_does_not_trace(self):
+        t = copy.deepcopy(TABLE)
+        t["runs"]["control"]["values"]["watershed, vegetated"]["TSA"] = {"2015": 277.16}
+        c = [_claim("GPP over the watershed was 277.2 gC/m2 in 2015.", [277.16])]
+        T.trace(c, None, t)
+        assert not c[0]["traced"]
+        c = [_claim("Air temperature (TSA) over the watershed was 277.2 K in 2015.",
+                    [277.16])]
+        T.trace(c, None, t)
+        assert c[0]["derivations"][0]["text"] == "277.2 = TSA, watershed: control, 2015"
+
+    def test_a_pair_across_runs_and_regions_at_once_does_not_trace(self):
+        # dry's watershed minus the control's vegetated cells: 618.66 - 487.0
+        c = [_claim("GPP in 2015 was 131.66 gC/m2 higher.", [618.66 - 487.0])]
+        T.trace(c, None, TABLE)
+        assert not c[0]["traced"]
+
+    def test_more_digits_than_printed_must_match_exactly(self):
+        exact = 618.66 - 643.70
+        c = [_claim("GPP over the watershed fell 25.0 gC/m2 in 2015.", [exact * 1.001])]
+        T.trace(c, None, TABLE)
+        assert not c[0]["traced"]
+        assert "exactly" in c[0]["derivations"][0]["why"]
+        c = [_claim("GPP over the watershed fell 25.0 gC/m2 in 2015.", [exact])]
+        T.trace(c, None, TABLE)
+        assert c[0]["derivations"][0]["precision"] == "exact"
+        assert c[0]["derivations"][0]["match"] == "exact"
+
+    def test_a_perturbed_value_on_a_dense_table(self, made):
+        """The server's own table over every kind of region, bands among them:
+        the twin's true difference traces, the same difference off by a few
+        printed units does not, at either precision."""
+        t = made["table"]
+        d = t["differences"]["twin"]["box, vegetated"]["GPP"]["2015"]
+        text = "GPP over the box was {:.1f} gC/m2 higher in the twin in 2015."
+        good = [_claim(text.format(d), [d])]
+        T.trace(good, None, t)
+        assert good[0]["traced"], good[0]["derivations"]
+        assert good[0]["derivations"][0]["source"] == \
+            "GPP, box: twin minus control, 2015"
+        for off in (0.3, 0.7, 1.3, -0.4):
+            v = round(d + off, 1)
+            for vals in ([v], [d + off]):
+                c = [_claim(text.format(v), vals)]
+                T.trace(c, None, t)
+                assert not c[0]["traced"], (off, vals, c[0]["derivations"][0]["text"])
+
+    def test_a_headline_number_needs_a_claim_value_of_its_unit(self):
+        claims = [_claim("The watershed holds 4127 vegetated cells, 2430 km2.",
+                         [4127, 2425.3])]
+        out = T.trace(copy.deepcopy(claims), "Dry summers cut GPP by 2430 gC/m2.", TABLE)
+        assert out["withheld_because"] == ("the headline's value 2430 cannot be traced "
+                                           "to the numbers")
+        assert "withheld_because" not in T.trace(
+            copy.deepcopy(claims), "The watershed covers 2430 km2.", TABLE)
+
+    def test_a_whole_number_with_a_measured_unit_must_trace(self):
+        claims = [_claim("GPP over the watershed fell 25.0 gC/m2 in 2015.", [-25.04])]
+        out = T.trace(claims, "A dry summer cuts watershed GPP by 40 gC/m2.", TABLE)
+        assert out["withheld_because"] == ("the headline's value 40 cannot be traced to "
+                                           "the numbers")
+        assert out["headline"][0]["why"] == "no claim states this value in gc/m2"
+        # a whole number states its units digit, not its tens: 25 is not 40
+        out = T.trace(claims, "A dry summer cuts watershed GPP by 25 gC/m2.", TABLE)
+        assert "withheld_because" not in out
+
+    def test_a_value_shaped_like_a_year(self):
+        """2050 gC/m2 is a value: only a year of the table with no unit after
+        it is a date."""
+        claims = [_claim("GPP over the watershed reached 2050 gC/m2 in 2016.", [2050.0])]
+        out = T.trace(claims, "GPP reached 2050 gC/m2 in 2016.", TABLE)
+        assert not claims[0]["traced"] and claims[0]["derivations"][0].get("how") != "year"
+        assert out["withheld_because"] == ("the headline's value 2050 cannot be traced to "
+                                           "the numbers")
+        claims = [_claim("GPP over the watershed reached 2016 gC/m2 in 2015.", [2016.0])]
+        T.trace(claims, None, TABLE)
+        assert not claims[0]["traced"]
+
+
 class TestThroughStep4AndTheAnalyzer:
 
     def test_report_md_lists_each_values_derivation(self, tmp_path):
@@ -450,6 +649,19 @@ class TestThroughStep4AndTheAnalyzer:
         assert a["withheld_because"] == st["withheld"] and a["headline"] == review["headline"]
         assert not (rd / "04_analysis" / "analysis.pptx").exists()
 
+    def test_an_earlier_deck_is_set_aside_when_the_report_is_withheld(self, tmp_path):
+        from agents.analysis import step4_report as S4
+        out = tmp_path / "04_analysis"
+        out.mkdir()
+        (out / "analysis.pptx").write_text("the earlier deck")
+        (out / "gpp.py").write_text("an earlier figure's script")
+        report = {"question": "q", "headline": "h", "claims": [], "numbers_trace": {},
+                  "withheld_because": "the headline's value 1 cannot be traced"}
+        S4.write(report, out)
+        assert not (out / "analysis.pptx").exists() and (out / "gpp.py").exists()
+        (moved,) = list((out / N.SUPERSEDED).iterdir())
+        assert (moved / "analysis.pptx").read_text() == "the earlier deck"
+
 
 # ── the demo runs on disk (opt-in) ──────────────────────────────────────────
 CONFIG = Path(__file__).with_name("local_oracle_paths.json")
@@ -472,11 +684,27 @@ def test_a_demo_runs_numbers_reproduce(src, tmp_path):
     rd = tmp_path / Path(src).name
     for sub in ("03_results", "01_inputs"):
         shutil.copytree(Path(src) / sub, rd / sub)
+    for ck in Path(src).glob("domain_case/*/checks"):
+        shutil.copytree(ck, rd / ck.relative_to(src))
     rec = N.check(rd)
     assert rec["pass"], (rec.get("error"), rec["mismatches"][:5])
     assert rec["largest_relative_difference"]["rel_diff"] < 1e-9 or \
         rec["largest_relative_difference"]["section"] == "changed_share"
     a = json.loads((Path(src) / "04_analysis" / "analysis.json").read_text())
-    out = T.trace(copy.deepcopy(a["claims"]), a.get("headline"),
-                  json.loads((rd / "03_results" / "regional.json").read_text()))
+    table = json.loads((rd / "03_results" / "regional.json").read_text())
+    out = T.trace(copy.deepcopy(a["claims"]), a.get("headline"), table)
     assert "withheld_because" not in out
+    # the headline's first value moved by three printed units, in the claim
+    # that states it as well: it must no longer trace
+    first = out["headline"][0]["printed"]
+    nd = len(first.split(".")[1]) if "." in first else 0
+    moved = f"{float(first) + 3 * 10.0 ** -nd:.{nd}f}"
+    claims = copy.deepcopy(a["claims"])
+    for c in claims:
+        if first in c["claim"]:
+            c["claim"] = c["claim"].replace(first, moved)
+            c["values"] = [(-1 if v < 0 else 1) * float(moved)
+                           if T.printed_form(v, first) == first else v
+                           for v in c["values"]]
+    out = T.trace(claims, a["headline"].replace(first, moved), table)
+    assert out.get("withheld_because"), out["headline"]

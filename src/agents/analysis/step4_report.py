@@ -693,6 +693,16 @@ def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
                 print(f"   ✓ slides → {Path(deck).name}")
         except Exception as e:                                  # noqa: BLE001
             print(f"   ⚠️  slide deck failed ({e}) — analysis.json stands")
+    # A DECK FROM AN EARLIER PASS IS SET ASIDE WHEN THIS ONE IS WITHHELD
+    # (2026-11-03): left in place it would present the headline that no longer
+    # traces. Moved into superseded/, never deleted.
+    if report.get("withheld_because"):
+        try:
+            from agents.analysis.numbers_check import set_aside
+            for name in set_aside(out_dir, ("analysis.pptx",), figures=False):
+                print(f"   moved the earlier deck aside: {name}")
+        except Exception as e:                                  # noqa: BLE001
+            print(f"   the earlier deck could not be set aside ({e})")
     return str(p)
 
 

@@ -21,8 +21,8 @@ control's lnd_in names, with the band edges read back from the band names the
 table carries. WHAT IS SHARED is the definition of each quantity (a rate per
 second is totalled over the year, anything else is the year's time-weighted
 mean, a region's value is the area-weighted mean over its cells with a value)
-and where the inputs are: the table names each run's output directory, the
-manager's records name the control, and the control registry names each
+and where the inputs are: the manager's records name each run's output
+directory (never the table under test), and the control registry names each
 registered region's file.
 
   check(run_dir)  the comparison record, written to 04_analysis/numbers_check.json
@@ -31,18 +31,30 @@ registered region's file.
 
 THE TOLERANCE. History is float32 (about 7 significant digits); both paths read
 the same float32 values and reduce them in float64, so two right answers agree
-to about 1e-12. A number is reproduced when |table - recomputed| <= RTOL x scale
-+ ATOL, where scale is the size of the quantities it was made from (a
-difference is judged against the two values it subtracts, a percent against
-the value and its base). RTOL 1e-5 is about 100 float32 steps: loose enough for
-a path that sums in float32, tight enough that a change in the fifth
-significant digit fails. ATOL 1e-9 lets two zeros (a no-fire run's burned
-area) agree.
+to about 1e-12. A number is reproduced when
+
+    |table - recomputed| <= RTOL x |recomputed| + EPS x scale + ATOL
+
+RTOL 1e-5 is about 100 float32 steps of the number itself, so a change in its
+fifth significant digit fails. The scale is the size of the quantities a
+derived number is made from (a difference is judged against the two values it
+subtracts, an anomaly against the years it compares, a percent against the
+value and its base), and EPS 1e-9 of it is the floor two float64 reductions of
+the same data stay inside: a small difference of two large stocks is held to
+its own fifth digit, not to the stocks'. ATOL 1e-9 lets two zeros (a no-fire
+run's burned area) agree.
+
+WHERE EACH RUN'S OUTPUT IS. The control's directory is read from the manager's
+record of it (01_inputs/domain_control_facts.json, else domain_runs.json), each
+other run's from the year checks its chain wrote (domain_case/<run>/checks/
+y*.json), never from the table under test; a table that names another
+directory, or two runs that resolve to one directory, is a mismatch.
 """
 from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import sys
 from datetime import datetime
@@ -55,6 +67,13 @@ CHECK_JSON = "numbers_check.json"
 TABLE = "03_results/regional.json"
 RTOL = 1e-5
 ATOL = 1e-9
+# TOLERANCE OF A DERIVED NUMBER (2026-11-03). A difference, an anomaly or a
+# percent was judged against its operands at RTOL, so a difference of 4.39
+# between two stocks near 30000 could sit in the table as 4.44 and pass. Two
+# float64 reductions of the same float32 data agree to about 1e-12 of the
+# operands (4.6e-15 on the demos); EPS of the operands is the floor, and the
+# number is otherwise held to RTOL of itself.
+EPS = 1e-9
 # The table rounds a changed share to 4 decimals (domain_analysis.changed_share),
 # and so does the check; a share on a rounding edge may land one step apart.
 SHARE_ATOL = 1e-4 + 1e-9
@@ -127,9 +146,79 @@ def inputs(run_dir, registry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
     entry = registry if registry is not None else _registry(ctl.get("name"))
     case_dir = ctl.get("case_dir") or entry.get("case_dir")
     return {"control": ctl.get("name"), "case_dir": case_dir,
+            "control_run_dir": ctl.get("run_dir"),
+            "registry_run_dir": entry.get("run_dir"),
             "regions": dict(entry.get("regions") or {}),
             "observations": dict(entry.get("observations") or {}),
             "registry_entry": bool(entry)}
+
+
+def _same_dir(a, b) -> bool:
+    return os.path.realpath(str(a)) == os.path.realpath(str(b))
+
+
+def run_dirs(run_dir, table: Dict[str, Any], inp: Dict[str, Any]
+             ) -> Tuple[Dict[str, str], List[Dict[str, Any]], Dict[str, str]]:
+    """({run: output directory}, mismatch rows, {run: the record it came from}).
+
+    EACH RUN'S OUTPUT FROM THE MANAGER'S RECORDS (2026-11-03). The table under
+    test named the directories the check read, so a table made from the wrong
+    run's history was recomputed from that same history and agreed. Now a run
+    the chain executed is found where its own year checks put it
+    (domain_case/<run>/checks/y*.json, each naming the run directory it
+    checked), and a reused control where the manager recorded it
+    (01_inputs/domain_control_facts.json, else domain_runs.json). A table that
+    names another directory, a run with no such record, records that disagree,
+    and two runs that resolve to one directory are each a mismatch."""
+    rd = Path(run_dir)
+    dirs: Dict[str, str] = {}
+    src: Dict[str, str] = {}
+    bad: List[Dict[str, Any]] = []
+    for run, r in (table.get("runs") or {}).items():
+        # a run's name is a folder name of the chain's records, never a path
+        found = sorted((rd / "domain_case" / run / "checks").glob("y*.json")) \
+            if run not in (".", "..") and "/" not in run else []
+        named = sorted({str(_read_json(p).get("run_dir")) for p in found
+                        if _read_json(p).get("run_dir")})
+        if named:
+            where = f"domain_case/{run}/checks/{found[0].name}"
+        elif run == "control" and inp.get("control_run_dir"):
+            named, where = [str(inp["control_run_dir"])], \
+                "01_inputs/domain_control_facts.json or domain_runs.json"
+            reg = inp.get("registry_run_dir")
+            if reg and not _same_dir(reg, named[0]):
+                bad.append({"section": "runs", "run": run, "what": "run_dir",
+                            "table": r.get("run_dir"), "recomputed": named[0],
+                            "why": f"the control registry names {reg}, the manager's "
+                                   f"record {named[0]}"})
+        else:
+            bad.append({"section": "runs", "run": run, "what": "run_dir",
+                        "table": r.get("run_dir"), "recomputed": None,
+                        "why": "no record of the manager names this run's output "
+                               "directory, so its numbers cannot be recomputed"})
+            continue
+        if len(named) > 1:
+            bad.append({"section": "runs", "run": run, "what": "run_dir",
+                        "table": r.get("run_dir"), "recomputed": named[0],
+                        "why": "the run's year checks name different directories: "
+                               + ", ".join(named)})
+        dirs[run], src[run] = named[0], where
+        if not r.get("run_dir") or not _same_dir(r["run_dir"], named[0]):
+            bad.append({"section": "runs", "run": run, "what": "run_dir",
+                        "table": r.get("run_dir"), "recomputed": named[0],
+                        "why": f"the table names another output directory than "
+                               f"{where}"})
+    seen: Dict[str, str] = {}
+    for run, d in dirs.items():
+        key = os.path.realpath(d)
+        if key in seen:
+            bad.append({"section": "runs", "run": run, "what": "run_dir",
+                        "table": (table["runs"][run] or {}).get("run_dir"), "recomputed": d,
+                        "why": f"runs {seen[key]} and {run} resolve to one output "
+                               f"directory"})
+        else:
+            seen[key] = run
+    return dirs, bad, src
 
 
 def _fsurdat(case_dir, run_dir=None) -> Path:
@@ -483,7 +572,10 @@ class _Ledger:
         self.n += 1
         t, m = float(table), float(mine)
         d = abs(t - m)
-        s = max(abs(m), abs(t)) if scale is None else float(scale)
+        # Relative to the number itself, with the operands' floor (EPS/RTOL of
+        # the scale) so a difference near zero is not divided by zero: a
+        # rel_diff above RTOL is outside the tolerance, whatever the number.
+        s = abs(m) + (EPS / RTOL) * abs(float(scale) if scale is not None else 0.0)
         rel = d / s if s > 0 else (0.0 if d == 0 else math.inf)
         row.update(abs_diff=d, rel_diff=rel)
         if self.worst is None or rel > self.worst["rel_diff"]:
@@ -505,14 +597,19 @@ def _year_value(means, days, rate: bool) -> Tuple[Optional[np.ndarray], Optional
 
 
 def recompute_runs(table, masks: Dict[str, np.ndarray], grid,
-                   extra_fields: Sequence[str] = ()) -> Dict[str, Any]:
+                   extra_fields: Sequence[str] = (),
+                   dirs: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """{run: {"values": {region: {field: {year: v}}}, "how": {field: ...},
-    "stream": {field: ...}, "why": {...}}} from each run's own history."""
+    "stream": {field: ...}, "why": {...}}} from each run's own history, in the
+    directory `dirs` names for it (run_dirs); a run it does not name is not
+    recomputed, and every number of it is then a mismatch."""
     regs = list(masks)
     out: Dict[str, Any] = {}
     years = sorted({int(y) for y in table.get("years") or []})
     for run, r in (table.get("runs") or {}).items():
-        h = History(r["run_dir"])
+        if dirs is not None and run not in dirs:
+            continue
+        h = History(dirs[run] if dirs is not None else r["run_dir"])
         g = h.grid()
         if g["weight"].shape != grid["weight"].shape:
             raise CheckError(f"run {run}: its grid {g['weight'].shape} is not the "
@@ -734,19 +831,25 @@ def check(run_dir, registry: Optional[Dict[str, Any]] = None,
         "kind": "numbers_check", "checked_at": datetime.now().isoformat(timespec="seconds"),
         "table": TABLE, "pass": False, "n_compared": 0, "n_mismatched": 0,
         "n_absent_in_both": 0, "mismatches": [], "largest_relative_difference": None,
-        "tolerance": {"relative": RTOL, "absolute": ATOL, "changed_share_absolute": SHARE_ATOL,
-                      "rule": "|table - recomputed| <= relative x scale + absolute, the "
-                              "scale being the size of the quantities the number is made "
-                              "from; cell counts and ranks must be equal"},
+        "tolerance": {"relative": RTOL, "operands": EPS, "absolute": ATOL,
+                      "changed_share_absolute": SHARE_ATOL,
+                      "rule": "|table - recomputed| <= relative x |recomputed| + operands x "
+                              "scale + absolute, the scale being the size of the quantities "
+                              "a difference, anomaly or percent is made from (0 for any "
+                              "other number); cell counts and ranks must be equal"},
         "method": METHOD, "sources": {}, "notes": [], "not_checked": []}
     try:
         table = json.loads((rd / TABLE).read_text())
         if table.get("error"):
             raise CheckError(f"the table holds no numbers: {table['error']}")
         inp = inputs(rd, registry)
-        ctl_run = ((table.get("runs") or {}).get("control") or {}).get("run_dir")
-        if not ctl_run:
+        if "control" not in (table.get("runs") or {}):
             raise CheckError("the table has no control run")
+        dirs, dir_bad, dir_src = run_dirs(rd, table, inp)
+        ctl_run = dirs.get("control")
+        if not ctl_run:
+            raise CheckError("no record of the manager names the control's output "
+                             "directory")
         h = History(ctl_run)
         grid = h.grid()
         surf_path = _fsurdat(inp["case_dir"], ctl_run)
@@ -756,9 +859,10 @@ def check(run_dir, registry: Optional[Dict[str, Any]] = None,
         for name in (table.get("regions") or {}):
             masks[name] = region_mask(name, grid, surface, inp["regions"], cache)
         extra = [BURNED_FRACTION] if table.get("observed") else []
-        mine = recompute_runs(table, masks, grid, extra)
+        mine = recompute_runs(table, masks, grid, extra, dirs=dirs)
         res = compare(table, mine, masks, grid, inp["regions"], inp["observations"])
         L = res["ledger"]
+        L.bad[:0] = dir_bad
         rec.update({
             "n_compared": L.n, "n_absent_in_both": L.absent, "n_mismatched": len(L.bad),
             "mismatches": L.bad, "largest_relative_difference": L.worst,
@@ -769,8 +873,7 @@ def check(run_dir, registry: Optional[Dict[str, Any]] = None,
                         "surface": str(surf_path),
                         "regions": {k: (v.get("polygon") or v.get("field"))
                                     for k, v in inp["regions"].items()},
-                        "runs": {k: v.get("run_dir") for k, v in
-                                 (table.get("runs") or {}).items()},
+                        "runs": dict(dirs), "runs_from": dict(dir_src),
                         "registry_entry_found": inp["registry_entry"]}})
         if L.n == 0:
             rec["error"] = "the table holds no number to compare"
@@ -785,6 +888,7 @@ def check(run_dir, registry: Optional[Dict[str, Any]] = None,
 
 METHOD = (
     "Each number in 03_results/regional.json made again from each run's own history "
+    "(its output directory read from the manager's records, not from the table) "
     "by code that shares no reduction code with the server's domain_analysis.py, "
     "gridded.py or regions.py: history read with netCDF4; fill (masked, non-finite "
     "or above 1e30 in size) as no value; each record weighted by the days of its own "
@@ -824,11 +928,21 @@ def reason(rec: Dict[str, Any]) -> str:
     """One line: why the numbers are withheld."""
     if rec.get("error") and not rec.get("n_compared"):
         return f"the regional numbers could not be recomputed ({rec['error']})"
-    return (f"{rec.get('n_mismatched')} of {rec.get('n_compared')} regional numbers did "
-            f"not reproduce when recomputed from the model output")
+    rows = rec.get("mismatches") or []
+    runs = sorted({str(r.get("run")) for r in rows if r.get("section") == "runs"})
+    n_num = (rec.get("n_mismatched") or 0) - sum(1 for r in rows if r.get("section") == "runs")
+    parts = []
+    if n_num or not runs:
+        parts.append(f"{n_num} of {rec.get('n_compared')} regional numbers did not "
+                     f"reproduce when recomputed from the model output")
+    if runs:
+        parts.append(f"the output director{'ies' if len(runs) > 1 else 'y'} the table "
+                     f"names for {', '.join(runs)} do{'' if len(runs) > 1 else 'es'} not "
+                     f"match the manager's records")
+    return "; ".join(parts)
 
 
-def withheld_markdown(rec: Dict[str, Any]) -> str:
+def withheld_markdown(rec: Dict[str, Any], set_aside_names: Sequence[str] = ()) -> str:
     """The numbers report in place of the numbers: how many did not reproduce,
     and the mismatch table. A renderer: every value is the record's."""
     lines = [f"# WITHHELD: {reason(rec)}", "",
@@ -838,13 +952,14 @@ def withheld_markdown(rec: Dict[str, Any]) -> str:
              + ("They could not be made again, so they are not shown."
                 if rec.get("error") and not rec.get("n_compared") else
                 f"{rec.get('n_mismatched')} of {rec.get('n_compared')} differ by more than "
-                f"the tolerance (relative {RTOL:g}, with an absolute floor of {ATOL:g})."),
+                f"the tolerance (relative {RTOL:g} of the number, with a floor of {EPS:g} "
+                f"of the values it is made from and {ATOL:g} absolute)."),
              "This report is withheld and the Analyzer was not run, until the difference "
              "is explained.", ""]
     rows = rec.get("mismatches") or []
     if rows:
-        lines += ["| number | in the table | recomputed | difference | relative to its "
-                  "scale | why |", "|---|---|---|---|---|---|"]
+        lines += ["| number | in the table | recomputed | difference | relative "
+                  "difference | why |", "|---|---|---|---|---|---|"]
         for r in rows[:MAX_ROWS_SHOWN]:
             lines.append(f"| {_where(r)} | {_fmt(r.get('table'))} | "
                          f"{_fmt(r.get('recomputed'))} | {_fmt(r.get('abs_diff'))} | "
@@ -854,6 +969,10 @@ def withheld_markdown(rec: Dict[str, Any]) -> str:
         lines.append("")
     if rec.get("error"):
         lines += [f"The check stopped: {rec['error']}", ""]
+    if set_aside_names:
+        lines += [f"An earlier analysis of this run presented these numbers; its "
+                  f"{len(set_aside_names)} file(s) were moved to "
+                  f"04_analysis/{Path(set_aside_names[0]).parent}/.", ""]
     return "\n".join(lines)
 
 
@@ -871,7 +990,7 @@ def gate(run_dir, registry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     nothing here to recompute."""
     rd = Path(run_dir)
     t = _read_json(rd / TABLE)
-    if not t or t.get("error"):
+    if not isinstance(t, dict) or not t or t.get("error"):
         return None
     try:
         rec = check(rd, registry=registry)
@@ -885,12 +1004,54 @@ def gate(run_dir, registry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         p = rd / "04_analysis" / "DOMAIN_REPORT.md"
         out["reason"] = reason(rec)
         try:
+            out["set_aside"] = set_aside(rd / "04_analysis")
+        except OSError as e:
+            out["set_aside"] = []
+            out["reason"] += f" (an earlier analysis could not be set aside: {e})"
+        try:
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(withheld_markdown(rec))
+            p.write_text(withheld_markdown(rec, out["set_aside"]))
             out["report"] = str(p)
         except OSError as e:
             out["reason"] += f" (the withheld report could not be written: {e})"
     return out
+
+
+# AN EARLIER ANALYSIS IS SET ASIDE WHEN THE NUMBERS ARE WITHHELD (2026-11-03).
+# A run analysed again (--resume, --finalize) whose numbers now fail kept the
+# REPORT.md, analysis.json, deck, domain_report.json and figures of the earlier
+# pass, which present the numbers that just failed to reproduce. They are
+# moved, not deleted, into 04_analysis/superseded/<time>/, so nothing a person
+# wrote or read is lost and nothing beside the withheld page presents them.
+SUPERSEDED = "superseded"
+PRODUCTS = ("REPORT.md", "analysis.json", "analysis.pptx", "domain_report.json",
+            "domain_fig_*", "comparison.json", "investigation.json",
+            "investigation_plan.md", "interpretation.json", "step*_round*_*.txt")
+
+
+def set_aside(out_dir, names: Sequence[str] = PRODUCTS, figures: bool = True) -> List[str]:
+    """Move the files out_dir holds by these names out of it, into
+    out_dir/superseded/<time>/, and with `figures` every figure an Analyzer
+    script made (a .png beside the .py of the same name); the moved names."""
+    d = Path(out_dir)
+    if not d.is_dir():
+        return []
+    hits = {p for pat in names for p in d.glob(pat) if p.is_file()}
+    for py in (d.glob("*.py") if figures else ()):
+        figs = [q for q in d.glob(py.stem + ".*") if q.suffix in (".png", ".pdf", ".svg")]
+        if figs:
+            hits |= {py, *figs}
+    if not hits:
+        return []
+    dest = d / SUPERSEDED / datetime.now().strftime("%Y%m%d_%H%M%S")
+    k = 1
+    while dest.exists():
+        dest = dest.with_name(dest.name.split("_v")[0] + f"_v{k}")
+        k += 1
+    dest.mkdir(parents=True)
+    for p in sorted(hits):
+        p.replace(dest / p.name)
+    return [str(dest.relative_to(d) / p.name) for p in sorted(hits)]
 
 
 if __name__ == "__main__":

@@ -671,8 +671,14 @@ class ExperimentManagerBase:
 				# (_numbers_gate); when they do not reproduce, its report is
 				# written withheld, the Analyzer is not run, and the stage says
 				# so, because every later reader would repeat a wrong number.
-				gate = self._numbers_gate(experiments) \
-					if self._has_backend_report(experiments) else None
+				# GUARDED (2026-11-03): a check that cannot run fails closed,
+				# withheld, and leaves experiment.json and the run summary.
+				try:
+					gate = self._numbers_gate(experiments) \
+						if self._has_backend_report(experiments) else None
+				except Exception as e:                          # noqa: BLE001
+					gate = {"pass": False, "record": None, "report": None,
+							"reason": f"the numbers check could not run ({e})"}
 				if gate is not None and not gate.get("pass"):
 					skip_why = gate.get("reason") or "the numbers did not reproduce"
 					print(f"   WITHHELD: {skip_why}")
