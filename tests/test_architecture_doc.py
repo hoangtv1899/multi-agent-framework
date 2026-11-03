@@ -116,3 +116,100 @@ def test_record_direction(gen, tree):
     assert "strategy.json" in plan["writes"]
     load = gen.records_of(tree, tree.funcs["src/agents/analysis/step0_context.py::load"])
     assert {"reception.json", "strategy.json", "experiment.json"} <= load["reads"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REVIEW FINDINGS, HELD (2026-11-03). Each test below failed on the first
+# version of the generator and names the case a reader would have been misled by.
+# ─────────────────────────────────────────────────────────────────────────────
+def _row(text, first_cell):
+    return next((l for l in text.splitlines() if l.startswith(f"| `{first_cell}` |")), "")
+
+
+def _stage(text, number):
+    lines = text.split("## 6.", 1)[1].splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith(f"{number}. **"))
+    out = []
+    for l in lines[start + 1:]:
+        if not l.startswith("   -"):
+            break
+        out.append(l)
+    return "\n".join(out)
+
+
+def test_a_tool_held_in_a_constant_is_credited_to_its_user(text):
+    """sweep_menu.fetch calls call_tool_json(TOOL, {}) with TOOL a module
+    constant; Reception's allowlist is a constant its __init__ uses."""
+    assert "`src/core/sweep_menu.py::fetch`" in _row(text, "describe_conceptual_factors")
+    assert "src/agents/reception_llm.py::LLMReceptionAgent.__init__" in _row(text, "get_elevation")
+    assert "src/agents/reception_llm.py::LLMReceptionAgent.__init__" in _row(text, "resolve_watershed")
+
+
+def test_a_prompt_naming_server__tool_counts(text):
+    """reception_agentic.txt writes terrain__get_elevation; `_` is a word
+    character, so a plain word boundary never matched it."""
+    assert "reception_agentic.txt (prompt)" in _row(text, "get_elevation")
+
+
+def test_a_description_naming_a_tool_is_not_a_caller(text):
+    """FIELD_SEMANTICS says a field comes `from` build_conceptual_columns:
+    a description, not a call."""
+    assert "FIELD_SEMANTICS" not in _row(text, "build_conceptual_columns")
+
+
+def test_reception_stage_names_its_tools(text):
+    assert "get_elevation" in _stage(text, 1)
+
+
+def test_records_through_a_module_loaded_by_path(text):
+    """DC = self._sibling_module("domain_case"); rd / DC.CHAIN_FILE."""
+    s7 = _stage(text, 7)
+    assert "reads: `chain.json`" in s7
+    assert "`execution_report.txt`" in s7.split("writes:", 1)[1]
+
+
+def test_records_through_a_loop_and_an_imported_alias(text):
+    """step 4 reads RUN_SUMMARY.json in `for name in (...)`, and
+    DOMAIN_REPORT.md as `from ... import REPORT_MD as DOMAIN_MD`."""
+    reads = _stage(text, 13).split("reads:", 1)[1].split("\n", 1)[0]
+    assert "`RUN_SUMMARY.json`" in reads
+    assert "`DOMAIN_REPORT.md`" in reads
+
+
+def test_carried_reception_files_are_read_and_copied(gen, tree):
+    r = gen.records_of(tree, tree.funcs["src/agents/reception_llm.py::_carry_prior_forward"])
+    assert "conus2_subsurface.json" in r["reads"]
+    assert "conus2_subsurface.json" in r["writes"]
+
+
+def test_the_mcp_sdk_is_a_third_party_package(text):
+    """The top-level mcp/ directory holds the servers; `import mcp` is the
+    SDK, which requirements.txt lists first."""
+    row = _row(text.split("## 5.", 1)[1], "mcp")
+    assert row.startswith("| `mcp` | `mcp` |"), row
+    assert "src/core/mcp_client.py" in row
+
+
+def test_optional_requirements_are_listed_as_optional(text):
+    libs = text.split("## 5.", 1)[1]
+    assert _row(libs, "pptx").startswith("| `pptx` | optional: `python-pptx` |")
+    assert _row(libs, "rasterio").startswith("| `rasterio` | optional: `rasterio` |")
+
+
+def test_reply_limit_is_given_per_model_call(text):
+    """Reception's tool loop sends its own 8192, not SimpleLLMClient's 16384."""
+    assert "on every client" not in text
+    assert "`src/agents/tool_loop.py::ToolLoopAgent._create`: 8192" in text
+    assert "`src/agents/llm_agent.py::SimpleLLMClient.ask`: 16384" in text
+
+
+def test_a_server_script_driving_an_agent_is_named(text):
+    sec = text.split("### `src/agents/analyzer_agent.py`", 1)[1].split("\n### ", 1)[0]
+    assert "Called from (code under `mcp/`): `mcp/elm-mcp/scripts/analyze_agentic.py::main`" in sec
+
+
+def test_intro_names_everything_hand_written(text):
+    intro = text.split("## 1.", 1)[0]
+    assert "the `FLOW` list in section 6" in intro
+    entries = [l for l in text.splitlines() if l.startswith("Entry:")]
+    assert entries and not any("installed" in l for l in entries)

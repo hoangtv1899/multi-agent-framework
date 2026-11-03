@@ -26,16 +26,21 @@ HOW EACH ANSWER IS READ.
     Whether a stage reaches a model is a walk of the call graph from its
     functions, resolving calls through imports, `self` and attributes whose
     class the code assigns (self.planner = Planner(...)).
-  * A framework file CALLS AN MCP TOOL when the tool's name appears in it as a
-    whole string literal, bare or as server__tool: that is the form every call
-    site takes (a call, a tool constant, the Reception allowlist).
+  * A framework function CALLS AN MCP TOOL when the tool's name appears as a
+    whole string literal, bare or as server__tool, in its body or in a module
+    or class constant it uses: that is the form every call site takes (a call,
+    a tool constant, the Reception allowlist). A constant no function uses is
+    credited to its module. A prompt names a tool as a word or as server__tool.
   * A RECORD is a string literal (or a constant bound to one, or a logical
-    name in core/run_layout.LAYOUT) naming a .json, .md, .csv, .log or .patch
-    file. It is WRITTEN or READ where it is named inside the file argument of
-    a writing call (p.write_text, json.dump, open(p, "w")) or a reading one
-    (p.read_text, p.exists(), open(p), _read(p)), directly or through a local
-    name bound to it earlier (p = run_dir / "x.json"). Named anywhere else (a
-    value in a dict, a message) it is only named.
+    name in core/run_layout.LAYOUT) naming a .json, .md, .csv, .log, .patch or
+    .txt file. The constant may be the module's, an imported one (also under
+    an alias), or one of a module loaded by path into a local
+    (DC = self._sibling_module("domain_case"); DC.CHAIN_FILE). It is WRITTEN
+    or READ where it is named inside the file argument of a writing call
+    (p.write_text, json.dump, open(p, "w")) or a reading one (p.read_text,
+    p.exists(), open(p), _read(p)), directly or through a local name bound to
+    it earlier (p = run_dir / "x.json", or a loop over record names). Named
+    anywhere else (a value in a dict, a message) it is only named.
   * The tools a server SERVES are its @mcp.tool functions, or the types.Tool
     entries its @server.list_tools() function returns.
   * QUOTED TEXT (docstrings, comments) has each dash used as a pause replaced
@@ -65,7 +70,8 @@ PROMPTS = Path("src") / "agents" / "prompts"
 # A function named here that no longer exists stops the generator.
 FLOW = [
     ("Reception reads the request, asks the person, gathers the place",
-     ["src/agents/reception_llm.py::LLMReceptionAgent.process",
+     ["src/agents/reception_llm.py::LLMReceptionAgent.__init__",
+      "src/agents/reception_llm.py::LLMReceptionAgent.process",
       "workflow.py::_save_reception"]),
     ("The Planner designs the experiment against the server's rulebook",
      ["workflow.py::WorkflowCoordinator._plan",
@@ -108,7 +114,7 @@ FLOW = [
 LLM_CLASSES = {"SimpleLLMClient", "LLMAgent", "ToolLoopAgent"}
 SDK_CLIENTS = {("openai", "OpenAI"), ("openai", "AsyncOpenAI"),
                ("anthropic", "Anthropic"), ("anthropic", "AsyncAnthropic")}
-RECORD_RE = re.compile(r"^[\w.*/{}<>-]*[\w*}>]\.(json|md|csv|log|patch)$")
+RECORD_RE = re.compile(r"^[\w.*/{}<>-]*[\w*}>]\.(json|md|csv|log|patch|txt)$")
 DASH_RE = re.compile(r"\s*[\u2014\u2013]\s*")
 
 
@@ -176,6 +182,7 @@ class Cls:
         self.key = f"{mod.rel}::{node.name}"
         self.methods = {}
         self.consts = {}
+        self.const_strings = {}         # NAME -> every string in its value
         self.attr_types = {}            # self.<attr> = SomeClass(...)
         self.base_names = [b.id if isinstance(b, ast.Name) else
                            b.attr if isinstance(b, ast.Attribute) else None
@@ -192,6 +199,7 @@ class Mod:
         self.doc = ast.get_docstring(self.tree) or ""
         self.imports = {}               # alias -> ("mod", dotted) | ("sym", dotted, name)
         self.consts = {}                # NAME -> str
+        self.const_strings = {}         # NAME -> every string in its value
         self.layout = {}                # logical name -> record file (run_layout)
         self.funcs, self.classes = {}, {}
         for node in self.tree.body:
@@ -203,10 +211,13 @@ class Mod:
                 for b in node.body:
                     if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         c.methods[b.name] = Func(self, b, c)
-                    elif isinstance(b, ast.Assign):
-                        c.consts.update(_str_bindings(b))
+                    elif isinstance(b, (ast.Assign, ast.AnnAssign)):
+                        if isinstance(b, ast.Assign):
+                            c.consts.update(_str_bindings(b))
+                        c.const_strings.update(_strings_bound(b))
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 self.consts.update(_str_bindings(node))
+                self.const_strings.update(_strings_bound(node))
                 self.layout.update(_layout_bindings(node))
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Import):
@@ -277,6 +288,26 @@ def _str_bindings(node):
     return out
 
 
+def _strings_bound(node):
+    """NAME -> the strings a constant holds at its top level: a string
+    (TOOL = "..."), the members of a set, list or tuple (DEFAULT_ALLOWLIST =
+    {"terrain__get_elevation", ...}), or the values of a dict (DOMAIN_MENUS).
+
+    ONE LEVEL ONLY (2026-11-03). A deeper string is a description, not a name
+    the code acts on: a manager's FIELD_SEMANTICS says a field comes `from`
+    build_conceptual_columns, which is no call to that tool."""
+    v = node.value
+    if v is None:
+        return {}
+    items = ([v] if isinstance(v, ast.Constant) else
+             v.elts if isinstance(v, (ast.Set, ast.List, ast.Tuple)) else
+             v.values if isinstance(v, ast.Dict) else [])
+    strs = [n.value for n in items
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    return {t.id: strs for t in targets if isinstance(t, ast.Name) and strs}
+
+
 def _layout_bindings(node):
     """{"reception": "reception.json", ...} from a module-level dict whose keys
     are names and whose values are a record path or a tuple of them, the first
@@ -323,6 +354,22 @@ class Tree:
             for b in self.bases(c):
                 self._subs[b.key].add(c.key)
         self.edges = {k: self._callees(f) for k, f in self.funcs.items()}
+        # LOADERS BY PATH (2026-11-03). The names of the functions that load a
+        # module from a file (spec_from_file_location), so a local bound to
+        # `self._sibling_module("domain_case")` is known to be that module and
+        # its constants (DC.CHAIN_FILE) are read like an imported module's.
+        self.loaders = {f.node.name for f in self.funcs.values()
+                        if any(isinstance(n, ast.Call)
+                               and _callee_name(n.func) == "spec_from_file_location"
+                               for n in ast.walk(f.node))}
+
+    def loaded_module(self, mod, call):
+        """The module a loader call returns, when it names one beside `mod`."""
+        if not (isinstance(call, ast.Call) and _callee_name(call.func) in self.loaders
+                and call.args and isinstance(call.args[0], ast.Constant)
+                and isinstance(call.args[0].value, str)):
+            return None
+        return self.mods.get((Path(mod.rel).parent / f"{call.args[0].value}.py").as_posix())
 
     # ── name resolution ─────────────────────────────────────────────────────
     def module(self, dotted, near=None):
@@ -509,9 +556,14 @@ def _units(node):
             yield n
 
 
-def _record_names(tree, mod, node):
-    """Record file names one AST node mentions, literally or by a constant."""
+def _record_names(tree, mod, node, aliases=None):
+    """Record file names one AST node mentions, literally or by a constant.
+
+    A constant is found in this module or its classes, in a module it imports
+    (`X.CONST`, or `from x import CONST as ALIAS`), or in a module a loader
+    loaded by path into a local (`aliases`: DC = self._sibling_module(...))."""
     out = set()
+    aliases = aliases or {}
     consts = dict(mod.consts)
     for c in mod.classes.values():
         consts.update(c.consts)
@@ -519,13 +571,22 @@ def _record_names(tree, mod, node):
         s = _str_value(n) if isinstance(n, (ast.Constant, ast.JoinedStr)) else None
         if s is None and isinstance(n, ast.Name) and n.id in consts:
             s = consts[n.id]
+        if s is None and isinstance(n, ast.Name) and n.id in mod.imports:
+            imp = mod.imports[n.id]
+            src = tree.module(imp[1], mod) if imp[0] == "sym" else None
+            s = src.consts.get(imp[2]) if src is not None else None
         if s is None and isinstance(n, ast.Attribute):
-            if isinstance(n.value, ast.Name) and n.value.id in ("self", "cls"):
+            if isinstance(n.value, ast.Name) and n.value.id in aliases:
+                s = aliases[n.value.id].consts.get(n.attr)
+            elif isinstance(n.value, ast.Name) and n.value.id in ("self", "cls"):
                 s = consts.get(n.attr)
             elif isinstance(n.value, ast.Name):
                 m = tree.resolve(mod, n.value.id)
                 if isinstance(m, Mod):
                     s = m.consts.get(n.attr)
+            elif isinstance(n.value, ast.Call):
+                m = tree.loaded_module(mod, n.value)
+                s = m.consts.get(n.attr) if m is not None else None
         if s and RECORD_RE.match(s.strip()):
             out.add(s.strip().rsplit("/", 1)[-1])
         if isinstance(n, ast.Call):
@@ -583,9 +644,18 @@ def records_of(tree, f):
     mod = f.mod
     got = {"reads": set(), "writes": set(), "names": set()}
     bound = {}                          # local name -> records it was built from
+    aliases = {}                        # local name -> module loaded by path
+    loop_target = {}                    # id(a for loop's iter) -> its target
+    for n in ast.walk(f.node):
+        if isinstance(n, ast.Assign):
+            m = tree.loaded_module(mod, n.value)
+            if m is not None:
+                aliases.update({t.id: m for t in n.targets if isinstance(t, ast.Name)})
+        elif isinstance(n, (ast.For, ast.AsyncFor)) and isinstance(n.target, ast.Name):
+            loop_target[id(n.iter)] = n.target.id
 
     def recs_in(node):
-        r = _record_names(tree, mod, node)
+        r = _record_names(tree, mod, node, aliases)
         for n in ast.walk(node):
             if isinstance(n, ast.Name) and n.id in bound:
                 r |= bound[n.id]
@@ -612,21 +682,72 @@ def records_of(tree, f):
             for t in u.targets:
                 if isinstance(t, ast.Name):
                     bound[t.id] = bound.get(t.id, set()) | rest
+        # A LOOP OVER RECORD NAMES binds its variable the way `p = ...` does
+        # (2026-11-03): `for name in ("RUN_SUMMARY.json", ...)` then
+        # `p = run_dir / name; p.exists()` reads each of them.
+        if rest and not hit and id(u) in loop_target:
+            v = loop_target[id(u)]
+            bound[v] = bound.get(v, set()) | rest
         got["names"] |= rest
     got["names"] -= got["reads"] | got["writes"]
     return got
 
 
+def _tool_of(v, tools):
+    """The tool a string names, bare or as server__tool, or None."""
+    if v in tools:
+        return v
+    if "__" in v and v.split("__", 1)[1] in tools:
+        return v.split("__", 1)[1]
+    return None
+
+
 def tools_named(f, tools):
-    """MCP tool names this function names as a whole string literal."""
+    """MCP tool names this function names as a whole string literal, in its
+    body or in a module or class constant it uses.
+
+    A CONSTANT COUNTS FOR THE FUNCTION THAT USES IT (2026-11-03): sweep_menu
+    holds its tool in TOOL and fetch() calls call_tool_json(TOOL, {});
+    Reception's allowlist is DEFAULT_ALLOWLIST, used by its __init__."""
     out = set()
+    mod = f.mod
     for n in ast.walk(f.node):
+        strs = []
         if isinstance(n, ast.Constant) and isinstance(n.value, str):
-            v = n.value
-            if v in tools:
-                out.add(v)
-            elif "__" in v and v.split("__", 1)[1] in tools:
-                out.add(v.split("__", 1)[1])
+            strs = [n.value]
+        elif isinstance(n, ast.Name) and n.id in mod.const_strings:
+            strs = mod.const_strings[n.id]
+        elif (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and f.cls
+              and n.value.id in ("self", "cls", f.cls.name)
+              and n.attr in f.cls.const_strings):
+            strs = f.cls.const_strings[n.attr]
+        for v in strs:
+            t = _tool_of(v, tools)
+            if t:
+                out.add(t)
+    return out
+
+
+def unused_tool_constants(mod, tools):
+    """{tool: [NAME, ...]} for module or class constants naming a tool that no
+    function of the module uses; such a constant is credited to the module."""
+    used = set()
+    for f in mod.all_funcs():
+        for n in ast.walk(f.node):
+            if isinstance(n, ast.Name):
+                used.add(n.id)
+            elif isinstance(n, ast.Attribute):
+                used.add(n.attr)
+    out = defaultdict(list)
+    tables = [mod.const_strings] + [c.const_strings for c in mod.classes.values()]
+    for table in tables:
+        for name, strs in table.items():
+            if name in used:
+                continue
+            for v in strs:
+                t = _tool_of(v, tools)
+                if t and name not in out[t]:
+                    out[t].append(name)
     return out
 
 
@@ -824,17 +945,24 @@ def _const_value(tree, f, e, depth=0):
         m = tree.resolve(f.mod, e.value.id)
         if isinstance(m, Mod):
             return m.consts.get(e.attr)
+        # a command-line option: add_argument("--model", default="...")
+        for n in ast.walk(f.mod.tree):
+            if (isinstance(n, ast.Call) and _callee_name(n.func) == "add_argument"
+                    and any(isinstance(a, ast.Constant) and a.value == f"--{e.attr}"
+                            for a in n.args)):
+                d = next((k.value for k in n.keywords if k.arg == "default"), None)
+                return _str_value(d) if d is not None else None
     if (isinstance(e, ast.Call) and isinstance(e.func, ast.Attribute)
             and e.func.attr == "get" and len(e.args) == 2):
         return _const_value(tree, f, e.args[1], depth + 1)
     return None
 
 
-def _model_passes(tree, comp_mod, reach):
-    """Every framework call into this module that passes model=..."""
+def _model_passes(tree, comp_mod, reach, kind="framework"):
+    """Every call into this module from `kind` code that passes model=..."""
     out = []
     for k, f in sorted(tree.funcs.items()):
-        if f.mod.kind != "framework":
+        if f.mod.kind != kind:
             continue
         local_types = {}
         for n in ast.walk(f.node):
@@ -857,7 +985,8 @@ def section_llm(tree, reach, lines):
               "(`.ask(...)` or `...completions.create(...)`) or constructs a model "
               "client. The client itself is in section 2. \"Called from\" lists the "
               "framework functions outside the module whose calls reach a model "
-              "through it.", ""]
+              "through it, and then any code under `mcp/` (a server's own script) "
+              "that does.", ""]
     client_mod = "src/agents/llm_agent.py"
     for rel, m in sorted(tree.mods.items()):
         if m.kind != "framework" or rel == client_mod:
@@ -933,14 +1062,23 @@ def section_llm(tree, reach, lines):
         lines.append(f"- Records it reads: {_code_list(recs['reads'])}; writes: "
                      f"{_code_list(recs['writes'])}; names without opening: "
                      f"{_code_list(recs['names'])}")
-        callers = set()
+        callers = {"framework": set(), "server": set()}
         for k, cs in tree.edges.items():
             f = tree.funcs[k]
-            if f.mod is m or f.mod.kind != "framework":
+            if f.mod is m:
                 continue
             if any(c in reach and tree.funcs[c].mod is m for c in cs):
-                callers.add(f"{f.mod.rel}::{f.qual}")
-        lines.append("- Called from: " + _code_list(callers, "no framework function"))
+                callers[f.mod.kind].add(f"{f.mod.rel}::{f.qual}")
+        lines.append("- Called from: " + _code_list(callers["framework"],
+                                                    "no framework function"))
+        # SCRIPTS UNDER mcp/ COUNT TOO (2026-11-03). A server's own script
+        # (mcp/elm-mcp/scripts/analyze_agentic.py) may drive an agent defined
+        # here; "no framework function" alone would read as "unused".
+        if callers["server"]:
+            lines.append("- Called from (code under `mcp/`): "
+                         + _code_list(callers["server"]))
+            for p in _model_passes(tree, m, reach, kind="server"):
+                lines.append(f"  - {p}")
         lines.append("")
 
 
@@ -979,23 +1117,131 @@ def section_client(tree, lines):
         lines += ["", "The classes in `src/agents/llm_agent.py`:", ""]
         for c in m.classes.values():
             lines.append(f"- `{c.name}`: {_first_line(ast.get_docstring(c.node))}")
-        mt = None
-        for f in m.all_funcs():
-            for n in ast.walk(f.node):
+    sites = _reply_limits(tree)
+    if sites:
+        lines += ["", "The reply limit (`max_tokens`) at each model call in framework "
+                  "code, as the code sets it:", ""]
+        lines += [f"- {s}" for s in sites]
+    lines.append("")
+
+
+def _param_default(f, name):
+    """The default of parameter `name` of f, as a node, or None."""
+    a = f.node.args
+    params = a.args + a.kwonlyargs
+    defaults = ([None] * (len(a.args) - len(a.defaults)) + list(a.defaults)
+                + list(a.kw_defaults))
+    return next((d for p, d in zip(params, defaults) if p.arg == name), None)
+
+
+def _limit_value(tree, f, e):
+    """(value, where it is set) for a max_tokens expression, or (None, None).
+
+    A number is itself; a parameter is its default; `self.max_tokens` is what
+    the class (or a base) assigns to it, a number or a parameter's default."""
+    if isinstance(e, ast.Constant) and isinstance(e.value, int):
+        return e.value, None
+    if isinstance(e, ast.Name):
+        d = _param_default(f, e.id)
+        if isinstance(d, ast.Constant):
+            return d.value, f"the default of `{f.qual}({e.id})`"
+        return None, None
+    if (isinstance(e, ast.Attribute) and isinstance(e.value, ast.Name)
+            and e.value.id == "self" and f.cls):
+        for k in [f.cls] + tree.bases(f.cls):
+            for g in k.methods.values():
+                for n in ast.walk(g.node):
+                    if (isinstance(n, ast.Assign) and len(n.targets) == 1
+                            and isinstance(n.targets[0], ast.Attribute)
+                            and n.targets[0].attr == e.attr
+                            and isinstance(n.targets[0].value, ast.Name)
+                            and n.targets[0].value.id == "self"):
+                        if isinstance(n.value, ast.Constant):
+                            return n.value.value, f"set in `{g.qual}`"
+                        if isinstance(n.value, ast.Name):
+                            d = _param_default(g, n.value.id)
+                            if isinstance(d, ast.Constant):
+                                return d.value, f"the default of `{g.qual}({n.value.id})`"
+    return None, None
+
+
+def _reply_limits(tree):
+    """One line per `...completions.create(...)` call in framework code: the
+    max_tokens it sends (its keyword, or a `kwargs["max_tokens"] = ...` the
+    function sets before `**kwargs`), resolved, with the framework calls that
+    pass a different value into the parameter or constructor it comes from.
+
+    PER CALL, NOT PER CLIENT (2026-11-03). SimpleLLMClient.ask sends its own
+    limit, but Reception's tool loop and the agentic Analyzer call the SDK
+    directly with theirs, so one number for every client would be wrong."""
+    out = []
+    for f in sorted(tree.funcs.values(), key=lambda x: x.key):
+        if f.mod.kind != "framework":
+            continue
+        for n in ast.walk(f.node):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "create" and isinstance(n.func.value, ast.Attribute)
+                    and n.func.value.attr == "completions"):
+                continue
+            e = next((k.value for k in n.keywords if k.arg == "max_tokens"), None)
+            if e is None:
+                spread = {k.value.id for k in n.keywords
+                          if k.arg is None and isinstance(k.value, ast.Name)}
+                e = next((a.value for a in ast.walk(f.node)
+                          if isinstance(a, ast.Assign) and len(a.targets) == 1
+                          and isinstance(a.targets[0], ast.Subscript)
+                          and isinstance(a.targets[0].value, ast.Name)
+                          and a.targets[0].value.id in spread
+                          and isinstance(a.targets[0].slice, ast.Constant)
+                          and a.targets[0].slice.value == "max_tokens"), None)
+            if e is None:
+                out.append(f"`{f.key}`: none sent (the endpoint's own limit)")
+                continue
+            val, where = _limit_value(tree, f, e)
+            text = " ".join(f.mod.segment(e).split())
+            line = f"`{f.key}`: `{text}`" if val is None else (
+                f"`{f.key}`: {val}" + (f" (`{text}`, {where})" if where else ""))
+            line += _limit_overrides(tree, f, e)
+            out.append(line)
+    return sorted(set(out))
+
+
+def _limit_overrides(tree, f, e):
+    """", callers pass ..." for framework calls that set the parameter the
+    limit defaults from (`_chat(..., max_tokens=1600)`, `ToolLoopAgent(...,
+    max_tokens=...)`)."""
+    owner, param = None, None
+    if isinstance(e, ast.Name) and _param_default(f, e.id) is not None:
+        owner, param = f, e.id
+    elif isinstance(e, ast.Attribute) and f.cls:
+        for g in f.cls.methods.values():
+            for n in ast.walk(g.node):
                 if (isinstance(n, ast.Assign) and len(n.targets) == 1
                         and isinstance(n.targets[0], ast.Attribute)
-                        and n.targets[0].attr == "max_tokens"
-                        and isinstance(n.value, ast.Constant)):
-                    mt = (f.qual, n.value.value)
-        if mt:
-            lines.append(f"- `{mt[0]}` sets `max_tokens = {mt[1]}` on every client.")
-    lines.append("")
+                        and n.targets[0].attr == e.attr and isinstance(n.value, ast.Name)):
+                    owner, param = g, n.value.id
+    if owner is None:
+        return ""
+    passes = set()
+    for g in tree.funcs.values():
+        if g.mod.kind != "framework":
+            continue
+        for n in ast.walk(g.node):
+            if not isinstance(n, ast.Call):
+                continue
+            kw = next((k.value for k in n.keywords if k.arg == param), None)
+            if kw is None or g.key == owner.key:
+                continue
+            if any(t.key == owner.key for t in tree.call_targets(g, n, {})):
+                passes.add(f"`{g.qual}` passes `{' '.join(g.mod.segment(kw).split())}`")
+    return ("; " + ", ".join(sorted(passes))) if passes else ""
 
 
 def section_mcp(tree, lines):
     reg = registry()
     srv_dirs = sorted({Path(r).parts[1] for r in tree.mods if r.startswith("mcp/")})
     fw = [f for f in tree.funcs.values() if f.mod.kind == "framework"]
+    fw_mods = [m for m in tree.mods.values() if m.kind == "framework"]
     prompts = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / PROMPTS).glob("*.txt"))
     prompt_text = {p: (ROOT / p).read_text(errors="ignore") for p in prompts}
 
@@ -1020,6 +1266,9 @@ def section_mcp(tree, lines):
         for f in fw:
             for t in tools_named(f, tools):
                 out[t].add(f"{f.mod.rel}::{f.qual}")
+        for m in fw_mods:
+            for t, names in unused_tool_constants(m, tools).items():
+                out[t].add(f"{m.rel} (the constant {', '.join(sorted(names))})")
         for rx, name, users in patterns:
             for t in tools:
                 if rx.fullmatch(t):
@@ -1027,14 +1276,18 @@ def section_mcp(tree, lines):
                         out[t].add(f"{f.mod.rel}::{f.qual} (by the pattern {name})")
         for p, txt in prompt_text.items():
             for t in tools:
-                if re.search(rf"\b{re.escape(t)}\b", txt):
+                # `__` before the name: a prompt may write server__tool, and
+                # there is no word boundary between `_` and a letter.
+                if re.search(rf"(?:\b|__){re.escape(t)}\b", txt):
                     out[t].add(f"{p} (prompt)")
         return out
 
     lines += ["## 3. MCP servers and the tools they serve", "",
               f"The registry the framework reads is `{REGISTRY}` (copied to the "
               "git-ignored `mcp_config.json` on each machine). A tool's callers are "
-              "the framework functions that name it as a whole string literal, and "
+              "the framework functions that name it as a whole string literal, bare "
+              "or as `server__tool`, in their body or in a module or class constant "
+              "they use (a constant no function uses is credited to its module), and "
               "the prompts that name it. A tool with no caller may still be reached "
               "by a language model choosing it from a server's tool list.", ""]
     in_registry = set()
@@ -1047,8 +1300,8 @@ def section_mcp(tree, lines):
             lines += [f"Registry description: {desc}", ""]
         if rel is None:
             cmd = Path(spec.get("command") or "").name
-            lines += [f"Entry: the console script `{cmd}`, installed from a separate "
-                      "repository; its source and tool list are not in this one.", ""]
+            lines += [f"Entry: the command `{cmd}`. Its arguments name no server file "
+                      "in this repository, so its tools are not read here.", ""]
             continue
         in_registry.add(Path(rel).parts[1])
         tools = served_tools(tree, rel)
@@ -1218,32 +1471,54 @@ def section_direct(tree, lines):
     lines.append("")
 
 
+OPTIONAL_RE = re.compile(r"^#\s+([A-Za-z][\w.\-]*)\s+#(.*)$")
+
+
 def _requirements():
-    """Import name -> requirement line, reading `imported as X` comments."""
+    """Import name -> how requirements.txt lists it: `name`, or `optional:
+    name` for a commented line of the optional block, reading `imported as X`.
+
+    THE OPTIONAL BLOCK IS A LIST TOO (2026-11-03). requirements.txt names a few
+    packages as commented lines (`# rasterio   # what it is for`) because one
+    feature each needs them; they are listed on purpose, not missing."""
     out = {}
     p = ROOT / "requirements.txt"
     if not p.is_file():
         return out
     for line in p.read_text().splitlines():
-        s = line.split("#", 1)
-        pkg = s[0].strip()
-        if not pkg:
-            continue
-        name = re.split(r"[<>=!~\[ ]", pkg)[0]
-        out[name.lower()] = name
-        m = re.search(r"imported as (\w+)", s[1]) if len(s) > 1 else None
+        opt = OPTIONAL_RE.match(line.strip())
+        if opt:
+            name, note, label = opt.group(1), opt.group(2), f"optional: `{opt.group(1)}`"
+        else:
+            s = line.split("#", 1)
+            pkg = s[0].strip()
+            if not pkg:
+                continue
+            name = re.split(r"[<>=!~\[ ]", pkg)[0]
+            note = s[1] if len(s) > 1 else ""
+            label = f"`{name}`"
+        out.setdefault(name.lower(), label)
+        m = re.search(r"imported as (\w+)", note)
         if m:
-            out[m.group(1).lower()] = name
+            out.setdefault(m.group(1).lower(), label)
     return out
 
 
 def section_libs(tree, lines):
     stdlib = set(sys.stdlib_module_names) | {"__future__"}
+    # A NAME IS LOCAL ONLY WHEN IT CAN BE IMPORTED FROM HERE (2026-11-03): a
+    # module file, a package (a directory with __init__.py), or a directory
+    # directly under a `src/` the code puts on sys.path (agents, core). Any
+    # other directory name is not: the top-level `mcp/` holds the servers, and
+    # `import mcp` is the mcp SDK every server and the client import.
     local = set()
     for rel in list(tree.mods) + _walk("tools") + _walk("tests") + _walk("eval"):
         p = Path(rel)
         local.add(p.stem)
-        local.update(p.parts[:-1])
+        for i in range(1, len(p.parts) - 1):
+            d = Path(*p.parts[:i + 1])
+            if p.parts[i - 1] == "src" or (ROOT / d / "__init__.py").is_file():
+                local.add(p.parts[i])
     local |= {m.dotted.split(".")[0] for m in tree.mods.values()}
     # a name a loader registers by path (compare_pflotran) is this repository's
     local |= {n.args[0].value for m in tree.mods.values() for n in ast.walk(m.tree)
@@ -1274,7 +1549,7 @@ def section_libs(tree, lines):
               "|---|---|---|---|"]
     for t in sorted(use, key=str.lower):
         r = req.get(t.lower())
-        lines.append(f"| `{t}` | {('`' + r + '`') if r else 'no'} | "
+        lines.append(f"| `{t}` | {r or 'no'} | "
                      f"{_cell(_code_list(use[t]['framework']))} | "
                      f"{_cell(_code_list(use[t]['server']))} |")
     lines.append("")
@@ -1298,7 +1573,10 @@ def section_flow(tree, reach, lines):
               "exist). Read from those functions: whether a language model is reached "
               "(with one call path to it), the MCP tools they name, and the records "
               "they read and write, counting the functions they call (two calls deep) "
-              "in the same directory.",
+              "in the same directory. Records are found by the rules in the "
+              "generator's notes (a file name written in the code, or a constant "
+              "bound to one, inside a reading or writing call), so `none` means none "
+              "found by those rules; a name built at run time is not seen.",
               ""]
     for i, (title, anchors) in enumerate(FLOW, 1):
         funcs = [tree.funcs[a] for a in anchors]
@@ -1350,8 +1628,10 @@ def build():
              "and the Planner are language-model agents that design a study; code checks "
              "the design; the model server (`mcp/elm-mcp`) owns what is known about ELM, "
              "builds the runs and computes their numbers; the numbers report and the "
-             "Analyzer read those records. Everything below this note except the stage "
-             "titles in section 6 is read from the code. The page drawn by "
+             "Analyzer read those records. Everything below this note is read from "
+             "the code except the `FLOW` list in section 6 (the order of the stages, "
+             "their titles and the functions named for each), which is hand-written "
+             "and marked so there. The page drawn by "
              "`tools/make_arch_map.py` is the same picture with hand-written detail, and "
              "`ARCHITECTURE.md` at the top of the repository is the hand-written overview.", ""]
     section_llm(tree, reach, lines)
