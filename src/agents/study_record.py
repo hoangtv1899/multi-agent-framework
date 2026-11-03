@@ -252,6 +252,26 @@ def _finding(f, n=400):
     return _one_line(f, n)
 
 
+def _is_experiment(rd):
+    """WHO GETS THE CHECK BEFORE THE PAGE (2026-11-03): the server checks and
+    builds a design before its page only for a whole-domain experiment
+    (preview_design returns None for any other plan). So a missing preview
+    means "made before the check existed" only for such a study: one whose
+    design or brief names a domain_experiment, or whose runs were built."""
+    if (rd / "01_inputs" / "domain_runs.json").is_file():
+        return True
+    for name, path in (("strategy.json", ()), ("reception.json", ("brief",))):
+        try:
+            rec = _read_json(rd / name) or {}
+        except _Unreadable:
+            continue
+        for key in path:
+            rec = (rec.get(key) if isinstance(rec, dict) else None) or {}
+        if isinstance(rec, dict) and rec.get("domain_experiment"):
+            return True
+    return False
+
+
 def _check_lines(rd):
     L = ["## The model server's check"]
     broken = None
@@ -290,9 +310,13 @@ def _check_lines(rd):
             L.append(f"- cost: about {nh} node-hours")
         for p in pv.get("problems") or []:
             L.append(f"- problem: {_one_line(p, 300)}")
-    else:
+    elif _is_experiment(rd):
         L.append(f"This run predates the server's check before the design page "
                  f"(there is no `{PREVIEW_FILE}`).")
+    else:
+        L.append("The server checks a design before the design page only for a "
+                 "whole-domain experiment (a control and the runs that differ from it); "
+                 "this study is not one.")
     # THE CHECK AT BUILD TIME, which every whole-domain run has: the server's
     # answer when the runs were built after the decision.
     try:
@@ -397,25 +421,97 @@ def _check_notes(rec):
     return notes
 
 
-def _run_lines(rd, run, strategy_runs):
+_YEAR = re.compile(r"y\d{4}")
+
+
+def _stage_rank(stage):
+    if stage in ("case", "smoke", "report"):
+        return {"case": 0, "smoke": 1, "report": 99999}[stage]
+    return int(stage[1:]) + 10 if _YEAR.fullmatch(stage) else 50000
+
+
+def _stage_pass(record_dir, stage, job_id):
+    """A stage's own check record, checks/<stage>_<job id>.json: True or
+    False by its "pass", False when it cannot be read, None when absent."""
+    try:
+        rec = _read_json(record_dir / "checks" / f"{stage}_{job_id}.json")
+    except _Unreadable:
+        return False
+    return None if rec is None else bool((rec or {}).get("pass"))
+
+
+def _segments(chain):
+    """chain.json's armings; a record from before re-arming (no "segments")
+    is one arming, as the server reads it."""
+    if not isinstance(chain, dict):
+        return []
+    return chain["segments"] or [] if "segments" in chain else [chain]
+
+
+def chain_verdict(record_dir, chain):
+    """Where a chain stands, by THE SERVER'S RULE (2026-11-03).
+
+    domain_case.chain_records decides this for experiment.json and
+    analysis.json, and the page must not say otherwise: each stage is read
+    from its LATEST job (a re-armed chain's later arming takes over the
+    stages it ran again), a year passes when that job's own check record
+    passed, and the chain stops at the first case, smoke or year stage
+    without a passing record, except that a case stage with no record counts
+    as passed when a later stage left one (it could only run after the case).
+    The rule is copied here, not imported, so the page is drawn from the
+    folder by framework code alone; a test holds the copy to the server's.
+    Returns {stages: [{stage, job_id, segment, check_pass}], years_planned,
+    years_passed, first_unpassed}."""
+    order, latest = [], {}
+    for k, seg in enumerate(_segments(chain)):
+        for j in (seg or {}).get("jobs") or []:
+            s = str(j.get("stage"))
+            if s not in latest:
+                order.append(s)
+            latest[s] = dict(j, segment=k)
+    order.sort(key=_stage_rank)
+    rows = [{"stage": s, "job_id": str(latest[s].get("job_id")),
+             "segment": latest[s]["segment"],
+             "check_pass": _stage_pass(record_dir, s, latest[s].get("job_id"))}
+            for s in order]
+    later_ran = {r["stage"] for r in rows if r["check_pass"] is not None}
+    planned, passed, first = [], [], None
+    for r in rows:
+        s = r["stage"]
+        if _YEAR.fullmatch(s):
+            planned.append(int(s[1:]))
+            if r["check_pass"]:
+                passed.append(int(s[1:]))
+        ok = r["check_pass"] is True or (s == "case" and r["check_pass"] is None
+                                         and bool(later_ran - {"case"}))
+        gated = s in ("case", "smoke") or bool(_YEAR.fullmatch(s))
+        if gated and not ok and first is None:
+            first = s
+    return {"stages": rows, "years_planned": planned, "years_passed": passed,
+            "first_unpassed": first}
+
+
+def _run_lines(rec_dir, heading, rel, sr=None, recorded=None):
     """One run: its changes, each arming of its chain as a table of jobs,
-    what each job's check said, and where the chain stands."""
-    rec_dir = rd / DOMAIN_RECORD / run
-    L = [f"### Run {run}"]
-    sr = strategy_runs.get(run)
+    what each job's check said, and where the chain stands. `rec_dir` is the
+    run's record folder, `rel` its path in the run folder (for the page),
+    `sr` the run as the strategy names it, `recorded` what experiment.json
+    recorded for its chain."""
+    L = [f"### {heading}"]
     if sr:
         L.append("- the control with " + "; ".join(_change_words(c) for c in sr.get("changes") or [])
                  if sr.get("changes") else "- no change from the control is recorded")
     try:
         chain = _read_json(rec_dir / "chain.json")
     except _Unreadable as e:
-        return L + [f"- {DOMAIN_RECORD}/{run}/chain.json is in the folder but {e}.", ""]
+        return L + [f"- {rel}/chain.json is in the folder but {e}.", ""]
     if chain is None:
-        return L + [f"- no chain was armed for it (there is no `{DOMAIN_RECORD}/{run}/chain.json`).", ""]
+        return L + [f"- no chain was armed for it (there is no `{rel}/chain.json`).", ""]
     times = report_lines(_read_text(rec_dir / "STATUS.log"))
-    passed_years, total, first_bad, notes = [], 0, None, []
-    segments = chain.get("segments") or []
+    total, notes, verdicts = 0, [], {}
+    segments = _segments(chain)
     for si, seg in enumerate(segments, 1):
+        seg = seg or {}
         if len(segments) > 1:
             L.append(f"- arming {si} of {len(segments)}, armed {seg.get('armed')}:")
         else:
@@ -431,12 +527,7 @@ def _run_lines(rd, run, strategy_runs):
                 verdict = ", ".join(f"{n} {_verdict(c)}" for n, c in checks.items())
             else:
                 verdict = "no check record"
-            if stage != "report":
-                ok = bool(checks) and all(_verdict(c) == "passed" for c in checks.values())
-                if ok and re.fullmatch(r"y\d{4}", str(stage)):
-                    passed_years.append(int(stage[1:]))
-                if not ok and first_bad is None:
-                    first_bad = (stage, jid, verdict, t.get("state"))
+            verdicts[jid] = verdict
             for n, c in checks.items():
                 who = f"{stage} (job {jid})" + (f", its {n} check" if n != stage else "")
                 notes += [f"{who}: {x}" for x in _check_notes(c)]
@@ -449,23 +540,57 @@ def _run_lines(rd, run, strategy_runs):
         L.append("")
     if not times:
         L.append("- the report stage has logged no job times yet (no REPORT line in "
-                 f"`{DOMAIN_RECORD}/{run}/STATUS.log`).")
+                 f"`{rel}/STATUS.log`).")
     elif total:
         L.append(f"- model jobs' time as the report stage logged it: {_hms(total)} in all.")
-    planned = sorted({int(j["stage"][1:]) for s in segments for j in s.get("jobs") or []
-                      if re.fullmatch(r"y\d{4}", str(j.get("stage")))})
-    passed = sorted(set(passed_years))
-    L.append(f"- years planned: {_years(planned)}; years whose check passed: {_years(passed)}.")
-    if first_bad:
-        stage, jid, verdict, state = first_bad
-        L.append(f"- **The chain stopped at stage {stage}** (job {jid}): its check: {verdict}"
+    v = chain_verdict(rec_dir, chain)
+    rows = {r["stage"]: r for r in v["stages"]}
+    rearmed = sorted((r for r in v["stages"] if r["segment"] > 0),
+                     key=lambda r: _stage_rank(r["stage"]))
+    if rearmed:
+        L.append("- re-armed: each stage is read from its latest job, so "
+                 + ", ".join(f"{r['stage']} from job {r['job_id']} (arming {r['segment'] + 1})"
+                             for r in rearmed) + ".")
+    L.append(f"- years planned: {_years(v['years_planned'])}; years whose check passed: "
+             f"{_years(v['years_passed'])}.")
+    first = v["first_unpassed"]
+    if first:
+        r = rows[first]
+        state = (times.get(r["job_id"]) or {}).get("state")
+        L.append(f"- **The chain stopped at stage {first}** (job {r['job_id']}): its check: "
+                 f"{verdicts.get(r['job_id'], 'no check record')}"
                  + (f"; the scheduler's state: {state}" if state else "") + ".")
     else:
-        L.append("- every job's check passed.")
+        L.append("- every stage's check passed"
+                 + (" (a re-armed stage by its latest job)" if rearmed else "") + ".")
+        case = rows.get("case")
+        if case and case["check_pass"] is None:
+            L.append("- the case stage left no check record; it counts as passed because "
+                     "a later stage ran after it.")
+    # THE FRAMEWORK'S OWN RECORD, quoted where it says otherwise (2026-11-03):
+    # experiment.json was written by the same rule when job B finished, so a
+    # difference means a check record changed after it, and the page says so.
+    if isinstance(recorded, dict) and ("years_passed" in recorded or "first_unpassed" in recorded):
+        got = (list(recorded.get("years_passed") or []), recorded.get("first_unpassed"))
+        if got != (v["years_passed"], first):
+            L.append(f"- experiment.json records otherwise: years whose check passed "
+                     f"{_years(got[0])}; first stage without a passing check: "
+                     f"{got[1] or 'none'}.")
     if notes:
         L.append("- what the checks said:")
         L += [f"  - {n}" for n in notes]
     return L + [""]
+
+
+def _brief_runs(rd):
+    """The runs the brief in reception.json names, [] when it names none or
+    cannot be read."""
+    try:
+        rec = _read_json(rd / "reception.json") or {}
+    except _Unreadable:
+        return []
+    de = ((rec.get("brief") or {}).get("domain_experiment")) or {}
+    return [r.get("name") for r in de.get("runs") or [] if isinstance(r, dict) and r.get("name")]
 
 
 def _runs_lines(rd):
@@ -483,14 +608,34 @@ def _runs_lines(rd):
         strategy = _read_json(rd / "strategy.json") or {}
     except _Unreadable as e:
         strategy, L = {}, L + [f"- strategy.json is in the folder but {e}."]
+    try:
+        recorded = ((_read_json(rd / "experiment.json") or {}).get("chain") or {}).get("runs") or {}
+    except (_Unreadable, AttributeError):
+        recorded = {}
+    if not isinstance(recorded, dict):
+        recorded = {}
     de = strategy.get("domain_experiment") or {}
-    strategy_runs = {r.get("name"): r for r in de.get("runs") or [] if isinstance(r, dict)}
-    names = [r.get("name") for r in dr.get("runs") or [] if isinstance(r, dict)]
+    strategy_runs = {r.get("name"): r for r in de.get("runs") or []
+                     if isinstance(r, dict) and r.get("name")}
     rec = rd / DOMAIN_RECORD
-    on_disk = sorted(p.name for p in rec.iterdir() if p.is_dir()) if rec.is_dir() else []
-    if ctl and not ctl.get("reuse") and "control" in on_disk and "control" not in names:
+    # ONE WHOLE-DOMAIN CASE, the layout before experiments (2026-11-03): its
+    # record is domain_case/ itself (chain.json, checks/, logs/), so that
+    # folder is the one run, and its subfolders are not runs.
+    if (rec / "chain.json").is_file():
+        case = strategy.get("domain_case") or {}
+        name = case.get("case") if isinstance(case, dict) else None
+        return L + ["", *_run_lines(rec, "The whole-domain case" + (f" {name}" if name else ""),
+                                    DOMAIN_RECORD)]
+    # RUN NAMES FROM THE RECORDS (2026-11-03): the server's build, the design,
+    # and a record folder only when it holds a chain, so checks/ or logs/ is
+    # never taken for a run, and a run the server refused is still named.
+    names = [r.get("name") for r in dr.get("runs") or [] if isinstance(r, dict) and r.get("name")]
+    names += [n for n in strategy_runs if n not in names]
+    armed = sorted(p.name for p in rec.iterdir()
+                   if p.is_dir() and (p / "chain.json").is_file()) if rec.is_dir() else []
+    if "control" in armed and "control" not in names:
         names.insert(0, "control")
-    names += [n for n in on_disk if n not in names]
+    names += [n for n in armed if n not in names]
     if not names:
         if not dr and not de:
             # NOT A WHOLE-DOMAIN STUDY (2026-11-03): every study ends through
@@ -508,11 +653,16 @@ def _runs_lines(rd):
                          + (f", {rs['experiments_failed']} failed"
                             if rs.get("experiments_failed") else "") + ".")
             return L + [""]
+        brief = _brief_runs(rd)
+        if brief:
+            return L + [f"- The brief named run(s) {', '.join(f'**{b}**' for b in brief)}, "
+                        f"but the design as run names none and no chain is on record.", ""]
         return L + ["- No run differs from the control: the study read the control's "
                     "output alone, and no job was submitted.", ""]
     L.append("")
     for n in names:
-        L += _run_lines(rd, n, strategy_runs)
+        L += _run_lines(rec / n, f"Run {n}", f"{DOMAIN_RECORD}/{n}",
+                        strategy_runs.get(n), recorded.get(n))
     return L
 
 
@@ -674,6 +824,7 @@ ROLES = (
     ("reception_brief.json", "the brief alone, a copy of reception.json's brief for the standalone tools"),
     ("strategy.as_accepted.json", "the Planner's design as accepted on the design page, before a later correction"),
     ("strategy.json", "the Planner's design, as run"),
+    ("strategy.refused_*.json", "a design the model server refused before the design page, kept as it was"),
     ("plan.json", "the design as the Experiment Manager was handed it"),
     ("run_plan.json", "the design merged with what the Experiment Manager resolved from it"),
     ("assumptions.json", "the assumptions ledger: what was assumed without you"),
@@ -681,20 +832,42 @@ ROLES = (
     ("run_state.json", "each pipeline stage's status and time"),
     ("experiment.json", "the Experiment Manager's product: the experiment, its chains and its numbers"),
     ("RUN_SUMMARY.json", "the run's summary: start, end and each case's status"),
+    ("ERROR_LOG.json", "the Experiment Manager's account of the error that stopped the study"),
     ("STUDY_REPORT.txt", "the notice written when the study ended"),
     ("DESIGN_REVIEW.md", "the design page shown before any compute, with the decision on it"),
     ("PLAN_CORRECTED.md", "a note of a correction made to the plan after the decision"),
-    ("ensemble_B.sbatch", "the script of job B, which made the numbers and the analysis after the chains"),
+    ("ensemble_A.sbatch", "the script of job A, which builds the model's cases and runs them"),
+    ("ensemble_A.log", "job A's log: each case built and run, and how it ended"),
+    ("ensemble_B.sbatch", "the script of job B: reads the results and writes the analysis after the model jobs"),
     ("ensemble_B.log", "job B's log"),
+    ("sampling_design.png", "the map of the columns the model runs, drawn before any compute"),
+    ("conus2_subsurface.npz", "the ParFlow CONUS2 subsurface data over the study area, fetched for the run"),
+    ("conus2_subsurface.json", "where the CONUS2 subsurface data came from and the grid it covers"),
+    ("wtd_conus2.tif", "CONUS2's water table depth over the study area, as a map"),
+    ("warmstart/warmstart.json", "the warm start's record: which cell of the donor run each column was cut from"),
+    ("warmstart/finidat_*.nc", "one column's starting state, cut from the donor run's saved state"),
+    ("warmstart/surfdata_*.nc", "one column's surface data, cut to match its starting state"),
+    ("warmstart/*", "a file of the warm start"),
+    ("02_setup_plots/*", "a figure drawn while the inputs were set up"),
     ("01_inputs/design_preview.json", "the model server's check and build of the design before the design page"),
     ("01_inputs/control_recipe.json", "how the control was made, read from its case"),
     ("01_inputs/source_changes.patch", "the model code's local changes, saved as a patch"),
-    ("01_inputs/case_inputs.json", "one row per run, the control's included: its case, changes and whether it is reused"),
+    ("01_inputs/case_inputs.json", "one row per case the model server builds, with its inputs and settings (for a whole-domain study, one per run, the control's included)"),
+    ("01_inputs/built_cases.json", "the cases job A built, and each one's case folder"),
+    ("01_inputs/elm_columns.json", "each column as ELM received it: place, elevation band and starting water table"),
+    ("01_inputs/decks/*.in", "one column's PFLOTRAN input deck"),
+    ("01_inputs/decks/*.out", "one column's PFLOTRAN log: what it printed as it ran"),
+    ("01_inputs/decks/*.err", "the error output of one column's PFLOTRAN run"),
+    ("01_inputs/decks/*-mas.dat", "one column's mass balance through the run"),
+    ("01_inputs/decks/*.tec", "one column's state at one output time"),
+    ("01_inputs/decks/*.regression", "one column's regression summary of its output"),
+    ("01_inputs/decks/*", "a file of one column's PFLOTRAN run"),
     ("01_inputs/columns.json", "the frame the inputs were built on"),
     ("01_inputs/domain_experiment.json", "the experiment as handed to the model server: control, runs, years"),
     ("01_inputs/domain_control_facts.json", "the server's facts about the control and its check of the experiment"),
     ("01_inputs/domain_runs.json", "the server's build of the runs: the control, each run, the cost and its findings"),
     ("01_inputs/domain_recipe.json", "the control's recipe, for a control that runs too"),
+    ("01_inputs/domain_chain.json", "the years and checks asked for, for a single whole-domain case"),
     ("01_inputs/experiment_summary.json", "a summary of the experiment's inputs"),
     ("01_inputs/runs/*/domain_recipe.json", "the run's recipe: the control's recipe plus its changes"),
     ("01_inputs/runs/*/domain_chain.json", "the run's planned jobs"),
@@ -718,6 +891,18 @@ ROLES = (
     (f"{DOMAIN_RECORD}/*/logs/*", "one job's log from the scheduler"),
     (f"{DOMAIN_RECORD}/*/SourceMods/*", "a model source file copied into the run's case"),
     (f"{DOMAIN_RECORD}/*/user_files/*", "a file copied into the run's case (a weather stream description)"),
+    # ONE WHOLE-DOMAIN CASE keeps the same files in domain_case/ itself.
+    (f"{DOMAIN_RECORD}/chain.json", "the case's submitted jobs and their ids"),
+    (f"{DOMAIN_RECORD}/STATUS.log", "the case's jobs, line by line, and the job times the report stage logged"),
+    (f"{DOMAIN_RECORD}/domain_recipe.json", "the recipe the case was built from"),
+    (f"{DOMAIN_RECORD}/create_case.sh", "the script that creates and builds the case"),
+    (f"{DOMAIN_RECORD}/run_stage.sh", "the script each job of the case's chain runs"),
+    (f"{DOMAIN_RECORD}/checks/case_*.json", "the case job's check: the model code it was built from"),
+    (f"{DOMAIN_RECORD}/checks/smoke_*.json", "the short first run's check: its logs, daily output and what it carried from the saved state"),
+    (f"{DOMAIN_RECORD}/checks/y[0-9][0-9][0-9][0-9]_*.json", "one model year's check: its logs and its output"),
+    (f"{DOMAIN_RECORD}/checks/*", "a check record of one of the case's jobs"),
+    (f"{DOMAIN_RECORD}/logs/*", "one job's log from the scheduler"),
+    (f"{DOMAIN_RECORD}/SourceMods/*", "a model source file copied into the case"),
     ("03_results/regional.json", "the numbers by region, field and year, computed by the model server from the model's output"),
     ("03_results/extracted.json", "the record of what was read from the model's output"),
     ("03_results/execution_report.txt", "the Experiment Manager's account of each case"),

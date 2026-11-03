@@ -262,7 +262,7 @@ class TestTheRuns:
         # 11 + 12 + 13 + 14 minutes
         assert "model jobs' time as the report stage logged it: 0:50:00 in all." in p
         assert "years planned: 2015, 2016; years whose check passed: 2015, 2016." in p
-        assert "- every job's check passed." in p
+        assert "- every stage's check passed." in p
         assert ("y2015 (job 1003): 2015 compared with the control (not counted in the "
                 "verdict): TOTVEGC: bias -0.25 %") in p
         assert "y2015 (job 1003): the change's expected effects on 2015's output: 1 of 1 held" in p
@@ -429,6 +429,224 @@ class TestTheIndexAndTheRobustness:
 
     def test_no_em_dash_in_what_the_page_writes(self, tmp_path):
         assert "—" not in _page(_run_folder(tmp_path, years=(2015, 2016), stop_at=2016))
+
+
+# ─────────────────────────────────────────────────────────────────────
+# WHAT A REVIEW FOUND (2026-11-03): a re-armed chain read by the server's
+# rule, the "predates" line only for an experiment, a single whole-domain
+# case, a refused design, and a role for the files of a sampled study.
+# ─────────────────────────────────────────────────────────────────────
+
+sys.path.insert(0, str(ROOT / "mcp" / "elm-mcp" / "src"))
+import domain_case as DC                                   # noqa: E402
+
+
+def _chain_folder(tmp_path, segments, checks, name="study_r", single=False):
+    """A whole-domain study with one run, r1 (or, `single`, one whole-domain
+    case recorded in domain_case/ itself), whose chain has these armings and
+    these check records {file name: pass}."""
+    rd = tmp_path / name
+    rec = rd / "domain_case" / ("" if single else "r1")
+    if not single:
+        _w(rd / "01_inputs" / "domain_runs.json", {
+            "ok": True, "control": {"name": "basin", "reuse": True}, "runs": [{"name": "r1"}]})
+    _w(rec / "chain.json", {"segments": segments})
+    for fn, ok in checks.items():
+        _w(rec / "checks" / fn, {"pass": ok, "reasons": []})
+    return rd, rec
+
+
+def _jobs(*pairs):
+    return [{"stage": s, "job_id": j} for s, j in pairs]
+
+
+REARMED = [{"armed": "2026-10-01T00:00:00",
+            "jobs": _jobs(("case", "1"), ("smoke", "2"), ("y2015", "3"), ("y2016", "4"),
+                          ("report", "5"))},
+           {"armed": "2026-10-02T00:00:00", "jobs": _jobs(("y2016", "6"), ("report", "7"))}]
+
+
+class TestTheServersRule:
+
+    def test_a_re_armed_year_that_passed_is_passed(self, tmp_path):
+        rd, _ = _chain_folder(tmp_path, REARMED, {
+            "case_1.json": True, "smoke_2.json": True, "y2015_3.json": True,
+            "y2016_4.json": False, "y2016_6.json": True})
+        p = _page(rd)
+        assert "- arming 2 of 2, armed 2026-10-02T00:00:00:" in p
+        assert "| y2016 | 4 | y2016 FAILED |" in p            # the table keeps both
+        assert "| y2016 | 6 | y2016 passed |" in p
+        assert "- re-armed: each stage is read from its latest job, so y2016 from job 6 " \
+               "(arming 2), report from job 7 (arming 2)." in p
+        assert "years planned: 2015, 2016; years whose check passed: 2015, 2016." in p
+        assert "- every stage's check passed (a re-armed stage by its latest job)." in p
+        assert "stopped" not in p
+
+    def test_a_year_that_passed_and_then_failed_when_re_armed_is_not_passed(self, tmp_path):
+        rd, _ = _chain_folder(tmp_path, REARMED, {
+            "case_1.json": True, "smoke_2.json": True, "y2015_3.json": True,
+            "y2016_4.json": True, "y2016_6.json": False})
+        p = _page(rd)
+        assert "years whose check passed: 2015." in p
+        assert "**The chain stopped at stage y2016** (job 6): its check: y2016 FAILED." in p
+
+    def test_a_case_with_no_record_counts_as_passed_when_a_later_stage_ran(self, tmp_path):
+        rd, _ = _chain_folder(tmp_path, [{"armed": "a", "jobs": _jobs(
+            ("case", "1"), ("smoke", "2"), ("y2015", "3"), ("report", "4"))}],
+            {"smoke_2.json": True, "y2015_3.json": True})
+        p = _page(rd)
+        assert "| case | 1 | no check record |" in p
+        assert "stopped" not in p
+        assert "- the case stage left no check record; it counts as passed because a " \
+               "later stage ran after it." in p
+
+    def test_a_case_with_no_record_and_nothing_after_it_stops_the_chain(self, tmp_path):
+        rd, _ = _chain_folder(tmp_path, [{"armed": "a", "jobs": _jobs(
+            ("case", "1"), ("smoke", "2"), ("report", "3"))}], {})
+        assert "**The chain stopped at stage case** (job 1): its check: no check record." \
+            in _page(rd)
+
+    def test_a_chain_from_before_re_arming_is_one_arming(self, tmp_path):
+        rd, rec = _chain_folder(tmp_path, [], {"case_1.json": True, "y2015_2.json": True})
+        _w(rec / "chain.json", {"armed": "a", "jobs": _jobs(("case", "1"), ("y2015", "2"))})
+        p = _page(rd)
+        assert "| y2015 | 2 | y2015 passed |" in p
+        assert "years whose check passed: 2015." in p
+
+    @pytest.mark.parametrize("checks", [
+        {"case_1.json": True, "smoke_2.json": True, "y2015_3.json": True,
+         "y2016_4.json": False, "y2016_6.json": True},
+        {"case_1.json": True, "smoke_2.json": True, "y2015_3.json": True,
+         "y2016_4.json": True, "y2016_6.json": False},
+        {"smoke_2.json": True, "y2015_3.json": True},
+        {"case_1.json": True, "smoke_2.json": False},
+        {"y2016_6.json": True},
+        {}])
+    def test_the_copy_of_the_rule_agrees_with_the_servers(self, tmp_path, checks):
+        """chain_verdict is a copy of domain_case.chain_records; this holds it
+        to the server's own function on the same folders."""
+        _, rec = _chain_folder(tmp_path, REARMED, checks)
+        ours = SR.chain_verdict(rec, json.loads((rec / "chain.json").read_text()))
+        theirs = DC.chain_records(rec)
+        for k in ("years_planned", "years_passed", "first_unpassed"):
+            assert ours[k] == theirs[k], k
+        assert [(r["stage"], r["job_id"], r["check_pass"]) for r in ours["stages"]] == \
+            [(r["stage"], r["job_id"], r["check_pass"]) for r in theirs["stages"]]
+
+    def test_experiment_json_is_quoted_where_it_says_otherwise(self, tmp_path):
+        rd, _ = _chain_folder(tmp_path, REARMED, {
+            "case_1.json": True, "smoke_2.json": True, "y2015_3.json": True,
+            "y2016_4.json": False, "y2016_6.json": True})
+        _w(rd / "experiment.json", {"chain": {"runs": {"r1": {
+            "years_passed": [2015, 2016], "first_unpassed": None}}}})
+        assert "experiment.json records otherwise" not in _page(rd)
+        _w(rd / "experiment.json", {"chain": {"runs": {"r1": {
+            "years_passed": [2015], "first_unpassed": "y2016"}}}})
+        assert ("- experiment.json records otherwise: years whose check passed 2015; first "
+                "stage without a passing check: y2016.") in _page(rd)
+
+
+def _site_folder(tmp_path):
+    """A sampled-column ELM study made today: no domain_experiment anywhere,
+    and the files the ELM manager and its server write for one."""
+    rd = tmp_path / "site"
+    _w(rd / "reception.json", {"user_request": "ELM at three columns",
+                               "brief": {"model": "elm", "design_archetype": "site_ensemble"}})
+    _w(rd / "strategy.json", {"design_archetype": "site_ensemble"})
+    _w(rd / "RUN_SUMMARY.json", {"experiments_total": 3, "experiments_success": 3})
+    for f in ("plan.json", "run_plan.json", "columns.json", "assumptions.json",
+              "reception_brief.json", "run_state.json", "experiment.json",
+              "conus2_subsurface.json", "01_inputs/case_inputs.json",
+              "01_inputs/built_cases.json", "01_inputs/elm_columns.json",
+              "01_inputs/columns.json", "01_inputs/experiment_summary.json",
+              "warmstart/warmstart.json", "03_results/extracted.json",
+              "04_analysis/analysis.json", "04_analysis/comparison.json"):
+        _w(rd / f, {})
+    for f in ("DESIGN_REVIEW.md", "ensemble_A.sbatch", "ensemble_A.log", "ensemble_B.sbatch",
+              "ensemble_B.log", "conus2_subsurface.npz", "wtd_conus2.tif",
+              "sampling_design.png", "warmstart/finidat_col_01.nc",
+              "warmstart/surfdata_col_01.nc", "02_setup_plots/forcing.png",
+              "03_results/execution_report.txt", "03_results/results_summary.csv",
+              "04_analysis/REPORT.md", "04_analysis/compare_swe.png",
+              "04_analysis/swe_by_band.png", "04_analysis/swe_by_band.py"):
+        _w(rd / f, "x")
+    return rd
+
+
+class TestOtherStudies:
+
+    def test_a_site_study_is_not_said_to_predate_the_check(self, tmp_path):
+        p = _page(_site_folder(tmp_path))
+        assert "predates" not in p
+        assert ("The server checks a design before the design page only for a whole-domain "
+                "experiment (a control and the runs that differ from it); this study is not "
+                "one.") in p
+
+    def test_an_experiment_named_only_in_the_brief_still_predates_it(self, tmp_path):
+        rd = tmp_path / "old"
+        _w(rd / "reception.json", {"brief": {"domain_experiment": {"runs": []}}})
+        assert "This run predates the server's check before the design page" in _page(rd)
+
+    def test_every_common_file_of_a_site_study_has_a_role(self, tmp_path):
+        rd = _site_folder(tmp_path)
+        p = SR.render(rd)
+        assert "no role on record" not in p
+        assert "| `ensemble_B.sbatch` | the script of job B: reads the results and writes " \
+               "the analysis after the model jobs |" in p
+
+    def test_every_file_of_a_pflotran_column_has_a_role(self):
+        for f in ("col_01.in", "col_01.out", "col_01.err", "col_01-mas.dat",
+                  "col_01-003.tec", "col_01.regression", "col_01.h5"):
+            assert not SR.file_role(f"01_inputs/decks/col_01/{f}").startswith("no role"), f
+
+    def test_a_single_whole_domain_case_is_one_run(self, tmp_path):
+        rd, rec = _chain_folder(tmp_path, [{"armed": "2026-10-23T12:08:53", "jobs": _jobs(
+            ("case", "1"), ("smoke", "2"), ("y2015", "3"), ("report", "4"))}],
+            {"case_1.json": True, "smoke_2.json": True, "y2015_3.json": True}, single=True)
+        _w(rec / "logs" / "case.1.out", "x")
+        _w(rec / "SourceMods" / "src.elm" / "PhenologyMod.F90", "x")
+        _w(rec / "STATUS.log", "REPORT c_y2015 job=3 state=COMPLETED elapsed=01:00:00 exit=0:0\n")
+        _w(rd / "strategy.json", {"domain_case": {"case": "nbgc_fw2"}})
+        p = _page(rd)
+        assert "### The whole-domain case nbgc_fw2" in p
+        assert "| y2015 | 3 | y2015 passed | COMPLETED | 01:00:00 |" in p
+        assert "years planned: 2015; years whose check passed: 2015." in p
+        for d in ("checks", "logs", "SourceMods"):
+            assert f"### Run {d}" not in p
+        assert "predates" not in p
+        assert "no role on record" not in p
+
+    def test_a_folder_without_a_chain_is_not_a_run(self, tmp_path):
+        rd = _run_folder(tmp_path)
+        _w(rd / "domain_case" / "scratch" / "notes.txt", "x")
+        p = _page(rd)
+        assert "### Run warm" in p and "### Run scratch" not in p
+
+    def test_a_refused_design_names_its_runs(self, tmp_path):
+        rd = tmp_path / "refused"
+        _w(rd / "strategy.json", {"domain_experiment": {
+            "control": {"name": "basin", "reuse": True},
+            "runs": [{"name": "warm", "changes": [{"id": "weather_scale",
+                                                   "params": {"temperature_K": 2}}]}],
+            "years": [2015]}})
+        _w(rd / "01_inputs" / "design_preview.json", {
+            "refused": [{"where": "run warm", "what": "the case name exists"}], "runs": []})
+        p = _page(rd)
+        assert "- **Refused.** The server would not build the design:" in p
+        assert "No run differs from the control" not in p
+        assert "### Run warm\n- the control with weather_scale (temperature_K 2)\n" \
+               "- no chain was armed for it (there is no `domain_case/warm/chain.json`)." in p
+
+    def test_runs_named_only_in_the_brief(self, tmp_path):
+        rd = tmp_path / "brief_only"
+        _w(rd / "reception.json", {"brief": {"domain_experiment": {
+            "control": {"name": "basin"}, "runs": [{"name": "warm"}]}}})
+        _w(rd / "strategy.json", {"domain_experiment": {"control": {"name": "basin"},
+                                                        "runs": []}})
+        p = _page(rd)
+        assert "No run differs from the control" not in p
+        assert ("- The brief named run(s) **warm**, but the design as run names none and "
+                "no chain is on record.") in p
 
 
 # ─────────────────────────────────────────────────────────────────────
