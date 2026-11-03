@@ -120,9 +120,12 @@ def test_the_report_of_the_event(table, hand, tmp_path):
     for band in BAND_NAMES + ["watershed, vegetated"]:
         assert f"| {band} | " in page, band
     assert "### TLAI (dimensionless, mean over the year)" in page
+    # the months of every field, a figure each (2026-11-03)
     assert sorted(Path(f).name for f in out["figures"]) == ["domain_fig_GPP_anomaly.png",
                                                             "domain_fig_GPP_by_year.png",
                                                             "domain_fig_changes.png",
+                                                            "domain_fig_monthly_GPP.png",
+                                                            "domain_fig_monthly_TLAI.png",
                                                             "domain_fig_overview.png"]
     assert "\u2014" not in page and "validated" not in page.lower()
 

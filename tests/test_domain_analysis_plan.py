@@ -257,12 +257,13 @@ class TestTheReportAndThePageReadWithin:
         assert keys == ["watershed, vegetated", "watershed, vegetated, below 1000 m",
                         "watershed, vegetated, 1000-1500 m"]
 
-    def test_a_figure_does_not_repeat_vegetated_on_every_label(self):
+    def test_a_figure_names_a_region_as_the_tables_do(self):
+        # THE TABLE'S NAMES ON THE FIGURES (2026-11-03): ", vegetated" is kept,
+        # so a figure's title matches a row of the tables beside it
         from agents.analysis.domain_report import _label
-        assert _label("watershed, vegetated, 1000-1500 m") == "watershed, 1000-1500 m"
-        assert _label("watershed, vegetated") == "watershed"
+        assert _label("watershed, vegetated, 1000-1500 m") == "watershed, vegetated, 1000-1500 m"
+        assert _label("watershed, vegetated") == "watershed, vegetated"
         assert _label("vegetated cells") == "vegetated cells"
-        assert _label("1000-1500 m") == "1000-1500 m"
 
     def test_the_label(self):
         assert region_label({"name": "elevation bands", "within": "watershed"}) == \

@@ -82,16 +82,20 @@ def _build(tmp_path, table, runs=None, analysis=None):
 
 
 class TestTheMonthlyFigures:
+    # ONE FIGURE PER FIELD, A PANEL PER REGION (2026-11-03): every field the plan
+    # names is drawn, titled with the table's region names.
 
-    def test_each_run_and_its_difference_a_figure_per_region(self, tmp_path, drawn):
+    def test_each_run_and_its_difference_a_figure_per_field(self, tmp_path, drawn):
         rd, page = _build(tmp_path, with_months(T._table()))
-        names = ["domain_fig_monthly_watershed.png", "domain_fig_monthly_vegetated_cells.png"]
-        for n in names:
-            assert (rd / "04_analysis" / n).is_file() and f"![{n}]({n})" in page
-        fig = drawn["domain_fig_monthly_watershed.png"]
-        # GPP alone has months: its values above, the run minus the control below
-        top, bottom = fig.axes[0], fig.axes[1]
-        assert top.get_title() == "GPP" and top.get_ylabel() == "gC/m^2/month"
+        n = "domain_fig_monthly_GPP.png"
+        assert (rd / "04_analysis" / n).is_file() and f"![{n}]({n})" in page
+        fig = drawn[n]
+        # a panel per region (watershed first, the plan's order), each run's
+        # months above and the run minus the control below
+        top, top2, bottom = fig.axes[0], fig.axes[1], fig.axes[2]
+        assert top.get_title() == "watershed, vegetated"
+        assert top2.get_title() == "vegetated cells"
+        assert top.get_ylabel() == "gC/m^2/month" and top2.get_ylabel() == ""
         assert [ln.get_label() for ln in top.get_lines()] == ["control", "nofire"]
         assert list(top.get_lines()[0].get_ydata()[:3]) == [15.0, 25.0, 35.0]
         d = [ln for ln in bottom.get_lines() if len(ln.get_ydata()) == 24][0]
@@ -100,12 +104,17 @@ class TestTheMonthlyFigures:
         # the run's colour above is its colour below
         assert d.get_color() == top.get_lines()[1].get_color()
         assert [t.get_text() for t in top.get_xticklabels()] == ["2015", "2016"]
+        assert fig._suptitle.get_text() == "GPP (gC/m^2/month), by month"
+        # the page says which figure holds which field
+        assert ("*domain_fig_monthly_GPP.png: GPP (gC/m^2/month) by month, a panel per "
+                "region (watershed, vegetated; vegetated cells): each run, and beneath each "
+                "panel each run minus the control.*") in page
 
     def test_a_missing_month_is_a_gap_not_a_zero(self, tmp_path, drawn):
         t = with_months(T._table())
         t["monthly_differences"]["nofire"]["watershed, vegetated"]["GPP"]["2015-07"] = None
         _build(tmp_path, t)
-        bottom = drawn["domain_fig_monthly_watershed.png"].axes[1]
+        bottom = drawn["domain_fig_monthly_GPP.png"].axes[2]
         y = bottom.get_lines()[0].get_ydata()
         assert y[6] != y[6] and 0.0 not in list(y[5:8])
 
@@ -114,26 +123,68 @@ class TestTheMonthlyFigures:
         _build(tmp_path, t, runs=[T.CONTROL_ROW],
                analysis={"regions": [{"name": "vegetated cells"}], "variables": ["GPP"],
                          "normal_years": [2016]})
-        fig = drawn["domain_fig_monthly_vegetated_cells.png"]
+        fig = drawn["domain_fig_monthly_GPP.png"]
         (ax,) = fig.axes
+        assert ax.get_title() == "vegetated cells"
         lines = {ln.get_label(): list(ln.get_ydata()) for ln in ax.get_lines()}
         assert set(lines) == {"2015", "2016 mean"}
         assert lines["2015"][0] == 10.0 and lines["2016 mean"][5] == 61.0
         assert [t.get_text() for t in ax.get_xticklabels()] == list("JFMAMJJASOND")
 
-    def test_at_most_four_fields(self, tmp_path, drawn):
+    def test_every_field_is_drawn(self, tmp_path, drawn):
+        # five fields, the fifth the soil water a summer question is half about
         t = with_months(T._table())
+        extra = ("A1", "A2", "A3", "SOILWATER_10CM")
         for r in t["runs"].values():
-            r["fields"] = dict(r["fields"], **{v: r["fields"]["GPP"]
-                                               for v in ("A1", "A2", "A3", "A4")})
+            r["fields"] = dict(r["fields"], **{v: r["fields"]["GPP"] for v in extra})
             for reg in r["monthly"].values():
-                for v in ("A1", "A2", "A3", "A4"):
+                for v in extra:
                     reg[v] = dict(reg["GPP"])
-        _build(tmp_path, t, analysis=dict(T.ANALYSIS, variables=["GPP", "A1", "A2", "A3",
-                                                                 "A4"]))
-        fig = drawn["domain_fig_monthly_watershed.png"]
-        assert [a.get_title() for a in fig.axes[:4]] == ["GPP", "A1", "A2", "A3"]
-        assert len(fig.axes) == 8
+        rd, page = _build(tmp_path, t, analysis=dict(T.ANALYSIS, variables=["GPP", *extra]))
+        for v in ("GPP", *extra):
+            n = f"domain_fig_monthly_{v}.png"
+            assert n in drawn and f"![{n}]({n})" in page and f"*{n}: {v} (" in page
+        assert "Not drawn by month" not in page
+
+    def test_a_field_without_months_is_named(self, tmp_path, drawn):
+        t = with_months(T._table())
+        rd, page = _build(tmp_path, t, analysis=dict(T.ANALYSIS,
+                                                     variables=["GPP", "FAREA_BURNED"]))
+        assert "domain_fig_monthly_FAREA_BURNED.png" not in drawn
+        assert ("Not drawn by month: FAREA_BURNED (the table holds no months of it over the "
+                "regions reported).") in page
+
+    def test_long_titles_fit_their_panels(self, tmp_path, drawn):
+        import matplotlib
+        from agents.analysis.domain_report import _fit_titles
+        t = with_months(T._table())
+        long = "a region with a long name, vegetated, 1000-1500 m"
+        for r in t["runs"].values():
+            for kind in ("values", "monthly", "seasonal"):
+                r[kind][long] = r[kind]["watershed, vegetated"]
+        for k in ("monthly_differences", "differences"):
+            t[k]["nofire"][long] = t[k]["nofire"]["watershed, vegetated"]
+        # a copy: T.REGIONS is shared by every test
+        t["regions"] = {**t["regions"], long: dict(t["regions"]["watershed, vegetated"])}
+        _build(tmp_path, t, analysis=dict(T.ANALYSIS, regions=[
+            {"name": "watershed"}, {"name": long}, {"name": "vegetated cells"}]))
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        fig = drawn["domain_fig_monthly_GPP.png"]
+        FigureCanvasAgg(fig)                     # closed after saving: draw it again
+        fig.canvas.draw()
+        r = fig.canvas.get_renderer()
+        for ax in fig.axes:
+            if ax.get_title():
+                assert ax.title.get_window_extent(r).width <= ax.get_window_extent(r).width
+        assert fig.axes[1].get_title().replace("\n", " ") == long
+        # a name with no space breaks after its underscores
+        f = matplotlib.figure.Figure(figsize=(1.0, 1.0))
+        FigureCanvasAgg(f)
+        ax = f.add_subplot(1, 1, 1)
+        ax.set_title("SOILWATER_10CM_MEAN")
+        _fit_titles(f)
+        assert "_\n" in ax.get_title() and ax.get_title().replace("\n", "") == \
+            "SOILWATER_10CM_MEAN"
 
     def test_a_table_without_months_draws_none(self, tmp_path, drawn):
         rd, page = _build(tmp_path, T._table())
@@ -187,7 +238,7 @@ class TestWhereTheNumbersComeFrom:
                 "    - c.elm.h0.2015-02-01-00000.nc (1031 MB, modified 2026-10-14 19:21:55 UTC)",
                 "| region | cells | area (km2) | rule | drawn from |",
                 "| watershed, vegetated | 40 | 24 | inside | w.geojson, surfdata_x.nc |",
-                "The vegetated cells and the elevations are read from the control's surface "
-                "file, surfdata_x.nc."):
+                "The vegetated cells are read from the control's surface file, "
+                "surfdata_x.nc."):
             assert line in tail, line
         assert "\u2014" not in page and "/somewhere" not in page

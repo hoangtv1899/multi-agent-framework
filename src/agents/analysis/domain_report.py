@@ -24,6 +24,7 @@ exact values and words.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +38,9 @@ CONTROL = "control"
 # registered region (every region is restricted to the vegetated cells).
 VEGETATED, BANDS, VEG_SUFFIX = "vegetated cells", "elevation bands", ", vegetated"
 MAX_PANELS = 6
+# A band's name as domain_analysis writes it: "1000-1500 m", "below 1000 m",
+# "2000 m and above", at the end of the region's name.
+BAND_NAME = re.compile(r"(\d+-\d+ m|below \d+ m|\d+ m and above)$")
 
 
 def _param_text(k, v) -> str:
@@ -233,6 +237,13 @@ def span(years) -> str:
     return _join([str(y) for y in ys])
 
 
+# THE YEARS A FIGURE DRAWS (2026-11-03): an event study's figures hold its
+# target years only, and a caption saying "each year" named years not drawn.
+def _years_drawn(years) -> str:
+    ys = list(years or [])
+    return f"the year {span(ys)}" if len(ys) == 1 else f"each of the years {span(ys)}"
+
+
 def _year(a: Dict, y) -> Dict:
     """One target year of an anomaly record; its keys are ints in process and
     strings once the record has been through JSON."""
@@ -310,28 +321,53 @@ def _tables(table, runs, regions, variables, years) -> List[str]:
     return lines
 
 
-def _caveats(exp, plan, table) -> List[str]:
-    out: List[str] = []
+# WHOSE CAVEAT EACH IS (2026-11-03). The server's change list says what a
+# run's difference does not mean, and the Planner often says the same in its
+# own words; listed together they read as two caveats. Neither is dropped (no
+# match of one wording against another is trustworthy): each is listed under
+# the record it comes from, so a reader sees one point made by two sources.
+CAVEAT_SOURCES = (
+    ("changes", "The model server's change list (what each run's difference does not mean)"),
+    ("plan", "The plan (strategy.json, the Planner's caveats)"),
+    ("check", "The model server's check of the experiment"),
+    ("fields", "The model server's notes on the fields"),
+    ("table", "Numbers the table could not make (03_results/regional.json)"))
+
+
+def caveat_groups(exp, plan, table) -> List[Dict[str, Any]]:
+    """The caveats by the record each comes from, in CAVEAT_SOURCES' order:
+    [{"source", "heading", "items"}], a source with none left out. An item
+    repeated word for word is kept once."""
+    by: Dict[str, List[str]] = {k: [] for k, _ in CAVEAT_SOURCES}
     for r in ((exp.get("experiment") or {}).get("runs") or []):
         for c in r.get("changes") or []:
             if c.get("not_meaning"):
-                out.append(f"Run {r['run']}, {c.get('id')}: its difference from the control "
-                           f"is NOT {c['not_meaning']}")
-    out += [str(c) for c in (plan.get("caveats") or [])]
+                by["changes"].append(f"Run {r['run']}, {c.get('id')}: its difference from "
+                                     f"the control is NOT {c['not_meaning']}")
+    by["plan"] += [str(c) for c in (plan.get("caveats") or [])]
     for u in (((exp.get("experiment") or {}).get("check") or {}).get("unusual") or []):
-        out.append(f"{u.get('where')}: {u.get('what')}")
+        by["check"].append(f"{u.get('where')}: {u.get('what')}")
     for v, meta in _fields(table).items():
         if meta.get("note"):
-            out.append(f"{v}: {meta['note']}")
-    out += [f"Not reported: {p}" for p in table.get("problems") or []]
+            by["fields"].append(f"{v}: {meta['note']}")
+    by["table"] += [f"Not reported: {p}" for p in table.get("problems") or []]
     for run, r in (table.get("runs") or {}).items():
-        out += [f"Run {run}, not reported: {p}" for p in r.get("problems") or []]
-    seen, keep = set(), []
-    for c in out:
-        if c not in seen:
-            seen.add(c)
-            keep.append(c)
-    return keep
+        by["table"] += [f"Run {run}, not reported: {p}" for p in r.get("problems") or []]
+    seen, out = set(), []
+    for key, heading in CAVEAT_SOURCES:
+        keep = []
+        for c in by[key]:
+            if c not in seen:
+                seen.add(c)
+                keep.append(c)
+        if keep:
+            out.append({"source": key, "heading": heading, "items": keep})
+    return out
+
+
+def _caveats(exp, plan, table) -> List[str]:
+    """Every caveat in one list, in caveat_groups' order."""
+    return [c for g in caveat_groups(exp, plan, table) for c in g["items"]]
 
 
 def _status(exp) -> str:
@@ -356,16 +392,80 @@ def _figure_style():
 
 
 def _label(reg: str) -> str:
-    """A region as a figure names it. Every region is restricted to the
-    vegetated cells, so ", vegetated" is not repeated on each label:
-    "watershed, vegetated, 1000-1500 m" is "watershed, 1000-1500 m"."""
-    return reg if reg == VEGETATED else reg.replace(VEG_SUFFIX, "")
+    """A region as a figure names it: the table's own name, as the tables and
+    the captions write it ("watershed, vegetated, 1000-1500 m").
+
+    THE TABLE'S NAMES ON THE FIGURES (2026-11-03). A figure dropped
+    ", vegetated" from every name, so its titles matched no row of the tables
+    beside it; a long name is wrapped to its panel (_fit_titles) instead."""
+    return str(reg)
+
+
+def _wrapped(text: str, chars: int) -> str:
+    """text broken into lines of about `chars` characters: at spaces, and a
+    name without spaces after its underscores ("SOILWATER_" over "10CM")."""
+    import textwrap
+    out: List[str] = []
+    for line in str(text).split("\n"):
+        if len(line) <= chars:
+            out.append(line)
+        elif " " in line:
+            out += textwrap.wrap(line, chars, break_long_words=False,
+                                 break_on_hyphens=False) or [line]
+        elif "_" in line:
+            parts = line.split("_")
+            cur = ""
+            for i, piece in enumerate(parts):
+                piece += "_" if i < len(parts) - 1 else ""
+                if cur and len(cur) + len(piece) > chars:
+                    out.append(cur)
+                    cur = piece
+                else:
+                    cur += piece
+            out.append(cur)
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+MIN_TITLE_PT = 5.0
+
+
+def _fit_titles(fig) -> None:
+    """Every panel title held inside its panel: wrapped at its spaces, or
+    after its underscores, then set smaller, never below MIN_TITLE_PT.
+
+    TITLES THAT FIT (2026-11-03). figstyle.check_titles only warned, and
+    SOILWATER_10CM, TOTECOSYSC and TOTVEGC ran into the panel beside them on
+    the overview and the monthly figures."""
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    for ax in fig.axes:
+        t = ax.title
+        text = t.get_text()
+        if not text:
+            continue
+        room = ax.get_window_extent(r).width
+        if t.get_window_extent(r).width <= room:
+            continue
+        longest = max(len(x) for x in text.split("\n"))
+        for chars in range(longest - 1, 5, -1):
+            t.set_text(_wrapped(text, chars))
+            if t.get_window_extent(r).width <= room:
+                break
+        while t.get_window_extent(r).width > room and t.get_fontsize() > MIN_TITLE_PT:
+            t.set_fontsize(max(MIN_TITLE_PT, t.get_fontsize() - 0.5))
 
 
 def _no_percent(units) -> bool:
     """A field in kelvin has no percent: +2 K is not 0.7 % of anything a
-    reader means. The server's own rule for an anomaly (domain_analysis.event)."""
-    return str(units or "").strip().upper().startswith("K")
+    reader means.
+
+    KELVIN, NOT KILOGRAMS (2026-11-03). The rule was any unit starting with
+    "K" in either case, so soil water in kg/m2 was left out of the percent
+    panel as if it were a temperature (Demo 3's soil water, half its
+    question). A kelvin unit is a capital K not followed by a letter."""
+    return re.match(r"K(?![A-Za-z])", str(units or "").strip()) is not None
 
 
 def _pct_of(diff: Optional[float], base: Optional[float]) -> Optional[float]:
@@ -387,10 +487,13 @@ def _bars(ax, xs, vals, width, **kw) -> None:
                     fontsize="x-small", color="0.3")
 
 
-def figures(table, runs, regions, var, years, out_dir: Path) -> List[str]:
+def figures(table, runs, regions, var, years, out_dir: Path,
+            notes: Optional[Dict[str, str]] = None) -> List[str]:
     """The headline variable by year, a panel per region, a line per run; and
     each changed run's difference from the control, or the control's anomaly
-    against its normal. Measurements only: no claim is written on a plot."""
+    against its normal. Measurements only: no claim is written on a plot.
+    `notes`, when given, receives each figure's caption by its file name."""
+    notes = {} if notes is None else notes
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -414,8 +517,8 @@ def figures(table, runs, regions, var, years, out_dir: Path) -> List[str]:
             ys = [(y, v) for y, v in ys if v is not None]
             if ys:
                 ax.plot([y for y, _ in ys], [v for _, v in ys], marker="o", label=n)
-        # a band within a region: the region over the band, on two lines
-        ax.set_title(_label(reg).replace(", ", "\n", 1))
+        # the table's name, wrapped to the panel by _fit_titles
+        ax.set_title(_label(reg))
         ax.set_xticks(years)
         ax.set_xticklabels([str(y)[2:] for y in years])
         if k % ncol == 0:
@@ -425,11 +528,15 @@ def figures(table, runs, regions, var, years, out_dir: Path) -> List[str]:
     if len(names) > 1:
         axes[0][0].legend()
     fig.suptitle(f"{var}, {_what(meta)}")
+    _fit_titles(fig)
     fs.check_titles(fig)
     p = out_dir / f"{FIG_PREFIX}{var}_by_year.png"
     fig.savefig(p, dpi=300)
     plt.close(fig)
     paths.append(str(p))
+    notes[p.name] = (f"{var} ({_shown(units) or 'dimensionless'}, {_what(meta)}) in each "
+                     f"year, a panel per region ({_regions_said(regs, regions)})"
+                     + (", a line per run" if len(names) > 1 else ", the control alone"))
     changed = names[1:]
     ev = table.get("event") or {}
     if changed or ev.get("anomalies"):
@@ -455,18 +562,25 @@ def figures(table, runs, regions, var, years, out_dir: Path) -> List[str]:
         fig.legend(ncol=min(3, len(regs)), loc="outside lower center", frameon=False)
         ax.set_title(f"{var}: run {changed[0]} minus the control" if changed else
                      f"{var}: the control minus its {span(ev['normal_years'])} normal")
+        _fit_titles(fig)
         fs.check_titles(fig)
         p = out_dir / (f"{FIG_PREFIX}{var}_{'difference' if changed else 'anomaly'}.png")
         fig.savefig(p, dpi=300)
         plt.close(fig)
         paths.append(str(p))
+        notes[p.name] = ((f"{var}: run {changed[0]} minus the control in each year"
+                          if changed else
+                          f"{var}: the control minus its {span(ev['normal_years'])} normal "
+                          f"in each year it is compared in")
+                         + f", a bar per region ({_regions_said(regs, regions)})")
     return paths
 
 
 MAX_OVERVIEW = 5
 
 
-def overview_figures(table, runs, regions, variables, years, out_dir: Path) -> List[str]:
+def overview_figures(table, runs, regions, variables, years, out_dir: Path,
+                     notes: Optional[Dict[str, str]] = None) -> List[str]:
     """Every variable at a glance, for the first region the plan reports, in
     talk-sized type on one row (2026-10-27: the deck showed one figure of one
     variable for a question about carbon AND water). Two figures:
@@ -481,8 +595,10 @@ def overview_figures(table, runs, regions, variables, years, out_dir: Path) -> L
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    notes = {} if notes is None else notes
     fields = _fields(table)
-    vs = [v for v in variables if v in fields][:MAX_OVERVIEW]
+    every = [v for v in variables if v in fields]
+    vs = every[:MAX_OVERVIEW]
     if not regions or not vs:
         return []
     fs = _figure_style()
@@ -520,11 +636,16 @@ def overview_figures(table, runs, regions, variables, years, out_dir: Path) -> L
         fig.legend(handles, labels, ncol=len(labels), loc="outside lower center",
                    frameon=False)
     fig.suptitle(_label(reg))
+    _fit_titles(fig)
     fs.check_titles(fig)
     p = out_dir / f"{FIG_PREFIX}overview.png"
     fig.savefig(p, dpi=300)
     plt.close(fig)
     paths.append(str(p))
+    left = (f" (the first {len(vs)} of the {len(every)} fields; the tables above hold "
+            f"every field)" if len(every) > len(vs) else "")
+    notes[p.name] = (f"each year of {'each run' if len(names) > 1 else 'the control'} over "
+                     f"{reg}, a panel per field: {', '.join(vs)}{left}")
 
     # ONLY WHAT A PERCENT MEANS (2026-11-03): a kelvin field drew +2 K as
     # +0.7 % of absolute temperature, so it is left out of the percent panel;
@@ -564,11 +685,20 @@ def overview_figures(table, runs, regions, variables, years, out_dir: Path) -> L
         ax.set_ylabel(ylab)
         ax.set_title(_label(reg))
         fig.legend(ncol=len(series), loc="outside lower center", frameon=False)
+        _fit_titles(fig)
         fs.check_titles(fig)
         p = out_dir / f"{FIG_PREFIX}changes.png"
         fig.savefig(p, dpi=300)
         plt.close(fig)
         paths.append(str(p))
+        notes[p.name] = (f"{', '.join(pv)} over {reg}, "
+                         + ("each run minus the control in each year, in percent of the "
+                            "control" if changed else
+                            f"{_years_drawn(ev.get('target_years'))} against "
+                            f"its {span(normal)} mean, in percent of the mean")
+                         + (f" (a field in kelvin is left out: "
+                            f"{', '.join(v for v in vs if v not in pv)})"
+                            if len(pv) < len(vs) else ""))
     return paths
 
 
@@ -576,14 +706,21 @@ def overview_figures(table, runs, regions, variables, years, out_dir: Path) -> L
 # each calendar year's value only, so a question about a summer was answered
 # from a year that holds its winters too. The server now makes each run's
 # months and seasons (domain_analysis.months_and_seasons); the page draws the
-# months of up to four fields per region and writes every month and season to
-# a table of its own, linked, rather than into the page. It also says, from
-# the server's provenance block, which files each run's numbers were read
-# from and what each region is drawn from. Nothing is computed here: every
-# value is the server's, copied or drawn.
+# months of every field the plan names, one figure per field with a panel per
+# region, and writes every month and season to a table of its own, linked,
+# rather than into the page. It also says, from the server's provenance block,
+# which files each run's numbers were read from and what each region is drawn
+# from. Nothing is computed here: every value is the server's, copied or drawn.
+#
+# EVERY FIELD DRAWN (2026-11-03). The months of only the plan's first four
+# fields were drawn, one figure per region, so Demo 3's soil water (half its
+# question) was in no figure and the page did not say so. Each field now has
+# a figure of its own, its caption names the field and the regions drawn, and
+# a field the table holds no months of is named on the page.
 MONTHLY_CSV = "regional_monthly.csv"
-MAX_MONTHLY_FIELDS = 4
 MONTH_LETTERS = "JFMAMJJASOND"
+CSV_COLUMNS = ["run", "region", "variable", "period_kind", "period", "value", "units",
+               "minus_control"]
 
 
 def _periods(table, run, kind) -> Dict[str, Dict]:
@@ -603,6 +740,13 @@ def _period_units(table, var, period) -> str:
 
 def has_months(table) -> bool:
     return any(r.get("monthly") for r in (table.get("runs") or {}).values())
+
+
+def has_period_differences(table) -> bool:
+    """Whether the table holds a run's monthly or seasonal difference from the
+    control: none for a study of the control alone."""
+    return any(v for k in ("monthly_differences", "seasonal_differences")
+               for v in (table.get(k) or {}).values())
 
 
 def monthly_rows(table) -> List[Dict[str, Any]]:
@@ -645,14 +789,17 @@ def monthly_rows(table) -> List[Dict[str, Any]]:
 
 def monthly_csv(table, path: Path) -> Optional[str]:
     """03_results/regional_monthly.csv from monthly_rows, or None when the
-    table holds no months (a table made before 2026-11-03)."""
+    table holds no months (a table made before 2026-11-03). A study of the
+    control alone has no difference from the control, so its table has no
+    minus_control column rather than an empty one (monthly_csv_sentence says
+    why)."""
     import csv
     rows = monthly_rows(table)
     if not rows:
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
-    cols = ["run", "region", "variable", "period_kind", "period", "value", "units",
-            "minus_control"]
+    cols = (CSV_COLUMNS if has_period_differences(table)
+            else [c for c in CSV_COLUMNS if c != "minus_control"])
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()
@@ -661,9 +808,26 @@ def monthly_csv(table, path: Path) -> Optional[str]:
     return str(path)
 
 
-def _slug(text: str) -> str:
-    import re
-    return re.sub(r"[^0-9A-Za-z]+", "_", str(text)).strip("_").lower() or "region"
+def monthly_csv_sentence(table, link: str) -> str:
+    """What the monthly table holds, in the words that fit the study: each
+    run's difference from the control only when there is a run beside it."""
+    md = f"[{link}](../{link})"
+    if has_period_differences(table):
+        return (f"Every month and season of every run, region and field, with each run's "
+                f"difference from the control: {md}.")
+    ev = table.get("event") or {}
+    normal = (f", and the mean of each month and season over the normal years "
+              f"({span(ev['normal_years'])})"
+              if ev.get("normal_years") and (ev.get("monthly_normal")
+                                             or ev.get("seasonal_normal")) else "")
+    return (f"Every month and season of the control, by region and field{normal}: {md}. "
+            f"This study has no run beside the control, so the table has no column of "
+            f"differences from it.")
+
+
+def _field_slug(var: str) -> str:
+    """A field's name as part of a file name, its case kept (domain_fig_GPP_...)."""
+    return re.sub(r"[^0-9A-Za-z]+", "_", str(var)).strip("_") or "field"
 
 
 def _month_axis(ax, years: List[int]) -> None:
@@ -680,29 +844,49 @@ def _month_axis(ax, years: List[int]) -> None:
     ax.set_xlim(-0.5, n - 0.5)
 
 
-def monthly_figures(table, runs, regions, variables, years, out_dir: Path) -> List[str]:
-    """The months of up to four fields (the plan's first ones the table has
-    months of), one figure per region (at most MAX_PANELS):
+def _regions_said(drawn: List[str], every: List[str], where: str = "the tables") -> str:
+    """The regions a figure draws, and how many it leaves out and where those
+    are."""
+    said = "; ".join(drawn)
+    if len(every) > len(drawn):
+        said += (f"; the first {len(drawn)} of the {len(every)} regions, every region is in "
+                 f"{where}")
+    return said
+
+
+def monthly_fields(table, regions, variables) -> Tuple[List[str], List[str]]:
+    """The plan's fields the table holds months of over a reported region, and
+    the plan's fields it holds none of (named on the page, never dropped)."""
+    if not has_months(table):
+        return [], []
+    ctl = _periods(table, CONTROL, "monthly")
+    have = [v for v in variables if any(v in (ctl.get(r) or {}) for r in regions)]
+    return have, [v for v in variables if v not in have]
+
+
+def monthly_figures(table, runs, regions, variables, years, out_dir: Path,
+                    notes: Optional[Dict[str, str]] = None) -> List[str]:
+    """The months of every field the table holds months of, one figure per
+    field, a panel per region (at most MAX_PANELS, three across):
 
       runs       each run and the control through every month of the years,
-                 and beneath, each run minus the control
+                 and beneath each panel, each run minus the control
       an event   the control alone with normal years: each target year's
                  months against the normal years' mean of the same month
       otherwise  the control through every month
 
-    A month without a value is a gap, never a zero. Measurements only: no
-    claim is written on a plot."""
-    if not has_months(table) or not regions:
+    Each panel is titled with the table's name of its region. A month without
+    a value is a gap, never a zero. Measurements only: no claim is written on
+    a plot. `notes`, when given, receives each figure's caption."""
+    notes = {} if notes is None else notes
+    vs, _ = monthly_fields(table, regions, variables)
+    if not vs or not regions:
         return []
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     fs = _figure_style()
     ctl = _periods(table, CONTROL, "monthly")
-    vs = [v for v in variables if any(v in (ctl.get(r) or {}) for r in regions)]
-    vs = vs[:MAX_MONTHLY_FIELDS]
-    if not vs:
-        return []
     names = [CONTROL] + [r["run"] for r in runs
                          if not r.get("reused") and r.get("run") != CONTROL
                          and r["run"] in (table.get("runs") or {})]
@@ -718,15 +902,20 @@ def monthly_figures(table, runs, regions, variables, years, out_dir: Path) -> Li
 
     paths: List[str] = []
     fs.manuscript(fs.WIDTH["double"], base_pt=9)
-    for reg in regions[:MAX_PANELS]:
-        if not any(var in (ctl.get(reg) or {}) for var in vs):
-            continue
-        nrow = 2 if changed else 1
-        fig, axes = plt.subplots(nrow, len(vs), figsize=(fs.WIDTH["double"], 2.2 * nrow),
+    for var in vs:
+        every = [r for r in regions if var in (ctl.get(r) or {})]
+        regs = every[:MAX_PANELS]
+        units = _shown(_period_units(table, var, "month")) or "dimensionless"
+        ncol = min(3, len(regs))
+        ngrp = (len(regs) + ncol - 1) // ncol
+        h = 2 if changed else 1
+        fig, axes = plt.subplots(ngrp * h, ncol,
+                                 figsize=(fs.WIDTH["double"] if ncol > 1 else fs.WIDTH["single"],
+                                          1.9 * ngrp * h + 0.5),
                                  constrained_layout=True, squeeze=False)
-        for j, var in enumerate(vs):
-            units = _shown(_period_units(table, var, "month")) or "dimensionless"
-            ax = axes[0][j]
+        for k, reg in enumerate(regs):
+            g, c = divmod(k, ncol)
+            ax = axes[g * h][c]
             if event:
                 normal = ((ev["monthly_normal"].get(reg) or {}).get(var)) or {}
                 for y in ev["target_years"]:
@@ -739,15 +928,15 @@ def monthly_figures(table, runs, regions, variables, years, out_dir: Path) -> Li
                         label=f"{span(ev['normal_years'])} mean")
                 _month_axis(ax, [0])
             else:
-                for k, n in enumerate(names):
+                for i, n in enumerate(names):
                     ax.plot(range(len(keys)), _series(n, reg, var, keys), label=n,
-                            color=f"C{k}")
+                            color=f"C{i}")
                 _month_axis(ax, years)
-            ax.set_title(var, fontsize=("x-small" if len(var) > 10 else
-                                        "small" if len(var) > 8 else None))
-            ax.set_ylabel(units)
+            ax.set_title(_label(reg))
+            if c == 0:
+                ax.set_ylabel(units)
             if changed:
-                bx = axes[1][j]
+                bx = axes[g * h + 1][c]
                 # each run's difference in the run's own colour above
                 for i, n in enumerate(changed, start=1):
                     d = ((((table.get("monthly_differences") or {}).get(n) or {})
@@ -756,18 +945,31 @@ def monthly_figures(table, runs, regions, variables, years, out_dir: Path) -> Li
                                                for k in keys], color=f"C{i}")
                 bx.axhline(0.0, color="0.3", linewidth=0.6)
                 _month_axis(bx, years)
-                if j == 0:
+                if c == 0:
                     bx.set_ylabel(f"minus the control\n{units}")
+        for k in range(len(regs), ngrp * ncol):
+            g, c = divmod(k, ncol)
+            for j in range(h):
+                axes[g * h + j][c].axis("off")
         handles, labels = axes[0][0].get_legend_handles_labels()
         if len(labels) > 1:
             fig.legend(handles, labels, ncol=min(4, len(labels)),
                        loc="outside lower center", frameon=False)
-        fig.suptitle(_label(reg) + (", by month" if not event else ", by month of the year"))
+        fig.suptitle(f"{var} ({units}), " + ("by month" if not event else
+                                              "by month of the year"))
+        _fit_titles(fig)
         fs.check_titles(fig)
-        p = out_dir / f"{FIG_PREFIX}monthly_{_slug(_label(reg))}.png"
+        p = out_dir / f"{FIG_PREFIX}monthly_{_field_slug(var)}.png"
         fig.savefig(p, dpi=300)
         plt.close(fig)
         paths.append(str(p))
+        notes[p.name] = (
+            f"{var} ({units}) by month, a panel per region "
+            f"({_regions_said(regs, every, f'03_results/{MONTHLY_CSV}')}): "
+            + ("each run, and beneath each panel each run minus the control" if changed else
+               f"{_years_drawn(ev['target_years'])} against the mean of the "
+               f"same month over {span(ev['normal_years'])}" if event else
+               "the control through every month"))
     return paths
 
 
@@ -782,8 +984,7 @@ def provenance_lines(table, csv_link: Optional[str] = None) -> List[str]:
     pv = table.get("provenance") or {}
     out: List[str] = []
     if csv_link:
-        out += [f"- every month and season of every run, region and field, with each "
-                f"run's difference from the control: [{csv_link}](../{csv_link})"]
+        out += [f"- {monthly_csv_sentence(table, csv_link)}"]
     if not pv:
         return out + ([""] if out else [])
     out += ["", "### What each run was read from", ""]
@@ -808,10 +1009,98 @@ def provenance_lines(table, csv_link: Optional[str] = None) -> List[str]:
         for n, g in regs.items():
             out.append(f"| {n} | {g.get('cells')} | {_fv(g.get('area_km2'))} | "
                        f"{g.get('rule')} | {', '.join(g.get('sources') or [])} |")
+    # ELEVATIONS ONLY WHEN BANDS ARE REPORTED (2026-11-03): a study with no
+    # elevation band read no elevation, and the sentence said it did.
     if pv.get("surface_file"):
-        out += ["", f"The vegetated cells and the elevations are read from the control's "
-                    f"surface file, {Path(str(pv['surface_file'])).name}."]
+        topo = any("TOPO" in str((g or {}).get("rule") or "") for g in regs.values()) or \
+            any(BAND_NAME.search(str(n)) for n in (table.get("regions") or {}))
+        out += ["", f"The vegetated cells{' and the elevations' if topo else ''} are read "
+                    f"from the control's surface file, {Path(str(pv['surface_file'])).name}."]
     return out + [""]
+
+
+# BURNED AREA AS A TABLE OF ITS OWN (2026-11-03). The server makes the model's
+# burned area in km2 (burned_area_km2: its burned fraction times the region's
+# area) whenever a plan reads FAREA_BURNED, but only the plan's own fields were
+# tabled, so a fire study showed a rate per second and never the area. It is
+# shown like any field, beside the burned fraction it is made from.
+BURNED_AREA, BURNED_FRACTION = "burned_area_km2", "FAREA_BURNED"
+
+
+def with_burned_area(variables: List[str], fields: Dict[str, Dict]) -> List[str]:
+    """variables with burned_area_km2 after FAREA_BURNED (or last) when the
+    table holds it and the plan did not name it."""
+    vs = list(variables)
+    if BURNED_AREA not in fields or BURNED_AREA in vs:
+        return vs
+    k = vs.index(BURNED_FRACTION) + 1 if BURNED_FRACTION in vs else len(vs)
+    return vs[:k] + [BURNED_AREA] + vs[k:]
+
+
+# OBSERVATIONS NAMED BY AN OLDER PLAN (2026-11-03). A plan made before the
+# answer was read from the model's output only (2026-10-27) may still name
+# observations in its analysis; the table no longer carries them, and the page
+# says so once rather than leave the reader to look for them.
+# ONLY WHERE A COMPARISON IS ON RECORD (2026-11-03): the design page carries
+# "- against observations:" only when the control's row holds an evaluation
+# (design_review._whole_domain_lines), so the note names the design page only
+# when that line is on it, and the control's card only when its row holds one.
+AGAINST_OBSERVATIONS = "- against observations:"
+
+
+def _control_evaluated(rd: Path) -> bool:
+    """Whether the control's row (01_inputs/domain_control_facts.json, else the
+    rulebook strategy.json carries) holds an evaluation against observations."""
+    def _safe(p):
+        try:
+            d = _read(p)
+        except (OSError, ValueError):
+            return {}
+        return d if isinstance(d, dict) else {}
+    rows = [_safe(rd / "01_inputs" / "domain_control_facts.json").get("facts") or {}]
+    rb = _safe(rd / "strategy.json").get("domain_rulebook") or {}
+    ctl = (rb.get("controls") or {}) if isinstance(rb, dict) else {}
+    rows += (ctl.get("controls") or []) if isinstance(ctl, dict) else []
+    return any(isinstance(r, dict) and isinstance(r.get("evaluation"), dict)
+               and r["evaluation"].get("summary") for r in rows)
+
+
+def _design_page_compares(rd: Path) -> bool:
+    try:
+        text = (rd / "DESIGN_REVIEW.md").read_text()
+    except OSError:
+        return False
+    return any(l.lstrip().startswith(AGAINST_OBSERVATIONS) for l in text.splitlines())
+
+
+def observations_note(analysis: Dict[str, Any], rd: Path) -> Optional[str]:
+    obs = [str(o) for o in (analysis.get("observations") or [])]
+    if not obs:
+        return None
+    where = ([f"on the control's card (01_inputs/domain_control_facts.json)"]
+             if _control_evaluated(rd) else []) + \
+        (["on the design page (DESIGN_REVIEW.md)"] if _design_page_compares(rd) else [])
+    head = (f"observations named by the plan ({', '.join(obs)}): not part of the answer, "
+            f"which is read from the model's output only; ")
+    if not where:
+        return head + "no comparison of the control with observations is on record in this run"
+    return head + ("how the control compares with observations is shown before the design, "
+                   + " and ".join(where))
+
+
+# THE NUMBERS CHECK ON THE PAGE (2026-11-03): numbers_check.summary of the
+# check the analyze stage ran just before this page, None when there is none.
+def _numbers_check(rd: Path) -> Optional[Dict[str, Any]]:
+    try:
+        from agents.analysis.numbers_check import summary
+        return summary(rd)
+    except Exception:                                               # noqa: BLE001
+        return None
+
+
+NUMBERS_LEAD = ("Every number in the answer and under The numbers is read from "
+                "03_results/regional.json (a percent there is one of its numbers divided "
+                "by another)")
 
 
 def build(run_dir) -> Dict[str, Any]:
@@ -831,24 +1120,26 @@ def build(run_dir) -> Dict[str, Any]:
     runs = (exp.get("experiment") or {}).get("runs") or []
     years = [int(y) for y in table.get("years") or []]
     regions = region_keys(table, analysis)
-    variables = [v for v in (analysis.get("variables") or []) if v in _fields(table)] or \
-        list(_fields(table))
+    variables = with_burned_area(
+        [v for v in (analysis.get("variables") or []) if v in _fields(table)]
+        or list(_fields(table)), _fields(table))
     text, claim = headline(table, runs, regions, variables, years)
     out = rd / "04_analysis"
     out.mkdir(parents=True, exist_ok=True)
     figs: List[str] = []
+    notes: Dict[str, str] = {}
     try:
         if claim.get("variable"):
-            figs = figures(table, runs, regions, claim["variable"], years, out)
+            figs = figures(table, runs, regions, claim["variable"], years, out, notes)
     except Exception as e:                                          # noqa: BLE001
         figs = []
         claim["figure_error"] = f"{type(e).__name__}: {e}"
     try:
-        figs += overview_figures(table, runs, regions, variables, years, out)
+        figs += overview_figures(table, runs, regions, variables, years, out, notes)
     except Exception as e:                                          # noqa: BLE001
         claim["overview_error"] = f"{type(e).__name__}: {e}"
     try:
-        figs += monthly_figures(table, runs, regions, variables, years, out)
+        figs += monthly_figures(table, runs, regions, variables, years, out, notes)
     except Exception as e:                                          # noqa: BLE001
         claim["monthly_figure_error"] = f"{type(e).__name__}: {e}"
     ctl = (exp.get("experiment") or {}).get("control") or {}
@@ -863,7 +1154,13 @@ def build(run_dir) -> Dict[str, Any]:
         "runs": runs, "feasibility": strategy.get("feasibility"),
         "requires": strategy.get("requires"),
         "caveats": _caveats(exp, plan, table),
+        "caveat_groups": caveat_groups(exp, plan, table),
         "figures": [Path(f).name for f in figs],
+        "figure_notes": {Path(f).name: notes.get(Path(f).name) for f in figs},
+        "monthly_not_drawn": (monthly_fields(table, regions, variables)[1]
+                              if has_months(table) else []),
+        "observations_note": observations_note(analysis, rd),
+        "numbers_check": _numbers_check(rd),
         "sources": {"numbers": "03_results/regional.json",
                     "experiment": "experiment.json", "design": "strategy.json"},
     }
@@ -873,10 +1170,7 @@ def build(run_dir) -> Dict[str, Any]:
     csv_path = monthly_csv(table, rd / "03_results" / MONTHLY_CSV)
     record["monthly_csv"] = f"03_results/{MONTHLY_CSV}" if csv_path else None
     if csv_path:
-        record["markdown_tables"] += [
-            f"Every month and season of every run, region and field, with each run's "
-            f"difference from the control: [{record['monthly_csv']}](../{record['monthly_csv']}).",
-            ""]
+        record["markdown_tables"] += [monthly_csv_sentence(table, record["monthly_csv"]), ""]
     record["provenance_lines"] = provenance_lines(table, record["monthly_csv"])
     (out / REPORT_JSON).write_text(json.dumps(record, indent=1, default=str))
     (out / REPORT_MD).write_text(render(record))
@@ -890,8 +1184,11 @@ def render(record: Dict[str, Any]) -> str:
     lines = [f"# {_plain(record.get('question') or '(no question recorded)')}", "",
              f"*Whole-domain experiment on the control {ctl.get('name') or '?'}, status "
              f"**{record.get('status')}**, rendered {record.get('generated_at')} from the "
-             f"run's records ({Path(str(record.get('run_dir') or '')).name})*", "",
-             "## The answer", "", f"**{_plain(record.get('headline'))}**", ""]
+             f"run's records ({Path(str(record.get('run_dir') or '')).name})*", ""]
+    if "numbers_check" in record:
+        from agents.analysis.numbers_check import page_line
+        lines += [page_line(record.get("numbers_check"), NUMBERS_LEAD), ""]
+    lines += ["## The answer", "", f"**{_plain(record.get('headline'))}**", ""]
     fz = record.get("feasibility") or {}
     if fz.get("verdict") and fz.get("verdict") != "full":
         lines += [f"The design was judged **{fz['verdict']}**: {_plain(fz.get('why'))}"
@@ -914,10 +1211,27 @@ def render(record: Dict[str, Any]) -> str:
     if ys:
         lines.append(f"- {'year' if len(ys) == 1 else 'years'} {span(ys)}; regions: "
                      + "; ".join(record.get("regions") or []))
+    if record.get("observations_note"):
+        lines.append(f"- {record['observations_note']}")
     lines += ["", "## The numbers", ""] + list(record.get("markdown_tables") or [])
+    # each figure with what it holds, so a reader finds a field's figure
+    fn = record.get("figure_notes") or {}
     for f in record.get("figures") or []:
         lines += [f"![{f}]({f})", ""]
-    lines += ["## Caveats", ""] + [f"- {_plain(c)}" for c in record.get("caveats") or []]
+        if fn.get(f):
+            lines += [f"*{f}: {_plain(fn[f])}.*", ""]
+    if record.get("monthly_not_drawn"):
+        lines += [f"Not drawn by month: {', '.join(record['monthly_not_drawn'])} (the table "
+                  f"holds no months of {'it' if len(record['monthly_not_drawn']) == 1 else 'them'}"
+                  f" over the regions reported).", ""]
+    lines += ["## Caveats", ""]
+    groups = record.get("caveat_groups")
+    if groups:
+        for g in groups:
+            lines += [f"{g['heading']}:", ""] + [f"- {_plain(c)}" for c in g["items"]] + [""]
+        lines.pop()
+    else:
+        lines += [f"- {_plain(c)}" for c in record.get("caveats") or []]
     if not record.get("caveats"):
         lines.append("- none recorded")
     src = record.get("sources") or {}
