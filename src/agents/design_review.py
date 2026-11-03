@@ -579,6 +579,18 @@ def _run_lines(e, run_dir, ctl_recipe, words):
     return L + [""]
 
 
+# MONTHS AND SEASONS (2026-11-03). The field table gives a year's value only,
+# while the server also reports each field by month and by season; a scientist
+# approving a question about a summer should see that it is answered from the
+# summer's numbers.
+MONTHS_AND_SEASONS_LINE = (
+    "Each field is also reported by month and by season (MAM, JJA and SON within "
+    "the year): a total over the year becomes the total over the month or season, "
+    "a mean over the year the mean over it. DJF belongs to the year of its January "
+    "and needs the December before it, so a run whose output starts in January "
+    "has no DJF in its first year.")
+
+
 def _appendix(preview, run_dir, strategy, brief):
     """The page's second part. Empty when the server built nothing."""
     if not preview or preview.get("refused") or preview.get("error"):
@@ -706,6 +718,9 @@ def _appendix(preview, run_dir, strategy, brief):
                   "|---|---|---|---|---|"]
             L += [f"| {f['name']} | {f.get('stream') or 'the field above'} | {f['how']} | "
                   f"{f.get('units') or ''} | {f.get('note') or ''} |" for f in an["fields"]]
+            # MONTHS AND SEASONS (2026-11-03): the table above gives a year's
+            # value; the page also says each field is reported by month and season
+            L += ["", MONTHS_AND_SEASONS_LINE]
         for p in an.get("problems") or []:
             L.append(f"- cannot be made: {_trim(p, 300)}")
         L.append("")
@@ -793,7 +808,8 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None)
                  "build every run again from the same records, then submits each run as "
                  "a chain of one-year jobs, each year checked before the next starts, as "
                  "the second part of this page shows. When the chains end, the numbers by "
-                 "region and year are written from the runs' own records, and the "
+                 "region, year, month and season are written from the runs' own records, "
+                 "and the "
                  "Analyzer interprets them against the question, under the caveats above. "
                  "Declining here costs nothing: nothing has been submitted, and the "
                  "records stay on disk.")
@@ -801,7 +817,8 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None)
         # THE CONTROL ALONE: nothing is built or run, so the chains below
         # would describe work that never happens (2026-10-27).
         L.append("Nothing is run: the control's existing output is read, the "
-                 "numbers by region and year are written from it, and the "
+                 "numbers by region, year, month and season are written from it, "
+                 "and the "
                  "Analyzer interprets them against the question, under the "
                  "caveats above. Declining here costs nothing: the records "
                  "above stay on disk.")
@@ -811,7 +828,8 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None)
                  "and the input set, before any compute; then each run is built "
                  "as its own case and run as a chain of one-year jobs, each year "
                  "checked before the next starts. When the chains end, the numbers "
-                 "by region and year are written from the runs' own records, and "
+                 "by region, year, month and season are written from the runs' own "
+                 "records, and "
                  "the Analyzer interprets them against the question, under the "
                  "caveats above. Declining here costs nothing: the records above "
                  "stay on disk.")

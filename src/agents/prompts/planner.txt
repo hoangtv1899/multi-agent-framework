@@ -201,6 +201,13 @@ YOU DECIDE the analysis:
   normal_years   for a question about an event in the control (a dry year, a
                  fire year): the years it is compared with, inside the
                  control's output years, and why those. [] otherwise.
+Every number is reported by year, by month and by season (MAM, JJA and SON
+within the year; DJF, December to February, belongs to the year of its
+January and needs the December before it, so the first year of a run that
+starts in January has no DJF). A question about a season or a month is
+answered from that season's or month's numbers, never from a year's, which
+mixes it with the rest of the year: choose the years that hold the season
+the question names, and the variables that show it.
 The answer is read from the model's output alone: no observation enters the
 analysis. How the control compares with observations was told to the
 scientist before the design, and is not in your rulebook.

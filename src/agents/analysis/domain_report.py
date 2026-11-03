@@ -572,6 +572,248 @@ def overview_figures(table, runs, regions, variables, years, out_dir: Path) -> L
     return paths
 
 
+# MONTHS, SEASONS AND WHERE THE NUMBERS COME FROM (2026-11-03). The page showed
+# each calendar year's value only, so a question about a summer was answered
+# from a year that holds its winters too. The server now makes each run's
+# months and seasons (domain_analysis.months_and_seasons); the page draws the
+# months of up to four fields per region and writes every month and season to
+# a table of its own, linked, rather than into the page. It also says, from
+# the server's provenance block, which files each run's numbers were read
+# from and what each region is drawn from. Nothing is computed here: every
+# value is the server's, copied or drawn.
+MONTHLY_CSV = "regional_monthly.csv"
+MAX_MONTHLY_FIELDS = 4
+MONTH_LETTERS = "JFMAMJJASOND"
+
+
+def _periods(table, run, kind) -> Dict[str, Dict]:
+    """A run's months (kind "monthly") or seasons ("seasonal"): {region:
+    {field: {period: value}}}, {} when the table has none."""
+    return (((table.get("runs") or {}).get(run) or {}).get(kind) or {})
+
+
+def _period_units(table, var, period) -> str:
+    """A field's units over a month or a season, as the server recorded them."""
+    for r in (table.get("runs") or {}).values():
+        u = ((r.get("period_units") or {}).get(var) or {}).get(period)
+        if u is not None:
+            return u
+    return ""
+
+
+def has_months(table) -> bool:
+    return any(r.get("monthly") for r in (table.get("runs") or {}).values())
+
+
+def monthly_rows(table) -> List[Dict[str, Any]]:
+    """Every month and season of every run, region and field, with each
+    run's difference from the control and the control's normal-year means,
+    as rows: the full table the page links to. Copied from the records."""
+    rows: List[Dict[str, Any]] = []
+    for run, r in (table.get("runs") or {}).items():
+        for kind, diffs, period in (("monthly", "monthly_differences", "month"),
+                                    ("seasonal", "seasonal_differences", "season")):
+            d = ((table.get(diffs) or {}).get(run) or {})
+            for reg, fields in (r.get(kind) or {}).items():
+                for var, vals in fields.items():
+                    units = _period_units(table, var, period)
+                    for p, x in vals.items():
+                        rows.append({"run": run, "region": reg, "variable": var,
+                                     "period_kind": period, "period": p, "value": x,
+                                     "units": units,
+                                     "minus_control": ((d.get(reg) or {}).get(var) or {})
+                                     .get(p)})
+    ev = table.get("event") or {}
+    if ev.get("normal_years"):
+        tag = f"mean of {span(ev['normal_years'])}"
+        # a normal over fewer years (the DJF after an event year is left out,
+        # 2026-11-03) names the years it is the mean of
+        used = ev.get("normal_years_used") or {}
+        for kind, period in (("monthly_normal", "month"), ("seasonal_normal", "season")):
+            for reg, fields in (ev.get(kind) or {}).items():
+                for var, vals in fields.items():
+                    for p, x in vals.items():
+                        ptag = (f"mean of {span(used[p])}" if used.get(p) else
+                                "mean of no year" if p in used else tag)
+                        rows.append({"run": CONTROL, "region": reg, "variable": var,
+                                     "period_kind": f"{period}, {ptag}", "period": p,
+                                     "value": x,
+                                     "units": _period_units(table, var, period),
+                                     "minus_control": None})
+    return rows
+
+
+def monthly_csv(table, path: Path) -> Optional[str]:
+    """03_results/regional_monthly.csv from monthly_rows, or None when the
+    table holds no months (a table made before 2026-11-03)."""
+    import csv
+    rows = monthly_rows(table)
+    if not rows:
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cols = ["run", "region", "variable", "period_kind", "period", "value", "units",
+            "minus_control"]
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: ("" if r[k] is None else r[k]) for k in cols})
+    return str(path)
+
+
+def _slug(text: str) -> str:
+    import re
+    return re.sub(r"[^0-9A-Za-z]+", "_", str(text)).strip("_").lower() or "region"
+
+
+def _month_axis(ax, years: List[int]) -> None:
+    """Months along the x axis: a letter per month for one year, the year at
+    each January for more."""
+    n = 12 * len(years)
+    if len(years) == 1:
+        ax.set_xticks(range(n))
+        ax.set_xticklabels(list(MONTH_LETTERS))
+    else:
+        ax.set_xticks(range(0, n, 12))
+        ax.set_xticklabels([str(y) for y in years])
+        ax.set_xticks(range(0, n, 3), minor=True)
+    ax.set_xlim(-0.5, n - 0.5)
+
+
+def monthly_figures(table, runs, regions, variables, years, out_dir: Path) -> List[str]:
+    """The months of up to four fields (the plan's first ones the table has
+    months of), one figure per region (at most MAX_PANELS):
+
+      runs       each run and the control through every month of the years,
+                 and beneath, each run minus the control
+      an event   the control alone with normal years: each target year's
+                 months against the normal years' mean of the same month
+      otherwise  the control through every month
+
+    A month without a value is a gap, never a zero. Measurements only: no
+    claim is written on a plot."""
+    if not has_months(table) or not regions:
+        return []
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fs = _figure_style()
+    ctl = _periods(table, CONTROL, "monthly")
+    vs = [v for v in variables if any(v in (ctl.get(r) or {}) for r in regions)]
+    vs = vs[:MAX_MONTHLY_FIELDS]
+    if not vs:
+        return []
+    names = [CONTROL] + [r["run"] for r in runs
+                         if not r.get("reused") and r.get("run") != CONTROL
+                         and r["run"] in (table.get("runs") or {})]
+    changed = names[1:]
+    ev = table.get("event") or {}
+    event = (not changed and ev.get("normal_years") and ev.get("monthly_normal")
+             and ev.get("target_years"))
+    keys = [f"{int(y)}-{m:02d}" for y in years for m in range(1, 13)]
+
+    def _series(run, reg, var, ks):
+        vals = (_periods(table, run, "monthly").get(reg) or {}).get(var) or {}
+        return [float("nan") if vals.get(k) is None else vals[k] for k in ks]
+
+    paths: List[str] = []
+    fs.manuscript(fs.WIDTH["double"], base_pt=9)
+    for reg in regions[:MAX_PANELS]:
+        if not any(var in (ctl.get(reg) or {}) for var in vs):
+            continue
+        nrow = 2 if changed else 1
+        fig, axes = plt.subplots(nrow, len(vs), figsize=(fs.WIDTH["double"], 2.2 * nrow),
+                                 constrained_layout=True, squeeze=False)
+        for j, var in enumerate(vs):
+            units = _shown(_period_units(table, var, "month")) or "dimensionless"
+            ax = axes[0][j]
+            if event:
+                normal = ((ev["monthly_normal"].get(reg) or {}).get(var)) or {}
+                for y in ev["target_years"]:
+                    ax.plot(range(12), _series(CONTROL, reg, var,
+                                               [f"{int(y)}-{m:02d}" for m in range(1, 13)]),
+                            marker="o", markersize=3, label=str(y))
+                ax.plot(range(12), [float("nan") if normal.get(f"{m:02d}") is None
+                                    else normal[f"{m:02d}"] for m in range(1, 13)],
+                        color="0.4", linestyle="--",
+                        label=f"{span(ev['normal_years'])} mean")
+                _month_axis(ax, [0])
+            else:
+                for k, n in enumerate(names):
+                    ax.plot(range(len(keys)), _series(n, reg, var, keys), label=n,
+                            color=f"C{k}")
+                _month_axis(ax, years)
+            ax.set_title(var, fontsize=("x-small" if len(var) > 10 else
+                                        "small" if len(var) > 8 else None))
+            ax.set_ylabel(units)
+            if changed:
+                bx = axes[1][j]
+                # each run's difference in the run's own colour above
+                for i, n in enumerate(changed, start=1):
+                    d = ((((table.get("monthly_differences") or {}).get(n) or {})
+                          .get(reg) or {}).get(var)) or {}
+                    bx.plot(range(len(keys)), [float("nan") if d.get(k) is None else d[k]
+                                               for k in keys], color=f"C{i}")
+                bx.axhline(0.0, color="0.3", linewidth=0.6)
+                _month_axis(bx, years)
+                if j == 0:
+                    bx.set_ylabel(f"minus the control\n{units}")
+        handles, labels = axes[0][0].get_legend_handles_labels()
+        if len(labels) > 1:
+            fig.legend(handles, labels, ncol=min(4, len(labels)),
+                       loc="outside lower center", frameon=False)
+        fig.suptitle(_label(reg) + (", by month" if not event else ", by month of the year"))
+        fs.check_titles(fig)
+        p = out_dir / f"{FIG_PREFIX}monthly_{_slug(_label(reg))}.png"
+        fig.savefig(p, dpi=300)
+        plt.close(fig)
+        paths.append(str(p))
+    return paths
+
+
+def _mb(n) -> str:
+    return f"{format_value(float(n) / 1e6)} MB" if n is not None else "? MB"
+
+
+def provenance_lines(table, csv_link: Optional[str] = None) -> List[str]:
+    """Which files each run's numbers were read from, and what each region is
+    drawn from, from the server's provenance block. [] for a table without
+    one (made before 2026-11-03)."""
+    pv = table.get("provenance") or {}
+    out: List[str] = []
+    if csv_link:
+        out += [f"- every month and season of every run, region and field, with each "
+                f"run's difference from the control: [{csv_link}](../{csv_link})"]
+    if not pv:
+        return out + ([""] if out else [])
+    out += ["", "### What each run was read from", ""]
+    for run, r in (pv.get("runs") or {}).items():
+        out.append(f"- run **{run}**: `{r.get('run_dir')}`")
+        for st, s in (r.get("streams") or {}).items():
+            per = s.get("records_per_year") or {}
+            counts = ", ".join(f"{n} in {y}" for y, n in per.items())
+            files = s.get("files") or []
+            out.append(f"  - stream {st} ({s.get('cadence')}, {s.get('calendar')} calendar): "
+                       f"{', '.join(s.get('fields') or [])}; records read: {counts or 'none'}; "
+                       f"{len(files)} file{'' if len(files) == 1 else 's'}"
+                       + (f", {s['records_left_out']} record(s) left out by the reader"
+                          if s.get("records_left_out") else ""))
+            for f in files:
+                out.append(f"    - {f.get('name')} ({_mb(f.get('bytes'))}, modified "
+                           f"{str(f.get('modified') or '?').replace('T', ' ').replace('+00:00', ' UTC')})")
+    regs = pv.get("regions") or {}
+    if regs:
+        out += ["", "### What each region is drawn from", "",
+                "| region | cells | area (km2) | rule | drawn from |", "|---|---|---|---|---|"]
+        for n, g in regs.items():
+            out.append(f"| {n} | {g.get('cells')} | {_fv(g.get('area_km2'))} | "
+                       f"{g.get('rule')} | {', '.join(g.get('sources') or [])} |")
+    if pv.get("surface_file"):
+        out += ["", f"The vegetated cells and the elevations are read from the control's "
+                    f"surface file, {Path(str(pv['surface_file'])).name}."]
+    return out + [""]
+
+
 def build(run_dir) -> Dict[str, Any]:
     """The report of the whole-domain experiment in run_dir: report.json (the
     record, with every number the text uses), REPORT.md and the figures, in
@@ -605,6 +847,10 @@ def build(run_dir) -> Dict[str, Any]:
         figs += overview_figures(table, runs, regions, variables, years, out)
     except Exception as e:                                          # noqa: BLE001
         claim["overview_error"] = f"{type(e).__name__}: {e}"
+    try:
+        figs += monthly_figures(table, runs, regions, variables, years, out)
+    except Exception as e:                                          # noqa: BLE001
+        claim["monthly_figure_error"] = f"{type(e).__name__}: {e}"
     ctl = (exp.get("experiment") or {}).get("control") or {}
     record = {
         "kind": "whole_domain_report",
@@ -623,6 +869,15 @@ def build(run_dir) -> Dict[str, Any]:
     }
     record["markdown_tables"] = _tables(table, runs, regions, variables, years)
     record["model_setup"] = _model_setup(rd, variables)
+    # months, seasons and where the numbers come from (2026-11-03)
+    csv_path = monthly_csv(table, rd / "03_results" / MONTHLY_CSV)
+    record["monthly_csv"] = f"03_results/{MONTHLY_CSV}" if csv_path else None
+    if csv_path:
+        record["markdown_tables"] += [
+            f"Every month and season of every run, region and field, with each run's "
+            f"difference from the control: [{record['monthly_csv']}](../{record['monthly_csv']}).",
+            ""]
+    record["provenance_lines"] = provenance_lines(table, record["monthly_csv"])
     (out / REPORT_JSON).write_text(json.dumps(record, indent=1, default=str))
     (out / REPORT_MD).write_text(render(record))
     return {"report": str(out / REPORT_MD), "record": str(out / REPORT_JSON),
@@ -672,6 +927,7 @@ def render(record: Dict[str, Any]) -> str:
               f"- the design and its caveats: {src.get('design')}", "",
               "*Values are shown to 3 significant figures; the exact values are in "
               f"{src.get('numbers')}.*", ""]
+    lines += list(record.get("provenance_lines") or [])
     lines = _with_model_setup(lines, record)
     return "\n".join(lines)
 

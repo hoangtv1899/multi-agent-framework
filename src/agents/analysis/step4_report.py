@@ -641,7 +641,8 @@ def render_markdown(report: Dict[str, Any]) -> str:
               "", "*Values are shown to 3 significant figures; the exact "
               "measured values are in analysis.json beside this file.*", ""]
     if report.get("domain_report"):
-        lines[-3:-3] = [f"- the numbers by region and year, written from the records "
+        lines[-3:-3] = [f"- the numbers by region, year, month and season, written from "
+                        f"the records "
                         f"before this analysis: {report['domain_report']}"]
     if report.get("model_setup"):
         from agents.analysis import model_setup as MS

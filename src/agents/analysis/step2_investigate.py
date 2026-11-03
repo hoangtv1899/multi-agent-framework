@@ -461,10 +461,33 @@ def _span(years) -> str:
     return span(years)
 
 
+def _period_brief(t: Dict[str, Any]) -> List[str]:
+    """MONTHS AND SEASONS (2026-11-03): what `reg_monthly` and `reg_seasonal`
+    hold, read off the table, so a question about a season is drawn from the
+    season and not from the year. [] for a table without months."""
+    runs = [r for r in (t.get("runs") or {}).values() if (r or {}).get("monthly")]
+    if not runs:
+        return []
+    units: Dict[str, Dict[str, Any]] = {}
+    for r in runs:
+        for v, u in (r.get("period_units") or {}).items():
+            units.setdefault(v, u or {})
+    lines = ["", "MONTHS AND SEASONS IN `reg_monthly` AND `reg_seasonal` (name, units "
+             "over a month, units over a season):"]
+    for v, u in units.items():
+        lines.append(f"    {v:16s} {str(u.get('month')):16s} {u.get('season')}")
+    left = sorted({k for r in runs for k in (r.get("seasons_left_out") or {})})
+    if left:
+        lines.append(f"    Not made: {', '.join(left)} (the run's output does not hold "
+                     f"the December before).")
+    return lines
+
+
 def domain_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
     """The brief for a whole-domain experiment: a control run over a whole
     prepared domain and, for a what-if question, runs that differ from it by
-    named changes, reported by region and year. Built from ctx alone, like
+    named changes, reported by region, year, month and season. Built from
+    ctx alone, like
     context_brief; what a change means and does not mean is quoted from the
     model server's change list, never written here."""
     plan = ctx.plan or {}
@@ -530,6 +553,7 @@ def domain_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
                      f"observed {ob.get('what') or name} (run \"observed\", source "
                      f"\"observation\": {ob.get('source')}) and each run's own (source "
                      f"\"model\", from {ob.get('model_field')})")
+    lines += _period_brief(t)
     lines.append("")
     return "\n".join(lines + _brief_tail(ctx, step1))
 
@@ -605,8 +629,9 @@ Return ONLY JSON:
 DOMAIN_TASK = f"""\
 You are an earth-system scientist analysing this whole-domain experiment of the
 model named in the brief above: a control run and, for a what-if question, runs
-that differ from it by named changes, reported by region and year. Decide which
-figures answer what the user asked, and write the code that draws them.
+that differ from it by named changes, reported by region, year, month and
+season. Decide which figures answer what the user asked,
+and write the code that draws them.
 
 Report at TWO scales:
   1. overall: the domain as a whole (its largest region) through the years,
@@ -633,12 +658,26 @@ Rules:
     difference between runs, or a year against the normal years, from `reg`.
   - A "mean over the year" is a stock. Label a difference in it as a
     difference in the stock, never as an amount removed or added that year.
+  - A question about a month or a season (a summer, a spring, a winter) is
+    answered from `reg_monthly` or `reg_seasonal`, never from `reg`: a year's
+    value mixes that season with the rest of the year. A rate's value there
+    is its total over the month or the season, a state's its mean over it.
 
 Each figure's `code` is a Python snippet run with these already bound:
     reg       tidy frame: run | region | variable | year | value | units | how |
               source. One row per run, region, variable and model year; `run`
               is "control" or a run's name, and an observation's rows have run
               "observed" and source "observation".
+    reg_monthly   tidy frame: run | region | variable | month | value | units |
+              how | minus_control. One row per run, region, variable and
+              month; `month` is "YYYY-MM"; `minus_control` is the run's
+              difference from the control that month (None for the control).
+              None when the experiment has no months.
+    reg_seasonal  tidy frame: run | region | variable | year | season | value |
+              units | how | minus_control. `season` is DJF, MAM, JJA or SON;
+              DJF belongs to the year of its January and holds the December
+              before it, so a run whose output starts in January has no DJF
+              in its first year (that row is absent, not zero).
     regions   dict: region name -> {{"cells", "area_km2", "rule"}}
     runs      list of runs: {{"run", "reused", "status", "changes": [{{"id",
               "params", "meaning", "not_meaning"}}]}}

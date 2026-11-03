@@ -414,6 +414,12 @@ def domain_reading(ctx) -> List[str]:
     if totals:
         out += [f"    totals over the year: {', '.join(totals)}",
                 "        An amount moved in that year."]
+    # MONTHS AND SEASONS (2026-11-03): the same rule over a month or a season
+    if any((r or {}).get("monthly") for r in (t.get("runs") or {}).values()):
+        out += ["    over a month or a season, the same rule: a stock's value is its mean",
+                "        over that month or season, a total's the amount moved in it. A claim",
+                "        about a month or a season is read from that month or season, never",
+                "        from the year's value."]
     return out
 
 

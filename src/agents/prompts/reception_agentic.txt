@@ -408,6 +408,12 @@ THE YEARS AND THE COST
     `output_years`. Inside those, as few years as answer the question.
   • Quote the cost: years x runs x `hours_per_model_year`. A reused control
     costs nothing.
+  • The numbers are reported by year, by month and by season (MAM, JJA and
+    SON within the year; DJF belongs to the year of its January and needs the
+    December before it, so the first year of a run that starts in January has
+    no DJF). A question about a season or a month is answered from that
+    season's or month's numbers, not from a year's: settle the years that hold
+    the season the question names.
 
 Use `ask_user` to settle; do not emit an experiment the user has not seen.
 Write the result into domain_experiment (OUTPUT), set

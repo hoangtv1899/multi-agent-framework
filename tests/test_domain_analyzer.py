@@ -442,8 +442,8 @@ class TestStep4:
         assert S4.scope_line(rep) == line
         md = S4.render_markdown(rep)
         assert f"- {line}" in md and "- columns:" not in md
-        assert ("- the numbers by region and year, written from the records before this "
-                "analysis: DOMAIN_REPORT.md") in md
+        assert ("- the numbers by region, year, month and season, written from the records "
+                "before this analysis: DOMAIN_REPORT.md") in md
         assert f"compute  : {line}" in S4.summary(rep)
 
     def test_a_site_report_keeps_its_columns_line(self):
