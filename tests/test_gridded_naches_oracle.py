@@ -134,28 +134,37 @@ def reduced(h1, masks):
 
 
 # ── streams ──────────────────────────────────────────────────────────────────
+# THE CONTROL NOW RUNS TO 2023 (2026-11-03): jobs 792440 and 792441 continued it
+# from its saved state of 2022-01-01. The streams hold every year of that extent;
+# the numbers below compare the hand analysis's years, YEARS, which stay 2015-2021.
+EXTENT = list(range(2015, 2024))
+
+
 class TestStreams:
 
     def test_daily_stream(self, h1):
-        assert (h1.cadence, h1.calendar, len(h1.records)) == ("daily", "noleap", 2555)
-        assert h1.labels()[0] == "2015-01-01" and h1.labels()[-1] == "2021-12-31"
-        assert h1.complete_years() == YEARS
-        assert all(len(h1.labels(y)) == 365 for y in YEARS)
+        assert (h1.cadence, h1.calendar, len(h1.records)) == \
+            ("daily", "noleap", 365 * len(EXTENT))
+        assert h1.labels()[0] == "2015-01-01" and h1.labels()[-1] == f"{EXTENT[-1]}-12-31"
+        assert h1.complete_years() == EXTENT
+        assert all(len(h1.labels(y)) == 365 for y in EXTENT)
         assert not any(lab.endswith("-02-29") for lab in h1.labels())
         assert len(h1.dropped) == 1 and h1.dropped[0]["record"] == 0
         assert abs(h1.dropped[0]["length_days"] - 1 / 48) < 1e-6
 
     def test_monthly_stream_keeps_january_2015(self, cfg):
         h0 = G.open_stream(cfg["run_dir"], "h0")
-        assert (h0.cadence, len(h0.records)) == ("monthly", 84)
+        assert (h0.cadence, len(h0.records)) == ("monthly", 12 * len(EXTENT))
         assert h0.labels(2015) == [f"2015-{m:02d}" for m in range(1, 13)]
         assert h0.dropped == [] and [e["month"] for e in h0.extended] == ["2015-01"]
 
     def test_three_hourly_stream(self, cfg):
         h2 = G.open_stream(cfg["run_dir"], "h2")
-        assert (h2.cadence, h2.steps_per_day, len(h2.records)) == ("subdaily", 8, 20440)
-        assert h2.complete_years() == YEARS
+        assert (h2.cadence, h2.steps_per_day, len(h2.records)) == \
+            ("subdaily", 8, 2920 * len(EXTENT))
+        assert h2.complete_years() == EXTENT
         assert h2.labels(2021)[-1] == "2021-12-31 21:00"
+        assert h2.labels(EXTENT[-1])[-1] == f"{EXTENT[-1]}-12-31 21:00"
 
 
 # ── static masks ─────────────────────────────────────────────────────────────
