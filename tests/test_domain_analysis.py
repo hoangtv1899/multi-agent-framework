@@ -230,3 +230,22 @@ class TestAnExperiment:
         with pytest.raises(A.AnalysisError, match="names no variables"):
             A.experiment({"case_dir": str(c["case_dir"])}, {"control": c["run_dir"]},
                          {"regions": []}, [2015])
+
+
+class TestAPercentForKilogramsNotKelvin:
+    """KELVIN, NOT KILOGRAMS (2026-11-03): an event's percent was refused for
+    any unit starting with K, so soil water in kg/m2 had none, as if it were a
+    temperature."""
+
+    def test_which_units_are_kelvin(self):
+        assert A.is_kelvin("K") and A.is_kelvin(" K ") and A.is_kelvin("K/s")
+        assert not A.is_kelvin("kg/m2") and not A.is_kelvin("KG/M2")
+        assert not A.is_kelvin("gC/m^2/yr") and not A.is_kelvin(None)
+
+    def test_soil_water_gets_a_percent_and_temperature_does_not(self):
+        run = {"values": {"r": {"SOILWATER_10CM": {"2015": 20.0, "2016": 25.0},
+                                "TSA": {"2015": 282.0, "2016": 281.0}}},
+               "fields": {"SOILWATER_10CM": {"units": "kg/m2"}, "TSA": {"units": "K"}}}
+        ev = A.event(run, [2016], [2015])["anomalies"]["r"]
+        assert ev["SOILWATER_10CM"]["years"][2015]["anomaly_pct"] == pytest.approx(-20.0)
+        assert ev["TSA"]["years"][2015]["anomaly_pct"] is None

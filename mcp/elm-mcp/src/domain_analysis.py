@@ -33,6 +33,7 @@ with the reason, never dropped in silence.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -548,11 +549,20 @@ def event(run: Dict[str, Any], normal_years: Sequence[int], target_years: Sequen
             try:
                 out.setdefault(reg, {})[v] = R.anomalies(
                     by, list(normal_years), list(target_years),
-                    percent=not str((run.get("fields") or {}).get(v, {}).get("units", ""))
-                    .strip().upper().startswith("K"))
+                    percent=not is_kelvin((run.get("fields") or {}).get(v, {}).get("units")))
             except R.RegionError as e:
                 problems.append(f"{reg}, {v}: {e}")
     return {"anomalies": out, "problems": problems}
+
+
+def is_kelvin(units) -> bool:
+    """A field in kelvin has no percent anomaly: +2 K is not 0.7 % of anything.
+
+    KELVIN, NOT KILOGRAMS (2026-11-03). The rule was any unit starting with "K"
+    in either case, so soil water in kg/m2 got no percent in an event study as
+    if it were a temperature. A kelvin unit is a capital K not followed by a
+    letter, the rule the numbers report uses (domain_report._no_percent)."""
+    return re.match(r"K(?![A-Za-z])", str(units or "").strip()) is not None
 
 
 def changed_share(grid: G.Grid, ms: R.MaskSet, registered: Optional[Dict[str, Dict]],
