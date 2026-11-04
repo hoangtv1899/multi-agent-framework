@@ -14,9 +14,12 @@ gated against the production run. With the same source tree, SourceMods,
 inputs and processor layout, the new run must match the production run to
 the last bit: the same history values, the same year numbers, and a
 reference comparison that finds no difference. The first proof (2026-10-22)
-ran scripts that review 3 then corrected; the record named in naches_bgc_fw
-is the re-proof with the corrected scripts (2026-10-23), and the scripts it
-ran must still be what the code writes.
+ran scripts that review 3 then corrected, and the re-proof (2026-10-23) ran
+scripts that later work changed (the expectations check of 2026-10-25 and
+the forcing years of a repeated year, 2026-10-26). The record named in
+naches_bgc_fw is the third proof (2026-11-03), and the scripts it ran must
+still be what the code writes: when that check fails after a change to the
+scripts, run a new proof rather than editing the record.
 """
 import json
 import re
