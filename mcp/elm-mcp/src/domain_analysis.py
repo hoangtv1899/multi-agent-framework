@@ -44,7 +44,17 @@ import regions as R
 
 VEGETATED = "vegetated cells"
 BANDS = "elevation bands"
-BAND_EDGES = (1000.0, 1500.0, 2000.0)
+# THE STUDY'S ELEVATION BANDS (2026-11-04). The band edges were a constant
+# here, 1000, 1500 and 2000 m, a watershed's own numbers inside the method
+# (rule 1 of the analysis plan: no watershed-specific value lives inside a
+# method). They are now the control's, its registry entry's
+# elevation_band_edges (the Naches entry keeps 1000, 1500 and 2000 m); a
+# control without them gets an edge at every multiple of BAND_STEP_M strictly
+# inside its own vegetated cells' elevation range, computed the same way every
+# time (band_edges) and recorded wherever the bands are (masks, the suite's
+# manifest), never written into the registry by code.
+BAND_STEP_M = 500.0
+BAND_EDGES_KEY = "elevation_band_edges"
 # A field read from the first stream that holds it, monthly first: a year's
 # total or mean is the same from any cadence (regions.RegionSeries.by_year),
 # and the monthly files are read fastest.
@@ -136,19 +146,50 @@ def _registered_mask(grid: G.Grid, r: Dict[str, Any]):
     raise AnalysisError("names neither a polygon nor a field")
 
 
+def band_edges(topo, veg, given: Optional[Sequence[float]] = None
+               ) -> Tuple[List[float], str]:
+    """(edges in m, where they come from): the control's own when given, else
+    every multiple of BAND_STEP_M strictly inside the vegetated cells'
+    elevation range (none when that range holds no multiple)."""
+    import math
+    if given:
+        return [float(e) for e in given], f"the control's registry entry ({BAND_EDGES_KEY})"
+    z = np.asarray(topo, dtype=np.float64)[np.asarray(veg, dtype=bool)]
+    z = z[np.isfinite(z)]
+    if not z.size:
+        return [], "no vegetated cell has an elevation"
+    lo, hi = float(z.min()), float(z.max())
+    k0, k1 = math.floor(lo / BAND_STEP_M) + 1, math.ceil(hi / BAND_STEP_M) - 1
+    edges = [k * BAND_STEP_M for k in range(k0, k1 + 1)]
+    return edges, (f"every {BAND_STEP_M:g} m across the vegetated cells' elevations "
+                   f"({lo:.0f}-{hi:.0f} m), the control's registry entry naming none")
+
+
 def masks(grid: G.Grid, surface, names: Sequence[Any],
-          registered: Optional[Dict[str, Dict]] = None) -> Dict[str, Any]:
-    """{"masks": MaskSet, "problems": [...]} for the regions a plan names.
+          registered: Optional[Dict[str, Dict]] = None,
+          edges: Optional[Sequence[float]] = None) -> Dict[str, Any]:
+    """{"masks": MaskSet, "problems": [...], "band_edges", "band_edges_from"}
+    for the regions a plan names.
 
     Every region is restricted to the vegetated cells (PCT_NATVEG at 100), so
     one rule holds for every number; a registered region keeps its own name,
     with ", vegetated" added. Elevation bands cover the whole domain, or, with
     {"name": "elevation bands", "within": <a registered region>}, only that
-    region's cells, named band_within(region, band)."""
+    region's cells, named band_within(region, band); their edges are `edges`,
+    the control's elevation_band_edges, or band_edges' own when None."""
     s = R.read_surface(surface, grid, ("PCT_NATVEG", "TOPO"))
     veg = R.vegetated(s["PCT_NATVEG"])
     ms = R.MaskSet(grid)
     problems: List[str] = []
+    cut, cut_from = band_edges(s["TOPO"], veg, edges)
+    no_bands = f"no {BANDS} can be made: no edge falls inside the range ({cut_from})"
+
+    def bands():
+        if not cut:
+            if no_bands not in problems:
+                problems.append(no_bands)
+            return {}
+        return R.elevation_bands(s["TOPO"], cut)
     src = [Path(surface).name]
     ms.add(VEGETATED, veg, "PCT_NATVEG >= 100", src)
     seen = set()
@@ -163,7 +204,7 @@ def masks(grid: G.Grid, surface, names: Sequence[Any],
         if key.lower() in (VEGETATED, "vegetated"):
             continue
         if is_bands(key) and not within:
-            for b, m in R.elevation_bands(s["TOPO"], BAND_EDGES).items():
+            for b, m in bands().items():
                 if (veg & m).any():
                     ms.add(b, veg & m, f"vegetated, TOPO {b}", src)
             continue
@@ -182,7 +223,7 @@ def masks(grid: G.Grid, surface, names: Sequence[Any],
                 problems.append(f"region {target!r} has no vegetated cell")
                 continue
             if within:
-                for b, bm in R.elevation_bands(s["TOPO"], BAND_EDGES).items():
+                for b, bm in bands().items():
                     if (m & bm).any():
                         ms.add(band_within(within, b), m & bm,
                                f"{rule}, vegetated, TOPO {b}", files + src)
@@ -190,7 +231,7 @@ def masks(grid: G.Grid, surface, names: Sequence[Any],
             ms.add(f"{key}, vegetated", m, f"{rule}, vegetated", files + src)
         except Exception as e:                                      # noqa: BLE001
             problems.append(f"region {target!r} cannot be made: {type(e).__name__}: {e}")
-    return {"masks": ms, "problems": problems}
+    return {"masks": ms, "problems": problems, "band_edges": cut, "band_edges_from": cut_from}
 
 
 def layered_problem(var: str, levels: Sequence[str]) -> str:
@@ -205,14 +246,21 @@ def _stream_for(streams: Dict[str, G.Stream], var: str) -> Optional[str]:
                 None)
 
 
-def run_values(run_dir, ms: R.MaskSet, variables: Sequence[str], years: Sequence[int]
-               ) -> Dict[str, Any]:
+def run_values(run_dir, ms: R.MaskSet, variables: Sequence[str], years: Sequence[int],
+               streams: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Per region, field and year, from one run's history: a rate per second
     is totalled over the year (regions' sum of value x days), anything else is
     the year's time-weighted mean. A year that is not whole is None, with the
-    reason."""
-    have = G.discover(run_dir)
-    streams = {s: G.open_stream(run_dir, s) for s in STREAM_ORDER if s in have}
+    reason.
+
+    streams: the run's streams already open, {name: stream} in STREAM_ORDER,
+    in place of opening them here. THE SUITE (2026-11-04): domain_suite
+    passes its own, whose passes also feed the suite, so the suite's month,
+    season and year series are this function's numbers, from one read of each
+    year file."""
+    if streams is None:
+        have = G.discover(run_dir)
+        streams = {s: G.open_stream(run_dir, s) for s in STREAM_ORDER if s in have}
     out: Dict[str, Any] = {"run_dir": str(run_dir), "fields": {}, "values": {},
                            "missing": {}, "problems": []}
     by_stream: Dict[str, List[str]] = {}
@@ -235,6 +283,8 @@ def run_values(run_dir, ms: R.MaskSet, variables: Sequence[str], years: Sequence
         if not ys:
             continue
         prev = _previous_years(s, ys)
+        # each year read once, every field of the stream from each block of
+        # records (regions.reduce_regions, ONE PASS PER YEAR, 2026-11-04)
         rs = R.reduce_regions(s, [R.Field(v) for v in vs], ms, ys + prev,
                               require_complete=not prev)
         for v in vs:
@@ -614,7 +664,7 @@ def experiment(control: Dict[str, Any], runs: Dict[str, str], analysis: Dict[str
     surface = _surface(control["case_dir"])
     first = next(iter(runs.values()))
     grid = G.open_stream(first, next(s for s in STREAM_ORDER if s in G.discover(first))).grid
-    mk = masks(grid, surface, names, control.get("regions"))
+    mk = masks(grid, surface, names, control.get("regions"), control.get(BAND_EDGES_KEY))
     ms = mk["masks"]
     table: Dict[str, Any] = {
         "regions": {n: {"cells": ms.mask(n).n_cells, "area_km2": float(ms.mask(n).area_km2),
@@ -691,7 +741,8 @@ def analysis_plan(control: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str
     except Exception as e:                                          # noqa: BLE001
         out["problems"].append(f"the control's surface file: {type(e).__name__}: {e}")
         return out
-    mk = masks(next(iter(streams.values())).grid, surface, names, control.get("regions"))
+    mk = masks(next(iter(streams.values())).grid, surface, names, control.get("regions"),
+               control.get(BAND_EDGES_KEY))
     for n, m in mk["masks"].summary().items():
         out["regions"].append({"name": n, "cells": m["n_cells"],
                                "area_km2": round(float(m["area_km2"]), 1),

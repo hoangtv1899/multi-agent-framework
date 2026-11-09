@@ -1,0 +1,2114 @@
+{
+ "_comment": [
+  "THE FIELD NOTES (2026-11-04; review round 1, 2026-11-05). What people know about each field of a whole-domain control's output, merged by domain_catalog.py into the data catalog (catalog.json, CATALOG.md). Written by people, never by the framework's language models; the user reviews every entry, and an entry stays a draft until then (pytest --review-gate fails while any entry's review is a draft, or refers to an older text revision or behaviour version). On 2026-11-05 the user approved every entry for integration (review state 'approved for integration', by the user, at its text revision and behaviour version of that day): an approval for integration, not a final scientific approval; the gate passes on approved for integration, provisional and reviewed at the current versions.",
+  "52 catalog fields, one entry each: the 44 fields of the daily stream (H2OSOI by its top-1 m mean) and the 8 monthly-only fields the user added; plus FIRE, kept only for its caution (row false): 53 entries in all. Units, long names, layers and coverage are read from the files by code and are not written here.",
+  "Keys: meaning (plain words, the model's long name tidied, no process story); group (one of domain_catalog.GROUPS); cadence (daily or monthly: the stream the field is read from); how (total or average; it overrides the unit rule only with a how_why); type (flux, state, event, store or bounded: decides how the screen scores the field), with type_why where the choice needs a reason; scale (the physical scale: ratio where zero means none, or no net flow for a signed quantity such as NPP or NEE; interval where the zero is set by a unit or a baseline) with scale_why; percent (the reporting policy, separate from the scale: allowed true or false, with why; anomaly, difference and the screen give a change as a percent of its reference only where it is allowed); cautions (facts about the data that hold for any watershed, never a watershed's outcome); text_revision, behaviour_version and status (below).",
+  "STATE OR STORE. A store is a pool that changes slowly from year to year, with a seasonal cycle that is weak beside that slow change, so its drift dominates what a period shows (the screen is to score a store by its drift against the normal years' trend, which is not built yet). A state has a strong seasonal cycle, larger than any drift, so each period is compared with the same period of the normal years, as a flux is. LEAFC is a state: leaves grow and fall each year, so its seasonal cycle is large beside its slow drift.",
+  "PERCENT POLICY DEFAULTS. Not allowed: temperatures in any unit (their zero is set by the unit); TWS (its zero is a baseline the model sets); ZWT (the change of depth is given in metres, depth below the surface, positive down); signed or net quantities (NPP, NEE, FSH, FIRA, QVEGE, QSOIL, EFLX_LH_TOT, QCHARGE), whose values can cross zero; RH2M (already a percentage: its changes are given in percentage points, and a relative percent is made only when a study asks for it, labelled relative); bounded indices and events, which the screen treats by their own rules. Allowed: amounts whose zero means none, the percent withheld where the reference is near zero.",
+  "STATUSES (review round 1, 2026-11-05). Each entry carries four statuses, kept apart: review (draft or reviewed, with the text revision and the behaviour version the review refers to; only the user marks an entry reviewed), implemented (the behaviour version the code applies), tested (the tests that passed, their date and the behaviour version they ran on), available_to_analyzer (true for every catalog row: the suite holds each field and the access calls of domain_access reach it; false for FIRE, kept only for its caution). text_revision counts changes to an entry's words; behaviour_version counts changes to what code does with the entry (its how, type, cadence, row and percent.allowed)."
+ ],
+ "fields": {
+  "FSDS": {
+   "meaning": "solar radiation arriving at the land surface, from the weather input",
+   "group": "weather in",
+   "cadence": "monthly",
+   "how": "average",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount of energy: zero means no sunlight",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "RAIN": {
+   "meaning": "rain, from the weather input",
+   "group": "weather in",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no rain",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "the weather input after the model splits its precipitation into rain and snow by air temperature"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "SNOW": {
+   "meaning": "snowfall as water, from the weather input",
+   "group": "weather in",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no snowfall",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "the weather input after the model splits its precipitation into rain and snow by air temperature"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TBOT": {
+   "meaning": "air temperature, from the weather input",
+   "group": "weather in",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "interval",
+   "scale_why": "a temperature: where its zero lies depends on the unit",
+   "percent": {
+    "allowed": false,
+    "why": "a temperature: its zero is set by its unit, so a percent of it changes with the unit"
+   },
+   "cautions": [
+    "the weather input's air temperature; TSA is the model's own 2 m air temperature"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FSNO": {
+   "meaning": "fraction of the ground covered by snow, from 0 to 1",
+   "group": "snow",
+   "cadence": "daily",
+   "how": "average",
+   "type": "bounded",
+   "scale": "ratio",
+   "scale_why": "a fraction whose zero means no snow cover",
+   "percent": {
+    "allowed": false,
+    "why": "a bounded index: its change is given within its bounds, never as a percent"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "H2OSNO": {
+   "meaning": "water held in the snowpack (snow water equivalent)",
+   "group": "snow",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no snow",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QSNOMELT": {
+   "meaning": "water melting from the snowpack",
+   "group": "snow",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no melt",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "SNOWDP": {
+   "meaning": "snow height, averaged over the cell",
+   "group": "snow",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "ratio",
+   "scale_why": "a height of snow: zero means no snow",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "H2OSFC": {
+   "meaning": "depth of the water standing on the ground surface",
+   "group": "soil water and groundwater",
+   "cadence": "monthly",
+   "how": "average",
+   "type": "state",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no standing water",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "can be exactly zero for whole months, so a month's normal can have no spread"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "H2OSOI": {
+   "meaning": "volumetric soil water in each soil layer, vegetated land only",
+   "group": "soil water and groundwater",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "ratio",
+   "scale_why": "a water content: zero means no water",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "has 15 layers; the suite holds its top-1 m mean, each layer weighted by its thickness inside the top metre"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QCHARGE": {
+   "meaning": "recharge: water moving between the soil and the aquifer below it, vegetated land only",
+   "group": "soil water and groundwater",
+   "cadence": "monthly",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "signed, with a zero that means no water crossing the water table: ratio-scale physically; negative when water rises from the water table",
+   "percent": {
+    "allowed": false,
+    "why": "signed: its values can cross zero, so a percent of a reference near zero or of the other sign means nothing; the absolute change is given"
+   },
+   "cautions": [
+    "can be negative: water rising from the water table into the soil"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "SOILWATER_10CM": {
+   "meaning": "liquid water and ice in the top 10 cm of soil, vegetated land only",
+   "group": "soil water and groundwater",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no water",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TWS": {
+   "meaning": "total water storage of the cell",
+   "group": "soil water and groundwater",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "interval",
+   "scale_why": "it counts the aquifer's water from a baseline the model sets, so its zero is not 'no water'",
+   "percent": {
+    "allowed": false,
+    "why": "its zero is a baseline the model sets, so a percent of it depends on that baseline"
+   },
+   "cautions": [
+    "includes the water of the model's unconfined aquifer, counted from a baseline amount the model sets (none when use_var_soil_thick is on), so its level is not the water a cell holds"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "ZWT": {
+   "meaning": "depth of the water table below the ground surface, vegetated land only",
+   "group": "soil water and groundwater",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "interval",
+   "scale_why": "a depth below the ground surface: zero is a position (the water table at the surface), not none of something",
+   "percent": {
+    "allowed": false,
+    "why": "a depth below the ground surface: the change of depth is given in metres, positive when the water table falls (deepens)"
+   },
+   "cautions": [
+    "ZWT is the depth of the water table below the ground surface, positive down (units m, long name 'water table depth (vegetated landunits only)'): a larger value is a deeper water table, so a positive change is a falling water table"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QDRAI": {
+   "meaning": "drainage out of the soil column below the surface (subsurface runoff)",
+   "group": "runoff",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no drainage",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "not routed, like QRUNOFF: the water leaving each cell's land, not a river's flow"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QH2OSFC": {
+   "meaning": "runoff from the water standing on the ground surface",
+   "group": "runoff",
+   "cadence": "monthly",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no runoff",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "not routed, like QRUNOFF: the water leaving each cell's land, not a river's flow"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QOVER": {
+   "meaning": "surface runoff",
+   "group": "runoff",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no runoff",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "not routed, like QRUNOFF: the water leaving each cell's land, not a river's flow"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QRUNOFF": {
+   "meaning": "total liquid runoff, not counting the ice runoff of capped snow (QSNWCPICE)",
+   "group": "runoff",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no runoff",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "not routed: a cell's runoff is the water leaving that cell's land, not the river at a gauge"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "BTRAN": {
+   "meaning": "transpiration beta factor: a soil-water index from 0 to 1",
+   "group": "water to the air",
+   "cadence": "daily",
+   "how": "average",
+   "type": "bounded",
+   "scale": "ratio",
+   "scale_why": "a factor from 0 to 1 whose zero means transpiration fully limited by soil water",
+   "percent": {
+    "allowed": false,
+    "why": "a bounded index: its change is given within its bounds, never as a percent"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "EFLX_LH_TOT": {
+   "meaning": "total latent heat flux, positive to the air",
+   "group": "water to the air",
+   "cadence": "daily",
+   "how": "average",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "signed, with a zero that means no net latent heat exchange: ratio-scale physically; positive to the air",
+   "percent": {
+    "allowed": false,
+    "why": "signed: its values can cross zero, so a percent of a reference near zero or of the other sign means nothing; the absolute change is given"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QSOIL": {
+   "meaning": "evaporation and sublimation from the soil and snow, minus dew",
+   "group": "water to the air",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "signed, with a zero that means no net evaporation from the ground: ratio-scale physically; negative when dew forms",
+   "percent": {
+    "allowed": false,
+    "why": "signed: its values can cross zero, so a percent of a reference near zero or of the other sign means nothing; the absolute change is given"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QVEGE": {
+   "meaning": "evaporation of the water held on the canopy, net of dew onto it",
+   "group": "water to the air",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "signed, with a zero that means no evaporation from the canopy: ratio-scale physically; negative when dew forms on the canopy",
+   "percent": {
+    "allowed": false,
+    "why": "signed: its values can cross zero, so a percent of a reference near zero or of the other sign means nothing; the absolute change is given"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "QVEGT": {
+   "meaning": "transpiration by plants",
+   "group": "water to the air",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no transpiration",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FIRA": {
+   "meaning": "net longwave (infrared) radiation, positive from the land to the air",
+   "group": "energy",
+   "cadence": "daily",
+   "how": "average",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "signed, with a zero that means no net longwave exchange: ratio-scale physically; positive to the air",
+   "percent": {
+    "allowed": false,
+    "why": "signed: its values can cross zero, so a percent of a reference near zero or of the other sign means nothing; the absolute change is given"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FSA": {
+   "meaning": "solar radiation absorbed by the land",
+   "group": "energy",
+   "cadence": "daily",
+   "how": "average",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount of energy: zero means none absorbed",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FSH": {
+   "meaning": "sensible heat flux, positive to the air",
+   "group": "energy",
+   "cadence": "daily",
+   "how": "average",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "signed, with a zero that means no net sensible heat exchange: ratio-scale physically; positive to the air",
+   "percent": {
+    "allowed": false,
+    "why": "signed: its values can cross zero, so a percent of a reference near zero or of the other sign means nothing; the absolute change is given"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "RH2M": {
+   "meaning": "relative humidity at 2 m, from the land model",
+   "group": "energy",
+   "cadence": "monthly",
+   "how": "average",
+   "type": "state",
+   "scale": "ratio",
+   "scale_why": "a share of the saturation vapour: zero means no water vapour",
+   "percent": {
+    "allowed": false,
+    "why": "already a percentage: its changes are given in percentage points; a relative percent is made only when a study asks for it, and labelled relative"
+   },
+   "cautions": [
+    "a change of RH2M is in percentage points of relative humidity, not a percent of its value"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 2,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 2
+    },
+    "implemented": {
+     "behaviour_version": 2
+    },
+    "tested": {
+     "behaviour_version": 2,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order",
+      "tests/test_domain_methods.py::test_a_field_kept_in_percent_changes_in_percentage_points"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TSA": {
+   "meaning": "air temperature at 2 m, from the land model",
+   "group": "energy",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "interval",
+   "scale_why": "a temperature: where its zero lies depends on the unit",
+   "percent": {
+    "allowed": false,
+    "why": "a temperature: its zero is set by its unit, so a percent of it changes with the unit"
+   },
+   "cautions": [
+    "the model's own 2 m air temperature; TBOT is the weather input's air temperature"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TSOI_10CM": {
+   "meaning": "soil temperature in the top 10 cm",
+   "group": "energy",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "interval",
+   "scale_why": "a temperature: where its zero lies depends on the unit",
+   "percent": {
+    "allowed": false,
+    "why": "a temperature: its zero is set by its unit, so a percent of it changes with the unit"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "AR": {
+   "meaning": "autotrophic respiration: maintenance plus growth respiration",
+   "group": "carbon in and out",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no respiration",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "ER": {
+   "meaning": "total ecosystem respiration: autotrophic plus heterotrophic",
+   "group": "carbon in and out",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no respiration",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "GPP": {
+   "meaning": "gross primary production",
+   "group": "carbon in and out",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no production",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "HR": {
+   "meaning": "total heterotrophic respiration",
+   "group": "carbon in and out",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no respiration",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "NEE": {
+   "meaning": "net ecosystem exchange of carbon, including the fire, land use and harvest fluxes",
+   "group": "carbon in and out",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "signed, with a zero that means no net exchange with the air: ratio-scale physically; positive is a release to the air",
+   "percent": {
+    "allowed": false,
+    "why": "signed: its values can cross zero, so a percent of a reference near zero or of the other sign means nothing; the absolute change is given"
+   },
+   "cautions": [
+    "positive is a release of carbon to the air"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "NPP": {
+   "meaning": "net primary production",
+   "group": "carbon in and out",
+   "cadence": "daily",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "signed, with a zero that means something (production equal to the plants' respiration): ratio-scale physically, though it can be negative",
+   "percent": {
+    "allowed": false,
+    "why": "signed: its values can cross zero, so a percent of a reference near zero or of the other sign means nothing; the absolute change is given"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "PSNSHA": {
+   "meaning": "photosynthesis of shaded leaves",
+   "group": "carbon in and out",
+   "cadence": "monthly",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no photosynthesis",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "a per-second rate, totalled per period in umol CO2/m2",
+    "per square metre of shaded leaf, not of ground: the canopy's photosynthesis is PSNSUN times the sunlit leaf area plus PSNSHA times the shaded leaf area",
+    "a monthly mean of photosynthesis per leaf area times a monthly mean of leaf area is not, in general, the monthly mean canopy photosynthesis: the product needs the two at the same time step"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "PSNSUN": {
+   "meaning": "photosynthesis of sunlit leaves",
+   "group": "carbon in and out",
+   "cadence": "monthly",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no photosynthesis",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [
+    "a per-second rate, totalled per period in umol CO2/m2",
+    "per square metre of sunlit leaf, not of ground: the canopy's photosynthesis is PSNSUN times the sunlit leaf area plus PSNSHA times the shaded leaf area",
+    "a monthly mean of photosynthesis per leaf area times a monthly mean of leaf area is not, in general, the monthly mean canopy photosynthesis: the product needs the two at the same time step"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "ELAI": {
+   "meaning": "one-sided leaf area index of the leaves not buried by snow",
+   "group": "leaves",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "ratio",
+   "scale_why": "leaf area per ground area: zero means no leaves",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "LEAFC": {
+   "meaning": "carbon in leaves",
+   "group": "leaves",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "type_why": "a state, not a store: leaves grow and fall each year, so its seasonal cycle is large beside its slow year-to-year drift",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means none",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TLAI": {
+   "meaning": "total one-sided leaf area index, including leaves buried by snow",
+   "group": "leaves",
+   "cadence": "daily",
+   "how": "average",
+   "type": "state",
+   "scale": "ratio",
+   "scale_why": "leaf area per ground area: zero means no leaves",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "CWDC": {
+   "meaning": "carbon in coarse woody debris",
+   "group": "carbon stores",
+   "cadence": "daily",
+   "how": "average",
+   "type": "store",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means none",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FROOTC": {
+   "meaning": "carbon in fine roots",
+   "group": "carbon stores",
+   "cadence": "daily",
+   "how": "average",
+   "type": "store",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means none",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TOTECOSYSC": {
+   "meaning": "total ecosystem carbon, including vegetation, not counting the plants' temporary carbon pool (cpool) or the wood product pools",
+   "group": "carbon stores",
+   "cadence": "daily",
+   "how": "average",
+   "type": "store",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means none",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TOTLITC": {
+   "meaning": "total litter carbon",
+   "group": "carbon stores",
+   "cadence": "daily",
+   "how": "average",
+   "type": "store",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means none",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TOTSOMC": {
+   "meaning": "total soil organic matter carbon",
+   "group": "carbon stores",
+   "cadence": "daily",
+   "how": "average",
+   "type": "store",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means none",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "TOTVEGC": {
+   "meaning": "total vegetation carbon, not counting the plants' temporary carbon pool (cpool)",
+   "group": "carbon stores",
+   "cadence": "daily",
+   "how": "average",
+   "type": "store",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means none",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FPG": {
+   "meaning": "fraction of the potential GPP that nitrogen allows, from 0 to 1 (1: no limitation)",
+   "group": "nitrogen",
+   "cadence": "daily",
+   "how": "average",
+   "type": "bounded",
+   "scale": "ratio",
+   "scale_why": "a fraction from 0 to 1 whose zero means none of the potential",
+   "percent": {
+    "allowed": false,
+    "why": "a bounded index: its change is given within its bounds, never as a percent"
+   },
+   "cautions": [
+    "FPG measures nitrogen limitation only: the fraction of potential GPP that the available nitrogen allows. How it reads depends on the run's nutrient configuration, which the catalog shows from the control's facts cache (key configuration). In the verified configuration (carbon, nitrogen and phosphorus cycles, build -nutrient cnp; nitrogen not supplemented, suplnitro = 'NONE'; phosphorus supplemented to meet plant demand everywhere, suplphos = 'ALL'), the model represents phosphorus limitation but the supplement switches it off: FPG_P, the matching fraction for phosphorus in the monthly output, was exactly 1 in every cell and month of the one control run where this was checked (on 2026-11-05: 160,728 finite cell-months a year; the catalog's configuration line names that run and its years). So only nitrogen limits growth by nutrients in that configuration, and nitrogen and phosphorus cannot co-limit. FPG shows the nitrogen limit on potential GPP at that time; nitrogen can also lower GPP through earlier effects that FPG at the time does not show (less leaf area or leaf nitrogen grown in a nitrogen-poor period), so an unchanged FPG rules out only a same-time nitrogen limit. In a run without the phosphorus supplement, FPG and FPG_P are needed together to tell nitrogen limitation from phosphorus limitation. Neither measures the other limits on growth: water (through BTRAN), temperature, light and leaf area limit growth separately and show in neither"
+   ],
+   "text_revision": 4,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 4,
+     "behaviour_version": 1,
+     "note": "re-recorded after completing the FPG correction the user asked for"
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FPI": {
+   "meaning": "fraction of the potential nitrogen immobilization that is met, from 0 to 1",
+   "group": "nitrogen",
+   "cadence": "daily",
+   "how": "average",
+   "type": "bounded",
+   "scale": "ratio",
+   "scale_why": "a fraction from 0 to 1 whose zero means none of the potential",
+   "percent": {
+    "allowed": false,
+    "why": "a bounded index: its change is given within its bounds, never as a percent"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "PLANT_NDEMAND": {
+   "meaning": "nitrogen the plants need to support their initial (potential) GPP",
+   "group": "nitrogen",
+   "cadence": "monthly",
+   "how": "total",
+   "type": "flux",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no demand",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "SMINN": {
+   "meaning": "mineral nitrogen in the soil",
+   "group": "nitrogen",
+   "cadence": "daily",
+   "how": "average",
+   "type": "store",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means none",
+   "percent": {
+    "allowed": true,
+    "why": "an amount whose zero means none: a change as a share of its reference means something; withheld where the reference is near zero"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "COL_FIRE_CLOSS": {
+   "meaning": "carbon lost to fire, from non-peat fires outside land being converted to another use",
+   "group": "fire",
+   "cadence": "daily",
+   "how": "total",
+   "type": "event",
+   "scale": "ratio",
+   "scale_why": "an amount: zero means no carbon lost to fire",
+   "percent": {
+    "allowed": false,
+    "why": "an event: the screen sets its amount beside the normal years' mean and largest, never a percent"
+   },
+   "cautions": [],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FAREA_BURNED": {
+   "meaning": "fraction of the cell's area burned",
+   "group": "fire",
+   "cadence": "daily",
+   "how": "total",
+   "type": "event",
+   "scale": "ratio",
+   "scale_why": "a burned fraction: zero means no fire",
+   "percent": {
+    "allowed": false,
+    "why": "an event: the screen sets its amount beside the normal years' mean and largest, never a percent"
+   },
+   "cautions": [
+    "a fraction of the cell burned PER SECOND (FireMod.F90), although its label says 'timestep fractional area burned' in 'proportion'; a year's burned fraction is the rate times each record's seconds"
+   ],
+   "text_revision": 2,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 2,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_hold_every_field_once_and_their_content_is_whole",
+      "tests/test_domain_catalog.py::test_the_percent_policy_follows_the_written_defaults",
+      "tests/test_domain_catalog.py::test_every_field_is_a_row_with_a_meaning_a_type_and_a_scale",
+      "tests/test_domain_catalog_naches_oracle.py::test_every_note_is_a_field_of_the_run_in_the_fixed_group_order"
+     ]
+    },
+    "available_to_analyzer": true
+   }
+  },
+  "FIRE": {
+   "row": false,
+   "cadence": "monthly",
+   "cautions": [
+    "emitted infrared (longwave) radiation in W/m^2, not fire; the fire fields are FAREA_BURNED and COL_FIRE_CLOSS"
+   ],
+   "text_revision": 1,
+   "behaviour_version": 1,
+   "status": {
+    "review": {
+     "state": "approved for integration",
+     "by": "the user",
+     "date": "2026-11-05",
+     "text_revision": 1,
+     "behaviour_version": 1
+    },
+    "implemented": {
+     "behaviour_version": 1
+    },
+    "tested": {
+     "behaviour_version": 1,
+     "date": "2026-11-05",
+     "passed": [
+      "tests/test_domain_catalog.py::test_the_notes_carry_the_two_field_notes_of_gridded_verbatim"
+     ]
+    },
+    "available_to_analyzer": false
+   }
+  }
+ }
+}

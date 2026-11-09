@@ -12,6 +12,7 @@ proven". Its 894 passing tests did not catch a single one of the failures of
 2026-08-06. A replacement is written from scratch in phase 7; nothing here is
 being maintained in the meantime.
 """
+import os
 import sys
 from pathlib import Path
 
@@ -21,3 +22,12 @@ for p in (ROOT / "src", ROOT / "mcp" / "elm-mcp" / "src",
           ROOT / "mcp" / "pflotran-mcp"):     # the PFLOTRAN manager, 2026-08-18
     if p.is_dir() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
+
+# THE STREAM INDEX CACHE IS OFF IN EVERY TEST (2026-11-04). gridded keeps each
+# history file's index on disk, by default under ~/.cache/elm-mcp/stream_index/
+# (gridded, THE INDEX ON DISK). The tests write thousands of small history
+# files and rewrite some in place; none of that may leave an entry in the
+# user's home, and a test must read the files it wrote, not an index of them.
+# Set here, before any fixture opens a stream; a test of the cache points the
+# variable at a temporary directory of its own.
+os.environ["ELM_STREAM_INDEX_CACHE"] = "off"

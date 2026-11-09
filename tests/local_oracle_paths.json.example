@@ -3,6 +3,8 @@
     "Copy to tests/local_oracle_paths.json (not tracked) to run",
     "    pytest tests/test_gridded_naches_oracle.py tests/test_run_gate_naches_oracle.py tests/test_domain_case_naches_oracle.py --runlocaldata",
     "    pytest tests/test_numbers_check.py --runlocaldata (numbers_check_demos: finished experiments' run folders, read only)",
+    "    pytest tests/test_gridded_block_pass_naches_oracle.py tests/test_gridded_index_cache_naches_oracle.py tests/test_domain_suite_naches_oracle.py --runlocaldata (naches_suite: the control's run, a regional table made from it and its built suite, read only)",
+    "    pytest tests/test_analyzer_g2_replay_naches_oracle.py tests/test_analyzer_g3_replay_naches_oracle.py tests/test_analyzer_g4_replay_naches_oracle.py tests/test_analyzer_phase_close_naches_oracle.py --runlocaldata (g2_replay to g5_acceptance: the Analyzer's recorded studies, read only)",
     "against a finished whole-domain ELM-BGC run, its cases, logs and hand checks,",
     "and (global_r05) any surface, domain and saved state ELM ran together.",
     "Every path must exist, or the oracle tests skip and say which is missing."
@@ -45,5 +47,24 @@
     "record_dir": "/path/to/<run>/domain_case (the chain's record)",
     "case_dir": "/path/to/<rebuilt case>",
     "run_dir": "/path/to/e3sm_scratch/<rebuilt case>/run"
-  }
+  },
+  "naches_suite": {
+    "reference": "/path/to/<a copy of 03_results/regional.json made from the control, 2015-2023>",
+    "run_dir": "/path/to/e3sm_scratch/<case>/run",
+    "suite_dir": "/path/to/<the control's suite, built by domain_suite (its registry entry's suite_dir)>"
+  },
+  "suite_f2": {
+    "scratch": "/path/to/<a scratch folder: the demonstration study and one experiment run's suite are written here, nowhere else>",
+    "warm_run_dir": "/path/to/e3sm_scratch/<the case naches_bgc_fix_warm_dry_summer>/run"
+  },
+  "acceptance_g1": {
+    "scratch": "/path/to/<a scratch folder: the experiment runs' suites and the acceptance studies are written here, nowhere else>",
+    "warm_run_dir": "/path/to/e3sm_scratch/<the case naches_bgc_fix_warm_dry_summer>/run",
+    "nofire_run_dir": "/path/to/e3sm_scratch/<the case naches_bgc_fix_nofire>/run",
+    "dry_run_dir": "/path/to/e3sm_scratch/<the case naches_bgc_fix_dry>/run"
+  },
+  "g2_replay": {"dir": "/path/to/<the recorded replies of G part 2>"},
+  "g3_replay": {"dir": "/path/to/<the recorded studies of G part 2 run again>"},
+  "g4_replay": {"dir": "/path/to/<the recorded studies of the third acceptance batch>"},
+  "g5_acceptance": {"dir": "/path/to/<the recorded studies of the fourth acceptance batch>"}
 }

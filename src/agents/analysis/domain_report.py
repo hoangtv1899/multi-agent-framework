@@ -1262,3 +1262,192 @@ def _with_model_setup(lines: List[str], record: Dict[str, Any]) -> List[str]:
     from agents.analysis import model_setup as MS
     return MS.insert_after_answer(lines, [_plain(x) for x in MS.render(
         record.get("model_setup"))])
+
+
+# ─────────────────────────────────────────────────────────────────────
+# A STUDY WITH A SUITE: THE ANALYZER'S EVIDENCE ON THE PAGE
+# (package F1, 2026-11-05; plan section 3.8)
+# ─────────────────────────────────────────────────────────────────────
+# Rendered into REPORT.md (step4_report.render_markdown) from the evidence
+# trace (claim_trace.trace_evidence): beside each claim its evidence class,
+# its records and every warning they carry; then the maps and series the
+# Analyzer drew, the timing table with eligibility and coverage, the screen
+# table with its scoring and display rules and its label, the headline rule,
+# the wording rules, and for an open cause the run that would settle it, in
+# the server's change vocabulary. A renderer: every value is a record's.
+def claim_evidence_lines(c: Dict[str, Any], records: Dict[str, Any]) -> List[str]:
+    """The lines under one claim: its class with the wording that class
+    allows, each record it rests on, and each warning with its reason."""
+    from agents.analysis.claim_trace import describe_record
+    e = c.get("evidence_trace") or {}
+    out = [f"   - evidence class: {e.get('class') or 'none'} "
+           f"({_plain(e.get('wording_allowed') or 'no wording allowed')})"]
+    for rid in e.get("records") or []:
+        r = records.get(rid)
+        out.append(f"   - record {_plain(describe_record(r))}" if r else f"   - record {rid}: "
+                   f"no such lookup")
+    for w in e.get("warnings") or []:
+        out.append(f"   - warning, {w['label']} ({w['record']}): {_plain(w['reason'])}")
+    return out
+
+
+def _v(rec: Dict[str, Any], path: str):
+    x = (rec.get("values") or {}).get(path)
+    return "" if x is None else format_value(x)
+
+
+def _warn_words(rec: Dict[str, Any]) -> str:
+    return "; ".join(w["label"] for w in rec.get("warnings") or []) or "none"
+
+
+def _range_words(a: Dict[str, Any]) -> str:
+    """A record's range across settings in words: the smallest and the
+    largest shift with their settings, the default's, the spread and whether
+    it exceeds the limit."""
+    lo, hi, de = a.get("minimum"), a.get("maximum"), a.get("default")
+    if not lo or not hi:
+        return _plain(a.get("why") or "no range")
+    lim = format_value(a.get("limit_days"))
+    return (f"{format_value(lo['median_shift'])} ({lo['variant']}) to "
+            f"{format_value(hi['median_shift'])} ({hi['variant']})"
+            + (f", default {format_value(de['median_shift'])}" if de else "")
+            + f": {format_value(a.get('spread_days'))} days, "
+            + (f"more than {lim}: a claim gives the default, the smallest and the largest"
+               if a.get("range_required") else f"within {lim}"))
+
+
+def _timing_rows(r: Dict[str, Any]) -> List[str]:
+    """One timing record's rows of the timing table: every setting it
+    evaluates (the default first), each with its own eligibility and
+    coverage and its shift on the comparable cells beside the comparable
+    cells' count and share; the range, the reversal flag and the warnings on
+    its first row (the user's decisions on G part 1, 2026-11-08)."""
+    vals = r.get("values") or {}
+    a = r.get("across_settings") or {}
+    labs = list(a.get("evaluated") or []) or ["default"]
+    comp = (f"{_v(r, ACROSS_PRE + 'comparable.cells')} cells "
+            f"({_v(r, ACROSS_PRE + 'comparable.area_share')})"
+            if ACROSS_PRE + "comparable.cells" in vals else "")
+    out = []
+    for i, lab in enumerate(labs):
+        pre = f"variants.{lab}."
+        el = pre + "shift.eligible."
+        one = sum(v for p, v in vals.items() if p.startswith(el + "only_") and p.endswith(".cells"))
+        one_a = sum(v for p, v in vals.items() if p.startswith(el + "only_")
+                    and p.endswith(".area_share"))
+        has = el + "both.cells" in vals
+        mark = (" (smallest)" if lab == (a.get("minimum") or {}).get("variant") else "") + \
+            (" (largest)" if lab == (a.get("maximum") or {}).get("variant") else "")
+        cs = _v(r, f"{ACROSS_PRE}evaluated.{i}.median_shift") if a else ""
+        first = i == 0
+        cells = [r["id"], r["measure"], r["run"], r.get("period"), r.get("region"),
+                 (r.get("comparison") or {}).get("against") or "", lab,
+                 _v(r, pre + "distribution.inputs_area_share"), _v(r, pre + "distribution.median"),
+                 _v(r, pre + "shift.median")]
+        cells += ([f"{_v(r, el + 'both.cells')} cells ({_v(r, el + 'both.area_share')})",
+                   f"{format_value(one)} cells ({format_value(one_a)})",
+                   f"{_v(r, el + 'neither.cells')} cells ({_v(r, el + 'neither.area_share')})"]
+                  if has else ["", "", ""])
+        cells += [_v(r, pre + "shift.area_share"), comp, f"{cs}{mark}" if cs else "",
+                  _range_words(a) if a and first else "",
+                  ("yes" if a.get("direction_reversal") else "no") if a and first else "",
+                  _plain(_warn_words(r)) if first else ""]
+        out.append("| " + " | ".join("" if c is None else str(c) for c in cells) + " |")
+    return out
+
+
+ACROSS_PRE = "across_settings."
+
+
+def _screen_csv_words(r: Dict[str, Any]) -> str:
+    """The link to a screen's whole table, beside its display rule (the
+    user's decision 4 on G part 1, 2026-11-08). REPORT.md sits in
+    04_analysis/, beside the CSV."""
+    c = r.get("screen_csv") or {}
+    if not c.get("file"):
+        return "The whole table: no CSV was written for this lookup."
+    return (f"The whole table, every field and period of the screen ({format_value(c.get('rows'))} "
+            f"rows), is the CSV [04_analysis/{c['file']}]({c['file']}), sha256 "
+            f"{str(c.get('sha256'))[:12]}.")
+
+
+def suite_sections(report: Dict[str, Any]) -> List[str]:
+    """REPORT.md's sections for a study with a suite, after the claims."""
+    t = report.get("evidence_trace") or {}
+    recs = list((t.get("records") or {}).values())
+    L: List[str] = []
+    figs = ((report.get("figures") or {}).get("investigation") or {})
+    drawn = [r for r in recs if r["call"] in ("get_map", "get_series")]
+    L += ["## The maps and series the Analyzer drew", ""]
+    if not figs and not drawn:
+        L += ["None.", ""]
+    for fid, path in figs.items():
+        mine = [r for r in drawn if r.get("script") == fid]
+        L.append(f"- {fid}: {path}" + ("; from " + "; ".join(
+            f"{r['id']} {r['call']} {r.get('field')} {r.get('period') or r.get('step') or ''}"
+            f"{(' ' + r['region']) if r.get('region') else ''}".rstrip() for r in mine)
+            if mine else ""))
+    L.append("")
+    timing = [r for r in recs if r.get("measure")]
+    if timing:
+        L += ["## Timing", "",
+              "Dates are days of the year. Each setting's shift is on the cells eligible at that "
+              "setting in both the year and its baseline; beside it stand the cells eligible in "
+              "one only and in neither, and the area the shift covers. The range across the "
+              "settings is of the shifts on the comparable cells, those eligible under every "
+              "setting the record evaluates, in the year and in its baseline. When the largest "
+              "minus the smallest exceeds 7 days, a claim giving the shift states the default, "
+              "the smallest and the largest, each with its setting.", "",
+              "| record | measure | run | year | region | against | setting | inputs cover | "
+              "median date | median shift (days) | eligible in both | in one only | in neither | "
+              "shift covers | comparable cells | shift on the comparable cells (days) | range "
+              "across settings | settings reverse the direction | warnings |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for r in timing:
+            L += _timing_rows(r)
+        L.append("")
+    sr = t.get("screen_record") or {}
+    for r in (x for x in recs if x["call"] == "screen"):
+        label = r.get("label") or "screen"
+        L += [f"## The screen ({label})", "",
+              f"Record {r['id']}: year {r.get('period')}, region {r.get('region')}, against "
+              f"{(r.get('comparison') or {}).get('against')}. Its findings are "
+              f"\"{label}\".", "",
+              f"Scoring rule: {_plain(sr.get('scoring_rule') or '(not recorded)')}", "",
+              f"Display rule: {_plain(sr.get('display_rule') or (r.get('words') or {}).get('display_rule') or '(not recorded)')}",
+              "", _screen_csv_words(r),
+              "", "| shown | field | period | change | units | percent | score | status | mark |",
+              "|---|---|---|---|---|---|---|---|---|"]
+        rows = r.get("rows") or {}
+        for w in sorted((k for k in rows if k.startswith("display.")),
+                        key=lambda k: (k.split(".")[1], k)):
+            x = rows[w]
+            where = w.split(".")[2] if w.startswith("display.groups.") else w.split(".")[1]
+            L.append(f"| {_plain(where)} | {x.get('field')} | {x.get('period')} | "
+                     f"{'' if x.get('change') is None else format_value(x['change'])} | "
+                     f"{x.get('change_units') or x.get('units') or ''} | "
+                     f"{'' if x.get('percent') is None else format_value(x['percent'])} | "
+                     f"{'' if x.get('score') is None else format_value(x['score'])} | "
+                     f"{x.get('status') or ''} | {x.get('mark') or ''} |")
+        L.append("")
+    qt = t.get("question_type")
+    L += ["## How the claims are worded and which may lead", "",
+          f"- question type: {qt}; {t.get('headline_rule')}"]
+    head = t.get("headline") or {}
+    if head.get("claims"):
+        L.append(f"- the headline states claim{'s' if len(head['claims']) > 1 else ''} "
+                 f"{', '.join(map(str, head['claims']))}")
+    for cls, words in (t.get("wording") or {}).items():
+        L.append(f"- {cls}: {_plain(words)}")
+    L += ["- never a real-world cause; \"validated\" is not used", ""]
+    oc = t.get("open_causes") or []
+    if oc:
+        L += ["## Open causes and the runs that would settle them", ""]
+        for o in oc:
+            L.append(f"- {_plain(o.get('cause') or 'an open cause')}: a run with "
+                     + "; ".join(f"{c['id']} {json.dumps(c.get('params') or {}, sort_keys=True)} "
+                                 f"({_plain(c.get('meaning'))}; it does not mean "
+                                 f"{_plain(c.get('not_meaning'))})"
+                                 for c in o.get("changes") or []))
+        L.append("")
+    return L

@@ -201,13 +201,23 @@ YOU DECIDE the analysis:
   normal_years   for a question about an event in the control (a dry year, a
                  fire year): the years it is compared with, inside the
                  control's output years, and why those. [] otherwise.
-Every number is reported by year, by month and by season (MAM, JJA and SON
+  question_type  "hypothesis" only when the question proposes a testable
+                 expectation: a direction, a relation or a mechanism ("did
+                 the dry year lower GPP through soil water?"). "exploratory"
+                 when it asks what changed or happened without one. Naming a
+                 field alone is not a hypothesis: "what happened to GPP?" is
+                 exploratory. Decide it from the question as asked; the
+                 Analyzer never chooses it after seeing data.
+Every regional number is reported by year, by month and by season (MAM, JJA and SON
 within the year; DJF, December to February, belongs to the year of its
 January and needs the December before it, so the first year of a run that
 starts in January has no DJF). A question about a season or a month is
 answered from that season's or month's numbers, never from a year's, which
 mixes it with the rest of the year: choose the years that hold the season
-the question names, and the variables that show it.
+the question names, and the variables that show it. Where the control's
+results store (its suite) is built, the Analyzer can also look up, by its own
+recorded plan, water years, per-cell maps of a year, water year or season,
+and the dates of the season's events (snow, leaves, growth, runoff).
 The answer is read from the model's output alone: no observation enters the
 analysis. How the control compares with observations was told to the
 scientist before the design, and is not in your rulebook.
@@ -403,7 +413,8 @@ OUTPUT — this JSON, nothing else
     "analysis": {
       "regions": [{"name": "<a region>", "why": "<one clause>"}],  // bands in a region: add "within": "<a control region>"
       "variables": ["<a history field the control holds>"],
-      "normal_years": [<int>, ...]
+      "normal_years": [<int>, ...],
+      "question_type": "hypothesis" | "exploratory"
     },
     "caveats": ["<each run's change not_meaning, and what the run does not contain>"]
   },

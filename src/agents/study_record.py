@@ -829,21 +829,47 @@ def _analyzer_lines(rd, page_dir):
     report = rd / "04_analysis" / "REPORT.md"
     text = _read_text(report)
     if a is None and text is None:
-        return L + ["There is no Analyzer report (no 04_analysis/analysis.json or REPORT.md).", ""]
+        return L + ["There is no Analyzer report (no 04_analysis/analysis.json or REPORT.md)."] \
+            + [""] + _suite_lines(rd, None)
     a = a or {}
+    # A WITHHELD REPORT IS SAID TO BE WITHHELD (the user's decision on G part
+    # 2, 2026-11-08): question 1's page quoted its held-back headline under
+    # "Its report" and listed its claims as kept by the audit, as if published
+    withheld = a.get("withheld_because")
     head = _answer_paragraph(text) or a.get("headline")
-    if text is not None:
-        L.append(f"Its report: {_link(report, page_dir)}.")
-    if head:
-        L.append(f"> {_one_line(head, 1200)}")
+    if withheld:
+        L.append(f"The Analyzer's report, "
+                 f"{_link(report, page_dir) if text is not None else 'REPORT.md'}, is "
+                 f"**withheld**: {_one_line(withheld, 900)}")
+        if a.get("headline"):
+            L.append(f"The headline held back with it: \"{_one_line(a['headline'], 600)}\"")
+    else:
+        if text is not None:
+            L.append(f"Its report: {_link(report, page_dir)}.")
+        if head:
+            L.append(f"> {_one_line(head, 1200)}")
     L.append("")
     if a:
         L.append(f"- status **{a.get('status')}**; verdict **{a.get('verdict')}**")
         claims = a.get("claims") or []
         struck = a.get("withheld") or []
-        L.append(f"- claims kept by the audit: {len(claims)}; struck: {len(struck)}")
+        if withheld:
+            L.append(f"- claims withheld with the report: {len(claims)}; struck by step 3's "
+                     f"audit: {len(struck)}")
+        else:
+            L.append(f"- claims kept by the audit: {len(claims)}; struck: {len(struck)}")
         for i, c in enumerate(claims, 1):
-            L.append(f"  {i}. {_one_line((c or {}).get('claim'), 500)}")
+            c = c or {}
+            L.append(f"  {i}. {_one_line(c.get('claim'), 500)}"
+                     + (" **(withheld)**" if withheld else ""))
+            # EACH CLAIM'S EVIDENCE CLASS AND RECORDS (package F, the user's
+            # decision on G part 2, 2026-11-08), with what the trace found
+            e = c.get("evidence_trace")
+            if isinstance(e, dict):
+                L.append(f"     - evidence class: {e.get('class') or 'none'}; records: "
+                         f"{', '.join(e.get('records') or []) or 'none'}"
+                         + (f"; the evidence trace: fails ({_one_line('; '.join(e['problems']), 400)})"
+                            if e.get("problems") else "; the evidence trace: passes"))
         for c in struck:
             c = c or {}
             L.append(f"  - struck ({c.get('struck_by')}): {_one_line(c.get('claim'), 300)} "
@@ -859,6 +885,161 @@ def _analyzer_lines(rd, page_dir):
                      + (f" ({', '.join(llm.get('models') or [])})" if llm.get("models") else ""))
         else:
             L.append("- model calls: not recorded in analysis.json")
+    return L + [""] + _suite_lines(rd, a)
+
+
+def _lookup_counts(rows):
+    """How the lookups log's lines fall: answered (planned or not), support
+    calls, refused by the plan's gate, refused by the data, failed, and how
+    many came after the close of the planned phase."""
+    n = {"answered and planned": 0, "answered, not planned": 0, "support calls": 0,
+         "refused by the plan's gate": 0, "refused by the data": 0, "failed": 0}
+    after = 0
+    for r in rows:
+        if r.get("support"):
+            n["support calls"] += 1
+        elif r.get("refused"):
+            n["refused by the plan's gate" if str(r["refused"]).startswith("the gate:")
+              else "refused by the data"] += 1
+        elif r.get("failed"):
+            n["failed"] += 1
+        elif r.get("planned") is True:
+            n["answered and planned"] += 1
+        else:
+            n["answered, not planned"] += 1
+        after += r.get("after_close") is True
+    return n, after
+
+
+def _suite_lines(rd, a):
+    """A study with a suite (package F): the recorded analysis plan and each
+    version's review, the lookups log, the close of the planned analyses with
+    each one's status, the screen's record, the numbers check of the claims'
+    evidence and the claims' evidence classes. [] for a study without an
+    analysis plan."""
+    ad = rd / "04_analysis"
+    try:
+        plan = _read_json(ad / "analysis_plan.json")
+    except _Unreadable as e:
+        return ["### The analysis plan and its evidence", f"04_analysis/analysis_plan.json is in "
+                f"the folder but {e}.", ""]
+    if plan is None:
+        return []
+    L = ["### The analysis plan and its evidence"]
+    sc = plan.get("screen") or {}
+    L.append(f"- the plan, `04_analysis/analysis_plan.json` (step 2a, written "
+             f"{plan.get('written_at')}): question type **{plan.get('question_type')}** "
+             f"({_one_line(plan.get('question_type_from'), 200)}); "
+             f"{len(plan.get('analyses') or [])} analyses, "
+             f"{len(plan.get('expectations') or [])} expectations, "
+             f"{len(plan.get('competing') or [])} competing explanations; the screen "
+             f"{sc.get('when') or 'not declared'}"
+             + (f", over {sc.get('region')} in {sc.get('year')}" if sc.get("region") else ""))
+    for name, label in (("analysis_plan_review.v1.json", "the first version's review"),
+                        ("analysis_plan_review.json", "its review")):
+        try:
+            rv = _read_json(ad / name)
+        except _Unreadable as e:
+            L.append(f"- {label}: `04_analysis/{name}` is in the folder but {e}.")
+            continue
+        if rv is None:
+            if name == "analysis_plan_review.json":
+                L.append("- its review: none on record")
+            continue
+        if name.endswith(".v1.json"):
+            L.append("- the first version, `04_analysis/analysis_plan.v1.json`, did not pass "
+                     "its review and was rewritten once, before any lookup")
+        code = rv.get("code_problems")
+        if code is None:
+            code = [p[6:] for p in rv.get("problems") or [] if str(p).startswith("code: ")]
+        model = rv.get("model_problems")
+        if model is None:
+            model = [p for p in rv.get("problems") or [] if not str(p).startswith("code: ")]
+        verdict = {True: "follows from the question", False: "does not follow from the "
+                   "question"}.get(rv.get("follows"), "no verdict on record")
+        L.append(f"- {label}, `04_analysis/{name}`: **{'passed' if rv.get('passed') else 'did not pass'}**; "
+                 f"the code check: {_one_line('; '.join(code), 500) or 'no problem'}; the "
+                 f"model review: {verdict}"
+                 + (f"; its problems: {_one_line('; '.join(model), 500)}" if model else ""))
+    p = ad / "lookups.jsonl"
+    if p.is_file():
+        rows = []
+        for ln in (_read_text(p) or "").splitlines():
+            try:
+                rows.append(json.loads(ln)) if ln.strip() else None
+            except ValueError:
+                rows.append({"failed": "an unreadable line"})
+        n, after = _lookup_counts(rows)
+        L.append(f"- the lookups, `04_analysis/lookups.jsonl`: {len(rows)} lines: "
+                 + ", ".join(f"{v} {k}" for k, v in n.items() if v)
+                 + f"; {after} after the close of the planned analyses")
+    else:
+        L.append("- the lookups: none (there is no `04_analysis/lookups.jsonl`)")
+    try:
+        ph = _read_json(ad / "planned_phase.json")
+    except _Unreadable as e:
+        ph, L = None, L + [f"- 04_analysis/planned_phase.json is in the folder but {e}."]
+    if ph:
+        from agents.analysis import plan_contract as PC
+        c = ph.get("counts") or {}
+        L.append(f"- the planned analyses, `04_analysis/planned_phase.json` (closed "
+                 f"{ph.get('closed')}, after {ph.get('lookups_before')} lookup lines), each "
+                 f"judged by its required outputs: "
+                 + ", ".join(f"{c.get(s, 0)} {s}" for s in PC.STATUSES))
+        L += ["", "| analysis | status | required | produced | not estimable | unmet | reason |",
+              "|---|---|---|---|---|---|---|"]
+        for r in ph.get("analyses") or []:
+            L.append(f"| {r.get('id')} | {r.get('status')} | "
+                     f"{'yes' if r.get('required') else 'no'} | "
+                     f"{', '.join(r.get('produced') or []) or 'none'} | "
+                     f"{', '.join(r.get('not_estimable') or []) or 'none'} | "
+                     f"{', '.join(r.get('unmet') or []) or 'none'} | "
+                     f"{_one_line(r.get('reason'), 300).replace('|', '/')} |")
+        L.append("")
+    elif plan.get("question_type"):
+        L.append("- the planned analyses: no close on record (there is no "
+                 "`04_analysis/planned_phase.json`)")
+    acc = (a or {}).get("acceptance")
+    if isinstance(acc, dict):
+        if acc.get("ok"):
+            L.append("- acceptance: every required analysis completed")
+        else:
+            bl = acc.get("blockers") or []
+            L.append("- acceptance: **not met**: " + (
+                "; ".join(f"{b.get('analysis')} {b.get('status')} ({_one_line(b.get('reason'), 200)})"
+                          for b in bl) if bl else _one_line(acc.get("why"), 300)))
+        for u in acc.get("untestable") or []:
+            L.append(f"- untestable from this run: {u.get('expectation')} (analysis "
+                     f"{u.get('analysis')}): " + "; ".join(
+                         f"{o.get('output')} not estimable ({o.get('record')}: "
+                         f"{_one_line(o.get('why'), 160)})" for o in u.get("outputs") or [])
+                     + "; its task is complete")
+    try:
+        sr = _read_json(ad / "screen_record.json")
+    except _Unreadable:
+        sr = None
+    if sr:
+        scope = sr.get("scope") or {}
+        L.append(f"- the screen, `04_analysis/screen_record.json`: {scope.get('region')} in "
+                 f"{scope.get('year')}, {scope.get('rows')} rows, labelled "
+                 f"\"{sr.get('label')}\"")
+    try:
+        en = _read_json(ad / "evidence_numbers_check.json")
+    except _Unreadable:
+        en = None
+    if en:
+        L.append(f"- the numbers the claims cite, `04_analysis/evidence_numbers_check.json`: "
+                 f"{'passed' if en.get('pass') else 'did not pass'}, {en.get('n_compared')} "
+                 f"numbers made again")
+    classes = {}
+    for c in (a or {}).get("claims") or []:
+        e = (c or {}).get("evidence_trace")
+        if isinstance(e, dict):
+            k = e.get("class") or "none"
+            classes[k] = classes.get(k, 0) + 1
+    if classes:
+        L.append("- the claims' evidence classes: "
+                 + ", ".join(f"{k} {v}" for k, v in sorted(classes.items())))
     return L + [""]
 
 
@@ -973,9 +1154,26 @@ ROLES = (
     ("04_analysis/investigation.json", "Analyzer step 2: the figures proposed and what each found"),
     ("04_analysis/investigation_plan.md", "Analyzer step 2's plan, in words"),
     ("04_analysis/interpretation.json", "Analyzer step 3: the claims, the audit and the verdict"),
+    # PACKAGE F'S FILES (the user's decision on G part 2, 2026-11-08): the
+    # recorded analysis plan, its review, the lookups and the checks of a
+    # study with a suite were all "no role on record for this file".
+    ("04_analysis/analysis_plan.json", "the recorded analysis plan (step 2a): comparisons, analyses, expectations, competing explanations and the screen, written before any lookup"),
+    ("04_analysis/analysis_plan.v1.json", "the first analysis plan, kept as it was: it failed its review and was rewritten once, before any lookup"),
+    ("04_analysis/analysis_plan_review.json", "step 3's review of the analysis plan: what the code check and the model review found, tied to the plan's hash"),
+    ("04_analysis/analysis_plan_review.v1.json", "the review of the first analysis plan, kept as it was"),
+    ("04_analysis/analysis_plan_amendments.jsonl", "the amendments to the analysis plan, appended after outcomes were seen, never planned"),
+    ("04_analysis/lookups.jsonl", "every call made on the suite, the framework's and each figure's, refused or answered: the evidence records the claims name"),
+    ("04_analysis/planned_phase.json", "the close of the planned analyses: each analysis of the plan completed, failed or skipped, with its reason"),
+    ("04_analysis/required_outputs.json", "the framework's own calls of the plan's required outputs: each call as the brief wrote it, its lookup line, and what it came to"),
+    ("04_analysis/required_outputs.pkl", "the results of those calls, which the framework draws the figures from"),
+    ("04_analysis/screen_record.json", "the plan's screen: what it ran over, its scoring rule and its display rule"),
+    ("04_analysis/screen_L*.csv", "one screen's whole table (lookup L<n>): every field and period with every column"),
+    ("04_analysis/contract_reads.jsonl", "the method contracts the scripts read (no lookup)"),
+    ("04_analysis/evidence_numbers_check.json", "the numbers check of the claims' evidence: each number of every record a claim cites, made again from the model output"),
     ("04_analysis/step*_round*_prompt.txt", "what a language model was sent, one step and round"),
     ("04_analysis/step*_round*_reply.txt", "a language model's reply, one step and round"),
     ("04_analysis/compare_*.png", "a figure of the comparison with observations"),
+    ("04_analysis/*.spec.json", "the specification of the figure of the same name, which the framework drew"),
     ("04_analysis/*.py", "the script that drew the figure of the same name"),
     ("04_analysis/*.png", "a figure the Analyzer drew (its script beside it)"),
 )

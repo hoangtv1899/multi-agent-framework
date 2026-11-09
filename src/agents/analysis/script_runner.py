@@ -81,6 +81,32 @@ A run supplies df + soil (ELM columns), prof (PFLOTRAN) or reg (a whole
 domain); a script must check which before using it. All four being None is
 refused below rather than passed through.
 
+  and for a whole-domain study whose control has a built suite (package E,
+  2026-11-05; analysis_plan.suite_bearing):
+
+    suite     domain_access.SuiteAccess: get_map, get_series, get_timing,
+              region_mask, cell_area, find_fields and the methods as calls,
+              each gated and logged to 04_analysis/lookups.jsonl: no call
+              before the analysis plan has passed step 3's review, then only
+              lookups the reviewed plan (or an amendment appended before
+              them) declares, in the order the question type sets
+              (analysis_plan.check_lookup); method_contract(method_id) is
+              not a lookup and needs no review
+    draw_map  draw_map(x, out_path=None, ax=None, units="") on the grid
+
+  That review approves the analysis plan only. Nothing here can build or
+  submit a model run: the runner starts only the Python interpreter on a
+  script that passed inspect_code, and any model run still needs the user's
+  own authorization (the design review's yes, and the rule to ask before any
+  SLURM job).
+
+  For such a study reg, reg_monthly and reg_seasonal are NEVER in the payload,
+  before or after that review (package F1, 2026-11-05): the script finds a
+  stand-in (analysis_plan.WithheldTable) whose every read fails with the
+  suite call to use, so values come only through the scoped, logged calls.
+  df, prof and soil are None. A study without a suite gets its payload byte
+  for byte as before.
+
 A COLUMN MEAN OVER `soil` IS THICKNESS-WEIGHTED, always: ELM's layers span
 1.75 cm to 13.85 m, so an unweighted mean reports the bedrock.
 
@@ -276,6 +302,10 @@ def _child_env() -> Dict[str, str]:
     env["http_proxy"] = env["https_proxy"] = "http://127.0.0.1:1"
     env["HTTP_PROXY"] = env["HTTPS_PROXY"] = "http://127.0.0.1:1"
     env["no_proxy"] = ""
+    # A FIGURE SCRIPT SAYS SO (2026-11-08): the close of the planned phase
+    # (analysis_plan.close_planned_phase) is the framework's and refuses to
+    # run where this is set. Workflow enforcement, like the rest: see above.
+    env["ANALYZER_FIGURE_SCRIPT"] = "1"
     return env
 
 
@@ -346,6 +376,17 @@ reg_seasonal = _ctx.get("reg_seasonal")
 regions  = _ctx.get("regions") or {{}}
 runs     = _ctx.get("runs") or []
 out_path = {out_path!r}
+suite = draw_map = None
+if _ctx.get("suite_spec"):
+    sys.path.insert(0, str(Path(_FRAMEWORK) / "src"))
+    from agents.analysis import analysis_plan as _ap
+    suite = _ap.make_access(_ctx["suite_spec"], script=_ctx["suite_spec"].get("script"),
+                            amendment=_ctx["suite_spec"].get("amendment"))
+    reg, reg_monthly, reg_seasonal = (_ap.WithheldTable(_n) for _n in _ap.OUTCOME_TABLES)
+    def draw_map(x, out_path=None, ax=None, units="", **kw):
+        return _ap.draw_map(suite, x, out_path=out_path, ax=ax, units=units, **kw)
+# the required outputs the framework made, by plan name (2026-11-08)
+outputs = _ctx.get("outputs") or {{}}
 
 result = None
 # ── generated ────────────────────────────────────────────────────────────
@@ -440,13 +481,16 @@ def _payload(ctx) -> Dict[str, Any]:
     # regions' sizes and the runs' changes beside them. getattr, because a
     # context object older than the frame has no whole-domain output, which
     # is the same answer as a site run's None.
+    from agents.analysis import analysis_plan as _plan
+    spec = _plan.access_spec(ctx)
     try:
-        reg = ctx.regional() if callable(getattr(ctx, "regional", None)) else None
+        reg = (ctx.regional() if spec is None and callable(getattr(ctx, "regional", None))
+               else None)
     except Exception:                                           # noqa: BLE001
         reg = None
     # its months and seasons (2026-11-03), bound as reg_monthly and reg_seasonal
     periods = {}
-    for k in ("regional_monthly", "regional_seasonal"):
+    for k in (("regional_monthly", "regional_seasonal") if spec is None else ()):
         try:
             periods[k] = getattr(ctx, k)() if callable(getattr(ctx, k, None)) else None
         except Exception:                                       # noqa: BLE001
@@ -455,6 +499,21 @@ def _payload(ctx) -> Dict[str, Any]:
     exp = (getattr(ctx, "plan", None) or {}).get("experiment") or {}
     runs = [{k: r.get(k) for k in ("run", "reused", "status", "changes")}
             for r in (exp.get("runs") or []) if isinstance(r, dict)]
+
+    # THE SUITE, AND NO WHOLE OUTCOME TABLE, EVER (package E, 2026-11-05;
+    # package F1 closed the bypass the same day). Only for a suite-bearing
+    # study (analysis_plan.access_spec is None for every other, so their
+    # payload is byte for byte what it was). Package E withheld the tables
+    # only until the plan's review and then bound them whole, so a script
+    # could read any value past the scoped, logged suite calls. Now they are
+    # never read and never bound: the script finds analysis_plan.WithheldTable
+    # under their names, and the suite's gate decides every lookup. (spec is
+    # read above, so for such a study the tables are not even read.)
+    if spec is not None:
+        return {"df": None, "prof": None, "soil": None, "columns": cols,
+                "caveats": list(getattr(ctx, "caveats", []) or []),
+                "regions": dict(t.get("regions") or {}) if isinstance(t, dict) else {},
+                "runs": runs, "converted_to_daily": [], "suite_spec": spec}
 
     return {"df": df,
             "prof": prof,
@@ -466,12 +525,14 @@ def _payload(ctx) -> Dict[str, Any]:
             "reg_seasonal": periods["regional_seasonal"],
             "regions": dict(t.get("regions") or {}) if isinstance(t, dict) else {},
             "runs": runs,
-            "converted_to_daily": converted}
+            "converted_to_daily": converted,
+            **({"suite_spec": spec} if spec is not None else {})}
 
 
 def run(code: str, ctx, out_path, script_path=None,
         timeout_s: int = DEFAULT_TIMEOUT_S,
-        min_n: int = MIN_N) -> Dict[str, Any]:
+        min_n: int = MIN_N, lookup_tag: Optional[Dict[str, Any]] = None,
+        bindings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Execute `code`, returning a verdict rather than raising.
 
     Every failure mode is a returned reason, never an exception: the caller
@@ -499,7 +560,17 @@ def run(code: str, ctx, out_path, script_path=None,
                 "objections": objections}
 
     payload = _payload(ctx)
-    if all(payload.get(k) is None for k in ("df", "prof", "soil", "reg")):
+    # WHAT THE FRAMEWORK MADE FOR THE FIGURE (2026-11-08): the required
+    # outputs by plan name, bound as `outputs`
+    if bindings and bindings.get("outputs") is not None:
+        payload["outputs"] = bindings["outputs"]
+    # the script and the amendment its lookups are logged under (package E)
+    if payload.get("suite_spec") is not None and lookup_tag:
+        payload["suite_spec"] = dict(payload["suite_spec"],
+                                     script=lookup_tag.get("script"),
+                                     amendment=lookup_tag.get("amendment"))
+    if payload.get("suite_spec") is None and \
+            all(payload.get(k) is None for k in ("df", "prof", "soil", "reg")):
         return {"ok": False,
                 "error": "no tidy frame to run against: the run has no daily "
                          "series, no soil layers, no depth profiles and no "

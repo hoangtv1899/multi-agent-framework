@@ -47,7 +47,7 @@ class TestBandsWithinARegion:
         box = np.zeros_like(veg)
         box[:2, :] = True
         made = 0
-        for b, m in R.elevation_bands(topo, A.BAND_EDGES).items():
+        for b, m in R.elevation_bands(topo, A.band_edges(topo, veg)[0]).items():
             name = A.band_within("box", b)
             if (veg & box & m).any():
                 assert np.array_equal(ms[name], veg & box & m)

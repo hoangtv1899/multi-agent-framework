@@ -12,6 +12,8 @@ their flag is given, so plain `pytest` stays fast, offline and deterministic:
     pytest --runcompute    # + ELM build/run tests               (needs an salloc node)
     pytest --runlocaldata  # + checks against a finished run's output on disk
                            #   (paths in tests/local_oracle_paths.json, not tracked)
+    pytest --review-gate   # + fails while any field note, method contract or
+                           #   mechanism is still a draft
 """
 import sys
 from pathlib import Path
@@ -29,6 +31,12 @@ _TIERS = {
     "compute": ("--runcompute", "ELM build/run on SLURM (needs an salloc node)"),
     "localdata": ("--runlocaldata",
                   "a finished run's output and observations on local disk"),
+    # THE REVIEW GATE (2026-11-04): fails while any field note is still a
+    # draft (tests/test_domain_catalog.py), and since 2026-11-05 any method
+    # contract or mechanism (tests/test_methods_doc.py), so it runs only when asked
+    "review_gate": ("--review-gate",
+                    "the user's review of the field notes, method contracts and mechanisms "
+                    "(fails while one is a draft)"),
 }
 
 

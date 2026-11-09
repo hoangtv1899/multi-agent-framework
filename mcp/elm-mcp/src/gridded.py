@@ -5,7 +5,9 @@ The companion of extract.py. That module reads ONE column's daily series; this
 one reads a gridded run (a 144 x 96 box, a watershed, a region) and refuses a
 single column, while extract.py now refuses a grid, so neither reader can
 quietly misread the other's files. READS AND RETURNS: no derived fields, no
-plots, nothing written. Regions and statistics over them live in regions.py.
+plots, nothing written beside the history. The one thing it writes anywhere is
+each history file's index, to a cache outside the run (THE INDEX ON DISK).
+Regions and statistics over them live in regions.py.
 
 FOUR CONVENTIONS, each a silent error when missed. All four were measured on
 the Naches ELM-BGC control run (naches_bgc_fix, 2015-2021) on 2026-10-14:
@@ -36,13 +38,18 @@ netCDF4's own num2date, so no dependency is added to the server.
     from gridded import open_stream
     h1 = open_stream("/path/to/case/run", "h1")
     block = h1.read("GPP", 2016)          # (365, 96, 144), NaN for fill
+    h1.read_block_pass(["GPP", "TLAI"], 2016, reduce=f)   # every field, 30 days at a time
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -410,21 +417,44 @@ def discover(run_dir) -> Dict[str, List[Path]]:
 # other one: the 365 time bounds of a daily file sit about 3 MB apart, so
 # reading them is 365 separate reads, about 20 ms each from a cold Lustre
 # cache (55 s for the seven Naches h1 files, 150 s for h2). A second open of
-# the same file costs nothing. Keyed by path, inode, size and the modification
-# and change times: Lustre keeps mtime in whole seconds and every full-year
-# file of a stream has the same size, so mtime and size alone could miss a
-# rewrite; any rewrite moves ctime.
+# the same file in the same process costs nothing; in a new process the index
+# comes from the cache on disk (THE INDEX ON DISK, below). Keyed by path,
+# inode, size and the modification and change times: Lustre keeps mtime in
+# whole seconds and every full-year file of a stream has the same size, so
+# mtime and size alone could miss a rewrite; any rewrite moves ctime.
 _FILE_INDEX: Dict[Tuple, Dict] = {}
 
 
-def _file_index(path: Path) -> Dict:
-    import netCDF4
+def _file_key(path: Path) -> Tuple[str, int, int, int, int]:
     st = path.stat()
-    key = (str(path.resolve()), int(st.st_ino), int(st.st_size),
-           int(st.st_mtime_ns), int(st.st_ctime_ns))
+    return (str(path.resolve()), int(st.st_ino), int(st.st_size),
+            int(st.st_mtime_ns), int(st.st_ctime_ns))
+
+
+def _file_index(path: Path) -> Dict:
+    key = _file_key(path)
     hit = _FILE_INDEX.get(key)
     if hit is not None:
         return hit
+    entry = _index_entry(key[0])
+    info = _index_load(entry, key) if entry is not None else None
+    if info is None:
+        info = _index_from_file(path)
+        if entry is not None:
+            _index_save(entry, key, path, info)
+    # Shared by every Stream that opens this file, so nobody may write to it.
+    grid = info["grid"]
+    for a in (grid.lat, grid.lon, grid.area_km2, grid.landfrac,
+              grid.lat_axis, grid.lon_axis, info["tb"]):
+        if a is not None:
+            a.flags.writeable = False
+    _FILE_INDEX[key] = info
+    return info
+
+
+def _index_from_file(path: Path) -> Dict:
+    """What _file_index keeps of one history file, read from the file."""
+    import netCDF4
     with netCDF4.Dataset(path) as ds:
         grid = _grid_from(ds)
         if "time" not in ds.variables:
@@ -461,17 +491,267 @@ def _file_index(path: Path) -> Dict:
                 "dims": tuple(v.dimensions), "shape": tuple(v.shape[1:]),
                 "units": str(getattr(v, "units", "") or ""),
                 "cell_methods": str(getattr(v, "cell_methods", "") or "")}
-        info = {"grid": grid, "tb": tb, "time_units": str(tv.units),
+        return {"grid": grid, "tb": tb, "time_units": str(tv.units),
                 "calendar": _calendar(getattr(tv, "calendar", "standard")),
                 "first_nstep": first_nstep, "variables": variables,
                 "metadata": sorted(metadata)}
-    # Shared by every Stream that opens this file, so nobody may write to it.
-    for a in (grid.lat, grid.lon, grid.area_km2, grid.landfrac,
-              grid.lat_axis, grid.lon_axis, tb):
-        if a is not None:
-            a.flags.writeable = False
-    _FILE_INDEX[key] = info
-    return info
+
+
+# THE INDEX ON DISK (2026-11-04). _FILE_INDEX lasts as long as the process,
+# and every analysis is a new process that opens every stream its run has
+# (domain_analysis.run_values: h0, h1 and h2), so each one paid the
+# per-record reads again before it read a single value: 40.9 s and 57.1 s to
+# open the Naches control's h1 cold (compy01, 2026-11-04). So the index of
+# each file, everything _index_from_file reads (the grid, the time bounds,
+# the first nstep, the calendar and time units, and each variable's
+# dimensions, shape, units and cell_methods), is kept on disk as well, one
+# entry per file, under the key _FILE_INDEX uses: a file changed in any way
+# is read again.
+#
+#   where    $ELM_STREAM_INDEX_CACHE (an absolute path, or ~/...), else
+#            ~/.cache/elm-mcp/stream_index/; ELM_STREAM_INDEX_CACHE=off
+#            switches it off (the tests run with it off, tests/conftest.py)
+#   never    in a run or case directory: a cache directory at or under the
+#            history file's own directory is not used at all, nor a relative
+#            one, which would land wherever a process happens to run
+#   whole    an entry is written to a temporary file and renamed into place,
+#            so two processes cannot leave a torn one
+#   trusted  only when it loads, carries this format and the file's own key,
+#            and holds what an index holds, in the types and shapes it holds
+#            them; anything else is ignored and the entry made again from the
+#            file
+#
+# Measured on compy01 (login node), 2026-11-04, the Naches control's h1
+# (10 files): see open_stream. The numbers check
+# (src/agents/analysis/numbers_check.py) reads each run's history with its
+# own code and does not import this module, so it never reads the cache.
+INDEX_CACHE_ENV = "ELM_STREAM_INDEX_CACHE"
+_INDEX_CACHE_OFF = ("off", "0", "false", "no", "none")
+# Raise it whenever the making of an index changes (_index_from_file and what
+# it calls, or the entry's encoding): an entry of an older format is then read
+# again from its file. tests/test_gridded_index_cache.py fails until it is.
+_INDEX_FORMAT = 1
+
+
+def index_cache_dir() -> Optional[Path]:
+    """The directory of the index cache, or None when it is switched off.
+
+    A relative path is not used: where it landed would depend on the
+    directory each process runs in, a case directory among them."""
+    v = (os.environ.get(INDEX_CACHE_ENV) or "").strip()
+    if v.lower() in _INDEX_CACHE_OFF:
+        return None
+    if v:
+        p = Path(v).expanduser()
+        return p if p.is_absolute() else None
+    try:
+        return Path.home() / ".cache" / "elm-mcp" / "stream_index"
+    except (KeyError, RuntimeError):                # no home directory to find
+        return None
+
+
+def _index_entry(real: str) -> Optional[Path]:
+    """Where the index of the history file at `real` (its resolved path) is
+    kept, or None: the cache is off, or would sit in the file's directory."""
+    d = index_cache_dir()
+    if d is None:
+        return None
+    try:
+        d = d.resolve()
+    except (OSError, RuntimeError):
+        return None
+    run = Path(real).parent
+    if d == run or run in d.parents:
+        return None
+    name = hashlib.sha256(real.encode("utf-8", "surrogateescape")).hexdigest()[:40]
+    return d / f"{name}.npz"
+
+
+def _index_save(entry: Path, key: Tuple, path: Path, info: Dict) -> None:
+    """One file's index into the cache, whole or not at all. Never raises: a
+    cache that cannot be written leaves reading as it was. A file that changed
+    while it was being read is not kept."""
+    import tempfile
+    tmp = None
+    try:
+        if _file_key(path) != key:
+            return
+        g = info["grid"]
+        meta = {"format": _INDEX_FORMAT, "key": list(key), "dims": list(g.dims),
+                "time_units": info["time_units"], "calendar": info["calendar"],
+                "first_nstep": info["first_nstep"],
+                "variables": {n: {"dims": list(d["dims"]), "shape": list(d["shape"]),
+                                  "units": d["units"], "cell_methods": d["cell_methods"]}
+                              for n, d in info["variables"].items()},
+                "metadata": list(info["metadata"])}
+        arrays = {"tb": info["tb"], "lat": g.lat, "lon": g.lon, "area_km2": g.area_km2,
+                  "landfrac": g.landfrac}
+        if g.lat_axis is not None:
+            arrays.update(lat_axis=g.lat_axis, lon_axis=g.lon_axis)
+        arrays["meta"] = np.frombuffer(json.dumps(meta).encode("utf-8"), dtype=np.uint8)
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=entry.parent, prefix=".tmp-", suffix=".npz")
+        with os.fdopen(fd, "wb") as f:
+            np.savez_compressed(f, **arrays)
+        os.replace(tmp, entry)
+        tmp = None
+    except Exception:                                               # noqa: BLE001
+        pass
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def _index_load(entry: Path, key: Tuple) -> Optional[Dict]:
+    """One file's index from the cache, or None when there is none to trust."""
+    try:
+        with np.load(entry, allow_pickle=False) as z:
+            meta = json.loads(z["meta"].tobytes().decode("utf-8"))
+            if not isinstance(meta, dict) or meta.get("format") != _INDEX_FORMAT \
+                    or meta.get("key") != list(key):
+                return None
+            arrays = {n: z[n] for n in z.files if n != "meta"}
+        return _index_checked(meta, arrays)
+    except Exception:                                               # noqa: BLE001
+        return None
+
+
+def _index_checked(meta: Dict, arrays: Dict[str, np.ndarray]) -> Optional[Dict]:
+    """The index a cache entry holds, rebuilt with the types _index_from_file
+    gives, or None when any part of it is not what that function makes."""
+    dims = tuple(meta.get("dims") or ())
+    regular = dims == ("lat", "lon")
+    if not regular and dims != ("lndgrid",):
+        return None
+    want = {"tb", "lat", "lon", "area_km2", "landfrac"}
+    want |= {"lat_axis", "lon_axis"} if regular else set()
+    if set(arrays) != want or any(a.dtype != np.float64 for a in arrays.values()):
+        return None
+    tb, lat = arrays["tb"], arrays["lat"]
+    if tb.ndim != 2 or tb.shape[1] != 2 or lat.ndim != len(dims) or any(
+            arrays[n].shape != lat.shape for n in ("lon", "area_km2", "landfrac")):
+        return None
+    if regular and (arrays["lat_axis"].shape != (lat.shape[0],)
+                    or arrays["lon_axis"].shape != (lat.shape[1],)):
+        return None
+    nstep, md, vs = meta.get("first_nstep"), meta.get("metadata"), meta.get("variables")
+    if not (nstep is None or type(nstep) is int) \
+            or not isinstance(meta.get("time_units"), str) \
+            or not isinstance(meta.get("calendar"), str) \
+            or not (isinstance(md, list) and all(isinstance(x, str) for x in md)) \
+            or not isinstance(vs, dict):
+        return None
+    variables = {}
+    for n, d in vs.items():
+        if not (isinstance(d, dict) and set(d) == {"dims", "shape", "units", "cell_methods"}
+                and isinstance(d["dims"], list) and all(isinstance(x, str) for x in d["dims"])
+                and isinstance(d["shape"], list) and all(type(x) is int for x in d["shape"])
+                and isinstance(d["units"], str) and isinstance(d["cell_methods"], str)):
+            return None
+        variables[n] = {"dims": tuple(d["dims"]), "shape": tuple(d["shape"]),
+                        "units": d["units"], "cell_methods": d["cell_methods"]}
+    grid = Grid(lat=lat, lon=arrays["lon"], area_km2=arrays["area_km2"],
+                landfrac=arrays["landfrac"], dims=dims, lat_axis=arrays.get("lat_axis"),
+                lon_axis=arrays.get("lon_axis"))
+    return {"grid": grid, "tb": tb, "time_units": meta["time_units"],
+            "calendar": meta["calendar"], "first_nstep": nstep, "variables": variables,
+            "metadata": list(md)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# READING AHEAD OF A PASS
+# ─────────────────────────────────────────────────────────────────────────────
+# READ-AHEAD (2026-11-04). A pass over a year (Stream.read_block_pass) waits on
+# small cold reads, one per field and record: about 15,700 of them for the 43
+# daily fields of a Naches year, 28.8 s against 12.3 s to read the file
+# straight through. A thread that reads the same records straight through in
+# large chunks while the pass runs puts them in the node's page cache before
+# the pass asks for them, and the pass's small reads are then served from
+# memory. It is a hint and nothing more: it reads through its own file handle
+# into a scratch buffer and throws the bytes away (netCDF4 is not called from
+# two threads), so every value the pass hands over is read exactly as without
+# it; an error in it is recorded, never raised; and it is told to stop and
+# joined when the pass returns or raises, so it never outlives the pass.
+# Measured: see Stream.read_block_pass. Chunks of 16 MB, as measured there:
+# large enough to stream, and stopping waits for at most one of them.
+_READ_AHEAD_CHUNK = 16 * 2 ** 20
+
+
+def record_span(ds, path, first: int, last: int) -> Optional[Tuple[int, int]]:
+    """The bytes [start, end) that records first..last of an open classic
+    netCDF file occupy, or None for any other layout.
+
+    A classic file (CDF-1, 2 or 5) ends with its records, each holding every
+    record variable's values at that record, each variable's share padded to
+    4 bytes (none when there is one record variable). So a record's size
+    follows from the variables' shapes, and the records begin that many
+    records before the end of the file. A netCDF-4 file keeps its chunks
+    elsewhere and has no span. A file still being written may end short of
+    its last record, which shifts the span by what is missing: for a hint
+    that costs time, never a value."""
+    if not str(getattr(ds, "data_model", "")).startswith("NETCDF3"):
+        return None
+    unlimited = [n for n, d in ds.dimensions.items() if d.isunlimited()]
+    if len(unlimited) != 1:
+        return None
+    rec = unlimited[0]
+    sizes = [int(np.prod(v.shape[1:], dtype=np.int64)) * v.dtype.itemsize
+             for v in ds.variables.values() if v.dimensions and v.dimensions[0] == rec]
+    nrec = len(ds.dimensions[rec])
+    if not sizes or not 0 <= first <= last < nrec:
+        return None
+    recsize = sizes[0] if len(sizes) == 1 else sum(-(-n // 4) * 4 for n in sizes)
+    begin = os.path.getsize(path) - nrec * recsize
+    if recsize <= 0 or begin < 0:
+        return None
+    return begin + first * recsize, begin + (last + 1) * recsize
+
+
+class _ReadAhead:
+    """The read-ahead of one pass: each (path, start, end) in turn, read
+    straight through in a daemon thread; stop() ends it and waits for it."""
+
+    def __init__(self, spans: Sequence[Tuple[str, int, int]], chunk: Optional[int] = None):
+        self.spans = list(spans)
+        self.chunk = int(chunk or _READ_AHEAD_CHUNK)
+        self.bytes_read = 0
+        self.error: Optional[str] = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="gridded-read-ahead",
+                                        daemon=True)
+
+    def _run(self) -> None:
+        try:
+            buf = memoryview(bytearray(self.chunk))
+            for path, start, end in self.spans:
+                if self._stop.is_set():
+                    return
+                with open(path, "rb", buffering=0) as f:
+                    f.seek(start)
+                    pos = start
+                    while pos < end and not self._stop.is_set():
+                        n = self._read(f, buf[:min(self.chunk, end - pos)])
+                        if not n:
+                            break
+                        pos += n
+                        self.bytes_read += n
+        except Exception as e:                                      # noqa: BLE001
+            self.error = f"{type(e).__name__}: {e}"
+
+    @staticmethod
+    def _read(f, view) -> int:
+        return f.readinto(view)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join()
 
 
 @dataclass
@@ -496,11 +776,33 @@ class Block:
     missing: List[str] = field(default_factory=list)
 
 
+@dataclass
+class PassBlock:
+    """One block of a one-pass read (Stream.read_block_pass): consecutive
+    records of one calendar year, with every field the pass was asked for,
+    each exactly as read() gives it at these records."""
+    year: int
+    first: int                       # the block's first record, counted in the year's records
+    keys: List[Key]
+    labels: List[str]
+    data: Dict[str, np.ndarray]      # field -> (records, [levels,] *grid or window)
+    units: Dict[str, str]
+    per_second: Dict[str, bool]
+    missing: List[str] = field(default_factory=list)   # the year's absent labels, first block
+
+    def block(self, var: str) -> Block:
+        """One field of this block, in the shape iter_read gives its pieces."""
+        return Block(var=var, year=self.year, keys=self.keys, labels=self.labels,
+                     data=self.data[var], units=self.units[var],
+                     per_second=self.per_second[var], missing=self.missing)
+
+
 class Stream:
     """One history tape (h0, h1, h2, ...) of one gridded run.
 
     Opening it reads only the time bounds of each file (and one nstep) and the
-    grid; variables are read on request, one calendar year at a time.
+    grid, or for a file indexed before, its index from the cache on disk (THE
+    INDEX ON DISK); variables are read on request, one calendar year at a time.
 
     Attributes worth reading before trusting a number:
         cadence         'monthly', 'daily' or 'subdaily'
@@ -790,6 +1092,25 @@ class Stream:
         sit one step early. On a monthly stream the month label describes it.
         """
         import netCDF4
+        k_layer, sl = self._index(var, window, layer)
+        out_parts, order = [], []
+        by_file = self._by_file(records)
+        for fi in sorted(by_file):
+            items = by_file[fi]
+            with netCDF4.Dataset(self.files[fi]) as ds:
+                out_parts.append(self._read_part(ds, fi, var, items, k_layer, sl))
+            order += [p for p, _ in items]
+        return self._assemble(out_parts, order)
+
+    # read_records in three parts (2026-11-04), so read_block_pass refuses what
+    # it refuses and reads every value with the same code: the checks and the
+    # index of a record's values, one open file's share of the records, and
+    # the parts put back in the order the records were asked for.
+    def _index(self, var: str, window: Optional[Tuple[int, int, int, int]],
+               layer: Optional[int]) -> Tuple[Optional[int], List]:
+        """What read_records checks before reading `var`, and the index of one
+        record's values: (the layer's position or None, the slices after the
+        record axis)."""
         self._need(var)
         lev = self.levels(var)
         k_layer = self._layer(var, layer)
@@ -801,36 +1122,45 @@ class Stream:
                 f"labels records by their start")
         if window is not None and not self.grid.regular:
             raise GriddedReadError("a window applies to a regular (lat, lon) grid only")
-        out_parts, order = [], []
+        sl: List = []
+        if lev:
+            sl += [slice(k_layer, k_layer + 1) if k_layer is not None else slice(None)]
+            sl += [slice(None)] * (len(lev) - 1)
+        if window is not None:
+            r0, r1, c0, c1 = window
+            sl += [slice(r0, r1), slice(c0, c1)]
+        else:
+            sl += [slice(None)] * len(self.grid.dims)
+        return k_layer, sl
+
+    @staticmethod
+    def _by_file(records: Sequence[Record]) -> Dict[int, List[Tuple[int, int]]]:
+        """{file: [(position among the records, record index in the file)]}."""
         by_file: Dict[int, List[Tuple[int, int]]] = {}
         for pos, r in enumerate(records):
             by_file.setdefault(r.file, []).append((pos, r.index))
-        for fi in sorted(by_file):
-            items = by_file[fi]
-            idx = np.array([i for _, i in items])
-            lo, hi = int(idx.min()), int(idx.max()) + 1
-            with netCDF4.Dataset(self.files[fi]) as ds:
-                if var not in ds.variables:
-                    raise GriddedReadError(
-                        f"{var} is in {self.files[0].name} but missing from "
-                        f"{self.files[fi].name}")
-                sl: List = [slice(lo, hi)]
-                if lev:
-                    sl += [slice(k_layer, k_layer + 1) if k_layer is not None
-                           else slice(None)]
-                    sl += [slice(None)] * (len(lev) - 1)
-                if window is not None:
-                    r0, r1, c0, c1 = window
-                    sl += [slice(r0, r1), slice(c0, c1)]
-                else:
-                    sl += [slice(None)] * len(self.grid.dims)
-                a = read_clean(ds[var], tuple(sl))
-            a = a[idx - lo]
-            if k_layer is not None:
-                a = a[:, 0]
-            out_parts.append(a)
-            order += [p for p, _ in items]
-        data = np.concatenate(out_parts, axis=0)
+        return by_file
+
+    def _read_part(self, ds, fi: int, var: str, items: List[Tuple[int, int]],
+                   k_layer: Optional[int], sl: List) -> np.ndarray:
+        """`var` at one open file's share of the records, in the order of
+        items, fill as NaN."""
+        idx = np.array([i for _, i in items])
+        lo, hi = int(idx.min()), int(idx.max()) + 1
+        if var not in ds.variables:
+            raise GriddedReadError(
+                f"{var} is in {self.files[0].name} but missing from "
+                f"{self.files[fi].name}")
+        a = read_clean(ds[var], tuple([slice(lo, hi)] + sl))
+        a = a[idx - lo]
+        if k_layer is not None:
+            a = a[:, 0]
+        return a
+
+    @staticmethod
+    def _assemble(parts: List[np.ndarray], order: List[int]) -> np.ndarray:
+        """The files' parts as one array, in the order the records were asked for."""
+        data = np.concatenate(parts, axis=0)
         inv = np.empty(len(order), dtype=int)
         inv[np.array(order)] = np.arange(len(order))
         return data[inv]
@@ -882,6 +1212,174 @@ class Stream:
                         missing=[label_text(k, self.cadence) for k in missing]
                         if a == 0 else [])
 
+    # ONE PASS OVER A YEAR (2026-11-04). read() takes one field over a whole
+    # year, and in ELM's classic netCDF every record holds all fields of its
+    # day side by side, so one field's year is spread over the whole file:
+    # the 43 daily fields of the Naches control read one at a time took 89.3 s
+    # for a year file that reads straight through in 12.3 s (compy01,
+    # 2026-11-03/04). Here the records are walked in blocks and every field
+    # asked for is taken from a block before the next, so the reads stay
+    # within one block of records at a time (about 100 MB of a daily Naches
+    # file) instead of crossing the whole file once per field. Within a block
+    # the order does not matter: a cold block of 30 records cost 1.30 s field
+    # after field and 1.24 s record after record (2019, compy01, 2026-11-04),
+    # so each block's fields are read by read_records' own code, each file
+    # opened once per pass, and every value is the one read() gives.
+    def read_block_pass(self, vars: Sequence[str], year: int, block_records: int = 30,
+                        reduce: Optional[Callable[[PassBlock], Any]] = None,
+                        window: Optional[Tuple[int, int, int, int]] = None,
+                        layer: Optional[int] = None,
+                        require_complete: bool = True,
+                        read_ahead: Optional[bool] = None) -> Dict[str, Any]:
+        """Every field in `vars` over one calendar year, in one pass: the
+        year's records in blocks of at most block_records, every field read
+        from a block before the next, each block handed to reduce(PassBlock).
+        Nothing is kept: what the callback does not keep is gone when it
+        returns.
+
+        The values are read()'s, record for record: the same records (the
+        year's labels assembled across files, the run's start step left out),
+        float64 with fill as NaN, the same window and layer (one layer for
+        every field), the same units and per-second flag, and the same
+        refusals (a short year unless require_complete=False, a field the
+        stream lacks, holds per record, or holds as an instantaneous value, a
+        layer of a field without levels, a field a later file lacks), all made
+        before the first block is handed over. PassBlock.missing lists the
+        year's absent labels on the first block, as iter_read does.
+
+        read_ahead: a thread reads the year's records straight through while
+        the pass runs (READ-AHEAD, above), so the pass's small reads find them
+        in memory. None takes read_ahead_default(); True or False forces it.
+        The values are the same either way, bit for bit.
+
+        Measured on compy01 (login node), 2026-11-04, on the Naches control
+        (h1 daily, 1.17 GB a year; h0 monthly, 1.03 GB a year, 12 records),
+        blocks of 30, the pages of the files a year's records live in dropped
+        from the node's cache first and checked empty, one measurement each:
+
+            43 daily fields    read ahead 10.6 s (2016)   without 18.3 s (2015),
+                                                          and 28.8 s (2022) earlier that day
+            1 daily field      read ahead  4.5 s (2018)   without 11.5 s (2017)
+            5 monthly fields   read ahead  2.2 s (2016)   without  1.4 s (2017)
+
+        against 12.3 s to read a daily year file straight through (2020) and
+        89.3 s to read its 43 fields one at a time (2019), both measured on
+        2026-11-03/04. Without the thread the waiting is
+        on the cold reads, one per field and record; the same pass over a warm
+        synthetic copy of the layout takes 4.1 s. Hence read_ahead_default: a
+        daily year is spread over 365 records, and reading them straight
+        through wins even for one field, although the thread reads every byte
+        of each record (58 times what one field needs). A monthly year is 12
+        records: the pass's few reads were done when the thread had read 0.2
+        of its 1.0 GB, and the thread only competed with them. Sub-daily
+        streams follow the daily rule (the same layout, more and smaller
+        records); they were not timed.
+
+        Returns {"year", "records", "blocks", "missing", "read_ahead"}: counts
+        and labels, no values. read_ahead says whether the thread ran ("on"),
+        the bytes it was to read and did read, and the error that stopped it
+        or kept it from starting, if any.
+        """
+        import netCDF4
+        from contextlib import ExitStack
+        names = [vars] if isinstance(vars, str) else [str(v) for v in vars]
+        if not names:
+            raise GriddedReadError("read_block_pass needs at least one field")
+        if len(set(names)) != len(names):
+            raise GriddedReadError(f"fields repeat: {names}")
+        n = int(block_records)
+        if n < 1:
+            raise GriddedReadError(f"block_records must be at least 1, not {block_records}")
+        if not callable(reduce):
+            raise GriddedReadError("read_block_pass hands each block to a reduce callback "
+                                   "and keeps nothing itself; none was given")
+        have, missing = self.year_records(year)
+        if not have:
+            raise GriddedReadError(f"stream {self.name}: no records in {year}")
+        if missing and require_complete:
+            raise GriddedReadError(self._missing_message(year, missing))
+        index = {v: self._index(v, window, layer) for v in names}
+        units = {v: self.units(v) for v in names}
+        per_s = {v: self.per_second(v) for v in names}
+        lost = [label_text(k, self.cadence) for k in missing]
+        files = sorted({r.file for r in have})
+        blocks = 0
+        with ExitStack() as stack:
+            ds = {fi: stack.enter_context(netCDF4.Dataset(self.files[fi])) for fi in files}
+            in_file_order = {}
+            for fi in files:
+                for v in names:
+                    if v not in ds[fi].variables:
+                        raise GriddedReadError(
+                            f"{v} is in {self.files[0].name} but missing from "
+                            f"{self.files[fi].name}")
+                # the fields in the file's own order, so the reads of a block
+                # move forward through its records
+                at = {nm: k for k, nm in enumerate(ds[fi].variables)}
+                in_file_order[fi] = sorted(names, key=lambda v: at[v])
+            # Started only now, once nothing is left to refuse; stopped and
+            # joined by the ExitStack as the pass returns or raises.
+            ahead = {"on": False, "bytes_planned": 0, "bytes_read": 0, "error": None}
+            ra = None
+            if self.read_ahead_default() if read_ahead is None else bool(read_ahead):
+                ra = self._start_read_ahead(have, ds, ahead)
+                if ra is not None:
+                    stack.callback(ra.stop)
+            for a in range(0, len(have), n):
+                part = have[a:a + n]
+                by_file = self._by_file(part)
+                parts: Dict[str, List[np.ndarray]] = {v: [] for v in names}
+                order: List[int] = []
+                for fi in sorted(by_file):
+                    for v in in_file_order[fi]:
+                        k_layer, sl = index[v]
+                        parts[v].append(self._read_part(ds[fi], fi, v, by_file[fi],
+                                                        k_layer, sl))
+                    order += [p for p, _ in by_file[fi]]
+                reduce(PassBlock(year=year, first=a, keys=[r.key for r in part],
+                                 labels=[label_text(r.key, self.cadence) for r in part],
+                                 data={v: self._assemble(parts.pop(v), order)
+                                       for v in names},
+                                 units=dict(units), per_second=dict(per_s),
+                                 missing=list(lost) if a == 0 else []))
+                blocks += 1
+        if ra is not None:
+            ahead.update(bytes_read=ra.bytes_read, error=ra.error)
+        return {"year": year, "records": len(have), "blocks": blocks, "missing": lost,
+                "read_ahead": ahead}
+
+    def read_ahead_default(self) -> bool:
+        """Whether read_block_pass reads ahead when not told: on a daily or
+        sub-daily stream, not on a monthly one (measured in read_block_pass:
+        10.6 against 18.3 s for 43 daily fields, 4.5 against 11.5 s for one,
+        2.2 against 1.4 s for 5 monthly fields)."""
+        return self.cadence != "monthly"
+
+    def _start_read_ahead(self, have: Sequence[Record], ds: Dict[int, Any],
+                          ahead: Dict[str, Any]) -> Optional[_ReadAhead]:
+        """The read-ahead of a pass over these records, started: in each file
+        the span from its first record to its last, the files in the order the
+        pass reaches them. None, with the reason in `ahead`, when there is no
+        span to read or it cannot start; the pass goes on without it."""
+        try:
+            spans = []
+            for fi in dict.fromkeys(r.file for r in have):
+                idx = [r.index for r in have if r.file == fi]
+                sp = record_span(ds[fi], self.files[fi], min(idx), max(idx))
+                if sp is not None:
+                    spans.append((str(self.files[fi]), sp[0], sp[1]))
+            ahead["bytes_planned"] = sum(e - s for _, s, e in spans)
+            if not spans:
+                ahead["error"] = "no span to read: the files are not classic netCDF"
+                return None
+            ra = _ReadAhead(spans)
+            ra.start()
+        except Exception as e:                                      # noqa: BLE001
+            ahead["error"] = f"{type(e).__name__}: {e}"
+            return None
+        ahead["on"] = True
+        return ra
+
     def describe(self) -> Dict:
         """What the stream holds, for a record or a log line."""
         return {
@@ -901,7 +1399,13 @@ class Stream:
 
 
 def open_stream(run_dir, stream: str = "h1") -> Stream:
-    """The named history stream of a gridded run. Raises when it is absent."""
+    """The named history stream of a gridded run. Raises when it is absent.
+
+    Measured on compy01 (login node), 2026-11-04, the Naches control's h1 (ten
+    files, 3,285 records), the files' pages dropped from the node's cache and
+    checked empty before each open: 47.4 s with an empty index cache (THE
+    INDEX ON DISK), then 0.63 s from the cache in a new process, which read
+    not one page of the files. The ten entries take 62 KB."""
     found = discover(run_dir)
     if stream not in found:
         raise GriddedReadError(

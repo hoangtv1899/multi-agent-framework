@@ -111,7 +111,7 @@ class TestTheRegions:
         box[:2, :] = True
         assert np.array_equal(ms["box, vegetated"], box & veg)
         assert np.array_equal(ms["burned, vegetated"], (burn > 0) & veg)
-        for b, m in R.elevation_bands(topo, A.BAND_EDGES).items():
+        for b, m in R.elevation_bands(topo, A.band_edges(topo, veg)[0]).items():
             if (veg & m).any():
                 assert np.array_equal(ms[b], veg & m)
         assert len(out["problems"]) == 1 and "'nowhere'" in out["problems"][0]

@@ -329,6 +329,54 @@ def _with_defaults(change: Dict, params: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+# EACH PARAMETER KIND'S FORM, AS _param_problems CHECKS IT (2026-11-08): what
+# a value of the kind must be, with an example that passes the check, so the
+# list a model reads gives the form and not only the kind (question 3 of the
+# framework's third acceptance batch wrote months "6,7,8", a string, where a
+# list of month numbers is checked)
+PARAM_FORMS = {
+    "months": "a list of distinct month numbers 1-12",
+    "region": "a registered region's name, or null for the whole domain",
+    "year_map": "a map of model years to recorded years",
+    "number": "a number",
+    "integer": "a whole number",
+    "choice": "one of",
+}
+
+
+def param_example(p: Dict[str, Any]) -> Any:
+    """A value of the parameter `p` that its check passes: its default, or
+    the first allowed value of its kind."""
+    k = p.get("kind")
+    if "default" in p and p["default"] is not None and k not in ("region",):
+        return p["default"]
+    if k == "months":
+        return [6, 7, 8]
+    if k == "region":
+        return None
+    if k == "year_map":
+        return {"2016": 2015}
+    if k in ("number", "integer"):
+        return p.get("lo") if p.get("lo") is not None else 0
+    if k == "choice":
+        return (p.get("choices") or [None])[0]
+    return None
+
+
+def param_form(p: Dict[str, Any]) -> str:
+    """The form of the parameter `p` in words, with its range or choices and
+    an example value that passes its check."""
+    k = p.get("kind")
+    words = PARAM_FORMS.get(k, str(k))
+    if k in ("number", "integer") and p.get("lo") is not None and p.get("hi") is not None:
+        words += f" from {p['lo']:g} to {p['hi']:g}"
+        if p.get("units") not in (None, "", "1"):
+            words += f" {p['units']}"
+    if k == "choice":
+        words += " " + ", ".join(json.dumps(c) for c in p.get("choices") or [])
+    return f"{words}, as {json.dumps(param_example(p))}"
+
+
 def _param_problems(change: Dict, params: Dict[str, Any]) -> List[str]:
     out = []
     spec = change.get("params") or {}

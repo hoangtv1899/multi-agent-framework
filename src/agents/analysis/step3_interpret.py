@@ -24,6 +24,9 @@ every caveat raised upstream finally has to bind:
                 cannot be traced back to 31.4 by anything downstream.
     respects    a claim whose cited finding is inside a blocking caveat's scope
                 must carry that caveat's id, or it is struck.
+    percent     (a study with a suite, 2026-11-08) a claim giving a percent of a
+                field whose notes give none is struck, by the evidence trace's
+                own rule (claim_trace.percent_problems).
 
 A struck claim is not deleted quietly — it is recorded with the reason, because
 the audit's own findings are evidence about the run.
@@ -44,6 +47,8 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from agents.analysis.dashes import strip_dashes, strip_dashes_in
 
 FILENAME = "interpretation.json"
 
@@ -207,7 +212,7 @@ def _domain_facts(ctx) -> set:
 #
 # Each returns the strike reason, or None to pass. First non-None wins, so the
 # order below is the order a claim is judged in.
-AUDIT_RULES = ("cites", "declared_values", "respects")
+AUDIT_RULES = ("cites", "declared_values", "respects", "percent")
 
 
 def rule_cites(claim: Dict[str, Any],
@@ -283,18 +288,51 @@ def rule_respects(claim: Dict[str, Any],
             f"one, which is why they are records.")
 
 
+def rule_percent(claim: Dict[str, Any], finding: Dict[str, Any],
+                 records: Optional[Dict[str, Dict[str, Any]]]) -> Optional[str]:
+    """A claim giving a percent of a field whose notes give none is struck
+    (fix 5 of G part 2, 2026-11-08): question 1's audit kept "BTRAN 20.2
+    percent lower", the script's own arithmetic on a bounded index. The rule
+    is the evidence trace's own (claim_trace.percent_problems), judged on the
+    records the claim names, or, when it names none, on the records of its
+    finding whose field its text names (by code or by the field note's plain
+    name). A study with no evidence records (no suite) is not judged here.
+
+    PROVES: a percent of a field the notes forbid one for is not printed.
+    DOES NOT PROVE: that a percent of an allowed field is the right one.
+    """
+    if not records:
+        return None
+    from agents.analysis import claim_trace as _ct
+    text = str(claim.get("claim") or "")
+    ids = [str(x) for x in (claim.get("evidence") or [])]
+    if ids:
+        recs = [records[i] for i in ids if i in records]
+    else:
+        notes = _ct._elm_modules()[1].load_notes()
+        named = _ct.field_mentions(text, notes)
+        mine = [str(x.get("id")) for x in finding.get("lookups") or [] if isinstance(x, dict)]
+        recs = [records[i] for i in mine if i in records and records[i].get("field") in named]
+    probs = _ct.percent_problems(text, recs)
+    if not probs:
+        return None
+    return (f"gives {probs[0]}. A percent the field's notes forbid is struck here as it fails "
+            f"the evidence trace.")
+
+
 def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
-          caveats: List[Dict[str, Any]], facts: Optional[set] = None
-          ) -> Dict[str, Any]:
+          caveats: List[Dict[str, Any]], facts: Optional[set] = None,
+          records: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Check each claim against the evidence it cites. Pure function.
 
     Returns {kept, struck} where every struck claim carries its reason AND the
     name of the rule that struck it. Testable with no API call, which is the
     point: the audit is the part that must not depend on a model behaving well.
 
-    The three rules are `rule_cites`, `rule_declared_values` and
-    `rule_respects`, applied in that order; the first to object wins, and a
-    claim that passes all three is kept.
+    The rules are `rule_cites`, `rule_declared_values`, `rule_respects` and,
+    for a study with a suite (`records`, its evidence records), `rule_percent`,
+    applied in that order; the first to object wins, and a claim that passes
+    them all is kept.
     """
     by_id = {f["id"]: f for f in (investigation.get("findings") or [])}
     allowed = set(facts or set())
@@ -316,6 +354,8 @@ def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
             why, rule = rule_declared_values(c, finding, allowed), "declared_values"
         if why is None:
             why, rule = rule_respects(c, finding, caveats, blocking), "respects"
+        if why is None:
+            why, rule = rule_percent(c, finding, records), "percent"
 
         if why is None:
             kept.append(c)
@@ -423,6 +463,17 @@ def domain_reading(ctx) -> List[str]:
     return out
 
 
+def suite_records(ctx) -> Optional[Dict[str, Dict[str, Any]]]:
+    """The evidence records of a study with a suite (claim_trace.
+    evidence_records of its own lookups log, the records the trace checks),
+    or None for any other study."""
+    from agents.analysis import analysis_plan as _plan
+    if not (getattr(ctx, "is_domain", False) and _plan.suite_bearing(ctx)):
+        return None
+    from agents.analysis import claim_trace as _ct
+    return _ct.evidence_records(_plan.analysis_dir(ctx))
+
+
 def review_brief(ctx, comparison: Dict[str, Any],
                  investigation: Dict[str, Any]) -> str:
     plan = ctx.plan or {}
@@ -486,10 +537,22 @@ def review_brief(ctx, comparison: Dict[str, Any],
     lines += ["FINDINGS — every citable number in this run is below, under the",
               "id you must name. A value not in the finding you cite is struck,",
               "even when it is a real measurement from somewhere else:"]
+    # A STUDY WITH A SUITE: EACH FINDING'S EVIDENCE RECORDS (fix 1 of G part 2,
+    # 2026-11-08), the ones the evidence trace checks, so a claim can name
+    # them; other studies' briefs are unchanged byte for byte.
+    records = suite_records(ctx)
     for f in findings:
         lines.append(f"    id: {f['id']}   (n={f.get('n')}, scale={f.get('scale')})")
         lines.append(f"        question: {f.get('question')}")
         lines.append(f"        result:   {_render_result(f.get('result'))}")
+        if records is not None:
+            from agents.analysis import claim_trace as _ct
+            lines += _ct.finding_evidence_lines(f, records)
+    if records is not None:
+        # THE PLAN'S EXPECTATIONS (2026-11-08): what a tested claim names
+        from agents.analysis import analysis_plan as _ap
+        from agents.analysis import claim_trace as _ct
+        lines += _ct.expectation_lines(_ap.load_plan(_ap.analysis_dir(ctx)), records)
     if investigation.get("caveats"):
         lines.append("")
         lines.append("FIGURES THAT FAILED TO PRODUCE A RESULT:")
@@ -498,7 +561,7 @@ def review_brief(ctx, comparison: Dict[str, Any],
     return "\n".join(lines)
 
 
-TASK = f"""\
+TASK_BODY = f"""\
 You are reviewing this analysis. The figures are attached as images — look at
 them, not only at the numbers: an unreadable scale or a plot whose shape
 contradicts its stated question is exactly what this review is for.
@@ -572,15 +635,23 @@ after you answer, and a sentence that breaks one is sent back once:
     will paste the headline and the answer onto a slide unread, so the
     audit of the claims must cover them.
 
+"""
+
+
+# THE REPLY TEMPLATE OF A STUDY WITHOUT A SUITE, unchanged byte for byte
+# (2026-11-08): a study with a suite gets claim_trace's rendered template
+# instead (suite_task), and this one stays the columns', PFLOTRAN's and a
+# whole-domain study's without a suite.
+TASK_REPLY = """\
 Return ONLY JSON:
-{{"claims": [
-    {{"claim": "<one sentence>",
+{"claims": [
+    {"claim": "<one sentence>",
       "finding_id": "<the finding it rests on>",
       "values": [<every MEASURED number this claim asserts, copied exactly from
                   the finding's result. NOT counts you made by reading a table,
                   NOT band or column labels, NOT thresholds you chose. Use []
                   if the claim asserts no measurement.>],
-      "caveats": ["<ids of any blocking caveat this claim falls under>"]}}
+      "caveats": ["<ids of any blocking caveat this claim falls under>"]}
   ],
   "headline": "<ONE plain sentence, at most 25 words, with the key number, "
               "saying no more than one of the claims above says>",
@@ -589,8 +660,57 @@ Return ONLY JSON:
   "verdict": "sufficient" | "insufficient",
   "feedback": "<if insufficient: what step 2 should do differently. Be "
               "specific about which figure and what is wrong with it. Empty "
-              "if sufficient.>"}}
+              "if sufficient.>"}
 """
+TASK = TASK_BODY + TASK_REPLY
+
+
+# A STUDY WITH A SUITE (package F1, 2026-11-05): each claim names its
+# evidence records, its class and the warnings it carries, and the report is
+# withheld when any claim fails the evidence trace (claim_trace.trace_evidence).
+# ITS TEMPLATE IS RENDERED (the user's decision on G part 2, 2026-11-08): the
+# field list SUITE_CLAIMS used to give sat after a generic "Return ONLY JSON"
+# block that named only claim, finding_id, values and caveats, and question 1's
+# model followed the block. suite_task() is TASK_BODY, these rules, the
+# classes, the warning codes and the reply template, the last three rendered
+# from claim_trace's definitions.
+SUITE_RULES = """
+THIS STUDY HAS A SUITE. Under each finding above are its evidence records (the
+calls its figure made on `suite`, each with an id such as "L7") and its result
+numbers, split into values of those records and numbers the script made
+itself. Every claim also gives "evidence" (the records it rests on),
+"evidence_class" and "warnings" (every warning code its records carry; a claim
+that leaves one out fails), as the template at the end shows.
+Each number a claim states is a value of its records; a number the script made
+itself is a value of no record, and a claim stating it fails. A year, month,
+season or region a claim names is one its records name. A timing shift whose
+record says "range rule: applies" is stated with the default, the smallest and
+the largest shift across the settings, each with its setting (as "... days at
+the default fraction 0.2, ... days at fraction 0.3"). No causal word except "in
+the model, the change caused" for in-model attribution; no "caused by" in any
+form; no percent of a field whose notes give none (each record says whether
+its field allows one). THE HEADLINE IS NOT YOURS TO WRITE IN THIS STUDY, and the
+`headline` rules above do not apply: give "headline_rank", every claim's number
+once, the claim that answers the question most directly first. The report's
+code makes its headline the text of the first of them that traces and that the
+question type allows: for a hypothesis question a tested expectation resting
+on no lookup found by screening, not planned or made after the close; for an
+exploratory one any claim, labelled exploratory by the report. If none is
+allowed, and the report is otherwise published, its headline says plainly that
+the run is inconclusive. When a cause stays open, give "open_causes": the run
+that would settle it, from the server's list below.
+"""
+
+
+def suite_task() -> str:
+    """Step 3's task for a study with a suite: TASK_BODY, SUITE_RULES, the
+    evidence classes, the warning codes and the reply template, the last
+    three rendered from claim_trace (CLASS_NEEDS and CLASS_WORDING, WARNINGS,
+    CLAIM_PARTS and REPLY_PARTS)."""
+    from agents.analysis import claim_trace as _ct
+    return (TASK_BODY + SUITE_RULES + "\n"
+            + "\n".join(_ct.class_lines() + [""] + _ct.warning_lines() + [""]
+                        + _ct.run_lines() + [""] + _ct.claims_reply_lines()) + "\n")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -698,12 +818,9 @@ _LONG_NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d*\.\d{5,}\b")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"])")
 
 
-def _strip_dashes(text: str) -> str:
-    """Em- and en-dashes used as punctuation become a comma; ranges keep theirs."""
-    t = str(text or "")
-    t = t.replace(" \u2014 ", ", ").replace("\u2014", ", ")
-    t = re.sub(r"(?<!\d)\s*\u2013\s*(?!\d)", ", ", t)
-    return t
+# MOVED TO agents.analysis.dashes (2026-11-08), one helper for every record
+# that keeps the model's words; the old name stays.
+_strip_dashes = strip_dashes
 
 
 def _sentences(text: str):
@@ -754,8 +871,10 @@ def readability_problems(text: str, glossed: set, where: str,
     return problems
 
 
-def check_readability(spec: Dict[str, Any]):
-    """All problems in a parsed reply's wording: headline, answer, every claim."""
+def check_readability(spec: Dict[str, Any], headline: bool = True):
+    """All problems in a parsed reply's wording: headline, answer, every
+    claim. A study with a suite writes no headline (`headline` False): its
+    report's headline is a claim's own text, gated as that claim."""
     claims = [c for c in (spec.get("claims") or []) if isinstance(c, dict)]
     texts = [spec.get("headline"), spec.get("answer")] + \
         [c.get("claim") for c in claims]
@@ -765,13 +884,14 @@ def check_readability(spec: Dict[str, Any]):
                             str(spec.get("answer") or ""), re.I))
     problems = readability_problems(spec.get("headline"), glossed, "headline",
                                     max_words=MAX_HEADLINE_WORDS,
-                                    needs_number=not cannot)
+                                    needs_number=not cannot) if headline else []
     problems += readability_problems(spec.get("answer"), glossed, "answer")
     for i, c in enumerate(claims, 1):
         problems += readability_problems(c.get("claim"), glossed,
                                          f"claim {i}")
     every = [v for c in claims for v in (c.get("values") or [])]
-    problems += number_problems(spec.get("headline"), every, "headline", True)
+    if headline:
+        problems += number_problems(spec.get("headline"), every, "headline", True)
     problems += number_problems(spec.get("answer"), every, "answer", True)
     for i, c in enumerate(claims, 1):
         problems += number_problems(c.get("claim"), c.get("values"),
@@ -803,8 +923,11 @@ with exactly {n} claims in the same order.
 """
 
 
-def rewrite_wording(spec: Dict[str, Any], problems, client) -> Dict[str, Any]:
-    """One rewrite of the wording, `values` and `finding_id` untouched."""
+def rewrite_wording(spec: Dict[str, Any], problems, client,
+                    headline: bool = True) -> Dict[str, Any]:
+    """One rewrite of the wording, `values` and `finding_id` untouched; a
+    study with a suite (`headline` False) keeps no headline the rewrite
+    gives."""
     claims = [c for c in (spec.get("claims") or []) if isinstance(c, dict)]
     text = json.dumps({"headline": spec.get("headline"),
                        "answer": spec.get("answer"),
@@ -815,7 +938,8 @@ def rewrite_wording(spec: Dict[str, Any], problems, client) -> Dict[str, Any]:
     new = _parse(reply)
     words = new.get("claims") or []
     out = dict(spec)
-    out["headline"] = _strip_dashes(new.get("headline") or spec.get("headline"))
+    out["headline"] = (_strip_dashes(new.get("headline") or spec.get("headline"))
+                       if headline else spec.get("headline"))
     out["answer"] = _strip_dashes(new.get("answer") or spec.get("answer"))
     out["claims"] = [dict(c, claim=_strip_dashes(words[i]))
                      if i < len(words) and words[i] else c
@@ -823,30 +947,31 @@ def rewrite_wording(spec: Dict[str, Any], problems, client) -> Dict[str, Any]:
     return out
 
 
-def gate_wording(spec: Dict[str, Any], client) -> Dict[str, Any]:
+def gate_wording(spec: Dict[str, Any], client, headline: bool = True) -> Dict[str, Any]:
     """Dashes stripped, then the checks, then at most one rewrite.
 
     Returns the spec to audit plus a `readability` record: what was wrong
     before, whether a rewrite was asked for, and what is still wrong after.
+    A study with a suite (`headline` False) has no headline to check.
     """
     spec = dict(spec)
-    spec["headline"] = _strip_dashes(spec.get("headline"))
+    spec["headline"] = _strip_dashes(spec.get("headline")) if headline else None
     spec["answer"] = _strip_dashes(spec.get("answer"))
     spec["claims"] = [dict(c, claim=_strip_dashes(c.get("claim")))
                       if isinstance(c, dict) else c
                       for c in (spec.get("claims") or [])]
-    before = check_readability(spec)
+    before = check_readability(spec, headline)
     record = {"problems_before": before, "rewritten": False,
               "problems_after": before}
     if not before:
         return spec, record
     try:
-        spec2 = rewrite_wording(spec, before, client)
+        spec2 = rewrite_wording(spec, before, client, headline)
     except Exception as e:                                       # noqa: BLE001
         record["rewrite_error"] = str(e)[:200]
         return spec, record
     record["rewritten"] = True
-    record["problems_after"] = check_readability(spec2)
+    record["problems_after"] = check_readability(spec2, headline)
     return spec2, record
 
 
@@ -913,11 +1038,13 @@ def _encoded(path: Path) -> Optional[tuple]:
         return "image/png", base64.b64encode(raw).decode()
 
 
-def _content(brief: str, figures: List[str], with_images: bool):
-    """The user turn: the brief, then each figure as an image block."""
-    parts: List[Dict[str, Any]] = [{"type": "text", "text": brief + "\n" + TASK}]
+def _content(brief: str, figures: List[str], with_images: bool, task: str = TASK):
+    """The user turn: the brief and the task, then each figure as an image
+    block. `task` is TASK for every study without a suite, suite_task() for
+    one with a suite."""
+    parts: List[Dict[str, Any]] = [{"type": "text", "text": brief + "\n" + task}]
     if not with_images:
-        return brief + "\n" + TASK
+        return brief + "\n" + task
     for p in figures:
         try:
             enc = _encoded(Path(p))
@@ -974,6 +1101,11 @@ def interpret(ctx, comparison, investigation, out_dir,
 
     comparison = comparison or {}
     brief = review_brief(ctx, comparison, investigation or {})
+    # A STUDY WITH A SUITE: its records under each finding (in the brief) and
+    # its own task, whose template asks for evidence, evidence_class,
+    # expectation, warnings and headline (fix 1 of G part 2, 2026-11-08)
+    records = suite_records(ctx)
+    task = suite_task() if records is not None else TASK
 
     # THE EVIDENCE IS BOTH STEPS'. Step 2's figures answer the user's question;
     # step 1's put the model beside an observation, which nothing step 2 draws
@@ -987,9 +1119,22 @@ def interpret(ctx, comparison, investigation, out_dir,
     figures = list(investigation.get("figures") or [])
     figures += [p for p in (comparison.get("figures") or {}).values()
                 if isinstance(p, str) and Path(p).is_file()]
-    content = _content(brief, figures, with_images)
+    content = _content(brief, figures, with_images, task)
     reply = client.ask([{"role": "user", "content": content}])
-    spec = _parse(reply)
+    # A REPLY THAT CANNOT BE READ IS SAVED FIRST (2026-11-08), cut off at its
+    # output limit or not JSON, then the step fails with what happened
+    try:
+        spec = _parse(reply)
+    except (ValueError, json.JSONDecodeError) as e:
+        from agents.analysis import script_runner as _sr
+        saved = _sr.save_exchange(out_dir, "step3", investigation.get("round", 1)
+                                  if investigation else 1, brief, reply)
+        cut = getattr(client, "last_finish_reason", None) == "length"
+        raise ValueError(("step 3's reply was cut off at its output limit" if cut else
+                          f"step 3's reply is not readable JSON ({e})")
+                         + (f"; it is saved as "
+                            f"{', '.join(sorted(Path(v).name for v in saved.values()))}"
+                            if saved else "")) from None
     # A REPLY WITH NO VERDICT IS ASKED ONCE MORE, FOR THE VERDICT ALONE
     # (2026-10-27). A live whole-domain run returned a complete answer whose
     # every claim the audit kept, but no `verdict` key. Read as "insufficient",
@@ -1000,30 +1145,51 @@ def interpret(ctx, comparison, investigation, out_dir,
         spec = dict(spec, **_ask_verdict(client, content, reply))
     # THE WORDING IS GATED LIKE THE NUMBERS. Deterministic checks, one
     # bounded rewrite of the wording alone, then the audit as before.
-    spec, readability = gate_wording(spec, client)
+    spec, readability = gate_wording(spec, client, headline=records is None)
 
     # THE BRIEF, NOT `content`. `content` is the brief plus every figure
     # base64-encoded — tens of megabytes of image bytes that say nothing a
     # reader can use. The text is the part that decides what the model can
     # cite, and the part a replayed test needs.
+    #
+    # A study with a suite keeps its own task beside the brief too: it holds
+    # the template the model was asked to follow, which the replay of a
+    # recorded study needs. Every other study's record is the brief alone, as
+    # it was.
     from agents.analysis import script_runner as _runner
     exchange = _runner.save_exchange(
         out_dir, "step3", investigation.get("round", 1) if investigation else 1,
-        brief, reply)
+        brief if records is None else brief + "\n" + task, reply)
 
     caveats = list(ctx.caveats or []) + list(comparison.get("caveats") or [])
     result = audit(spec.get("claims") or [], evidence, caveats,
-                   facts=run_facts(ctx))
+                   facts=run_facts(ctx), records=records)
 
     verdict = spec.get("verdict")
     if verdict not in ("sufficient", "insufficient"):
         verdict = "insufficient"          # an unparseable verdict is not a pass
 
-    out = {"headline": spec.get("headline"),
+    # THE HEADLINE RANKING, ON THE CLAIMS THE AUDIT KEPT (2026-11-08): a
+    # study with a suite writes no headline; its ranking, given by the
+    # reply's claim numbers, is carried onto the kept claims' numbers
+    ranked = None
+    if records is not None:
+        given = spec.get("headline_rank") if isinstance(spec.get("headline_rank"), list) else []
+        said = [c for c in (spec.get("claims") or [])]
+        kept_at = {id(c): j for j, c in enumerate(result["kept"], 1)}
+        ranked = [kept_at[id(said[k - 1])] for k in given
+                  if isinstance(k, int) and not isinstance(k, bool) and 1 <= k <= len(said)
+                  and id(said[k - 1]) in kept_at]
+    out = {"headline": spec.get("headline") if records is None else None,
+           **({"headline_rank": ranked,
+               "headline_rank_as_given": spec.get("headline_rank")}
+              if records is not None else {}),
            "answer": spec.get("answer"), "verdict": verdict,
            "verdict_asked_again": bool(spec.get("verdict_asked_again")),
            "readability": readability,
-           "feedback": spec.get("feedback") or None,
+           # the model's words kept in the record carry no dashes (fix 6)
+           "feedback": strip_dashes(spec.get("feedback")) or None,
+           "open_causes": strip_dashes_in(spec.get("open_causes") or []),
            "claims": result["kept"], "struck": result["struck"],
            "audit": {k: result[k] for k in ("n_claims", "n_struck")},
            "exchange": exchange or None,
@@ -1035,10 +1201,129 @@ def interpret(ctx, comparison, investigation, out_dir,
 # ─────────────────────────────────────────────────────────────────────
 # THE BOUNDED LOOP
 # ─────────────────────────────────────────────────────────────────────
+# THE PLAN'S REVIEW (package E, 2026-11-05). For a suite-bearing study, step
+# 3 reviews the recorded analysis plan once, before any lookup: does it follow
+# from what was asked? One short model call, and code's own findings on the
+# plan (a field, region, method or setting that does not exist, a timing
+# setting timing.nc does not hold, a screen out of the question type's order)
+# fail it too. Its record is tied to the plan file's hash. This automated
+# review approves the analysis plan only: it never authorizes a simulation,
+# and running or submitting any model run still needs the user's own
+# authorization (the design review's yes, and the user's standing rule to ask
+# before any SLURM job).
+PLAN_REVIEW_LEAD = """\
+Below are a question a person asked of a model study, the question type the
+study's Planner recorded, and the ANALYSIS PLAN written for it before any
+result was seen. Judge one thing: does the plan follow from what was asked?
+It follows when its comparisons, fields, regions, periods and methods address
+the question as asked, its expectations (if any) are the question's own and
+not new claims, and its competing explanations are relevant. Do not judge
+whether the answer will be interesting; no result exists yet.
+"""
+
+
+def _review_json_line() -> str:
+    """PLAN_REVIEW_ASK's reply line, rendered from analysis_plan.REVIEW_REPLY,
+    the definition rule_plan_follows_question reads (2026-11-08)."""
+    from agents.analysis import analysis_plan as _plan
+    parts = [f"{json.dumps(p.name)}: {_plan._shown(p)}" for p in _plan.REVIEW_REPLY]
+    first = "Return ONLY JSON: {" + ", ".join(parts[:-1]) + ","
+    return first + "\n" + parts[-1] + "}\n"
+
+
+PLAN_REVIEW_ASK = PLAN_REVIEW_LEAD + "\n" + _review_json_line()
+
+
+def read_review_reply(got: Dict[str, Any]) -> Dict[str, Any]:
+    """The review's reply as REVIEW_REPLY defines it: `follows` counts only
+    when it is true itself, `why` is words, and `problems` a list of words (a
+    single string is one problem, never its letters)."""
+    from agents.analysis import analysis_plan as _plan
+    names = [p.name for p in _plan.REVIEW_REPLY]
+    follows, why, problems = (got.get(n) for n in names)
+    if isinstance(problems, str):
+        problems = [problems]
+    return {"follows": follows is True,
+            "why": str(why or ""),
+            "problems": [str(x) for x in (problems if isinstance(problems, list) else [])
+                         if str(x).strip()]}
+
+
+def rule_plan_follows_question(ctx, out_dir, client=None,
+                               model: str = DEFAULT_MODEL, label: Optional[str] = None
+                               ) -> Dict[str, Any]:
+    """Step 3's review of 04_analysis/analysis_plan.json, recorded once in
+    analysis_plan_review.json: passed only when the model says the plan
+    follows from the question AND code found no problem in the plan. The
+    prompt is the same for a rewritten plan (it is not told it reviews a
+    rewrite); `label` names the client for the spend (step3_plan_review, or
+    step3_plan_review_rewrite for the rewrite's review), and the exchange is
+    saved under the plan's attempt (round 1 or 2)."""
+    from agents.analysis import analysis_plan as _plan
+    from agents.analysis import script_runner as _runner
+    out_dir = Path(out_dir)
+    done = _plan.load_review(out_dir)
+    if done:
+        return done
+    plan = _plan.load_plan(out_dir)
+    if not plan:
+        return _plan.record_review(out_dir, False, "there is no analysis plan to review",
+                                   reviewer="code")
+    attempt = int(plan.get("attempt") or 1)
+    if client is None:
+        from agents.llm_agent import SimpleLLMClient
+        client = SimpleLLMClient(model=model)
+        client.label = label or (_plan.REVIEW_LABEL if attempt == 1 else
+                                 _plan.REWRITE_REVIEW_LABEL)
+    shown = {k: plan.get(k) for k in ("question_type",) + _plan.PLAN_KEYS}
+    prompt = (f"THE QUESTION:\n    {plan.get('question')}\n\nTHE PLAN:\n"
+              + json.dumps(shown, indent=1, default=str) + "\n\n" + PLAN_REVIEW_ASK)
+    reply = client.ask([{"role": "user", "content": prompt}])
+    unreadable = None
+    try:
+        got = _parse(reply)
+    except (ValueError, json.JSONDecodeError) as e:
+        got, unreadable = {}, f"the review's reply was not readable: {e}"
+    exchange = _runner.save_exchange(out_dir, "step3_plan_review", attempt, prompt, reply)
+    r = read_review_reply(got)
+    model_problems = r["problems"] + ([unreadable] if unreadable else [])
+    code_problems = list(plan.get("problems") or [])
+    problems = model_problems + [f"code: {p}" for p in code_problems]
+    passed = r["follows"] and not code_problems and not unreadable
+    return _plan.record_review(out_dir, passed, r["why"] or (unreadable or ""), problems,
+                               reviewer="step 3's model review (rule_plan_follows_question)",
+                               exchange=exchange or None,
+                               follows=False if unreadable else r["follows"],
+                               model_problems=model_problems, code_problems=code_problems)
+
+
+def skipped_interpretation(out_dir, why: str, round_no: int = 1) -> Dict[str, Any]:
+    """Step 3 not asked, and why, written to interpretation.json in place of a
+    reply: a study whose analysis plan did not pass its review made no figure
+    and no lookup, so there is nothing to interpret and the call is saved (the
+    user's decision on G part 2, 2026-11-08: question 2 still paid a model
+    call to read "no results were produced")."""
+    out = {"skipped": True, "skipped_because": why, "headline": None, "answer": None,
+           "verdict": None, "verdict_asked_again": False, "readability": None,
+           "feedback": None, "open_causes": [], "claims": [], "struck": [],
+           "audit": {"n_claims": 0, "n_struck": 0}, "exchange": None, "round": round_no}
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    (Path(out_dir) / FILENAME).write_text(json.dumps(out, indent=2, default=str))
+    return out
+
+
+def _given(clients: Optional[Dict[str, Any]], label: str) -> Dict[str, Any]:
+    """{"client": the client for `label`} when the caller gave one, else {}:
+    a step then makes its own, labelled for the spend."""
+    c = (clients or {}).get(label)
+    return {"client": c} if c is not None else {}
+
+
 def investigate_and_interpret(ctx, out_dir, comparison=None,
                               model: str = DEFAULT_MODEL,
                               client=None, with_images: bool = True,
-                              max_rounds: int = MAX_ROUNDS) -> Dict[str, Any]:
+                              max_rounds: int = MAX_ROUNDS,
+                              clients: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """step 2 -> step 3, with at most `max_rounds` passes.
 
     Step 3 may send step 2 back once with specific feedback. It does not get to
@@ -1046,20 +1331,64 @@ def investigate_and_interpret(ctx, out_dir, comparison=None,
     a reviewer with an unbounded budget will always find something. If the last
     round is still judged insufficient, that verdict stands and is reported —
     "this experiment cannot answer the question" is a result.
+
+    `client` is step 3's (as it always was); `clients` maps a step's label
+    (step2a_plan, step3_plan_review, step2a_plan_rewrite,
+    step3_plan_review_rewrite, step2_investigate, step3_interpret) to the
+    client that step uses, for a replay with no model call. A step with no
+    client given makes its own.
     """
     from agents.analysis import step2_investigate as _step2
+    from agents.analysis import analysis_plan as _plan
 
     rounds: List[Dict[str, Any]] = []
     feedback = None
     investigation = interpretation = None
+    step3_client = client if client is not None else (clients or {}).get(
+        "step3_interpret")
 
+    # STEP 2a, THEN STEP 3'S REVIEW OF THE PLAN, before any round (package E,
+    # 2026-11-05), only for a suite-bearing study. A plan that fails is
+    # rewritten ONCE, before any outcome is looked up, and the rewrite gets the
+    # same check and the same review (the user's decision on G part 2,
+    # 2026-11-08). A plan that still did not pass makes one round: step 2
+    # proposes nothing and says why, and step 3 is not asked.
+    plan_review = None
+    on_suite = _plan.suite_bearing(ctx)
+    plan_ok = True
+    if on_suite:
+        _plan.write_plan(ctx, out_dir, model=model, **_given(clients, _plan.PLAN_LABEL))
+        plan_review = rule_plan_follows_question(ctx, out_dir, model=model,
+                                                 **_given(clients, _plan.REVIEW_LABEL))
+        if (plan_review or {}).get("passed") is False and _plan.can_rewrite(out_dir)[0]:
+            _plan.rewrite_plan(ctx, out_dir, model=model,
+                               **_given(clients, _plan.REWRITE_LABEL))
+            plan_review = rule_plan_follows_question(
+                ctx, out_dir, model=model, label=_plan.REWRITE_REVIEW_LABEL,
+                **_given(clients, _plan.REWRITE_REVIEW_LABEL))
+        plan_ok = _plan.plan_passed(out_dir)[0]
+        if not plan_ok:
+            max_rounds = 1
+
+    figures: List[Dict[str, Any]] = []         # every round's figures, for the close
+    skipped: Dict[str, str] = {}               # step 2b's own reasons, by analysis
     for r in range(1, max(1, max_rounds) + 1):
         investigation = _step2.investigate(
             ctx, out_dir, step1=comparison, model=model,
-            feedback=feedback, round_no=r)
-        interpretation = interpret(ctx, comparison, investigation, out_dir,
-                                   model=model, client=client,
-                                   with_images=with_images)
+            feedback=feedback, round_no=r,
+            **({"history": {"figures": list(figures), "skipped": dict(skipped)}}
+               if on_suite and plan_ok else {}),
+            **_given(clients, "step2_investigate"))
+        figures += list(investigation.get("figure_outcomes") or [])
+        skipped.update({x.get("analysis"): x.get("why")
+                        for x in investigation.get("skipped") or [] if isinstance(x, dict)})
+        if on_suite and not plan_ok:
+            interpretation = skipped_interpretation(
+                out_dir, _plan.plan_passed(out_dir)[1], round_no=r)
+        else:
+            interpretation = interpret(ctx, comparison, investigation, out_dir,
+                                       model=model, client=step3_client,
+                                       with_images=with_images)
         # WHAT THIS ROUND ACTUALLY PRODUCED, by name. A later round REPLACES
         # the investigation wholesale — `investigation` is reassigned and only
         # the last one reaches step 4 — so a round 2 that drops three of round
@@ -1076,6 +1405,8 @@ def investigate_and_interpret(ctx, out_dir, comparison=None,
                  "n_struck": interpretation["audit"]["n_struck"],
                  "n_claims_kept": kept_claims,
                  "feedback": interpretation.get("feedback")}
+        if interpretation.get("skipped"):
+            entry["step3_skipped"] = interpretation.get("skipped_because")
         if rounds:
             prev = rounds[-1]
             dropped = sorted(set(prev["finding_ids"]) - set(ids))
@@ -1097,10 +1428,27 @@ def investigate_and_interpret(ctx, out_dir, comparison=None,
         if not feedback:                  # insufficient with nothing actionable
             break                         # to say is not worth another round
 
+    # THE CLOSE OF THE PLANNED PHASE, if no round closed it (the user's
+    # decision on G part 2, 2026-11-08): in a hypothesis study whose screen
+    # never ran, and in every exploratory study (bookkeeping: nothing is
+    # required), the framework closes it after the last round, before step 4.
+    if on_suite and plan_ok and not _plan.load_planned_phase(out_dir):
+        qt = _plan.load_plan(out_dir).get("question_type")
+        _plan.close_planned_phase(
+            out_dir, when="after the last round",
+            by=("the framework, after the last round of step 2b: the screen never ran"
+                if qt == "hypothesis" else
+                "the framework, after the last round of step 2b: an exploratory question, "
+                "so the close is bookkeeping and no analysis is required"),
+            figures=figures, skipped=skipped)
+
     regressed = [r_["round"] for r_ in rounds if r_.get("regressed")]
     return {"investigation": investigation, "interpretation": interpretation,
+            **({"plan_review": plan_review} if plan_review is not None else {}),
             "rounds": rounds, "n_rounds": len(rounds),
             "regressed_rounds": regressed or None,
-            "stopped_because": ("sufficient"
+            "stopped_because": ("the analysis plan did not pass its review, so step 3 was "
+                                "not asked" if interpretation.get("skipped") else
+                                "sufficient"
                                 if interpretation["verdict"] == "sufficient"
                                 else f"exhausted {len(rounds)} of {max_rounds} rounds")}

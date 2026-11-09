@@ -413,7 +413,12 @@ THE YEARS AND THE COST
     December before it, so the first year of a run that starts in January has
     no DJF). A question about a season or a month is answered from that
     season's or month's numbers, not from a year's: settle the years that hold
-    the season the question names.
+    the season the question names. Where the control's results store (its
+    suite) is built, water years, per-cell maps and the dates of the season's
+    events can be looked up too.
+  • Both kinds of question are answerable: one that proposes an expectation
+    to test (a direction, a relation, a mechanism) and one that asks what
+    changed or happened without one. Do not ask the user for a hypothesis.
 
 Use `ask_user` to settle; do not emit an experiment the user has not seen.
 Write the result into domain_experiment (OUTPUT), set

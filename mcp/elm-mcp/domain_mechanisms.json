@@ -1,0 +1,145 @@
+{
+  "_comment": [
+    "THE MECHANISMS (2026-11-05; review round 1, 2026-11-05). Candidate mechanisms a whole-domain analysis may look for, rendered by tools/make_methods_doc.py into docs/ANALYSIS_METHODS.md as candidates, never as rules. Written by people, never by the framework's language models; the user reviews every entry, and an entry stays a draft until then (pytest --review-gate fails while one is, or while its review refers to an older text revision or behaviour version). On 2026-11-05 the user approved every entry for integration (review state 'approved for integration', by the user, at its text revision and behaviour version of that day): an approval for integration, not a final scientific approval.",
+    "Each entry: links (explicit, one step each: from a field, to a field, how the model makes the step, and the conditions under which the step holds; the links may branch, so a field can act on more than one other, and a link's kind says when it is a conditional carry-over rather than a direct effect), expected_when (the conditions under which the whole relation is expected), competing (other mechanisms that can give the same sign, timing or overlap, each naming its fields), limits (what a run of the model can and cannot show about it), methods (the methods of domain_methods.METHODS that can give evidence for it). The fields a mechanism runs through are those its links name.",
+    "Statuses, kept apart: review (draft or reviewed, with the text revision and behaviour version it refers to), implemented, tested (the tests that passed, their date and behaviour version) and available_to_analyzer (true: each is in the compact methods view the Analyzer reads, docs/ANALYSIS_METHODS_COMPACT.md). A mechanism computes nothing: its behaviour version counts changes to what code checks of it (the fields and methods it names); text_revision counts changes to its words.",
+    "Sign, timing and overlap support a mechanism and do not establish it. Nothing here says what happened in any study: no outcome, no watershed's values. tests/test_methods_doc.py fails when an entry names a field or a method that does not exist."
+  ],
+  "mechanisms": [
+    {
+      "id": "snow_water_to_next_year_leaves",
+      "name": "snow to melt to soil water to BTRAN, which acts on both transpiration and GPP, with GPP carried over to next year's leaf carbon only under conditions",
+      "links": [
+        {"from": "H2OSNO", "to": "QSNOMELT", "kind": "direct", "how": "the snowpack melts as it warms; a smaller or earlier-melting snowpack gives less melt, or the same melt earlier", "conditions": ["a seasonal snowpack forms in the cell"]},
+        {"from": "QSNOMELT", "to": "H2OSOI", "kind": "direct", "how": "melt water infiltrates and refills the soil before the growing season", "conditions": ["the soil is not frozen or already full when the melt comes, so the melt is not lost as runoff"]},
+        {"from": "H2OSOI", "to": "BTRAN", "kind": "direct", "how": "the transpiration factor falls as the root zone dries, weighted by where the roots are", "conditions": ["the root zone dries far enough in the growing season to lower BTRAN below 1"]},
+        {"from": "BTRAN", "to": "QVEGT", "kind": "direct", "how": "a lower factor closes the stomata: less transpiration", "conditions": ["the canopy has leaves to transpire through"]},
+        {"from": "BTRAN", "to": "GPP", "kind": "direct", "how": "the same stomatal closure lowers photosynthesis", "conditions": ["light, temperature, nitrogen or leaf area do not limit photosynthesis first in the same weeks"]},
+        {"from": "GPP", "to": "LEAFC", "kind": "conditional carry-over", "how": "carbon fixed this year can reach next year's leaves through the plants' allocation and storage, so an effect can carry over a year", "conditions": ["the model allocates part of the new carbon to leaves, or to storage that feeds next year's leaves, rather than to stems and roots", "the plants store carbon and draw on it the next year", "leaves turn over slowly enough, or are grown anew from stored carbon, for this year's carbon to reach next year's leaves", "the vegetation type sets the path: an evergreen canopy keeps its leaves, a deciduous one grows them anew", "no disturbance (fire, mortality) removes the plants in between"]}
+      ],
+      "expected_when": [
+        "the snowpack is the main source of the growing season's soil water, and summer rain is small beside it",
+        "the root-zone soil water limits transpiration in the growing season (BTRAN below 1 for a lasting part of it)"
+      ],
+      "competing": [
+        {"text": "summer rain refills the soil and breaks the link from snow to soil water", "fields": ["RAIN", "H2OSOI"]},
+        {"text": "warmer, drier air or more sunshine changes photosynthesis and transpiration without a change in soil water", "fields": ["TBOT", "RH2M", "FSDS"]},
+        {"text": "nitrogen limits photosynthesis whatever the water", "fields": ["FPG"]},
+        {"text": "a change in leaf area (fire, a previous dry year) changes transpiration and photosynthesis directly", "fields": ["TLAI", "FAREA_BURNED"]},
+        {"text": "the plants' stored carbon buffers next year's leaves, so leaf carbon need not follow this year's GPP", "fields": ["LEAFC", "TOTVEGC"]}
+      ],
+      "limits": [
+        "A run of the model shows the model's own mechanism, not nature's: agreement in sign and timing is consistent with the links, not a proof of them.",
+        "BTRAN acts on transpiration and on GPP at once: a change in both is one cause with two effects, not a chain from transpiration to GPP.",
+        "The carry-over from GPP to next year's leaf carbon is conditional: without the allocation, storage and turnover of the cells concerned, a link between one year's GPP and the next year's LEAFC is an association.",
+        "Attribution within the model needs a run that changes one link and nothing else (for example the weather of one season); without it the finding is an association.",
+        "Soil water is read as the top-1 m mean of H2OSOI; roots deeper than a metre draw on water this does not show."
+      ],
+      "methods": ["snow_peak", "snow_gone", "anomaly", "difference", "growth_peak", "overlap", "elevation_split"],
+      "text_revision": 2,
+      "behaviour_version": 1,
+      "status": {
+        "review": {"state": "approved for integration", "by": "the user", "date": "2026-11-05", "text_revision": 2, "behaviour_version": 1},
+        "implemented": {"behaviour_version": 1},
+        "tested": {"behaviour_version": 1, "date": "2026-11-05", "passed": ["tests/test_methods_doc.py::test_every_field_and_method_named_exists", "tests/test_methods_doc.py::test_every_mechanism_is_links_with_conditions"]},
+        "available_to_analyzer": true
+      }
+    },
+    {
+      "id": "temperature_to_heterotrophic_respiration",
+      "name": "temperature to soil temperature to heterotrophic respiration",
+      "links": [
+        {"from": "TSA", "to": "TSOI_10CM", "kind": "direct", "how": "the air warms the soil, damped and delayed with depth", "conditions": ["no deep snow insulates the soil, which holds it near freezing"]},
+        {"from": "TSOI_10CM", "to": "HR", "kind": "direct", "how": "decomposition of litter and soil organic matter speeds up as the soil warms", "conditions": ["the soil is not frozen", "the soil is neither so dry nor so wet that water limits decomposition"]}
+      ],
+      "expected_when": [
+        "the litter and soil carbon pools are not themselves changing fast (after a fire or a large litterfall)"
+      ],
+      "competing": [
+        {"text": "soil water limits decomposition in a dry period, so a warm, dry spell can lower heterotrophic respiration", "fields": ["H2OSOI", "SOILWATER_10CM"]},
+        {"text": "the size of the litter and soil carbon pools sets how much there is to decompose", "fields": ["TOTLITC", "TOTSOMC", "CWDC"]},
+        {"text": "nitrogen limits the decomposers' immobilization", "fields": ["FPI", "SMINN"]},
+        {"text": "a fire adds or removes litter", "fields": ["COL_FIRE_CLOSS"]}
+      ],
+      "limits": [
+        "Across cells, temperature follows elevation, and so do soil carbon and soil water: a correlation across cells mixes all three.",
+        "A warm year is often a dry one: within the model, only a run that changes temperature alone separates the two."
+      ],
+      "methods": ["anomaly", "difference", "overlap", "elevation_split", "screen"],
+      "text_revision": 2,
+      "behaviour_version": 1,
+      "status": {
+        "review": {"state": "approved for integration", "by": "the user", "date": "2026-11-05", "text_revision": 2, "behaviour_version": 1},
+        "implemented": {"behaviour_version": 1},
+        "tested": {"behaviour_version": 1, "date": "2026-11-05", "passed": ["tests/test_methods_doc.py::test_every_field_and_method_named_exists", "tests/test_methods_doc.py::test_every_mechanism_is_links_with_conditions"]},
+        "available_to_analyzer": true
+      }
+    },
+    {
+      "id": "nitrogen_to_gpp",
+      "name": "nitrogen (soil mineral nitrogen and FPG) to GPP, in a run whose verified configuration leaves nitrogen as the only nutrient limit",
+      "links": [
+        {"from": "SMINN", "to": "FPG", "kind": "direct", "how": "less mineral nitrogen beside the plants' demand lowers FPG, the fraction of potential GPP the available nitrogen allows", "conditions": ["the run cycles nitrogen and does not supplement it (suplnitro = 'NONE'), as in the verified configuration"]},
+        {"from": "FPG", "to": "GPP", "kind": "direct", "how": "the model lowers photosynthesis to the carbon the available nitrogen can support", "conditions": ["only nitrogen can limit growth by nutrients: in the verified configuration the model represents phosphorus limitation, but phosphorus is supplemented to meet plant demand everywhere (suplphos = 'ALL'), which switches it off (FPG_P, the matching fraction for phosphorus in the monthly output, was exactly 1 in every cell and month of 2015-2023 in the Naches control run, checked on 2026-11-05: 160,728 finite cell-months a year), so nitrogen and phosphorus cannot co-limit", "in a run without the phosphorus supplement, phosphorus can limit too, alone or with nitrogen, and FPG alone does not show the nutrient limit: FPG and FPG_P are needed together to tell nitrogen limitation from phosphorus limitation"]}
+      ],
+      "expected_when": [
+        "the run's nutrient configuration is the verified one (carbon, nitrogen and phosphorus cycles; phosphorus supplemented everywhere, which switches phosphorus limitation off; nitrogen not supplemented), read from the control's facts cache, key configuration, and shown in the catalog",
+        "FPG is below 1 in the growing season, so nitrogen limits potential GPP"
+      ],
+      "competing": [
+        {"text": "the plants' demand changes (more or less potential photosynthesis) and moves FPG without a change in supply", "fields": ["PLANT_NDEMAND"]},
+        {"text": "phosphorus limits GPP, alone or together with nitrogen; this cannot happen in the verified configuration, where the supplement (suplphos = 'ALL') switches phosphorus limitation off and FPG_P, in the monthly output, was exactly 1 in every cell and month of 2015-2023 in the Naches control run (checked on 2026-11-05: 160,728 finite cell-months a year); in a run without the supplement, FPG and FPG_P together tell the two apart", "fields": ["FPG"]},
+        {"text": "water stress limits GPP separately from nutrients, through BTRAN, and shows in neither FPG nor FPG_P", "fields": ["BTRAN"]},
+        {"text": "temperature limits GPP separately from nutrients, and shows in neither FPG nor FPG_P", "fields": ["TSA"]},
+        {"text": "light limits GPP separately from nutrients, and shows in neither FPG nor FPG_P", "fields": ["FSDS"]},
+        {"text": "leaf area limits GPP separately from nutrients, and shows in neither FPG nor FPG_P", "fields": ["TLAI"]},
+        {"text": "a fire releases nitrogen or removes the plants that take it up", "fields": ["COL_FIRE_CLOSS", "FAREA_BURNED"]}
+      ],
+      "limits": [
+        "In the verified configuration FPG measures only the nitrogen limitation of potential GPP, and it shows that limit at the time: FPG below 1 says nitrogen limits potential GPP then, not that it is the only or the main limit. Nitrogen can also lower GPP through earlier effects that FPG at the time does not show (less leaf area or leaf nitrogen grown in a nitrogen-poor period), so an unchanged FPG rules out only a same-time nitrogen limit.",
+        "FPG is the model's own downregulation of photosynthesis: it can follow demand as well as supply, so a fall in FPG is not by itself a shortage of soil nitrogen.",
+        "Soil mineral nitrogen is a store: its change over one year mixes uptake, mineralization, deposition and losses.",
+        "A run configured otherwise (phosphorus not supplemented, or nitrogen supplemented) needs its own reading of FPG: without the phosphorus supplement, FPG and FPG_P (in the monthly output) are needed together to tell nitrogen limitation from phosphorus limitation."
+      ],
+      "methods": ["anomaly", "difference", "overlap", "screen"],
+      "text_revision": 4,
+      "behaviour_version": 1,
+      "status": {
+        "review": {"state": "approved for integration", "by": "the user", "date": "2026-11-05", "text_revision": 4, "behaviour_version": 1, "note": "re-recorded after completing the FPG correction the user asked for"},
+        "implemented": {"behaviour_version": 1},
+        "tested": {"behaviour_version": 1, "date": "2026-11-05", "passed": ["tests/test_methods_doc.py::test_every_field_and_method_named_exists", "tests/test_methods_doc.py::test_every_mechanism_is_links_with_conditions"]},
+        "available_to_analyzer": true
+      }
+    },
+    {
+      "id": "burned_area_to_transpiration",
+      "name": "burned area to carbon lost to fire to leaf area to transpiration",
+      "links": [
+        {"from": "FAREA_BURNED", "to": "COL_FIRE_CLOSS", "kind": "direct", "how": "the burned share of a cell loses the carbon of its burning vegetation and litter", "conditions": ["fire in the cell in the period: FAREA_BURNED above zero"]},
+        {"from": "COL_FIRE_CLOSS", "to": "TLAI", "kind": "direct", "how": "burned leaves and plants leave less leaf area until regrowth", "conditions": ["the fire burns leaves or whole plants, not only litter"]},
+        {"from": "TLAI", "to": "QVEGT", "kind": "direct", "how": "less leaf area transpires less", "conditions": ["after the fire and before the canopy regrows"]}
+      ],
+      "expected_when": [
+        "it applies physically in the cells and periods with fire (FAREA_BURNED above zero in the cell), whatever the screen marks: the screen's above_normal_maximum mark answers a separate question, how unusual a period's fire is beside the normal years"
+      ],
+      "competing": [
+        {"text": "drought lowers leaf area and transpiration in the same years that fires burn", "fields": ["BTRAN", "H2OSOI", "RAIN"]},
+        {"text": "the model's background fire burns a little in most periods, spread thin over many cells", "fields": ["FAREA_BURNED"]},
+        {"text": "different weather, not the fire, changes transpiration", "fields": ["TBOT", "RH2M", "FSDS"]}
+      ],
+      "limits": [
+        "The fire is the model's own unless the run prescribes burned area. Where the control's facts cache records ELM's own fire model and no prescribed burned area (the verified control), that fire is the only fire in the control, and a no-fire run, which switches the model's fire off, removes all of it; where a run prescribes burned area, a no-fire run's meaning must be read from its configuration.",
+        "Burned area is a fraction of each cell, so a cell's leaf area falls by part, not whole."
+      ],
+      "methods": ["screen", "anomaly", "difference", "overlap", "elevation_split"],
+      "text_revision": 2,
+      "behaviour_version": 1,
+      "status": {
+        "review": {"state": "approved for integration", "by": "the user", "date": "2026-11-05", "text_revision": 2, "behaviour_version": 1},
+        "implemented": {"behaviour_version": 1},
+        "tested": {"behaviour_version": 1, "date": "2026-11-05", "passed": ["tests/test_methods_doc.py::test_every_field_and_method_named_exists", "tests/test_methods_doc.py::test_every_mechanism_is_links_with_conditions"]},
+        "available_to_analyzer": true
+      }
+    }
+  ]
+}

@@ -127,6 +127,23 @@ def _control_setup_lines(facts):
     return out
 
 
+# THE QUESTION TYPE ON THE PAGE (package E, 2026-11-05). The Planner records
+# analysis.question_type from the question as asked; the page shows it, since
+# it decides what the report may call a tested expectation.
+QUESTION_TYPE_WORDS = {
+    "hypothesis": "the question proposes an expectation to test, so the analysis plan "
+                  "states it before any result and the report may call it tested",
+    "exploratory": "the question asks what changed or happened, without an expectation "
+                   "to test, so the findings are reported as exploratory"}
+
+
+def question_type_line(analysis: dict) -> str:
+    qt = str(analysis.get("question_type") or "").strip().lower()
+    words = QUESTION_TYPE_WORDS.get(qt, "not one of hypothesis or exploratory; the Analyzer "
+                                        "will read it as exploratory")
+    return f"question type: {qt or 'none recorded'} ({words})"
+
+
 def _whole_domain_lines(brief, strategy):
     """A control and runs of named changes (docs/ELM_DOMAIN_EXPERIMENTS.md),
     every line quoted or counted from the records: the experiment Reception
@@ -197,6 +214,8 @@ def _whole_domain_lines(brief, strategy):
             for x in regs))
     if an.get("normal_years"):
         out.append(f"- compared with the normal years {an['normal_years']}")
+    if an.get("question_type"):
+        out.append("- " + question_type_line(an))
     for cv in (de.get("caveats") or [])[:3]:
         out.append(f"- caveat: {_trim(cv, 200)}")
     if runs:
@@ -729,6 +748,8 @@ def _appendix(preview, run_dir, strategy, brief):
             L.append(f"- model years: {', '.join(map(str, de['years']))}")
         if plan_an.get("normal_years"):
             L.append(f"- normal years: {', '.join(map(str, plan_an['normal_years']))}")
+        if plan_an.get("question_type"):
+            L.append("- " + question_type_line(plan_an))
         if an.get("regions"):
             L += ["", "| region | cells | area (km²) | rule | drawn from |", "|---|---|---|---|---|"]
             L += [f"| {r['name']} | {r['cells']:,} | {r['area_km2']:,} | {r['rule']} | "

@@ -50,7 +50,11 @@ FILENAME = "analysis.json"
 # Reception and the Planner run in the same process on an end-to-end run and
 # do not label their clients, so `total` is pipeline-wide while `by_step` is
 # Analyzer-only. Those were being read as the same quantity.
-ANALYZER_LABELS = ("step2_investigate", "step3_interpret")
+# EVERY ANALYZER LABEL (fix 6 of G part 2, 2026-11-08): the plan's step 2a,
+# its review, the one rewrite and its review were missing, so question 1's
+# printed line counted 3 of its 5 calls while analysis.json's total held 5.
+ANALYZER_LABELS = ("step2a_plan", "step3_plan_review", "step2a_plan_rewrite",
+                   "step3_plan_review_rewrite", "step2_investigate", "step3_interpret")
 
 
 def _llm_accounting(expect_calls: bool = False) -> Dict[str, Any]:
@@ -329,6 +333,10 @@ SUPPORTED    = "supported"              # it ran, concluded, and claims survived
 NO_CLAIMS    = "no_supported_claims"    # it concluded; the audit kept nothing
 INSUFFICIENT = "insufficient_evidence"  # it ran and judged the evidence too thin
 FAILED       = "analysis_failed"        # a step did not run to completion
+# A REPORT WHOSE GATES PASS WITH NO CLAIM ELIGIBLE TO HEAD IT (the user's
+# decision of 2026-11-08): published, its headline saying so plainly, and
+# never an acceptance success
+INCONCLUSIVE = "inconclusive"
 
 
 def _status(steps: Optional[Dict[str, Any]],
@@ -350,6 +358,11 @@ def _status(steps: Optional[Dict[str, Any]],
     "we broke".
     """
     if (preflight or {}).get("blocked"):
+        return INSUFFICIENT
+    # SKIPPED IS NOT FAILED HERE EITHER (2026-11-08): a study whose analysis
+    # plan did not pass its review made no lookup, and step 3 was not asked;
+    # that is a finding about the plan, not a step that broke
+    if (interpretation or {}).get("skipped"):
         return INSUFFICIENT
     failed = [k for k, v in (steps or {}).items() if v is False]
     if failed:
@@ -388,6 +401,30 @@ NUMBERS_LEAD = ("This analysis reads its numbers from 03_results/regional.json (
 def _domain_report_name(run_dir) -> Optional[str]:
     from agents.analysis.domain_report import REPORT_MD as DOMAIN_MD
     return DOMAIN_MD if (Path(run_dir) / "04_analysis" / DOMAIN_MD).is_file() else None
+
+
+EXPLORATORY_PREFIX = "Exploratory: "
+
+
+def exploratory_headline(headline: str) -> str:
+    """An exploratory question's headline with its label: "Exploratory: "
+    before the model's words, unless they already begin with it."""
+    h = str(headline or "").strip()
+    return h if h.lower().startswith("exploratory") else EXPLORATORY_PREFIX + h
+
+
+# THE INCONCLUSIVE HEADLINE, by question type: only when every other gate
+# of the report passes and no claim may head it; it meets no acceptance
+# criterion the claims left unmet
+INCONCLUSIVE_HEADLINE = {
+    "hypothesis": "Inconclusive: no tested expectation of this run traced, so it does not "
+                  "answer the question as asked.",
+    "exploratory": EXPLORATORY_PREFIX + "inconclusive: no claim of this run traced, so it "
+                                        "does not answer the question as asked."}
+INCONCLUSIVE_WHY = {
+    "hypothesis": "the report is inconclusive: no claim may head it, since none is a traced "
+                  "tested expectation resting on the planned analyses",
+    "exploratory": "the report is inconclusive: no claim traced to head it"}
 
 
 def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
@@ -509,6 +546,10 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
             # investigated; on a normal run it is the record of what the figure
             # planner was working from.
             "preflight": preflight,
+            # A STEP SKIPPED WITH ITS REASON (2026-11-08): step 3 when the
+            # analysis plan did not pass its review
+            "skipped_steps": ({"interpret": (interpretation or {}).get("skipped_because")}
+                              if (interpretation or {}).get("skipped") else None),
             "rounds": rounds or [],
             "stopped_because": stopped_because,
             "n_findings": len(findings),
@@ -546,7 +587,95 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
     # output, by a small set of derivations (claim_trace), and the derivation
     # travels with the claim; a headline whose values cannot be traced is
     # withheld (render_markdown).
-    if getattr(ctx, "is_domain", False):
+    #
+    # A STUDY WITH A SUITE (package F1, 2026-11-05) reaches its values only
+    # through the logged suite calls, so its claims are traced to their
+    # evidence records instead (claim_trace.trace_evidence): numbers, periods,
+    # regions, evidence class, wording, warnings, the headline's rule and the
+    # proposed runs. Any claim that fails withholds the report.
+    from agents.analysis import analysis_plan as _plan
+    if getattr(ctx, "is_domain", False) and _plan.suite_bearing(ctx):
+        # THE PLAN, ITS REVIEW AND THE PLANNED PHASE (the user's decisions on
+        # G part 2, 2026-11-08): each version of the plan with what its
+        # review found, the close of the planned analyses with each one's
+        # status, and the acceptance blockers (a required analysis skipped or
+        # failed). A plan that did not pass made no lookup: the page says so
+        # and is withheld, and nothing is traced.
+        adir = _plan.analysis_dir(ctx)
+        ok, why = _plan.plan_passed(adir)
+        report["analysis_plan"] = {"passed": ok, "why": why,
+                                   "versions": _plan.plan_versions(adir)}
+        phase = _plan.load_planned_phase(adir) or None
+        report["planned_phase"] = phase
+        report["acceptance"] = _plan.acceptance(phase, plan_ok=ok)
+        if not ok:
+            report["withheld_because"] = (
+                f"{why}; no lookup was made, so there is nothing to report")
+            return report
+        # THE HEADLINE IS A VERIFIED CLAIM'S OWN TEXT (the user's decision of
+        # 2026-11-08): no model writes it. It is chosen after the trace, from
+        # step 3's ranking, by the headline rule (claim_trace.select_headline);
+        # a headline a recorded reply wrote is kept beside, never used
+        qt = _plan.load_plan(adir).get("question_type")
+        if report.get("headline"):
+            report["headline_as_written"] = report["headline"]
+        report["headline"] = None
+        try:
+            from agents.analysis import claim_trace
+            report["open_causes"] = list((interpretation or {}).get("open_causes") or [])
+            report["evidence_trace"] = claim_trace.trace_evidence(
+                report["claims"], None, _plan.analysis_dir(ctx),
+                study_dir=ctx.run_dir, regions=suite_regions(ctx),
+                open_causes=report["open_causes"])
+        except Exception as e:                                  # noqa: BLE001
+            report["evidence_trace"] = {
+                "error": f"{type(e).__name__}: {e}",
+                "withheld_because": f"the claims could not be traced to their evidence "
+                                    f"records ({type(e).__name__}: {e})"}
+        # THE NUMBERS THE CLAIMS CITE, MADE AGAIN (package F2, 2026-11-05). The
+        # trace holds a claim to its records; it cannot see a record that is
+        # itself wrong. Every number of each cited record is made again from
+        # the model output by code written apart from the suite and the
+        # methods (numbers_check.check_evidence), and any mismatch withholds
+        # the report, naming the record, the value logged and the value made
+        # again.
+        from agents.analysis import numbers_check as _nc
+        try:
+            report["evidence_numbers"] = _nc.check_evidence(ctx.run_dir, report["claims"])
+        except Exception as e:                                  # noqa: BLE001
+            report["evidence_numbers"] = {"pass": False, "n_compared": 0, "mismatches": [],
+                                          "error": f"{type(e).__name__}: {e}"}
+        if not report["evidence_numbers"].get("pass"):
+            et = report["evidence_trace"]
+            et["withheld_because"] = "; ".join(
+                x for x in (et.get("withheld_because"),
+                            _nc.evidence_reason(report["evidence_numbers"])) if x)
+        if report["evidence_trace"].get("withheld_because"):
+            report["withheld_because"] = report["evidence_trace"]["withheld_because"]
+        # THE HEADLINE: the first claim of step 3's ranking that traced and
+        # that the question type allows; with none, and every other gate
+        # passed, a headline that says the run is inconclusive, which is no
+        # acceptance success
+        if "records" in report["evidence_trace"]:
+            sel = claim_trace.select_headline(report["claims"], report["evidence_trace"],
+                                              (interpretation or {}).get("headline_rank"))
+        else:
+            sel = {"chosen": None, "text": None, "passed_over": [],
+                   "why": "the claims could not be traced"}
+        report["headline_selection"] = sel
+        if sel["chosen"]:
+            report["headline"] = (exploratory_headline(sel["text"]) if qt == "exploratory"
+                                  else sel["text"])
+        elif not report.get("withheld_because"):
+            kind = qt if qt in INCONCLUSIVE_HEADLINE else "exploratory"
+            report["headline"] = INCONCLUSIVE_HEADLINE[kind]
+            sel["inconclusive"] = True
+            if report["status"] in (SUPPORTED, NO_CLAIMS):
+                report["status"] = INCONCLUSIVE
+            report["acceptance"] = dict(report.get("acceptance") or {}, ok=False,
+                                        why=INCONCLUSIVE_WHY[kind],
+                                        inconclusive=INCONCLUSIVE_WHY[kind])
+    elif getattr(ctx, "is_domain", False):
         try:
             from agents.analysis import claim_trace
             report["numbers_trace"] = claim_trace.trace(
@@ -560,6 +689,16 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         if report["numbers_trace"].get("withheld_because"):
             report["withheld_because"] = report["numbers_trace"]["withheld_because"]
     return report
+
+
+def suite_regions(ctx) -> List[str]:
+    """The region names of a study's control suite (its manifest), for the
+    claim trace's check of the regions a claim names."""
+    from agents.analysis import analysis_plan as _plan
+    d = _plan.suite_dirs(ctx).get("control")
+    man = _plan._read_json(Path(d) / _plan.SUITE_MANIFEST) if d else {}
+    return [str(r.get("name")) for r in man.get("regions") or []
+            if isinstance(r, dict) and r.get("name")]
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -601,8 +740,8 @@ def format_value(v) -> str:
 def _plain(text) -> str:
     """Display form of recorded prose: dashes used as punctuation become
     commas (the record itself is untouched; this is the reader's copy)."""
-    from agents.analysis.step3_interpret import _strip_dashes
-    return _strip_dashes(str(text if text is not None else ""))
+    from agents.analysis.dashes import strip_dashes
+    return strip_dashes(str(text if text is not None else ""))
 
 
 def render_markdown(report: Dict[str, Any]) -> str:
@@ -611,6 +750,11 @@ def render_markdown(report: Dict[str, Any]) -> str:
     # says which values could not be traced and lists every claim's derivations
     # in place of the answer; analysis.json keeps the whole record.
     if report.get("withheld_because"):
+        if (report.get("analysis_plan") or {}).get("passed") is False:
+            return plan_withheld_markdown(report)
+        if (report.get("evidence_trace") or {}).get("withheld_because"):
+            from agents.analysis.claim_trace import evidence_withheld_markdown
+            return with_planned_phase(evidence_withheld_markdown(report), report)
         from agents.analysis.claim_trace import withheld_markdown
         return withheld_markdown(report)
     q = _plain(report.get("question") or "(no question recorded)")
@@ -623,6 +767,9 @@ def render_markdown(report: Dict[str, Any]) -> str:
     if report.get("kind") == "whole_domain" and "numbers_check" in report:
         from agents.analysis.numbers_check import page_line
         lines += [page_line(report.get("numbers_check"), NUMBERS_LEAD), ""]
+    if "evidence_numbers" in report:
+        from agents.analysis.numbers_check import evidence_page_line
+        lines += [evidence_page_line(report.get("evidence_numbers")), ""]
     lines += ["## The answer", ""]
     if report.get("headline"):
         lines += [f"**{_plain(report['headline'])}**", ""]
@@ -650,6 +797,12 @@ def render_markdown(report: Dict[str, Any]) -> str:
         for d in (c.get("derivations") or []):
             if d.get("text"):
                 lines.append(f"   - {d['text']}")
+        # A study with a suite: the claim's evidence class, its records and
+        # every warning they carry, beside the claim (package F1).
+        if c.get("evidence_trace"):
+            from agents.analysis.domain_report import claim_evidence_lines
+            lines += claim_evidence_lines(c, (report.get("evidence_trace") or {})
+                                         .get("records") or {})
         if c.get("trace"):
             lines.append(f"   - **{c['trace']}**")
         lines.append("")
@@ -668,6 +821,11 @@ def render_markdown(report: Dict[str, Any]) -> str:
             lines.append(f"- {c.get('id')} ({c.get('severity')}): "
                          f"{_plain(c.get('statement'))}")
         lines.append("")
+
+    if report.get("evidence_trace") and not report.get("withheld_because"):
+        from agents.analysis.domain_report import suite_sections
+        lines += suite_sections(report)
+    lines += planned_phase_lines(report)
 
     withheld = report.get("withheld") or []
     if withheld:
@@ -701,6 +859,164 @@ def render_markdown(report: Dict[str, Any]) -> str:
         from agents.analysis import model_setup as MS
         lines = MS.insert_after_answer(lines, [_plain(x) for x in MS.render(
             report["model_setup"])])
+    return with_planned_phase("\n".join(lines), report, section=False)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# THE PLAN AND THE PLANNED PHASE ON THE PAGE (the user's decisions on G
+# part 2, 2026-11-08)
+# ─────────────────────────────────────────────────────────────────────
+def not_fully_tested(report: Dict[str, Any]) -> Optional[str]:
+    """The first line of a hypothesis study's page when a required analysis
+    was skipped or failed: in plain words, that the hypothesis was not fully
+    tested and why. None otherwise."""
+    acc = report.get("acceptance") or {}
+    blockers = acc.get("blockers") or []
+    if not blockers:
+        return None
+    parts = "; ".join(f"{b['analysis']} was {b['status']} ({_plain(b['reason'])})"
+                      for b in blockers)
+    many = len(blockers) > 1
+    return (f"**The hypothesis was not fully tested.** {len(blockers)} required "
+            f"{'analyses' if many else 'analysis'} of the plan (named by its expectations) "
+            f"{'were' if many else 'was'} not completed: {parts}. This does not count as "
+            f"acceptance success.")
+
+
+def untestable_line(report: Dict[str, Any]) -> Optional[str]:
+    """A line under the title when a required output was found not
+    estimable: which expectation it leaves untested, and that its task is
+    complete. Kept apart from the not-fully-tested line: not estimable is an
+    answer, not a gap (the user's decision of 2026-11-08). None otherwise."""
+    un = (report.get("acceptance") or {}).get("untestable") or []
+    if not un:
+        return None
+    parts = "; ".join(
+        f"{u['expectation']} (analysis {u['analysis']}): "
+        + ", ".join(f"its required output {o['output']} is not estimable ({o['record']}: "
+                    f"{_plain(o['why'])})" for o in u["outputs"])
+        + (", so nothing in this run tests it" if u.get("none_estimable") else "")
+        for u in un)
+    return (f"**Part of the hypothesis cannot be tested from this run.** {parts}. Each task is "
+            f"complete; a value that cannot be estimated supports no claim either way.")
+
+
+def planned_phase_lines(report: Dict[str, Any]) -> List[str]:
+    """The "Planned analyses" section: each analysis of the reviewed plan
+    with its status, whether it is required, its required outputs produced,
+    not estimable and unmet (each list apart), and its reason, from the
+    close of the planned phase (planned_phase.json); then each expectation
+    with its analysis's completion beside the tested claims that name it,
+    kept apart: completion is not support. [] for a study with none."""
+    from agents.analysis import plan_contract as PC
+    ph = report.get("planned_phase") or {}
+    rows = ph.get("analyses") or []
+    if not rows:
+        return []
+    c = ph.get("counts") or {}
+    counts = ", ".join(f"{c.get(s, 0)} {s}" for s in PC.STATUSES)
+
+    def outs(r, outcome, why=False):
+        got = [o for o in r.get("outputs") or [] if o.get("outcome") == outcome]
+        return "; ".join(f"{o.get('id')}" + (f" ({o.get('record')}" + (f": {_plain(o.get('why'))}"
+                                                                       if why else "") + ")"
+                                             if o.get("record") else "")
+                         for o in got).replace("|", "/") or "none"
+    L = ["## Planned analyses", "",
+         f"The planned phase was closed {ph.get('closed')} by {_plain(ph.get('by'))} "
+         f"(04_analysis/planned_phase.json, after {ph.get('lookups_before')} lookup lines): "
+         f"{counts}. Each analysis is judged by its required outputs, each produced, not "
+         f"estimable or unmet; its scope (what it may look up) decides nothing.", "",
+         "| analysis | status | required | produced | not estimable | unmet | reason |",
+         "|---|---|---|---|---|---|---|"]
+    for r in rows:
+        req = ("yes (" + ", ".join(r.get("required_by") or []) + ")") if r.get("required") \
+            else "no"
+        L.append(f"| {r.get('id')} | {r.get('status')} | {req} | {outs(r, PC.PRODUCED)} | "
+                 f"{outs(r, PC.NOT_ESTIMABLE, why=True)} | "
+                 f"{', '.join(r.get('unmet') or []) or 'none'} | "
+                 f"{_plain(r.get('reason')).replace('|', '/')} |")
+    exps = ph.get("expectations") or []
+    if exps:
+        by = {r.get("id"): r for r in rows}
+        claims = report.get("claims") or []
+        un = {u["expectation"]: u for u in (report.get("acceptance") or {}).get("untestable")
+              or []}
+        L += ["", f"{_plain(PC.SUPPORT_WORDS)}.", "",
+              "| expectation | its analysis | the analysis's completion | its outputs not "
+              "estimable | the tested claims that name it |", "|---|---|---|---|---|"]
+        for e in exps:
+            tested = [i for i, cl in enumerate(claims, 1)
+                      if cl.get("evidence_class") == "tested expectation"
+                      and cl.get("expectation") == e.get("id")]
+            said = ", ".join(f"claim {i}" + (" (fails the evidence trace)"
+                                              if claims[i - 1].get("trace") else "")
+                             for i in tested) or "none"
+            r = by.get(e.get("analysis")) or {}
+            ne = ", ".join(o["output"] for o in (un.get(e.get("id")) or {}).get("outputs") or [])
+            L.append(f"| {e.get('id')} | {e.get('analysis')} | {r.get('status') or 'no such '}"
+                     f"{'' if r else 'analysis'} | {ne or 'none'} | {said} |")
+    acc = report.get("acceptance") or {}
+    if acc.get("blockers"):
+        L += ["", f"Acceptance: not met. {_plain(acc.get('rule'))}."]
+    if acc.get("inconclusive"):
+        L += ["", f"Acceptance: not met: {_plain(acc['inconclusive'])}."]
+    if acc.get("not_estimable"):
+        L += ["", "Required outputs found not estimable (their task done, their expectation "
+                  "without an estimate): " + "; ".join(
+                      f"{x.get('analysis')} {x.get('output')} ({x.get('record')}: "
+                      f"{_plain(x.get('why'))})" for x in acc["not_estimable"]) + "."]
+    L.append("")
+    return L
+
+
+def with_planned_phase(page: str, report: Dict[str, Any], section: bool = True) -> str:
+    """The page with the not-fully-tested line first under its title, and
+    (for a page that has none yet) the Planned analyses section at its end."""
+    lines = page.split("\n")
+    first = [x for x in (not_fully_tested(report), untestable_line(report)) if x]
+    for x in reversed(first):
+        lines[1:1] = ["", x]
+    if section and report.get("planned_phase"):
+        lines += [""] + planned_phase_lines(report)
+    return "\n".join(lines)
+
+
+def plan_withheld_markdown(report: Dict[str, Any]) -> str:
+    """REPORT.md when the analysis plan did not pass its review: that it did
+    not, each version with what its review found (the code check first, then
+    the model review), and that no lookup was made. A renderer of the
+    record."""
+    ap = report.get("analysis_plan") or {}
+    vs = ap.get("versions") or []
+    q = _plain(report.get("question") or "(no question recorded)")
+    lines = ["# WITHHELD: the analysis plan did not pass its review", "",
+             f"*Question: {q}*", "",
+             "The analysis plan (step 2a) is checked by code and reviewed by a model before "
+             "any result is looked up. "
+             + (f"It was written {len(vs)} times (the first failed its review and was "
+                f"rewritten once, before any lookup), and the last version did not pass "
+                f"either. " if len(vs) > 1 else "It did not pass. ")
+             + "No lookup was made and step 3 was not asked, so there is nothing to report. "
+               "The record, analysis.json, is kept whole beside this page.", ""]
+    for v in vs:
+        lines += [f"## Version {v.get('attempt')} ({v.get('plan_file')})", ""]
+        cp = v.get("code_problems") or []
+        lines.append("- the code check: " + ("; ".join(_plain(x) for x in cp)
+                                             if cp else "no problem"))
+        verdict = {True: "the plan follows from the question",
+                   False: "the plan does not follow from the question"}.get(
+            v.get("follows"), "no verdict on record")
+        mp = v.get("model_problems") or []
+        lines.append(f"- the model review: {verdict}"
+                     + (f" ({_plain(v.get('model_why'))})"
+                        if v.get("follows") is False and v.get("model_why") else "")
+                     + ("; its problems: " + "; ".join(_plain(x) for x in mp) if mp else
+                        "; it listed no problem"))
+        lines.append(f"- passed: {'yes' if v.get('passed') else 'no'}")
+        lines.append("")
+    lines += ["## Lookups", "", "None: 04_analysis/lookups.jsonl holds no lookup, because "
+              "every lookup waits for a plan that passed its review.", ""]
     return "\n".join(lines)
 
 
@@ -763,7 +1079,10 @@ def summary(report: Dict[str, Any]) -> str:
     # reads as a malfunction, which is the distinction this whole change
     # exists to keep.
     blocked = (prov.get("preflight") or {}).get("blocked")
-    if failed and blocked:
+    skipped = prov.get("skipped_steps") or {}
+    if skipped and not failed:
+        why = "  (skipped: " + "; ".join(f"{k}: {v}" for k, v in skipped.items()) + ")"
+    elif failed and blocked:
         why = f"  — skipped ({', '.join(failed)}): {blocked}"
     elif failed:
         why = f"  — these steps did not complete: {', '.join(failed)}"

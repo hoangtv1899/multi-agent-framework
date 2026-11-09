@@ -16,13 +16,23 @@
     "",
     "evaluation (optional): how well the control matches observations, as measured by",
     "an analysis outside the server, with that analysis named as its source. Reception",
-    "tells the user about it before a design is settled."
+    "tells the user about it before a design is settled.",
+    "",
+    "suite_dir (optional): where the control's suite is built (domain_suite: maps and",
+    "region series made once from its history, with suite.json); describe_domain_controls",
+    "says whether it is built.",
+    "",
+    "elevation_band_edges (optional): the study's elevation band edges in m. A control",
+    "without them gets an edge at every 500 m inside its own vegetated cells' elevation",
+    "range, computed the same way every time and recorded in its suite's manifest."
   ],
   "controls": {
     "my_basin": {
       "description": "one whole-domain ELM-BGC case over my basin, years Y0-Y1",
       "case_dir": "/path/to/cases/my_basin_control",
       "run_dir": "/path/to/scratch/my_basin_control/run",
+      "suite_dir": "/path/to/suites/my_basin",
+      "elevation_band_edges": [1000, 1500, 2000],
       "reproduced": {
         "record_dir": "/path/to/<run>/domain_case (a rebuild's chain record)",
         "years": [2015, 2016],

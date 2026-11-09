@@ -47,10 +47,12 @@ told to produce five will pad to five — which is fishing with extra steps.
 """
 import json
 import re
+import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agents.analysis import script_runner as _runner   # noqa: E402
+from agents.analysis.dashes import strip_dashes, strip_dashes_in          # noqa: E402
 
 FILENAME = "investigation.json"
 
@@ -357,6 +359,9 @@ def context_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
     basin simply carries a caveat saying so, and the model plans around it.
     """
     if getattr(ctx, "is_domain", False):
+        from agents.analysis import analysis_plan as _plan
+        if _plan.suite_bearing(ctx):
+            return suite_brief(ctx, step1)
         return domain_brief(ctx, step1)
     plan = ctx.plan or {}
     lo, hi = _elevation_span(ctx)
@@ -707,10 +712,203 @@ Return ONLY JSON:
 """
 
 
+# STEP 2b'S REPLY, DEFINED ONCE (the user's decision on G part 2, 2026-11-08).
+# investigate reads `plan_items`, `amendment` (analysis_plan.SCOPE_KEYS and
+# settings, with its why) and `skipped`, and SUITE_TASK's reply template is
+# rendered from the same parts, so the task cannot ask for one shape while
+# the code reads another.
+from agents.analysis.analysis_plan import Part as _Part             # noqa: E402
+from agents.analysis.analysis_plan import SCOPE_KEYS as _SCOPE_KEYS  # noqa: E402
+
+AMENDMENT_KEYS = ("why",) + _SCOPE_KEYS + ("settings",)
+# A FIGURE IS A SPECIFICATION THE FRAMEWORK DRAWS (the user's decision of
+# 2026-11-08, after the third acceptance batch; no fallback to a script in
+# this phase): its panels name outputs by label and options from a closed
+# list (figure_spec.PANEL_KINDS); an output the plan does not ask for is an
+# extra, in a plan output's own form, made under the figure's amendment.
+SUITE_FIGURE_PARTS = (
+    _Part("id", "name", "its id", "snake_case_name"),
+    _Part("question", "words", "the question this figure answers",
+          "<the question this figure answers>"),
+    _Part("why", "words", "what this figure adds that the others do not",
+          "<one sentence: what this figure adds that the others do not>"),
+    _Part("scale", "choice", "its scale", choices=("overall", "regions")),
+    _Part("plan_items", "list", "the plan's analyses it shows, by id, or [\"screen\"] "
+          "for the one figure that runs the plan's screen and draws nothing else", ["P1"]),
+    _Part("amendment", "amendment", "null, or the scope its extra outputs add to the plan, "
+          "with why", None),
+    _Part("extra", "list", "outputs the plan does not ask for, each in a plan output's own "
+          "form with an id X1, X2, ...; [] for none",
+          '[] | [{"id": "X1", "kind": "anomaly", "field": "TSA", "period": "2015-JJA", '
+          '"region": "..."}]'),
+    _Part("panels", "list", "its panels, at most four (THE PANELS above)",
+          '[{"kind": "map", "output": "P2.O1"}, {"kind": "bars", "outputs": ["P1.O1", '
+          '"P1.O2"]}]'),
+)
+SUITE_REPLY_PARTS = (
+    _Part("reasoning", "words", "which of the plan's analyses these figures carry out",
+          "<2-5 sentences: which of the plan's analyses these figures carry out, and "
+          "anything you considered and rejected, with the reason.>"),
+    _Part("notes", "words", "what you could and could not address",
+          "<what you could and could not address, and why>"),
+    _Part("figures", "figures", "the figures", None),
+    _Part("skipped", "skipped", "each analysis of the plan this round does not carry out, "
+          "with why", None),
+)
+SKIPPED_KEYS = ("analysis", "why")
+
+
+def _suite_reply_lines() -> List[str]:
+    """SUITE_TASK's reply template, rendered from SUITE_REPLY_PARTS,
+    SUITE_FIGURE_PARTS, AMENDMENT_KEYS and SKIPPED_KEYS."""
+    from agents.analysis.analysis_plan import _shown
+    am = ", ".join(f'"{k}": ' + ('"..."' if k == "why" else "{}" if k == "settings" else "[]")
+                   for k in AMENDMENT_KEYS)
+    L = ["Return ONLY JSON:"]
+    for i, p in enumerate(SUITE_REPLY_PARTS):
+        lead = "{" if i == 0 else "  "
+        tail = "}" if i == len(SUITE_REPLY_PARTS) - 1 else ","
+        if p.holds == "figures":
+            L.append(f'{lead}"{p.name}": [')
+            for j, f in enumerate(SUITE_FIGURE_PARTS):
+                shown = f"null | {{{am}}}" if f.holds == "amendment" else _shown(f)
+                L += textwrap.wrap(("    {" if j == 0 else "      ") + f'"{f.name}": {shown}'
+                                   + ("}" if j == len(SUITE_FIGURE_PARTS) - 1 else ","),
+                                   79, subsequent_indent="          ",
+                                   break_long_words=False, break_on_hyphens=False)
+            L.append("  ]" + tail)
+        elif p.holds == "skipped":
+            L += textwrap.wrap(f'{lead}"{p.name}": [{{"analysis": "P6", "why": "<why this '
+                               f'round does not carry out that analysis of the plan>"}}]'
+                               + tail, 79, subsequent_indent="      ",
+                               break_long_words=False, break_on_hyphens=False)
+        else:
+            L += textwrap.wrap(f'{lead}"{p.name}": {_shown(p)}{tail}', 79,
+                               subsequent_indent="      ", break_long_words=False,
+                               break_on_hyphens=False)
+    return L
+
+
+# THE REQUIRED OUTPUTS, in plan_contract's words (the user's decision after G
+# part 2's fixes, 2026-11-08): what counts as carrying out an analysis
+from agents.analysis import plan_contract as _PC                    # noqa: E402
+
+_OUTPUT_RULE = "\n".join(textwrap.wrap("  - " + _PC.STEP2_WORDS, 79, subsequent_indent="    ",
+                                       break_long_words=False, break_on_hyphens=False))
+
+SUITE_TASK_BODY = f"""\
+You are an earth-system scientist choosing how the RECORDED ANALYSIS PLAN
+above is shown, for this whole-domain experiment of the model named in the
+brief. The framework has made every required output the plan names (listed
+above by label, such as P1.O1, each with the call that made it). You write no
+code: each figure is a specification, and the framework draws it.
+
+Report at TWO scales: overall (the domain or its largest region) and regions
+(the elevation bands, a watershed), as the plan names them.
+
+Rules:
+  - At most {MAX_PLOTS} figures. Fewer is correct if the plan needs fewer.
+  - Follow the plan's order by question type; the framework keeps it. For a
+    hypothesis question the planned analyses come first: the framework makes
+    every required output's call, draws every figure that adds no output,
+    then closes the planned phase (planned_phase.json: each analysis of the
+    plan marked by its required outputs), then makes the extra outputs and
+    runs the plan's screen for the figure that draws it; the screen is
+    refused before that close. Every lookup after the close, an amendment's
+    included, is exploratory and never planned, and anything the screen
+    shows that the plan did not predict is "found by screening, not tested".
+    For an exploratory question the framework runs the plan's screen first,
+    with its scope, scoring rule and display rule recorded, then makes the
+    required outputs' calls; a figure may draw the screen; then follow what
+    it points to.
+{_OUTPUT_RULE}
+  - Each figure names the plan's analyses it shows (`plan_items`), or
+    ["screen"] for the one figure that runs the plan's screen and draws
+    nothing else.
+  - An output the plan does not ask for is an EXTRA: give it in `extra`, in a
+    plan output's own form (its kind and keys) with an id X1, X2, ..., and an
+    `amendment` with `why` and the scope it adds (a key it leaves out is the
+    plan's). The amendment is appended to the record with a time stamp, the
+    framework makes the extra's call and logs it under the figure, and its
+    records never count as planned. A lookup outside the plan's scope and
+    the amendment's is refused, and its figure is not drawn.
+  - An extra's settings are its amendment's, else the method's defaults
+    (with the contract's alternatives computed beside them). A timing
+    measure has only the settings timing.nc holds.
+  - Every output a figure draws is an evidence record (its id, e.g. "L7",
+    comes back with the finding, with the warnings it carries): a claim later
+    names its records and carries their warnings. Every number a claim cites
+    is made again from the model output before the report is written.
+  - Do not propose anything a blocking caveat forbids. A run's difference
+    from the control means what the configuration says it means, never what
+    it says it does NOT mean.
+  - The framework writes every title and label from the outputs' own keys
+    and nothing more: no interpretation is drawn on a figure. A panel whose
+    output the method found not estimable shows the method's own words; a
+    panel with nothing to draw, or whose output was not made, fails its
+    figure, and the caveat names the panel.
+  - Each figure is checked before anything is called or drawn: a panel kind,
+    an option or an output that does not exist, or an output of a kind its
+    panel does not draw, refuses the figure with the reason. A figure is a
+    specification only: a "code" field refuses it, and no script is run.
+
+"""
+
+
+def suite_task() -> str:
+    """Step 2b's task for a study with a suite: SUITE_TASK_BODY, the panels
+    (figure_spec.panel_lines, which names the timing measures) and the reply
+    template, rendered from SUITE_REPLY_PARTS and SUITE_FIGURE_PARTS."""
+    from agents.analysis import analysis_plan as _plan
+    from agents.analysis import figure_spec as _fs
+    _plan._elm()
+    import domain_methods as _m                                        # noqa: N812
+    return (SUITE_TASK_BODY + "\n".join(_fs.panel_lines(_m.TIMING_IDS) + [""]
+                                          + _suite_reply_lines()) + "\n")
+
+
+def __getattr__(name: str):
+    # SUITE_TASK IS RENDERED, NOT WRITTEN (2026-11-08): its panel list reads
+    # domain_methods, which this module imports only when needed
+    if name == "SUITE_TASK":
+        return suite_task()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def task_for(ctx) -> str:
     """The task a study's brief is followed by: the whole-domain one for a
-    whole-domain experiment, the column one otherwise."""
-    return DOMAIN_TASK if getattr(ctx, "is_domain", False) else TASK
+    whole-domain experiment (the suite's for one whose control has a suite),
+    the column one otherwise."""
+    if getattr(ctx, "is_domain", False):
+        from agents.analysis import analysis_plan as _plan
+        return suite_task() if _plan.suite_bearing(ctx) else DOMAIN_TASK
+    return TASK
+
+
+# STEP 2b FOR A SUITE-BEARING STUDY (package E, 2026-11-05). domain_brief is
+# replaced by the data catalog, the compact methods view and the recorded
+# analysis plan (with its review and amendments); the brief's rules stay (two
+# scales, caveats bind mechanically, five plots is a ceiling). The scripts
+# reach the results only through `suite`, whose calls are gated by the plan's
+# review and logged; anything the plan did not name is an amendment.
+def suite_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
+    from agents.analysis import analysis_plan as _plan
+    out_dir = _plan.analysis_dir(ctx)
+    parts = _plan.brief_parts(ctx, out_dir)
+    plan = ctx.plan or {}
+    lines = ["THE USER ASKED:", f"    {plan.get('question') or '(no question recorded)'}", "",
+             "THE PLANNER DECOMPOSED THAT INTO:"]
+    lines += [f"    - {g}" for g in (plan.get("goals") or [])]
+    lines += ["", "THE RECORDED ANALYSIS PLAN (step 2a, written before any result was "
+              "seen, and passed by step 3's review):", parts["plan"], ""]
+    # EACH REQUIRED OUTPUT AS THE CALL THAT PRODUCES IT (2026-11-08), from
+    # plan_contract: what step 2b is told to call is what the close accepts
+    lines += _plan.output_calls(_plan.load_plan(out_dir)) + [""]
+    lines += ["ITS REVIEW:", parts["review"], "",
+              "AMENDMENTS SO FAR (each appended after results were seen; never planned):",
+              parts["amendments"], "", "THE DATA CATALOG:", parts["catalog"], "",
+              "THE METHODS:", parts["methods"], ""]
+    return "\n".join(lines + _brief_tail(ctx, step1))
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -741,18 +939,41 @@ def _parse(reply: str) -> Dict[str, Any]:
         return json.loads(repaired)
 
 
+class ReplyError(ValueError):
+    """Step 2b's reply could not be read: cut off at its output limit, or not
+    JSON. The reply is saved before this is raised (`saved` names the file)."""
+
+    def __init__(self, message: str, prompt: str = None, raw: str = None,
+                 saved: Optional[Dict[str, str]] = None, cut: bool = False):
+        super().__init__(message)
+        self.prompt, self.raw, self.saved, self.cut = prompt, raw, saved or {}, cut
+
+
+# STEP 2b'S OUTPUT LIMIT (2026-11-08): question 1 of G part 2's run again was
+# cut off at the client's 16,384 tokens. The required outputs' calls are now
+# the framework's, so the reply holds drawing code only; this ceiling is the
+# backstop, not the fix.
+STEP2_MAX_TOKENS = 32000
+
+
 def propose(ctx, step1=None, model: str = DEFAULT_MODEL,
-            client=None, feedback=None) -> Dict[str, Any]:
+            client=None, feedback=None, out_dir=None, round_no: int = 1) -> Dict[str, Any]:
     """Ask for figure specs. Returns {notes, figures} with figures capped.
 
     `feedback` is step 3's verdict from the previous round: what it judged
     unsupported, unreadable or unanswered. It is appended AFTER the task so the
     stable part of the prompt stays byte-identical between rounds.
+
+    A REPLY THAT CANNOT BE READ IS SAVED FIRST (2026-11-08): cut off at its
+    output limit (finish_reason "length") or not JSON, the prompt and the reply
+    go to step2_round<n>_*.txt under `out_dir` before ReplyError is raised,
+    so the cut reply is on record rather than lost.
     """
     if client is None:
         from agents.llm_agent import SimpleLLMClient
         client = SimpleLLMClient(model=model)
         client.label = "step2_investigate"      # so step 4 can attribute the spend
+        client.max_tokens = STEP2_MAX_TOKENS
     prompt = context_brief(ctx, step1) + "\n" + task_for(ctx)
     if feedback:
         prompt += ("\n\nA PREVIOUS ROUND OF THESE FIGURES WAS REVIEWED AND "
@@ -760,7 +981,19 @@ def propose(ctx, step1=None, model: str = DEFAULT_MODEL,
                    "set — keep what worked, do not simply re-send it:\n"
                    + str(feedback))
     reply = client.ask([{"role": "user", "content": prompt}])
-    spec = _parse(reply)
+    cut = getattr(client, "last_finish_reason", None) == "length"
+    try:
+        spec = _parse(reply)
+    except (ValueError, json.JSONDecodeError) as e:
+        saved = _runner.save_exchange(out_dir, "step2", round_no, prompt, reply) \
+            if out_dir is not None else {}
+        limit = getattr(client, "max_tokens", None)
+        raise ReplyError(
+            ("step 2b's reply was cut off at its output limit"
+             + (f" of {limit} tokens" if limit else "") if cut else
+             f"step 2b's reply is not readable JSON ({e})")
+            + (f"; it is saved as {', '.join(sorted(Path(v).name for v in saved.values()))}"
+               if saved else ""), prompt=prompt, raw=reply, saved=saved, cut=cut) from None
     figs = [f for f in (spec.get("figures") or []) if isinstance(f, dict)]
 
     seen, kept = set(), []
@@ -774,8 +1007,12 @@ def propose(ctx, step1=None, model: str = DEFAULT_MODEL,
     # What the model was shown is half the record: the worst bug this pipeline
     # has had was a silent cap on the evidence, invisible because nobody could
     # see what was sent.
+    skipped = [{k: (x or {}).get(k) for k in SKIPPED_KEYS}
+               for x in (spec.get("skipped") or []) if isinstance(x, dict)
+               and (x or {}).get("analysis")] if isinstance(spec.get("skipped"), list) else []
     return {"notes": spec.get("notes"), "reasoning": spec.get("reasoning"),
-            "figures": kept[:MAX_PLOTS], "raw": reply, "prompt": prompt}
+            "figures": kept[:MAX_PLOTS], "skipped": skipped, "raw": reply, "prompt": prompt,
+            **({"finish_reason": "length"} if cut else {})}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -823,7 +1060,10 @@ def render_plan_md(ctx, spec: Dict[str, Any], findings: List[Dict[str, Any]],
               f"**Answers.** {f.get('question')}", ""]
         if f.get("why"):
             L += [f"**Why this one.** {f['why']}", ""]
-        v = ", ".join(f"`{x}`" for x in (f.get("variables") or [])) or "—"
+        # a specification names outputs, not fields: its finding lists the
+        # fields of the outputs it drew
+        v = ", ".join(f"`{x}`" for x in ((got or {}).get("variables") or f.get("variables")
+                                         or [])) or "—"
         L += [f"**Model variables read.** {v}", ""]
         if got:
             L += [f"**Outcome.** Drew `{Path(got['figure']).name}` "
@@ -884,22 +1124,270 @@ def _blocked_by(variables, caveats) -> List[str]:
     return out
 
 
+def _runs_screen(f: Dict[str, Any]) -> bool:
+    """A figure that runs the plan's screen: it names "screen" in its
+    plan_items or draws a screen panel. For the order only: the gate still
+    decides what each call may do."""
+    return "screen" in (f.get("plan_items") or []) or \
+        any(isinstance(p, dict) and p.get("kind") == "screen" for p in f.get("panels") or [])
+
+
+def _script_figure(ctx, f: Dict[str, Any], out_dir, have, withheld, can_filter: bool,
+                   all_caveats) -> tuple:
+    """One figure of a study without a suite, drawn by its script (TASK,
+    DOMAIN_TASK): (its finding or None, a caveat or None), as before."""
+    fid = f["id"]
+    wanted = [str(v) for v in (f.get("variables") or []) if v]
+    missing = [v for v in wanted if v not in have]
+    if can_filter and wanted and len(missing) == len(wanted):
+        # EVERY variable it named is absent. A figure missing one of five
+        # may still be worth drawing; one missing all of them cannot be.
+        why = "; ".join(f"{v}: {withheld[v]}" for v in missing
+                        if v in withheld) or \
+              f"not present in any frame of this run"
+        return None, {
+            "id": f"figure_failed:{fid}",
+            "severity": "context",
+            "statement": (f"The planned figure '{fid}' "
+                          f"({f.get('question')}) was not run: it reads "
+                          f"{', '.join(missing)}, and {why}. Available "
+                          f"variables: {', '.join(sorted(have)) or 'none'}."),
+            "applies_to": "completeness of the step 2 figure set",
+            "source": "step2_investigate:preflight"}
+    run = _runner.run(f.get("code") or "", ctx, Path(out_dir) / f"{fid}.png",
+                      script_path=Path(out_dir) / f"{fid}.py")
+    if run["ok"]:
+        return {"id": fid, "question": f.get("question"),
+                "scale": f.get("scale"), "variables": f.get("variables"),
+                "result": run["result"], "figure": run["figure"],
+                "script": run.get("script_path"),
+                "n": (run["result"] or {}).get("n"),
+                "blocked_by": _blocked_by(f.get("variables"), all_caveats)}, None
+    return None, {
+        "id": f"figure_failed:{fid}", "severity": "context",
+        "statement": (f"The planned figure '{fid}' "
+                      f"({f.get('question')}) did not produce a usable "
+                      f"result: {run['error']}"),
+        "applies_to": "completeness of the step 2 figure set",
+        "source": "step2_investigate"}
+
+
+SPEC_SUFFIX = ".spec.json"
+
+
+def _spec_figure(ctx, f: Dict[str, Any], out_dir, produced: Optional[Dict[str, Any]],
+                 plan: Dict[str, Any], round_no: int, all_caveats) -> tuple:
+    """One figure of a study with a suite, drawn by the framework from its
+    specification (figure_spec): checked against the plan, its amendment
+    appended, its extra outputs and the plan's screen called through the
+    gated, logged `suite` under the figure's id, then drawn from the calls'
+    own results. Returns (its outcome for the close, its finding or None, a
+    caveat or None); a figure refused or failed is a caveat naming why."""
+    from agents.analysis import analysis_plan as _plan
+    from agents.analysis import claim_trace as _ct
+    from agents.analysis import figure_spec as _fs
+    _plan._elm()
+    import domain_methods as _m                                        # noqa: N812
+    out_dir = Path(out_dir)
+    fid, items = f["id"], list(f.get("plan_items") or [])
+
+    def fail(why, lines=None, panels=None):
+        return ({"id": fid, "plan_items": items, "ok": False, "round": round_no, "error": why,
+                 **({"lines": lines} if lines else {}), **({"panels": panels} if panels else {})},
+                None,
+                {"id": f"figure_failed:{fid}", "severity": "context",
+                 "statement": f"The planned figure '{fid}' ({f.get('question')}) was not drawn: "
+                              f"{why}",
+                 "applies_to": "completeness of the step 2 figure set",
+                 "source": "step2_investigate:figure_spec"})
+
+    probs = _fs.check_figure(f, plan, _m.TIMING_IDS)
+    if probs:
+        return fail("its specification was refused: " + "; ".join(probs))
+    am = f.get("amendment") if isinstance(f.get("amendment"), dict) and f.get("amendment") \
+        else None
+    am_id = None
+    if am:
+        try:
+            am_id = _plan.append_amendment(out_dir, am.get("why") or "", am)["id"]
+        except (ValueError, _plan.PlanNotApproved) as e:
+            return fail(f"its amendment was not recorded ({e})")
+    n_before = len(_ct._read_log(out_dir))
+    acc = _plan.make_access(_plan.access_spec(ctx), script=fid, amendment=am_id)
+    index = _PC.plan_index(plan)
+    extra = {str(xo["id"]): xo for xo in f.get("extra") or []}
+    values = dict((produced or {}).get("values") or {})
+    rows = {r["label"]: r for r in ((produced or {}).get("record") or {}).get("calls") or []}
+    names = list(dict.fromkeys(n for p in f["panels"] for n in _fs.panel_refs(p)))
+
+    def made(label, call):
+        try:
+            values[label] = call()
+            rows[label] = {"label": label, "line": len(_ct._read_log(out_dir)), "ok": True}
+        except Exception as e:                                      # noqa: BLE001
+            rows[label] = {"label": label, "line": len(_ct._read_log(out_dir)), "ok": False,
+                           "error": f"{type(e).__name__}: {e}"[:300]}
+
+    # ITS EXTRA OUTPUTS, made by the framework under its amendment, each as a
+    # plan output's own call (plan_contract.call_spec), an input map from the
+    # output it names
+    for xid, xo in extra.items():
+        cs = _PC.call_spec(xo, {"settings": (am or {}).get("settings") or {}},
+                           _m.TIMING_IDS, _plan._method_defaults)
+        args, miss = [], None
+        for v in cs["args"]:
+            if isinstance(v, dict) and "input" in v:
+                io = index.get(v["input"]) or extra.get(v["input"]) or {}
+                src, path = values.get(v["input"]), _PC.MAP_PATH.get(io.get("kind"))
+                mp = src if path is None or src is None else (src or {}).get(path)
+                if mp is None:
+                    miss = v["input"]
+                    break
+                args.append(mp)
+            else:
+                args.append(v)
+        if miss:
+            rows[xid] = {"label": xid, "line": None, "ok": False,
+                         "error": f"not called: its input map {miss} was not made"}
+            continue
+        made(xid, lambda cs=cs, args=args: getattr(acc, cs["fn"])(*args, **cs["kwargs"]))
+    # THE PLAN'S SCREEN: a hypothesis study's runs here, after the close; an
+    # exploratory study's ran first, by the framework, and is drawn as it is
+    sc = plan.get("screen") or {}
+    if _fs.SCREEN in names and _fs.SCREEN not in values:
+        made(_fs.SCREEN, lambda: acc.screen(int(sc.get("year")), sc.get("region")))
+    ll = None
+    if any(p.get("kind") == "map" for p in f["panels"]):
+        try:
+            ll = acc.lat_lon()
+        except Exception:                                           # noqa: BLE001
+            ll = None
+    log = _ct._read_log(out_dir)
+    refs = {}
+    for n in names:
+        r = rows.get(n) or {}
+        ln = log[r["line"] - 1] if r.get("ok") and r.get("line") else None
+        answered = ln is not None and "sha256" in ln
+        outcome, why = ((_PC.PRODUCED, None) if n == _fs.SCREEN else _PC.answer(ln)) \
+            if answered else (None, None)
+        o = index.get(n) or extra.get(n) or (
+            {"kind": "screen", "period": str(sc.get("year")), "region": sc.get("region")}
+            if n == _fs.SCREEN else {})
+        units = {i: ((values.get(i) or {}).get("change_units") or (values.get(i) or {})
+                     .get("units")) if isinstance(values.get(i), dict) else None
+                 for i in o.get("inputs") or []}
+        refs[n] = {"ref": n, "kind": o.get("kind"), "out": o, "value": values.get(n),
+                   "input_units": units, "made": answered, "outcome": outcome, "why": why,
+                   "line": r.get("line") if answered else None,
+                   "error": (ln or {}).get("refused") or r.get("error")
+                   or (None if r else "no call made it")}
+    spec_path = out_dir / f"{fid}{SPEC_SUFFIX}"
+    spec_path.write_text(json.dumps(strip_dashes_in({p.name: f.get(p.name)
+                                                     for p in SUITE_FIGURE_PARTS}),
+                                    indent=1, default=str))
+    drawn = _fs.render_figure(f, refs, out_dir / f"{fid}.png", lat_lon=ll,
+                              normal_years=(plan.get("baseline") or {}).get("normal_years")
+                              or ())
+    lines = [n_before + 1, len(_ct._read_log(out_dir))]
+    outcome_rec = {"id": fid, "plan_items": items, "ok": bool(drawn["ok"]), "round": round_no,
+                   "error": drawn["error"], "lines": lines, "panels": drawn["panels"]}
+    if not drawn["ok"]:
+        return fail(drawn["error"], lines, drawn["panels"])
+    ids = [f"L{refs[n]['line']}" for n in names if refs[n].get("line")]
+    by_id = {x["id"]: x for x in _ct.lookups_since(out_dir, 0)}
+    fields = sorted({str(refs[n]["out"].get("field")) for n in names
+                     if refs[n]["out"].get("field")})
+    finding = {"id": fid, "question": f.get("question"), "scale": f.get("scale"),
+               "variables": fields,
+               "result": {n: (_ct.citable(log[refs[n]["line"] - 1].get("result"))
+                              if refs[n].get("line") else {"not made": refs[n]["error"]})
+                          for n in names},
+               "figure": drawn["figure"], "script": str(spec_path), "spec": str(spec_path),
+               "n": drawn["n"], "panels": drawn["panels"],
+               "blocked_by": _blocked_by(fields, all_caveats),
+               "plan_items": items, "amendment": am_id,
+               "lookups": [by_id[i] for i in ids if i in by_id]}
+    return outcome_rec, finding, None
+
+
 def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
-                client=None, feedback=None, round_no: int = 1) -> Dict[str, Any]:
+                client=None, feedback=None, round_no: int = 1,
+                history: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Propose, execute, and report — including what failed and why.
 
     A script that fails becomes a CAVEAT, not a silent gap. That is the whole
     lesson of soil_attribution: the analysis that quietly produced nothing was
     indistinguishable, from the outside, from one that was never planned.
+
+    A HYPOTHESIS STUDY WITH A SUITE CLOSES ITS PLANNED PHASE BEFORE ITS SCREEN
+    (the user's decision on G part 2, 2026-11-08): every figure that does not
+    run the screen runs first, then the framework writes planned_phase.json
+    (analysis_plan.close_planned_phase), then the figure or figures that run
+    the screen. `history` holds the earlier rounds' figures and step 2b's
+    stated reasons, which the close counts too.
     """
     from pathlib import Path
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    spec = propose(ctx, step1=step1, model=model, client=client,
-                   feedback=feedback)
+    # A SUITE-BEARING STUDY PROPOSES NOTHING BEFORE ITS PLAN HAS PASSED step
+    # 3's review (package E, 2026-11-05): no model call, no lookup, and the
+    # reason recorded as a caveat, since every lookup would be refused anyway.
+    from agents.analysis import analysis_plan as _plan
+    on_suite = _plan.suite_bearing(ctx)
+    if on_suite:
+        ok, why = _plan.plan_passed(out_dir)
+        if not ok:
+            out = {"round": round_no, "notes": why, "reasoning": None, "findings": [],
+                   "caveats": [{"id": "analysis_plan_not_approved", "severity": "blocking",
+                                "statement": f"No figure was proposed and no lookup made: "
+                                             f"{why}.",
+                                "applies_to": "every finding of this study",
+                                "source": "step2_investigate:analysis_plan"}],
+                   "figures": [], "plan_md": None, "exchange": None, "n_proposed": 0,
+                   "n_succeeded": 0, "responded_to_feedback": feedback or None}
+            (out_dir / FILENAME).write_text(json.dumps(out, indent=2, default=str))
+            return out
+
+    # THE FRAMEWORK'S CALLS FIRST (2026-11-08): the plan's required outputs
+    # (and, in an exploratory study, its screen) are made by the framework
+    # before step 2b's model call, once per study, so a reply that cannot be
+    # read loses none of them; the figures read them from `outputs`
+    produced = _plan.produce_required(ctx, out_dir, round_no) if on_suite else None
+    plan_rec = _plan.load_plan(out_dir) if on_suite else {}
+    reply_failed = None
+    try:
+        spec = propose(ctx, step1=step1, model=model, client=client,
+                       feedback=feedback, out_dir=out_dir, round_no=round_no)
+    except ReplyError as e:
+        if not on_suite:
+            raise
+        reply_failed = str(e)
+        spec = {"notes": None, "reasoning": None, "figures": [], "skipped": [],
+                "raw": e.raw, "prompt": e.prompt}
+    if on_suite:
+        # THE MODEL'S WORDS KEPT IN THE RECORDS CARRY NO DASHES (fix 6 of G
+        # part 2, 2026-11-08); the exchange files stay verbatim, and the code
+        # is code
+        spec = dict(spec, notes=strip_dashes(spec.get("notes")) or None,
+                    reasoning=strip_dashes(spec.get("reasoning")) or None,
+                    skipped=[dict(x, why=strip_dashes(x.get("why")))
+                             for x in spec.get("skipped") or []],
+                    figures=[dict(f, **{k: strip_dashes(f[k]) for k in ("question", "why")
+                                        if isinstance(f.get(k), str)})
+                             for f in spec["figures"]])
     all_caveats = list(ctx.caveats or []) + list((step1 or {}).get("caveats") or [])
     findings, caveats = [], []
+    outcomes: List[Dict[str, Any]] = []        # each figure run, for the planned phase
+    if produced and (produced["record"] or {}).get("round") == round_no:
+        outcomes.append(_plan.required_attempt(produced["record"], plan_rec))
+    if reply_failed:
+        caveats.append({
+            "id": "step2b_reply_unreadable", "severity": "context",
+            "statement": (f"No figure was drawn this round: {reply_failed}. The required "
+                          f"outputs the framework made stand, and step 3 reads them."),
+            "applies_to": "the figures of this round",
+            "source": "step2_investigate:reply"})
 
     # WHAT THIS RUN ACTUALLY HOLDS, asked once. The filter below refuses a
     # figure whose variables are in no frame BEFORE spending a subprocess on
@@ -915,48 +1403,52 @@ def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
     # what a context without preflight() got until this was caught. An absent
     # or empty inventory means the filter does not know, so it does not judge.
     have = set(pre.get("variables") or ())
-    can_filter = bool(have)
+    # the suite checks its own fields, by name, at the call
+    can_filter = bool(have) and not on_suite
 
-    for f in spec["figures"]:
+    # THE ORDER OF A HYPOTHESIS STUDY: the planned analyses, the close, the
+    # screen. Ordering only; a figure that calls the screen before the close
+    # is refused by the gate.
+    figs = list(spec["figures"])
+    qt = _plan.load_plan(out_dir).get("question_type") if on_suite else None
+    closing = bool(on_suite and qt == "hypothesis" and not _plan.load_planned_phase(out_dir))
+    # A FIGURE THAT ADDS AN OUTPUT COMES AFTER THE CLOSE (2026-11-08): its
+    # extra outputs are exploratory, so in a hypothesis study they are made
+    # after the planned phase is closed, then the screen
+    adds = [f for f in figs if f.get("extra") and not _runs_screen(f)] if closing else []
+    screen_figs = adds + ([f for f in figs if _runs_screen(f)] if closing else [])
+    figs = [f for f in figs if not any(f is g for g in screen_figs)] + screen_figs
+    stated = {**((history or {}).get("skipped") or {}),
+              **{x["analysis"]: x["why"] for x in spec.get("skipped") or []}}
+
+    for f in figs:
         fid = f["id"]
-        wanted = [str(v) for v in (f.get("variables") or []) if v]
-        missing = [v for v in wanted if v not in have]
-        if can_filter and wanted and len(missing) == len(wanted):
-            # EVERY variable it named is absent. A figure missing one of five
-            # may still be worth drawing; one missing all of them cannot be.
-            why = "; ".join(f"{v}: {withheld[v]}" for v in missing
-                            if v in withheld) or \
-                  f"not present in any frame of this run"
-            caveats.append({
-                "id": f"figure_failed:{fid}",
-                "severity": "context",
-                "statement": (f"The planned figure '{fid}' "
-                              f"({f.get('question')}) was not run: it reads "
-                              f"{', '.join(missing)}, and {why}. Available "
-                              f"variables: {', '.join(sorted(have)) or 'none'}."),
-                "applies_to": "completeness of the step 2 figure set",
-                "source": "step2_investigate:preflight"})
+        if screen_figs and f is screen_figs[0]:
+            _plan.close_planned_phase(
+                out_dir, when="before the screen",
+                by=f"the framework, in round {round_no} of step 2b: after every figure that "
+                   f"does not run the screen, before the figure '{fid}' that runs it",
+                figures=list((history or {}).get("figures") or []) + outcomes,
+                skipped=stated)
+        if on_suite:
+            drew = _spec_figure(ctx, f, out_dir, produced, plan_rec, round_no, all_caveats)
+            outcomes.append(drew[0])
+            if drew[1] is not None:
+                findings.append(drew[1])
+            if drew[2] is not None:
+                caveats.append(drew[2])
             continue
+        found, cav = _script_figure(ctx, f, out_dir, have, withheld, can_filter, all_caveats)
+        if found is not None:
+            findings.append(found)
+        if cav is not None:
+            caveats.append(cav)
 
-        run = _runner.run(f.get("code") or "", ctx,
-                          out_dir / f"{fid}.png",
-                          script_path=out_dir / f"{fid}.py")
-        if run["ok"]:
-            findings.append({
-                "id": fid, "question": f.get("question"),
-                "scale": f.get("scale"), "variables": f.get("variables"),
-                "result": run["result"], "figure": run["figure"],
-                "script": run.get("script_path"),
-                "n": (run["result"] or {}).get("n"),
-                "blocked_by": _blocked_by(f.get("variables"), all_caveats)})
-        else:
-            caveats.append({
-                "id": f"figure_failed:{fid}", "severity": "context",
-                "statement": (f"The planned figure '{fid}' "
-                              f"({f.get('question')}) did not produce a usable "
-                              f"result: {run['error']}"),
-                "applies_to": "completeness of the step 2 figure set",
-                "source": "step2_investigate"})
+    # THE FRAMEWORK'S FINDINGS, BESIDE THE FIGURES' (2026-11-08): each
+    # analysis's required outputs as the framework made them, with their
+    # evidence records, whatever the figures did (plotting independence)
+    if produced:
+        findings = _plan.required_findings(out_dir, produced["record"], plan_rec) + findings
 
     # THE PLAN, WRITTEN DOWN. Rendered after the figures run, so each step
     # carries its outcome rather than its intention. Step 3 reads this file —
@@ -979,7 +1471,16 @@ def investigate(ctx, out_dir, step1=None, model: str = DEFAULT_MODEL,
            "plan_md": str(plan_md),
            "exchange": exchange or None,
            "n_proposed": len(spec["figures"]), "n_succeeded": len(findings),
-           "responded_to_feedback": feedback or None}
+           "responded_to_feedback": feedback or None,
+           # A STUDY WITH A SUITE (2026-11-08): each figure's outcome and the
+           # analyses step 2b says it did not carry out, with its reasons, for
+           # the close of the planned phase
+           **({"figure_outcomes": outcomes, "skipped": spec.get("skipped") or [],
+               "required_outputs": _plan.REQUIRED_FILE,
+               **({"reply_failed": reply_failed} if reply_failed else {}),
+               **({"finish_reason": spec["finish_reason"]} if spec.get("finish_reason")
+                  else {})}
+              if on_suite else {})}
 
     # WRITTEN DOWN, not just returned. A round costs an LLM call plus one
     # subprocess per figure; if step 3 then fails, an in-memory-only result

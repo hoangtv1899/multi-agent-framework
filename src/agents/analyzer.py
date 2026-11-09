@@ -166,12 +166,21 @@ class Analyzer:
                       f"{investigation['n_succeeded']}/{investigation['n_proposed']} "
                       f"figures over {loop['n_rounds']} round(s) "
                       f"→ investigation.json")
-            self._say(f"✓ step 3  interpret: {interpretation['verdict']}, "
-                      f"{a.get('n_claims', 0) - a.get('n_struck', 0)} claims kept "
-                      f"of {a.get('n_claims', 0)} ({stopped}) "
-                      f"→ interpretation.json")
             status["steps"]["investigate"] = True
-            status["steps"]["interpret"] = True
+            # SKIPPED IS NOT FAILED (2026-11-08): a study whose analysis plan
+            # did not pass its review makes no lookup and step 3 is not
+            # asked; the step is recorded as skipped, with its reason, and the
+            # report is written withheld, never as a step that broke
+            if interpretation.get("skipped"):
+                self._say(f"   step 3  interpret: SKIPPED, "
+                          f"{interpretation.get('skipped_because')}")
+                status["steps"]["interpret"] = "skipped"
+            else:
+                self._say(f"✓ step 3  interpret: {interpretation['verdict']}, "
+                          f"{a.get('n_claims', 0) - a.get('n_struck', 0)} claims kept "
+                          f"of {a.get('n_claims', 0)} ({stopped}) "
+                          f"→ interpretation.json")
+                status["steps"]["interpret"] = True
         except Exception as e:
             self._say(f"   ⚠️  steps 2-3 failed: {e}")
             status["steps"]["investigate"] = status["steps"]["interpret"] = False

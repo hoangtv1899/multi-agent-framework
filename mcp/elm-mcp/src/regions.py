@@ -48,7 +48,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from gridded import (SECONDS_PER_DAY, GriddedReadError, Grid, Stream,
+from gridded import (SECONDS_PER_DAY, GriddedReadError, Grid, PassBlock, Stream,
                      days_in_month, expected_keys, label_text, per_day_units,
                      read_clean, to_pm180)
 
@@ -791,6 +791,50 @@ class RegionSeries:
         return out, why
 
 
+class _PieceRows:
+    """The region cells' values of some fields over one year, gathered from a
+    one-pass read block by block into the pieces reduce_regions reduces, each
+    piece handed on as soon as it is whole. A block may end inside a piece or
+    run into the next."""
+
+    def __init__(self, fields: Sequence[Field], sizes: Sequence[int], cells: np.ndarray,
+                 scale: Dict[str, float], reduce_piece) -> None:
+        self.fields, self.sizes, self.cells = list(fields), list(sizes), cells
+        self.scale, self.reduce_piece = scale, reduce_piece
+        self.k, self.filled, self.buf = 0, 0, None
+
+    def take(self, pb: PassBlock) -> None:
+        n = len(pb.keys)
+        tot = {}
+        for f in self.fields:
+            total = None
+            for p in f.sources:
+                x = pb.data[p].reshape(n, -1)[:, self.cells]       # a new array
+                total = x if total is None else total + x
+            total *= self.scale[f.name]
+            tot[f.name] = total
+        r = 0
+        while r < n:
+            size = self.sizes[self.k]
+            if self.buf is None:
+                self.buf = {f.name: np.empty((size, tot[f.name].shape[1]))
+                            for f in self.fields}
+            m = min(n - r, size - self.filled)
+            for f in self.fields:
+                self.buf[f.name][self.filled:self.filled + m] = tot[f.name][r:r + m]
+            self.filled += m
+            r += m
+            if self.filled == size:
+                for f in self.fields:
+                    self.reduce_piece(f, self.buf[f.name])
+                self.k, self.filled, self.buf = self.k + 1, 0, None
+
+    def done(self) -> None:
+        if self.k != len(self.sizes) or self.buf is not None:
+            raise RegionError(f"internal: {self.k} of {len(self.sizes)} pieces of the year "
+                              f"were reduced")
+
+
 def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
                    years: Sequence[int], regions: Optional[Sequence[str]] = None,
                    require_complete: bool = True,
@@ -800,12 +844,15 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
     """Area-weighted, NaN-aware means of each field over each region, record
     by record, for the given calendar years (in calendar order).
 
-    Only the rectangle around the regions is read, one part and one piece of
-    the year at a time, and a part is kept only while another field still
-    needs it. The mean at a record is sum(w x) / sum(w) over the region's
-    cells that have a value; valid_fraction says how much of the region that
-    was. A repeated region, field or year is refused: each would silently
-    misalign the series against their labels.
+    Only the rectangle around the regions is read, each year in one pass
+    (Stream.read_block_pass) that takes every part of every field from a
+    block of records before the next; the region cells' values are kept until
+    the piece of the year they are reduced in is whole (the year, or
+    max_records of it: 31 days of a sub-daily stream by default). The mean at
+    a record is sum(w x) / sum(w) over the region's cells that have a value;
+    valid_fraction says how much of the region that was. A repeated region,
+    field or year is refused: each would silently misalign the series against
+    their labels.
 
     weights replaces the stream's own area x landfrac, and grid_tol_deg loosens
     the check that masks and stream share cells. Both are for a reference run
@@ -885,10 +932,23 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
             scale[f.name], units[f.name] = 1.0, us[p0]
             per[f.name] = "second" if ps[p0] else None
 
-    uses: Dict[Tuple[str, Optional[int]], int] = {}
+    # ONE PASS PER YEAR (2026-11-04). Each part was read over a whole piece of
+    # the year before the next, and a part's values are spread over every
+    # record of the file, so a year of the Naches control's daily fields
+    # cost about seven times reading the file once (gridded, ONE PASS OVER A
+    # YEAR, where the pass is measured). Each year is now read in one pass,
+    # every part taken from each block of records. The numbers do not change
+    # by a bit: a field's parts are summed and scaled per block as they were
+    # per piece (cell by cell, so the blocks change nothing), the rows wait in
+    # a buffer until their piece is whole, and each piece is reduced by the
+    # same matrix products over the same rows as before; a product over fewer
+    # rows may round differently. The buffer holds a piece of every field at
+    # once: a daily year of one field over the 13,394 vegetated Naches cells
+    # is 39 MB. The parts of each layer are read in one pass, each part once.
+    by_layer: "OrderedDict[Optional[int], List[str]]" = OrderedDict()
     for f in flds:
-        for p in f.sources:
-            uses[(p, f.layer)] = uses.get((p, f.layer), 0) + 1
+        src = by_layer.setdefault(f.layer, [])
+        src += [p for p in f.sources if p not in src]
 
     keys_all: List[Tuple] = []
     vals = {(r, f.name): [] for r in regs for f in flds}
@@ -897,42 +957,33 @@ def reduce_regions(stream: Stream, fields: Sequence, masks: MaskSet,
     if max_records is None:
         max_records = 31 * (stream.steps_per_day or 1) if stream.cadence == "subdaily" \
             else 10 ** 9
+
+    def reduce_piece(f: Field, total: np.ndarray) -> None:
+        ok = np.isfinite(total)
+        bad_cells[f.name] |= ~ok.all(axis=0)
+        num = np.where(ok, total, 0.0) @ W
+        den = ok.astype(np.float64) @ W
+        with np.errstate(invalid="ignore", divide="ignore"):
+            mean = np.where(den > 0, num / np.where(den > 0, den, 1.0), np.nan)
+        for j, r in enumerate(regs):
+            vals[(r, f.name)].append(mean[:, j])
+            vfrac[(r, f.name)].append(den[:, j] / wtot[j])
+
     for y in ys:
         have, missing = stream.year_records(y)
         if not have:
             raise RegionError(f"stream {stream.name}: no records in {y}")
         if missing and require_complete:
             raise GriddedReadError(stream._missing_message(y, missing))
-        for a in range(0, len(have), int(max_records)):
-            part = have[a:a + int(max_records)]
-            left = dict(uses)
-            cache: Dict = {}
-            for f in flds:
-                total = None
-                for p in f.sources:
-                    ck = (p, f.layer)
-                    x = cache.get(ck)
-                    if x is None:
-                        x = stream.read_records(p, part, window=window, layer=f.layer)
-                        x = x.reshape(len(part), -1)[:, sub_union]
-                    left[ck] -= 1
-                    if left[ck] > 0:
-                        cache[ck] = x
-                    else:
-                        cache.pop(ck, None)
-                    # A copy: the cached part must survive this field's scaling.
-                    total = x.copy() if total is None else total + x
-                total *= scale[f.name]
-                ok = np.isfinite(total)
-                bad_cells[f.name] |= ~ok.all(axis=0)
-                num = np.where(ok, total, 0.0) @ W
-                den = ok.astype(np.float64) @ W
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    mean = np.where(den > 0, num / np.where(den > 0, den, 1.0), np.nan)
-                for j, r in enumerate(regs):
-                    vals[(r, f.name)].append(mean[:, j])
-                    vfrac[(r, f.name)].append(den[:, j] / wtot[j])
-            keys_all += [rec.key for rec in part]
+        sizes = [len(have[a:a + int(max_records)])
+                 for a in range(0, len(have), int(max_records))]
+        for lay, sources in by_layer.items():
+            rows = _PieceRows([f for f in flds if f.layer == lay], sizes, sub_union,
+                              scale, reduce_piece)
+            stream.read_block_pass(sources, y, reduce=rows.take, window=window, layer=lay,
+                                   require_complete=False)
+            rows.done()
+        keys_all += [rec.key for rec in have]
 
     values = {k: np.concatenate(v) for k, v in vals.items()}
     vf = {k: np.concatenate(v) for k, v in vfrac.items()}

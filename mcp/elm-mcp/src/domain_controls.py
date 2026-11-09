@@ -712,6 +712,34 @@ def not_in_it_words(f: Optional[Dict[str, Any]]) -> List[str]:
     return [_FIRE_MODEL_ONLY if any(m[y] for y in ys) else _FIRE_NONE]
 
 
+# THE SUITE IN ONE LINE (2026-11-04). Reception is told whether the control's
+# results store (domain_suite: maps and region series made once from its
+# history) is built: its version, products, size and build date, about 200
+# characters, read from the suite's manifest, or "not built". The store itself
+# is read by the analysis, never shown here.
+SUITE_MANIFEST = "suite.json"
+
+
+def suite_line(entry: Dict[str, Any]) -> str:
+    d = entry.get("suite_dir")
+    if not d:
+        return "not built (the registry names no suite_dir)"
+    p = Path(str(d)) / SUITE_MANIFEST
+    if not p.is_file():
+        return "not built"
+    try:
+        m = json.loads(p.read_text())
+    except ValueError:
+        return "not built (its manifest cannot be read)"
+    years = (m.get("periods") or {}).get("year") or []
+    span = f"{years[0]}-{years[-1]}" if years else "no whole year"
+    built = str(m.get("built_at") or "?")[:16].replace("T", " ")
+    return (f"version {m.get('SUITE_VERSION')}, built {built} UTC, "
+            f"{(m.get('total_bytes') or 0) / 1e9:.2f} GB: {len(m.get('fields') or {})} fields, "
+            f"{span}; maps by year, water year and season; region series by day, month, "
+            f"season, year and water year")
+
+
 def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """One control as reception sees it: small enough for a tool result (cut
     at 12,000 characters), so field lists are counts plus the fields the case
@@ -725,7 +753,8 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
            "evaluation": entry.get("evaluation"),
            "regions": {k: v.get("what") for k, v in (entry.get("regions") or {}).items()},
            "observations": {k: v.get("what")
-                            for k, v in (entry.get("observations") or {}).items()}}
+                            for k, v in (entry.get("observations") or {}).items()},
+           "suite": suite_line(entry)}
     if not f:
         out["facts"] = None
         out["facts_note"] = ("not computed yet: refresh_domain_control_facts reads them "

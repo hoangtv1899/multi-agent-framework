@@ -1542,6 +1542,93 @@ def set_aside(out_dir, names: Sequence[str] = PRODUCTS, figures: bool = True) ->
     return [str(dest.relative_to(d) / p.name) for p in sorted(hits)]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# A STUDY WITH A SUITE: THE NUMBERS ITS CLAIMS CITE (package F2, 2026-11-05)
+# ─────────────────────────────────────────────────────────────────────────────
+# A study with a suite has no regional table to remake: its numbers are the
+# results of the logged suite calls (04_analysis/lookups.jsonl). The claim trace
+# holds each claim to its records; this remakes every number of each record a
+# claim cites from the history, by suite_check's own code (written apart from
+# domain_methods and the suite), and step 4 withholds the report on a mismatch.
+EVIDENCE_JSON = "evidence_numbers_check.json"
+EVIDENCE_REL = f"04_analysis/{EVIDENCE_JSON}"
+
+
+def check_evidence(study_dir, claims, registry: Optional[Dict[str, Any]] = None,
+                   write: bool = True) -> Dict[str, Any]:
+    """Every number of every lookup the claims cite, made again from the model
+    output and compared (suite_check.check); written to EVIDENCE_REL."""
+    from agents.analysis import suite_check as SC
+    return SC.check(study_dir, claims, registry=registry, write=write)
+
+
+def _rid(row: Dict[str, Any]) -> str:
+    return f"{row.get('record')} ({row.get('where') or row.get('call')})"
+
+
+def evidence_reason(rec: Dict[str, Any]) -> str:
+    """One line: why a study's report is withheld by the numbers check, naming
+    each record, the value logged and the value made again."""
+    if rec.get("error"):
+        return f"the numbers its claims cite could not be made again ({rec['error']})"
+    rows = rec.get("mismatches") or []
+    parts = []
+    for r in rows[:6]:
+        if r.get("path"):
+            parts.append(f"{_rid(r)} {r['path']}: logged {_fmt(r.get('logged'))}, made again "
+                         f"{_fmt(r.get('recomputed'))}")
+        else:
+            parts.append(f"{_rid(r)}: {r.get('why')}")
+    more = f"; and {len(rows) - 6} more" if len(rows) > 6 else ""
+    return (f"{len(rows)} of the numbers its claims cite did not reproduce when made again "
+            f"from the model output ({'; '.join(parts)}{more})")
+
+
+def evidence_withheld_lines(rec: Optional[Dict[str, Any]]) -> List[str]:
+    """The withheld page's table of the numbers that did not reproduce."""
+    if not rec or rec.get("pass"):
+        return []
+    lines = ["## The numbers made again from the model output", "",
+             f"Each number of every lookup a claim cites was made again from each run's own "
+             f"history by a second, independent code path ({EVIDENCE_REL} says how), and held to "
+             f"the tolerance (relative {RTOL:g} of the number, with a floor of {EPS:g} of the "
+             f"values it is made from and {ATOL:g} absolute; counts, dates and reason codes "
+             f"exactly).", ""]
+    if rec.get("error"):
+        lines += [f"The check stopped: {rec['error']}", ""]
+    rows = rec.get("mismatches") or []
+    if rows:
+        lines += ["| record | number | logged | made again | difference | why |",
+                  "|---|---|---|---|---|---|"]
+        for r in rows[:MAX_ROWS_SHOWN]:
+            lines.append(f"| {_rid(r)} | {r.get('path') or 'all'} | {_fmt(r.get('logged'))} | "
+                         f"{_fmt(r.get('recomputed'))} | {_fmt(r.get('abs_diff'))} | "
+                         f"{r.get('why') or ''} |")
+        if len(rows) > MAX_ROWS_SHOWN:
+            lines.append(f"\n{len(rows) - MAX_ROWS_SHOWN} more in {EVIDENCE_REL}.")
+        lines.append("")
+    return lines
+
+
+def evidence_page_line(rec: Optional[Dict[str, Any]]) -> str:
+    """The sentence a study's REPORT.md prints near its top about the check of
+    the numbers its claims cite."""
+    if not rec:
+        return (f"**Numbers check: none on record.** The numbers the claims cite were not made "
+                f"a second time ({EVIDENCE_REL} is missing).")
+    if not rec.get("pass"):
+        return f"**Numbers check: did not pass.** {evidence_reason(rec)} ({EVIDENCE_REL})."
+    w = (rec.get("largest_relative_difference") or {}).get("rel_diff")
+    left = rec.get("not_recomputed") or []
+    tail = (f" Not made again: {sum(int(x.get('n') or 1) for x in left)} number(s) of the "
+            f"cited records that no claim states (listed in {EVIDENCE_REL})." if left else "")
+    return (f"**Numbers check: passed.** {_count(rec.get('n_compared'))} numbers of the "
+            f"{len(rec.get('records') or {})} lookups the claims cite were made again from the "
+            f"model output by an independent reading before this page was written, the largest "
+            f"relative difference {f'{float(w):.3g}' if w is not None else 'none'} "
+            f"({EVIDENCE_REL})." + tail)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit("usage: numbers_check.py <run_dir>")

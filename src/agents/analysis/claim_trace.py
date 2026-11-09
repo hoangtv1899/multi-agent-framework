@@ -43,7 +43,10 @@ the headline cannot be traced, REPORT.md is withheld.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from agents.analysis.analysis_plan import EXPLORATORY_LABEL, SCREENING_LABEL
 
 TABLE_FILE = "03_results/regional.json"
 NOT_TRACED = "not traced to the numbers"
@@ -617,6 +620,28 @@ def _years(text: str) -> set:
     return {w for w in re.findall(r"\b(?:19|20)\d{2}\b", str(text or ""))}
 
 
+# A NUMBER IS ITS TYPE (the user's decision of 2026-11-08, "typed quantity
+# rules"): "2000 m" is an elevation, never the year 2000. Question 3 of G part
+# 2's run again lost five true claims, and question 2 one, to a band "above
+# 2000 m" read as a year. A four-digit number names a year only with no unit
+# after it, and not when it opens a range whose last number carries a length
+# unit ("1500 to 2000 m", "2000-2500 m").
+_RANGE_TAIL = re.compile(r"\s*(?:to|-|\u2013|and)\s*-?\d+(?:\.\d+)?\s*(?:km|cm|mm|m)"
+                         r"(?![A-Za-z0-9])")
+
+
+def years_named(text: str) -> set:
+    """The years a claim's text names, each a four-digit number typed as a
+    year: no unit after it, and not the first of a range in a length unit."""
+    t = str(text or "")
+    out = set()
+    for m in re.finditer(r"\b(?:19|20)\d{2}\b", t):
+        if unit_after(t, m.end()) is not None or _RANGE_TAIL.match(t, m.end()):
+            continue
+        out.add(m.group(0))
+    return out
+
+
 def _is_year_value(v, text: str, years: set) -> bool:
     """A claim value is a date when it is one of the table's years and the
     claim's text prints it with no unit after it."""
@@ -787,5 +812,1724 @@ def withheld_markdown(report: Dict[str, Any]) -> str:
                      + (f" **({c['trace']})**" if c.get("trace") else ""))
         for d in c.get("derivations") or []:
             lines.append(f"   - {d.get('text') or (str(d.get('printed')) + ': ' + str(d.get('why')))}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# EVIDENCE RECORDS AND THE CLAIM TRACE OF A STUDY WITH A SUITE
+# (package F1, 2026-11-05; plan sections 3.7 and 3.8)
+# ═════════════════════════════════════════════════════════════════════════
+# A study with a suite reaches its values only through the scoped, logged
+# suite calls (the runner binds no whole table), so a claim is traced to the
+# lookups, not to the regional table. Each answered lookup in
+# 04_analysis/lookups.jsonl is an EVIDENCE RECORD, named by its line ("L7"):
+# the call, run, field, period, region, method and settings, the lookup's
+# hash, the comparison (against what, over which years), the support (years,
+# share of area covered), the quality flags and reasons as WARNINGS, the
+# evidence classes it can carry and the wording each class allows. A claim
+# names its records (`evidence`), its class (`evidence_class`), the plan's
+# expectation for a tested one (`expectation`) and the warnings it carries
+# (`warnings`, by code, or the warning's words in its text).
+#
+# A claim FAILS when: it names no record, or one the log does not hold; a
+# number it states is no value of its records; it names a year, month, season
+# or region none of its records names; its class is missing or beyond its
+# records (a tested expectation needs the plan's expectation and planned
+# lookups only, never one found by screening, added by an amendment or made
+# after the planned phase was closed (2026-11-08); an
+# association needs an overlap; in-model attribution needs a difference from a
+# run that differs from the control by one named change, confirmed by the
+# server's checks); its wording goes beyond its class (a causal word on
+# anything but in-model attribution, "caused by" in any form, the one
+# in-model form being "in the model, the change caused"; "validated"); it
+# gives a percent of a field whose notes allow none; it gives a timing shift
+# of a record whose range across settings exceeds 7 days without the default,
+# the smallest and the largest shift, each with its setting (G part 1
+# decisions, 2026-11-08); or it leaves out a warning its records carry (among
+# them that the settings reverse the direction of the shift, and that a
+# record was made after the planned phase was closed). The headline: for a
+# hypothesis only tested claims may lead, and never one resting on a lookup
+# found by screening, amended or made after the close; for an exploratory question a
+# finding from the screen may lead, labelled exploratory. An open cause
+# proposes a run in the server's change vocabulary (domain_changes.resolve).
+# Any failure withholds the report (evidence_withheld_markdown), as an
+# untraced headline does.
+LOOKUPS_LOG = "04_analysis/lookups.jsonl"
+EVIDENCE_CLASSES = ("observation", "association", "tested expectation", "exploratory",
+                    "in-model attribution")
+IN_MODEL_WORDS = "in the model, the change caused"
+CLASS_WORDING = {
+    "observation": "what the run's values were or how they changed; a relation is "
+                   "\"consistent with\"; no causal word",
+    "association": "\"consistent with\" or \"went together with\": two patterns overlap; "
+                   "never a causal word",
+    "tested expectation": "the plan stated it before any lookup and it was found; "
+                          "\"consistent with\" the expectation; no causal word",
+    "exploratory": "found by looking, not stated first, and labelled exploratory; "
+                   "\"consistent with\"; no causal word",
+    "in-model attribution": f"\"{IN_MODEL_WORDS}\" only, for a run that differs from the "
+                            "control by one named change: never a real-world cause, and it "
+                            "does not isolate an intermediate step"}
+HEADLINE_RULE = {
+    "hypothesis": "a hypothesis question's headline comes from tested claims only",
+    "exploratory": "an exploratory question's headline is labelled exploratory, every one "
+                   "(the report puts the label on), and may come from the screen's display"}
+FAILS_TRACE = "fails the evidence trace"
+_CAUSAL = re.compile(r"\b(?:caus\w*|led to|leads? to|drove|drives?|driven|driving|due to|"
+                     r"because of|result(?:s|ed|ing)? in|trigger\w*|induc\w*|explain\w*|"
+                     r"responsible for|attribut\w*|owing to)\b", re.I)
+_CAUSED_BY = re.compile(r"\bcaus\w*(?:\s+\w+){0,2}\s+by\b", re.I)
+_BANNED = re.compile(r"\bvalidat\w*", re.I)
+_PERCENT = re.compile(r"(?<![A-Za-z0-9_.])-?\d+(?:\.\d+)?\s*(?:%|percent\b|per cent\b)", re.I)
+_COVER_KEYS = ("covered", "least_area_share", "covered_share", "inputs_area_share")
+_LABEL_KEYS = ("settings", "normal_years", "event_years", "year", "years", "n_normal",
+               "normal_years_used", "version", "cells", "region_area_km2")
+_SCREEN_STATUS = {"insufficient support": ("insufficient_support", "insufficient support"),
+                  "not scored yet": ("not_scored_yet", "not scored"),
+                  "near-constant normal": ("near_constant", "near-constant")}
+
+
+def _fin(x) -> bool:
+    return _is_num(x) and x == x and abs(x) != float("inf")
+
+
+def _elm_modules():
+    from agents.analysis import analysis_plan as AP
+    AP._elm()
+    import domain_catalog as DCAT                                   # noqa: N812
+    import domain_methods as M                                      # noqa: N812
+    return AP, DCAT, M
+
+
+def _short_reason(text: str) -> str:
+    t = str(text).replace("not estimable: ", "")
+    return re.split(r"\s\(|:", t)[0].strip()
+
+
+def _read_log(analysis_dir) -> List[Dict[str, Any]]:
+    import json
+    from pathlib import Path
+    p = Path(analysis_dir) / "lookups.jsonl"
+    if not p.is_file():
+        return []
+    return [json.loads(x) for x in p.read_text().splitlines() if x.strip()]
+
+
+def _years_in(x) -> set:
+    out = set()
+    for v in (x if isinstance(x, (list, tuple)) else [x]):
+        if _is_num(v) and float(v).is_integer() and 1800 <= v <= 2200:
+            out.add(str(int(v)))
+        elif isinstance(v, str):
+            out |= {w for w in re.findall(r"(?<!\d)(?:18|19|20|21)\d{2}(?!\d)", v)}
+    return out
+
+
+# A SERIES NAMES WHAT ITS DATES COVER (2026-11-08, after the third batch):
+# a series' labels are kept one per entry ("labels.0", "labels.1", ...), and
+# only a key named "labels" was read, so question 1's daily snow series named
+# no year and its true "by the start of spring" in 2015 failed. A day label
+# ("2015-03-12") now names its year, never its day as a month (the "-12" a
+# month label ends in); every other label is read as before.
+# STRICT, AND WINTER CONTIGUOUS (the user's decision of 2026-11-08): a series
+# names a month only when it holds every day of it, and a season only when it
+# holds its three months whole as one unbroken run. Winter is the suite's own
+# (domain_methods.period_months): December of the year before with January
+# and February, never a year's January, February and December, which are ten
+# months apart.
+_DAY_LABEL = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+# (year offset, month) of each season's months, from its January-or-later year
+_SEASON_OF = {"DJF": ((-1, 12), (0, 1), (0, 2)), "MAM": ((0, 3), (0, 4), (0, 5)),
+              "JJA": ((0, 6), (0, 7), (0, 8)), "SON": ((0, 9), (0, 10), (0, 11))}
+# a month's days: February 28, or 29 when the series holds a 29 February
+_MONTH_DAYS = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+
+
+def _whole_months(days: Dict[Tuple[int, int], set]) -> set:
+    """(year, month) of each month whose every day the series holds (`days`:
+    (year, month) -> the days of it the series holds)."""
+    out = set()
+    for (y, m), ds in days.items():
+        n = _MONTH_DAYS[m - 1] + (1 if m == 2 and 29 in ds else 0)
+        if set(range(1, n + 1)) <= ds:
+            out.add((y, m))
+    return out
+
+
+def _seasons_held(whole: set) -> set:
+    """The seasons whose three months the series holds whole, one unbroken
+    run each: winter from the December before (`whole`: _whole_months)."""
+    return {k for k, parts in _SEASON_OF.items() for y in {y for y, _ in whole}
+            if all((y + dy, mm) in whole for dy, mm in parts)}
+
+
+def _labels(res: Dict[str, Any]) -> List[Any]:
+    """A result's period words: its "period", "year" and "labels" keys, a
+    flattened list's entries ("labels.12") among them."""
+    out: List[Any] = []
+    for k, v in res.items():
+        parts = k.split(".")
+        if parts[-1] in ("period", "labels", "year"):
+            out += v if isinstance(v, list) else [v]
+        elif len(parts) >= 2 and parts[-2] == "labels" and parts[-1].isdigit():
+            out.append(v)
+    return out
+
+
+def _names(rec: Dict[str, Any], res: Dict[str, Any]) -> Dict[str, Any]:
+    """The years, months, seasons and region a record names: its own period,
+    its comparison's years, its support's years, its series' labels."""
+    yrs, per, days = set(), set(), {}
+    for lab in [rec.get("period")] + _labels(res):
+        t = str(lab or "")
+        yrs |= _years_in(lab)
+        d = _DAY_LABEL.match(t)
+        if d:
+            days.setdefault((int(d.group(1)), int(d.group(2))), set()).add(int(d.group(3)))
+            continue
+        m = re.search(r"-(\d{2})$", t)
+        if m:
+            per.add(("month", m.group(1)))
+        s = re.search(r"\b(DJF|MAM|JJA|SON)\b", t)
+        if s:
+            per.add(("season", s.group(1)))
+    whole = _whole_months(days)
+    per |= {("month", f"{mm:02d}") for _, mm in whole}
+    per |= {("season", k) for k in _seasons_held(whole)}
+    for k, v in res.items():
+        if k.rsplit(".", 1)[-1] in ("normal_years", "event_years", "years",
+                                    "normal_years_used", "against"):
+            yrs |= _years_in(v)             # "against": a timing's "the normal years [...]"
+    if rec.get("step") == "month":
+        per |= {("month", f"{i:02d}") for i in range(1, 13)}
+    if rec.get("step") == "season":
+        per |= {("season", s) for s in SEASON_MONTHS}
+    return {"years": yrs, "periods": per}
+
+
+def _comparison(rec: Dict[str, Any], res: Dict[str, Any]) -> Dict[str, Any]:
+    call, k = rec["call"], rec.get("keys") or {}
+    if call == "anomaly":
+        return {"against": "the normal years", "years": res.get("normal_years")}
+    if call == "difference":
+        return {"against": f"the control ({k.get('control') or 'control'})",
+                "run": k.get("run"), "years": sorted(_years_in(rec.get("period")))}
+    if call == "screen":
+        return {"against": res.get("against"), "years": res.get("normal_years")}
+    if call == "overlap":
+        return {"against": "two maps over one region: an association"}
+    if call == "elevation_split":
+        return {"against": "the region's elevation bands and its other regions"}
+    if rec.get("measure"):
+        return {"against": res.get("against")}
+    return {"against": None}
+
+
+def _support(res: Dict[str, Any]) -> Dict[str, Any]:
+    shares = [v for p, v in res.items() if p.rsplit(".", 1)[-1] in _COVER_KEYS and _fin(v)]
+    shares += [x for p, v in res.items() if p.rsplit(".", 1)[-1] == "covered"
+               and isinstance(v, list) for x in v if _fin(x)]
+    yrs = res.get("support.years") or res.get("normal_years")
+    return {"years": yrs, "area_share": min(shares) if shares else None,
+            "n": res.get("support.n")}
+
+
+def _present(v) -> bool:
+    return (isinstance(v, list) and len(v) > 0) or (_fin(v) and v > 0)
+
+
+def _warn(rec, code, reason):
+    """One warning of a record: its code, the words that carry it in a claim
+    (its label, from WARNINGS: an unregistered code raises) and its reason."""
+    return {"code": code, "label": warning_label(code), "reason": reason, "record": rec["id"]}
+
+
+def record_warnings(rec: Dict[str, Any], res: Dict[str, Any], notes=None) -> List[Dict[str, Any]]:
+    """Every warning a record's value carries, each with its code, the words
+    that carry it in a claim (label) and its reason: coverage, eligibility,
+    restricted comparability, every reason code and flag, near-constant,
+    insufficient support and not scored yet, provisional settings, found by
+    screening or not planned, and the FPG configuration note."""
+    AP, DCAT, M = _elm_modules()
+    W: List[Dict[str, Any]] = []
+    # 1. the area share covered, missing cell values, missing time records
+    low = {p: v for p, v in res.items() if p.rsplit(".", 1)[-1] in _COVER_KEYS and _fin(v)
+           and v < 1 - 1e-9}
+    low.update({p: min(x for x in v if _fin(x)) for p, v in res.items()
+                if p.rsplit(".", 1)[-1] == "covered" and isinstance(v, list)
+                and any(_fin(x) and x < 1 - 1e-9 for x in v)})
+    gone = {p: v for p, v in res.items() if ("missing_cell_values" in p
+                                             or "missing_time_records" in p) and _present(v)}
+    left = {p: v for p, v in res.items()
+            if (p.startswith("normal_left_out.") and v not in (None, "", []))
+            or (p.rsplit(".", 1)[-1] in ("normal_missing", "normal_incomplete") and _present(v))}
+    if left:
+        W.append(_warn(rec, "normal_left_out", "; ".join(
+            f"{p}: {v}" for p, v in sorted(left.items()))))
+    if low or gone:
+        W.append(_warn(rec, "coverage", "; ".join(
+            [f"area share covered {v:.3g} ({p})" for p, v in sorted(low.items())]
+            + [f"{p}: {v}" for p, v in sorted(gone.items())])))
+    # timing: the default variant's own; its alternatives are computed beside
+    pref = "variants.default." if any(p.startswith("variants.default.") for p in res) else ""
+    mine = {p: v for p, v in res.items() if not pref or p.startswith(pref)
+            or p == "comparability"}
+    # 2. the change of eligibility beside a shift
+    el = {p[len(pref):]: v for p, v in mine.items() if ".shift.eligible." in "." + p[len(pref):]}
+    parts = sorted({p.split("eligible.", 1)[1].split(".")[0] for p in el})
+    if any(q != "both" and _fin(el.get(f"shift.eligible.{q}.cells")) and
+           el[f"shift.eligible.{q}.cells"] > 0 for q in parts):
+        W.append(_warn(rec, "eligibility", "the shift is on the cells eligible in "
+                       "both; " + "; ".join(
+                           f"{q.replace('_', ' ')} {el.get(f'shift.eligible.{q}.cells')} cells "
+                           f"(area share {el.get(f'shift.eligible.{q}.area_share', 0):.3g})"
+                           for q in parts)
+                       + (f"; the shift covers area share {mine.get(pref + 'shift.area_share'):.3g}"
+                          if _fin(mine.get(pref + "shift.area_share")) else "")))
+    # 3. restricted comparability (a partial-record estimate in a shift)
+    rc = [v for p, v in res.items() if p.endswith("comparability") and isinstance(v, str)
+          and "restricted comparability" in v]
+    if rc:
+        W.append(_warn(rec, "restricted_comparability", rc[0]))
+    # 4. every reason code and quality flag
+    for p, v in sorted(mine.items()):
+        m = re.search(r"(?:^|\.)reasons\.(\w+)$", p)
+        if m and _fin(v) and v > 0 and m.group(1) in M.REASONS:
+            text = M.REASONS[m.group(1)][1]
+            W.append(_warn(rec, f"reason:{m.group(1)}", f"{int(v)} cells: {text}"))
+        f = re.search(r"(?:^|\.)distribution\.flags\.(\w+)$", p)
+        if f and _fin(v) and v > 0 and f.group(1) in M.FLAGS:
+            text = M.FLAGS[f.group(1)][1]
+            W.append(_warn(rec, f"flag:{f.group(1)}", f"{int(v)} cells: {text}"))
+    # 5. near-constant, insufficient support, not scored yet (outside a screen row)
+    if rec["call"] != "screen":
+        for p, v in res.items():
+            if p.rsplit(".", 1)[-1] == "near_constant" and v is True:
+                W.append(_warn(rec, "near_constant", f"{p}: near-constant"))
+            if p.rsplit(".", 1)[-1] == "status" and v in _SCREEN_STATUS:
+                W.append(_warn(rec, _SCREEN_STATUS[v][0], f"{p}: {v}"))
+    # 6. provisional settings (growth_peak's near and dip)
+    mid = rec.get("method") or rec.get("measure")
+    if mid in M.METHODS:
+        prov = [s for s in M.METHODS[mid].settings if s.status == M.PROVISIONAL]
+        if prov:
+            W.append(_warn(rec, "provisional_settings",
+                           f"{mid}'s settings {', '.join(s.name for s in prov)} are provisional: "
+                           f"{(prov[0].review or {}).get('why')}"))
+    # 7. found by screening, not tested; made after the planned phase was
+    # closed (the user's decision on G part 2, 2026-11-08: exploratory, with
+    # its own reason); not planned; the exploratory screen
+    if rec.get("label") == AP.SCREENING_LABEL:
+        W.append(_warn(rec, "found_by_screening",
+                       "turned up by the screen, after the plan's lookups: not tested"))
+    elif rec.get("after_close"):
+        W.append(_warn(rec, "exploratory", AFTER_CLOSE_REASON))
+    elif rec.get("label") == AP.EXPLORATORY_LABEL:
+        W.append(_warn(rec, "exploratory",
+                       "the exploratory question's screen: found by looking, not stated first"))
+    if rec.get("amendment") or (rec.get("planned") is False and not rec.get("label")):
+        W.append(_warn(rec, "not_planned",
+                       f"amendment {rec.get('amendment')}: added after outcomes were seen, so "
+                       f"never planned" if rec.get("amendment") else "no analysis of the plan "
+                       "declared it"))
+    # 8. the settings reverse the direction of the shift (the user's decisions
+    # on G part 1, 2026-11-08): one setting gives an earlier date, another a
+    # later one, on the cells eligible under every setting
+    a = across_record(res)
+    if a and a["direction_reversal"]:
+        lo, hi = a.get("minimum") or {}, a.get("maximum") or {}
+        W.append(_warn(rec, "settings_reverse_direction",
+                       f"across the settings the shift goes from "
+                       f"{M.format_value(lo.get('median_shift'))} days ({lo.get('variant')}) to "
+                       f"{M.format_value(hi.get('median_shift'))} days ({hi.get('variant')}) on "
+                       f"the {a.get('comparable_cells')} cells eligible under every setting: "
+                       f"some settings give an earlier date, others a later one"))
+    # 9. the FPG configuration note
+    if rec.get("field") == "FPG":
+        note = (notes or DCAT.load_notes()).get("FPG") or {}
+        W.append(_warn(rec, "fpg_configuration",
+                       " ".join(str(c) for c in note.get("cautions") or [])
+                       + " See the catalog's line on the control's verified configuration."))
+    return W
+
+
+# THE RANGE ACROSS SETTINGS (the user's decisions on G part 1, 2026-11-08). A
+# timing record gives, beside each setting's own shift, every setting's shift
+# on the comparable cells (those eligible under every setting, in the year and
+# in its baseline), the default, the smallest and the largest with their
+# settings, and two flags: the largest minus the smallest exceeds 7 days
+# (range_required) and the settings reverse the direction of the shift. A
+# claim that gives a shift of a record whose range is required states the
+# default, the smallest and the largest, each with its setting; a claim on a
+# record whose settings reverse the direction carries that warning.
+ACROSS = "across_settings."
+REVERSAL_LABEL = "settings reverse the direction"
+_SHIFT_VALUE = re.compile(r"^(?:variants\..+\.shift\.(?:median|q25|q75)|"
+                          r"sensitivity\.\d+\.(?:default_)?median_shift|"
+                          r"across_settings\..*median_shift)$")
+_RANGE_PART_WORDS = {"default": "the default", "minimum": "the smallest",
+                     "maximum": "the largest"}
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# THE WARNINGS AND THE CLAIMS, DEFINED ONCE (the user's decision on G part 2,
+# 2026-11-08)
+# ═════════════════════════════════════════════════════════════════════════
+# Question 1 of G part 2 wrote six claims, none naming a record or a class:
+# the trace above reads `evidence`, `evidence_class`, `expectation`,
+# `warnings` and `headline`, while the reply template step 3's model read
+# listed only `claim`, `finding_id`, `values` and `caveats`. Both now come
+# from one definition: CLAIM_PARTS and REPLY_PARTS say what a reply holds,
+# step 3's template is rendered from them (claims_reply_lines), and WARNINGS
+# is the one registry record_warnings, row_warnings and _sensitivity_rows
+# take their labels from (an unregistered code raises), rendered into the
+# same template (warning_lines).
+AFTER_CLOSE_REASON = ("made after the planned analyses were closed (04_analysis/"
+                      "planned_phase.json): found by looking, not stated first, so never a "
+                      "tested expectation and never a hypothesis headline")
+WARNINGS: Dict[str, Tuple[str, str]] = {
+    "normal_left_out": ("left out of the normal", "a normal year lacks the period, or part "
+                        "of it, so the normal is made without it"),
+    "coverage": ("area share covered", "the method's inputs cover less than the whole region, "
+                 "or cell values or time records are missing"),
+    "eligibility": ("eligible", "a timing shift is on the cells eligible in both the year and "
+                    "its baseline (or under both settings); some cells are eligible in one only, "
+                    "or in neither"),
+    "restricted_comparability": ("restricted comparability", "a partial-record estimate is in "
+                                 "a shift: the water year starts before the run's records"),
+    "near_constant": ("near-constant", "the normal years barely vary, so the change is given "
+                      "with no score"),
+    "insufficient_support": ("insufficient support", "too few normal years hold the period to "
+                             "score it"),
+    "not_scored_yet": ("not scored", "a field the screen does not score yet (a store, a "
+                       "bounded index)"),
+    "event_mark": ("marked", "a screen row marked for an event, such as where a run differs "
+                   "from the control"),
+    "provisional_settings": ("provisional", "the method's settings include provisional values, "
+                             "approved for integration only"),
+    "found_by_screening": (SCREENING_LABEL, "turned up by a hypothesis question's screen, after "
+                           "its planned analyses: never a tested expectation"),
+    "exploratory": (EXPLORATORY_LABEL, "found by looking, not stated first: an exploratory "
+                    "question's screen, or any lookup made after the planned analyses were "
+                    "closed"),
+    "not_planned": ("not planned", "no analysis of the reviewed plan declared it, or an "
+                    "amendment added it after outcomes were seen"),
+    "settings_reverse_direction": (REVERSAL_LABEL, "across the method's settings some give an "
+                                   "earlier date and others a later one"),
+    "fpg_configuration": ("configuration", "FPG measures nitrogen limitation only, in the "
+                          "control's verified configuration"),
+}
+# codes with a part after the colon, its vocabulary read from domain_methods
+PARAMETERISED_WARNINGS = {
+    "reason": ("the reason's own words", "a cell outcome of a timing measure other than a "
+               "date, with its count of cells"),
+    "flag": ("the flag's name in words", "a quality flag beside a timing date, with its "
+             "count of cells")}
+
+
+def warning_vocabulary(kind: str) -> List[str]:
+    """The parts a parameterised code takes: the timing reasons (domain_methods.
+    REASONS, apart from "date", the outcome they stand beside) or the flags."""
+    M = _elm_modules()[2]
+    if kind == "reason":
+        return [k for k in M.REASONS if k != "date"]
+    if kind == "flag":
+        return list(M.FLAGS)
+    raise KeyError(kind)
+
+
+def warning_label(code: str) -> str:
+    """The words that carry a warning in a claim, from WARNINGS (or, for
+    reason:<x> and flag:<x>, from domain_methods). An unregistered code
+    raises KeyError: a warning the registry does not hold cannot be made."""
+    kind, _, x = str(code).partition(":")
+    if x:
+        if kind not in PARAMETERISED_WARNINGS or x not in warning_vocabulary(kind):
+            raise KeyError(code)
+        M = _elm_modules()[2]
+        return _short_reason(M.REASONS[x][1]) if kind == "reason" else x.replace("_", " ")
+    return WARNINGS[code][0]
+
+
+def warning_lines() -> List[str]:
+    """The registry as step 3's template shows it: every code, its words in
+    quotes and its meaning."""
+    L = ["THE WARNINGS a record can carry. A claim carries every warning of the records it",
+         "names: the code in \"warnings\", or the words in quotes in its own sentence.",
+         "Under each finding, its records list theirs."]
+    for code, (label, means) in WARNINGS.items():
+        L += _wrap(f"{code} (\"{label}\"): {means}", "  ", "      ")
+    for kind, (words, means) in PARAMETERISED_WARNINGS.items():
+        L += _wrap(f"{kind}:<x> ({words}): {means}; x is one of: "
+                   + ", ".join(warning_vocabulary(kind)), "  ", "      ")
+    return L
+
+
+def _wrap(text: str, first: str, rest: str) -> List[str]:
+    import textwrap
+    return textwrap.wrap(text, 79, initial_indent=first, subsequent_indent=rest,
+                         break_long_words=False, break_on_hyphens=False)
+
+
+@dataclass(frozen=True)
+class ReplyPart:
+    """One part of step 3's reply: its name, how the template shows it, and
+    what it means (shown in the template's rules)."""
+    name: str
+    shown: str
+    means: str
+
+
+CLAIM_PARTS = (
+    ReplyPart("claim", '"<one sentence>"', "the claim, one sentence"),
+    ReplyPart("finding_id", '"<the finding it rests on>"', "the finding the claim rests on"),
+    ReplyPart("values", "[<every MEASURED number this claim asserts, copied exactly from the "
+              "finding's result; NOT counts you made, NOT labels, NOT thresholds you chose; [] "
+              "if none>]", "each measured number it states, unrounded"),
+    ReplyPart("caveats", '["<ids of any blocking caveat this claim falls under>"]',
+              "the blocking caveats it falls under"),
+    ReplyPart("evidence", '["L7"]', "the evidence records it rests on, by id, as listed under "
+              "its finding; a claim with none fails"),
+    ReplyPart("evidence_class", " | ".join(f'"{c}"' for c in EVIDENCE_CLASSES),
+              "its evidence class, one of: " + ", ".join(EVIDENCE_CLASSES)),
+    ReplyPart("expectation", '"E1" | null', "for a tested expectation, the plan's expectation "
+              "it tests"),
+    ReplyPart("warnings", '["<every warning code its records carry>"]',
+              "every warning its records carry, by code; a claim that leaves one out fails"),
+)
+REPLY_PARTS = (
+    ReplyPart("claims", "[<the claims>]", "the claims"),
+    # THE HEADLINE IS A VERIFIED CLAIM'S OWN TEXT (the user's decision of
+    # 2026-11-08): step 3 ranks its claims, and the report's code takes the
+    # first that traced and that the question type allows (select_headline)
+    ReplyPart("headline_rank", "[<every claim's number once, 1 for the first claim; the one "
+              "that answers the question most directly first>]",
+              "the claims ranked for the headline: the report's headline is the text of the "
+              "first of them that traces and that the question type allows"),
+    ReplyPart("answer", '"<2-4 plain sentences: what was found, why, what it does not show; or '
+              'saying plainly that this experiment cannot answer it and why>"', "the answer"),
+    ReplyPart("verdict", '"sufficient" | "insufficient"', "the verdict"),
+    ReplyPart("feedback", '"<if insufficient: what step 2 should do differently; empty if '
+              'sufficient>"', "what step 2 should do differently"),
+    ReplyPart("open_causes", '[{"cause": "...", "proposed_run": {"changes": [{"id": "<a change '
+              'of the server\'s list>", "params": {...}}]}}]', "when a cause stays open, the "
+              "run that would settle it, in the server's change vocabulary"),
+)
+OPEN_CAUSE_PARTS = ("cause", "proposed_run", "changes", "id", "params")
+
+
+def claims_reply_lines() -> List[str]:
+    """Step 3's reply template for a study with a suite, rendered from
+    CLAIM_PARTS and REPLY_PARTS: every part check_claim, trace_evidence,
+    the audit and interpret read."""
+    L = ["Return ONLY JSON:", '{"claims": [']
+    for i, p in enumerate(CLAIM_PARTS):
+        lead = "    {" if i == 0 else "     "
+        tail = "}" if i == len(CLAIM_PARTS) - 1 else ","
+        L += _wrap(f'"{p.name}": {p.shown}{tail}', lead, "        ")
+    L.append("  ],")
+    rest = [p for p in REPLY_PARTS if p.name != "claims"]
+    for i, p in enumerate(rest):
+        L += _wrap(f'"{p.name}": {p.shown}' + ("}" if i == len(rest) - 1 else ","),
+                   "  ", "      ")
+    return L
+
+
+def across_record(res: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A timing record's range across settings, read from its flat result
+    (None when it has none): the flags, the spread and its limit, the
+    comparable cells, and the default, the smallest and the largest shift,
+    each with its setting."""
+    if not any(str(p).startswith(ACROSS) for p in res):
+        return None
+    g = lambda k: res.get(ACROSS + k)                               # noqa: E731
+    out: Dict[str, Any] = {
+        "range_required": g("range_required") is True,
+        "direction_reversal": g("direction_reversal") is True,
+        "spread_days": g("spread_days"), "limit_days": g("limit_days"),
+        "comparable_cells": g("comparable.cells"),
+        "comparable_area_share": g("comparable.area_share"), "why": g("why"),
+        "evaluated": [res[p] for p in sorted(
+            (p for p in res if re.fullmatch(r"across_settings\.evaluated\.\d+\.variant", p)),
+            key=lambda p: int(p.split(".")[2]))]}
+    for part in _RANGE_PART_WORDS:
+        if g(f"{part}.variant") is not None:
+            out[part] = {"variant": g(f"{part}.variant"), "median_shift": g(f"{part}.median_shift")}
+    return out
+
+
+def _setting_named(variant: str, low: str, nums: List[float]) -> bool:
+    """Whether a claim names a setting: the default by the word "default";
+    an alternative by its label ("fraction=0.3") or by its setting's first
+    word and its value ("fraction 0.3")."""
+    if variant == "default":
+        return "default" in low
+    if variant.lower() in low:
+        return True
+    name, _, val = variant.partition("=")
+    try:
+        x = float(val)
+    except ValueError:
+        return val.lower() in low
+    return name.split("_")[0].lower() in low and \
+        any(abs(n - x) <= 1e-12 * max(1.0, abs(x)) for n in nums)
+
+
+def range_problems(text: str, r: Dict[str, Any], paths: List[str]) -> List[str]:
+    """The range rule for one record: a claim giving a shift of a record
+    whose range across settings exceeds its limit states the default, the
+    smallest and the largest shift, each with its setting."""
+    a = r.get("across_settings")
+    if not a or not a.get("range_required") or not any(_SHIFT_VALUE.match(p) for p in paths):
+        return []
+    low = str(text or "").lower()
+    words = _number_words(text)
+    nums = [float(w) for w, _, _ in words]
+    lack = []
+    for part, said in _RANGE_PART_WORDS.items():
+        e = a.get(part) or {}
+        x = e.get("median_shift")
+        if not _fin(x):
+            continue
+        stated = any(abs(abs(float(w)) - abs(x)) <= _half_unit(w) + 1e-9 for w, _, _ in words)
+        if not (stated and _setting_named(str(e.get("variant")), low, nums)):
+            lack.append(f"{said}, {x:.3g} days at {e.get('variant')}")
+    if not lack:
+        return []
+    return [f"its record {r['id']}'s shift moves by {a['spread_days']:.3g} days across the "
+            f"settings, more than {a['limit_days']:g}: a claim giving the shift states the "
+            f"default, the smallest and the largest shift, each with its setting; it lacks "
+            + "; ".join(lack)]
+
+
+def _screen_rows(res: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """The screen's rows by their path ("rows.3", "display.groups.snow.0",
+    "display.not_scored.1", "display.events.0")."""
+    rows: Dict[str, Dict[str, Any]] = {}
+    for p, v in res.items():
+        m = re.match(r"^(rows\.\d+|display\.(?:groups\.[^.]+|not_scored|events)\.\d+)\.(\w+)$", p)
+        if m:
+            rows.setdefault(m.group(1), {})[m.group(2)] = v
+    return rows
+
+
+def row_warnings(rec: Dict[str, Any], row: Dict[str, Any], where: str) -> List[Dict[str, Any]]:
+    """A screen row's own warnings: its status when it has no score, a
+    near-constant normal, not scored, and its event mark."""
+    W = []
+    st = row.get("status")
+    if st in _SCREEN_STATUS:
+        W.append(_warn(rec, _SCREEN_STATUS[st][0], f"{row.get('field')} {row.get('period')}: "
+                                                   f"{st}"))
+    if row.get("near_constant") is True and st != "near-constant normal":
+        W.append(_warn(rec, "near_constant",
+                       f"{row.get('field')} {row.get('period')}: near-constant normal"))
+    if row.get("label") == "not scored" and st != "not scored yet":
+        W.append(_warn(rec, "not_scored_yet",
+                       f"{row.get('field')} {row.get('period')}: not scored yet"))
+    if row.get("mark") not in (None, ""):
+        W.append(_warn(rec, "event_mark",
+                       f"{row.get('field')} {row.get('period')}: marked {row.get('mark')}"))
+    if row.get("field") == "FPG":
+        W.append(_warn(rec, "fpg_configuration",
+                       "FPG measures nitrogen limitation only; see the field note and the "
+                       "catalog's line on the control's verified configuration"))
+    return W
+
+
+def _sensitivity_rows(rec: Dict[str, Any], res: Dict[str, Any]) -> Dict[str, List[Dict]]:
+    """A timing record's comparisons between settings ("sensitivity.0"): the
+    change of date is on the cells with a date under both settings, and beside
+    it stands the change of eligibility, a warning when any cell has a date
+    under one setting only or neither."""
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for p, v in res.items():
+        m = re.match(r"^(sensitivity\.\d+)\.eligible\.(\w+)\.cells$", p)
+        if m and m.group(2) != "both" and _fin(v) and v > 0:
+            parts = sorted({q.split(".")[3] for q in res if q.startswith(m.group(1)
+                                                                          + ".eligible.")})
+            out[m.group(1)] = [_warn(rec, "eligibility", "the change of date between "
+                                     "settings is on the cells dated under both; " + "; ".join(
+                                         f"{q.replace('_', ' ')} "
+                                         f"{res.get(m.group(1) + '.eligible.' + q + '.cells')} "
+                                         f"cells" for q in parts))]
+    return out
+
+
+# FULL DERIVED-RESULT PROVENANCE (the user's decision of 2026-11-08): an
+# overlap or an elevation split names its maps only by their hashes, so its
+# record named no year and no season, and question 2's "the snow and
+# carbon-uptake changes of 2022" and question 3's "JJA" failed although their
+# maps were 2022's and June-August's. Each input is now found, by its hash,
+# among the answered lookups before it (as the numbers check finds it), and
+# the record names that input's record, call, field, period and region. The
+# record inherits its inputs' years and seasons, and an elevation split its
+# input's field (the field of its parts' values, for its units and percent
+# rule); never a region: its own region and parts are all a claim may name.
+_DERIVED = {"overlap": ("a", "b"), "elevation_split": ("x",)}
+
+
+def derived_inputs(log: List[Dict[str, Any]], i: int) -> List[Dict[str, Any]]:
+    """The records the overlap or elevation split on line i was made from,
+    in the order the call took them; a map no logged lookup returned (one a
+    script made by its own arithmetic) is named as such."""
+    ln = log[i - 1]
+    keys = ln.get("keys") or {}
+    out = []
+    for role in _DERIVED.get(ln.get("call"), ()):
+        sha, src = keys.get(role), None
+        for j in range(i - 1, 0, -1):
+            s_ = log[j - 1]
+            if "sha256" not in s_ or s_.get("refused") or s_.get("failed"):
+                continue
+            if s_.get("call") == "get_map" and s_.get("sha256") == sha:
+                src = (j, None)
+                break
+            hit = next((p for p, h in (s_.get("arrays") or {}).items()
+                        if h == sha and s_.get("call") in ("anomaly", "difference")), None)
+            if hit:
+                src = (j, hit)
+                break
+        if src is None:
+            out.append({"role": role, "record": None,
+                        "why": "no logged lookup returned this map: a map a script made by "
+                               "its own arithmetic"})
+            continue
+        j, path = src
+        k = log[j - 1].get("keys") or {}
+        out.append({"role": role, "record": f"L{j}", "call": log[j - 1].get("call"),
+                    "path": path, "field": k.get("field"),
+                    "period": None if k.get("period") is None else str(k.get("period")),
+                    "region": k.get("region"), "run": k.get("run") or "control"})
+    return out
+
+
+# A QUANTITY THAT DEFINES A FIELD IS NO VALUE (2026-11-08, after the third
+# batch, "typed quantity rules"): question 2's "summer water in the top 10 cm
+# of soil" failed because "10 cm" was read as a measured number. It is the
+# depth that defines SOILWATER_10CM ("liquid water and ice in the top 10 cm
+# of soil"). A field's defining quantities, a length or depth with its unit,
+# are read from its note's meaning and its code ("_10CM"), and a claim's
+# number with that same unit is the field's label; a "10 mm" or a "10 cm"
+# about another field is still a value to trace.
+_LENGTH_UNITS = ("mm", "cm", "m", "km")
+
+
+def field_quantities(field: Optional[str], notes: Dict[str, Any]) -> List[Tuple[float, str]]:
+    """(value, unit) the definition of a field gives: its code's trailing
+    length ("TSOI_10CM": 10 cm) and each length its note's meaning states."""
+    out: List[Tuple[float, str]] = []
+    if not field:
+        return out
+    m = re.search(r"_(\d+(?:\.\d+)?)(MM|CM|KM|M)$", str(field))
+    if m:
+        out.append((float(m.group(1)), m.group(2).lower()))
+    for w, unit, _ in _number_words(str((notes.get(field) or {}).get("meaning") or "")):
+        if unit in _LENGTH_UNITS and (float(w), unit) not in out:
+            out.append((float(w), unit))
+    return out
+
+
+# ... AND ONLY WHERE THE CLAIM WRITES IT AS THE FIELD'S DEFINITION DOES (the
+# user's decision of 2026-11-08, closing the false acceptance): "the top 10 cm
+# of soil" names SOILWATER_10CM's layer, but "the soil water rose 10 cm" states
+# an amount and must match a value. A defining length is its field's label
+# only after the word the note's meaning puts before it ("top 10 cm", "at 2
+# m"), before the "of" phrase that follows it there ("10 cm of soil"), or
+# directly before a word the definition gives the field ("10 cm soil
+# temperature", "2 m air temperature", "10-cm soil water").
+_LENGTH_IN = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*-?\s*(mm|cm|km|m)\b")
+_LABEL_STOP = frozenset(("the", "a", "an", "of", "in", "at", "and", "or", "from", "to", "on",
+                         "for", "with", "by", "only", "each", "its", "per", "as")
+                        + _LENGTH_UNITS)
+
+
+def _words(text: str) -> List[str]:
+    return [w.lower() for w in re.findall(r"[A-Za-z]+", str(text or ""))]
+
+
+def field_labels(field: Optional[str], notes: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Each length that defines a field (field_quantities), with what makes a
+    claim's mention of it the field's label: the word before it in the note's
+    meaning ("before"), the "of" phrase after it ("after"), and the words of
+    the definition a length may modify ("words": the first word of the
+    field's plain name and the content words after the length)."""
+    meaning = str(((notes or {}).get(field) or {}).get("meaning") or "") if field else ""
+    head = _words(_plain_name(meaning))[:1]
+    out = []
+    for value, unit in field_quantities(field, notes or {}):
+        before, after, words = set(), set(), set(head) - _LABEL_STOP
+        for m in _LENGTH_IN.finditer(meaning):
+            if float(m.group(1)) != value or m.group(2) != unit:
+                continue
+            pre, post = _words(meaning[:m.start()]), _words(meaning[m.end():])
+            if pre:
+                before.add(pre[-1])
+            if len(post) >= 2 and post[0] == "of":
+                after.add(f"of {post[1]}")
+            words |= set(post) - _LABEL_STOP
+        out.append({"value": value, "unit": unit, "before": sorted(before),
+                    "after": sorted(after), "words": sorted(words)})
+    return out
+
+
+def written_as_label(text: str, end: int, x: float, lab: Dict[str, Any]) -> bool:
+    """Whether the number ending at `end` in `text` is `lab`'s defining
+    length (field_labels), written as its field's definition writes it."""
+    t = str(text or "")
+    m = re.match(r"\s*-?\s*(mm|cm|km|m)\b", t[end:])
+    if abs(x) != lab.get("value") or not m or m.group(1) != lab.get("unit"):
+        return False
+    j = end
+    while j > 0 and (t[j - 1].isdigit() or t[j - 1] in ".,"):
+        j -= 1
+    pre, post = _words(t[:j]), _words(t[end + m.end():])
+    return bool(pre and pre[-1] in (lab.get("before") or ())) or \
+        bool(len(post) >= 2 and f"{post[0]} {post[1]}" in (lab.get("after") or ())) or \
+        bool(post and post[0] in (lab.get("words") or ()))
+
+
+def evidence_records(analysis_dir, notes=None) -> Dict[str, Dict[str, Any]]:
+    """Every answered lookup of 04_analysis/lookups.jsonl as an evidence
+    record, by its line ("L1" is the first line). Refused or failed calls and
+    the four calls that read no outcome are not evidence."""
+    AP, DCAT, M = _elm_modules()
+    notes = notes if notes is not None else DCAT.load_notes()
+    out: Dict[str, Dict[str, Any]] = {}
+    # MADE AFTER THE CLOSE (the user's decision on G part 2, 2026-11-08): by
+    # the gate's mark, or by its line, after the lines the close counted, so
+    # a line logged without the mark is still read as after the close
+    phase = AP.load_planned_phase(analysis_dir)
+    before = phase.get("lookups_before") if phase else None
+    log = _read_log(analysis_dir)
+    for i, ln in enumerate(log, 1):
+        if "sha256" not in ln or ln.get("support") or ln.get("refused") or ln.get("failed"):
+            continue
+        k = ln.get("keys") or {}
+        res = ln.get("result") or {}
+        call = ln.get("call")
+        measure = k.get("measure") or (call if call in M.TIMING_IDS else None)
+        period = k.get("period") if k.get("period") is not None else k.get("year")
+        rec = {"id": f"L{i}", "lookup": i, "sha256": ln["sha256"], "at": ln.get("at"),
+               "script": ln.get("script"), "call": call, "method": ln.get("method"),
+               "measure": measure, "keys": k, "settings": ln.get("settings"),
+               "run": k.get("run") or "control", "field": k.get("field") or res.get("field"),
+               "period": None if period is None else str(period),
+               "region": k.get("region") or res.get("region"), "step": k.get("step"),
+               "planned": ln.get("planned"), "plan_items": ln.get("plan_items") or [],
+               "amendment": ln.get("amendment"), "label": ln.get("label"),
+               "after_screen": ln.get("after_screen"),
+               "after_close": ln.get("after_close") is True or (
+                   isinstance(before, int) and i > before),
+               "values": {p: v for p, v in res.items() if _fin(v)},
+               "words": {p: v for p, v in res.items() if isinstance(v, str)}}
+        if call in _DERIVED:
+            rec["inputs"] = derived_inputs(log, i)
+            rec["fields"] = [x["field"] for x in rec["inputs"] if x.get("field")]
+            if call == "elevation_split" and not rec.get("field") and rec["fields"]:
+                rec["field"] = rec["fields"][0]
+        rec["comparison"] = _comparison(rec, res)
+        rec["support"] = _support(res)
+        rec["across_settings"] = across_record(res) if measure else None
+        if call == "screen":
+            rec["screen_csv"] = ln.get("screen_csv")       # the whole table, beside the log
+        rec["warnings"] = record_warnings(rec, res, notes)
+        rows = _screen_rows(res) if call == "screen" else {}
+        rec["rows"] = rows
+        rec["row_warnings"] = {w: row_warnings(rec, r, w) for w, r in rows.items()}
+        if measure:
+            rec["row_warnings"].update(_sensitivity_rows(rec, res))
+        nm = _names(rec, res)
+        for x in rec.get("inputs") or []:             # a derived record's inputs' periods
+            if x.get("period"):
+                sub = _names({"period": x["period"], "step": None}, {})
+                nm["years"] |= sub["years"]
+                nm["periods"] |= sub["periods"]
+        rec["names"] = {"years": sorted(nm["years"]), "periods": sorted(nm["periods"])}
+        pc = (notes.get(rec["field"]) or {}).get("percent") if rec.get("field") else None
+        rec["field_quantities"] = sorted({q for f in [rec.get("field")] + list(
+            rec.get("fields") or []) for q in field_quantities(f, notes)})
+        rec["field_labels"] = [lab for f in dict.fromkeys([rec.get("field")] + list(
+            rec.get("fields") or [])) if f for lab in field_labels(f, notes)]
+        rec["percent_allowed"] = None if not isinstance(pc, dict) else bool(pc.get("allowed"))
+        rec["percent_why_not"] = None if not isinstance(pc, dict) else pc.get("why")
+        out[rec["id"]] = rec
+    return out
+
+
+def lookups_since(analysis_dir, n_before: int) -> List[Dict[str, Any]]:
+    """The evidence records of the lookups logged after line n_before (one
+    figure's), compactly, for the finding step 3 reads: the id a claim names,
+    the call and keys, planned or not, its label, and its warnings."""
+    recs = evidence_records(analysis_dir)
+    return [{"id": r["id"], "call": r["call"], "method": r.get("method"),
+             "keys": r.get("keys"), "planned": r.get("planned"), "label": r.get("label"),
+             "amendment": r.get("amendment"), "after_close": r.get("after_close"),
+             "warnings": [{"code": w["code"], "label": w["label"]} for w in r["warnings"]],
+             "row_warnings": {k: [w["code"] for w in v]
+                              for k, v in r["row_warnings"].items() if v}}
+            for r in recs.values() if r["lookup"] > n_before]
+
+
+def study_runs(study_dir) -> Dict[str, Dict[str, Any]]:
+    """Each experiment run of a study: its changes in the server's words and
+    whether the server's checks confirm it differs from the control by them
+    alone (every stage of its chain checked and passed: the case's settings
+    against the control's, the smoke run, each year's start from the
+    control's state)."""
+    import json
+    from pathlib import Path
+    p = Path(str(study_dir)) / "experiment.json"
+    e = json.loads(p.read_text()) if p.is_file() else {}
+    chain = (e.get("chain") or {}).get("runs") or {}
+    out = {}
+    for r in (e.get("experiment") or {}).get("runs") or []:
+        name = str((r or {}).get("run") or (r or {}).get("name") or "")
+        if not name or name == "control":
+            continue
+        st = [s for s in ((chain.get(name) or {}).get("stages") or [])
+              if s.get("check_pass") is not None]
+        ok = bool(st) and all(s.get("check_pass") is True for s in st) and \
+            any(s.get("stage") == "case" for s in st)
+        out[name] = {"changes": [c for c in r.get("changes") or [] if isinstance(c, dict)],
+                     "verified": ok,
+                     "why": ("the server's checks of the case, the smoke run and every year "
+                             "passed" if ok else "the server's checks do not confirm that "
+                             "nothing else differs (a stage unchecked, failed or missing)")}
+    return out
+
+
+def _region_heads(text: str, regions) -> Tuple[set, set]:
+    """The regions a text names: their heads ('watershed') and the bands it
+    names by both edges ('watershed, 1500-2000 m')."""
+    low = str(text or "").lower()
+    nums = {float(w.replace(",", "")) for w in _NUMBER.findall(str(text or ""))}
+    heads, bands = set(), set()
+    for r in regions or []:
+        h, b = _head_band(r)
+        named = (any(w in low for w in _ALL_CELLS) if h == "vegetated cells"
+                 else _short(h).replace("_", " ").lower() in low)
+        if not named:
+            continue
+        if b:
+            if all(e in nums for e in _band_edges(b)):
+                bands.add(r)
+        else:
+            heads.add(_short(h))
+    return heads, bands
+
+
+def _label_numbers(recs, runs, plan) -> set:
+    """Numbers a claim may print as labels, not values: its records' keys and
+    settings, years and counts of the comparison, the settings of the runs its
+    records read (the '2 K' of a warming), and the band edges of regions."""
+    out = set()
+
+    def add(x):
+        if isinstance(x, dict):
+            for v in x.values():
+                add(v)
+        elif isinstance(x, (list, tuple)):
+            for v in x:
+                add(v)
+        elif _fin(x):
+            out.add(float(x))
+        elif isinstance(x, str):
+            out.update(float(w.replace(",", "")) for w in _NUMBER.findall(x))
+    for r in recs:
+        add(r.get("keys"))
+        add(r.get("settings"))
+        add(r.get("comparison"))
+        for p, v in r["values"].items():
+            if p.rsplit(".", 1)[-1] in _LABEL_KEYS or ".settings." in "." + p:
+                add(v)
+        for run in {r.get("run"), (r.get("keys") or {}).get("run")} - {None, "control"}:
+            add([c.get("params") for c in (runs.get(run) or {}).get("changes") or []])
+        add([part for kind, part in _split_parts(r) if kind != "other_regions"])  # band edges
+    return out
+
+
+def _split_parts(r: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """(kind, name) of each part a record's result is split into: an
+    elevation split's bands (parts) and other regions, an overlap's bands."""
+    out = set()
+    for p in list(r.get("values") or {}) + list(r.get("words") or {}):
+        m = re.match(r"(parts|by_band|other_regions)\.([^.]+)\.", p)
+        if m:
+            out.add((m.group(1), m.group(2)))
+    return sorted(out)
+
+
+# A PERCENT OF A SHARE (the user's decision of 2026-11-08, "typed quantity
+# rules"): step 3's own rule says a percent is a value times 100, and its
+# audit accepts that, but the trace did not, so question 3's "55.6 percent"
+# of a band share of 0.5557 failed. A percent figure may now be a record's
+# value times 100 only when that value is a share (its path names one); no
+# other value is read that way, and a share's percent is no percent change
+# of a field, so the field's percent rule does not reach it.
+_SHARE_PATH = re.compile(r"(?:^|\.)(?:\w*share|sign_shares\.\w+)$")
+
+
+def share_matches(x: float, printed: Optional[str], recs) -> List[Tuple[Dict[str, Any], str]]:
+    """The records' share values a printed percent states, times 100."""
+    tol = _half_unit(printed) if printed else 0.0
+    hits = []
+    for r in recs:
+        for p, v in r["values"].items():
+            if _SHARE_PATH.search(p) and \
+                    abs(abs(x) - abs(v) * 100.0) <= tol + 1e-9 * max(1.0, abs(v) * 100.0):
+                hits.append((r, p))
+    return hits
+
+
+def _matches(v: float, printed: Optional[str], recs) -> List[Tuple[Dict[str, Any], str]]:
+    tol = _half_unit(printed) if printed else 0.0
+    hits = []
+    for r in recs:
+        for p, x in r["values"].items():
+            if abs(abs(v) - abs(x)) <= tol + 1e-9 * max(1.0, abs(x)):
+                hits.append((r, p))
+    return hits
+
+
+def _number_words(text: str) -> List[Tuple[str, Optional[str], int]]:
+    """The numbers a text prints, with the unit after each; a unit's own
+    exponent ('m^2', 'm-2', 's-1') is not a number."""
+    t = re.sub(r"\^-?\d+|(?<=[A-Za-z])-\d+\b", lambda m: " " * len(m.group(0)),
+               str(text or ""))
+    return [(m.group(0).replace(",", ""), unit_after(t, m.end()), m.end())
+            for m in _NUMBER.finditer(t)]
+
+
+# A PERCENT ONLY WHERE THE FIELD'S NOTES ALLOW ONE, judged by one helper for
+# the trace (check_claim) and for step 3's own audit (the user's decision on G
+# part 2, 2026-11-08): question 1's audit kept "BTRAN 20.2 percent lower",
+# a percent the field's notes give none, made by the script's own arithmetic.
+def _plain_name(meaning: str) -> str:
+    """A field's plain name, the head of its note's meaning: "relative
+    humidity" of "relative humidity at 2 m, from the land model"."""
+    return re.split(r":|,| \(| at | from | in each | in the top ", str(meaning or ""), 1)[0] \
+        .strip().lower()
+
+
+def field_mentions(text: str, notes: Dict[str, Any]) -> Dict[str, List[int]]:
+    """{field: where in `text` each mention of it ends}: by its code
+    ("BTRAN", case kept) or by its note's plain name ("relative humidity")."""
+    t = str(text or "")
+    low = t.lower()
+    out: Dict[str, int] = {}
+    for f, n in (notes or {}).items():
+        hits = [m.end() for m in re.finditer(rf"\b{re.escape(f)}\b", t)]
+        name = _plain_name((n or {}).get("meaning"))
+        if len(name) > 2:
+            hits += [m.end() for m in re.finditer(rf"\b{re.escape(name)}\b", low)]
+        if hits:
+            out[f] = hits
+    return out
+
+
+def percent_problems(text: str, records) -> List[str]:
+    """The percent rule: a claim whose text gives a percent fails when a
+    record it is judged on reads a field whose notes give no percent. One
+    problem, naming the field the percent stands nearest after (by code or
+    plain name), else the first such record's."""
+    # a percent of a share (share_matches) is typed as a share, never a
+    # percent change of a field: only the other percents meet the rule
+    t = str(text or "")
+    own = [m for m in _PERCENT.finditer(t)
+           if not share_matches(float(re.match(r"-?\d+(?:\.\d+)?", m.group(0)).group(0)),
+                                re.match(r"-?\d+(?:\.\d+)?", m.group(0)).group(0),
+                                records or [])]
+    if not own:
+        return []
+    bad = [r for r in records or [] if r.get("percent_allowed") is False]
+    if not bad:
+        return []
+    at = own[0].start()
+    pick = bad[0]
+    try:
+        DCAT = _elm_modules()[1]
+        seen = field_mentions(str(text)[:at], DCAT.load_notes())
+        named = [r for r in bad if r.get("field") in seen]
+        if named:
+            pick = max(named, key=lambda r: max(seen[r["field"]]))
+    except Exception:                                               # noqa: BLE001
+        pass
+    return [f"a percent of {pick['field']}, whose notes give none: "
+            f"{pick.get('percent_why_not')}"]
+
+
+def check_claim(c: Dict[str, Any], records: Dict[str, Dict[str, Any]], plan: Dict[str, Any],
+                runs: Dict[str, Dict[str, Any]], regions) -> Dict[str, Any]:
+    """One claim against its evidence records: the problems, the warnings its
+    records carry, and its class's wording."""
+    AP = _elm_modules()[0]
+    text = str(c.get("claim") or "")
+    low = text.lower()
+    probs: List[str] = []
+    ids = [str(x) for x in (c.get("evidence") or [])]
+    recs = [records[i] for i in ids if i in records]
+    for i in ids:
+        if i not in records:
+            probs.append(f"no record: it names {i}, which is no answered lookup of "
+                         f"{LOOKUPS_LOG}")
+    if not ids:
+        probs.append("no record: every empirical claim names the logged lookup it rests on")
+    cls = c.get("evidence_class")
+    out = {"records": ids, "class": cls, "warnings": [], "problems": probs,
+           "wording_allowed": CLASS_WORDING.get(cls)}
+    if not recs:
+        return out
+    # THE NUMBERS: each value it gives and each number its text prints is a
+    # value of its records (to the precision printed), a year, or a label
+    labels = _label_numbers(recs, runs, plan)
+    years_all = {int(y) for r in recs for y in r["names"]["years"]} | \
+        {int(y) for y in years_named(text)}
+    matched: List[Tuple[Dict[str, Any], str]] = []
+    for v in c.get("values") or []:
+        if not _fin(v):
+            continue
+        if float(v).is_integer() and int(v) in years_all and _is_year_value(v, text, years_all):
+            continue
+        pr = next((w for w, _, _ in _number_words(text)
+                   if abs(abs(float(w)) - abs(v)) <= _half_unit(w) + 1e-12), None)
+        hits = _matches(float(v), pr, recs)
+        if not hits and pr is not None and \
+                any(w == pr and u == "percent" for w, u, _ in _number_words(text)):
+            hits = share_matches(float(v), pr, recs)
+        if not hits:
+            probs.append(f"the number {v} matches no value of its records "
+                         f"({', '.join(r['id'] for r in recs)})")
+        matched += hits
+    for w, unit, end in _number_words(text):
+        x = float(w)
+        if _is_year(w.lstrip("-"), unit, {int(y) for y in years_all}):
+            continue
+        hits = _matches(x, w, recs) or (share_matches(x, w, recs) if unit == "percent" else [])
+        if hits:
+            matched += hits
+            continue
+        if abs(x) in labels or x in labels or any(
+                written_as_label(text, end, x, lab) for r in recs
+                for lab in r.get("field_labels") or []):
+            continue
+        probs.append(f"the number {w}{(' ' + unit) if unit else ''} matches no value of its "
+                     f"records ({', '.join(r['id'] for r in recs)})")
+    # THE PERIODS AND REGIONS IT NAMES: only those its records name
+    ny = set().union(*(set(r["names"]["years"]) for r in recs))
+    npd = set().union(*({tuple(p) for p in r["names"]["periods"]} for r in recs))
+    for y in sorted(years_named(text) - ny):
+        probs.append(f"it names {y}, which none of its records names")
+    for kind, lab in sorted(named_periods(text) - npd):
+        word = MONTHS[int(lab) - 1] if kind == "month" else lab
+        probs.append(f"it names {word}, which none of its records names")
+    heads, bands = _region_heads(text, regions)
+    rh = {_short(_head_band(r.get("region") or "")[0]) for r in recs if r.get("region")}
+    rr = {r.get("region") for r in recs}
+    # A RECORD NAMES THE PARTS IT IS SPLIT INTO (package F2, 2026-11-05): an
+    # elevation split's bands and other regions, an overlap's bands, each
+    # within the record's own region, so a band's share can name its band
+    for r in recs:
+        for kind, part in _split_parts(r):
+            if kind == "other_regions":
+                rh.add(_short(_head_band(re.sub(r"^not ", "", part))[0]))
+            elif r.get("region"):
+                rr.add(f"{r['region']}, {part}")
+    for h in sorted(heads - rh):
+        probs.append(f"it names the region {h!r}, which none of its records names")
+    for b in sorted(bands - rr):
+        probs.append(f"it names the band {b!r}, which none of its records names")
+    # THE CLASS
+    if cls not in EVIDENCE_CLASSES:
+        probs.append(f"no evidence class: one of {', '.join(EVIDENCE_CLASSES)}")
+    elif cls == "tested expectation":
+        exps = {e.get("id"): e for e in plan.get("expectations") or [] if isinstance(e, dict)}
+        e = exps.get(c.get("expectation"))
+        if plan.get("question_type") != "hypothesis":
+            probs.append("a tested expectation needs a hypothesis question")
+        if e is None:
+            probs.append(f"a tested expectation names the plan's expectation it tests "
+                         f"(the plan's: {sorted(x for x in exps if x) or 'none'})")
+        elif not any(e.get("analysis") in r["plan_items"] for r in recs):
+            probs.append(f"the expectation {e.get('id')} is of the plan's analysis "
+                         f"{e.get('analysis')}, which none of its records carries out")
+        for r in recs:
+            if r.get("label") == AP.SCREENING_LABEL:
+                probs.append(f"{r['id']} was {AP.SCREENING_LABEL}: never a tested expectation")
+            # MADE AFTER THE CLOSE (the user's decision on G part 2, 2026-11-08),
+            # checked in its own right, not only through "not planned"
+            if r.get("after_close"):
+                probs.append(f"{r['id']} was made after the planned analyses were closed "
+                             f"({AP.PLANNED_PHASE_FILE}): never a tested expectation")
+            if r.get("amendment") or (r.get("planned") is not True
+                                      and r.get("label") != AP.SCREENING_LABEL):
+                probs.append(f"{r['id']} is not planned"
+                             + (f" (amendment {r['amendment']})" if r.get("amendment") else "")
+                             + ": never a tested expectation")
+    elif cls == "association":
+        if not any(r["call"] == "overlap" for r in recs):
+            probs.append("an association rests on an overlap (a correlation or a quarter "
+                         "split), and none of its records is one")
+    elif cls == "in-model attribution":
+        ok = []
+        for r in recs:
+            if r["call"] != "difference":
+                continue
+            run = runs.get((r.get("keys") or {}).get("run") or r["run"]) or {}
+            if len(run.get("changes") or []) == 1 and run.get("verified"):
+                ok.append(r)
+        if not ok:
+            why = "; ".join(f"{n}: {len(x.get('changes') or [])} change(s), {x.get('why')}"
+                            for n, x in sorted(runs.items())) or "the study has no run"
+            probs.append("in-model attribution needs a difference from a run that differs "
+                         "from the control by one named change, confirmed by the server's "
+                         f"checks ({why})")
+    # THE WORDING ITS CLASS ALLOWS
+    if _CAUSED_BY.search(text):
+        probs.append(f"\"{_CAUSED_BY.search(text).group(0)}\" names a cause: no claim names a "
+                     f"real-world cause, and in-model attribution says \"{IN_MODEL_WORDS}\"")
+    else:
+        rest = (re.sub(re.escape(IN_MODEL_WORDS), " ", text, flags=re.I)
+                if cls == "in-model attribution" else text)
+        m = _CAUSAL.search(rest)
+        if m:
+            probs.append(f"the causal word \"{m.group(0)}\" goes beyond "
+                         f"{cls or 'its evidence'}: "
+                         + (CLASS_WORDING.get(cls) or "\"consistent with\""))
+    if _BANNED.search(text):
+        probs.append(f"\"{_BANNED.search(text).group(0)}\" is a banned word")
+    # A PERCENT ONLY WHERE THE FIELD'S NOTES ALLOW ONE (percent_problems, the
+    # same helper step 3's audit applies)
+    probs += percent_problems(text, recs)
+    # THE RANGE ACROSS SETTINGS (G part 1 decisions, 2026-11-08): a shift of a
+    # record whose range across settings exceeds 7 days comes with the
+    # default, the smallest and the largest shift, each with its setting
+    for r in recs:
+        probs += range_problems(text, r, [p for rr_, p in matched if rr_ is r])
+    # THE WARNINGS ITS RECORDS CARRY, each carried by the claim
+    req: List[Dict[str, Any]] = []
+    for r in recs:
+        req += r["warnings"]
+        # a row's own warnings (a screen row, a comparison between settings)
+        # when the claim states one of its values
+        mine = [p for rr_, p in matched if rr_ is r]
+        for w in sorted(r["row_warnings"]):
+            if any(p.startswith(w + ".") for p in mine):
+                req += r["row_warnings"][w]
+    seen, keep = set(), []
+    for w in req:
+        if (w["code"], w["record"], w["reason"]) not in seen:
+            seen.add((w["code"], w["record"], w["reason"]))
+            keep.append(w)
+    out["warnings"] = keep
+    carried = {str(x) for x in (c.get("warnings") or [])}
+    for w in keep:
+        if w["code"] not in carried and w["label"].lower() not in low:
+            probs.append(f"it leaves out the warning \"{w['label']}\" ({w['code']}) its record "
+                         f"{w['record']} carries: {w['reason']}")
+    out["matched"] = sorted({f"{r['id']}:{p}" for r, p in matched})
+    return out
+
+
+def run_lines() -> List[str]:
+    """THE RUNS THE SERVER CAN MAKE, from its own list (domain_changes, the
+    list check_proposals resolves against; 2026-11-08): question 3 of G part
+    2's run again proposed "snow_water_initial_increase", a run step 3 had no
+    way to know was not on it. Each change by id, its summary, whether it is
+    available, and its parameters with their kinds and ranges."""
+    _elm_modules()
+    import domain_changes as DCH                                    # noqa: N812
+    L = ["THE RUNS THE SERVER CAN MAKE. An open cause's \"proposed_run\" names changes "
+         "from this list only, by id, with its params; any other is refused:"]
+    for c in DCH.declare()["changes"]:
+        # EACH PARAMETER'S FORM, from the server's own definition beside its
+        # check (domain_changes.param_form, 2026-11-08), and what it does
+        ps = [f"{name}: {DCH.param_form(spec)}" + (f" ({spec['what']})" if spec.get("what")
+                                                   else "")
+              for name, spec in (c.get("params") or {}).items()]
+        req = c.get("requires")
+        req = "; ".join(map(str, req)) if isinstance(req, (list, tuple)) else req
+        avail = "" if c.get("available", True) else f" NOT AVAILABLE ({req or 'not built'})"
+        L += _wrap(f"{c['id']}{avail}: {c.get('summary') or c.get('meaning')}"
+                   + (f"; params: {'; '.join(ps)}" if ps else "; no params"), "  - ", "      ")
+    return L
+
+
+def expectation_lines(plan: Dict[str, Any], records: Dict[str, Dict[str, Any]]) -> List[str]:
+    """THE PLAN'S EXPECTATIONS, for step 3's brief (2026-11-08): question 3
+    of G part 2's run again classed no claim as a tested expectation, and
+    step 3 had never been shown the plan's expectations. Each by id, with its
+    analysis, field, direction and words, and the planned records made
+    before the close that carry out its analysis. [] for a plan with none."""
+    exps = [e for e in plan.get("expectations") or [] if isinstance(e, dict)]
+    if not exps:
+        return []
+    L = ["", "THE PLAN'S EXPECTATIONS, stated before any result was seen. A tested claim names "
+         "one in \"expectation\", is classed \"tested expectation\", and rests on planned "
+         "records of that expectation's analysis made before the close:"]
+    for e in exps:
+        ids = [r["id"] for r in records.values()
+               if e.get("analysis") in (r.get("plan_items") or []) and r.get("planned") is True
+               and not r.get("after_close")]
+        L += _wrap(f"{e.get('id')} (analysis {e.get('analysis')}, field {e.get('field')}, "
+                   f"expected {e.get('sign')}): {e.get('text')}", "    ", "        ")
+        L += _wrap("records carrying out its analysis: " + (", ".join(ids) or "none"),
+                   "        ", "            ")
+    return L
+
+
+def check_proposals(open_causes) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Each open cause's proposed run, resolved by the server's change
+    vocabulary (domain_changes.resolve): its changes with what each means."""
+    _elm_modules()
+    import domain_changes as DCH                                    # noqa: N812
+    out, probs = [], []
+    # A RUN ON THE LIST, PROPOSED WRONGLY, IS SAID SO (2026-11-08): question 3's
+    # weather_scale with months "6,7,8" was refused as "not a run the server
+    # can make", which it is; its months were not in the form the server checks
+    known = {x.get("id") for x in DCH.declare()["changes"]}
+    for i, oc in enumerate(open_causes or [], 1):
+        ch = ((oc or {}).get("proposed_run") or {}).get("changes") or []
+        res = {"cause": (oc or {}).get("cause") or (oc or {}).get("question"), "changes": []}
+        if not ch:
+            probs.append(f"open cause {i} proposes no run in the server's change vocabulary")
+        for c in ch:
+            try:
+                r = DCH.resolve({"id": c.get("id"), "params": c.get("params") or {}})
+                res["changes"].append({k: r[k] for k in ("id", "params", "meaning",
+                                                         "not_meaning")})
+            except Exception as e:                              # noqa: BLE001
+                probs.append(f"open cause {i}: {c.get('id')!r} "
+                             + ("cannot be made as proposed" if c.get("id") in known
+                                else "is not a run the server can make") + f": {e}")
+        out.append(res)
+    return out, probs
+
+
+def _headline_claims(headline: str, claims: List[Dict[str, Any]]) -> List[int]:
+    marked = [i for i, c in enumerate(claims) if c.get("headline") is True]
+    if marked:
+        return marked
+    hits = []
+    for w, unit, _ in _number_words(headline):
+        if _is_year(w.lstrip("-"), unit, set(range(1800, 2201))):
+            continue
+        for i, c in enumerate(claims):
+            if any(_fin(v) and abs(abs(v) - abs(float(w))) <= _half_unit(w) + 1e-9
+                   for v in c.get("values") or []) and i not in hits:
+                hits.append(i)
+    return hits
+
+
+def headline_bars(i: int, c: Dict[str, Any], records: Dict[str, Dict[str, Any]],
+                  qt: str) -> List[str]:
+    """What bars claim i (0-based) from heading the report of a question of
+    type `qt`: the headline rule's conditions. A hypothesis question's
+    headline is a tested expectation resting on no lookup found by
+    screening, not planned, or made after the planned analyses were closed;
+    an exploratory question's may be any claim."""
+    if qt != "hypothesis":
+        return []
+    AP = _elm_modules()[0]
+    out = []
+    cls = c.get("evidence_class")
+    recs = [records[x] for x in c.get("evidence") or [] if x in records]
+    if cls != "tested expectation":
+        out.append(f"claim {i + 1} is {cls or 'unclassed'}, not tested: "
+                   + HEADLINE_RULE["hypothesis"])
+    if any(r.get("label") == AP.SCREENING_LABEL or r.get("amendment") for r in recs):
+        out.append(f"claim {i + 1} rests on a lookup found by screening or not planned: "
+                   f"never a hypothesis headline")
+    if any(r.get("after_close") for r in recs):
+        out.append(f"claim {i + 1} rests on a lookup made after the planned analyses were "
+                   f"closed: never a hypothesis headline")
+    return out
+
+
+def headline_order(claims: List[Dict[str, Any]], rank: Optional[Sequence[Any]]) -> List[int]:
+    """The claims in the order they are offered for the headline (1-based):
+    `rank` as given, every claim once, then any claim it leaves out in its
+    own order. A reply recorded before 2026-11-08 gave no rank: the claims it
+    marked "headline" come first."""
+    if rank is None:
+        rank = [i for i, c in enumerate(claims, 1) if c.get("headline") is True]
+    order = [k for k in rank if isinstance(k, int) and not isinstance(k, bool)
+             and 1 <= k <= len(claims)]
+    order = list(dict.fromkeys(order))
+    return order + [k for k in range(1, len(claims) + 1) if k not in order]
+
+
+def select_headline(claims: List[Dict[str, Any]], trace: Dict[str, Any],
+                    rank: Optional[Sequence[Any]]) -> Dict[str, Any]:
+    """THE HEADLINE IS A VERIFIED CLAIM'S OWN TEXT (the user's decision of
+    2026-11-08, after the third acceptance batch): the first claim of the
+    order (headline_order) that traced and that the question type's rule
+    allows (headline_bars), its text as it traced. "chosen" is None when no
+    claim is eligible; each claim passed over is listed with why."""
+    qt = trace.get("question_type") if trace.get("question_type") in HEADLINE_RULE \
+        else "exploratory"
+    failed = set(trace.get("claims_failed") or [])
+    records = trace.get("records") or {}
+    passed: List[Dict[str, Any]] = []
+    order = headline_order(claims, rank)
+    for k in order:
+        why = ([f"claim {k} fails the evidence trace"] if k in failed
+               else headline_bars(k - 1, claims[k - 1], records, qt))
+        if not why:
+            return {"rule": HEADLINE_RULE[qt], "order": order, "chosen": k,
+                    "text": str(claims[k - 1].get("claim") or ""), "passed_over": passed}
+        passed.append({"claim": k, "why": "; ".join(why)})
+    return {"rule": HEADLINE_RULE[qt], "order": order, "chosen": None, "text": None,
+            "passed_over": passed}
+
+
+def trace_evidence(claims: List[Dict[str, Any]], headline: Optional[str], analysis_dir,
+                   study_dir=None, regions=(), open_causes=None, notes=None
+                   ) -> Dict[str, Any]:
+    """The claim trace of a study with a suite: every claim checked against
+    its evidence records (check_claim, written into the claim as
+    "evidence_trace"), the headline against the question type's rule, and
+    each open cause's proposed run. "withheld_because" is set when any of
+    them fails."""
+    import json
+    from pathlib import Path
+    AP = _elm_modules()[0]
+    records = evidence_records(analysis_dir, notes=notes)
+    plan = AP.load_plan(analysis_dir)
+    qt = plan.get("question_type") if plan.get("question_type") in HEADLINE_RULE \
+        else "exploratory"
+    runs = study_runs(study_dir) if study_dir else {}
+    regs = set(regions or ())
+    for a in plan.get("analyses") or []:
+        regs |= {str(x) for x in (a or {}).get("regions") or []}
+    regs |= {r["region"] for r in records.values() if r.get("region")}
+    if (plan.get("screen") or {}).get("region"):
+        regs.add(plan["screen"]["region"])
+    failed, per = [], {}
+    for i, c in enumerate(claims, 1):
+        t = check_claim(c, records, plan, runs, sorted(regs))
+        c["evidence_trace"] = t
+        if t["problems"]:
+            c["trace"] = FAILS_TRACE
+            failed.append(i)
+            per[i] = t["problems"]
+    head = {"rule": HEADLINE_RULE[qt], "claims": [], "problems": []}
+    if headline:
+        hc = _headline_claims(headline, claims)
+        head["claims"] = [i + 1 for i in hc]
+        if not hc:
+            head["problems"].append("the headline states no claim's value and marks no claim")
+        for i in hc:
+            head["problems"] += headline_bars(i, claims[i], records, qt)
+        # EVERY EXPLORATORY HEADLINE IS LABELLED (the user's decision of
+        # 2026-11-08), not only one that comes from the screen
+        if qt == "exploratory" and AP.EXPLORATORY_LABEL not in str(headline).lower():
+            head["problems"].append(f"an exploratory question's headline is labelled "
+                                    f"{AP.EXPLORATORY_LABEL}, and this one is not")
+    proposals, pprobs = check_proposals(open_causes)
+    sr = Path(analysis_dir) / AP.SCREEN_FILE
+    out = {"file": LOOKUPS_LOG, "question_type": qt, "n_claims": len(claims),
+           "claims_failed": failed, "problems": per, "headline": head,
+           "records": records, "open_causes": proposals, "open_cause_problems": pprobs,
+           "screen_record": json.loads(sr.read_text()) if sr.is_file() else None,
+           "headline_rule": HEADLINE_RULE[qt], "wording": CLASS_WORDING,
+           "runs": runs}
+    why = []
+    if failed:
+        why.append(f"{len(failed)} of {len(claims)} claims fail the evidence trace "
+                   f"(claims {', '.join(map(str, failed))})")
+    if head["problems"]:
+        why.append("the headline breaks its rule: " + "; ".join(head["problems"]))
+    if pprobs:
+        why.append("; ".join(pprobs))
+    if why:
+        out["withheld_because"] = "; ".join(why)
+    return out
+
+
+def describe_record(r: Dict[str, Any]) -> str:
+    """A record in one line: the call, its keys, its comparison, its support."""
+    what = r.get("method") or r.get("call")
+    keys = ", ".join(str(x) for x in (r.get("measure") or r.get("field"), r.get("period"),
+                                      r.get("region")) if x)
+    comp = (r.get("comparison") or {}).get("against")
+    yrs = (r.get("comparison") or {}).get("years")
+    sup = r.get("support") or {}
+    bits = [f"{r['id']}: {what} of run {r.get('run')}" + (f" ({keys})" if keys else "")]
+    if comp:
+        bits.append(f"against {comp}" + (f" {years_text_short(yrs)}" if yrs else ""))
+    if r.get("inputs"):
+        bits.append("made from " + ", ".join(
+            (f"{x['record']} ({x.get('call')} {x.get('field')} {x.get('period')}"
+             + (f", its {x['path']} map" if x.get("path") else ", its map") + ")")
+            if x.get("record") else "a map no lookup returned" for x in r["inputs"]))
+    if sup.get("area_share") is not None:
+        bits.append(f"area share covered {sup['area_share']:.3g}")
+    bits.append("planned" if r.get("planned") else "not planned")
+    bits.append(f"hash {str(r.get('sha256'))[:12]}")
+    return "; ".join(bits)
+
+
+def years_text_short(yrs) -> str:
+    ys = sorted({int(y) for y in (yrs or []) if _is_num(y) or str(y).isdigit()})
+    if not ys:
+        return ""
+    if ys == list(range(ys[0], ys[-1] + 1)) and len(ys) > 2:
+        return f"{ys[0]}-{ys[-1]}"
+    return ", ".join(map(str, ys))
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# THE RECORDS, SHOWN TO STEP 3 UNDER EACH FINDING (fix 1 of G part 2,
+# 2026-11-08)
+# ═════════════════════════════════════════════════════════════════════════
+# Step 3 was asked to name each claim's records and to carry their warnings,
+# and was shown neither: its brief listed each finding's id, question and
+# result, never a record id. Under each finding of a study with a suite it now
+# sees the records the trace checks (evidence_records of the study's own log,
+# the ids from the finding's lookups): each record's line, planned or not, its
+# label, its amendment, whether it was made after the planned analyses were
+# closed, the warnings a claim citing it must carry, its field's percent rule
+# and the range rule when it applies. The finding's own result numbers are
+# split in two: values of its records (citable, with the record and the path)
+# and numbers the script made itself, which are no value of any record, so a
+# claim citing one fails the trace. Nothing here changes what the audit or the
+# trace accepts.
+#
+# THE CAP, DETERMINISTIC: at most BRIEF_MAX_RECORDS records per finding in the
+# log's order; under each, at most BRIEF_MAX_PER_RECORD of the result numbers
+# that are its values, in the result's own order (a number several records
+# hold is listed under the first, in the log's order); and at most
+# BRIEF_MAX_NUMBERS of the numbers the script made itself, in the result's
+# order. A list of more than LIST_SHOWN numbers is one entry. The count of
+# the rest is said.
+BRIEF_MAX_RECORDS = 60
+BRIEF_MAX_PER_RECORD = 12
+BRIEF_MAX_NUMBERS = 40
+LIST_SHOWN = 6
+REASON_SHOWN = 120
+
+
+def _result_numbers(x, path: str = "") -> List[Tuple[str, Any]]:
+    """(path, number) of every number in a figure's result, in its own order;
+    a list of more than LIST_SHOWN numbers is one (path, [numbers])."""
+    out: List[Tuple[str, Any]] = []
+    if isinstance(x, dict):
+        for k, v in x.items():
+            out += _result_numbers(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(x, (list, tuple)):
+        if len(x) > LIST_SHOWN and all(_is_num(v) or v is None for v in x):
+            out.append((path, [v for v in x if _fin(v)]))
+        else:
+            for i, v in enumerate(x):
+                out += _result_numbers(v, f"{path}.{i}")
+    elif _fin(x):
+        out.append((path, x))
+    return out
+
+
+def citable(result: Any) -> Dict[str, Any]:
+    """A logged result's citable values: its finite numbers by path, as an
+    evidence record keeps them ("values"), without the labels beside them
+    (its normal years, a list) or the method's own version and settings."""
+    if not isinstance(result, dict):
+        return {}
+    return {p: v for p, v in result.items() if _fin(v) and p != "version"
+            and not str(p).startswith("settings.")}
+
+
+def record_value(x: float, recs) -> Optional[Tuple[Dict[str, Any], str]]:
+    """(record, path) of the first value of `recs` (in their order) equal to
+    x at float precision, or None: results are the methods' unrounded values
+    after a trip through JSON."""
+    for r in recs or []:
+        for p, v in (r.get("values") or {}).items():
+            if abs(v - x) <= 1e-12 * max(1.0, abs(v), abs(x)):
+                return r, p
+    return None
+
+
+def split_result_numbers(result, recs) -> Tuple[Dict[str, List[str]], List[str]]:
+    """The finding's result numbers in two kinds: values of its records, by
+    record ({record id: ["<result path> = <number> (its <record path>)",
+    ...]}, in the result's order; the record's path left out where the
+    result's path ends with it), and numbers the script made itself, a value
+    of no record (["<result path> = <number>", ...]). A list of more than
+    LIST_SHOWN numbers is one entry of the kind all its numbers share, else
+    of the second."""
+    citable: Dict[str, List[str]] = {}
+    made: List[str] = []
+    for path, x in _result_numbers(result):
+        if isinstance(x, list):
+            hits = [record_value(v, recs) for v in x]
+            if hits and all(hits):
+                ids = sorted({h[0]["id"] for h in hits}, key=lambda i: int(i[1:]))
+                citable.setdefault(hits[0][0]["id"], []).append(
+                    f"{path}: {len(x)} numbers (a list), each a value of " + ", ".join(ids))
+            else:
+                made.append(f"{path}: {len(x)} numbers (a list), {sum(not h for h in hits)} "
+                            f"of them a value of no record")
+            continue
+        hit = record_value(x, recs)
+        if hit:
+            # the record's own path, said only where the result's path does
+            # not already end with it
+            same = path == hit[1] or path.endswith("." + hit[1])
+            citable.setdefault(hit[0]["id"], []).append(
+                f"{path} = {x!r}" + ("" if same else f" (its {hit[1]})"))
+        else:
+            made.append(f"{path} = {x!r}")
+    return citable, made
+
+
+def _range_rule(r: Dict[str, Any]) -> Optional[str]:
+    a = r.get("across_settings")
+    if not a:
+        return None
+    if a.get("range_required"):
+        parts = []
+        for part, said in _RANGE_PART_WORDS.items():
+            e = a.get(part) or {}
+            if _fin(e.get("median_shift")):
+                parts.append(f"{said} ({e['median_shift']:.3g} days, {e.get('variant')})")
+        return (f"range rule: applies; its shift moves by {a.get('spread_days'):.3g} days "
+                f"across the settings, more than {a.get('limit_days'):g}: a claim giving the "
+                f"shift states " + ", ".join(parts) + ", each with its setting")
+    if _fin(a.get("spread_days")):
+        return (f"range rule: does not apply (the shift moves by {a['spread_days']:.3g} days "
+                f"across the settings, within {a.get('limit_days'):g})")
+    return f"range rule: does not apply ({a.get('why') or 'no range'})"
+
+
+def record_brief_lines(r: Dict[str, Any], in_result: Optional[List[str]] = None
+                       ) -> List[str]:
+    """One evidence record as step 3 reads it under its finding: its line,
+    its marks, the warnings a claim citing it carries, its field's percent
+    rule, the range rule when it applies, and the finding's result numbers
+    that are its values."""
+    L = [f"          {describe_record(r)}"]
+    marks = [f"plan items {', '.join(r.get('plan_items') or []) or 'none'}"]
+    if r.get("label"):
+        marks.append(f"label: {r['label']}")
+    if r.get("amendment"):
+        marks.append(f"amendment {r['amendment']}")
+    if r.get("after_close"):
+        marks.append("made after the planned analyses were closed")
+    L.append("              " + "; ".join(marks))
+    ws = r.get("warnings") or []
+    if ws:
+        L.append("              warnings a claim citing it carries (code, words, reason): "
+                 + "; ".join(f"{w['code']} (\"{w['label']}\"): {str(w['reason'])[:REASON_SHOWN]}"
+                             for w in ws))
+    else:
+        L.append("              warnings a claim citing it carries: none")
+    rows = {w["code"] for ws_ in (r.get("row_warnings") or {}).values() for w in ws_}
+    if rows:
+        n = sum(1 for ws_ in (r.get("row_warnings") or {}).values() if ws_)
+        L.append(f"              row warnings ({n} rows; a claim stating a row's value carries "
+                 f"that row's): " + ", ".join(sorted(rows)))
+    if r.get("field"):
+        L.append("              percent: allowed" if r.get("percent_allowed") is not False else
+                 f"              percent: none ({r.get('percent_why_not')})")
+    rr = _range_rule(r)
+    if rr:
+        L.append(f"              {rr}")
+    got = list(in_result or [])
+    L.append("              its values in the finding's result: "
+             + ("; ".join(got[:BRIEF_MAX_PER_RECORD]) if got else "none")
+             + (f"; and {len(got) - BRIEF_MAX_PER_RECORD} more"
+                if len(got) > BRIEF_MAX_PER_RECORD else ""))
+    return L
+
+
+def finding_evidence_lines(finding: Dict[str, Any], records: Dict[str, Dict[str, Any]]
+                           ) -> List[str]:
+    """Under one finding of step 3's brief: its evidence records, each with
+    the finding's result numbers that are its values, then the numbers the
+    script made itself, a value of no record."""
+    ids = [str(x.get("id")) for x in finding.get("lookups") or [] if isinstance(x, dict)]
+    recs = [records[i] for i in ids if i in records]
+    citable, made = split_result_numbers(finding.get("result"), recs)
+    L = [f"        evidence records: {len(recs)} (a claim names those it rests on in "
+         f"\"evidence\", by id; in the log's order, at most {BRIEF_MAX_RECORDS} shown, each "
+         f"with at most {BRIEF_MAX_PER_RECORD} of its values in the result; a label, an "
+         f"amendment or the close is shown only where a record has one)"]
+    if not recs:
+        L.append("          none: no number of this finding is a value of a record, so no "
+                 "claim can rest on it")
+    for r in recs[:BRIEF_MAX_RECORDS]:
+        L += record_brief_lines(r, citable.get(r["id"]))
+    if len(recs) > BRIEF_MAX_RECORDS:
+        L.append(f"          and {len(recs) - BRIEF_MAX_RECORDS} more: "
+                 + ", ".join(r["id"] for r in recs[BRIEF_MAX_RECORDS:]))
+    L.append(f"        numbers the script made itself, a value of no record ({len(made)}; a "
+             f"claim stating one fails the evidence trace; in the result's order, at most "
+             f"{BRIEF_MAX_NUMBERS} shown):")
+    L += [f"            {x}" for x in made[:BRIEF_MAX_NUMBERS]] or ["            none"]
+    if len(made) > BRIEF_MAX_NUMBERS:
+        L.append(f"            and {len(made) - BRIEF_MAX_NUMBERS} more")
+    return L
+
+
+CLASS_NEEDS = {
+    "observation": "a value of its records, or how it changed",
+    "association": "an overlap among its records (a correlation or a quarter split)",
+    "tested expectation": "the plan's expectation, named in \"expectation\", and planned "
+                          "lookups only: never one found by screening, added by an "
+                          "amendment, or made after the planned analyses were closed",
+    "exploratory": "a finding made by looking, not stated first, labelled exploratory",
+    "in-model attribution": "a difference from a run that differs from the control by one "
+                            "named change, confirmed by the server's checks"}
+
+
+def class_lines() -> List[str]:
+    """The evidence classes as step 3's template states them: what each
+    needs and the wording it allows (CLASS_NEEDS, CLASS_WORDING)."""
+    L = ["THE EVIDENCE CLASSES (\"evidence_class\"), each with what it needs and the",
+         "wording it allows:"]
+    for c in EVIDENCE_CLASSES:
+        L += _wrap(f"\"{c}\": needs {CLASS_NEEDS[c]}; wording: {CLASS_WORDING[c]}",
+                   "  ", "      ")
+    return L
+
+
+def evidence_withheld_markdown(report: Dict[str, Any]) -> str:
+    """REPORT.md when claims fail the evidence trace: why, then every claim
+    with its records, its class, its warnings and its problems. The answer
+    and the headline are not presented as findings."""
+    from agents.analysis.step4_report import _plain
+    t = report.get("evidence_trace") or {}
+    lines = [f"# WITHHELD: {t.get('withheld_because')}", "",
+             f"*Question: {_plain(report.get('question') or '(no question recorded)')}*", "",
+             f"Each claim was traced to the evidence records of the logged lookups "
+             f"({t.get('file')}): its numbers, the periods and regions it names, its evidence "
+             f"class and wording, and the warnings its records carry. A claim fails, so this "
+             f"report is withheld. The record, analysis.json, is kept whole beside it.", "",
+             f"The headline held back: \"{_plain(report.get('headline'))}\"", ""]
+    for p in (t.get("headline") or {}).get("problems") or []:
+        lines.append(f"- headline: {p}")
+    for p in t.get("open_cause_problems") or []:
+        lines.append(f"- {p}")
+    # the numbers the claims cite that did not reproduce from the model output
+    # (package F2): each record, the value logged and the value made again
+    from agents.analysis.numbers_check import evidence_withheld_lines
+    nums = evidence_withheld_lines(report.get("evidence_numbers"))
+    if nums:
+        lines += [""] + nums
+    lines += ["", "## The claims and their evidence", ""]
+    recs = t.get("records") or {}
+    for i, c in enumerate(report.get("claims") or [], 1):
+        e = c.get("evidence_trace") or {}
+        lines.append(f"{i}. {_plain(c.get('claim'))}"
+                     + (f" **({c['trace']})**" if c.get("trace") else ""))
+        lines.append(f"   - class: {e.get('class') or 'none'}")
+        for rid in e.get("records") or []:
+            lines.append(f"   - {describe_record(recs[rid])}" if rid in recs
+                         else f"   - {rid}: no such record")
+        for w in e.get("warnings") or []:
+            lines.append(f"   - warning, {w['label']}: {_plain(w['reason'])}")
+        for p in e.get("problems") or []:
+            lines.append(f"   - FAILS: {_plain(p)}")
         lines.append("")
     return "\n".join(lines)

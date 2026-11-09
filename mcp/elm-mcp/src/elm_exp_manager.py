@@ -1259,7 +1259,14 @@ class ELMExpManager(ExperimentManagerBase):
 					continue
 				runs[e["run"]] = json.loads(Path(checks[0]).read_text())["run_dir"]
 				if e["run"] == "control":
-					control = {"case_dir": e["case_dir"], "regions": {}, "observations": {}}
+					# the study's elevation bands are the registered control's
+					# (THE STUDY'S ELEVATION BANDS, domain_analysis, 2026-11-04)
+					try:
+						edges = DCT.get(ctl.get("name")).get(A.BAND_EDGES_KEY)
+					except Exception:                               # noqa: BLE001
+						edges = None
+					control = {"case_dir": e["case_dir"], "regions": {}, "observations": {},
+							   A.BAND_EDGES_KEY: edges}
 			if control is None:
 				raise RuntimeError("the control has no output to read")
 			table = A.experiment(control, runs, analysis,
