@@ -666,6 +666,13 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         if sel["chosen"]:
             report["headline"] = (exploratory_headline(sel["text"]) if qt == "exploratory"
                                   else sel["text"])
+            # LINKED TO ITS CLAIM, WITH THE CLAIM'S CAVEATS (2026-11-08): its
+            # number, records and warnings, and the warnings in the registry's
+            # words, shown beside the headline wherever it is shown
+            c = report["claims"][sel["chosen"] - 1]
+            report["headline_caveats"] = claim_trace.headline_caveats(c)
+            sel["source"] = {"claim": sel["chosen"], "evidence": list(c.get("evidence") or []),
+                             "warnings": [x["code"] for x in report["headline_caveats"]]}
         elif not report.get("withheld_because"):
             kind = qt if qt in INCONCLUSIVE_HEADLINE else "exploratory"
             report["headline"] = INCONCLUSIVE_HEADLINE[kind]
@@ -675,6 +682,9 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
             report["acceptance"] = dict(report.get("acceptance") or {}, ok=False,
                                         why=INCONCLUSIVE_WHY[kind],
                                         inconclusive=INCONCLUSIVE_WHY[kind])
+        # THE HEADLINE AS PLAIN TEXT, its caveats beside it, for any place that
+        # shows it without the page (the study record, a notice, a summary)
+        report["headline_text"] = claim_trace.headline_text(report)
     elif getattr(ctx, "is_domain", False):
         try:
             from agents.analysis import claim_trace
@@ -772,7 +782,13 @@ def render_markdown(report: Dict[str, Any]) -> str:
         lines += [evidence_page_line(report.get("evidence_numbers")), ""]
     lines += ["## The answer", ""]
     if report.get("headline"):
-        lines += [f"**{_plain(report['headline'])}**", ""]
+        # ITS CAVEATS BESIDE IT, in the same paragraph (2026-11-08), so a
+        # reader of the headline alone, or a page quoting this paragraph,
+        # carries them too
+        from agents.analysis.claim_trace import headline_caveat_line
+        cl = headline_caveat_line(report)
+        lines += ([f"**{_plain(report['headline'])}**  ", f"*{_plain(cl)}*"] if cl else
+                  [f"**{_plain(report['headline'])}**"]) + [""]
     lines += [_plain(report.get("answer") or "(no answer)"), ""]
     rd = report.get("readability") or {}
     if rd.get("problems_after"):

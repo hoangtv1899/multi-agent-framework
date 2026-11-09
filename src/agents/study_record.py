@@ -113,9 +113,11 @@ def _change_words(change):
     return str(change)
 
 
-def _answer_paragraph(md):
+def _answer_paragraph(md, caveat=None):
     """The first paragraph under a report's '## The answer', its bold marks
-    taken off; None when the report has no such section."""
+    taken off; None when the report has no such section. With `caveat`, the
+    headline's caveat line the page shows under it is left out, for the
+    caller to show whole."""
     if not md:
         return None
     lines = md.splitlines()
@@ -128,6 +130,8 @@ def _answer_paragraph(md):
                 if not nxt.strip():
                     if para:
                         break
+                    continue
+                if caveat and nxt.strip().strip("*").strip() == caveat:
                     continue
                 para.append(nxt.strip())
             text = " ".join(para).strip()
@@ -836,18 +840,27 @@ def _analyzer_lines(rd, page_dir):
     # 2, 2026-11-08): question 1's page quoted its held-back headline under
     # "Its report" and listed its claims as kept by the audit, as if published
     withheld = a.get("withheld_because")
-    head = _answer_paragraph(text) or a.get("headline")
+    # THE HEADLINE WITH ITS CAVEATS (2026-11-08): only the headline is ever
+    # shortened; the caveat line follows it whole (2026-11-09)
+    from agents.analysis.claim_trace import headline_caveat_line
+    from agents.analysis.dashes import strip_dashes
+    cav = headline_caveat_line(a) if a else None
+    cav = strip_dashes(cav) if cav else None
+    head = _answer_paragraph(text, cav) or a.get("headline")
     if withheld:
         L.append(f"The Analyzer's report, "
                  f"{_link(report, page_dir) if text is not None else 'REPORT.md'}, is "
                  f"**withheld**: {_one_line(withheld, 900)}")
         if a.get("headline"):
-            L.append(f"The headline held back with it: \"{_one_line(a['headline'], 600)}\"")
+            L.append(f"The headline held back with it: \"{_one_line(a['headline'], 600)}\""
+                     + (f" {cav}" if cav else ""))
     else:
         if text is not None:
             L.append(f"Its report: {_link(report, page_dir)}.")
         if head:
-            L.append(f"> {_one_line(head, 1200)}")
+            L.append(f"> {_one_line(head, 1200)}" + ("  " if cav else ""))
+            if cav:
+                L.append(f"> *{cav}*")
     L.append("")
     if a:
         L.append(f"- status **{a.get('status')}**; verdict **{a.get('verdict')}**")

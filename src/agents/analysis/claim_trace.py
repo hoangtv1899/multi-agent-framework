@@ -800,7 +800,9 @@ def withheld_markdown(report: Dict[str, Any]) -> str:
              f"({t.get('file')}), which were made again from the model output before the "
              "Analyzer ran. The headline states a value that no claim traces to them, so "
              "this report is withheld. The record, analysis.json, is kept whole beside it.",
-             "", f"The headline held back: \"{_plain(report.get('headline'))}\"", ""]
+             "", f"The headline held back: \"{_plain(report.get('headline'))}\""
+             + (f" {_plain(headline_caveat_line(report))}" if headline_caveat_line(report)
+                else ""), ""]
     for h in t.get("headline") or []:
         lines.append(f"- {h['printed']}: "
                      + ("traced, " + "; ".join(h.get("derivations") or [])
@@ -2147,6 +2149,84 @@ def headline_bars(i: int, c: Dict[str, Any], records: Dict[str, Dict[str, Any]],
     return out
 
 
+# A HEADLINE KEEPS ITS CLAIM'S QUALIFICATIONS (the user's decision of
+# 2026-11-08, preparing the phase's close): the accepted batch's question 1
+# headline was claim 1's text, whose record is a partial-record estimate, and
+# its "restricted comparability" was shown only under the claim, further down
+# the page. Every warning the headline's claim carries (the trace has checked
+# that it carries all its records') goes beside the headline wherever it is
+# shown or exported, in the registry's own words: no model writes them.
+def headline_caveats(claim: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Each warning a headline's claim carries, as {"code", "label",
+    "means"}, once each: the codes it lists, then any its records carry that
+    it carries only in its words (the trace's own list, so a label its
+    sentence happens to hold still shows); the registry's words (WARNINGS),
+    or for flag:<x> and reason:<x> domain_methods' own. A code the registry
+    does not hold, or a "warnings" that is not a list, shows nothing: no
+    caveat is in a model's words."""
+    listed = claim.get("warnings")
+    codes = [str(x) for x in listed] if isinstance(listed, list) else []
+    codes += [str(w["code"]) for w in (claim.get("evidence_trace") or {}).get("warnings") or []
+              if isinstance(w, dict) and w.get("code")]
+    out: List[Dict[str, str]] = []
+    for code in dict.fromkeys(codes):
+        kind, _, x = code.partition(":")
+        try:
+            label = warning_label(code)
+        except KeyError:
+            continue
+        if x:
+            M = _elm_modules()[2]
+            src = M.FLAGS if kind == "flag" else M.REASONS if kind == "reason" else {}
+            means = (src.get(x) or (None, ""))[1]
+        else:
+            means = (WARNINGS.get(code) or ("", ""))[1]
+        out.append({"code": code, "label": label, "means": means})
+    return out
+
+
+def _headline_claim(report: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The claim the headline was selected from, or None."""
+    ch = (report.get("headline_selection") or {}).get("chosen")
+    claims = report.get("claims") or []
+    if isinstance(ch, int) and 1 <= ch <= len(claims) and isinstance(claims[ch - 1], dict):
+        return claims[ch - 1]
+    return None
+
+
+def headline_caveat_line(report: Dict[str, Any]) -> Optional[str]:
+    """The words shown beside a headline: the caveats it carries, from which
+    claim and records; None when its claim carries none. A report written
+    before its caveats were recorded (2026-11-08) gets them from its
+    selected claim, so a page rendered again from it still shows them."""
+    c = _headline_claim(report)
+    if "headline_caveats" in report:
+        cav = report.get("headline_caveats") or []
+    else:
+        cav = headline_caveats(c) if c and report.get("headline") else []
+    if not cav:
+        return None
+    src = ((report.get("headline_selection") or {}).get("source")
+           or ({"claim": report["headline_selection"]["chosen"],
+                "evidence": list(c.get("evidence") or [])} if c else {}))
+    where = f"claim {src['claim']}" if src.get("claim") else "its claim"
+    if src.get("evidence"):
+        where += f" ({', '.join(map(str, src['evidence']))})"
+    return (f"Caveats it carries from {where}: "
+            + "; ".join(f"{c['label']} ({c['means']})" if c.get("means") else c["label"]
+                        for c in cav) + ".")
+
+
+def headline_text(report: Dict[str, Any]) -> Optional[str]:
+    """The headline as plain text, with the caveats it carries beside it, for
+    any place that shows the headline without the page around it."""
+    h = report.get("headline")
+    if not h:
+        return None
+    line = headline_caveat_line(report)
+    return f"{h} {line}" if line else str(h)
+
+
 def headline_order(claims: List[Dict[str, Any]], rank: Optional[Sequence[Any]]) -> List[int]:
     """The claims in the order they are offered for the headline (1-based):
     `rank` as given, every claim once, then any claim it leaves out in its
@@ -2506,7 +2586,9 @@ def evidence_withheld_markdown(report: Dict[str, Any]) -> str:
              f"({t.get('file')}): its numbers, the periods and regions it names, its evidence "
              f"class and wording, and the warnings its records carry. A claim fails, so this "
              f"report is withheld. The record, analysis.json, is kept whole beside it.", "",
-             f"The headline held back: \"{_plain(report.get('headline'))}\"", ""]
+             f"The headline held back: \"{_plain(report.get('headline'))}\""
+             + (f" {_plain(headline_caveat_line(report))}" if headline_caveat_line(report)
+                else ""), ""]
     for p in (t.get("headline") or {}).get("problems") or []:
         lines.append(f"- headline: {p}")
     for p in t.get("open_cause_problems") or []:

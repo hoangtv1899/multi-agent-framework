@@ -726,19 +726,25 @@ def required_calls(plan: Dict[str, Any], timing_ids: Sequence[str],
 
 
 def call_lines(plan: Dict[str, Any], timing_ids: Sequence[str],
-               defaults: Defaults = _no_defaults) -> List[str]:
+               defaults: Defaults = _no_defaults,
+               units: Optional[Dict[str, str]] = None) -> List[str]:
     """Step 2b's list of every required output with the call that produces
-    it, analysis by analysis, from the reviewed plan."""
+    it, analysis by analysis, from the reviewed plan; with `units`, the unit
+    a bars or series panel draws each output in (figure_spec.output_unit)."""
     index = plan_index(plan)
     analyses = {str(a.get("id")): a for a in plan.get("analyses") or [] if isinstance(a, dict)}
     import textwrap
     L = textwrap.wrap("THE REQUIRED OUTPUTS, EACH WITH THE CALL THAT PRODUCES IT (from the plan "
-                      "above: a figure carrying out an analysis makes each call exactly as "
-                      "written, inside that figure, and an overlap or an elevation split is "
-                      "given the maps named, in this order):", 79)
+                      "above: the framework makes each call exactly as written, an overlap or "
+                      "an elevation split given the maps named, in this order, and a figure "
+                      "names an output by its label to draw it"
+                      + ("; beside each output a bars or series panel can draw, its unit"
+                         if units else "") + "):", 79)
     for aid, a in analyses.items():
         for o in a.get("outputs") or []:
             if isinstance(o, dict) and o.get("id"):
-                L.append(f"    {aid}.{o['id']}: "
-                         + call_text(o, a, index, timing_ids, defaults, analyses=analyses))
+                lab = f"{aid}.{o['id']}"
+                L.append(f"    {lab}: "
+                         + call_text(o, a, index, timing_ids, defaults, analyses=analyses)
+                         + (f"  (unit: {units[lab]})" if units and units.get(lab) else ""))
     return L

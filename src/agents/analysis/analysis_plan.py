@@ -670,12 +670,42 @@ def required_findings(out_dir, record: Dict[str, Any], plan: Dict[str, Any]
     return found
 
 
-def output_calls(plan: Dict[str, Any]) -> List[str]:
+def output_calls(plan: Dict[str, Any], units: Optional[Dict[str, str]] = None) -> List[str]:
     """Step 2b's list of the plan's required outputs, each with the exact
-    call that produces it (plan_contract.call_lines)."""
+    call that produces it (plan_contract.call_lines), and with `units` the
+    unit each is drawn in."""
     _elm()
     import domain_methods as M                                      # noqa: N812
-    return PC.call_lines(plan, M.TIMING_IDS, _method_defaults)
+    return PC.call_lines(plan, M.TIMING_IDS, _method_defaults, units=units)
+
+
+def output_units(out_dir, plan: Dict[str, Any]) -> Dict[str, str]:
+    """THE UNIT EACH REQUIRED OUTPUT IS DRAWN IN (2026-11-08), by the rule the
+    figure check splits panels by (figure_spec.output_unit), read from the
+    framework's own results (REQUIRED_VALUES): only the unit, never a value.
+    Only for an output a bars or series panel can draw; {} before the
+    framework's calls are made."""
+    import pickle
+    from agents.analysis import figure_spec as FS
+    p = Path(out_dir) / REQUIRED_VALUES
+    if not p.is_file():
+        return {}
+    with open(p, "rb") as fh:
+        values = pickle.load(fh)
+    index = PC.plan_index(plan)
+    out: Dict[str, str] = {}
+    for lab, o in index.items():
+        if o.get("kind") in PC.NULL_REGION and o.get("region") is None:
+            continue                                     # a map: drawn by a map panel
+        ins = list(o.get("inputs") or [])
+        r = {"kind": o.get("kind"), "out": o, "value": values.get(lab),
+             "input_units": {i: ((values.get(i) or {}).get("change_units")
+                                 or (values.get(i) or {}).get("units"))
+                             if isinstance(values.get(i), dict) else None for i in ins}}
+        u = FS.output_unit(r, {})
+        if u and o.get("kind") != "overlap":
+            out[lab] = u
+    return out
 
 
 def _check_baseline(plan, env):

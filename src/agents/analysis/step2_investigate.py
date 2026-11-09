@@ -903,7 +903,8 @@ def suite_brief(ctx, step1: Optional[Dict[str, Any]] = None) -> str:
               "seen, and passed by step 3's review):", parts["plan"], ""]
     # EACH REQUIRED OUTPUT AS THE CALL THAT PRODUCES IT (2026-11-08), from
     # plan_contract: what step 2b is told to call is what the close accepts
-    lines += _plan.output_calls(_plan.load_plan(out_dir)) + [""]
+    plan_rec = _plan.load_plan(out_dir)
+    lines += _plan.output_calls(plan_rec, units=_plan.output_units(out_dir, plan_rec)) + [""]
     lines += ["ITS REVIEW:", parts["review"], "",
               "AMENDMENTS SO FAR (each appended after results were seen; never planned):",
               parts["amendments"], "", "THE DATA CATALOG:", parts["catalog"], "",
@@ -1281,11 +1282,19 @@ def _spec_figure(ctx, f: Dict[str, Any], out_dir, produced: Optional[Dict[str, A
                    "line": r.get("line") if answered else None,
                    "error": (ln or {}).get("refused") or r.get("error")
                    or (None if r else "no call made it")}
+    # ONE UNIT PER PANEL (2026-11-08): a panel of several units is split into
+    # one panel per unit before anything is drawn, or the figure is refused
+    # with the units named (figure_spec.split_by_unit)
+    drawn_f, mixed = _fs.split_by_unit(f, refs)
     spec_path = out_dir / f"{fid}{SPEC_SUFFIX}"
-    spec_path.write_text(json.dumps(strip_dashes_in({p.name: f.get(p.name)
-                                                     for p in SUITE_FIGURE_PARTS}),
-                                    indent=1, default=str))
-    drawn = _fs.render_figure(f, refs, out_dir / f"{fid}.png", lat_lon=ll,
+    spec_path.write_text(json.dumps(strip_dashes_in(
+        {**{p.name: f.get(p.name) for p in SUITE_FIGURE_PARTS},
+         **({"panels_drawn": drawn_f["panels"]} if drawn_f is not f else {})}),
+        indent=1, default=str))
+    if mixed:
+        return fail("refused before drawing: " + "; ".join(mixed),
+                    [n_before + 1, len(_ct._read_log(out_dir))])
+    drawn = _fs.render_figure(drawn_f, refs, out_dir / f"{fid}.png", lat_lon=ll,
                               normal_years=(plan.get("baseline") or {}).get("normal_years")
                               or ())
     lines = [n_before + 1, len(_ct._read_log(out_dir))]

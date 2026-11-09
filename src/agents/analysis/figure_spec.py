@@ -86,6 +86,105 @@ PANEL_KINDS: Dict[str, PanelKind] = {k.id: k for k in (
 )}
 
 
+# ONE UNIT PER PANEL (the user's decision of 2026-11-08, preparing the phase's
+# close): every figure that failed in the accepted fourth batch, eight of
+# them, was a bars panel whose outputs were in different units (a season's
+# total beside a year's, a fraction beside a proportion), seen only when
+# drawing. The rule below is the one the check applies, the words the task
+# shows (panel_lines) and the unit the brief lists beside each output
+# (output_unit): a panel of several units is split into one panel per unit,
+# in the order its outputs come, while the figure keeps to MAX_PANELS;
+# otherwise the figure is refused before anything is drawn. Nothing is
+# dropped, two units never share an axis, and no value is rescaled. An
+# output that draws nothing on the axis (not made, not estimable, or a bar
+# with no value) takes no unit, as the drawing's own check does (drawn_unit).
+UNIT_KINDS = ("bars", "series")
+UNIT_RULE = (f"a bars or series panel draws outputs of one unit, the unit the brief lists "
+             f"beside each output (percent, for every output of a panel drawn with "
+             f"\"value\": \"percent\"); a panel of several units is split into one panel per "
+             f"unit, in the order its outputs come, while the figure keeps to {MAX_PANELS} "
+             f"panels, and otherwise the figure is refused, naming the units")
+NO_UNIT = "no unit"
+
+
+def output_unit(r: Dict[str, Any], opts: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """The unit an output is drawn in by a bars or series panel (`opts`, the
+    panel's options): a series' own unit; an anomaly's or a difference's
+    change unit, or "percent" for its percent; a timing measure's days; an
+    elevation split's input map's unit. None for an output not made, of a
+    kind no bars or series panel draws, or an elevation split whose input's
+    unit is not recorded (a map read as it is)."""
+    v, k = r.get("value"), str(r.get("kind"))
+    if not isinstance(v, dict):
+        return None
+    if k == "series":
+        return v.get("units") or NO_UNIT
+    if k in PC.NULL_REGION:
+        if (opts or {}).get("value") == "percent":
+            return "percent"
+        return v.get("change_units") or v.get("units") or NO_UNIT
+    if k == "elevation_split":
+        ins = list((r.get("out") or {}).get("inputs") or [])
+        return (r.get("input_units") or {}).get(ins[0]) if ins else None
+    if "variants" in v or "across_settings" in v:          # a timing measure
+        return "days"
+    return None
+
+
+def drawn_unit(r: Optional[Dict[str, Any]], opts: Optional[Dict[str, Any]] = None
+               ) -> Optional[str]:
+    """The unit an output takes on its panel's axis: its output_unit, or
+    None when it draws nothing there (not made, not estimable, or a bar
+    with no value), so it neither splits a panel nor clashes on one."""
+    if not r or not r.get("made") or r.get("outcome") == PC.NOT_ESTIMABLE:
+        return None
+    if r.get("kind") != "series" and _bar_value(r, opts or {})[0] is None:
+        return None
+    return output_unit(r, opts)
+
+
+def split_by_unit(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]]
+                  ) -> Tuple[Dict[str, Any], List[str]]:
+    """The figure with each bars or series panel of several units split into
+    one panel per unit (UNIT_RULE), each split panel keeping the panel's
+    options and the number of the panel it came from; or the figure as it
+    was and the problems, when the split would give more than MAX_PANELS. An
+    output that takes no unit on the axis (drawn_unit: not made, not
+    estimable, no value) stays in its panel's first part, so a failure is
+    still named when drawing. After a split every panel keeps the number it
+    was asked as ("asked_as"), which a drawing failure names."""
+    out: List[Tuple[int, Dict[str, Any]]] = []
+    mixed: List[str] = []
+    for i, p in enumerate(f.get("panels") or [], 1):
+        names = panel_refs(p)
+        if p.get("kind") not in UNIT_KINDS or len(names) < 2:
+            out.append((i, p))
+            continue
+        groups: Dict[str, List[str]] = {}
+        no_axis: List[str] = []
+        for n in names:
+            u = drawn_unit(refs.get(n), p)
+            if u is None:
+                no_axis.append(n)
+            else:
+                groups.setdefault(u, []).append(n)
+        if len(groups) < 2:
+            out.append((i, p))
+            continue
+        mixed.append(f"panel {i} ({p.get('kind')}): " + ", ".join(
+            f"{u} ({', '.join(ns)})" for u, ns in groups.items()))
+        for j, (u, ns) in enumerate(groups.items()):
+            out.append((i, dict(p, outputs=ns + (no_axis if j == 0 else []), split_from=i)))
+    if len(out) > MAX_PANELS:
+        return f, [f"its outputs are in different units within one panel ({'; '.join(mixed)}), "
+                   f"and one panel per unit would give it {len(out)} panels where a figure "
+                   f"holds {MAX_PANELS}: put each unit's outputs in a panel of their own, in "
+                   f"this figure or another"]
+    if not mixed:
+        return f, []
+    return dict(f, panels=[dict(p, asked_as=i) for i, p in out]), []
+
+
 class FigureFailed(ValueError):
     """A figure the framework cannot draw, with the panel and the reason."""
 
@@ -320,7 +419,9 @@ def _draw_series(ax, rs, opts, normal_years, where):
         v = r["value"] or {}
         labs, vals = list(v.get("labels") or []), np.asarray(v.get("values"), dtype=float)
         step = str(v.get("step") or r["out"].get("step"))
-        units.add(str(v.get("units") or ""))
+        u = drawn_unit(r, opts)
+        if u:
+            units.add(u)
         name = f"{r['ref']} {r['out'].get('field')}"
         if not years and not normal:
             ok = np.isfinite(vals)
@@ -359,7 +460,9 @@ def _draw_series(ax, rs, opts, normal_years, where):
                             for i in range(0, len(keys), step_ticks)])
     if not n:
         _blank(where, "the series hold no value to draw")
-    ax.set_ylabel(", ".join(sorted(u for u in units if u)) or "value")
+    if len(units) > 1:
+        _blank(where, f"its series are in different units ({', '.join(sorted(units))})")
+    ax.set_ylabel(", ".join(sorted(u for u in units if u != NO_UNIT)) or "value")
     ax.legend(loc="best")
     return n
 
@@ -373,17 +476,19 @@ def _of(r, i: int, what: str) -> str:
 
 
 def _bar_value(r, opts) -> Tuple[Optional[float], Optional[Tuple[float, float]], str]:
-    """A bar's height, its settings' range (a timing measure's) and its units."""
+    """A bar's height, its settings' range (a timing measure's) and its unit
+    (output_unit, the rule the check splits panels by)."""
     v, k = r["value"] or {}, r["kind"]
+    unit = output_unit(r, opts) or NO_UNIT
     if k in PC.NULL_REGION:
         if opts.get("value") == "percent":
-            return v.get("percent"), None, "percent"
-        return v.get(PC.MAP_PATH[k]), None, str(v.get("change_units") or v.get("units") or "")
+            return v.get("percent"), None, unit
+        return v.get(PC.MAP_PATH[k]), None, unit
     sh = (((v.get("variants") or {}).get("default") or {}).get("shift") or {}).get("median")
     ac = v.get("across_settings") or {}
     lo = (ac.get("minimum") or {}).get("median_shift")
     hi = (ac.get("maximum") or {}).get("median_shift")
-    return sh, ((lo, hi) if lo is not None and hi is not None else None), "days"
+    return sh, ((lo, hi) if lo is not None and hi is not None else None), unit
 
 
 def _draw_bars(ax, rs, opts, where):
@@ -426,7 +531,8 @@ def _draw_bars(ax, rs, opts, where):
     ax.set_xticks(range(len(vals)))
     ax.set_xticklabels([r["ref"] for r, _, _ in vals])
     ax.axhline(0, color="k", lw=0.8)
-    ax.set_ylabel(next(iter(units)) or "value")
+    u = next(iter(units))
+    ax.set_ylabel(u if u != NO_UNIT else "value")
     return sum(1 for _, h, _ in vals if h is not None)
 
 
@@ -526,7 +632,8 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
     record, total = [], 0
     try:
         for i, (p, ax) in enumerate(zip(panels, axes), 1):
-            where = f"panel {i} ({p.get('kind')})"
+            # the panel as the figure asked for it, after a split by unit
+            where = f"panel {p.get('asked_as') or i} ({p.get('kind')})"
             names = panel_refs(p)
             rs = []
             for n in names:
@@ -539,7 +646,9 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
             _title(ax, names, outs)
             gone = [r for r in rs if r["outcome"] == PC.NOT_ESTIMABLE]
             row = {"panel": i, "kind": p.get("kind"), "outputs": names,
-                   "records": [f"L{r['line']}" for r in rs if r.get("line")]}
+                   "records": [f"L{r['line']}" for r in rs if r.get("line")],
+                   **({"split_from": p["split_from"]} if p.get("split_from") else {}),
+                   **({"asked_as": p["asked_as"]} if p.get("asked_as") else {})}
             if gone and len(gone) == len(rs) and p.get("kind") != "bars":
                 _note(ax, "not estimable: " + "; ".join(f"{r['ref']}: {r['why']}" for r in gone))
                 record.append(dict(row, status="not estimable",
@@ -600,6 +709,8 @@ def panel_lines(timing_ids: Sequence[str]) -> List[str]:
                       "labels), and its options}; a label is a plan output's (P1.O1), or an "
                       "extra output's of this figure (X1):", 79, break_long_words=False,
                       break_on_hyphens=False)
+    L += textwrap.wrap("ONE UNIT PER PANEL: " + UNIT_RULE + ".", 79, break_long_words=False,
+                       break_on_hyphens=False)
     for k in PANEL_KINDS.values():
         acc = [("a timing measure (" + ", ".join(timing_ids) + ")") if a == "timing" else a
                for a in k.accepts]

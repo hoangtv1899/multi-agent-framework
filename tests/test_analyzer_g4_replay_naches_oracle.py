@@ -262,10 +262,14 @@ def test_q1s_blank_panels_are_drawn_from_the_framework_outputs_as_a_specificatio
     lines = {c["label"]: c["line"] for c in _j(rd / "04_analysis" / AP.REQUIRED_FILE)["calls"]}
     assert [x["id"] for x in f["lookups"]] == [f"L{lines[k]}" for k in ("P2.O5", "P3.O1",
                                                                         "P5.O1")]
-    # the season's and the year's totals are refused side by side, by their units
+    # the season's and the year's totals never share an axis: refused side by
+    # side when this batch ran, and since the phase's close (one unit per
+    # panel, 2026-11-08) split into a panel each, each with its record
     o, f, cav = _draw(rd, [{"kind": "bars", "outputs": ["P2.O1", "P2.O2"]}], ["P2"])
-    assert o["ok"] is False and o["error"] == ("panel 1 (bars): its bars are in different "
-                                               "units (gC/m^2/season, gC/m^2/yr)")
+    assert o["ok"] and cav is None
+    assert [(p["outputs"], p["split_from"]) for p in o["panels"]] == [(["P2.O1"], 1),
+                                                                      (["P2.O2"], 1)]
+    assert [x["id"] for x in f["lookups"]] == [f"L{lines[k]}" for k in ("P2.O1", "P2.O2")]
 
 
 def test_q2s_timing_and_screen_are_drawn_from_its_recorded_outputs(replay, tmp_path):

@@ -62,6 +62,16 @@ def _text(slide, left, top, width, height, size, text,
     return box
 
 
+def _height_in(text, size, width_in, bold=False) -> float:
+    """About how tall `text` sets at `size` points across `width_in` inches,
+    in inches, erring tall: a character about half its size wide (a bold one
+    0.55), a tenth of each line lost to wrapping at words and to the box's
+    own margins, lines 1.2 times the size, and 0.1 in for the box."""
+    per_line = max(1, int(0.9 * width_in * 72 / (size * (0.55 if bold else 0.5))))
+    lines = max(1, -(-len(str(text)) // per_line))
+    return lines * size * 1.2 / 72 + 0.1
+
+
 def _bullets(slide, left, top, width, height, items, size=14):
     """One paragraph per item; (text, indent) pairs keep sub-lines attached."""
     from pptx.util import Emu, Pt
@@ -166,11 +176,26 @@ def build(report: Dict[str, Any], out_dir) -> Optional[str]:
         # tightened the wording would be a third author nobody audited.
         # The headline is step 3's own one-sentence form, shown above it.
         y = int(1.4 * _EMU_IN)
+        cl = None
         if report.get("headline"):
-            _text(s, M, y, W, int(1.3 * _EMU_IN), 22, str(report["headline"]),
-                  bold=True)
+            # ITS CAVEATS RIGHT UNDER IT (2026-11-08): a slide shows the
+            # headline alone, so it carries the qualifications its claim does.
+            # Each box is as tall as its text sets (2026-11-09), the answer
+            # below both, so no text runs into the next
+            from agents.analysis.claim_trace import headline_caveat_line
+            cl = headline_caveat_line(report)
+            w_in = W / _EMU_IN
+            hh = max(1.2, _height_in(report["headline"], 22, w_in, bold=True)) if cl else 1.3
+            _text(s, M, y, W, int(hh * _EMU_IN), 22, str(report["headline"]), bold=True)
             y = int(2.9 * _EMU_IN)
-        _text(s, M, y, W, int(4.5 * _EMU_IN), 16, str(answer))
+            if cl:
+                size = 13 if _height_in(cl, 13, w_in) <= 1.0 else 11
+                ch = _height_in(cl, size, w_in)
+                _text(s, M, int((1.4 + hh) * _EMU_IN), W, int(ch * _EMU_IN), size, cl,
+                      rgb=(0x44, 0x44, 0x44))
+                y = int((1.5 + hh + ch) * _EMU_IN)
+        _text(s, M, y, W, int(max(1.5, 7.3 - y / _EMU_IN) * _EMU_IN) if cl
+              else int(4.5 * _EMU_IN), 16, str(answer))
 
     # ── 3..n · one slide per claim, with the figure it rests on ─────────
     figs = report.get("figures") or {}
