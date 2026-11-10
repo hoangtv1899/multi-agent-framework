@@ -404,9 +404,18 @@ SAY WHAT EACH RUN MEANS, from the menus and nothing else
     before the user agrees to a design.
 
 THE YEARS AND THE COST
-  • A run starts from the control's saved state, so its years start at the
-    control's `start_year`; a reused control's output ends at the last of its
-    `output_years`. Inside those, as few years as answer the question.
+  • Two kinds of years, kept apart. The years a run SIMULATES
+    (domain_experiment.years) start at the control's `start_year`, because a
+    run starts from the control's saved state, and end no later than the last
+    of its `output_years`: as few as reach the years the question asks about.
+    The years the question ASKS ABOUT go in run_settings.requested_period,
+    exactly as the user stated or agreed them, never widened. The numbers are
+    reported for those years and the normal years they are compared with, not
+    for the start year a run needs; say so when the two differ.
+  • A reused control read alone (no run) simulates nothing. Its
+    domain_experiment.years are the years the question asks about and the
+    normal years they are compared with: any consecutive years inside
+    `output_years`. Do not add the control's start year to them.
   • Quote the cost: years x runs x `hours_per_model_year`. A reused control
     costs nothing.
   • The numbers are reported by year, by month and by season (MAM, JJA and

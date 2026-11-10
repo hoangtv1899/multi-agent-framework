@@ -205,6 +205,13 @@ YOU DECIDE the analysis:
                  `normal_years`, use exactly those, minus any year the
                  question asks about, and say they are the control's own.
                  Choose other years only when the person named them.
+  years          leave this key out. The numbers are reported for the years
+                 the person asked about (run_settings.requested_period) and
+                 the normal years, which the framework works out itself: a
+                 run's start year is simulated and not reported unless the
+                 question asks about it. Name years here only when the years
+                 to report are others, each inside domain_experiment.years,
+                 and say why in a caveat.
   question_type  "hypothesis" only when the question proposes a testable
                  expectation: a direction, a relation or a mechanism ("did
                  the dry year lower GPP through soil water?"). "exploratory"
@@ -238,7 +245,9 @@ THE VERDICT
 
 THE CAVEATS ARE WRITTEN NOW. For every run, copy each change's `not_meaning`
 into domain_experiment.caveats: it is what the difference between the runs
-must never be called. Where the control does not contain something the
+must never be called. For a change the rulebook marks `demonstrated: false`,
+add one caveat that says no run with this change has been completed in this
+framework yet, so its result is untested. Where the control does not contain something the
 question names or its years hold, say so in one caveat, written from the
 control's `not_in_it_words` (the same items without the observations'
 numbers). No caveat carries an observation's numbers: the scientist read

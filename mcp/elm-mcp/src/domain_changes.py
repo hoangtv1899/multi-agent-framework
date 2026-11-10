@@ -254,6 +254,26 @@ class ChangeError(Exception):
 # ─────────────────────────────────────────────────────────────────────────────
 # THE LIST
 # ─────────────────────────────────────────────────────────────────────────────
+# WHICH CHANGES HAVE RUN (2026-11-10). A change is demonstrated when a whole
+# run with it has passed every stage of its job chain in this framework. The
+# others are checked before the model is built, their settings against the
+# control's, and no further: a result from one is untested until its first run
+# has been read by a person. The list says which is which, so that an
+# available change is never shown as a tested one.
+_DEMONSTRATED = frozenset({"fire_off", "weather_scale", "weather_repeat_year"})
+DEMONSTRATED_WORDS = {
+    True: "a run with this change has passed every check of its job chain in this "
+          "framework",
+    False: "No run with this change has been completed in this framework yet. Its "
+           "settings are checked before the model is built; its result is untested. "
+           "Tell the person before they agree, and say so in the caveats",
+}
+
+
+def demonstrated(change_id: str) -> bool:
+    return change_id in _DEMONSTRATED
+
+
 def declare() -> Dict[str, Any]:
     """The change list, for reception and the planner, and the rules it obeys."""
     return {
@@ -262,6 +282,7 @@ def declare() -> Dict[str, Any]:
                 "question needing one marked available: false is answered "
                 "partial, with that change's `requires` named",
         "changes": [_published(c) for c in _CHANGES],
+        "demonstrated_false": DEMONSTRATED_WORDS[False],
         "rules": [
             "a run's name is lowercase letters, digits and _ (at most 24), not "
             "'control'",
@@ -286,6 +307,10 @@ def declare() -> Dict[str, Any]:
             "reports vegetated cells and elevation bands over the whole domain",
             "burned_area_km2 is not a history field: name FAREA_BURNED and the "
             "burned area in km2 comes with it",
+            "a reused control read alone runs nothing: its years are any "
+            "consecutive years inside its output",
+            "years are what a run simulates; the numbers are reported for the "
+            "years asked about",
         ],
     }
 
@@ -297,6 +322,10 @@ def _published(c: Dict[str, Any]) -> Dict[str, Any]:
     out = {k: v for k, v in c.items() if k != "menu_text"}
     for k, v in (c.get("menu_text") or {}).items():
         out["meaning"] = out["meaning"].replace("{" + k + "}", v)
+    if c.get("available"):
+        # the flag per change, its words once (declare): the list must fit a
+        # tool result
+        out["demonstrated"] = demonstrated(c["id"])
     return out
 
 
@@ -835,7 +864,17 @@ def _h1_problems(cfacts: Optional[Dict], years: Sequence[int], here: str,
                      f"complete year {gap}: those years of the run could not be checked"})
 
 
-def _years_problems(years, facts: Optional[Dict], reuse: bool) -> Tuple[List[str], List[str]]:
+def _years_problems(years, facts: Optional[Dict], reuse: bool,
+                    executes: bool = True) -> Tuple[List[str], List[str]]:
+    """What is wrong with an experiment's years.
+
+    executes  does any job run? False for a reused control read alone. The
+              rules about a run (it starts from the control's saved state, it
+              reads the control's forcing) then do not apply: the years are
+              only the span of the control's existing output that is read.
+              They were applied all the same (until 2026-11-10), so a question
+              about later years of the control was refused until it began at
+              the control's start year."""
     bad, odd = [], []
     if not isinstance(years, list) or not years or \
             not all(isinstance(y, int) and not isinstance(y, bool) for y in years):
@@ -848,7 +887,7 @@ def _years_problems(years, facts: Optional[Dict], reuse: bool) -> Tuple[List[str
                    "could not be confirmed")
         return bad, odd
     f0, f1 = (facts.get("forcing_years") or [None, None])[:2]
-    if f0 is not None and (years[0] < f0 or years[-1] > f1):
+    if executes and f0 is not None and (years[0] < f0 or years[-1] > f1):
         bad.append(f"years {years[0]}-{years[-1]} are outside the forcing the control "
                    f"reads ({f0}-{f1}); later years would recycle earlier weather")
     if reuse:
@@ -859,7 +898,7 @@ def _years_problems(years, facts: Optional[Dict], reuse: bool) -> Tuple[List[str
             bad.append(f"years {years[0]}-{years[-1]} are outside the reused control's "
                        f"output ({o0}-{o1}): those years have nothing to compare with")
         start = facts.get("start_year")
-        if start is not None and years[0] != start:
+        if executes and start is not None and years[0] != start:
             bad.append(f"a run starts from the control's saved state at {start}, so "
                        f"its years start at {start}, not {years[0]} (compare later "
                        f"years only, after running from {start})")
@@ -1005,10 +1044,25 @@ def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
     cfacts = (control or {}).get("facts")
     reuse = bool((exp.get("control") or {}).get("reuse"))
     years = exp.get("years")
-    b, o = _years_problems(years, cfacts, reuse)
+    runs = exp.get("runs")
+    b, o = _years_problems(years, cfacts, reuse,
+                           executes=bool(runs) or not reuse)
     wont += [{"where": "years", "what": x} for x in b]
     odd += [{"where": "years", "what": x} for x in o]
-    runs = exp.get("runs")
+    # THE YEARS REPORTED, when the plan names them (analysis.years): years the
+    # experiment holds. A run's years start where the control's saved state
+    # is; the years a question asks about may start later.
+    ay = (exp.get("analysis") or {}).get("years") if isinstance(exp.get("analysis"), dict) \
+        else None
+    if ay is not None:
+        if not isinstance(ay, list) or not ay or \
+                not all(isinstance(y, int) and not isinstance(y, bool) for y in ay):
+            wont.append({"where": "analysis.years",
+                         "what": "the years reported must be a non-empty list of whole years"})
+        elif isinstance(years, list) and not set(ay) <= set(years):
+            wont.append({"where": "analysis.years",
+                         "what": f"the years reported {sorted(set(ay) - set(years))} are "
+                                 f"not among the experiment's years {years}"})
     if not isinstance(runs, list):
         wont.append({"where": "runs", "what": "runs must be a list of runs; an empty list "
                                               "is the control alone"})
@@ -1047,6 +1101,10 @@ def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
                              **({"requires": c["requires"]} if c and not c["available"]
                                 else {})})
                 continue
+            if not demonstrated(rc["id"]):
+                odd.append({"where": f"{where}, change {rc['id']}",
+                            "what": "not demonstrated: " + DEMONSTRATED_WORDS[False][0].lower()
+                                    + DEMONSTRATED_WORDS[False][1:]})
             for t in _targets(rc):
                 if t in targets:
                     wont.append({"where": where, "what": f"{targets[t]} and {rc['id']} "

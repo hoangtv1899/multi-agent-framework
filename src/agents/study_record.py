@@ -706,6 +706,16 @@ def _numbers_lines(rd, page_dir):
         return L + ["There is no 03_results/regional.json: no regional numbers were computed.", ""]
     L.append("What `03_results/regional.json` holds:")
     L.append(f"- years: {_years(reg.get('years'))}")
+    try:
+        yd = _read_json(rd / "03_results" / "years_reported.json") or {}
+    except _Unreadable:
+        yd = {}
+    if yd.get("left_out"):
+        # the years a run simulated and the question does not ask about
+        L.append(f"- simulated and NOT reported: {_years(yd['left_out'])}. A run starts "
+                 f"from the control's saved state; the question asks about "
+                 f"{_years(yd.get('asked')) if yd.get('asked') else 'the years above'}. "
+                 f"An answer is read from the years reported.")
     runs = reg.get("runs") or {}
     for name, r in runs.items():
         r = r or {}
@@ -1110,6 +1120,7 @@ ROLES = (
     ("01_inputs/decks/*.regression", "one column's regression summary of its output"),
     ("01_inputs/decks/*", "a file of one column's PFLOTRAN run"),
     ("01_inputs/columns.json", "the frame the inputs were built on"),
+    ("01_inputs/design_approval.json", "the approval of this design: how it was given, when, and a fingerprint of the control, runs and years approved"),
     ("01_inputs/domain_experiment.json", "the experiment as handed to the model server: control, runs, years"),
     ("01_inputs/domain_control_facts.json", "the server's facts about the control and its check of the experiment"),
     ("01_inputs/domain_runs.json", "the server's build of the runs: the control, each run, the cost and its findings"),
@@ -1151,6 +1162,7 @@ ROLES = (
     (f"{DOMAIN_RECORD}/logs/*", "one job's log from the scheduler"),
     (f"{DOMAIN_RECORD}/SourceMods/*", "a model source file copied into the case"),
     ("03_results/regional.json", "the numbers by region, field and year, computed by the model server from the model's output"),
+    ("03_results/years_reported.json", "the years the numbers are reported for and how they were decided: the years asked about, the normal years, and the simulated years left out"),
     ("03_results/regional_monthly.csv", "every month and season of 03_results/regional.json as one table, written with the numbers report"),
     ("03_results/extracted.json", "the record of what was read from the model's output"),
     ("03_results/execution_report.txt", "the Experiment Manager's account of each case"),

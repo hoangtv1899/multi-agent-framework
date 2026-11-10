@@ -37,6 +37,7 @@ Without this a reader cannot tell an answer that cost one LLM call from one
 that cost six, or a 19-column ensemble from a 200-column one.
 """
 import json
+import re
 import statistics
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -882,6 +883,8 @@ def render_markdown(report: Dict[str, Any]) -> str:
                          f"{_plain(w.get('struck_because'))}")
         lines.append("")
 
+    lines += verification_limits(report)
+
     prov = report.get("provenance") or {}
     cost = report.get("cost") or {}
     comp = cost.get("compute") or {}
@@ -906,6 +909,59 @@ def render_markdown(report: Dict[str, Any]) -> str:
         lines = MS.insert_after_answer(lines, [_plain(x) for x in MS.render(
             report["model_setup"])])
     return with_planned_phase("\n".join(lines), report, section=False)
+
+
+# WHAT CODE CHECKED, AND WHAT IT DID NOT, ON THE LIVE PAGE (2026-11-10). Two
+# checks are not built: the numbers check does not cover what a figure draws,
+# a plotted series among it, and the claim trace does not hold a ranking to
+# its whole comparison set. Only the preview pages said so
+# (report_views.coverage_lines); a report a live run wrote carried claims with
+# ranking words and figures with no note that code had not checked them. The
+# wording is fixed here, by code; the counts are the report's own.
+RANKING = re.compile(r"\b(?:most|least|largest|smallest|highest|lowest|earliest|latest|"
+                     r"greatest|warmest|coldest|every|all)\b", re.I)
+LIMITS_HEADING = "## What code checked, and what it did not"
+
+
+def ranking_claims(report: Dict[str, Any]) -> List[int]:
+    """The kept claims that use a ranking word or speak of every member of a
+    set: the claim trace holds their numbers to the records they cite, not
+    the ranking to records they leave out."""
+    return [i for i, c in enumerate(report.get("claims") or [], 1)
+            if RANKING.search(str(c.get("claim") or ""))]
+
+
+def verification_limits(report: Dict[str, Any]) -> List[str]:
+    """The section of a whole-domain report that says which kinds of
+    statement code checked and which it did not. [] for another kind of
+    report, or one with no claims to speak of."""
+    if report.get("kind") != "whole_domain":
+        return []
+    kept, held = len(report.get("claims") or []), len(report.get("withheld") or [])
+    en = report.get("evidence_numbers") or {}
+    L = [LIMITS_HEADING, "", "Checked by code:", ""]
+    if en.get("n_compared"):
+        L.append(f"- the numbers of the records the claims cite: {en['n_compared']:,} "
+                 f"numbers made again from the model output by an independent reading"
+                 + (", with no mismatch" if en.get("pass") else
+                    ", WITH MISMATCHES, listed above"))
+    L.append(f"- each claim against the records it cites: the audit kept {kept} and "
+             f"withheld {held}")
+    ranked = ranking_claims(report)
+    L += ["", "Not checked by code:", "",
+          "- **Ranking words.** A claim's numbers are held to the records it cites. A "
+          "ranking, or a statement about every member of a set (\"most\", \"least\", "
+          "\"largest\", \"every band\"), is not held to the records the claim leaves out. "
+          + (f"{'Claim' if len(ranked) == 1 else 'Claims'} "
+             f"{', '.join(map(str, ranked))} above "
+             f"{'uses' if len(ranked) == 1 else 'use'} such a word."
+             if ranked else "No kept claim above uses such a word."),
+          "- **Figures and plotted series.** What a figure draws beyond the records the "
+          "claims cite, a plotted series among it, was not made again by the independent "
+          "reading.",
+          "- **Interpretation.** Whether the answer follows from its claims is for a "
+          "reader to judge; no code judges it.", ""]
+    return L
 
 
 # ─────────────────────────────────────────────────────────────────────

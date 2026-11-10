@@ -821,6 +821,37 @@ class TestSubmit:
         assert "NOT cancelled, check by hand: ['1001', '1002', '1003', '1004']" in out["error"]
         assert "; cancelled" not in out["error"]
 
+    def test_a_queued_chain_is_cancelled_whole_and_the_record_says_why(self, tmp_path):
+        """For an experiment whose later run could not be queued: the chain
+        that was queued for an earlier run is cancelled job by job."""
+        slurm = FakeSlurm()
+        r, rec, out = _armed(tmp_path, slurm=slurm)
+        assert out["ok"]
+        got = DC.cancel_chain(rec, "run warm could not be submitted", run=slurm)
+        ids = ["1001", "1002", "1003", "1004", "1005"]
+        assert got == {"ok": True, "cancelled": ids, "not_cancelled": []}
+        assert [c for c in slurm.calls if c[0] == "scancel"] == [["scancel", j] for j in ids]
+        after = DC.read_chain(rec)["segments"][-1]["cancelled_after"]
+        assert after["why"] == "run warm could not be submitted" and after["cancelled"] == ids
+        assert (rec / DC.STATUS_FILE).read_text().strip().endswith(
+            "CANCELLED (run warm could not be submitted): 1001 1002 1003 1004 1005")
+
+    def test_a_chain_cancellation_slurm_refused_is_not_claimed(self, tmp_path):
+        slurm = FakeSlurm()
+        r, rec, out = _armed(tmp_path, slurm=slurm)
+        slurm.scancel_rc = 1
+        got = DC.cancel_chain(rec, "a later run failed", run=slurm)
+        assert not got["ok"] and got["cancelled"] == []
+        assert got["not_cancelled"] == ["1001", "1002", "1003", "1004", "1005"]
+        assert "NOT cancelled, check by hand: 1001 1002 1003 1004 1005" in \
+            (rec / DC.STATUS_FILE).read_text()
+
+    def test_a_record_with_no_chain_has_nothing_to_cancel(self, tmp_path):
+        slurm = FakeSlurm()
+        got = DC.cancel_chain(tmp_path, "a later run failed", run=slurm)
+        assert got["ok"] and got["cancelled"] == [] and "no chain" in got["note"]
+        assert slurm.calls == []
+
     def test_a_record_that_cannot_be_written_cancels_what_was_queued(self, tmp_path,
                                                                     monkeypatch):
         """A full quota after the second job was queued: both are cancelled,

@@ -1068,7 +1068,9 @@ class ELMExpManager(ExperimentManagerBase):
 			after = case_job.get(e.get("after")) if e.get("after") else ""
 			if e.get("after") and not after:
 				raise RuntimeError(f"run {e['run']} waits for {e['after']}, whose case job "
-								   f"was not submitted")
+								   f"was not submitted"
+								   + self._cancel_queued(client, jobs, f"run {e['run']} "
+														 f"could not be submitted"))
 			out = self._mcp_call(client, "submit_domain_chain", {
 				"run_dir": str(self.run_dir), "run": e["run"], "after_job": after or ""},
 				budget=600)
@@ -1076,9 +1078,8 @@ class ELMExpManager(ExperimentManagerBase):
 				raise RuntimeError(
 					f"submit_domain_chain for run {e['run']}: {out.get('error')}"
 					+ (": " + "; ".join(out["reasons"]) if out.get("reasons") else "")
-					+ (f"; already queued for earlier runs: "
-					   f"{', '.join(j['run'] + '/' + j['stage'] + '=' + j['job_id'] for j in jobs)}"
-					   if jobs else ""))
+					+ self._cancel_queued(client, jobs, f"run {e['run']} could not "
+													   f"be submitted"))
 			for j in out["jobs"]:
 				jobs.append({"run": e["run"], "stage": j["stage"], "job_id": str(j["job_id"])})
 				print(f"   {e['run']:>12} {j['stage']:>8}  job {j['job_id']}")
@@ -1089,6 +1090,37 @@ class ELMExpManager(ExperimentManagerBase):
 		return Pending(job_b or ids[-1], scope="domain", n_cases=len(experiments),
 					   chain=jobs, job_ids=ids, job_id_b=job_b or None, via="mcp",
 					   notify=email or None)
+
+	def _cancel_queued(self, client, jobs, why: str) -> str:
+		"""The chains queued for earlier runs, cancelled through the server
+		when a later run of the same experiment cannot be submitted. A
+		sentence for the error that stops the study: what was queued, what the
+		scheduler cancelled and what it did not.
+
+		AN EXPERIMENT IS SUBMITTED WHOLE OR NOT AT ALL (2026-11-10). Before
+		this the error named the earlier runs' jobs and left them queued, so a
+		two-run experiment whose second submission failed still spent the
+		first run's compute, for a comparison that could no longer be made.
+		A cancellation that fails is never hidden: its jobs are named."""
+		if not jobs:
+			return ""
+		queued = ", ".join(f"{j['run']}/{j['stage']}={j['job_id']}" for j in jobs)
+		done, left = [], []
+		for r in dict.fromkeys(j["run"] for j in jobs):
+			ids = [j["job_id"] for j in jobs if j["run"] == r]
+			try:
+				out = self._mcp_call(client, "cancel_domain_chain", {
+					"run_dir": str(self.run_dir), "run": r, "why": why})
+				done += [str(x) for x in out.get("cancelled") or []]
+				left += [str(x) for x in out.get("not_cancelled") or []]
+				if not out.get("ok") and not out.get("not_cancelled"):
+					left += ids
+			except Exception:                                       # noqa: BLE001
+				left += ids
+		left = [x for x in dict.fromkeys(left) if x not in done]
+		return (f"; queued for earlier runs: {queued}; cancelled: "
+				f"{', '.join(done) or 'none'}"
+				+ (f"; NOT cancelled, cancel by hand: {', '.join(left)}" if left else ""))
 
 	def _attach_runs(self, experiments) -> bool:
 		"""Every executed run's chain record attached to its row (piece 3's
@@ -1232,56 +1264,115 @@ class ELMExpManager(ExperimentManagerBase):
 			st = json.loads((self.run_dir / "strategy.json").read_text())
 		return ((st or {}).get("domain_experiment") or {}).get("analysis") or {}
 
+	def _reported_years(self, experiments, config):
+		"""(years, how): the years the regional numbers are reported for, by
+		core/analysis_years from the study's brief and strategy (the files
+		beside the run when a finalize job has neither in its config). The
+		experiment's own years when the rule cannot be read."""
+		sim = [int(y) for y in experiments[0]["years"]]
+		try:
+			from core import analysis_years as AY
+			cfg = config or {}
+			st = cfg.get("strategy")
+			if not st and (self.run_dir / "strategy.json").is_file():
+				st = json.loads((self.run_dir / "strategy.json").read_text())
+			brief = cfg.get("brief") or (cfg.get("reception") or {}).get("brief")
+			if not brief and (self.run_dir / "reception.json").is_file():
+				brief = (json.loads((self.run_dir / "reception.json").read_text())
+						 .get("brief"))
+			years, how = AY.reported(brief or {}, st or {})
+			if years and set(years) <= set(sim):
+				return years, how
+		except Exception as e:                                      # noqa: BLE001
+			print(f"   ⚠️  the years to report could not be read "
+				  f"({type(e).__name__}: {e}); reporting every simulated year")
+		return sim, {"simulated": sim, "asked": [], "normal": [], "left_out": [],
+					 "source": "all"}
+
 	def _regional(self, experiments, config) -> Optional[Dict[str, Any]]:
 		"""The experiment's numbers by region (domain_analysis), for every run
 		with output, written to 03_results/regional.json. None when the plan
-		names no analysis; the reason, when they cannot be made."""
+		names no analysis; the reason, when they cannot be made.
+
+		EVERY NEW RUN GETS ITS RESULTS STORE, WHETHER OR NOT A TABLE IS ASKED
+		FOR (2026-11-10). The store was built only after the table, so a plan
+		that named no variables left its new run with no maps, series or dates
+		for the Analyzer to read."""
 		analysis = self._experiment_analysis(config)
-		if not analysis.get("variables"):
-			return None
+		wanted = bool(analysis.get("variables"))
+		A = self._sibling_module("domain_analysis")
+		runs: Dict[str, str] = {}
+		table: Optional[Dict[str, Any]] = None
+		try:
+			control = self._run_outputs(experiments, runs)
+			if wanted:
+				if control is None:
+					raise RuntimeError("the control has no output to read")
+				# THE YEARS REPORTED, NOT THE YEARS SIMULATED (2026-11-10,
+				# core/analysis_years): a run starts from the control's saved
+				# state, and that year is in the numbers only when the
+				# question asks about it. The same function the design page
+				# read, so the table holds the years the person approved.
+				years, how = self._reported_years(experiments, config)
+				table = A.experiment(control, runs, analysis, years,
+									 confined=self._confined(runs))
+				# how the years were decided, beside the table and not in it:
+				# the numbers check holds every key of the table to a number
+				# it can make again, and this is a record, not a number
+				out = self.run_dir / "03_results"
+				out.mkdir(parents=True, exist_ok=True)
+				(out / "years_reported.json").write_text(
+					json.dumps(dict(how, reported=years), indent=1))
+		except Exception as e:                                      # noqa: BLE001
+			if wanted:
+				table = {"error": f"{type(e).__name__}: {e}"}
+				print(f"   ⚠️  the regional numbers could not be made: {table['error']}")
+			else:
+				print(f"   ⚠️  the runs' output could not all be found: "
+					  f"{type(e).__name__}: {e}")
+		if wanted:
+			(self.results_dir / "regional.json").write_text(
+				json.dumps(table, indent=1, default=str))
+			if "error" not in table:
+				print(f"   ✓ regional numbers: {len(table['regions'])} region(s), "
+					  f"{len(table['runs'])} run(s), {len(table['problems'])} problem(s)")
+		self._build_run_suites(experiments, runs)
+		return table
+
+	def _run_outputs(self, experiments, runs: Dict[str, str]) -> Optional[Dict[str, Any]]:
+		"""Where each run's output is: `runs` is filled in place, {run: its run
+		directory}, for the reused control (the registry's) and every executed
+		run whose first year check names one. The control's entry for the
+		regional table, or None when the control has no output. `runs` is filled
+		in place so what was found before a failure is kept."""
 		A = self._sibling_module("domain_analysis")
 		DC = self._sibling_module("domain_case")
 		DCT = self._sibling_module("domain_controls")
-		runs: Dict[str, str] = {}
-		try:
-			ctl = self._control_facts().get("control") or {}
-			control = None
-			for e in experiments:
-				if e.get("reused"):
-					entry = DCT.get(ctl.get("name"))
-					control, runs["control"] = entry, entry["run_dir"]
-					continue
-				rd = self._run_record(e)
-				if not (rd / DC.CHAIN_FILE).is_file():
-					continue
-				checks = [s["check"] for s in DC.chain_records(rd)["stages"]
-						  if s["stage"].startswith("y") and s.get("check")]
-				if not checks:
-					continue
-				runs[e["run"]] = json.loads(Path(checks[0]).read_text())["run_dir"]
-				if e["run"] == "control":
-					# the study's elevation bands are the registered control's
-					# (THE STUDY'S ELEVATION BANDS, domain_analysis, 2026-11-04)
-					try:
-						edges = DCT.get(ctl.get("name")).get(A.BAND_EDGES_KEY)
-					except Exception:                               # noqa: BLE001
-						edges = None
-					control = {"case_dir": e["case_dir"], "regions": {}, "observations": {},
-							   A.BAND_EDGES_KEY: edges}
-			if control is None:
-				raise RuntimeError("the control has no output to read")
-			table = A.experiment(control, runs, analysis,
-								 [int(y) for y in experiments[0]["years"]],
-								 confined=self._confined(runs))
-		except Exception as e:                                      # noqa: BLE001
-			table = {"error": f"{type(e).__name__}: {e}"}
-			print(f"   ⚠️  the regional numbers could not be made: {table['error']}")
-		(self.results_dir / "regional.json").write_text(json.dumps(table, indent=1, default=str))
-		if "error" not in table:
-			print(f"   ✓ regional numbers: {len(table['regions'])} region(s), "
-				  f"{len(table['runs'])} run(s), {len(table['problems'])} problem(s)")
-		self._build_run_suites(experiments, runs)
-		return table
+		ctl = self._control_facts().get("control") or {}
+		control = None
+		for e in experiments:
+			if e.get("reused"):
+				entry = DCT.get(ctl.get("name"))
+				control, runs["control"] = entry, entry["run_dir"]
+				continue
+			rd = self._run_record(e)
+			if not (rd / DC.CHAIN_FILE).is_file():
+				continue
+			checks = [s["check"] for s in DC.chain_records(rd)["stages"]
+					  if s["stage"].startswith("y") and s.get("check")]
+			if not checks:
+				continue
+			runs[e["run"]] = json.loads(Path(checks[0]).read_text())["run_dir"]
+			if e["run"] == "control":
+				# the study's elevation bands are the registered control's
+				# (THE STUDY'S ELEVATION BANDS, domain_analysis, 2026-11-04)
+				try:
+					edges = DCT.get(ctl.get("name")).get(A.BAND_EDGES_KEY)
+				except Exception:                                   # noqa: BLE001
+					edges = None
+				control = {"case_dir": e["case_dir"], "regions": {}, "observations": {},
+						   A.BAND_EDGES_KEY: edges}
+		return control
 
 	SUITE_BUILDS = "suite_builds.json"
 

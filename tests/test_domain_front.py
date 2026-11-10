@@ -210,7 +210,8 @@ def test_the_review_page_of_an_experiment():
     assert "- run **nofire**: the control with fire_off" in page
     assert re.search(r"fire_off means the difference from the control is what the model's own "
                      r"fire does.*\n  - it is NOT the effect of an observed fire", page)
-    assert "- 2 model year(s), 2015–2016, for 1 run(s) to execute: about 1.6 node-hours" in page
+    assert ("- simulated: 2 model year(s), 2015–2016, for 1 run(s) to execute: about 1.6 "
+            "node-hours") in page
     assert "- reported over: watershed (the gauge's area)" in page
     assert "- caveat: the model's own fire, not the 2021 fire" in page
     assert len(page.splitlines()) <= 60

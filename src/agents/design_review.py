@@ -34,11 +34,14 @@ what each checks, the input files and weather, and the regions and fields
 the answer is read from). Still quoted or counted, never written: the
 server's files are the third authority beside the two records.
 """
+import hashlib
 import json
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
+
+from core import analysis_years as AY
 
 REVIEW_NAME = "DESIGN_REVIEW.md"
 _PENDING = "**Decision:** pending — the coordinator records it here."
@@ -74,14 +77,39 @@ def _trim(text, n=200):
     return cut.rstrip(" ,;:") + "…"
 
 
-def _period_line(brief):
+def _period_line(brief, strategy=None):
+    """The When line, each part labelled by whose choice it is.
+
+    "YOU STATED IT" ONLY FOR WHAT THE PERSON STATED (2026-11-10). The line gave
+    the period the design resolved, with the label of its source, so a
+    question about one year whose design also read the normal years, or the
+    start year a run needs, was shown as "2015–2016 (you stated it)". The
+    years asked about are Reception's requested_period; what the design added
+    to them is said to be the design's, or a rule of the model."""
     rs = (brief.get("run_settings") or {}).get("resolved_period") or {}
     y0, y1 = rs.get("yr_start"), rs.get("yr_end")
+    de = dict(brief.get("domain_experiment") or {})
+    de.update((strategy or {}).get("domain_experiment") or {})
+    if de.get("years"):
+        ctl = de.get("control") or {}
+        rb = (strategy or {}).get("domain_rulebook") or {}
+        row = next((c for c in ((rb.get("controls") or {}).get("controls") or [])
+                    if c.get("name") == ctl.get("name")), {})
+        line = AY.when_line(brief, strategy,
+                            start_year=(row.get("facts") or {}).get("start_year"),
+                            executes=bool(de.get("runs")) or not ctl.get("reuse"))
+        if line:
+            return line
     if not y0:
         return "not resolved"
     span = f"{y0}" if (y1 in (None, y0)) else f"{y0}–{y1}"
     src = str(rs.get("source") or "").lower()
+    asked = AY.requested(brief)
+    if src == "user" and asked and asked != list(range(int(y0), int(y1 or y0) + 1)):
+        return (f"{span} (you asked about {AY._span(asked)}; the design reads the "
+                f"wider span)")
     said = {"user": "you stated it",
+            "user-clamped": "the years you stated, cut to the years that can be run",
             "carried": "carried from the prior run",
             "default": "a DEFAULT the model chose, recorded as such"}
     return f"{span} ({said.get(src, src or 'source unrecorded')})"
@@ -196,15 +224,44 @@ def _whole_domain_lines(brief, strategy):
                            f"{_trim(_with_params(m['meaning'], c.get('params')), 240)}")
                 if m.get("not_meaning"):
                     out.append(f"  - it is NOT {' '.join(str(m['not_meaning']).split())}")
+            if m.get("demonstrated") is False:
+                # said by code, from the server's list (2026-11-10): a change
+                # that has never completed a run is not shown as a tested one
+                out.append(f"  - **{c.get('id')} is NOT DEMONSTRATED.** "
+                           f"{_trim((rb.get('changes') or {}).get('demonstrated_false'), 320)}")
     years = de.get("years") or []
     n_exec = len(runs) + (0 if ctl.get("reuse") else 1)
     hp = facts.get("hours_per_model_year")
-    if years:
+    if years and n_exec:
         span = (str(years[0]) if years[0] == years[-1] else f"{years[0]}–{years[-1]}")
-        out.append(f"- {len(years)} model year(s), {span}, for "
+        out.append(f"- simulated: {len(years)} model year(s), {span}, for "
                    f"{n_exec} run(s) to execute"
                    + (f": about {round(n_exec * len(years) * hp, 1)} node-hours"
                       if hp else ""))
+    if years:
+        # SIMULATED AND REPORTED YEARS ARE TWO LINES (2026-11-10,
+        # core/analysis_years): a run starts from the control's saved state,
+        # and the year it must start at is no part of the answer.
+        rep, how = AY.reported(brief, strategy)
+        out.append(f"- reported: the numbers are read for {AY._span(rep)}"
+                   + (f"; {AY._span(how['left_out'])} is simulated and not reported"
+                      if how["left_out"] else "")
+                   + ("" if n_exec else "; nothing is simulated, the control's "
+                                        "existing output is read"))
+        # A CHANGE IS IN EFFECT FROM THE RUN'S FIRST YEAR (2026-11-10). A
+        # question about rain cut in two named summers got a run whose rain
+        # is cut in every simulated summer, since the change has no year
+        # selector, and only a caveat of the Planner's said so. Said here by
+        # code, for every change that does not set its years itself (the
+        # server's list: one whose `alters` holds a per-year writer does).
+        whole_run = sorted({c.get("id") for r in runs for c in (r.get("changes") or [])
+                            if c.get("id") and not any(
+                                isinstance(a, dict) and "years" in a
+                                for a in (menu.get(c.get("id")) or {}).get("alters") or [])})
+        if whole_run and how["left_out"]:
+            out.append(f"- in effect in EVERY simulated year, {AY._span(how['simulated'])}, "
+                       f"not only the years reported: {', '.join(whole_run)}. A reported "
+                       f"year carries the change's effect from {how['simulated'][0]} on")
     an = de.get("analysis") or {}
     if an.get("regions"):
         regs = [x if isinstance(x, dict) else {"name": x} for x in an["regions"][:5]]
@@ -750,7 +807,11 @@ def _appendix(preview, run_dir, strategy, brief):
     if an or plan_an:
         L += ["## The numbers the answer is read from", ""]
         if de.get("years"):
-            L.append(f"- model years: {', '.join(map(str, de['years']))}")
+            rep, how = AY.reported(brief, strategy)
+            L.append(f"- years reported: {', '.join(map(str, rep))}")
+            if how["left_out"]:
+                L.append(f"- simulated and not reported: "
+                         f"{', '.join(map(str, how['left_out']))}")
         if plan_an.get("normal_years"):
             L.append(f"- normal years: {', '.join(map(str, plan_an['normal_years']))}")
         if plan_an.get("question_type"):
@@ -826,7 +887,7 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None)
         # long one ends at a full stop.
         L.append(f"Why this model: {_trim(brief['model_rationale'], 420)}")
     L.append(f"- **Where:** {_domain_line(brief)}")
-    L.append(f"- **When:** {_period_line(brief)}")
+    L.append(f"- **When:** {_period_line(brief, strategy)}")
     L.append("")
     L.append("## The design")
     L.extend(design or ["- (the strategy records no design lines)"])
@@ -946,6 +1007,68 @@ def record_decision(run_dir, decision):
         _PENDING, f"**Decision:** {decision} at {stamp}.")
     path.write_text(text)
     return path
+
+
+# AN APPROVAL IS OF ONE DESIGN (2026-11-10). The yes typed at the page, or an
+# unattended run's own continue, is recorded beside the run with a fingerprint
+# of what the design would run. The coordinator reads it back before it hands
+# anything to the Experiment Manager: a design with no approval on record, or
+# one that is not the design approved, is not run. A typed change makes a new
+# design in a new folder with a new page, so the folder of the design it
+# replaced never holds an approval.
+APPROVAL_FILE = "01_inputs/design_approval.json"
+NOT_APPROVED_WORDS = ("DECLINED", "NOT APPROVED", "not run:", "revision requested")
+
+
+class DesignNotApproved(RuntimeError):
+    """The design handed to the Experiment Manager has no approval on record,
+    or is not the design that was approved. Raised before any manager exists."""
+
+
+def design_fingerprint(strategy):
+    """A sha256 of what a whole-domain design would run: its control, its runs
+    and its years. None for a design with no whole-domain experiment, whose
+    gate corrects the sampling after the approval."""
+    de = (strategy or {}).get("domain_experiment")
+    if not isinstance(de, dict):
+        return None
+    doc = {k: de.get(k) for k in ("control", "runs", "years")}
+    return hashlib.sha256(
+        json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def approve(run_dir, strategy, how):
+    """Record that the design in run_dir was approved, and which design."""
+    path = Path(run_dir) / APPROVAL_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "decision": how, "when": datetime.now().isoformat(timespec="seconds"),
+        "design_sha256": design_fingerprint(strategy)}, indent=1))
+    return path
+
+
+def approval_problem(run_dir, strategy, resume=False):
+    """Why the design may not go to the Experiment Manager, or None.
+
+    A new run needs its approval on record. A resumed run made before
+    approvals were recorded has none, and is held only to what its page says:
+    a design declined, refused or replaced by a revision is not resumed."""
+    rd = Path(run_dir)
+    rec = _load(rd, APPROVAL_FILE)
+    if not isinstance(rec, dict):
+        if not resume:
+            return f"no approval of this design is on record in {rd}"
+        page = rd / REVIEW_NAME
+        line = next((ln for ln in (page.read_text().splitlines() if page.is_file() else [])
+                     if ln.startswith("**Decision:**")), "")
+        if any(w in line for w in NOT_APPROVED_WORDS):
+            return f"the design in {rd} was not approved ({line.strip()})"
+        return None
+    want, got = rec.get("design_sha256"), design_fingerprint(strategy)
+    if want and got and want != got:
+        return (f"the design handed to the Experiment Manager is not the design that "
+                f"was approved in {rd} (its control, runs or years differ)")
+    return None
 
 
 if __name__ == "__main__":

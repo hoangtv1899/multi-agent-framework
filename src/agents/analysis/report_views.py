@@ -1166,16 +1166,9 @@ def figure_check_line(report: Dict[str, Any], records: Dict[str, Dict[str, Any]]
 # says of each kind of statement whether code checked it. The review of an
 # interpretation stays a person's: no code here judges whether a sentence
 # follows from its claims.
-_RANKING = re.compile(r"\b(?:most|least|largest|smallest|highest|lowest|earliest|latest|"
-                      r"greatest|warmest|coldest|every|all)\b", re.I)
-
-
-def ranking_claims(report: Dict[str, Any]) -> List[int]:
-    """The kept claims that use a ranking word or speak of every member of a
-    set: the claim trace holds their numbers to the records they cite, not
-    the ranking to records they leave out."""
-    return [i for i, c in enumerate(report.get("claims") or [], 1)
-            if _RANKING.search(str(c.get("claim") or ""))]
+# The words and the finder live with the live report since 2026-11-10
+# (step4_report.verification_limits), which now says the same on its own page.
+from agents.analysis.step4_report import RANKING as _RANKING, ranking_claims  # noqa: E402
 
 
 def coverage_lines(report: Dict[str, Any], ed: Dict[str, Any],

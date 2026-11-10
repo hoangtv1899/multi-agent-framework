@@ -483,6 +483,18 @@ class TestServerTools:
         mgr._materialize(dict(cfg["strategy"]), cfg)
         assert json.loads(srv.write_domain_case(str(mgr.run_dir)))["ok"]
 
+    def test_the_server_cancels_a_queued_chain_and_keeps_its_record(self, srv, tmp_path, mgr):
+        self._materialized(srv, tmp_path, mgr)
+        sub = json.loads(srv.submit_domain_chain(str(mgr.run_dir)))
+        assert sub["ok"]
+        out = json.loads(srv.cancel_domain_chain(str(mgr.run_dir), why="a later run failed"))
+        assert out["ok"] and out["cancelled"] == [str(j) for j in sub["job_ids"]]
+        rec = mgr.run_dir / "domain_case"
+        assert DC.read_chain(rec)["segments"][-1]["cancelled_after"]["why"] == "a later run failed"
+        # nothing to cancel is said, not failed
+        out = json.loads(srv.cancel_domain_chain(str(mgr.run_dir), run="no_such_run"))
+        assert out["ok"] and out["cancelled"] == []
+
     def test_a_second_submission_over_a_running_chain_is_refused(self, srv, tmp_path, mgr):
         self._materialized(srv, tmp_path, mgr)
         assert json.loads(srv.submit_domain_chain(str(mgr.run_dir)))["ok"]
@@ -552,7 +564,7 @@ class TestServerTools:
         d = json.loads(srv.describe_elm_capabilities())
         domain = [s["tool"] for s in d["workflow"] if "whole-domain only" in str(s["step"])]
         assert domain == ["read_domain_recipe", "check_domain_inputs", "write_domain_case",
-                          "submit_domain_chain", "check_domain_chain"]
+                          "submit_domain_chain", "check_domain_chain", "cancel_domain_chain"]
         assert "whole-domain" in d["model"]
         assert "say only whether ELM will run them and whether they ran" in \
             json.dumps(d["does_not"])

@@ -1073,6 +1073,39 @@ def submit_chain(jobs: List[Job], record_dir, run: Callable = None,
     return seg
 
 
+def cancel_chain(record_dir, why: str, run: Callable = None) -> Dict:
+    """Cancel the jobs of the chain's latest arming. What SLURM took.
+
+    For the caller that queued this chain and then could not queue another
+    one the same experiment needs: without this the first chain would run
+    alone, for an experiment that can no longer be completed. Every job of the
+    latest segment gets one scancel. The record keeps why, which cancellations
+    SLURM accepted and which it did not, and the status log gets one line. A
+    record directory with no chain has nothing to cancel and says so.
+    """
+    run = run or _run
+    rd = Path(record_dir)
+    if not (rd / CHAIN_FILE).is_file():
+        return {"ok": True, "cancelled": [], "not_cancelled": [],
+                "note": "no chain was armed here"}
+    chain = read_chain(rd)
+    seg = (chain.get("segments") or [{}])[-1]
+    cancelled, kept = [], []
+    for j in seg.get("jobs") or []:
+        jid = str(j.get("job_id") or "")
+        if not jid.isdigit():
+            continue
+        rc, _, _err = run(["scancel", jid])
+        (cancelled if rc == 0 else kept).append(jid)
+    seg["cancelled_after"] = {
+        "why": why, "cancelled": cancelled, "not_cancelled": kept,
+        "when": datetime.datetime.now().isoformat(timespec="seconds")}
+    _write_json(rd / CHAIN_FILE, chain)
+    _status_line(rd, f"CANCELLED ({why}): {' '.join(cancelled) or 'no job'}"
+                 + (f"; NOT cancelled, check by hand: {' '.join(kept)}" if kept else ""))
+    return {"ok": not kept, "cancelled": cancelled, "not_cancelled": kept}
+
+
 ACTIVE = {"PENDING", "RUNNING", "CONFIGURING", "COMPLETING", "SUSPENDED", "REQUEUED",
           "RESIZING", "REQUEUE_HOLD", "REQUEUE_FED", "SIGNALING", "STAGE_OUT", "STOPPED"}
 # A job neither squeue nor sacct knows: cancelled before it started (Compy keeps

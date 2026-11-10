@@ -769,6 +769,11 @@ def _workflow() -> List[Dict[str, Any]]:
             {"step": "5 (whole-domain only)", "tool": "check_domain_chain",
              "does": "each job's SLURM state and each stage's check verdict",
              "returns": "DATA: active, failed_stage, years_passed, chain_ok"},
+            {"step": "5b (whole-domain only)", "tool": "cancel_domain_chain",
+             "does": "cancel the queued jobs of one run's chain, for an "
+                     "experiment whose later run could not be submitted; the "
+                     "chain record keeps why and what SLURM took",
+             "returns": "DATA: cancelled, not_cancelled"},
             {"step": 7, "tool": "compare_to_obs",
              "does": "pair each column's daily series against the observations "
                      "reception already gathered and persisted in "
@@ -2123,6 +2128,28 @@ def submit_domain_chain(run_dir: str, run: str = "", after_job: str = "") -> str
         return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
     out["job_ids"] = [j["job_id"] for j in out.get("jobs", [])]
     out["notes"] = _domain_notes(spec)
+    return json.dumps(out, indent=1, default=str)
+
+
+@mcp.tool()
+@_stdout_to_stderr
+def cancel_domain_chain(run_dir: str, run: str = "", why: str = "") -> str:
+    """Cancel the queued jobs of a whole-domain chain. WHAT SLURM TOOK.
+
+    For an experiment of several runs whose later run could not be submitted:
+    the chains already queued for its earlier runs would otherwise run for an
+    experiment that cannot be completed. One scancel per job of the chain's
+    latest arming; the chain record keeps `why` and both lists. `ok` is false
+    when SLURM refused a cancellation, and `not_cancelled` names the jobs to
+    check by hand. Nothing is deleted: the record and any output stay.
+    """
+    import domain_case as DC
+    rd = Path(run_dir).resolve()
+    rec = rd / DOMAIN_RECORD / run if run else rd / DOMAIN_RECORD
+    try:
+        out = DC.cancel_chain(rec, why or "cancelled by the caller")
+    except Exception as e:                                      # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
     return json.dumps(out, indent=1, default=str)
 
 
