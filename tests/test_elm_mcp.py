@@ -124,7 +124,7 @@ class TestItDoesNotClaimWhatItCannotDo:
         """An ensemble is not a study. Someone driving these tools directly
         gets no sampling design, no strategy gate and no experiment.json."""
         d = json.loads(srv.describe_elm_capabilities())
-        joined = " ".join(d["does_not"]).lower()
+        joined = " ".join(c["claim"] for c in d["does_not"]).lower()
         # warm-start and surface generation left this list when the rule
         # changed: this server does them now (docs/ELM_MCP_PLAN.md §1). What
         # it still does not do is decide WHERE columns go or what a run means.

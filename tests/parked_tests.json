@@ -1,0 +1,161 @@
+{
+ "about": "Tests that are set aside: skipped by a plain pytest run, run with --runparked. Each was failing before it was set aside, was classified on 2026-11-10, and tests a path the whole-domain workflow does not use or a thing that no longer exists. A test of code the whole-domain workflow uses is never listed here: it is repaired.",
+ "classes": {
+  "removed": "the test names a module, function, file or tool that no longer exists",
+  "column": "the single-column ELM route, set aside since the whole-domain direction of 2026-09-17",
+  "pflotran": "the PFLOTRAN and coupling route, set aside"
+ },
+ "files": {
+  "tests/test_backends.py": {
+   "class": "removed",
+   "reason": "core/backends.py was deleted on 2026-08-16; the file cannot be imported"
+  },
+  "tests/test_lambda_pflotran.py": {
+   "class": "pflotran",
+   "reason": "imports a helper the PFLOTRAN manager no longer has; the reactive PFLOTRAN path is set aside"
+  }
+ },
+ "groups": [
+  {
+   "class": "column",
+   "reason": "the standalone single-column analysis script (mcp/elm-mcp/scripts/analyze_agentic.py) calls a helper that was removed; the script is not on the whole-domain path",
+   "tests": [
+    "tests/test_agentic_analyzer.py::TestEvidencePayload::test_failed_columns_are_excluded",
+    "tests/test_agentic_analyzer.py::TestEvidencePayload::test_verdicts_are_carried_verbatim",
+    "tests/test_agentic_analyzer.py::TestEvidencePayload::test_raw_timeseries_are_not_shipped"
+   ]
+  },
+  {
+   "class": "pflotran",
+   "reason": "drives the Analyzer through the PFLOTRAN manager, which now reads output through a PFLOTRAN client these tests do not give it, or names a method it no longer has",
+   "tests": [
+    "tests/test_analyzer_wiring.py::TestTheStageSequenceIsSharedNotCopied::test_the_two_backends_cannot_claim_each_others_plans",
+    "tests/test_analyzer_wiring.py::TestTheStageSequenceIsSharedNotCopied::test_each_backend_declares_its_own_field_semantics",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_the_row_carries_what_package_consumes",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_no_water_table_is_null_not_the_domain_bottom",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_there_is_no_fake_daily_block",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_profiles_carry_times_and_depths",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_a_case_with_no_output_is_failed_not_absent",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_an_unattributable_mcp_answer_falls_back_instead_of_guessing",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_the_call_budget_is_sized_to_the_ensemble_and_then_restored",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_results_stay_in_experiment_order_not_completion_order",
+    "tests/test_analyzer_wiring.py::TestPFLOTRANExtractSpeaksTheSharedRowShape::test_a_run_that_failed_is_not_resurrected_by_partial_output"
+   ]
+  },
+  {
+   "class": "column",
+   "reason": "single-column results: the run report, the results table and the package fields changed since this was written",
+   "tests": [
+    "tests/test_elm_exp_manager_structure.py::TestRunStepOutputs::test_execution_report_has_expected_content",
+    "tests/test_elm_exp_manager_structure.py::TestRunStepOutputs::test_results_csv_has_correct_columns_and_rows",
+    "tests/test_elm_exp_manager_structure.py::TestRunStepOutputs::test_results_csv_reports_failure_correctly",
+    "tests/test_elm_exp_manager_structure.py::TestRunSummaryOutputFiles::test_output_files_includes_key_artifacts",
+    "tests/test_elm_exp_manager_structure.py::TestPackage::test_every_reported_field_says_what_it_means",
+    "tests/test_elm_exp_manager_structure.py::TestPackage::test_the_fractions_are_declared_as_a_split_not_of_precipitation",
+    "tests/test_elm_exp_manager_structure.py::TestPackage::test_runoff_is_declared_as_surface_only",
+    "tests/test_elm_exp_manager_structure.py::TestDailySeries::test_no_time_coordinate_is_not_fatal",
+    "tests/test_elm_exp_manager_structure.py::TestColumnMetadataJoin::test_priors_and_soil_reach_the_row",
+    "tests/test_elm_exp_manager_structure.py::TestDrivers::test_soil_drivers_are_derived_from_the_profile",
+    "tests/test_elm_exp_manager_structure.py::TestDrivers::test_an_impossible_driver_is_named_not_nulled",
+    "tests/test_elm_exp_manager_structure.py::TestDrivers::test_a_constant_series_gives_none_not_zero",
+    "tests/test_elm_exp_manager_structure.py::TestComparisons::test_ratio_is_none_rather_than_infinite"
+   ]
+  },
+  {
+   "class": "removed",
+   "reason": "ELMExpManager._save_llm_input no longer exists",
+   "tests": [
+    "tests/test_elm_exp_manager_structure.py::TestTopLevelFiles::test_llm_input_at_top_level",
+    "tests/test_elm_exp_manager_structure.py::TestTopLevelFiles::test_llm_input_includes_run_directory_and_plan"
+   ]
+  },
+  {
+   "class": "column",
+   "reason": "the test's stand-in for the single-column sampler lacks a function the base now calls",
+   "tests": [
+    "tests/test_elm_exp_manager_structure.py::TestBandCountComesFromThePlan::test_the_strategy_wins",
+    "tests/test_elm_exp_manager_structure.py::TestBandCountComesFromThePlan::test_an_explicit_config_still_overrides",
+    "tests/test_elm_exp_manager_structure.py::TestBandCountComesFromThePlan::test_a_plan_without_bands_gets_the_default"
+   ]
+  },
+  {
+   "class": "removed",
+   "reason": "the module elm_results_analyzer was removed",
+   "tests": [
+    "tests/test_elm_exp_manager_structure.py::TestSeriesPrecisionAndSize::test_significant_figures_not_decimal_places",
+    "tests/test_elm_exp_manager_structure.py::TestSeriesPrecisionAndSize::test_small_values_survive",
+    "tests/test_elm_exp_manager_structure.py::TestWarmStartRelaxationIsTrimmed::test_the_first_days_are_removed",
+    "tests/test_elm_exp_manager_structure.py::TestWarmStartRelaxationIsTrimmed::test_zero_is_a_no_op_and_records_nothing",
+    "tests/test_elm_exp_manager_structure.py::TestWarmStartRelaxationIsTrimmed::test_a_record_shorter_than_the_window_is_kept_whole",
+    "tests/test_elm_exp_manager_structure.py::TestWarmStartRelaxationIsTrimmed::test_what_was_dropped_is_recorded_not_silent"
+   ]
+  },
+  {
+   "class": "column",
+   "reason": "the single-column ensemble is no longer submitted through submit_elm_ensemble",
+   "tests": [
+    "tests/test_elm_mcp.py::TestEachStageGoesThroughTheServer::test_run_hands_back_a_job",
+    "tests/test_elm_mcp.py::TestEachStageGoesThroughTheServer::test_submitting_without_cases_is_refused"
+   ]
+  },
+  {
+   "class": "removed",
+   "reason": "looks for the single-column warm-start lines in the manager source, which are no longer there",
+   "tests": [
+    "tests/test_initialization_caveats.py::TestColumnsJsonMatchesTheRun::test_it_is_written_after_the_warm_start",
+    "tests/test_initialization_caveats.py::TestColumnsJsonMatchesTheRun::test_and_before_the_design_figure_and_the_plan"
+   ]
+  },
+  {
+   "class": "removed",
+   "reason": "ELMExpManager._build_cases_via_mcp no longer exists",
+   "tests": [
+    "tests/test_unattended_study.py::TestRouting::test_unattended_calls_run_elm_study_not_build",
+    "tests/test_unattended_study.py::TestRouting::test_there_is_no_split_flow_to_fall_back_to"
+   ]
+  },
+  {
+   "class": "removed",
+   "reason": "the server no longer publishes submit_elm_ensemble",
+   "tests": [
+    "tests/test_unattended_study.py::TestRouting::test_the_mcp_still_publishes_the_split_tools"
+   ]
+  },
+  {
+   "class": "removed",
+   "reason": "tools/run_study.sh was removed; the study job is now written by the manager",
+   "tests": [
+    "tests/test_unattended_study.py::TestTheGeneratedJob::test_it_finalizes_rather_than_resumes",
+    "tests/test_unattended_study.py::TestTheGeneratedJob::test_the_interpreter_is_named_not_looked_up",
+    "tests/test_unattended_study.py::TestTheGeneratedJob::test_mail_lines_only_when_an_address_was_given",
+    "tests/test_unattended_study.py::TestTheGeneratedJob::test_delivery_is_slurms_job_not_the_nodes",
+    "tests/test_unattended_study.py::TestTheGeneratedJob::test_the_job_is_named_after_the_study",
+    "tests/test_unattended_study.py::TestTheGeneratedJob::test_the_job_exits_with_the_studys_status_not_the_scripts",
+    "tests/test_unattended_study.py::TestTheGeneratedJob::test_a_failed_column_does_not_abort_before_the_analysis"
+   ]
+  },
+  {
+   "class": "removed",
+   "reason": "ELMExpManager._warmstart no longer exists (the single-column warm start moved to the server)",
+   "tests": [
+    "tests/test_warmstart.py::TestManagerWarmstartStep::test_an_unreadable_conus_source_raises",
+    "tests/test_warmstart.py::TestManagerWarmstartStep::test_a_band_naming_a_nonexistent_restart_raises",
+    "tests/test_warmstart.py::TestManagerWarmstartStep::test_the_failure_names_what_went_wrong"
+   ]
+  },
+  {
+   "class": "column",
+   "reason": "drives the coordinator on the single-column route with an old call signature and old stage names; the whole-domain route is tested in test_domain_*.py",
+   "tests": [
+    "tests/test_workflow_end_to_end.py::TestCoordinatorEndToEnd::test_design_and_run_completes",
+    "tests/test_workflow_end_to_end.py::TestCoordinatorEndToEnd::test_the_four_files_land_in_one_run_dir",
+    "tests/test_workflow_end_to_end.py::TestCoordinatorEndToEnd::test_experiment_json_is_readable_and_populated",
+    "tests/test_workflow_end_to_end.py::TestCoordinatorEndToEnd::test_reception_period_reaches_the_couplers",
+    "tests/test_workflow_end_to_end.py::TestCoordinatorEndToEnd::test_analyzer_is_invoked_and_cannot_sink_the_run",
+    "tests/test_workflow_end_to_end.py::TestPackageIsSelfSufficient::test_the_package_carries_series_and_caveats",
+    "tests/test_workflow_end_to_end.py::TestNothingPostComputeDiscardsTheRun::test_a_post_compute_failure_is_survived[_package]",
+    "tests/test_workflow_end_to_end.py::TestNothingPostComputeDiscardsTheRun::test_extraction_failure_is_still_fatal"
+   ]
+  }
+ ]
+}

@@ -303,18 +303,18 @@ class TestTheAnnouncement:
     def test_the_backend_never_prompts(self):
         """The property, checked against the source: no input() anywhere in a
         backend, whatever the call path."""
-        import re
-        # A BARE input( call — not _save_llm_input( or get_llm_analysis_input().
-        # The first version of this matched the substring and flagged both.
-        call = re.compile(r"(?<![A-Za-z0-9_])input\s*\(")
+        import ast
+        # A CALL of the builtin input, read from the syntax tree. The first
+        # version matched the substring and flagged _save_llm_input(; the
+        # second matched a pattern and flagged the words "case input(s)"
+        # inside a printed message.
         for f in (ROOT / "mcp" / "elm-mcp" / "src" / "elm_exp_manager.py",
                   ROOT / "mcp" / "pflotran-mcp" / "pflotran_exp_manager.py",
                   ROOT / "src" / "core" / "exp_manager_base.py"):
-            src = f.read_text()
-            code = [l.strip() for l in src.splitlines()
-                    if call.search(l) and not l.strip().startswith("#")
-                    and "called input()" not in l]
-            assert not code, f"{f.name} prompts the user: {code}"
+            calls = [n.lineno for n in ast.walk(ast.parse(f.read_text(), str(f)))
+                     if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                     and n.func.id == "input"]
+            assert not calls, f"{f.name} prompts the user at line(s) {calls}"
 
     def test_it_names_where_the_results_will_be(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("IDEAS_PREFS_DIR", str(tmp_path / "prefs"))

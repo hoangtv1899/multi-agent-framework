@@ -87,7 +87,7 @@ class TestWhatCountsAsResumable:
         d = _run(tmp_path, ledger=False, request="something")
         r = inspect_run(d)
         assert not r["resumable"]
-        assert "ledger" in r["why"]
+        assert "run state" in r["why"]
 
     def test_and_says_whether_it_at_least_finished(self, tmp_path):
         """Most of what is on disk predates the ledger. Someone choosing
@@ -121,7 +121,7 @@ class TestItSaysWhichRunItIs:
         assert inspect_run(d)["request"] is None
         (d / "run_state.json").write_text("}{")
         r = inspect_run(d)
-        assert not r["resumable"] and "ledger" in r["why"]
+        assert not r["resumable"] and "run state" in r["why"]
 
     def test_the_model_comes_off_the_ledger(self, tmp_path):
         """Resuming an ELM run with the default backend would build PFLOTRAN

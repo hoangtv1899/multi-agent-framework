@@ -35,7 +35,10 @@ class TestLegacyRunsStayReadable:
         assert L.resolve(rd, "columns").name == "columns.json"
         assert L.resolve(rd, "columns").parent == rd        # NOT 01_inputs
         assert L.resolve(rd, "strategy").name == "plan.json"
-        assert L.resolve(rd, "experiment").name == "LLM_ANALYSIS_INPUT.json"
+        # No fallback for the experiment record since 2026-08-13: the old
+        # file holds another schema, so resolving to it would hand the caller
+        # a real path with nothing it can read (run_layout.LAYOUT).
+        assert L.resolve(rd, "experiment").name == "experiment.json"
 
     def test_canonical_wins_when_both_exist(self, tmp_path):
         """A run written during the transition may have both. The new location

@@ -35,10 +35,10 @@ def _agent_types():
     """self.<attr> → the class the coordinator actually constructs."""
     from agents.reception_llm import LLMReceptionAgent
     from agents.planner import Planner
-    from agents.analysis_report_agent import AnalysisReportAgent
+    # The written-report agent was removed; the coordinator now builds the
+    # Analyzer where it runs it, so only these two attributes remain.
     return {"reception": LLMReceptionAgent,
-            "planner":   Planner,
-            "analyzer":  AnalysisReportAgent}
+            "planner":   Planner}
 
 
 def _call_sites(path):
