@@ -190,10 +190,23 @@ def test_claims_without_evidence_still_fail_and_the_brief_now_shows_each_record(
     for part in ("evidence", "evidence_class", "expectation", "warnings", "headline_rank"):
         assert f'"{part}": ' in brief, part
     assert S3.TASK_REPLY not in brief
-    # and the trace is as strict as it was: a claim with no record fails
-    rep = S4.build(study["ctx"], {}, inv, loop["interpretation"], study["rd"])
+    # and the trace is as strict as it was: a claim with no record fails. Since
+    # 2026-11-10 the audit applies the trace, so the claim is struck there, with
+    # the trace's own reason, and reaches no report
+    it = loop["interpretation"]
+    n = len(NO_EVIDENCE["claims"])
+    assert it["claims"] == [] and it["audit"] == {"n_claims": n, "n_struck": n}
+    for c in it["struck"]:
+        assert c["struck_by"] == "trace" and c["struck_because"].startswith(
+            "it fails the evidence trace: no record: every empirical claim names the logged "
+            "lookup")
+    rep = S4.build(study["ctx"], {}, inv, it, study["rd"])
+    assert rep["claims"] == [] and rep["evidence_trace"]["claims_failed"] == []
+    # the gate itself is as it was: handed the same claim, it withholds the report
+    bare = [{k: v for k, v in c.items() if not k.startswith("struck_")} for c in it["struck"]]
+    rep = S4.build(study["ctx"], {}, inv, dict(it, claims=bare, struck=[]), study["rd"])
     t = rep["evidence_trace"]
-    assert t["claims_failed"] == [1] and rep.get("withheld_because")
+    assert t["claims_failed"] == list(range(1, n + 1)) and rep.get("withheld_because")
     assert any(p.startswith("no record: every empirical claim names the logged lookup")
                for p in t["problems"][1])
 
@@ -523,8 +536,11 @@ def test_the_study_record_names_package_f_and_says_a_withheld_report_is_withheld
             "finding_id": "fig_gpp", "values": [v], "caveats": [], "evidence": [gpp["id"]],
             "evidence_class": "tested expectation", "expectation": "E1",
             "warnings": sorted({w["code"] for w in gpp["warnings"]}), "headline": True}
-    interp = dict(loop["interpretation"],
-                  claims=[good] + list(loop["interpretation"]["claims"]))
+    # the gate, on a claim that reaches it without a record: the audit strikes
+    # such a claim since 2026-11-10, so it is handed to step 4 as the reply gave it
+    bare = [{k: v for k, v in c.items() if not k.startswith("struck_")}
+            for c in loop["interpretation"]["struck"]]
+    interp = dict(loop["interpretation"], claims=[good] + bare, struck=[])
     rep = S4.build(study["ctx"], {}, loop["investigation"], interp, study["rd"])
     assert rep.get("withheld_because")                 # claim 2 names no record
     S4.write(rep, out, slides=False)

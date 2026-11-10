@@ -681,6 +681,10 @@ def build(control: Dict[str, Any], study_dir=None, notes_path=None,
     problems += [f"regions: {p}" for p in regions["problems"]]
 
     study = study_record(study_dir) if study_dir else None
+    if study and not study["normal_years"] and control.get("normal_years"):
+        # the control's own normal years where the plan names none (2026-11-10)
+        study["normal_years"] = sorted(int(y) for y in control["normal_years"])
+        study["normal_years_from"] = "the control's own, since the plan names none"
     facts = {n: stream_facts(s) for n, s in sorted(streams.items())}
     whole = sorted(set(facts[daily]["complete_years"]).intersection(
         *([facts[monthly]["complete_years"]] if monthly else [])))
@@ -713,6 +717,7 @@ def build(control: Dict[str, Any], study_dir=None, notes_path=None,
         "streams": facts,
         "periods": {"daily_stream": daily, "monthly_stream": monthly,
                     "normal_years": study["normal_years"] if study else None,
+                    "normal_years_from": (study or {}).get("normal_years_from"),
                     "suite": (manifest.get("periods") if manifest else None),
                     "suite_absent": (manifest.get("periods_absent") if manifest else None)},
         "fields": rows,
@@ -930,7 +935,10 @@ def render_parts(cat: Dict[str, Any]) -> Dict[str, Any]:
     if per.get("monthly_stream"):
         L.append(_stream_line(cat["streams"][per["monthly_stream"]], "Monthly"))
     if per.get("normal_years"):
-        L.append(f"- Normal years, the plan's definition: {years_text(per['normal_years'])}.")
+        L.append(f"- Normal years, "
+                 + ("the control's own since the plan names none"
+                    if per.get("normal_years_from") else "the plan's definition")
+                 + f": {years_text(per['normal_years'])}.")
     elif cat.get("study"):
         L.append("- Normal years: the study's plan names none.")
     else:

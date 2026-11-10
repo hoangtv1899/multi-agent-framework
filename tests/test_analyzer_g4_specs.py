@@ -371,8 +371,11 @@ def test_no_eligible_claim_leaves_the_choice_to_the_report():
     assert sel["chosen"] is None and sel["text"] is None and len(sel["passed_over"]) == 1
 
 
-def test_step_3s_ranking_is_carried_onto_the_claims_the_audit_kept(study):
+def test_step_3s_ranking_is_carried_onto_the_claims_the_audit_kept(study, monkeypatch):
     _hypothesis_study(study)
+    # the ranking is what is tested here: its claims name no record, which the
+    # audit's trace rule (2026-11-10) would strike, so that rule is set aside
+    monkeypatch.setattr(S3, "_tracer", lambda ctx, records: None)
     claims = [dict(NO_EVIDENCE["claims"][0]),
               dict(NO_EVIDENCE["claims"][0], claim="Over the vegetated cells, carbon uptake "
                    "(GPP) rose in 2016.", finding_id="no_such_finding"),

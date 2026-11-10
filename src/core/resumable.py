@@ -240,6 +240,18 @@ def inspect_run(run_dir: Path, check_jobs: bool = False) -> Dict[str, Any]:
 		return rec
 
 	nxt = _next_stage(stages, rec["model"])
+	if (stages.get("analyze") or {}).get("status") == "failed" \
+			and (stages.get(TERMINAL) or {}).get("status") == "done":
+		# THE ANALYSIS ALONE IS RUN AGAIN (2026-11-10). A study whose record
+		# was packaged and whose analysis then failed was "complete" here, so
+		# neither --resume nor --finalize would finish it, although the
+		# failed job's own message says to run --resume. The model output and
+		# the record stand; only the analysis stage is not done.
+		rec.update(stage=TERMINAL, status="done", resumable=True)
+		rec["next"] = "analyze"
+		rec["why"] = ("the record is packaged and the analysis failed: the analysis "
+					  "alone is run again")
+		return rec
 	if nxt is None or (stages.get(TERMINAL) or {}).get("status") == "done":
 		# _package wrote experiment.json, which is what the run is FOR. A
 		# failed analyze leaves a finished study with no report, and re-running

@@ -199,3 +199,35 @@ def test_process_shows_the_card_for_a_question_and_not_for_a_revision(monkeypatc
     assert heading not in capsys.readouterr().out
     a.process("q")                                      # a new question shows it again
     assert capsys.readouterr().out.count(heading) == 1
+
+
+# THE CONTROL'S OWN NORMAL YEARS (2026-11-10): entered in the registry as the
+# evaluation is, carried by the server's summary, said on the card and on the
+# design page, so a study's baseline does not change from one asking to the next.
+
+def test_the_summary_and_the_card_carry_the_controls_own_normal_years():
+    import domain_controls as D
+    from agents.reception_llm import control_card
+    row = D.summary({"name": "x", "description": "d", "usable": True,
+                     "normal_years": [2016, 2017], "normal_years_why": "its evaluation's"}, None)
+    assert row["normal_years"] == [2016, 2017] and row["normal_years_why"] == "its evaluation's"
+    assert D.summary({"name": "x", "description": "d"}, None)["normal_years"] is None
+    card = control_card([dict(ROW, normal_years=[2016, 2017], normal_years_why="its evaluation's")])
+    assert "  Its normal years: 2016, 2017 (its evaluation's)" in card.splitlines()
+    assert "normal years" not in control_card([ROW])
+
+
+def test_the_design_page_says_whose_baseline_the_design_uses():
+    from agents import design_review as DR
+
+    def lines(design_years, own):
+        strategy = {"domain_experiment": {
+            "control": {"name": "synth", "reuse": True}, "runs": [], "years": [2015, 2016, 2017],
+            "analysis": {"normal_years": design_years}},
+            "domain_rulebook": {"controls": {"controls": [dict(ROW, normal_years=own)]}}}
+        return "\n".join(DR._whole_domain_lines({}, strategy))
+    same, other, none = lines([2016, 2017], [2016, 2017]), lines([2016], [2016, 2017]), \
+        lines([2016], None)
+    assert "normal years [2016, 2017] (the control's own)" in same
+    assert "normal years [2016]; the control's own normal years are [2016, 2017]" in other
+    assert "normal years [2016]\n" in none + "\n"

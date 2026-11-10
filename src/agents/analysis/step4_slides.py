@@ -167,7 +167,7 @@ def build(report: Dict[str, Any], out_dir) -> Optional[str]:
           f"{report.get('generated_at')}", rgb=(0x7A, 0x89, 0x8C))
 
     # ── 2 · the answer, verbatim ────────────────────────────────────────
-    answer = report.get("answer")
+    answer = report.get("answer_kept", report.get("answer"))
     if answer:
         s = prs.slides.add_slide(blank)
         _text(s, M, M, W, int(0.5 * _EMU_IN), 13, "The answer",

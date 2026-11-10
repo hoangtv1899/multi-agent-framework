@@ -170,6 +170,8 @@ def test_q1_the_plan_and_its_review_replay_as_recorded_without_the_reviews_dashe
     # the plan as recorded, part for part; a plan written now has also seen the
     # recipe its question calls for (analysis_recipes, 2026-11-09), and says so
     left = ("written_at", "problems", "seen")
+    # a plan written now also says whose normal years its baseline holds (2026-11-10)
+    assert plan["baseline"].pop("normal_years_from") == "the Planner"
     assert {k: v for k, v in plan.items() if k not in left} == \
         {k: v for k, v in rec.items() if k not in left}
     assert plan["seen"] == rec["seen"] + [AP.SEEN_RECIPE]
@@ -379,25 +381,29 @@ def test_q1_step_3_and_step_4_replayed_the_record_knows_package_f(replay, tmp_pa
     interp = S3.interpret(ctx, _comparison(rd), inv, out, client=r.clients()["step3_interpret"],
                           with_images=False)
     assert r.labels_asked() == ["step3_interpret", "step3_interpret"]
-    assert interp["audit"] == {"n_claims": 6, "n_struck": 1}
-    assert interp["struck"][0]["struck_by"] == "percent"
+    # the recorded reply's claims name no record: the percent rule struck one,
+    # and since 2026-11-10 the audit's trace rule strikes the other five, where
+    # step 4's gate used to withhold the report for them
+    assert interp["audit"] == {"n_claims": 6, "n_struck": 6}
+    assert sorted(c["struck_by"] for c in interp["struck"]) == ["percent"] + ["trace"] * 5
     rep = S4.build(ctx, _comparison(rd), inv, interp, rd, rounds=[], stopped_because="replay",
                    steps={"investigate": True, "interpret": True})
-    assert rep["evidence_trace"]["claims_failed"] == [1, 2, 3, 4, 5]
+    assert rep["claims"] == [] and rep["evidence_trace"]["claims_failed"] == []
     S4.write(rep, out, slides=False)
     page = SRD.write_record(rd).read_text()
     for name in (AP.PLAN_FILE, AP.REVIEW_FILE, AP.LOOKUPS_FILE, "evidence_numbers_check.json"):
         row = [x for x in page.splitlines() if x.startswith(f"| `04_analysis/{name}` |")]
         assert row and "no role on record" not in row[0], name
     sec = page[page.index("## The Analyzer"):page.index("## Every file in this folder")]
-    assert "is **withheld**: 5 of 5 claims fail the evidence trace" in sec
-    assert "Its report" not in sec and "kept by the audit" not in sec
-    assert "- claims withheld with the report: 5; struck by step 3's audit: 1" in sec
-    assert sec.count("**(withheld)**") == 5
-    assert sec.count("evidence class: none; records: none; the evidence trace: fails (no "
-                     "record") == 5
+    # no claim of the recorded reply names a record, so none is kept: the
+    # report is inconclusive and the record names each struck claim's rule
+    assert "- status **inconclusive**; verdict **sufficient**" in sec
+    assert "- claims kept by the audit: 0; struck: 6" in sec
+    assert sec.count("  - struck (trace): ") == 5
+    assert sec.count("Why: it fails the evidence trace: no record: every empirical claim "
+                     "names the logged lookup it rests on") == 5
     assert "  - struck (percent): In the same summer" in sec
-    assert "- the claims' evidence classes: none 5" in sec
+    assert "**(withheld)**" not in sec and "claims fail the evidence trace" not in sec
     # the model's dashes reach no record the replay wrote
     said = [w for name in ("step3_plan_review_round1_reply.txt", "step3_round1_reply.txt",
                            "step2_round1_reply.txt", "step2a_round1_reply.txt")

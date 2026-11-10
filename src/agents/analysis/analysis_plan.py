@@ -976,8 +976,29 @@ def question_type(ctx) -> Dict[str, str]:
 
 
 def planner_normal_years(ctx) -> List[int]:
-    an = ((getattr(ctx, "plan", None) or {}).get("experiment") or {}).get("analysis") or {}
-    return [int(y) for y in (an.get("normal_years") or [])]
+    """The study's normal years: the Planner's, or, where it named none, the
+    control's own from the registry (normal_years_from says which).
+
+    THE CONTROL'S OWN WHEN THE PLANNER NAMES NONE (2026-11-10). A what-if
+    study compares a run with its control in one year, so its Planner names
+    no normal years; the screen then had no yardstick, every row came back
+    with insufficient support and, in an exploratory study where the screen
+    runs first, no planned figure could be drawn (the live study of
+    2026-11-09). The control's registered normal years are that yardstick."""
+    de = (getattr(ctx, "plan", None) or {}).get("experiment") or {}
+    ny = [int(y) for y in ((de.get("analysis") or {}).get("normal_years") or [])]
+    if ny:
+        return ny
+    own = _registry_entry((de.get("control") or {}).get("name")).get("normal_years") or []
+    return [int(y) for y in own]
+
+
+def normal_years_from(ctx) -> str:
+    de = (getattr(ctx, "plan", None) or {}).get("experiment") or {}
+    if (de.get("analysis") or {}).get("normal_years"):
+        return "the Planner"
+    return ("the control's own (the Planner named none)" if planner_normal_years(ctx)
+            else "none named")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1198,6 +1219,8 @@ def _plan_record(ctx, inputs: Dict[str, Any], reply: str, attempt: int) -> Dict[
         plan[k] = v if isinstance(v, type(default)) else default
     if not plan["baseline"].get("normal_years") and planner_normal_years(ctx):
         plan["baseline"]["normal_years"] = planner_normal_years(ctx)
+    if plan["baseline"].get("normal_years"):
+        plan["baseline"]["normal_years_from"] = normal_years_from(ctx)
     # NO DASHES IN THE MODEL'S WORDS, before the file is written and hashed
     _plain_parts(plan)
     plan["seen"] = list(SEEN) + ([SEEN_RECIPE] if inputs.get("recipe") else [])
@@ -1476,6 +1499,16 @@ def append_amendment(out_dir, why: str, adds: Dict[str, Any]) -> Dict[str, Any]:
     check_gate(out)
     if not str(why or "").strip():
         raise ValueError("an amendment says why")
+    # ITS SETTINGS ARE {method: {setting: value}} (2026-11-10): one written as
+    # {"normal_years": [...]} was recorded and then stopped the whole analysis
+    # where it was read. It is refused here, with what it should have been.
+    st = adds.get("settings")
+    if st and not (isinstance(st, dict) and all(isinstance(v, dict) for v in st.values())):
+        bad = st if not isinstance(st, dict) else \
+            sorted(k for k, v in st.items() if not isinstance(v, dict))
+        raise ValueError(f"an amendment's settings are {{method: {{setting: value}}}}, and "
+                         f"{bad} is not a method with its settings; the normal years are the "
+                         f"plan's baseline and no setting of a method")
     keep = {k: adds.get(k) for k in SCOPE_KEYS + ("settings",) if adds.get(k)}
     rec = {"id": f"A{len(load_amendments(out)) + 1}", "at": _now(), "why": strip_dashes(why),
            "adds": keep, "planned": False,
@@ -1520,8 +1553,10 @@ def named_settings(plan: Dict[str, Any], amendment: Optional[Dict[str, Any]] = N
     for am in ([amendment] if amendment else []) + list(amendments or []):
         parts.append((am.get("adds") or {}).get("settings") or {})
     for st in parts:
-        for m, kv in (st or {}).items():
-            for k, v in (kv or {}).items():
+        for m, kv in (st.items() if isinstance(st, dict) else []):
+            # a recorded amendment from before 2026-11-10 may hold settings
+            # that are no {setting: value}: they name no setting, and are skipped
+            for k, v in (kv.items() if isinstance(kv, dict) else []):
                 out.setdefault(m, {}).setdefault(k, [])
                 for x in (v if isinstance(v, list) else [v]):
                     if x not in out[m][k]:

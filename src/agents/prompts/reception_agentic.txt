@@ -363,7 +363,8 @@ how it compares with observations (`evaluation`) and what it does not contain
 (`not_in_it`). Do not repeat the card. Your first `ask_user` message, in two
 to four plain sentences:
   • says how you would answer with this control: which runs, or none; which
-    years, and for an event question which normal years; the cost;
+    years, and for an event question which normal years (the control's
+    own `normal_years` when its entry names them); the cost;
   • names what on the card bears on THIS question, above all an event the
     question names, or its years hold, that the run does not contain: its
     effect cannot be read from the run;

@@ -213,7 +213,12 @@ def _whole_domain_lines(brief, strategy):
             + (f" ({_trim(x.get('why'), 90)})" if x.get("why") else "")
             for x in regs))
     if an.get("normal_years"):
-        out.append(f"- compared with the normal years {an['normal_years']}")
+        own = [int(y) for y in (row.get("normal_years") or [])]
+        mine = [int(y) for y in an["normal_years"]]
+        out.append(f"- compared with the normal years {an['normal_years']}"
+                   + ("" if not own else " (the control's own)" if sorted(own) == sorted(mine)
+                      else f"; the control's own normal years are {own}, so numbers will "
+                           f"differ from studies that used those"))
     if an.get("question_type"):
         out.append("- " + question_type_line(an))
     for cv in (de.get("caveats") or [])[:3]:

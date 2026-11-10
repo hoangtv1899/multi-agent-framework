@@ -704,3 +704,72 @@ class TestTheGate:
         rep, _ = check(_reception(), {"archetype": "site", "sampling": {"n_columns": 5},
                                       "feasibility": {"verdict": "infeasible", "why": "x"}})
         assert not any("infeasible" in s for s in rep["stop"])
+
+
+class TestTheRunsResultsStores:
+    """THE MISSING STEP (2026-11-10): each executed run's results store is
+    built where the Analyzer reads it, 03_results/suite/<run>; a reused
+    control's store is the registry's and is not built again; a store that
+    cannot be built is recorded and sinks nothing."""
+
+    def _fakes(self, m, monkeypatch, build):
+        real = m._sibling_module
+        entry = {"name": "synth", "case_dir": "/c", "run_dir": "/c/run", "regions": {}}
+
+        class Controls:
+            @staticmethod
+            def get(name):
+                assert name == "synth"
+                return entry
+
+        class Suite:
+            pass
+        Suite.build = staticmethod(build)
+        monkeypatch.setattr(m, "_control_facts", lambda: {"control": {"name": "synth"}})
+        monkeypatch.setattr(m, "_sibling_module", lambda n: {
+            "domain_controls": Controls, "domain_suite": Suite}.get(n) or real(n))
+        return entry
+
+    def test_each_executed_run_gets_its_store_and_the_reused_control_does_not(self, study,
+                                                                             monkeypatch):
+        m, calls = study["mgr"], []
+
+        def build(control, out_dir, run_dir=None):
+            calls.append((control["name"], str(out_dir), str(run_dir)))
+            return {"action": "built", "why": "no suite manifest is there", "seconds": 1.26,
+                    "made": {"year": ["2015"]}, "manifest": str(out_dir) + "/suite.json"}
+        self._fakes(m, monkeypatch, build)
+        m.results_dir.mkdir(parents=True, exist_ok=True)
+        out = m._build_run_suites([{"run": "control", "reused": True}, {"run": "nofire"}],
+                                  {"control": "/c/run", "nofire": "/scratch/nofire/run"})
+        assert calls == [("synth", str(m.results_dir / "suite" / "nofire"), "/scratch/nofire/run")]
+        assert out == {"nofire": {"action": "built", "why": "no suite manifest is there",
+                                  "seconds": 1.3, "made": {"year": ["2015"]},
+                                  "run_dir": "/scratch/nofire/run",
+                                  "suite": "03_results/suite/nofire"}}
+        assert json.loads((m.results_dir / m.SUITE_BUILDS).read_text()) == out
+        # a study that runs its own control builds the control's store too
+        calls.clear()
+        m._build_run_suites([{"run": "control"}, {"run": "nofire"}],
+                            {"control": "/own/run", "nofire": "/scratch/nofire/run"})
+        assert [c[1].rsplit("/", 1)[1] for c in calls] == ["control", "nofire"]
+        # the control alone, reused: nothing to build and no record written
+        (m.results_dir / m.SUITE_BUILDS).unlink()
+        assert m._build_run_suites([{"run": "control", "reused": True}],
+                                   {"control": "/c/run"}) == {}
+        assert not (m.results_dir / m.SUITE_BUILDS).exists()
+
+    def test_a_store_that_cannot_be_built_is_recorded_and_sinks_nothing(self, study,
+                                                                       monkeypatch, capsys):
+        m = study["mgr"]
+
+        def build(control, out_dir, run_dir=None):
+            raise OSError("the run directory holds no history")
+        self._fakes(m, monkeypatch, build)
+        m.results_dir.mkdir(parents=True, exist_ok=True)
+        out = m._build_run_suites([{"run": "control", "reused": True}, {"run": "nofire"}],
+                                  {"control": "/c/run", "nofire": "/gone"})
+        assert out == {"nofire": {"error": "OSError: the run directory holds no history",
+                                  "run_dir": "/gone"}}
+        assert "no results store for run nofire" in capsys.readouterr().out
+        assert json.loads((m.results_dir / m.SUITE_BUILDS).read_text()) == out

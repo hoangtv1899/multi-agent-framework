@@ -320,9 +320,39 @@ def rule_percent(claim: Dict[str, Any], finding: Dict[str, Any],
             f"the evidence trace.")
 
 
+def _tracer(ctx, records):
+    """The evidence trace for one claim of a study with a suite, on the inputs
+    step 4's gate uses; None for any other study, or when it cannot be set up
+    (the gate then decides, as before)."""
+    if records is None:
+        return None
+    try:
+        from agents.analysis import analysis_plan as _plan, claim_trace as _ct
+        from agents.analysis.step4_report import suite_regions
+        return _ct.claim_tracer(_plan.analysis_dir(ctx), study_dir=ctx.run_dir,
+                                regions=suite_regions(ctx))
+    except Exception:                                               # noqa: BLE001
+        return None
+
+
+def rule_trace(claim: Dict[str, Any], tracer) -> Optional[str]:
+    """A claim the evidence trace fails is struck, with the trace's reasons
+    (claim_trace.claim_tracer; 2026-11-10). None without a tracer: a study
+    with no suite has no evidence records to trace to."""
+    if tracer is None:
+        return None
+    try:
+        problems = tracer(claim)
+    except Exception as e:                                          # noqa: BLE001
+        problems = [f"it could not be traced ({type(e).__name__}: {e})"]
+    return ("it fails the evidence trace: " + "; ".join(str(p) for p in problems)) \
+        if problems else None
+
+
 def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
           caveats: List[Dict[str, Any]], facts: Optional[set] = None,
-          records: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+          records: Optional[Dict[str, Dict[str, Any]]] = None,
+          tracer=None) -> Dict[str, Any]:
     """Check each claim against the evidence it cites. Pure function.
 
     Returns {kept, struck} where every struck claim carries its reason AND the
@@ -330,9 +360,9 @@ def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
     point: the audit is the part that must not depend on a model behaving well.
 
     The rules are `rule_cites`, `rule_declared_values`, `rule_respects` and,
-    for a study with a suite (`records`, its evidence records), `rule_percent`,
-    applied in that order; the first to object wins, and a claim that passes
-    them all is kept.
+    for a study with a suite (`records`, its evidence records), `rule_percent`
+    and `rule_trace` (`tracer`), applied in that order; the first to object
+    wins, and a claim that passes them all is kept.
     """
     by_id = {f["id"]: f for f in (investigation.get("findings") or [])}
     allowed = set(facts or set())
@@ -356,6 +386,8 @@ def audit(claims: List[Dict[str, Any]], investigation: Dict[str, Any],
             why, rule = rule_respects(c, finding, caveats, blocking), "respects"
         if why is None:
             why, rule = rule_percent(c, finding, records), "percent"
+        if why is None:
+            why, rule = rule_trace(c, tracer), "trace"
 
         if why is None:
             kept.append(c)
@@ -1170,7 +1202,7 @@ def interpret(ctx, comparison, investigation, out_dir,
 
     caveats = list(ctx.caveats or []) + list(comparison.get("caveats") or [])
     result = audit(spec.get("claims") or [], evidence, caveats,
-                   facts=run_facts(ctx), records=records)
+                   facts=run_facts(ctx), records=records, tracer=_tracer(ctx, records))
 
     verdict = spec.get("verdict")
     if verdict not in ("sufficient", "insufficient"):

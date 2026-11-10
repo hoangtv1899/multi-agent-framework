@@ -287,6 +287,10 @@ def control_card(rows: List[Dict[str, Any]]) -> str:
         ev = r.get("evaluation") or {}
         if isinstance(ev, dict) and ev.get("summary"):
             lines.append(f"  Against observations: {ev['summary']}")
+        ny = r.get("normal_years") or []
+        if ny:
+            lines.append(f"  Its normal years: {', '.join(str(y) for y in ny)}"
+                         + (f" ({r['normal_years_why']})" if r.get("normal_years_why") else ""))
         for item in r.get("not_in_it") or []:
             lines.append(f"  Not in this run: {item}")
     return "\n".join(lines)

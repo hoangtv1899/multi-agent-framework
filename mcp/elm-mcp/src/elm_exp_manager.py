@@ -1242,9 +1242,10 @@ class ELMExpManager(ExperimentManagerBase):
 		A = self._sibling_module("domain_analysis")
 		DC = self._sibling_module("domain_case")
 		DCT = self._sibling_module("domain_controls")
+		runs: Dict[str, str] = {}
 		try:
 			ctl = self._control_facts().get("control") or {}
-			control, runs = None, {}
+			control = None
 			for e in experiments:
 				if e.get("reused"):
 					entry = DCT.get(ctl.get("name"))
@@ -1279,7 +1280,53 @@ class ELMExpManager(ExperimentManagerBase):
 		if "error" not in table:
 			print(f"   ✓ regional numbers: {len(table['regions'])} region(s), "
 				  f"{len(table['runs'])} run(s), {len(table['problems'])} problem(s)")
+		self._build_run_suites(experiments, runs)
 		return table
+
+	SUITE_BUILDS = "suite_builds.json"
+
+	def _build_run_suites(self, experiments, runs: Dict[str, str]) -> Dict[str, Any]:
+		"""Each executed run's results store (domain_suite.build), written to
+		03_results/suite/<run>, where the Analyzer reads a run's maps, series
+		and timing dates (analysis_plan.suite_dirs) and the catalog lists it.
+
+		THE MISSING STEP (2026-11-10). The analysis suite's plan has an
+		experiment build the suites of its own runs, and nothing did: a study
+		with a new run reached the Analyzer with the reused control's suite
+		alone, so the run could be read from the regional table only, never as
+		a map, a series or a date. A reused control's suite is the registry's
+		and is not built again. A store that cannot be built costs the study
+		nothing else: the run keeps its year numbers and its regional numbers,
+		and the reason is recorded in 03_results/suite_builds.json and printed.
+		"""
+		reused = any(e.get("reused") for e in experiments)
+		todo = {n: d for n, d in (runs or {}).items() if not (n == "control" and reused)}
+		if not todo:
+			return {}
+		out: Dict[str, Any] = {}
+		try:
+			name = (self._control_facts().get("control") or {}).get("name")
+			entry = self._sibling_module("domain_controls").get(name)
+			S = self._sibling_module("domain_suite")
+		except Exception as e:                                      # noqa: BLE001
+			entry, S = None, None
+			out = {n: {"error": f"{type(e).__name__}: {e}"} for n in todo}
+		for n, rd in (todo.items() if entry is not None else []):
+			try:
+				res = S.build(entry, self.results_dir / "suite" / n, run_dir=rd)
+				out[n] = {"action": res.get("action"), "why": res.get("why"),
+						  "seconds": round(float(res.get("seconds") or 0.0), 1),
+						  "made": res.get("made"), "run_dir": str(rd),
+						  "suite": f"03_results/suite/{n}"}
+				print(f"   ✓ results store of run {n}: {out[n]['action']} in "
+					  f"{out[n]['seconds']} s")
+			except Exception as e:                                  # noqa: BLE001
+				out[n] = {"error": f"{type(e).__name__}: {e}", "run_dir": str(rd)}
+		for n, r in out.items():
+			if r.get("error"):
+				print(f"   ⚠️  no results store for run {n}: {r['error']}")
+		(self.results_dir / self.SUITE_BUILDS).write_text(json.dumps(out, indent=1, default=str))
+		return out
 
 	def _confined(self, runs) -> Dict[str, str]:
 		"""{run: region} for each run whose change applies in one registered

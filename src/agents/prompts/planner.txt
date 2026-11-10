@@ -201,6 +201,10 @@ YOU DECIDE the analysis:
   normal_years   for a question about an event in the control (a dry year, a
                  fire year): the years it is compared with, inside the
                  control's output years, and why those. [] otherwise.
+                 Where the control's entry in the rulebook names its own
+                 `normal_years`, use exactly those, minus any year the
+                 question asks about, and say they are the control's own.
+                 Choose other years only when the person named them.
   question_type  "hypothesis" only when the question proposes a testable
                  expectation: a direction, a relation or a mechanism ("did
                  the dry year lower GPP through soil water?"). "exploratory"

@@ -62,15 +62,24 @@ class TestWhatCountsAsResumable:
         assert "build_case_inputs" in r["why"]
 
     def test_a_finished_run_is_not(self, tmp_path):
-        """_package wrote experiment.json, which is what the run is FOR. A
-        failed analyze leaves a finished study with no report, and re-running
-        the pipeline is not how to get one."""
+        """_package wrote experiment.json, which is what the run is FOR:
+        re-running the pipeline is not how to get anything more from it."""
+        d = _run(tmp_path, stages=_done("materialize", "build_case_inputs", "build_cases",
+                                        "run", "extract", "package", "analyze"))
+        r = inspect_run(d)
+        assert not r["resumable"]
+        assert "complete" in r["why"]
+
+    def test_a_packaged_run_whose_analysis_failed_gets_its_analysis_alone_again(self, tmp_path):
+        """2026-11-10: such a run was "complete", so neither --resume nor
+        --finalize would finish it, although the failed job's own message
+        says to run --resume. The record stands; the analysis is run again."""
         d = _run(tmp_path, stages={**_done("materialize", "build_case_inputs", "build_cases",
                                            "run", "extract", "package"),
                                    "analyze": {"status": "failed"}})
         r = inspect_run(d)
-        assert not r["resumable"]
-        assert "complete" in r["why"]
+        assert r["resumable"] and r["next"] == "analyze" and r["stage"] == "package"
+        assert "the analysis alone is run again" in r["why"]
 
     def test_a_run_with_no_ledger_is_not(self, tmp_path):
         """Re-entering one would find an empty ledger and redo everything,

@@ -2416,6 +2416,39 @@ def select_headline(claims: List[Dict[str, Any]], trace: Dict[str, Any],
             "passed_over": passed}
 
 
+def _trace_inputs(analysis_dir, study_dir=None, regions=(), notes=None):
+    """(records, plan, runs, regions) a study's claims are traced against:
+    one setup, so step 3's audit and step 4's gate read a claim the same way."""
+    AP = _elm_modules()[0]
+    records = evidence_records(analysis_dir, notes=notes)
+    plan = AP.load_plan(analysis_dir)
+    runs = study_runs(study_dir) if study_dir else {}
+    regs = set(regions or ())
+    for a in plan.get("analyses") or []:
+        regs |= {str(x) for x in (a or {}).get("regions") or []}
+    regs |= {r["region"] for r in records.values() if r.get("region")}
+    if (plan.get("screen") or {}).get("region"):
+        regs.add(plan["screen"]["region"])
+    return records, plan, runs, regs
+
+
+def claim_tracer(analysis_dir, study_dir=None, regions=(), notes=None):
+    """claim -> the problems the evidence trace finds in it (check_claim), on
+    the records, plan, runs and regions trace_evidence uses.
+
+    A CLAIM THAT FAILS THE TRACE IS STRUCK ALONE (2026-11-10). Step 3's audit
+    struck a claim under four rules, and the trace of a claim's periods,
+    regions and numbers ran only at step 4, where one failing claim withheld
+    the whole report: in the live study of 2026-11-09 two true, under-cited
+    claims of ten (a run of months named on one month's record) did. The
+    audit now asks this for each claim, strikes the one that fails with the
+    trace's own reasons, and the claims that pass are reported. Step 4's gate
+    is as it was, so no claim reaches a report without passing it."""
+    records, plan, runs, regs = _trace_inputs(analysis_dir, study_dir, regions, notes)
+    regs = sorted(regs)
+    return lambda c: list(check_claim(dict(c), records, plan, runs, regs)["problems"])
+
+
 def trace_evidence(claims: List[Dict[str, Any]], headline: Optional[str], analysis_dir,
                    study_dir=None, regions=(), open_causes=None, notes=None
                    ) -> Dict[str, Any]:
@@ -2427,17 +2460,9 @@ def trace_evidence(claims: List[Dict[str, Any]], headline: Optional[str], analys
     import json
     from pathlib import Path
     AP = _elm_modules()[0]
-    records = evidence_records(analysis_dir, notes=notes)
-    plan = AP.load_plan(analysis_dir)
+    records, plan, runs, regs = _trace_inputs(analysis_dir, study_dir, regions, notes)
     qt = plan.get("question_type") if plan.get("question_type") in HEADLINE_RULE \
         else "exploratory"
-    runs = study_runs(study_dir) if study_dir else {}
-    regs = set(regions or ())
-    for a in plan.get("analyses") or []:
-        regs |= {str(x) for x in (a or {}).get("regions") or []}
-    regs |= {r["region"] for r in records.values() if r.get("region")}
-    if (plan.get("screen") or {}).get("region"):
-        regs.add(plan["screen"]["region"])
     failed, per = [], {}
     for i, c in enumerate(claims, 1):
         t = check_claim(c, records, plan, runs, sorted(regs))

@@ -751,6 +751,13 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
            # how well it matches observations, measured outside the server and
            # entered with its source, as `reproduced` is
            "evaluation": entry.get("evaluation"),
+           # THE CONTROL'S OWN NORMAL YEARS (2026-11-10): the years its
+           # evaluation compares an event year with, entered in the registry
+           # as the evaluation is. A study's baseline is these unless the
+           # person names others: left to the model, the same question got
+           # 2016-2020 one day and 2016-2023 another, and different numbers.
+           "normal_years": entry.get("normal_years"),
+           "normal_years_why": entry.get("normal_years_why"),
            "regions": {k: v.get("what") for k, v in (entry.get("regions") or {}).items()},
            "observations": {k: v.get("what")
                             for k, v in (entry.get("observations") or {}).items()},

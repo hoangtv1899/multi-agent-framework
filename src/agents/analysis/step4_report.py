@@ -652,6 +652,27 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
                             _nc.evidence_reason(report["evidence_numbers"])) if x)
         if report["evidence_trace"].get("withheld_because"):
             report["withheld_because"] = report["evidence_trace"]["withheld_because"]
+        # THE SUMMARY HOLDS TO THE KEPT CLAIMS WHEN THE AUDIT STRUCK ONE
+        # (2026-11-10). Step 3 writes its summary before the audit, so a
+        # sentence of it may rest on a claim the audit then struck. Such a
+        # sentence is left out of what the page prints when it gives a number
+        # no kept claim's record gives (claim_trace.summary_support); the
+        # summary as written stays in the record ("answer"), with what was
+        # left out and why ("answer_left_out").
+        if (interpretation or {}).get("struck") and report.get("answer") \
+                and "records" in report["evidence_trace"]:
+            try:
+                rows = claim_trace.summary_support(
+                    report["answer"], report["claims"], report["evidence_trace"]["records"],
+                    report["evidence_trace"].get("runs") or {}, _plan.load_plan(adir))
+                left = [r for r in rows if r["unsupported"]]
+                if left:
+                    report["answer_kept"] = " ".join(r["sentence"] for r in rows
+                                                     if not r["unsupported"])
+                    report["answer_left_out"] = [{"sentence": r["sentence"],
+                                                  "unsupported": r["unsupported"]} for r in left]
+            except Exception as e:                              # noqa: BLE001
+                report["answer_left_out_error"] = f"{type(e).__name__}: {e}"
         # THE HEADLINE: the first claim of step 3's ranking that traced and
         # that the question type allows; with none, and every other gate
         # passed, a headline that says the run is inconclusive, which is no
@@ -789,7 +810,16 @@ def render_markdown(report: Dict[str, Any]) -> str:
         cl = headline_caveat_line(report)
         lines += ([f"**{_plain(report['headline'])}**  ", f"*{_plain(cl)}*"] if cl else
                   [f"**{_plain(report['headline'])}**"]) + [""]
-    lines += [_plain(report.get("answer") or "(no answer)"), ""]
+    if "answer_kept" in report:
+        n = len(report.get("answer_left_out") or [])
+        lines += [_plain(report["answer_kept"] or "(no sentence of the summary rests on the "
+                                                  "kept claims alone)"), "",
+                  f"*{n} sentence{'s' if n != 1 else ''} of the Analyzer's summary "
+                  f"{'are' if n != 1 else 'is'} left out here: each gives a number that no "
+                  f"kept claim's record gives, since the audit withheld the claim it rested "
+                  f"on. The summary as written is in analysis.json.*", ""]
+    else:
+        lines += [_plain(report.get("answer") or "(no answer)"), ""]
     rd = report.get("readability") or {}
     if rd.get("problems_after"):
         lines += ["> Wording the readability check still flags: "

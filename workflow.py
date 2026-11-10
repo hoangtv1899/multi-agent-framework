@@ -1299,7 +1299,13 @@ class WorkflowCoordinator:
 		# put to the user, and the TTY guard that stops those from hanging a
 		# scripted run. A backend that prompted would be a compute stage
 		# holding the terminal open.
-		email = self._ask_notify_email(Manager)
+		# A STUDY THAT SUBMITS NOTHING SENDS NO MAIL (2026-11-10): the reused
+		# control read alone finishes while the person watches, so asking where
+		# to mail its result was a question with no effect.
+		de = (plan or {}).get('domain_experiment') or {}
+		nothing_to_run = (bool(de) and not (de.get('runs') or [])
+						  and bool((de.get('control') or {}).get('reuse')))
+		email = '' if nothing_to_run else self._ask_notify_email(Manager)
 		if email:
 			cfg['notify_email'] = email
 		return executor.execute_plan(plan, cfg)
@@ -1476,7 +1482,7 @@ class WorkflowCoordinator:
 		run_dir = run_dir or self.conversation_context.get('last_run_dir')
 		lines = ["=" * 70, "ANALYSIS RESULTS", "=" * 70, ""]
 		lines += ["📌 ANSWER:", "-" * 70,
-				  analysis.get('answer') or 'N/A',
+				  analysis.get('answer_kept', analysis.get('answer')) or 'N/A',
 				  "",
 				  f"verdict: {analysis.get('verdict')}", ""]
 		lines += self._claim_lines(analysis)
@@ -1492,7 +1498,7 @@ class WorkflowCoordinator:
 										analysis:    dict) -> str:
 		lines = ["=" * 70, "WORKFLOW COMPLETE", "=" * 70, ""]
 		lines += ["📌 ANSWER:", "-" * 70,
-				  analysis.get('answer') or 'N/A',
+				  analysis.get('answer_kept', analysis.get('answer')) or 'N/A',
 				  "",
 				  f"verdict: {analysis.get('verdict')}", ""]
 		lines += ["⚙️  EXECUTION:", "-" * 70,
