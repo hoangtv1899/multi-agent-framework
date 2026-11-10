@@ -703,6 +703,8 @@ class WorkflowCoordinator:
 			return self._workflow_analyze_existing(result)
 		elif action == 'resume':
 			return self._workflow_resume(result)
+		elif action == 'unsupported':
+			return self._workflow_unsupported(result)
 		elif action == 'design':
 			return self._workflow_design_and_run(
 				result     = result,
@@ -760,6 +762,23 @@ class WorkflowCoordinator:
 			lines.append(f"{i}. {q}")
 		return "\n".join(lines)
 	
+	def _workflow_unsupported(self, result) -> str:
+		"""A kind of study this version does not run (core/supported_routes):
+		Reception stopped before it minted a directory or fetched anything, so
+		there is nothing to plan, review or approve, and no change to type."""
+		print("🛑 WORKFLOW: Not Run In This Version\n")
+		brief = result.get('brief') or {}
+		why = (result.get('route') or {}).get('why') or 'this kind of study is set aside'
+		lines = [f"🛑 Nothing was designed or run: {why}."]
+		said = [str(c) for c in ((brief.get('run_settings') or {}).get('conflicts') or [])
+				if c][:3]
+		if brief.get('model_availability'):
+			said.insert(0, str(brief['model_availability']))
+		if said:
+			lines.append("   What Reception found:")
+			lines += [f"   - {c}" for c in said]
+		return "\n".join(lines)
+
 	# ═════════════════════════════════════════════════════════
 	# WORKFLOW 2 — ANALYZE EXISTING
 	# ═════════════════════════════════════════════════════════
@@ -840,7 +859,7 @@ class WorkflowCoordinator:
 			# records the review and continues. Declining costs nothing: the
 			# records stay on disk and nothing has been built.
 			from agents.design_review import (write_review, record_decision,
-											  REVISION_MARK, decision_part)
+											  REVISION_MARK, decision_part, approve)
 			# THE SERVER'S CHECK AND BUILD COME FIRST (2026-10-28), so the page
 			# can say how to make every run by hand, and a design the server
 			# refuses goes back to the planner before anyone reads it. Nothing
@@ -848,6 +867,24 @@ class WorkflowCoordinator:
 			plan, preview = self._review_ready(result, plan, run_dir, output_dir)
 			self.conversation_context['last_plan'] = plan
 			blocked = bool(preview) and bool(preview.get("refused") or preview.get("error"))
+			# A WHOLE-DOMAIN DESIGN ITS OWN PLANNER CALLS INFEASIBLE HAS NO YES
+			# (2026-11-10). The gate stops such a study after the yes
+			# (core/strategy_check), so offering "Run this design? [Y/n]" for
+			# it asked for a consent that could only end in a stop: seen live
+			# for a question about a change the model does not have. The page
+			# is still written, as the record of why it cannot be answered.
+			# FOR EVERY KIND OF STUDY since the same day: the verdict was read
+			# for a whole-domain design only, and an infeasible single-column
+			# design was offered with a yes.
+			fz = (plan or {}).get("feasibility") or {}
+			infeasible = str(fz.get("verdict") or "").strip().lower() == "infeasible"
+			# A KIND OF STUDY THIS VERSION DOES NOT RUN HAS NO YES EITHER
+			# (core/supported_routes). Reception stops such a request before
+			# planning; this is the same rule read again on the plan, which is
+			# what would run.
+			from core.supported_routes import problem as _route_problem
+			unsupported = _route_problem((result or {}).get("brief"), plan)
+			blocked = blocked or infeasible or bool(unsupported)
 			# The preview is passed even when there is none, so the page is never
 			# drawn from an older record left on disk (2026-11-03).
 			review_path = write_review(run_dir, reception=result, strategy=plan,
@@ -858,9 +895,18 @@ class WorkflowCoordinator:
 			# built (a server out of reach, a failed input check, a run whose
 			# scripts could not be written) names no change, and the terminal
 			# and the recorded decision say which, as the page does.
-			refused = bool(blocked and preview.get("refused"))
-			not_run = ("not run: the model server refused the design" if refused else
-					   "not run: the design could not be built")
+			refused = bool(blocked and preview and preview.get("refused"))
+			unbuilt = bool(blocked and not refused and preview and preview.get("error"))
+			not_run = ("not run: this version does not run this kind of study"
+					   if unsupported else
+					   "not run: the model server refused the design" if refused else
+					   "not run: the design could not be built" if unbuilt else
+					   "not run: the planner judged the design infeasible")
+			judged = (f"🛑 Nothing was submitted: {unsupported}.\n   The design and "
+					  f"its records stay in {run_dir}." if unsupported else
+					  f"🛑 The planner judged this design infeasible, so nothing was "
+					  f"submitted.\n   {fz.get('why') or 'no reason given'}\n   The "
+					  f"design and its records stay in {run_dir}.")
 			if blocked and not getattr(self, "interactive_reception", False):
 				record_decision(run_dir, not_run)
 				if refused:
@@ -871,6 +917,8 @@ class WorkflowCoordinator:
 										for f in preview["refused"])
 							+ f"\n   Ask again with that change; the design and its records "
 							  f"stay in {run_dir}.")
+				if not unbuilt:
+					return judged
 				return (f"🛑 The design could not be built before the review, so nothing "
 						f"was submitted.\n   {preview.get('error')}\n   The design and its "
 						f"records stay in {run_dir}.")
@@ -891,17 +939,35 @@ class WorkflowCoordinator:
 				# for the change (a new period means new observations),
 				# never patched in place.
 				# A REFUSED DESIGN HAS NO YES: it can be changed, or left.
+				# ONLY A TYPED YES RUNS (2026-11-10). Enter used to count as
+				# yes, under a prompt whose "[Y/n" said so: a key pressed to
+				# scroll, or an empty line from a script, approved compute. An
+				# empty answer now approves nothing. It is asked again, and
+				# after BLANK_ASKS empty answers the design is left unapproved.
 				prompt = ("This design cannot run as it is. Type a change, or press "
 						  "Enter to stop: " if blocked else
-						  "Run this design? [Y/n, or type a change] ")
-				try:
-					ans = input(prompt).strip()
-				except (EOFError, KeyboardInterrupt):
-					ans = "n"          # no consent is a no
+						  "To run this design, type yes. Type no to stop, or type "
+						  "a change: ")
+				blanks = 0
+				while True:
+					try:
+						ans = input(prompt).strip()
+					except (EOFError, KeyboardInterrupt):
+						ans = "n"          # no consent is a no
+					if ans or blocked:
+						break
+					blanks += 1
+					if blanks >= self.BLANK_ASKS:
+						break
+					print("   Nothing was typed. Nothing runs without a typed yes.")
 				low = ans.lower()
-				if low in ("n", "no") or (blocked and low in ("", "y", "yes")):
+				no_answer = not blocked and not ans
+				if low in ("n", "no") or no_answer or (blocked and low in ("", "y", "yes")):
 					record_decision(run_dir, not_run if blocked else
-											 "DECLINED at the terminal")
+											 "NOT APPROVED: no answer at the terminal"
+											 if no_answer else "DECLINED at the terminal")
+					if blocked and not refused and not unbuilt:
+						return judged
 					if blocked:
 						return ((f"🛑 The model server's check refused this design, "
 								 if refused else
@@ -909,10 +975,15 @@ class WorkflowCoordinator:
 								+ f"so nothing was submitted. reception.json, "
 								  f"strategy.json and {review_path.name} are saved "
 								  f"in {run_dir}.")
+					if no_answer:
+						return (f"🛑 No answer was typed, so the design was not "
+								f"approved and nothing was run. reception.json, "
+								f"strategy.json and {review_path.name} are saved "
+								f"in {run_dir}.")
 					return (f"🛑 Design declined — nothing was run. "
 							f"reception.json, strategy.json and "
 							f"{review_path.name} are saved in {run_dir}.")
-				if low not in ("", "y", "yes"):
+				if low not in ("y", "yes"):
 					record_decision(
 						run_dir,
 						f"revision requested at the terminal: {ans!r}")
@@ -934,8 +1005,10 @@ class WorkflowCoordinator:
 						revision=_revision_of(result, ans),
 					)
 				record_decision(run_dir, "accepted at the terminal")
+				approve(run_dir, plan, "accepted at the terminal")
 			else:
 				record_decision(run_dir, "auto-continued (unattended run)")
+				approve(run_dir, plan, "auto-continued (unattended run)")
 
 			# Step 2 — Execute
 			print("⚙️  STEP 2: Executing Experiments")
@@ -1066,6 +1139,10 @@ class WorkflowCoordinator:
 	
 		except Exception as e:
 			from core.exp_manager_base import RefusedBeforeAnyJob
+			from agents.design_review import DesignNotApproved
+			if isinstance(e, DesignNotApproved):
+				return (f"🛑 Nothing was submitted: {e}.\n   The design and its "
+						f"records stay in {run_dir}.")
 			if isinstance(e, RefusedBeforeAnyJob):
 				# an answer, not a crash: the check did its job before any job
 				return (f"🛑 The model server's check refused this design, so nothing "
@@ -1267,6 +1344,15 @@ class WorkflowCoordinator:
 		# lives beside its server and is imported by path; the base's
 		# execute_plan reads the stage declarations (NEEDS_CASE_BUILD,
 		# NEEDS_SCHEDULER) off the class.
+		# NOTHING REACHES THE MANAGER UNAPPROVED (2026-11-10). The approval is
+		# of one design (design_review.approve): a design with none on record,
+		# or one that is not the design approved, raises here, before a
+		# manager exists. A resumed run made before approvals were recorded is
+		# held to what its page says.
+		from agents.design_review import approval_problem, DesignNotApproved
+		unapproved = approval_problem(run_dir, plan, resume=resume)
+		if unapproved:
+			raise DesignNotApproved(unapproved)
 		Manager = _manager_for(self.model)
 		if Manager is None:
 			raise RuntimeError(
@@ -1313,6 +1399,10 @@ class WorkflowCoordinator:
 	# How many times a design the model server refuses goes back to the
 	# planner before the page shows the refusal instead (2026-10-28).
 	PREVIEW_ROUNDS = 2
+
+	# How many empty answers the approval prompt takes before it leaves the
+	# design unapproved (2026-11-10).
+	BLANK_ASKS = 3
 
 	def _preview(self, plan: dict, run_dir: Path, reception: dict,
 				 output_dir: str) -> Optional[dict]:

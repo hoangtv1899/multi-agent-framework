@@ -327,6 +327,15 @@ class LLMReceptionAgent:
         # state under `constraints`, the sweep menu from describe_sweep. The
         # prompt says how to read them, once, for any model.
         self.system = load_prompt("reception_agentic")
+        # THIS VERSION RUNS WHOLE-DOMAIN STUDIES ONLY (2026-11-10,
+        # core/supported_routes). The rule is in code, in process() below and
+        # twice more downstream; this block only stops Reception from offering
+        # a way forward that the code will refuse. It is left out when the
+        # developer's switch is set, so the routes set aside read the prompt
+        # they were built against.
+        from core.supported_routes import developer_routes
+        if not developer_routes():
+            self.system += load_prompt("reception_whole_domain_only")
         self._clients = mcp_clients or {}
         # THE MODEL IS CHOSEN BY READING, NOT BY LOOKUP (2026-08-17). There
         # used to be a third substituted block here, a MENU of models that this
@@ -435,6 +444,20 @@ class LLMReceptionAgent:
                 "first_reply": first[:400]}]
         if pkg["route"]["action"] != "design":
             return pkg                       # nothing to gather for yet
+        # A KIND OF STUDY THIS VERSION DOES NOT RUN STOPS HERE (2026-11-10,
+        # core/supported_routes): before a run directory is minted and before
+        # anything is fetched. A live question about a watershed with no
+        # prepared control was refused in words and then, on "proceed
+        # anyway", gathered a basin's sites and became a single-column design
+        # with a prompt to run it. The reply typed in the dialog cannot change
+        # this: the rule reads the brief, not the conversation.
+        from core.supported_routes import problem as _route_problem
+        unsupported = _route_problem(brief)
+        if unsupported:
+            pkg["route"] = {"action": "unsupported", "why": unsupported,
+                            "questions": [], "prior_run_dir": None,
+                            "llm_intent": pkg["route"].get("llm_intent")}
+            return pkg
         if callable(run_dir):
             run_dir = run_dir(brief)         # named for the model, see above
         pkg["run_dir"] = str(run_dir) if run_dir else None

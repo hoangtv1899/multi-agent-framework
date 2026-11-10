@@ -31,3 +31,11 @@ for p in (ROOT / "src", ROOT / "mcp" / "elm-mcp" / "src",
 # Set here, before any fixture opens a stream; a test of the cache points the
 # variable at a temporary directory of its own.
 os.environ["ELM_STREAM_INDEX_CACHE"] = "off"
+
+# THE ROUTES SET ASIDE ARE REACHABLE IN THE TEST SESSION (2026-11-10). This
+# version runs whole-domain studies only (src/core/supported_routes.py); the
+# single-column and coupling routes keep their code and their tests, and most
+# of those tests predate the rule. The switch a developer sets by hand is set
+# here for them. A test of the rule itself removes it (monkeypatch.delenv), so
+# it sees the front door as a user gets it.
+os.environ["IDEAS_DEVELOPER_ROUTES"] = "1"

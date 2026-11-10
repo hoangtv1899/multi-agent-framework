@@ -219,6 +219,34 @@ class TestARefusalGoesBackToThePlanner:
         assert "not run: the model server refused the design" in \
             (tmp_path / "DESIGN_REVIEW.md").read_text()
 
+    INFEASIBLE = {"archetype": "whole_domain", "domain_experiment": {
+        "control": {"name": "c", "reuse": True}, "years": [2031], "runs": []},
+        "feasibility": {"verdict": "infeasible", "why": "the model has no such change"}}
+
+    def test_unattended_an_infeasible_design_stops_before_the_manager(self, tmp_path):
+        """The server may pass a design that changes nothing; the planner's
+        own verdict still means it cannot answer the question."""
+        co = _coordinator(tmp_path, [dict(PASSED)])
+        co._plan = lambda result, run_dir, findings=None, previous=None: dict(self.INFEASIBLE)
+        co._execute = lambda **kw: pytest.fail("an infeasible design must not reach the manager")
+        out = co._workflow_design_and_run(_reception(), str(tmp_path), tmp_path)
+        assert out.startswith("🛑 The planner judged this design infeasible")
+        assert "the model has no such change" in out
+        assert "not run: the planner judged the design infeasible" in \
+            (tmp_path / "DESIGN_REVIEW.md").read_text()
+
+    def test_with_a_person_an_infeasible_design_has_no_yes(self, tmp_path, monkeypatch):
+        co = _coordinator(tmp_path, [dict(PASSED)], interactive=True)
+        co._plan = lambda result, run_dir, findings=None, previous=None: dict(self.INFEASIBLE)
+        co._execute = lambda **kw: pytest.fail("a yes at an infeasible design must not run")
+        asked = []
+        monkeypatch.setattr("builtins.input", lambda p="": asked.append(p) or "y")
+        out = co._workflow_design_and_run(_reception(), str(tmp_path), tmp_path)
+        assert asked and asked[0].startswith("This design cannot run as it is")
+        assert out.startswith("🛑 The planner judged this design infeasible")
+        assert "not run: the planner judged the design infeasible" in \
+            (tmp_path / "DESIGN_REVIEW.md").read_text()
+
     def test_the_terminal_shows_the_decision_part(self, tmp_path, monkeypatch, capsys):
         co = _coordinator(tmp_path, [dict(PASSED)], interactive=True)
         co._plan = lambda result, run_dir, findings=None, previous=None: FIRST

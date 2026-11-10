@@ -154,7 +154,7 @@ class TestThePauseIsReal:
         co, reception = _coordinator(tmp_path, interactive=True)
         co._execute = lambda **kw: (_ for _ in ()).throw(
             RuntimeError("SENTINEL-EXECUTED"))
-        monkeypatch.setattr("builtins.input", lambda *a: "")
+        monkeypatch.setattr("builtins.input", lambda *a: "yes")
         out = co._workflow_design_and_run(reception, str(tmp_path), tmp_path)
         assert "SENTINEL-EXECUTED" in out
         assert "accepted at the terminal" in \

@@ -698,12 +698,14 @@ class TestTheGate:
         assert rep["stop"] == ["the planner judged this whole-domain study infeasible: a burn "
                                "cannot be placed (requires: a burn tool)"]
 
-    def test_the_verdict_is_not_acted_on_for_a_site_study(self):
+    def test_the_verdict_is_acted_on_for_every_kind_of_study(self):
+        """Since 2026-11-10: it was acted on for a whole-domain study only,
+        and an infeasible single-column design went on after a yes."""
         from test_domain_manager import _reception
         from core.strategy_check import check
         rep, _ = check(_reception(), {"archetype": "site", "sampling": {"n_columns": 5},
                                       "feasibility": {"verdict": "infeasible", "why": "x"}})
-        assert not any("infeasible" in s for s in rep["stop"])
+        assert "the planner judged this study infeasible: x" in rep["stop"]
 
 
 class TestTheRunsResultsStores:
@@ -773,3 +775,88 @@ class TestTheRunsResultsStores:
                                   "run_dir": "/gone"}}
         assert "no results store for run nofire" in capsys.readouterr().out
         assert json.loads((m.results_dir / m.SUITE_BUILDS).read_text()) == out
+
+
+    def test_a_plan_with_no_table_still_builds_the_new_runs_store(self, study, monkeypatch):
+        """A plan that names no variables asks for no regional table. Its new
+        run still gets its results store, where the Analyzer reads maps,
+        series and dates."""
+        m, calls = study["mgr"], []
+
+        def build(control, out_dir, run_dir=None):
+            calls.append((str(out_dir), str(run_dir)))
+            return {"action": "built", "why": "no suite manifest is there", "seconds": 2.04,
+                    "made": {"year": ["2031"]}}
+        self._fakes(m, monkeypatch, build)
+        m.results_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(m, "_experiment_analysis", lambda config: {})
+
+        def outputs(experiments, runs):
+            runs.update({"control": "/c/run", "warm": "/scratch/warm/run"})
+            return None
+        monkeypatch.setattr(m, "_run_outputs", outputs, raising=False)
+        table = m._regional([{"run": "control", "reused": True}, {"run": "warm"}], {})
+        assert table is None and not (m.results_dir / "regional.json").exists()
+        assert calls == [(str(m.results_dir / "suite" / "warm"), "/scratch/warm/run")]
+        assert json.loads((m.results_dir / m.SUITE_BUILDS).read_text())["warm"]["action"] == "built"
+
+
+class TestAnExperimentIsSubmittedWholeOrNotAtAll:
+    """A later run that cannot be submitted cancels the chains queued for the
+    earlier runs, through the server, and the error says what was cancelled."""
+
+    RUNS = [{"run": "control", "years": [2031]},
+            {"run": "warm", "years": [2031], "after": "control"}]
+
+    def _scripted(self, m, monkeypatch, cancel):
+        calls = []
+
+        def call(client, tool, args, **kw):
+            calls.append((tool, args.get("run"), args.get("why")))
+            if tool == "submit_domain_chain" and args["run"] == "control":
+                return {"ok": True, "jobs": [{"stage": "case", "job_id": 3001},
+                                             {"stage": "y2031", "job_id": 3002}]}
+            if tool == "submit_domain_chain":
+                return {"ok": False, "error": "the input set fails its check",
+                        "reasons": ["the surface file is not the domain's"]}
+            if tool == "cancel_domain_chain":
+                return cancel()
+            raise AssertionError(tool)
+        monkeypatch.setattr(m, "_mcp_call", call)
+        monkeypatch.setattr(m, "_domain_client", lambda config: object())
+        monkeypatch.setattr(m, "_notify_email", lambda config: "")
+        monkeypatch.setattr(m, "_executed", lambda experiments: list(experiments))
+        monkeypatch.setattr(m, "_submit_job_b", lambda *a, **k: pytest.fail(
+            "job B was submitted for an experiment that was not"))
+        return calls
+
+    def test_the_earlier_chain_is_cancelled_and_the_error_says_so(self, study, monkeypatch):
+        m = study["mgr"]
+        calls = self._scripted(m, monkeypatch, lambda: {
+            "ok": True, "cancelled": ["3001", "3002"], "not_cancelled": []})
+        with pytest.raises(RuntimeError) as err:
+            m._submit_experiment([dict(r) for r in self.RUNS], {})
+        assert calls[-1] == ("cancel_domain_chain", "control", "run warm could not be submitted")
+        msg = str(err.value)
+        assert msg.startswith("submit_domain_chain for run warm: the input set fails its check: "
+                              "the surface file is not the domain's")
+        assert "queued for earlier runs: control/case=3001, control/y2031=3002" in msg
+        assert msg.endswith("cancelled: 3001, 3002")
+
+    def test_a_cancellation_the_scheduler_refused_is_named(self, study, monkeypatch):
+        m = study["mgr"]
+        self._scripted(m, monkeypatch, lambda: {
+            "ok": False, "cancelled": ["3001"], "not_cancelled": ["3002"]})
+        with pytest.raises(RuntimeError, match="cancelled: 3001; NOT cancelled, "
+                                               "cancel by hand: 3002$"):
+            m._submit_experiment([dict(r) for r in self.RUNS], {})
+
+    def test_a_cancel_call_that_fails_leaves_every_job_named(self, study, monkeypatch):
+        m = study["mgr"]
+
+        def boom():
+            raise RuntimeError("the server did not answer")
+        self._scripted(m, monkeypatch, boom)
+        with pytest.raises(RuntimeError, match="cancelled: none; NOT cancelled, "
+                                               "cancel by hand: 3001, 3002$"):
+            m._submit_experiment([dict(r) for r in self.RUNS], {})

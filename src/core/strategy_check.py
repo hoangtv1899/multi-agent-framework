@@ -185,16 +185,26 @@ def check(reception: Dict[str, Any],
         elif dc.get("from_case") and not dc.get("case"):
             stop.append("domain_case copies a case (from_case) but names no new case: the "
                         "copy would be the case it copies")
+    # THIS VERSION RUNS WHOLE-DOMAIN STUDIES ONLY (2026-11-10,
+    # core/supported_routes). The gate is the last of the three places the
+    # rule is applied, and the one every way into compute passes: a study of
+    # a kind set aside stops here whatever the dialog before it agreed.
+    from core.supported_routes import problem as _route_problem
+    unsupported = _route_problem(brief, strategy)
+    if unsupported:
+        stop.append(unsupported)
+    # THE VERDICT IS ACTED ON, FOR EVERY KIND OF STUDY (2026-11-10): a planner
+    # that says the question cannot be answered with what the model offers is
+    # right to stop it before any job (docs/ELM_DOMAIN_EXPERIMENTS.md, rule
+    # 3). It was acted on for a whole-domain study only, so an infeasible
+    # single-column design went on to build its columns after a yes.
+    fz = strategy.get("feasibility") or {}
+    if str(fz.get("verdict") or "").strip().lower() == "infeasible":
+        needs = fz.get("requires") or strategy.get("requires") or []
+        stop.append("the planner judged this " + ("whole-domain " if is_domain else "")
+                    + "study infeasible: " + str(fz.get("why") or "no reason given")
+                    + (f" (requires: {'; '.join(map(str, needs))})" if needs else ""))
     if is_domain:
-        # THE VERDICT IS ACTED ON, for a whole-domain study: a planner that says
-        # the question cannot be answered with what the model offers is right
-        # to stop it before any job (docs/ELM_DOMAIN_EXPERIMENTS.md, rule 3).
-        fz = strategy.get("feasibility") or {}
-        if str(fz.get("verdict") or "").strip().lower() == "infeasible":
-            needs = fz.get("requires") or strategy.get("requires") or []
-            stop.append("the planner judged this whole-domain study infeasible: "
-                        + str(fz.get("why") or "no reason given")
-                        + (f" (requires: {'; '.join(map(str, needs))})" if needs else ""))
         if sampling.get("n_columns") != 1:
             if sampling.get("n_columns") is not None:
                 corrections.append(f"n_columns: a whole-domain study is one case, not "
