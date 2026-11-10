@@ -150,11 +150,11 @@ class Analyzer:
         investigation = interpretation = None
         rounds, stopped = [], None
         try:
-            from agents.analysis import step3_interpret
+            from agents.analysis import step2_investigate, step3_interpret
             loop = step3_interpret.investigate_and_interpret(
                 ctx, self.analysis_dir, comparison=comparison,
-                model=config.get("analysis_model",
-                                 step3_interpret.DEFAULT_MODEL),
+                # the config's model, else $IDEAS_ANALYZER_MODEL, else the default
+                model=step2_investigate.analyzer_model(config.get("analysis_model")),
                 with_images=config.get("analysis_with_images", True),
                 max_rounds=config.get("analysis_max_rounds",
                                       step3_interpret.MAX_ROUNDS))

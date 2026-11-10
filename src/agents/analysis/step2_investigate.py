@@ -75,6 +75,19 @@ MAX_PLOTS = 5
 # to claude-opus-4-8-project. Step 2 is the most judgement-heavy call in the
 # pipeline, so it takes the stronger model rather than inheriting the default.
 DEFAULT_MODEL = "claude-opus-5-project"
+# THE ANALYZER'S MODEL IS A SETTING (the user's decision of 2026-11-09): one
+# model for every Analyzer step of a study, so that two models can be run on
+# the same question with the same guidance and checks. The study's config
+# "analysis_model" first, else this environment variable, else the default.
+# Each call's record keeps the model the gateway says answered.
+MODEL_ENV = "IDEAS_ANALYZER_MODEL"
+
+
+def analyzer_model(asked: Optional[str] = None) -> str:
+    """The model every Analyzer step of a study asks: `asked` (the config's
+    "analysis_model"), else $IDEAS_ANALYZER_MODEL, else DEFAULT_MODEL."""
+    import os
+    return str(asked or os.environ.get(MODEL_ENV) or DEFAULT_MODEL).strip()
 
 
 

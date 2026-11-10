@@ -1442,7 +1442,9 @@ def suite_sections(report: Dict[str, Any]) -> List[str]:
     L += ["- never a real-world cause; \"validated\" is not used", ""]
     oc = t.get("open_causes") or []
     if oc:
-        L += ["## Open causes and the runs that would settle them", ""]
+        # RENAMED (the user's decision of 2026-11-09): a proposed run tests
+        # sensitivity; it settles nothing by itself
+        L += ["## Remaining uncertainty and proposed sensitivity experiments", ""]
         for o in oc:
             L.append(f"- {_plain(o.get('cause') or 'an open cause')}: a run with "
                      + "; ".join(f"{c['id']} {json.dumps(c.get('params') or {}, sort_keys=True)} "

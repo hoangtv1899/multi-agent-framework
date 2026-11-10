@@ -1106,6 +1106,13 @@ def interpret(ctx, comparison, investigation, out_dir,
     # expectation, warnings and headline (fix 1 of G part 2, 2026-11-08)
     records = suite_records(ctx)
     task = suite_task() if records is not None else TASK
+    if records is not None:
+        # WHAT THE RECIPE'S OUTPUTS ARE FOR (analysis_recipes, 2026-11-09): only
+        # for the parts the plan carried out, after the task
+        from agents.analysis import analysis_plan as _plan, analysis_recipes as _ar
+        said = _ar.report_lines((ctx.plan or {}).get("question"),
+                                _plan.load_plan(_plan.analysis_dir(ctx)))
+        task += ("\n" + "\n".join(said) + "\n") if said else ""
 
     # THE EVIDENCE IS BOTH STEPS'. Step 2's figures answer the user's question;
     # step 1's put the model beside an observation, which nothing step 2 draws

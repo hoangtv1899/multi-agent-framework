@@ -133,6 +133,7 @@ WITHHELD = ("the regional tables (reg, reg_monthly, reg_seasonal)",
 SEEN = ("the question", "the question type (the Planner's)",
         "the configuration (the experiment record and the server's change list)",
         "the data catalog", "the methods (the compact view of docs/ANALYSIS_METHODS.md)")
+SEEN_RECIPE = "the analysis recipe the question calls for (guidance, analysis_recipes)"
 # calls that read no outcome: what the grid is, not what the run did
 SUPPORT_CALLS = ("region_mask", "cell_area", "lat_lon", "find_fields")
 SCREEN_FILE = "screen_record.json"
@@ -522,7 +523,29 @@ def _check_outputs(a, env):
     it["settings"] = {m: {k: (v if isinstance(v, list) else [v]) for k, v in kv.items()}
                       for m, kv in st.items() if isinstance(kv, dict)}
     return PC.output_problems(a, env["M"].TIMING_IDS, lambda lk: _not_declared(it, lk),
-                              env.get("outputs"), defaults=_method_defaults)
+                              env.get("outputs"), defaults=_method_defaults) \
+        + _month_map_problems(a, env["M"])
+
+
+def _month_map_problems(a, M) -> List[str]:
+    """A per-cell output of a month (a map, or an anomaly or a difference
+    with region null): the suite holds no month maps, so the call would be
+    refused by the data after the plan had passed."""
+    out = []
+    for o in a.get("outputs") or []:
+        if not isinstance(o, dict) or o.get("kind") not in ("map",) + PC.NULL_REGION:
+            continue
+        if o.get("kind") != "map" and o.get("region") is not None:
+            continue
+        try:
+            kind = M.parse_period(str(o.get("period")))[0]
+        except M.MethodError:
+            continue                                  # _check_periods names it
+        if kind == "month":
+            out.append(f"{a.get('id')}: output {o.get('id')!r}: month maps are not in the "
+                       f"suite: a month ({o.get('period')}) is a region's value only, in an "
+                       f"anomaly or a difference that names a region")
+    return out
 
 
 def _method_defaults(kind: str) -> Dict[str, Any]:
@@ -817,9 +840,13 @@ PLAN_RULES = (
              "settings timing.nc holds; a call's own arguments (overlap's by_band, a timing "
              "measure's against) are not settings: the script passes them at the call",
              _check_settings),
-    PlanRule("periods", "analysis", "periods: 2015, WY2016, 2015-JJA; a normal years' mean is a "
-             "period of its own: normal, normal-WY, normal-JJA; no months: month maps are not "
-             "in the suite", _check_periods),
+    # A MONTH FOR A REGION'S VALUE ONLY (2026-11-09): the words said "no
+    # months", though a region's anomaly or difference of a month has always
+    # been a method's answer; the check now refuses the per-cell ones by name
+    PlanRule("periods", "analysis", "periods: 2015, WY2016, 2015-JJA; a month (2015-07) only "
+             "for a region's value, in an anomaly or a difference that names a region: month "
+             "maps are not in the suite; a normal years' mean is a period of its own: normal, "
+             "normal-WY, normal-JJA, never of a month", _check_periods),
     PlanRule("outputs", "analysis", PC.RULE_WORDS, _check_outputs),
     PlanRule("baseline", "plan", "baseline: the normal years are the Planner's, given above",
              _check_baseline),
@@ -1007,11 +1034,16 @@ def plan_inputs(ctx) -> Dict[str, Any]:
     ctx.regional(), ctx.regional_monthly() or ctx.regional_seasonal(), never
     reads 04_analysis, and takes no comparison with observations."""
     qt = question_type(ctx)
-    return {"question": (getattr(ctx, "plan", None) or {}).get("question"),
+    question = (getattr(ctx, "plan", None) or {}).get("question")
+    # THE RECIPE THE QUESTION CALLS FOR (analysis_recipes, 2026-11-09): guidance
+    # read from the question's own words, holding no outcome; "" for none
+    from agents.analysis import analysis_recipes as AR
+    return {"question": question,
             "question_type": qt["type"], "question_type_from": qt["from"],
             "configuration": configuration(ctx),
             "catalog": catalog_text(ctx),
-            "methods": compact_methods()}
+            "methods": compact_methods(),
+            "recipe": "\n".join(AR.plan_lines(question))}
 
 
 PLAN_LEAD = """\
@@ -1082,7 +1114,8 @@ def plan_prompt(inputs: Dict[str, Any]) -> str:
             f" ({inputs['question_type_from']})\n\n"
             "THE CONFIGURATION (the experiment record and the server's change list):\n"
             + cfg + "\n\nTHE DATA CATALOG:\n" + inputs["catalog"]
-            + "\n\nTHE METHODS:\n" + inputs["methods"] + "\n\n" + plan_task())
+            + "\n\nTHE METHODS:\n" + inputs["methods"] + "\n\n"
+            + (inputs["recipe"] + "\n\n" if inputs.get("recipe") else "") + plan_task())
 
 
 def plan_problems(plan: Dict[str, Any], fields: Sequence[str], regions: Sequence[str],
@@ -1136,9 +1169,9 @@ def _plain_parts(plan: Dict[str, Any]) -> Dict[str, Any]:
 
 def _ask(client, label: str, model: Optional[str], prompt: str) -> str:
     if client is None:
-        from agents.analysis.step2_investigate import DEFAULT_MODEL
+        from agents.analysis.step2_investigate import analyzer_model
         from agents.llm_agent import SimpleLLMClient
-        client = SimpleLLMClient(model=model or DEFAULT_MODEL)
+        client = SimpleLLMClient(model=analyzer_model(model))
         client.label = label
     return client.ask([{"role": "user", "content": prompt}])
 
@@ -1167,7 +1200,7 @@ def _plan_record(ctx, inputs: Dict[str, Any], reply: str, attempt: int) -> Dict[
         plan["baseline"]["normal_years"] = planner_normal_years(ctx)
     # NO DASHES IN THE MODEL'S WORDS, before the file is written and hashed
     _plain_parts(plan)
-    plan["seen"] = list(SEEN)
+    plan["seen"] = list(SEEN) + ([SEEN_RECIPE] if inputs.get("recipe") else [])
     plan["withheld"] = list(WITHHELD)
     plan["problems"] = plan_problems(plan, fields, regions, planner_normal_years(ctx),
                                      plan["question_type"]) + \

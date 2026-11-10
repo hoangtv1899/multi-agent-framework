@@ -167,8 +167,12 @@ def test_q1_the_plan_and_its_review_replay_as_recorded_without_the_reviews_dashe
                                              "step3_plan_review_round1_reply.txt")]})
     plan = AP.write_plan(ctx, out, client=r.clients()["step2a_plan"])
     rec = _recorded(replay, "q1", "analysis_plan.json")
-    assert {k: v for k, v in plan.items() if k not in ("written_at", "problems")} == \
-        {k: v for k, v in rec.items() if k not in ("written_at", "problems")}
+    # the plan as recorded, part for part; a plan written now has also seen the
+    # recipe its question calls for (analysis_recipes, 2026-11-09), and says so
+    left = ("written_at", "problems", "seen")
+    assert {k: v for k, v in plan.items() if k not in left} == \
+        {k: v for k, v in rec.items() if k not in left}
+    assert plan["seen"] == rec["seen"] + [AP.SEEN_RECIPE]
     # written before the contract of required outputs (2026-11-08): it names none,
     # so the check now finds one problem per analysis and, since the timing rule,
     # the timing problems that follow from it, and only those

@@ -377,7 +377,12 @@ def test_the_runs_regions_and_periods_are_the_files_and_the_records(fake):
 def test_parts_not_built_say_so_and_name_nothing(fake):
     cat, md = fake["cat"], fake["md"]
     assert all(r["products"] == C.SUITE_NOT_BUILT for r in cat["fields"])
-    assert md.count(f"| {C.SUITE_NOT_BUILT} |") == len(cat["fields"]) + len(cat["runs"])
+    # every field's products said once, not on its 52 rows (catalog room,
+    # 2026-11-09); the runs' rows still say their own
+    assert (f"products: the suite's products a field has; for every field: "
+            f"{C.SUITE_NOT_BUILT}.") in md
+    assert md.count(f"| {C.SUITE_NOT_BUILT} |") == len(cat["runs"])
+    assert "| products |" not in md.split("## 4. Fields")[1]
     body = lambda head: md.split(head)[1].split("\n## ")[0]    # noqa: E731
     # PACKAGE E (2026-11-05): section 6 is generated from the access code
     import domain_access as DAC
@@ -409,11 +414,15 @@ def test_the_methods_that_exist_are_listed_with_their_statuses(fake):
     body = md.split("## 5. Methods")[1].split("\n## ")[0]
     assert "docs/ANALYSIS_METHODS.md" in body and "not built yet" not in body
     assert [m["id"] for m in cat["methods"]["methods"]] == list(M.METHODS)
+    # CATALOG ROOM (2026-11-09): what every method shares is said once, each
+    # of the four statuses still stated, and each row keeps its own version,
+    # text revision and test date
+    assert ("every method's review is approved for integration at its version, and every "
+            "method is implemented and tested at its version and available to the "
+            "Analyzer") in " ".join(body.split())
     for mid, m in M.METHODS.items():
-        assert f"| {mid} | {m.version} | approved for integration at text revision " \
-               f"{m.text_revision}, version " \
-               f"{m.version} | version {m.version} | version {m.version}, on " \
-               f"{m.status['tested']['date']} | yes |" in body, mid
+        assert f"| {mid} | {m.version} | {m.text_revision} | " \
+               f"{m.status['tested']['date']} |" in body, mid
     notes = md.split("## 4. Fields")[1].split("\n### ")[0]
     for part in ("- review: 53 approved for integration (by the user on 2026-11-05), an "
                  "approval for integration, not a final scientific approval; 0 drafts or "
@@ -472,7 +481,9 @@ def test_a_suite_manifest_gives_products_and_its_version(fake, tmp_path):
     assert rows["TSA"]["products"] == "the suite's manifest lists no product for it"
     assert cat["runs"][0]["suite"] == "suite version 3"
     md = C.render(cat)
-    assert "| maps_year, series_day |" in md and "Suite periods, year: 2 (2015 to 2016)." in md
+    assert "| maps_year, series_day |" in md and "Suite periods: year 2 (2015 to 2016)." in md
+    # the fields' products differ, so each row keeps its own
+    assert "| products |" in md.split("## 4. Fields")[1]
     assert "Suite periods left out, wateryear WY2015: it needs October-December 2014." in md
     # THE SUITE'S REGIONS (2026-11-04): the manifest's, bands within a region among them
     got = [(r["name"], r["cells"], r["area_km2"], r["rule"]) for r in cat["regions"]["regions"]]
@@ -504,3 +515,168 @@ def test_a_note_without_a_field_and_a_field_without_a_note_are_problems(fake, tm
     md = C.render(cat)
     assert md.index("### fire") < md.index(f"### {C.NO_NOTE_GROUP}") < md.index("## Problems")
     assert "No study: this is the control's catalog." in md
+
+
+# ── catalog room (2026-11-09): a fact every row shares is said once ──────────
+# The fixed part was 24,965 of its 25,000 characters for Naches. Each change
+# below states once what every row shares, falls back to the row-by-row
+# layout when the fact is not shared, and drops no word of a field note.
+
+def _cautions_by_group(md):
+    """{group: [(fields, words)]} from each group's "Cautions:" list."""
+    out = {}
+    for part in md.split("## 4. Fields")[1].split("\n## ")[0].split("\n### ")[1:]:
+        g = part.splitlines()[0].strip()
+        if "Cautions:" in part:
+            for line in part.split("Cautions:")[1].strip().splitlines():
+                names, _, words = line[2:].partition(": ")
+                out.setdefault(g, []).append((names.split(", "), words))
+    return out
+
+
+def test_a_caution_several_fields_share_is_said_once_and_none_is_lost(fake):
+    cat, md = fake["cat"], fake["md"]
+    got = _cautions_by_group(md)
+    # word for word, naming every field it belongs to, once
+    assert (["QDRAI", "QH2OSFC", "QOVER"], "not routed, like QRUNOFF: the water leaving each "
+            "cell's land, not a river's flow") in got["runoff"]
+    assert (["RAIN", "SNOW"], "the weather input after the model splits its precipitation "
+            "into rain and snow by air temperature") in got["weather in"]
+    # two of PSNSHA's three cautions are PSNSUN's word for word; the third
+    # differs (shaded leaf, sunlit leaf), so each keeps its own
+    carbon = got["carbon in and out"]
+    assert len([w for ns, w in carbon if ns == ["PSNSHA", "PSNSUN"]]) == 2
+    assert [w for ns, w in carbon if ns == ["PSNSUN"]] == [
+        "per square metre of sunlit leaf, not of ground: the canopy's photosynthesis is PSNSUN "
+        "times the sunlit leaf area plus PSNSHA times the shaded leaf area"]
+    # every caution of every row is there, in its group, with its field named,
+    # and no line names a field the caution does not belong to
+    for r in cat["fields"]:
+        for c in C.field_cautions(r):
+            assert any(r["name"] in ns and w == c for ns, w in got[r["group"]]), (r["name"], c)
+    for g, items in got.items():
+        rows = {r["name"]: r for r in cat["fields"] if r["group"] == g}
+        for ns, w in items:
+            assert all(w in C.field_cautions(rows[n]) for n in ns), (ns, w)
+            assert len(set(ns)) == len(ns)
+        assert len({w for _, w in items}) == len(items)              # each once
+
+
+def test_a_type_said_in_front_of_its_reason_only_when_the_reason_does_not_begin_with_it():
+    row = {"name": "X", "type": "state", "cautions": [], "how_why": None}
+    assert C.field_cautions(dict(row, type_why="a state, not a store: leaves fall")) == [
+        "a state, not a store: leaves fall"]
+    assert C.field_cautions(dict(row, type_why="leaves fall each year")) == [
+        "a state: leaves fall each year"]
+    assert C.field_cautions(dict(row, type_why="a statement of fact")) == [
+        "a state: a statement of fact"]
+    assert "a state: a state" not in C.render(C.build(_run_for_render()))
+
+
+def _run_for_render():
+    import tempfile
+    return _run(Path(tempfile.mkdtemp()))
+
+
+def test_products_said_once_per_stream_only_when_every_field_in_it_shares_them():
+    full = ["maps_year", "series_day", "series_year"]
+    rows = [{"cadence": "daily", "products": list(full)},
+            {"cadence": "monthly", "products": ["maps_year", "series_year"]},
+            {"cadence": "daily", "products": list(full)}]
+    assert C.products_by_stream(rows, full) == {"daily": "all", "monthly": "all but series_day"}
+    rows[2]["products"] = "left out of the suite: layered"
+    assert C.products_by_stream(rows, full) == {}
+    assert C.products_by_stream([], full) == {}
+
+
+def test_a_suite_whose_products_follow_the_streams_says_them_once(fake, tmp_path):
+    import domain_suite as S
+    full = list(S.PRODUCTS)
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / C.SUITE_FILE).write_text(json.dumps({
+        "SUITE_VERSION": 1,
+        "fields": {n: {"products": full if n in DAILY else
+                       [p for p in full if p != "series_day"]} for n in ROWS},
+        "periods": {"year": ["2015", "2016"]}}))
+    cat = C.build(fake["control"], study_dir=fake["study"], suite_dir=suite)
+    md = C.render(cat)
+    fields = md.split("## 4. Fields")[1].split("\n## ")[0]
+    assert ("they follow the stream a field is saved in: daily fields have all; monthly "
+            "fields have all but series_day.") in " ".join(fields.split())
+    assert "| products |" not in fields and "| all |" not in fields
+    head = "| field | meaning | how | type | scale | percent | units | saved |"
+    assert fields.count(head) == len({r["group"] for r in cat["fields"]})
+    for r in cat["fields"]:                       # a row's cells end with its stream
+        line = next(x for x in fields.splitlines() if x.startswith(f"| {r['name']} |"))
+        assert line.endswith(f"| {r['cadence']} |") and line.count("|") == 9, line
+
+
+def test_a_region_within_a_band_names_its_parts_only_when_its_rule_is_theirs():
+    regs = [{"name": "burned, vegetated", "rule": "fire > 0 (any), vegetated"},
+            {"name": "below 1000 m", "rule": "vegetated, TOPO below 1000 m"},
+            {"name": "burned, vegetated, below 1000 m",
+             "rule": "fire > 0 (any), vegetated, TOPO below 1000 m"},
+            {"name": "burned, vegetated, 1000-1500 m",
+             "rule": "fire > 0 (any), vegetated, TOPO 1000-1500 m"},
+            {"name": "burned, vegetated, below 1000 m, north",
+             "rule": "fire > 0 (any), vegetated, TOPO below 1000 m, north"}]
+    assert C.region_parts(regs[2], regs) == ("burned, vegetated", "below 1000 m")
+    assert C.region_parts(regs[3], regs) is None                    # no 1000-1500 m row
+    assert C.region_parts(regs[4], regs) is None                    # a clause of its own
+    assert C.region_parts(regs[0], regs) is None
+    wrong = dict(regs[2], rule="fire > 0 (any), TOPO below 1000 m")  # a clause missing
+    assert C.region_parts(wrong, regs[:2] + [wrong]) is None
+
+
+def test_a_region_within_a_band_is_rendered_by_its_parts(fake, tmp_path):
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / C.SUITE_FILE).write_text(json.dumps({
+        "SUITE_VERSION": 1, "fields": {}, "periods": {"year": ["2015"]},
+        "regions": [
+            {"name": "vegetated cells", "cells": 7, "area_km2": 4.5, "rule": "PCT_NATVEG >= 100"},
+            {"name": "box, vegetated", "cells": 3, "area_km2": 1.5,
+             "rule": "cell centre inside the polygon, vegetated"},
+            {"name": "below 1000 m", "cells": 4, "area_km2": 2.0,
+             "rule": "vegetated, TOPO below 1000 m"},
+            {"name": "box, vegetated, below 1000 m", "cells": 2, "area_km2": 1.0,
+             "rule": "cell centre inside the polygon, vegetated, TOPO below 1000 m"}]}))
+    md = C.render(C.build(fake["control"], study_dir=fake["study"], suite_dir=suite))
+    regions = md.split("## 2. Regions")[1].split("\n## ")[0]
+    assert f"| box, vegetated, below 1000 m | 2 | 1.0 | {C.TWO_PARTS_RULE} |" in regions
+    assert "| below 1000 m | 4 | 2.0 | vegetated, TOPO below 1000 m |" in regions
+    assert "| box, vegetated | 3 | 1.5 | cell centre inside the polygon, vegetated; " in regions
+
+
+def test_methods_whose_statuses_differ_bring_back_every_status_on_every_row(fake):
+    import copy
+    ms = fake["cat"]["methods"]["methods"]
+    assert C.statuses_shared(ms)
+    for change in ({"tested": None}, {"available_to_analyzer": False},
+                   {"review": dict(ms[2]["status"]["review"], state=C.PROVISIONAL_STATE)},
+                   {"review": dict(ms[2]["status"]["review"], behaviour_version=1)},
+                   {"implemented": {"behaviour_version": 1}}):
+        cat = copy.deepcopy(fake["cat"])
+        cat["methods"]["methods"][2]["status"].update(change)
+        assert not C.statuses_shared(cat["methods"]["methods"]), change
+        body = C.render(cat).split("## 5. Methods")[1].split("\n## ")[0]
+        assert "every method's review is" not in body
+        assert "| method | version | review | implemented | tested | available to the " \
+               "Analyzer |" in body
+        for m in cat["methods"]["methods"]:
+            assert body.count(f"| {m['id']} | {m['version']} | ") == 1, m["id"]
+    assert not C.statuses_shared([])
+
+
+def test_the_suite_periods_are_one_line(fake, tmp_path):
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / C.SUITE_FILE).write_text(json.dumps({
+        "SUITE_VERSION": 1, "fields": {},
+        "periods": {"year": ["2015", "2016"], "month": ["2015-01", "2016-12"],
+                    "season": ["2015-MAM", "2016-SON"]}}))
+    md = C.render(C.build(fake["control"], study_dir=fake["study"], suite_dir=suite))
+    assert ("- Suite periods: month 2 (2015-01 to 2016-12); season 2 (2015-MAM to 2016-SON); "
+            "year 2 (2015 to 2016).") in md
+    assert "Suite periods, " not in md

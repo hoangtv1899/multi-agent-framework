@@ -331,10 +331,49 @@ def _short(o: Dict[str, Any]) -> str:
     return " ".join(bits)
 
 
+MONTH_TICKS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+               "Dec")
+PERIOD_RUN = 3                        # from this many outputs, a run of periods is one
+
+
+def period_run(os_: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """A panel of one field's anomalies (or differences) at different
+    periods, one region and run, as the months of a year are: {"ticks" (each
+    period's own part: "Jan", "JJA", "2016"), "what" (the periods in words)};
+    None for any other panel, which names each output."""
+    if len(os_) < PERIOD_RUN or any(o.get("kind") not in PC.NULL_REGION for o in os_):
+        return None
+    same = {(o.get("kind"), o.get("field"), o.get("region"), o.get("run")) for o in os_}
+    periods = [str(o.get("period")) for o in os_]
+    if len(same) != 1 or len(set(periods)) != len(periods):
+        return None
+    months = [re.fullmatch(r"(\d{4})-(\d{2})", x) for x in periods]
+    if all(months):
+        years = sorted({m.group(1) for m in months})
+        ticks = [MONTH_TICKS[int(m.group(2)) - 1] + ("" if len(years) == 1 else
+                                                    f" {m.group(1)}") for m in months]
+        return {"ticks": ticks, "what": ("each month of " + years[0]) if len(years) == 1
+                else "by month"}
+    seasons = [re.fullmatch(r"(\d{4})-([A-Z]{3})", x) for x in periods]
+    if all(seasons) and len({m.group(1) for m in seasons}) == 1:
+        return {"ticks": [m.group(2) for m in seasons],
+                "what": "each season of " + seasons[0].group(1)}
+    return {"ticks": periods, "what": "by period"}
+
+
 def _title(ax, refs: Sequence[str], outs: Dict[str, Dict[str, Any]]):
     """The panel's title from its outputs' own keys: each label and what it
-    is; a region every output shares is said once, at the end."""
+    is; a region every output shares is said once, at the end. A run of one
+    field's periods (period_run) is titled once, its first and last label
+    named, and its ticks name the periods."""
     os_ = [outs.get(r) or {"kind": r} for r in refs]
+    run = period_run(os_) if SCREEN not in refs else None
+    if run:
+        o = os_[0]
+        t = (f"{refs[0]} to {refs[-1]}: {o.get('field')} {str(o.get('kind')).replace('_', ' ')}, "
+             f"{run['what']}" + (f"; {o['region']}" if o.get("region") else ""))
+        ax.set_title("\n".join(textwrap.wrap(t, 46)), loc="left")
+        return
     regions = {o.get("region") for o in os_}
     shared = next(iter(regions)) if len(refs) > 1 and len(regions) == 1 else None
     t = "; ".join(("the plan's screen, " + " ".join(str(o[k]) for k in ("period", "region")
@@ -491,7 +530,114 @@ def _bar_value(r, opts) -> Tuple[Optional[float], Optional[Tuple[float, float]],
     return sh, ((lo, hi) if lo is not None and hi is not None else None), unit
 
 
-def _draw_bars(ax, rs, opts, where):
+# BARS A READER CAN READ (the user's decision of 2026-11-09, after the
+# accepted fourth batch): a panel of one anomaly drew one bar that filled the
+# panel, since the axes fit themselves to it, so every lone bar looked alike
+# whatever its size, and its value could be read only off the ticks. A bar is
+# now narrow and carries its value, and an anomaly's bar stands on its normal
+# years' range, read from its own record, on the scale the bar is drawn on;
+# the figure's legend says what each range is. Plotting only: no value, unit,
+# record or caveat changes.
+BAR_WIDTH = 0.5
+MANY_BARS = 6                         # beyond this, value labels are set small and upright
+RANGE_WIDTH = 0.8                     # a normal years' range, wider than its bar
+RANGE_FACE, RANGE_EDGE = "0.86", "0.45"
+SETTINGS_RANGE = "black whisker: the range across the method's settings"
+BAR_LABEL_H, BAR_LABEL_V = "bar-value-h", "bar-value-v"
+
+
+def value_text(x: float, decimals: Optional[int] = None) -> str:
+    """A bar's value as its label shows it: whole from 100 up, else three
+    significant figures, with a true minus sign, as the axis ticks show it.
+    `decimals`: that many decimals instead (a panel of many bars, all at the
+    precision of its largest), a value that rounds to nothing shown as 0."""
+    if x is None or not np.isfinite(x):
+        return "no value"
+    if decimals is not None:
+        t = f"{x:,.{decimals}f}"
+        t = t.lstrip("-") if float(t.replace(",", "")) == 0 else t
+        return t.replace("-", "−")
+    return (f"{x:,.0f}" if abs(x) >= 100 else f"{x:.3g}").replace("-", "−")
+
+
+def panel_decimals(values: Sequence[float]) -> int:
+    """The decimals that give a panel's largest value three significant
+    figures (none from 100 up): the one precision of a panel of many bars."""
+    top = max((abs(v) for v in values if v is not None and np.isfinite(v)), default=0.0)
+    return 0 if top >= 100 or top == 0 else max(0, 2 - int(np.floor(np.log10(top))))
+
+
+def _years_text(years: Sequence[int]) -> str:
+    ys = sorted(int(y) for y in years)
+    if ys and ys == list(range(ys[0], ys[-1] + 1)) and len(ys) > 2:
+        return f"{ys[0]} to {ys[-1]}"
+    return ", ".join(str(y) for y in ys[:-1]) + (" and " if len(ys) > 1 else "") + \
+        (str(ys[-1]) if ys else "")
+
+
+def normal_range(r: Dict[str, Any], opts: Optional[Dict[str, Any]] = None
+                 ) -> Optional[Dict[str, Any]]:
+    """An anomaly's normal years' range on the scale its bar is drawn on, from
+    its own record ("support": the normal years used and their least and
+    largest value; "normal": their mean): each year's value minus their mean,
+    or, for a percent bar, that as a percent of their mean. {"low", "high",
+    "label"}; None when the record holds no such range (not a region's
+    anomaly, fewer than two normal years, no percent for a percent bar)."""
+    v = r.get("value") if isinstance(r.get("value"), dict) else {}
+    sup = v.get("support")
+    if str(r.get("kind")) != "anomaly" or not isinstance(sup, dict):
+        return None
+    try:
+        lo, hi, nm = float(sup.get("min")), float(sup.get("max")), float(v.get("normal"))
+    except (TypeError, ValueError):
+        return None
+    if int(sup.get("n") or 0) < 2 or not np.all(np.isfinite([lo, hi, nm])):
+        return None
+    years = _years_text(sup.get("years") or [])
+    if (opts or {}).get("value") == "percent":
+        if v.get("percent") is None or nm == 0:
+            return None
+        ends = sorted((100.0 * (lo - nm) / nm, 100.0 * (hi - nm) / nm))
+        label = (f"grey band: the range of the normal years {years}, each as a percent "
+                 f"change from their mean")
+    else:
+        ends = [lo - nm, hi - nm]
+        label = f"grey band: the range of the normal years {years}, each minus their mean"
+    return {"low": ends[0], "high": ends[1], "label": label}
+
+
+def _label_bar(ax, x: float, h: float, horizontal: bool = False, small: bool = False,
+               decimals: Optional[int] = None):
+    """The bar's value just beyond its end, outside the bar; `small`: set
+    smaller and upright along the bar, for a panel of many bars, at the
+    panel's one precision (`decimals`)."""
+    out = 1 if h >= 0 else -1
+    text = value_text(h, decimals)
+    kw = dict(textcoords="offset points", fontsize=10 if small else 13, zorder=5,
+              annotation_clip=False, rotation=90 if small and not horizontal else 0,
+              bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.85))
+    if horizontal:
+        t = ax.annotate(text, (h, x), xytext=(5 * out, 0), va="center",
+                        ha="left" if out > 0 else "right", **kw)
+    else:
+        t = ax.annotate(text, (x, h), xytext=(0, 5 * out), ha="center",
+                        va="bottom" if out > 0 else "top", **kw)
+    t.set_gid(BAR_LABEL_H if horizontal else BAR_LABEL_V)
+
+
+def _room(lo: float, hi: float, share: float = 0.2) -> Tuple[float, float]:
+    """Axis limits from lo to hi, zero among them, with room beyond the ends
+    for the values' labels."""
+    lo, hi = min(lo, 0.0), max(hi, 0.0)
+    span = (hi - lo) or (abs(hi) or 1.0)
+    return (lo - share * span if lo < 0 else -0.04 * span,
+            hi + share * span if hi > 0 else 0.04 * span)
+
+
+def _draw_bars(ax, rs, opts, where, legend: Optional[Dict[str, str]] = None):
+    """`legend`: the figure's legend entries, {label: "range" | "settings"},
+    which this panel adds to."""
+    legend = {} if legend is None else legend
     if len(rs) == 1 and rs[0]["kind"] == "elevation_split":
         parts = (rs[0]["value"] or {}).get("parts") or {}
         names = [b for b, x in parts.items() if isinstance(x, dict)]
@@ -499,15 +645,19 @@ def _draw_bars(ax, rs, opts, where):
         if not any(h is not None and np.isfinite(h) for h in hs):
             _blank(where, f"{rs[0]['ref']} holds no band with a value")
         ax.barh(range(len(names)), [h if h is not None else 0.0 for h in hs], color="0.45")
+        good = [h for h in hs if h is not None and np.isfinite(h)]
         for i, h in enumerate(hs):
             if h is None or not np.isfinite(h):
                 ax.text(0, i, "no value", va="center")
+            else:
+                _label_bar(ax, i, h, horizontal=True)
+        ax.set_xlim(*_room(min(good), max(good), 0.3))
         ax.set_yticks(range(len(names)))
         ax.set_yticklabels([str(b) for b in names])
         ax.invert_yaxis()
         ax.axvline(0, color="k", lw=0.8)
         ax.set_xlabel(_of(rs[0], 0, "band mean"))
-        return sum(1 for h in hs if h is not None and np.isfinite(h))
+        return len(good)
     vals, units = [], set()
     for r in rs:
         h, rng, u = _bar_value(r, opts)
@@ -520,20 +670,98 @@ def _draw_bars(ax, rs, opts, where):
         _blank(where, f"its bars are in different units ({', '.join(sorted(units))})")
     if not any(h is not None for _, h, _ in vals):
         return None
+    ends: List[float] = []
+    many = len(vals) > MANY_BARS
+    decimals = panel_decimals([h for _, h, _ in vals]) if many else None
     for i, (r, h, rng) in enumerate(vals):
         if h is None:
             ax.text(i, 0, "not estimable" if r["outcome"] == PC.NOT_ESTIMABLE else "no value",
                     ha="center", va="bottom", rotation=90)
             continue
-        ax.bar(i, h, color="0.45")
+        band = normal_range(r, opts)
+        if band:
+            from matplotlib.patches import Rectangle
+            ax.add_patch(Rectangle((i - RANGE_WIDTH / 2, band["low"]), RANGE_WIDTH,
+                                   band["high"] - band["low"], facecolor=RANGE_FACE,
+                                   edgecolor=RANGE_EDGE, linewidth=0.8, zorder=1))
+            legend.setdefault(band["label"], "range")
+            ends += [band["low"], band["high"]]
+        ax.bar(i, h, width=BAR_WIDTH, color="0.45", zorder=2)
+        ends.append(h)
         if rng:
-            ax.errorbar(i, h, yerr=[[h - min(rng)], [max(rng) - h]], color="k", capsize=6)
+            ax.errorbar(i, h, yerr=[[h - min(rng)], [max(rng) - h]], color="k", capsize=6,
+                        zorder=3)
+            legend.setdefault(SETTINGS_RANGE, "settings")
+            ends += [min(rng), max(rng)]
+        _label_bar(ax, i, h, small=many, decimals=decimals)
+    margin = 1.0 if len(vals) == 1 else 0.75       # a lone bar never fills its panel
+    ax.set_xlim(-margin, len(vals) - 1 + margin)
+    ax.set_ylim(*_room(min(ends), max(ends), 0.3 if len(vals) > MANY_BARS else 0.2))
     ax.set_xticks(range(len(vals)))
-    ax.set_xticklabels([r["ref"] for r, _, _ in vals])
-    ax.axhline(0, color="k", lw=0.8)
+    # a run of one field's periods names the periods; any other panel its outputs
+    run = period_run([r["out"] for r, _, _ in vals])
+    ticks = run["ticks"] if run else [r["ref"] for r, _, _ in vals]
+    if many and all(t in MONTH_TICKS for t in ticks):
+        ticks = [t[0] for t in ticks]            # J F M ...: a year's months, in order
+    ax.set_xticklabels(ticks)
+    ax.axhline(0, color="k", lw=0.8, zorder=2.5)
     u = next(iter(units))
     ax.set_ylabel(u if u != NO_UNIT else "value")
     return sum(1 for _, h, _ in vals if h is not None)
+
+
+def _label_extent(t, rnd):
+    """A value label's extent on the page, its white box included."""
+    from matplotlib.transforms import Bbox
+    e, box = t.get_window_extent(rnd), t.get_bbox_patch()
+    return Bbox.union([e, box.get_window_extent(rnd)]) if box is not None else e
+
+
+def _fit_labels(fig, tries: int = 6):
+    """Widen a panel's value axis until every bar's value label lies inside
+    the panel, measured once the figure is laid out (a fixed margin fits
+    short labels only: "-57.8" beside a long negative band bar ran into the
+    band names)."""
+    for _ in range(tries):
+        fig.canvas.draw()
+        rnd = fig.canvas.get_renderer()
+        moved = False
+        for ax in fig.axes:
+            labs = [t for t in ax.texts if t.get_gid() in (BAR_LABEL_H, BAR_LABEL_V)]
+            if not labs:
+                continue
+            box = ax.get_window_extent(rnd)
+            for t in labs:
+                e = _label_extent(t, rnd)
+                if t.get_gid() == BAR_LABEL_H:
+                    lo, hi = ax.get_xlim()
+                    per = box.width / (hi - lo)
+                    need_lo, need_hi = box.x0 - e.x0, e.x1 - box.x1
+                    get, put = ax.get_xlim, ax.set_xlim
+                else:
+                    lo, hi = ax.get_ylim()
+                    per = box.height / (hi - lo)
+                    need_lo, need_hi = box.y0 - e.y0, e.y1 - box.y1
+                    get, put = ax.get_ylim, ax.set_ylim
+                if need_lo > -4 or need_hi > -4:            # 4 px inside, at least
+                    lo, hi = get()
+                    put(lo - max(need_lo + 8, 0) / per, hi + max(need_hi + 8, 0) / per)
+                    moved = True
+        if not moved:
+            return
+
+
+def _figure_legend(fig, legend: Dict[str, str]):
+    """Under the panels, what each range drawn in them is."""
+    if not legend:
+        return
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    handles = [Patch(facecolor=RANGE_FACE, edgecolor=RANGE_EDGE) if kind == "range" else
+               Line2D([0], [0], color="k", marker="_", markersize=12, lw=1.5)
+               for kind in legend.values()]
+    fig.legend(handles, list(legend), loc="upper center", bbox_to_anchor=(0.5, 0.0),
+               ncol=1, fontsize=13, frameon=False)
 
 
 def _draw_overlap(ax, r, opts, where):
@@ -630,6 +858,7 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
                                                   height * rows), squeeze=False)
     axes = [a for row in axes for a in row]
     record, total = [], 0
+    legend: Dict[str, str] = {}                  # what each range drawn is, said once
     try:
         for i, (p, ax) in enumerate(zip(panels, axes), 1):
             # the panel as the figure asked for it, after a split by unit
@@ -662,7 +891,7 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
             elif k == "series":
                 got = _draw_series(ax, rs, p, normal_years, where)
             elif k == "bars":
-                got = _draw_bars(ax, rs, p, where)
+                got = _draw_bars(ax, rs, p, where, legend)
             elif k == "overlap":
                 got = _draw_overlap(ax, rs[0], p, where)
             elif k == "timing":
@@ -686,6 +915,11 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
         for ax in axes[len(panels):]:
             ax.axis("off")
         fig.tight_layout()
+        if any(t.get_gid() in (BAR_LABEL_H, BAR_LABEL_V) for a in axes for t in a.texts):
+            _fit_labels(fig)                     # a figure without bars is laid out as before
+            fig.tight_layout()
+            _fit_labels(fig)
+        _figure_legend(fig, legend)
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
     except FigureFailed as e:
         plt.close(fig)

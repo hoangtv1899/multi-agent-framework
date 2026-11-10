@@ -271,6 +271,53 @@ def named_periods(text: str) -> set:
     return out
 
 
+# A RUN OF MONTHS IS NOT A SEASON'S VALUE (the user's decision of 2026-11-09).
+# named_periods reads "June to August" as the season JJA, so a claim that
+# went through the year month by month, on a record for every month ("below
+# normal from June to August, largest in July"), failed for naming a season
+# none of its records names, and its whole report was withheld. In the
+# evidence trace such a range is now read as a run of months when no record
+# of the claim is of the season: every month of the run must then be named by
+# one of its records. The season's own evidence is still required whenever
+# the claim names the season outright (its word or its code) or gives the
+# range as one quantity (an aggregate word in the range's clause: "the June to
+# August total"). The numbers rule is unchanged, so a season's value is never
+# a value of monthly records.
+AGGREGATE_WORDS = ("total", "totals", "totalled", "totaled", "sum", "summed", "mean",
+                   "means", "average", "averaged", "averages", "cumulative", "combined",
+                   "overall", "season", "seasonal", "altogether")
+_CLAUSE_SPLIT = re.compile(r"[,;:.()]")
+
+
+def month_runs(text: str) -> Dict[str, Dict[str, Any]]:
+    """{season: {"words", "months", "aggregate"}} for each range of months in
+    the text that spells a season ("June to August"): its words, its months
+    ("06", "07", "08") and whether its clause gives it as one quantity
+    (AGGREGATE_WORDS). A season spelled twice is an aggregate if either is."""
+    t = str(text or "")
+    out: Dict[str, Dict[str, Any]] = {}
+    for m in _RANGE_RX.finditer(t):
+        ab = (_month_number(m.group("a")), _month_number(m.group("b")))
+        name = next((n for n, ends in SEASON_MONTHS.items() if ab == ends), None)
+        if name is None:
+            continue
+        a = max((x.end() for x in _CLAUSE_SPLIT.finditer(t, 0, m.start())), default=0)
+        b = next((x.start() for x in _CLAUSE_SPLIT.finditer(t, m.end())), len(t))
+        words = set(re.findall(r"[a-z]+", t[a:b].lower()))
+        months = [f"{(ab[0] - 1 + k) % 12 + 1:02d}" for k in range(3)]
+        prev = out.get(name) or {}
+        out[name] = {"words": m.group(0), "months": months,
+                     "aggregate": bool(words & set(AGGREGATE_WORDS)) or bool(prev.get("aggregate"))}
+    return out
+
+
+def seasons_named_outright(text: str) -> set:
+    """The seasons a text names by word or code ("summer", "JJA"), apart from
+    any range of months that spells one."""
+    t = _RANGE_RX.sub(" ", str(text or ""))
+    return {lab for kind, lab in named_periods(t) if kind == "season"}
+
+
 # 'FALL' IS A DECREASE MORE OFTEN THAN A SEASON (2026-11-03). "The fall in GPP"
 # and "the rate of fall" named autumn, so a claim about a decrease traced to an
 # SON number. 'fall' names the season only next to a year ('fall 2016', 'fall
@@ -1079,7 +1126,10 @@ def record_warnings(rec: Dict[str, Any], res: Dict[str, Any], notes=None) -> Lis
             or p == "comparability"}
     # 2. the change of eligibility beside a shift
     el = {p[len(pref):]: v for p, v in mine.items() if ".shift.eligible." in "." + p[len(pref):]}
-    parts = sorted({p.split("eligible.", 1)[1].split(".")[0] for p in el})
+    # the groups of cells only: "region_area_km2" beside them is no group
+    # (it was worded "region area km2 None cells"; 2026-11-09)
+    parts = sorted({p.split("eligible.", 1)[1].split(".")[0] for p in el
+                    if p.endswith(".cells")})
     if any(q != "both" and _fin(el.get(f"shift.eligible.{q}.cells")) and
            el[f"shift.eligible.{q}.cells"] > 0 for q in parts):
         W.append(_warn(rec, "eligibility", "the shift is on the cells eligible in "
@@ -1449,8 +1499,8 @@ def _sensitivity_rows(rec: Dict[str, Any], res: Dict[str, Any]) -> Dict[str, Lis
     for p, v in res.items():
         m = re.match(r"^(sensitivity\.\d+)\.eligible\.(\w+)\.cells$", p)
         if m and m.group(2) != "both" and _fin(v) and v > 0:
-            parts = sorted({q.split(".")[3] for q in res if q.startswith(m.group(1)
-                                                                          + ".eligible.")})
+            parts = sorted({q.split(".")[3] for q in res
+                            if q.startswith(m.group(1) + ".eligible.") and q.endswith(".cells")})
             out[m.group(1)] = [_warn(rec, "eligibility", "the change of date between "
                                      "settings is on the cells dated under both; " + "; ".join(
                                          f"{q.replace('_', ' ')} "
@@ -1858,8 +1908,101 @@ def percent_problems(text: str, records) -> List[str]:
             pick = max(named, key=lambda r: max(seen[r["field"]]))
     except Exception:                                               # noqa: BLE001
         pass
+    # WHOSE PERCENT IT IS (2026-11-09): question 1's withheld claim gave
+    # "summer leaf area was 0.0061 lower, a change of 0.52 percent" beside
+    # "summer air was 1.73 K warmer", and its reason read "a percent of TSA",
+    # though the percent was leaf area's. The rule still judges the claim
+    # whole; the reason now names the field whose value the percent is, when
+    # one of the claim's records holds it and that field allows one.
+    of = percent_attribution(text, records)
+    mine = [f for f in of.get(own[0].group(0), []) if f not in {r.get("field") for r in bad}]
+    if mine:
+        return [f"a percent in a claim that also gives {pick['field']}, whose notes give none "
+                f"({pick.get('percent_why_not')}): its percent is of {', '.join(mine)}, "
+                f"whose notes allow one; a claim naming {pick['field']} prints no percent, "
+                f"so give each quantity a claim of its own"]
     return [f"a percent of {pick['field']}, whose notes give none: "
             f"{pick.get('percent_why_not')}"]
+
+
+def percent_attribution(text: str, records) -> Dict[str, List[str]]:
+    """{each percent as printed: the fields of the claim's records whose
+    percent value it is (to the precision printed)}: whose quantity a
+    percent is, read from the records themselves, not from the words."""
+    out: Dict[str, List[str]] = {}
+    for m in _PERCENT.finditer(str(text or "")):
+        w = re.match(r"-?\d+(?:\.\d+)?", m.group(0)).group(0)
+        x, tol = float(w), _half_unit(w)
+        out[m.group(0)] = sorted({
+            str(r.get("field")) for r in records or [] for p, v in (r.get("values") or {}).items()
+            if p.rsplit(".", 1)[-1] == "percent" and _fin(v)
+            and abs(abs(v) - abs(x)) <= tol + 1e-9 * max(1.0, abs(v)) and r.get("field")})
+    return out
+
+
+# THE SUMMARY HOLDS TO THE KEPT CLAIMS (the user's decision of 2026-11-09):
+# question 1's summary ended "Warmer summer air, 1.73 K, was also present",
+# a number only the claim the audit withheld gave. Each sentence of a summary
+# is read as a claim is read (its numbers to the precision printed, years
+# and labels aside) against the records of the claims the audit kept: a
+# sentence with a number none of them gives is left out of the report's
+# narrative, and the audit appendix says which and why.
+_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+
+
+def sentences(text: str) -> List[str]:
+    """A summary's sentences (a decimal point is no sentence end)."""
+    return [s.strip() for s in _SENTENCE.split(str(text or "").strip()) if s.strip()]
+
+
+def summary_support(text: str, claims: List[Dict[str, Any]],
+                    records: Dict[str, Dict[str, Any]], runs: Dict[str, Dict[str, Any]],
+                    plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Each sentence of a summary: {"sentence", "claims" (the kept claims, by
+    number from 1, whose records give its numbers), "unsupported" (the
+    numbers as printed that no kept claim's record gives)}. `claims`: the
+    kept claims, in the report's order."""
+    recs_of = [[records[i] for i in (c.get("evidence") or []) if i in records] for c in claims]
+    every = [r for rs in recs_of for r in rs]
+    labels = _label_numbers(every, runs or {}, plan or {}) if every else set()
+    out = []
+    for s in sentences(text):
+        years = {int(y) for r in every for y in (r.get("names") or {}).get("years") or []} | \
+            {int(y) for y in years_named(s)}
+        by, bad = set(), []
+        for w, unit, end in _number_words(s):
+            x = float(w)
+            if _is_year(w.lstrip("-"), unit, years):
+                continue
+            tol = _half_unit(w) + 1e-9 * max(1.0, abs(x))
+            # THE CLAIMS A NUMBER TIES ITS SENTENCE TO: those whose records give
+            # it as the kind it is printed as (a percent at a percent's path,
+            # or a share; any other number at any other path: "3.3 percent" is
+            # not the 3.27 mm of another claim), else at any path; and among
+            # them those that state it in their own values, when any does
+
+            def pct(path):
+                return path.rsplit(".", 1)[-1] == "percent"
+
+            def claims_with(ok):
+                return [i for i, rs in enumerate(recs_of, 1)
+                        if any(ok(q) for _, q in _matches(x, w, rs))]
+            if unit == "percent":
+                tied = claims_with(pct) or [i for i, rs in enumerate(recs_of, 1)
+                                            if share_matches(x, w, rs)] or claims_with(lambda q: True)
+            else:
+                tied = claims_with(lambda q: not pct(q)) or claims_with(lambda q: True)
+            hit = [i for i in tied if any(_fin(v) and abs(abs(float(v)) - abs(x)) <= tol
+                                          for v in claims[i - 1].get("values") or [])] or tied
+            if hit:
+                by.update(hit)
+            elif not (abs(x) in labels or x in labels or any(
+                    written_as_label(s, end, x, lab) for r in every
+                    for lab in r.get("field_labels") or [])):
+                raw = re.match(r"\s*([A-Za-z%][A-Za-z0-9%/^]*)", s[end:])
+                bad.append(w + (f" {raw.group(1)}" if raw and unit else ""))
+        out.append({"sentence": s, "claims": sorted(by), "unsupported": bad})
+    return out
 
 
 def check_claim(c: Dict[str, Any], records: Dict[str, Dict[str, Any]], plan: Dict[str, Any],
@@ -1923,7 +2066,16 @@ def check_claim(c: Dict[str, Any], records: Dict[str, Dict[str, Any]], plan: Dic
     npd = set().union(*({tuple(p) for p in r["names"]["periods"]} for r in recs))
     for y in sorted(years_named(text) - ny):
         probs.append(f"it names {y}, which none of its records names")
+    spans, outright = month_runs(text), seasons_named_outright(text)
     for kind, lab in sorted(named_periods(text) - npd):
+        run = spans.get(lab) if kind == "season" else None
+        if run and lab not in outright and not run["aggregate"]:
+            # a run of months, each on a record of its own (see month_runs)
+            lack = [MONTHS[int(m) - 1] for m in run["months"] if ("month", m) not in npd]
+            if lack:
+                probs.append(f"it names {run['words']}: none of its records names the season "
+                             f"{lab}, and as a run of months none names {', '.join(lack)}")
+            continue
         word = MONTHS[int(lab) - 1] if kind == "month" else lab
         probs.append(f"it names {word}, which none of its records names")
     heads, bands = _region_heads(text, regions)

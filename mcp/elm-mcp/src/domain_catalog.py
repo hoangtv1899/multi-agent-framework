@@ -808,6 +808,63 @@ def _products_text(p: Any, full: Sequence[str] = ()) -> str:
     return ", ".join(p)
 
 
+# SAID ONCE, NOT ON EVERY ROW (2026-11-09, the next phase's catalog-room task:
+# the fixed part was 24,965 of its 25,000 characters for Naches). Each helper
+# states a fact every row shares once, and gives way to the row-by-row layout
+# when the fact is not shared, so nothing is dropped and no reviewed word is
+# changed.
+def products_by_stream(rows: Sequence[Dict[str, Any]], full: Sequence[str] = ()
+                       ) -> Dict[str, str]:
+    """{stream cadence: products text}, in cadence order, when every field
+    saved in a stream has the same products; {} when the fields of any one
+    stream differ, so that each row says its own."""
+    out: Dict[str, str] = {}
+    for r in rows:
+        t = _products_text(r["products"], full)
+        if out.setdefault(str(r.get("cadence")), t) != t:
+            return {}
+    return dict(sorted(out.items()))
+
+
+def field_cautions(r: Dict[str, Any]) -> List[str]:
+    """A field row's cautions, each as its words: why it has its type (with
+    the type in front, unless the words already begin with it), its notes'
+    cautions, and why it is made by its how and not its units' rule."""
+    out: List[str] = []
+    if r.get("type_why"):
+        tw, lead = _cell(r["type_why"]), f"a {r['type']}"
+        begins = tw.lower().startswith(lead.lower()) and not tw[len(lead):len(lead) + 1].isalnum()
+        out.append(tw if begins else f"{lead}: {tw}")
+    out += [_cell(c) for c in r.get("cautions") or []]
+    if r.get("how_why"):
+        out.append(f"{r['how']}, not its units' {r['unit_rule']}: {_cell(r['how_why'])}")
+    return out
+
+
+TWO_PARTS_RULE = "its two parts' rules"
+
+
+def _clauses(rule: Any) -> set:
+    return {c.strip() for c in str(rule or "").split(",") if c.strip()}
+
+
+def region_parts(r: Dict[str, Any], regions: Sequence[Dict[str, Any]]
+                 ) -> Optional[Tuple[str, str]]:
+    """The two listed regions a region is made of, when its name is "<a>, <b>"
+    and its rule is exactly a's and b's rules together, clause for clause;
+    else None, and its own rule is shown."""
+    name = str(r.get("name"))
+    for a in regions:
+        if a is r or not name.startswith(str(a.get("name")) + ", "):
+            continue
+        rest = name[len(str(a["name"])) + 2:]
+        b = next((x for x in regions if x is not r and str(x.get("name")) == rest), None)
+        if b is not None and _clauses(r.get("rule")) == (_clauses(a.get("rule"))
+                                                         | _clauses(b.get("rule"))):
+            return str(a["name"]), str(b["name"])
+    return None
+
+
 def _stream_line(f: Dict[str, Any], role: str) -> str:
     s = (f"- {role} stream {f['name']}: {f['first_label']} to {f['last_label']}, "
          f"{_int(f['records'])} records in {_int(f['files'])} files, {f['calendar']} "
@@ -859,7 +916,10 @@ def render_parts(cat: Dict[str, Any]) -> Dict[str, Any]:
           "each cell's area times its land fraction, summed.", "", "| region | cells | area (km2) | rule |",
           "|---|---|---|---|"]
     for r in reg["regions"]:
-        rule = r["rule"] + (f"; {r['what']}" if r.get("what") else "")
+        # A REGION WITHIN A BAND (2026-11-09, catalog room): when its rule is
+        # exactly its two parts' rules together, it says so, not both again
+        rule = (TWO_PARTS_RULE if region_parts(r, reg["regions"]) else r["rule"]) \
+            + (f"; {r['what']}" if r.get("what") else "")
         L.append(f"| {_cell(r['name'])} | {_int(r['cells'])} | {r['area_km2']:,.1f} | "
                  f"{_cell(rule)} |")
     L.append("")
@@ -878,10 +938,11 @@ def render_parts(cat: Dict[str, Any]) -> Dict[str, Any]:
     if per.get("suite") is None:
         L.append(f"- Seasons, water years and the suite's other periods: {SUITE_NOT_BUILT}.")
     else:
-        for kind, labels in sorted(per["suite"].items()):
-            text = (f"{len(labels)} ({labels[0]} to {labels[-1]})"
-                    if isinstance(labels, list) and labels else str(labels))
-            L.append(f"- Suite periods, {kind}: {text}.")
+        # ONE LINE FOR THE SUITE'S PERIODS (2026-11-09, catalog room)
+        L.append("- Suite periods: " + "; ".join(
+            f"{kind} " + (f"{len(labels)} ({labels[0]} to {labels[-1]})"
+                          if isinstance(labels, list) and labels else str(labels))
+            for kind, labels in sorted(per["suite"].items())) + ".")
         for kind, gone in sorted((per.get("suite_absent") or {}).items()):
             for lab, why in sorted((gone or {}).items()):
                 L.append(f"- Suite periods left out, {kind} {lab}: {why}."
@@ -903,8 +964,21 @@ def render_parts(cat: Dict[str, Any]) -> Dict[str, Any]:
           f"scale); a field kept in percent changes in percentage points. units: a total's "
           f"are per period. saved: the stream the field is read from.", ""]
     full = suite_product_names() if any(isinstance(r["products"], list) for r in rows) else []
-    if full:
-        L += [f"products: the suite's products a field has; all means {', '.join(full)}.", ""]
+    # PRODUCTS BY STREAM (2026-11-09, catalog room): when every field saved in
+    # a stream has the same products, they are said once for the stream and
+    # the column goes; otherwise each row says its own
+    by_stream = products_by_stream(rows, full)
+    if full or by_stream:
+        same = set(by_stream.values())
+        if len(same) == 1:
+            by = f"; for every field: {next(iter(same))}"
+        elif by_stream:
+            by = "; they follow the stream a field is saved in: " + "; ".join(
+                f"{c} fields have {t}" for c, t in by_stream.items())
+        else:
+            by = ""
+        L += ["products: the suite's products a field has"
+              + (f"; all means {', '.join(full)}" if full else "") + by + ".", ""]
     nopct: Dict[str, List[str]] = {}
     for r in rows:
         pc = r.get("percent") or {}
@@ -915,24 +989,25 @@ def render_parts(cat: Dict[str, Any]) -> Dict[str, Any]:
             f"{', '.join(sorted(ns))}: {_cell(why)}" for why, ns in nopct.items()) + ".", ""]
     L += _notes_lines(notes) + [""]
     for g in groups:
-        L += [f"### {g}", "", "| field | meaning | how | type | scale | percent | units | saved "
-              "| products |", "|---|---|---|---|---|---|---|---|---|"]
-        cautions = []
+        L += [f"### {g}", "", "| field | meaning | how | type | scale | percent | units | saved |"
+              + ("" if by_stream else " products |"),
+              "|---|---|---|---|---|---|---|---|" + ("" if by_stream else "---|")]
+        cautions: Dict[str, List[str]] = {}
         for r in (r for r in rows if r["group"] == g):
             pc = r.get("percent") or {}
             L.append(f"| {r['name']} | {_cell(r['meaning'])} | {r['how']} | "
                      f"{TYPE_WORDS.get(r['type'], r['type'] or '')} | {r['scale'] or ''} | "
                      f"{'yes' if pc.get('allowed') else 'no'} | "
-                     f"{_cell(_units_text(r))} | {r['cadence']} | "
-                     f"{_cell(_products_text(r['products'], full))} |")
-            if r.get("type_why"):
-                cautions.append(f"- {r['name']}: a {r['type']}: {_cell(r['type_why'])}")
-            cautions += [f"- {r['name']}: {_cell(c)}" for c in r.get("cautions") or []]
-            if r.get("how_why"):
-                cautions.append(f"- {r['name']}: {r['how']}, not its units' "
-                                f"{r['unit_rule']}: {_cell(r['how_why'])}")
+                     f"{_cell(_units_text(r))} | {r['cadence']} |"
+                     + ("" if by_stream else f" {_cell(_products_text(r['products'], full))} |"))
+            for c in field_cautions(r):
+                if r["name"] not in cautions.setdefault(c, []):
+                    cautions[c].append(r["name"])
         if cautions:
-            L += ["", "Cautions:"] + cautions
+            # A CAUTION SEVERAL FIELDS SHARE IS SAID ONCE (2026-11-09, catalog
+            # room), word for word, naming each field it belongs to, at the
+            # place of the first of them
+            L += ["", "Cautions:"] + [f"- {', '.join(ns)}: {c}" for c, ns in cautions.items()]
         L.append("")
 
     L += ["## 5. Methods", ""] + _methods_lines(cat.get("methods")) + ["",
@@ -1091,9 +1166,20 @@ def _methods_lines(methods: Any) -> List[str]:
     L = [f"The analysis methods, each with its contract (what it estimates, where it "
          f"applies, its settings, outcomes, numerical contract and limitations), are in "
          f"{methods['doc']}: " + ", ".join(m["id"] for m in ms) + ". Their statuses, kept "
-         f"apart (versions are behaviour versions):", "",
-         "| method | version | review | implemented | tested | available to the Analyzer |",
-         "|---|---|---|---|---|---|"]
+         f"apart (versions are behaviour versions):", ""]
+    if statuses_shared(ms):
+        # WHAT EVERY METHOD SHARES, ONCE (2026-11-09, catalog room): the four
+        # statuses are still each stated, and each row keeps what is its own
+        L[-2] = L[-2][:-1] + (f": every method's review is {APPROVED_STATE} at its "
+                              f"version, and every method is implemented and tested at its "
+                              f"version and available to the Analyzer. Each one's version, "
+                              f"text revision and test date:")
+        L += ["| method | version | text revision | tested on |", "|---|---|---|---|"]
+        L += [f"| {m['id']} | {m['version']} | {m['status']['review'].get('text_revision')} | "
+              f"{m['status']['tested'].get('date')} |" for m in ms]
+        return L + _approval_lines(methods)
+    L += ["| method | version | review | implemented | tested | available to the Analyzer |",
+          "|---|---|---|---|---|---|"]
     for m in ms:
         st = m.get("status") or {}
         rv, im, te = st.get("review") or {}, st.get("implemented") or {}, st.get("tested")
@@ -1103,11 +1189,35 @@ def _methods_lines(methods: Any) -> List[str]:
                  f"{rv.get('text_revision')}, version {rv.get('behaviour_version')} | "
                  f"version {im.get('behaviour_version')} | {tested} | "
                  f"{'yes' if st.get('available_to_analyzer') else 'no'} |")
+    return L + _approval_lines(methods)
+
+
+def statuses_shared(ms: Sequence[Dict[str, Any]]) -> bool:
+    """True when every method's review is approved for integration at its
+    version, and every method is implemented and tested at its version and
+    available to the Analyzer: then those are said once, not on every row."""
+    for m in ms:
+        st = m.get("status") or {}
+        rv, im, te = st.get("review") or {}, st.get("implemented") or {}, st.get("tested")
+        if not (rv.get("state") == APPROVED_STATE and rv.get("text_revision") is not None
+                and rv.get("behaviour_version") == m.get("version")
+                and im.get("behaviour_version") == m.get("version")
+                and isinstance(te, dict) and te.get("behaviour_version") == m.get("version")
+                and te.get("date") and st.get("available_to_analyzer") is True):
+            return False
+    return bool(ms)
+
+
+def _approval_lines(methods: Dict[str, Any]) -> List[str]:
+    """Who approved the methods and when, and the settings approved only as
+    provisional values."""
+    ms = methods["methods"]
     by = sorted({f"{(m.get('status') or {}).get('review', {}).get('by')} on "
                  f"{(m.get('status') or {}).get('review', {}).get('date')}" for m in ms
                  if ((m.get("status") or {}).get("review") or {}).get("state")
                  in (APPROVED_STATE, PROVISIONAL_STATE)})
     prov = [p for p in methods.get("provisional_settings") or []]
+    L: List[str] = []
     if by or prov:
         L += [""]
         if by:

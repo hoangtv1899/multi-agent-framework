@@ -312,7 +312,8 @@ def test_the_valid_scripted_study_passes_and_renders_every_warning(scripted):
     for words in ("## The maps and series the Analyzer drew", "## Timing", "eligible in both",
                   "## The screen (found by screening, not tested)", "Scoring rule:",
                   "Display rule:", CT.HEADLINE_RULE["hypothesis"], CT.IN_MODEL_WORDS,
-                  "## Open causes and the runs that would settle them", "weather_scale"):
+                  "## Remaining uncertainty and proposed sensitivity experiments",
+                  "weather_scale"):
         assert words in page, words
     # the record names the lookup's hash, its comparison and its support
     r = t["records"][scripted["ids"]["anom"]]

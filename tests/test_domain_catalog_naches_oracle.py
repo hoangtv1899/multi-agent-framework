@@ -147,3 +147,50 @@ def test_the_catalog_fits_with_the_three_experiment_runs_and_cuts_nothing(cat, c
     assert_nothing_cut(parts, runs, base)
     print(f"\nNaches catalog: control alone {len(base):,} characters; with the three "
           f"runs fixed {len(parts['fixed']):,} + study {len(parts['study']):,}")
+
+
+def test_the_room_made_on_2026_11_09_drops_no_fact(cat):
+    """CATALOG ROOM (2026-11-09, the next phase's first task): the Naches
+    fixed part was 24,965 of its 25,000 characters. Saying shared facts once
+    makes at least 2,000 characters of room, and every fact is still there:
+    each field's row cell for cell, its products by its stream, each caution
+    word for word with its field, each region's rule (its own, or exactly
+    its two parts' together), and each method's statuses."""
+    fixed = C.render_parts(cat)["fixed"]
+    assert C.MAX_CHARS - len(fixed) >= 2000
+    full = C.suite_product_names()
+    by = C.products_by_stream(cat["fields"], full)
+    assert by == {"daily": "all", "monthly": "all but series_day"}
+    fields = fixed.split("## 4. Fields")[1].split("\n## ")[0]
+    lines = fields.splitlines()
+    cautions = [ln[2:].partition(": ") for ln in lines if ln.startswith("- ")]
+    for r in cat["fields"]:
+        pc = r.get("percent") or {}
+        row = (f"| {r['name']} | {C._cell(r['meaning'])} | {r['how']} | "
+               f"{C.TYPE_WORDS.get(r['type'], r['type'] or '')} | {r['scale'] or ''} | "
+               f"{'yes' if pc.get('allowed') else 'no'} | {C._cell(C._units_text(r))} | "
+               f"{r['cadence']} |")
+        assert row in lines, r["name"]
+        assert by[r["cadence"]] == C._products_text(r["products"], full), r["name"]
+        for c in C.field_cautions(r):
+            assert any(r["name"] in ns.split(", ") and w == c for ns, _, w in cautions), \
+                (r["name"], c)
+    regs = cat["regions"]["regions"]
+    region_rows = fixed.split("## 2. Regions")[1].split("\n## ")[0].splitlines()
+    for r in regs:
+        two = C.region_parts(r, regs)
+        rule = (C.TWO_PARTS_RULE if two else r["rule"]) + (f"; {r['what']}" if r.get("what")
+                                                           else "")
+        assert (f"| {C._cell(r['name'])} | {C._int(r['cells'])} | {r['area_km2']:,.1f} | "
+                f"{C._cell(rule)} |") in region_rows, r["name"]
+        if two:
+            a, b = (next(x for x in regs if x["name"] == n) for n in two)
+            assert C._clauses(r["rule"]) == C._clauses(a["rule"]) | C._clauses(b["rule"])
+    assert sum(1 for r in regs if C.region_parts(r, regs)) == 8
+    methods = fixed.split("## 5. Methods")[1].split("\n## ")[0]
+    assert C.statuses_shared(cat["methods"]["methods"])
+    for m in cat["methods"]["methods"]:
+        assert (f"| {m['id']} | {m['version']} | {m['status']['review']['text_revision']} | "
+                f"{m['status']['tested']['date']} |") in methods, m["id"]
+    print(f"\nNaches fixed part: {len(fixed):,} of {C.MAX_CHARS:,}; room "
+          f"{C.MAX_CHARS - len(fixed):,}")

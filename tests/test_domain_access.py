@@ -185,8 +185,11 @@ def test_only_a_suite_bearing_study_takes_the_new_path(study, monkeypatch):
 def test_step_2a_payload_holds_no_outcome_bearing_table(study):
     ctx = Ctx(study["rd"], study["plan"], strict=True)       # reading a table fails
     inputs = AP.plan_inputs(ctx)
+    # "recipe" (2026-11-09): guidance read from the question's words alone,
+    # which holds no outcome; none for this question
     assert set(inputs) == {"question", "question_type", "question_type_from",
-                           "configuration", "catalog", "methods"}
+                           "configuration", "catalog", "methods", "recipe"}
+    assert inputs["recipe"] == ""
     blob = json.dumps(inputs, default=str)
     assert str(MARK) not in blob and ctx.read == []
     for name in AP.OUTCOME_TABLES + ("DOMAIN_REPORT", "comparison", "observed"):

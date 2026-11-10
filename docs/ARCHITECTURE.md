@@ -48,7 +48,7 @@ Analyzer step 3; interpret the findings, and decide whether they suffice
 - Model id as the framework passes it:
   - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `interpret` with model=`model` = `"claude-opus-5-project"`
   - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `rule_plan_follows_question` with model=`model` = `"claude-opus-5-project"`
-  - `src/agents/analyzer.py::Analyzer.run` calls `investigate_and_interpret` with model=`config.get("analysis_model", step3_interpret.DEFAULT_MODEL)` = `"claude-opus-5-project"`
+  - `src/agents/analyzer.py::Analyzer.run` calls `investigate_and_interpret` with model=`step2_investigate.analyzer_model(config.get("analysis_model"))`
 - Prompt files: none
 - Prompt text written in the module: `REWRITE`, `SUITE_RULES`, `TASK_BODY`, `VERDICT_ASK`
 - Records it reads: none; writes: `interpretation.json`; names without opening: none
