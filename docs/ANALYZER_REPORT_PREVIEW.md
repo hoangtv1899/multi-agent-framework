@@ -1,8 +1,7 @@
 # The Analyzer's report: recipe, preview renderer, editorial revisions and verification coverage
 
-Status on 2026-11-09. The Analyzer's scope is frozen at this state. This note
-is written by hand; the generated documents (`ARCHITECTURE.md`,
-`ANALYSIS_METHODS.md`) are not edited to hold it.
+Status on 2026-11-10. This note is written by hand; the generated documents
+(`ARCHITECTURE.md`, `ANALYSIS_METHODS.md`) are not edited to hold it.
 
 ## What a live run writes
 
@@ -10,6 +9,31 @@ A live Analyzer run writes the report it has written since the analysis suite
 was accepted: `04_analysis/REPORT.md`, one page, rendered by
 `src/agents/analysis/step4_report.py` from `04_analysis/analysis.json`.
 Nothing under "Preview only" below changes that page.
+
+## Live since 2026-11-10: what a first run of the whole path changed
+
+The first live studies through Reception, the Planner and the Analyzer
+together, with and without a new simulation, led to these changes:
+
+- **A claim that fails the evidence trace is struck alone.** Step 3's audit
+  now applies the trace as its last rule (`rule_trace`,
+  `claim_trace.claim_tracer`): the failing claim is struck with the trace's
+  own reasons and the claims that pass are reported. Before, one such claim
+  withheld the whole report at step 4. The gate at step 4 is unchanged, so no
+  claim reaches a report without passing it.
+- **The printed summary holds to the kept claims.** When the audit struck a
+  claim, a summary sentence that gives a number no kept claim's record gives
+  is left out of the page; the summary as written stays in `analysis.json`.
+- **A new run gets its results store.** The Experiment Manager builds it in
+  the study tail (`_build_run_suites`), in `03_results/suite/<run>`, where
+  the Analyzer reads a run's maps, series and dates.
+- **A control may name its own normal years** in the registry
+  (`normal_years`). They are shown on Reception's card and on the design
+  page, the Planner uses them unless the person names others, and a study
+  whose Planner names none falls back to them.
+- **A study whose analysis failed can be resumed for the analysis alone**
+  (`core/resumable.py`), and a plan amendment whose settings name no method
+  is refused with a reason.
 
 ## Live: the recipe "seasonal evolution and spatial context"
 
@@ -76,7 +100,7 @@ What code checks, and what it does not:
 |---|---|
 | The numbers of the regional table | Yes. Made again from the model output by an independent reading (`numbers_check.py`). |
 | The numbers of every lookup a claim cites | Yes. The same, by `suite_check.py`. |
-| Each claim against the records it cites | Yes. The claim trace (`claim_trace.py`). |
+| Each claim against the records it cites | Yes. The claim trace (`claim_trace.py`), by the audit and again at the report's gate. |
 | A lookup that a figure draws and no claim cites | No, unless a review check is run on it. |
 | A plotted series | No. A series leaves only a fingerprint in the log. |
 | A ranking ("most", "least", "largest", "every band") against records the claim leaves out | No. |
@@ -99,7 +123,8 @@ planned.
 
 ## Tests
 
-`tests/test_analysis_recipes.py`, `tests/test_report_views.py` and
-`tests/test_figure_bars.py`. They are synthetic: every number in them is made
+`tests/test_analysis_recipes.py`, `tests/test_report_views.py`,
+`tests/test_figure_bars.py` and `tests/test_audit_trace_rule.py`. They are
+synthetic: every number in them is made
 up. A test of the renderer on real studies exists, reads local data and is
 kept outside this repository, since it quotes the studies' own reports.
