@@ -47,6 +47,28 @@ Flags compose: `pytest --runlive --runllm` runs offline + live + LLM. The
   `smoke_test_elm.py` is a standalone single-column build→run→analyze script
   (`python tests/smoke_test_elm.py` on an `salloc` node), not collected by pytest.
 
+## Tests set aside
+
+A plain `pytest` run must end with no failure, so that a failure means a
+defect on the path in use (the whole-domain ELM workflow). Tests of paths
+that workflow does not use, and of things that no longer exist, are listed in
+`tests/parked_tests.json` with a class and a reason each:
+
+- `removed`: the test names a module, function, file or tool that is gone;
+- `column`: the single-column ELM route;
+- `pflotran`: the PFLOTRAN and coupling route.
+
+They are skipped by a plain run, each with its reason in the summary, and run
+with `pytest --runparked`. They are expected to fail until their path is
+taken up again. A test of code the whole-domain workflow uses is never added
+to the list: it is repaired. `tests/test_parked_tests.py` holds the list to
+that rule, and checks that the whole-domain modules import none of the
+modules only the set-aside paths use.
+
+One limit: `workflow.py`, `core/exp_manager_base.py`, `elm_exp_manager.py`
+and `core/resumable.py` serve both routes, so their single-column branches
+are covered only by the tests set aside.
+
 ## Adding a test
 
 - Offline by default — mock the LLM (`SimpleLLMClient`) and MCP clients
@@ -56,3 +78,11 @@ Flags compose: `pytest --runlive --runllm` runs offline + live + LLM. The
 
 ## Legacy
 
+## Routes set aside, and the developer's switch
+
+This version runs whole-domain studies only (`src/core/supported_routes.py`,
+`docs/FRONT_DOOR_RULES.md`). The single-column and coupling routes keep their
+tests, and `tests/conftest.py` sets `IDEAS_DEVELOPER_ROUTES=1` for the session
+so those tests reach the code they test. A test of the rule itself removes the
+variable first (`monkeypatch.delenv`), so it sees the front door as a user
+gets it: `tests/test_front_door_routes.py`.

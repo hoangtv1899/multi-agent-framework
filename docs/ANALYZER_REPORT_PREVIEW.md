@@ -35,6 +35,13 @@ together, with and without a new simulation, led to these changes:
   (`core/resumable.py`), and a plan amendment whose settings name no method
   is refused with a reason.
 
+- **The page says what code did not check** (2026-11-10,
+  `step4_report.verification_limits`). A whole-domain report now ends with a
+  section "What code checked, and what it did not": the numbers and the
+  claim trace on one side; ranking words (with the numbers of the kept claims
+  that use one), figures and plotted series, and interpretation on the
+  other. Until then only the preview pages said so.
+
 ## Live: the recipe "seasonal evolution and spatial context"
 
 `src/agents/analysis/analysis_recipes.py`. A recipe is guidance for the
@@ -106,7 +113,8 @@ What code checks, and what it does not:
 | A ranking ("most", "least", "largest", "every band") against records the claim leaves out | No. |
 | Whether an interpretation follows from its claims | No. A person reviews it. |
 
-The preview page labels this coverage. Its verification section has a
+A live report labels this coverage in its last section before Provenance
+(above). The preview page labels it in more detail. Its verification section has a
 "Checked by code" list and a "Not checked by code" list (`coverage_lines`),
 and a note under each figure says what the figure draws beyond the claims'
 records (`figure_check_line`). A review check is the same independent check
