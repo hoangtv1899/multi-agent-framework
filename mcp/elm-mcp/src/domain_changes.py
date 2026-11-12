@@ -161,7 +161,7 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
      "available": True},
     {"id": "weather_scale",
      "summary": "warm or cool the air the land model receives, or multiply its rain "
-                "and snow, in chosen months and cells",
+                "and snow, in chosen months, years and cells",
      "params": {"temperature_K": {"kind": "number", "lo": -10.0, "hi": 10.0, "units": "K",
                                   "default": 0.0,
                                   "what": "added to the air temperature, every step"},
@@ -170,17 +170,30 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                                   "what": "multiplies rain and snow alike, every step"},
                 "months": {"kind": "months", "default": list(range(1, 13)),
                            "what": "the months it applies in, 1-12"},
+                # THE YEARS IT APPLIES IN (2026-11-10). A run starts from the
+                # control's saved state, so it simulates years before the ones
+                # a question names; with no year setting, "less rain in the
+                # summers of 2018 and 2019" was a run with less rain in every
+                # summer from its first year. The anomaly file holds the
+                # identity in a year left out, and the year's check then holds
+                # the run to the control there.
+                "years": {"kind": "years", "default": None,
+                          "what": "the model years it applies in, among the run's "
+                                  "years; every simulated year when absent"},
                 "region": {"kind": "region", "default": None,
                            "what": "a region registered for the control, all of its "
                                    "cells; the whole domain when absent"}},
      "alters": [{"inputs": "weather_scale"}],
      "meaning": "the difference from the control is the response to {weather_text}, "
-                "in {months_text}{region_text}, with every other input the control's",
+                "in {months_text}{years_text}{region_text}, with every other input the "
+                "control's",
      # What the derived words read as in the published list, before a run's
      # parameters fill them (resolve() writes them from the parameters).
      "menu_text": {"weather_text": "the air temperature changed by temperature_K and "
                                    "rain and snow multiplied by precip_factor",
                    "months_text": "the chosen months",
+                   "years_text": " of the chosen years (every simulated year when "
+                                 "none is named)",
                    "region_text": " over the chosen region (the whole domain when none "
                                   "is named)"},
      "not_meaning": "a consistent change of climate: the data atmosphere splits rain "
@@ -202,8 +215,8 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                              "in every cell-day both runs report: daily TBOT minus the "
                              "control's equals the amount (to 0.001 K), and daily rain "
                              "and daily snow over the control's each equal the factor "
-                             "(to 1e-5), in the chosen months and active cells, all "
-                             "three the control's elsewhere; a cell-day reported by one "
+                             "(to 1e-5), in the chosen months, years and active cells, "
+                             "all three the control's elsewhere; a cell-day reported by one "
                              "run only, or a change that reached no reported cell, "
                              "fails"},
      "cost": "the control's: one job per model year, plus a small anomaly file",
@@ -365,6 +378,7 @@ def _with_defaults(change: Dict, params: Dict[str, Any]) -> Dict[str, Any]:
 # list of month numbers is checked)
 PARAM_FORMS = {
     "months": "a list of distinct month numbers 1-12",
+    "years": "a list of distinct model years, or null for every simulated year",
     "region": "a registered region's name, or null for the whole domain",
     "year_map": "a map of model years to recorded years",
     "number": "a number",
@@ -381,7 +395,7 @@ def param_example(p: Dict[str, Any]) -> Any:
         return p["default"]
     if k == "months":
         return [6, 7, 8]
-    if k == "region":
+    if k in ("region", "years"):
         return None
     if k == "year_map":
         return {"2016": 2015}
@@ -428,6 +442,14 @@ def _param_problems(change: Dict, params: Dict[str, Any]) -> List[str]:
             if v is not None and (not isinstance(v, str) or not v.strip()):
                 out.append(f"{change['id']} {k}={v!r} is not a region's name")
             continue
+        if p["kind"] == "years":
+            if v is not None and (not isinstance(v, list) or not v
+                                  or len(set(v)) != len(v) or any(
+                    isinstance(y, bool) or not isinstance(y, int) or not 1 <= y <= 9999
+                    for y in v)):
+                out.append(f"{change['id']} {k}={v!r} is not a list of distinct model "
+                           f"years, or null for every simulated year")
+            continue
         if p["kind"] == "year_map":
             if not isinstance(v, dict) or not v or not all(
                     re.fullmatch(r"\d{4}", str(a)) and isinstance(b, int)
@@ -473,7 +495,8 @@ def resolve(item: Dict[str, Any]) -> Dict[str, Any]:
         if not W.active(fmt):
             raise ChangeError("weather_scale changes nothing: temperature_K is 0 and "
                               "precip_factor is 1")
-        fmt = dict(fmt, months=sorted(fmt["months"]))
+        fmt = dict(fmt, months=sorted(fmt["months"]),
+                   years=sorted(fmt["years"]) if fmt.get("years") else None)
     if c["id"] == "weather_repeat_year":
         fmt = dict(fmt, map={str(int(a)): int(b) for a, b in sorted(
             fmt["map"].items(), key=lambda kv: int(kv[0]))})
@@ -512,9 +535,12 @@ def _text(change_id: str, p: Dict[str, Any]) -> Dict[str, str]:
     if abs(p["precip_factor"] - 1.0) > 1e-12:
         parts.append(f"rain and snow multiplied by {p['precip_factor']:g}")
     ms = p["months"]
+    ys = p.get("years") or []
     return {"weather_text": " and ".join(parts),
             "months_text": ("every month" if ms == list(range(1, 13)) else
                             ", ".join(_MONTH[m - 1] for m in ms)),
+            "years_text": (f" of {', '.join(map(str, ys[:-1])) + ' and ' if len(ys) > 1 else ''}"
+                           f"{ys[-1]} only" if ys else " of every simulated year"),
             "region_text": f", over {p['region']}" if p.get("region") else ""}
 
 
@@ -1119,6 +1145,14 @@ def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
             if rc["id"] == "weather_scale":
                 import domain_weather as W
                 here = f"{where}, change {rc['id']}"
+                named = rc["params"].get("years") or []
+                if named and isinstance(years, list):
+                    out_of = sorted(set(named) - set(y for y in years if isinstance(y, int)))
+                    if out_of:
+                        wont.append({"where": here,
+                                     "what": f"its years {out_of} are not among the run's "
+                                             f"years {years}: the change would never apply "
+                                             f"in them"})
                 whole_years = isinstance(years, list) and years and all(
                     isinstance(y, int) and not isinstance(y, bool) for y in years)
                 if whole_years:

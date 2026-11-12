@@ -169,6 +169,57 @@ def test_ask_user_interactive_uses_human_answer(monkeypatch):
     assert tty.reads == 1, "the human must actually be read, not defaulted past"
 
 
+@pytest.mark.parametrize("args", [{}, {"question": ""}, {"question": "   "},
+                                  {"question": None}])
+def test_an_empty_question_is_not_put_to_the_person(monkeypatch, args):
+    """Seen live (2026-11-10): ask_user called with no arguments showed the
+    person a bare prompt. The model is told; the terminal is never read."""
+    scripted = [_msg(tool_calls=[("ask_user", args)]), _msg(content="done")]
+    agent, _, _ = _make_agent(monkeypatch, scripted, interactive=True)
+    tty = _FakeTTY("an answer to nothing\n")
+    agent._tty = tty
+    out = agent.run("sys", "go")
+    assert tty.reads == 0
+    assert "no question text" in out["trace"][0]["result"]["error"]
+    assert out["content"] == "done"
+
+
+def _tool_content(llm, k=0):
+    """What the model was given back for its k-th tool call."""
+    msgs = [m for m in llm.requests[-1]["messages"] if isinstance(m, dict)
+            and m.get("role") == "tool"]
+    return msgs[k]["content"]
+
+
+def test_a_framework_tools_answer_is_read_whole_past_the_data_cap(monkeypatch):
+    """The servers' menus come through framework tools and must be read whole:
+    at the data tools' cap the list of changes had 2 characters to spare."""
+    long = {"menu": "x" * (tl._MAX_TOOL_RESULT_CHARS + 3000)}
+    local = {"read_menu": {"schema": {"type": "function", "function": {
+        "name": "read_menu", "description": "d",
+        "parameters": {"type": "object", "properties": {}}}}, "fn": lambda: long}}
+    scripted = [_msg(tool_calls=[("read_menu", {})]), _msg(content="done")]
+    agent, llm, _ = _make_agent(monkeypatch, scripted, local_tools=local)
+    out = agent.run("sys", "go")
+    assert "truncated" not in out["trace"][0]
+    assert "[truncated]" not in _tool_content(llm)
+    assert len(_tool_content(llm)) == len(json.dumps(long))
+
+
+def test_a_cut_is_said_and_marked_never_silent(monkeypatch, capsys):
+    huge = {"menu": "x" * (tl._MAX_LOCAL_RESULT_CHARS + 500)}
+    local = {"read_menu": {"schema": {"type": "function", "function": {
+        "name": "read_menu", "description": "d",
+        "parameters": {"type": "object", "properties": {}}}}, "fn": lambda: huge}}
+    scripted = [_msg(tool_calls=[("read_menu", {})]), _msg(content="done")]
+    agent, llm, _ = _make_agent(monkeypatch, scripted, local_tools=local)
+    out = agent.run("sys", "go")
+    assert out["trace"][0]["truncated"] == {"chars": len(json.dumps(huge)),
+                                            "kept": tl._MAX_LOCAL_RESULT_CHARS}
+    assert _tool_content(llm).endswith("[truncated]")
+    assert "the rest was not read" in capsys.readouterr().out
+
+
 def test_ask_user_without_a_terminal_does_not_hang(monkeypatch):
     """No terminal (batch, piped, nohup) must degrade to the sentinel."""
     scripted = [_msg(tool_calls=[("ask_user", {"question": "which basin?"})]),

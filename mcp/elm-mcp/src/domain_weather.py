@@ -280,7 +280,11 @@ def write_anomaly(path, dom: Dict[str, np.ndarray], params: Dict[str, Any],
     import netCDF4
     t, ym, y0 = month_starts(years)
     months = set(params.get("months") or ALL_MONTHS)
-    on = np.array([m in months for _, m in ym])
+    # THE YEARS IT APPLIES IN: every one when none is named. A year left out
+    # holds the identity in every month, as a month left out does, so the
+    # year's check (check_year reads this file) holds the run to the control.
+    only = set(int(y) for y in params.get("years") or [])
+    on = np.array([m in months and (not only or y in only) for y, m in ym])
     shape = dom["xc"].shape
     if mask.shape != shape:
         raise WeatherError(f"the region's mask is {mask.shape}, the grid {shape}")
@@ -311,7 +315,7 @@ def write_anomaly(path, dom: Dict[str, np.ndarray], params: Dict[str, Any],
             x[:] = np.stack([field if o else ident for o in on])
         f.title = "a whole-domain run's anomaly forcing (domain_weather.py)"
         f.params = json.dumps({k: params.get(k) for k in ("temperature_K", "precip_factor",
-                                                          "months", "region")})
+                                                          "months", "years", "region")})
     return {"path": str(path), "sha256": sha256(path), "records": int(t.size),
             "years": [ym[0][0], ym[-1][0]]}
 

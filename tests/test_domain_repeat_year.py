@@ -452,7 +452,9 @@ class TestTheChange:
         assert any("weather at most once" in r for r in d["rules"])
         for x in d["changes"]:
             assert not any("something else" in lim for lim in x.get("limits") or []), x["id"]
-        assert len(json.dumps(d, separators=(",", ":"))) < 12000   # the reception cut
+        # the cut the loop gives a framework tool's answer (test_domain_changes
+        # measures it as Reception receives it)
+        assert len(json.dumps(d, separators=(",", ":"))) < 18000
 
     def test_build_run_gives_each_year_its_settings_and_checks(self, tmp_path):
         ctl = _repeat_control(tmp_path)

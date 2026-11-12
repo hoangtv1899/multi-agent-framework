@@ -23,6 +23,14 @@ from typing import Any, Dict, List, Optional
 from agents.llm_agent import SimpleLLMClient
 
 _MAX_TOOL_RESULT_CHARS = 12000   # cap what we feed back per tool result
+# A FRAMEWORK TOOL'S ANSWER IS A MENU THE MODEL MUST READ WHOLE (2026-11-10).
+# The servers' own descriptions (the prepared runs, the list of changes) come
+# through the framework's tools, and at 12,000 characters the list of changes
+# had 2 characters to spare: one more change, or a second prepared run, would
+# have lost its end with no word to anyone. Those answers get a wider cap. A
+# data tool's result can be any size and keeps the narrow one. A result that
+# is cut all the same is said on the terminal and marked in the trace.
+_MAX_LOCAL_RESULT_CHARS = 24000
 
 
 def _short(obj: Any, n: int = 140) -> str:
@@ -217,8 +225,19 @@ class ToolLoopAgent:
                 except Exception:
                     args = {}
                 if fq == "ask_user":
-                    result = _human_answer(args.get("question", ""),
-                                           self._tty, self.interactive)
+                    # AN EMPTY QUESTION IS NOT PUT TO THE PERSON (2026-11-10).
+                    # A live Reception called ask_user with no arguments, and
+                    # the person was shown a bare prompt with nothing to
+                    # answer. The model is told instead, and can ask again
+                    # with the question's text or go on without asking.
+                    question = str(args.get("question") or "").strip()
+                    if not question:
+                        result = {"error": "ask_user was called with no question text, "
+                                           "so nothing was asked. Call it again with the "
+                                           "question in `question`, or go on without "
+                                           "asking."}
+                    else:
+                        result = _human_answer(question, self._tty, self.interactive)
                 elif fq in self.local:
                     # NEVER RAISES INTO THE LOOP. A framework tool that threw
                     # would end the reception; the model can do something
@@ -238,8 +257,14 @@ class ToolLoopAgent:
                     print(f"   [tool] {fq}({_short(args, 80)}) -> {_short(result)}")
 
                 payload = json.dumps(result, default=str)
-                if len(payload) > _MAX_TOOL_RESULT_CHARS:
-                    payload = payload[:_MAX_TOOL_RESULT_CHARS] + " …[truncated]"
+                cap = (_MAX_LOCAL_RESULT_CHARS if fq in self.local
+                       else _MAX_TOOL_RESULT_CHARS)
+                if len(payload) > cap:
+                    # never silently: the model read less than the tool said
+                    trace[-1]["truncated"] = {"chars": len(payload), "kept": cap}
+                    print(f"   ⚠️  {fq} answered {len(payload):,} characters and the "
+                          f"model was given the first {cap:,}: the rest was not read")
+                    payload = payload[:cap] + " …[truncated]"
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": payload})
 

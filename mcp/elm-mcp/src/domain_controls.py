@@ -761,7 +761,13 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
            "regions": {k: v.get("what") for k, v in (entry.get("regions") or {}).items()},
            "observations": {k: v.get("what")
                             for k, v in (entry.get("observations") or {}).items()},
-           "suite": suite_line(entry)}
+           "suite": suite_line(entry),
+           # RUN NAMES ALREADY TAKEN (2026-11-10): the cases built from this
+           # control by earlier studies. A design that named a run "fire_off"
+           # was refused every time, because that case exists, and went back
+           # to the Planner for another name. Said here, the name is chosen
+           # free the first time.
+           "run_names_taken": run_names_taken(entry)}
     if not f:
         out["facts"] = None
         out["facts_note"] = ("not computed yet: refresh_domain_control_facts reads them "
@@ -787,6 +793,24 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
     out["not_in_it"] = not_in_it(f)
     out["not_in_it_words"] = not_in_it_words(f)
     return out
+
+
+_RUN_NAME = re.compile(r"[a-z][a-z0-9_]{0,23}")
+
+
+def run_names_taken(entry: Dict[str, Any]) -> List[str]:
+    """The run names whose case exists beside the control's (a run's case is
+    <control case>_<run>): a new run needs another name. [] when the control's
+    case directory cannot be read."""
+    cd = Path(str(entry.get("case_dir") or ""))
+    try:
+        if not cd.name or not cd.parent.is_dir():
+            return []
+        return sorted(n for n in (p.name[len(cd.name) + 1:]
+                                  for p in cd.parent.glob(cd.name + "_*") if p.is_dir())
+                      if _RUN_NAME.fullmatch(n))
+    except OSError:
+        return []
 
 
 # WHAT OF THE SETUP RECEPTION IS SHOWN (2026-11-03): each part's sentence and

@@ -76,7 +76,24 @@ class TestTheList:
                         for c in CH.declare()["changes"]}
 
     def test_it_fits_a_tool_result(self):
-        assert len(json.dumps(CH.declare())) < 12000
+        """As Reception receives it, wrapper and all, under the cap the loop
+        gives a framework tool's answer, with room left: at the data tools'
+        12,000 the list had 2 characters to spare (2026-11-10)."""
+        from agents import tool_loop
+        from core import model_servers as MS
+
+        class Server:
+            def list_tools_detailed(self):
+                return [{"name": MS.DOMAIN_MENUS["changes"]}]
+
+            def list_tools(self):
+                return [MS.DOMAIN_MENUS["changes"]]
+
+            def call_tool_json(self, tool, args):
+                return CH.declare()
+        got = MS.describe_domain({"elm": Server()}, "elm", "changes")
+        assert got["offers_whole_domain_experiments"]
+        assert len(json.dumps(got, default=str)) < tool_loop._MAX_LOCAL_RESULT_CHARS - 6000
 
     @pytest.mark.parametrize("item,problem", [
         ({"id": "nope"}, "no change 'nope'"),

@@ -168,16 +168,19 @@ def _history(run_dir, case, years=YEARS):
 
 
 def _as_datm_would(run_dir, offset=0.0, factor=1.0, months=W.ALL_MONTHS, mask=None,
-                   only=None):
+                   only=None, years=None):
     """Make a run's daily history what DATM's anomaly forcing would make of
     the control's: TBOT plus the amount, RAIN and SNOW times the factor, in
-    the chosen months and cells. `only` limits it to some fields."""
+    the chosen months and cells. `only` limits it to some fields, `years` to
+    some model years (every year when left out)."""
     for p in sorted(Path(run_dir).glob("*.elm.h1.*.nc")):
         with netCDF4.Dataset(p, "a") as d:
             tb = np.asarray(d["time_bounds"][:])
             sel = np.ones(d["TBOT"].shape[1:], bool) if mask is None else mask
             for r in range(tb.shape[0]):
                 if _record_month(tb[r, 0]) not in months:
+                    continue
+                if years is not None and YEARS[0] + int(tb[r, 0] // 365) not in years:
                     continue
                 for v, how in (("TBOT", "offset"), ("RAIN", "factor"), ("SNOW", "factor")):
                     if only and v not in only:
@@ -317,6 +320,86 @@ class TestTheAnomalyFile:
         with pytest.raises(W.WeatherError, match="record 5 .* is not the first instant "
                                                   "of 2014-06"):
             W.anomaly_by_month(a["path"], "tas", 2015)
+
+
+# ── the years it applies in (2026-11-10) ─────────────────────────────────────
+class TestTheYearsItAppliesIn:
+    """A run starts before the years a question names. With `years`, the file
+    holds the change in those years only, and the year check, which reads the
+    file, holds the run to the control in every other year."""
+
+    def test_the_file_holds_the_change_in_the_named_years_only(self, tmp_path):
+        a = _anomaly(tmp_path, _params(years=[2016]))
+        on, _, _ = W.anomaly_by_month(a["path"], "pr", 2016)
+        off, _, _ = W.anomaly_by_month(a["path"], "pr", 2015)
+        assert np.allclose(on[7], 0.8) and np.allclose(on[5], 1.0)
+        assert all(np.all(off[m] == 1.0) for m in range(1, 13))
+        tas_off, _, _ = W.anomaly_by_month(a["path"], "tas", 2015)
+        assert all(np.all(tas_off[m] == 0.0) for m in range(1, 13))
+
+    def test_with_no_years_named_every_year_holds_it(self, tmp_path):
+        a = _anomaly(tmp_path, _params())
+        for y in YEARS:
+            by, _, _ = W.anomaly_by_month(a["path"], "pr", y)
+            assert np.allclose(by[7], 0.8)
+
+    def test_the_file_records_the_years(self, tmp_path):
+        a = _anomaly(tmp_path, _params(years=[2016]))
+        with netCDF4.Dataset(a["path"]) as f:
+            assert json.loads(f.params)["years"] == [2016]
+
+    def _pair(self, tmp_path, params):
+        ctl_run, run = tmp_path / "ctl_run", tmp_path / "run"
+        _history(ctl_run, "ctl")
+        _history(run, "run")
+        _, rules = _built(tmp_path, params)
+        return G.open_stream(ctl_run, "h1"), run, rules
+
+    def test_a_run_changed_in_the_named_year_only_passes_both_years(self, tmp_path):
+        ref, run, rules = self._pair(tmp_path, _params(years=[2016]))
+        _as_datm_would(run, offset=2.0, factor=0.8, months=[6, 7, 8], years=[2016])
+        for y, changed in ((2015, 0), (2016, 92 * 20)):
+            t, p = [W.check_year(G.open_stream(run, "h1"), ref, r, y) for r in rules]
+            assert t["pass"] and p["pass"], (y, t, p)
+            assert t["changed_compared"] == changed
+
+    def test_a_run_changed_in_a_year_left_out_fails_that_year(self, tmp_path):
+        """The proof a year selector needs: the year left out must come out
+        the control's, and the check says so when it does not."""
+        ref, run, rules = self._pair(tmp_path, _params(years=[2016]))
+        _as_datm_would(run, offset=2.0, factor=0.8, months=[6, 7, 8])      # every year
+        t, p = [W.check_year(G.open_stream(run, "h1"), ref, r, 2015) for r in rules]
+        assert not t["pass"] and t["reason"].startswith("off by up to")
+        assert not p["pass"]
+
+    def test_the_change_is_resolved_with_its_years_and_says_them(self):
+        c = CH.resolve({"id": "weather_scale", "params": {
+            "precip_factor": 0.7, "months": [6, 7, 8], "years": [2019, 2018]}})
+        assert c["params"]["years"] == [2018, 2019]
+        assert c["meaning"] == ("the difference from the control is the response to rain "
+                                "and snow multiplied by 0.7, in June, July, August of 2018 "
+                                "and 2019 only, with every other input the control's")
+
+    @pytest.mark.parametrize("bad", [[], "2018", [2018, 2018], [2018.5], [True], [0]])
+    def test_years_of_another_form_are_refused(self, bad):
+        with pytest.raises(CH.ChangeError, match="list of distinct model years"):
+            CH.resolve({"id": "weather_scale", "params": {"precip_factor": 0.7,
+                                                          "years": bad}})
+
+    def test_years_outside_the_runs_are_refused_by_the_experiments_check(self):
+        exp = {"control": {"name": "c", "reuse": True}, "years": [2015, 2016],
+               "runs": [{"name": "dry", "changes": [{"id": "weather_scale", "params": {
+                   "precip_factor": 0.7, "years": [2016, 2018]}}]}]}
+        wont = [w["what"] for w in CH.check(exp, None)["wont_build"]]
+        assert any("its years [2018] are not among the run's years" in w for w in wont)
+        exp["runs"][0]["changes"][0]["params"]["years"] = [2016]
+        assert not any("not among the run's years" in w["what"]
+                       for w in CH.check(exp, None)["wont_build"])
+
+    def test_the_list_gives_the_parameter_and_its_form(self):
+        c = next(c for c in CH.declare()["changes"] if c["id"] == "weather_scale")
+        assert "years" in c["params"] and "months, years and cells" in c["summary"]
+        assert "every simulated year" in c["params"]["years"]["what"]
 
 
 # ── when a month's value takes effect ────────────────────────────────────────
@@ -1043,7 +1126,7 @@ class TestTheChange:
         assert e["changes"][0]["params"]["months"] == [6, 7, 8]
         assert e["changes"][0]["meaning"].startswith(
             "the difference from the control is the response to air 2 K warmer, in June, "
-            "July, August, with every other input the control's")
+            "July, August of every simulated year, with every other input the control's")
         assert e["settings"]["datm_in"]["anomaly_forcing"] == [TEMP]
         assert list(e["case_files"]) == [f"CaseDocs/datm.streams.txt.{TEMP}"]
         assert [o["anomaly_var"] for o in e["output"]] == ["tas", "pr"]
@@ -1073,19 +1156,20 @@ class TestTheChange:
             "region": "upper"}})
         assert c["meaning"] == ("the difference from the control is the response to air "
                                 "1.5 K cooler and rain and snow multiplied by 1.2, in "
-                                "January, February, over upper, with every other input "
-                                "the control's")
+                                "January, February of every simulated year, over upper, "
+                                "with every other input the control's")
         warm = CH.resolve({"id": "weather_scale", "params": {
             "temperature_K": 2.0, "precip_factor": 0.8, "months": [6, 7, 8],
             "region": "watershed"}})
         assert warm["meaning"] == ("the difference from the control is the response to "
                                    "air 2 K warmer and rain and snow multiplied by 0.8, in "
-                                   "June, July, August, over watershed, with every other "
-                                   "input the control's")
+                                   "June, July, August of every simulated year, over "
+                                   "watershed, with every other input the control's")
         dry = CH.resolve({"id": "weather_scale", "params": {"precip_factor": 0.5}})
         assert dry["meaning"] == ("the difference from the control is the response to "
-                                  "rain and snow multiplied by 0.5, in every month, with "
-                                  "every other input the control's")
+                                  "rain and snow multiplied by 0.5, in every month of "
+                                  "every simulated year, with every other input the "
+                                  "control's")
         assert dry["params"]["temperature_K"] == 0.0
 
     def test_the_not_meaning_says_what_the_land_model_sees(self):
