@@ -899,9 +899,14 @@ def _appendix(preview, run_dir, strategy, brief):
 
 
 def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
-           analysis_preview=None):
+           analysis_preview=None, decision=True, appendix=True):
     """reception.json + strategy.json (+ the server's preview, + the analysis
-    plan written before the page, when there is one) -> markdown."""
+    plan written before the page, when there is one) -> markdown.
+
+    THE DESIGN IN FULL. Since 2026-11-12 a whole-domain design is decided on a
+    short page (agents/design_page.py); this is what that page leaves to its
+    details file (`decision` and `appendix` False) and the whole page of any
+    other design."""
     brief = reception.get("brief") or reception
     kind, design = _design_lines(brief, strategy, _resolved_meanings(run_dir))
     L = []
@@ -1027,10 +1032,10 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
                  "and runs them. Declining here costs nothing — the records above "
                  "stay on disk.")
     L.append("")
-    L.append("---")
-    L.append(_PENDING)
-    L.append("")
-    L.extend(_appendix(preview, run_dir, strategy, brief))
+    if decision:
+        L += ["---", _PENDING, ""]
+    if appendix:
+        L.extend(_appendix(preview, run_dir, strategy, brief))
     return "\n".join(L)
 
 
@@ -1060,8 +1065,26 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
         from agents import analysis_preview as _av
         analysis_preview = _av.load(rd)
     path = rd / REVIEW_NAME
-    path.write_text(render(reception, strategy, run_name=rd.name, preview=preview,
-                           run_dir=rd, analysis_preview=analysis_preview))
+    # THREE FILES FOR A WHOLE-DOMAIN DESIGN (2026-11-12): the short page a
+    # person decides on, the design and the analysis plan in full, and how to
+    # make the runs by hand. Any other design keeps its one page.
+    from agents import design_page as _page
+    brief = reception.get("brief") or reception
+    by_hand = _appendix(preview, rd, strategy, brief)
+    short = _page.render(reception, strategy, run_name=rd.name, preview=preview, run_dir=rd,
+                         analysis_preview=analysis_preview, by_hand=bool(by_hand))
+    if short is None:
+        path.write_text(render(reception, strategy, run_name=rd.name, preview=preview,
+                               run_dir=rd, analysis_preview=analysis_preview))
+        return path
+    path.write_text(short)
+    (rd / _page.DETAILS_NAME).write_text(
+        f"*The design in full, for the short page `{REVIEW_NAME}` in this folder, which is "
+        f"where the decision is recorded.*\n\n"
+        + render(reception, strategy, run_name=rd.name, preview=preview, run_dir=rd,
+                 analysis_preview=analysis_preview, decision=False, appendix=False))
+    if by_hand:
+        (rd / _page.BY_HAND_NAME).write_text("\n".join(by_hand) + "\n")
     return path
 
 

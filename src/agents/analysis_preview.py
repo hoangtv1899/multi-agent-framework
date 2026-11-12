@@ -188,6 +188,13 @@ def plan_before_approval(reception: Dict[str, Any], strategy: Dict[str, Any], ru
             rec["why"] = ("the prepared run has no results store, and the planning step "
                           "plans from one")
             return _written(rd, rec)
+        # the places the planning step may name, with their sizes and rules,
+        # from the control's results store: the page states the mask an
+        # analysis reads, by its cells and its area
+        man = AP._read_json(Path(AP.suite_dirs(ctx).get("control", "")) / AP.SUITE_MANIFEST)
+        rec["regions"] = {str(r["name"]): {k: r.get(k) for k in ("cells", "area_km2", "rule")}
+                          for r in man.get("regions") or []
+                          if isinstance(r, dict) and r.get("name")}
         adir = Path(ctx.run_dir) / "04_analysis"
         review, ok = S3.plan_and_review(ctx, adir, model=S2.analyzer_model(model),
                                         clients=clients)
@@ -394,4 +401,185 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
         if len(problems) > 8:
             L.append(f"  - and {len(problems) - 8} more, in the plan's file")
     L += [f"- The plan in full: `{record.get('plan_file')}`.", ""]
+    return L
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE SHORT PAGE'S SECTION (agents/design_page.py)
+# ─────────────────────────────────────────────────────────────────────────────
+# The same plan record as page_lines above, which is the details file's
+# section. Here an analysis is listed by its short title (its question when
+# the plan gave none), its places and its periods; the places are given with
+# their cells and area, and a daily or monthly series with the years it
+# covers. A sentence of the plan is printed whole or left to the details.
+NOT_BUILT = ("Your yes does not approve this plan, since approval of the analysis is not "
+             "built yet, and the Analyzer writes its plan again after the runs.")
+
+
+def _read_plan(record: Dict[str, Any], run_dir):
+    rd = Path(run_dir) if run_dir is not None else Path(".")
+    try:
+        return (json.loads((rd / record["plan_file"]).read_text()),
+                json.loads((rd / record["review_file"]).read_text()))
+    except (OSError, ValueError, TypeError, KeyError):
+        return {}, {}
+
+
+def _other_design(record, design_sha256) -> bool:
+    return bool(design_sha256 and record.get("design_sha256")
+                and record["design_sha256"] != design_sha256)
+
+
+def series_words(a: Dict[str, Any], de: Dict[str, Any], row: Dict[str, Any]) -> str:
+    """An analysis's series in words, with the years each one covers: a
+    series names no period of its own, so its span is its run's years."""
+    outs = [o for o in a.get("outputs") or [] if isinstance(o, dict)
+            and o.get("kind") == "series"]
+    steps = [s for s in dict.fromkeys(o.get("step") for o in outs) if s] or \
+        list(a.get("steps") or [])
+    if not steps:
+        return ""
+    oy = (row.get("facts") or {}).get("output_years") or []
+    control = list(range(int(oy[0]), int(oy[-1]) + 1)) if oy else []
+    runs = list(dict.fromkeys(str(o.get("run") or "control") for o in outs)) or ["control"]
+    spans = [(r, _span(control if r == "control" else de.get("years"))) for r in runs]
+    if len({sp for _, sp in spans}) == 1:
+        where = f"over {spans[0][1]}"
+    else:
+        where = " and ".join(
+            f"over {sp} for " + ("the prepared run" if r == "control" else f"`{r}`")
+            for r, sp in spans)
+    return f"{_join([STEP.get(s, str(s)) for s in steps])} series {where}"
+
+
+def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Optional[str],
+                de: Dict[str, Any], row: Dict[str, Any]) -> List[str]:
+    """The short page's section "How the answer will be read"."""
+    if not isinstance(record, dict):
+        an = de.get("analysis") or {}
+        fields = [str(f) for f in an.get("variables") or []]
+        places = [str(r.get("name") if isinstance(r, dict) else r)
+                  for r in an.get("regions") or []]
+        L = ["The analysis is planned after the runs, so no analysis plan is on this page."]
+        if fields:
+            L.append(f"The design names {len(fields)} quantit{'y' if len(fields) == 1 else 'ies'}"
+                     + (f" over {_join(places)}" if places else "")
+                     + " for the numbers that code tabulates from the runs. They are "
+                       "listed in `DESIGN_DETAILS.md`.")
+        return L + [""]
+    if _other_design(record, design_sha256):
+        return ["An analysis plan on record here was written for another design, so it is "
+                "not shown.", ""]
+    L = ["The Analyzer's planning step wrote this plan before any run. " + NOT_BUILT, ""]
+    status = record.get("status")
+    if status == NOT_PLANNED:
+        return L + [f"No plan was written, since {_cell(record.get('why'))}.", ""]
+    if status == FAILED:
+        return L + [f"The plan could not be written. The error was {_cell(record.get('why'))}. "
+                    f"This does not stop the design, since the Analyzer plans after the "
+                    f"runs as before.", ""]
+    plan, _ = _read_plan(record, run_dir)
+    if not plan:
+        return L + ["The plan's file could not be read, so it is not shown.", ""]
+    analyses = [a for a in plan.get("analyses") or [] if isinstance(a, dict)]
+    b = plan.get("baseline") or {}
+    ny = b.get("normal_years") or []
+    held = b.get("includes_compared_years") or []
+    said = []
+    for c in plan.get("comparisons") or []:
+        if not isinstance(c, dict):
+            continue
+        who = "the prepared run" if c.get("run") in (None, "control") else f"`{c.get('run')}`"
+        lead = "The plan" if not said else "It also"
+        if c.get("against") == "normal years":
+            said.append(f"{lead} sets {_span(c.get('years'))} of {who} against the normal "
+                        f"years, {_span(ny)}"
+                        + (f", which contain {_join([str(y) for y in held])}" if held else "")
+                        + ".")
+        else:
+            said.append(f"{lead} compares {who} with the prepared run for "
+                        f"{_span(c.get('years'))}.")
+    if said:
+        L += [" ".join(said), ""]
+    fields: List[str] = []
+    for a in analyses:
+        fields += [f for f in a.get("fields") or [] if f not in fields]
+    L += [f"The plan has {len(analyses)} analys{'is' if len(analyses) == 1 else 'es'} and "
+          f"reads {len(fields)} quantit{'y' if len(fields) == 1 else 'ies'}.", ""]
+    if analyses:
+        L += ["| | What it looks at | Where | When |", "|---|---|---|---|"]
+        for a in analyses:
+            when = [w for w in (periods_words(a.get("periods") or []),
+                                series_words(a, de, row)) if w]
+            L.append(f"| {_cell(a.get('id'))} | {_cell(a.get('title') or a.get('question'))} | "
+                     f"{_cell('; '.join(str(r) for r in a.get('regions') or []) or 'each cell')}"
+                     f" | {_cell('; '.join(when) or 'none named')} |")
+        L.append("")
+    used: List[str] = []
+    for a in analyses:
+        used += [str(r) for r in a.get("regions") or [] if str(r) not in used]
+    sizes = record.get("regions") or {}
+    grid = (row.get("facts") or {}).get("grid") or {}
+    if used:
+        whole = (f" The modelled area has {grid['land_cells']:,} land cells and "
+                 f"{grid['land_area_km2']:,.0f} km2."
+                 if isinstance(grid.get("land_cells"), int)
+                 and isinstance(grid.get("land_area_km2"), (int, float)) else "")
+        L += [f"The analyses read these places and no others.{whole}", "",
+              "| Place | Cells | Area (km2) | Rule |", "|---|---|---|---|"]
+        for r in used:
+            g = sizes.get(r) or {}
+            cells = f"{g['cells']:,}" if isinstance(g.get("cells"), int) else "not on record"
+            area = (f"{g['area_km2']:,.0f}" if isinstance(g.get("area_km2"), (int, float))
+                    else "not on record")
+            L.append(f"| {_cell(r)} | {cells} | {area} | {_cell(g.get('rule') or 'not on record')} |")
+        L.append("")
+    comp = [c for c in plan.get("competing") or [] if isinstance(c, dict)]
+    if comp:
+        titles = [str(c.get("title") or "").strip() for c in comp]
+        n = len(comp)
+        L.append(f"The plan also checks {n} other explanation{'' if n == 1 else 's'}"
+                 + (f". {'It is' if n == 1 else 'They are'} {_join(titles)}."
+                    if all(titles) else ", which the details list."))
+    L += [f"The plan in full is in `DESIGN_DETAILS.md`.", ""]
+    return L
+
+
+def weigh_lines(record: Optional[Dict[str, Any]], run_dir,
+                design_sha256: Optional[str]) -> List[str]:
+    """What the analysis plan adds to the page's points to weigh: whether it
+    passed, every remark of its review and every problem of its check, whole,
+    a year set against normal years that contain it, and a run whose outputs
+    do not exist yet."""
+    if not isinstance(record, dict) or _other_design(record, design_sha256) or \
+            record.get("status") not in (PLANNED, NOT_PASSED):
+        return []
+    plan, review = _read_plan(record, run_dir)
+    if not plan:
+        return []
+    again = " on its second writing" if int(record.get("attempts") or 1) > 1 else ""
+    if record.get("status") == PLANNED:
+        L = [f"- The analysis plan passed its check and its review{again}."]
+    else:
+        L = [f"- The analysis plan did not pass its check or its review. This does not stop "
+             f"the design, since the Analyzer plans again after the runs."]
+        L += [f"  - {_cell(x)}" for x in plan.get("problems") or [] if str(x).strip()]
+    remarks = [x for x in (review.get("model_problems") or []) if str(x).strip()]
+    if remarks:
+        L.append(f"- The plan's review made {len(remarks)} remark"
+                 f"{'' if len(remarks) == 1 else 's'}.")
+        L += [f"  - {_cell(x)}" for x in remarks]
+    b = plan.get("baseline") or {}
+    if b.get("inclusive"):
+        said = _cell(b["inclusive"])
+        L.append("- " + said[0].upper() + said[1:] + ("" if said.endswith(".") else "."))
+    todo = list(dict.fromkeys(
+        str(c.get("run")) for c in plan.get("comparisons") or []
+        if isinstance(c, dict) and c.get("run") not in (None, "control")))
+    if todo:
+        one = len(todo) == 1
+        L.append(f"- {_join([f'`{t}`' for t in todo])} {'is' if one else 'are'} not made "
+                 f"yet, so the plan takes {'its' if one else 'their'} outputs to be the "
+                 f"prepared run's quantities over the planned years. Each year is checked "
+                 f"after it runs.")
     return L

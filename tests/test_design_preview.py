@@ -141,7 +141,10 @@ class TestThePage:
     def test_write_review_reads_the_preview_from_disk(self, study):
         m, cfg, st, p = _preview(study)
         path = dr.write_review(m.run_dir, reception=_reception(), strategy=st)
-        assert "**Passed.**" in path.read_text()
+        # the short page says it in a sentence; the details keep the server's verdict
+        assert "The model server checked the design and built every run without " \
+               "submitting anything." in path.read_text()
+        assert "**Passed.**" in (path.parent / "DESIGN_DETAILS.md").read_text()
 
     def test_no_preview_leaves_the_page_as_it_was(self):
         page = dr.render(_reception(), {}, "x")
@@ -254,13 +257,16 @@ class TestARefusalGoesBackToThePlanner:
         monkeypatch.setattr("builtins.input", lambda p="": "n")
         co._workflow_design_and_run(_reception(), str(tmp_path), tmp_path)
         out = capsys.readouterr().out
-        assert "## The model server's check" in out and "**Passed.**" in out
-        # the second part stays in the file, and the terminal says where (2026-11-03)
+        assert "## Points to weigh" in out and "The model server checked the design" in out
+        # how to make the runs by hand is a file of its own since 2026-11-12, and
+        # the page, which the terminal shows whole, says where
+        by_hand = (tmp_path / "RUN_BY_HAND.md").read_text()
+        assert dr.APPENDIX_MARK in by_hand and "## The code" in by_hand
         page = (tmp_path / "DESIGN_REVIEW.md").read_text()
-        assert dr.APPENDIX_MARK in page and "## The code" in page
+        assert dr.APPENDIX_MARK not in page and "## The code" not in page
         assert dr.APPENDIX_MARK not in out and "## The code" not in out
-        assert ("The page's second part, how to make these runs by hand, is in "
-                f"{tmp_path / 'DESIGN_REVIEW.md'}") in out
+        assert "The steps to make the runs by hand are in `RUN_BY_HAND.md`." in out
+        assert "The page's second part" not in out
 
 
 # ── a preview that failed is not a refusal (2026-11-03) ───────────────────────
@@ -280,7 +286,9 @@ class TestAFailedPreview:
         assert "refused" not in out and "Ask again with that change" not in out
         page = (tmp_path / "DESIGN_REVIEW.md").read_text()
         assert "not run: the design could not be built" in page
-        assert "refused the design" not in page and "**Not built.**" in page
+        assert "refused the design" not in page
+        assert "The design could not be built before this page." in page
+        assert "**Not built.**" in (tmp_path / "DESIGN_DETAILS.md").read_text()
 
     def test_with_a_person_an_error_is_recorded_as_not_built(self, tmp_path, monkeypatch):
         co = _coordinator(tmp_path, [dict(ERROR)], interactive=True)
@@ -321,7 +329,10 @@ class TestARefusalThenNoPreview:
         co._workflow_design_and_run(_reception(), str(tmp_path), tmp_path)
         assert asked and asked[0].startswith("This design cannot run as it is")
         page = (tmp_path / "DESIGN_REVIEW.md").read_text()
-        assert "**Not built.**" in page and "**Refused.**" not in page
+        details = (tmp_path / "DESIGN_DETAILS.md").read_text()
+        assert "The design could not be built before this page." in page
+        assert "refuses this design" not in page
+        assert "**Not built.**" in details and "**Refused.**" not in details
         assert "not run: the design could not be built" in page
 
     def test_a_preview_given_as_none_is_not_read_from_disk(self, tmp_path):

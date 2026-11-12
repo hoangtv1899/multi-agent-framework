@@ -184,6 +184,19 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                            "what": "a region registered for the control, all of its "
                                    "cells; the whole domain when absent"}},
      "alters": [{"inputs": "weather_scale"}],
+     # WHAT A QUESTION'S OWN WORD MAY MISS (2026-11-12). A question about
+     # "rainfall" was answered by a run that multiplies rain and snow together,
+     # and only a remark of the analysis plan's review said so. The change
+     # itself knows this, so it says it: when the setting named is in use and
+     # the question uses one of the words and none of the others, the design
+     # page prints the sentence where the person decides. Read by a person,
+     # so it says what is true of the change and gives no order.
+     "asked_otherwise": [
+         {"param": "precip_factor", "is_not": 1.0,
+          "question_says": ["rain", "rainfall"],
+          "and_not": ["snow", "snowfall", "precipitation"],
+          "say": "The question speaks of rain. This change multiplies rain and snow "
+                 "together, and the model server has no change of rain alone"}],
      "meaning": "the difference from the control is the response to {weather_text}, "
                 "in {months_text}{years_text}{region_text}, with every other input the "
                 "control's",

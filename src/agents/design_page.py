@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""
+The design page a person decides on: short, and in full sentences
+src/agents/design_page.py
+
+THE PAGE WAS TOO LONG AND READ LIKE A FORM (the user's review of 2026-11-12).
+Its first part ran to about 1,700 words for one new run. It repeated the
+control's fire set-up, its grid and its burned-area table in every study, and
+it was a list of fragments drawn from records. A person decides on six
+things, and the page now says those and nothing else:
+
+    the question
+    what will run, what it costs, and where it differs from what was asked
+    the prepared run, in a short summary written once
+    how the answer will be read
+    what the study cannot tell
+    the points to weigh, then the decision
+
+Everything else is kept, in two files the page names: DESIGN_DETAILS.md (the
+design and the analysis plan in full, as the page used to print them) and
+RUN_BY_HAND.md (how to make the runs by hand).
+
+SHORT, BUT NOTHING A DECISION RESTS ON IS LEFT OUT. The page is drawn from
+the same records as the details, by code, and no language model writes it. A
+limit, a caveat, a remark of a review or a finding of the model server is
+printed whole or not at all: this module never shortens a sentence. What is
+left out is description (the control's set-up, each change's mechanism, the
+scripts), never a condition. tests/test_design_page.py holds it to that: every
+caveat, every server finding, every review remark and every difference from
+the question that the details hold is on the page.
+
+Only a whole-domain design has this page. Any other design keeps the page it
+had (design_review.render).
+"""
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
+
+DETAILS_NAME = "DESIGN_DETAILS.md"
+BY_HAND_NAME = "RUN_BY_HAND.md"
+NOT_BUILT = ("Your yes does not approve this plan, since approval of the analysis is not "
+             "built yet, and the Analyzer writes its plan again after the runs.")
+NO_COMPUTE = ("A no submits nothing, so no computing time is used. The model calls that "
+              "prepared this page are already spent.")
+
+
+def _span(years: Any) -> str:
+    ys = sorted({int(y) for y in years or [] if str(y).lstrip("-").isdigit()})
+    if not ys:
+        return "no year"
+    return str(ys[0]) if ys[0] == ys[-1] else f"{ys[0]} to {ys[-1]}"
+
+
+def _join(xs: Sequence[str]) -> str:
+    xs = [str(x) for x in xs if str(x).strip()]
+    return ("" if not xs else xs[0] if len(xs) == 1 else
+            ", ".join(xs[:-1]) + " and " + xs[-1])
+
+
+def _sentence(text: Any) -> str:
+    """A record's words as one sentence: a capital first, a full stop last.
+    Nothing between is changed."""
+    s = " ".join(str(text or "").split())
+    if not s:
+        return ""
+    s = s[0].upper() + s[1:]
+    return s if s[-1] in ".!?" else s + "."
+
+
+def _prepared(text: Any) -> str:
+    """The server's words with its name for the run a person was shown: the
+    control is "the prepared run" everywhere a person reads."""
+    s = " ".join(str(text or "").split())
+    s = re.sub(r"\bthe control's\b", "the prepared run's", s)
+    return re.sub(r"\bthe control\b", "the prepared run", s)
+
+
+def _says(question: str, words: Sequence[str]) -> bool:
+    return any(re.search(rf"\b{re.escape(w)}\b", question, re.IGNORECASE) for w in words)
+
+
+def differences(question: Any, runs: Sequence[Dict[str, Any]],
+                menu: Dict[str, Dict[str, Any]]) -> List[str]:
+    """Where a run does something other than the question's own words say,
+    as the model server's change list declares it (`asked_otherwise`): the
+    setting named is in use, the question uses one of the words and none of
+    the others. The sentence is the server's."""
+    q, out = str(question or ""), []
+    for r in runs or []:
+        for c in (r.get("changes") or []) if isinstance(r, dict) else []:
+            entry = menu.get(c.get("id")) or {}
+            for note in entry.get("asked_otherwise") or []:
+                spec = (entry.get("params") or {}).get(note.get("param")) or {}
+                value = (c.get("params") or {}).get(note.get("param"), spec.get("default"))
+                if value is None or value == note.get("is_not"):
+                    continue
+                if _says(q, note.get("question_says") or []) and \
+                        not _says(q, note.get("and_not") or []):
+                    said = _sentence(note.get("say"))
+                    if said and said not in out:
+                        out.append(said)
+    return out
+
+
+def _question_lines(text: Any) -> List[str]:
+    from agents import design_review as DR
+    parts = [p.strip() for p in str(text or "").split(DR.REVISION_MARK)]
+    L = [f"**Your question.** {parts[0] or '(none on record)'}"]
+    for i, ch in enumerate(parts[1:], 1):
+        L.append("")
+        L.append(f"**Change {i} you asked for at this page.** {ch}")
+    return L
+
+
+def _runs_lines(brief, strategy, de, menu, row, preview, run_dir) -> List[str]:
+    from agents import design_review as DR
+    from core import analysis_years as AY
+    rb = strategy.get("domain_rulebook") or {}
+    runs = [r for r in de.get("runs") or [] if isinstance(r, dict)]
+    ctl = de.get("control") or {}
+    facts = row.get("facts") or {}
+    resolved = DR._resolved_meanings(run_dir)
+    years, how = AY.reported(brief, strategy)
+    sim = how["simulated"]
+    L: List[str] = []
+    if not runs:
+        L.append("No new run is made. The prepared run's existing output is read"
+                 + (f" for {_span(years)}." if years else "."))
+        if ctl and not ctl.get("reuse"):
+            L[-1] = (f"No run with a change is made. The prepared run is made again from "
+                     f"its own recipe and read for {_span(years)}.")
+        return L + [""]
+    L.append(f"We will make {'one new run' if len(runs) == 1 else f'{len(runs)} new runs'}.")
+    for r in runs:
+        name = r.get("name")
+        for c in r.get("changes") or []:
+            m = menu.get(c.get("id")) or {}
+            said = resolved.get((name, c.get("id"))) or \
+                (DR._with_params(m["meaning"], c.get("params")) if m.get("meaning") else None)
+            L.append(f"In `{name}`, {_prepared(said).rstrip('.')}." if said else
+                     f"`{name}` makes the change `{c.get('id')}`, which the model server's "
+                     f"list does not describe.")
+            if m.get("demonstrated") is False:
+                L.append(_sentence((rb.get("changes") or {}).get("demonstrated_false")))
+        if not r.get("changes"):
+            L.append(f"`{name}` names no change, so it repeats the prepared run.")
+    if sim:
+        start = facts.get("start_year")
+        first = (f"A run starts from the prepared run's saved state at the beginning of "
+                 f"{start}, so each new run simulates {_span(sim)}."
+                 if start is not None and min(sim) == start and how["left_out"] else
+                 f"Each new run simulates {_span(sim)}.")
+        L.append(first + f" The numbers are reported for {_span(years)}"
+                 + (f", the year{'' if len(years) == 1 else 's'} you asked about."
+                    if how["source"] == "request" and set(years) == set(how["asked"])
+                    else "."))
+        extra = [y for y in how["normal"] if y not in how["asked"]]
+        if extra and how["source"] == "request":
+            L.append(f"The design compares them with {_span(extra)}, its normal years.")
+    whole = sorted({c.get("id") for r in runs for c in (r.get("changes") or [])
+                    if c.get("id") and not (c.get("params") or {}).get("years")
+                    and not any(isinstance(a, dict) and "years" in a
+                                for a in (menu.get(c.get("id")) or {}).get("alters") or [])})
+    if whole and how["left_out"]:
+        L.append(f"The change {_join([f'`{w}`' for w in whole])} is in effect in every "
+                 f"simulated year, {_span(sim)}, and not only in the years reported. A "
+                 f"reported year carries its effect from {min(sim)} on.")
+    nh = (((preview or {}).get("check") or {}).get("cost") or {}).get("node_hours")
+    hp = facts.get("hours_per_model_year")
+    n_exec = len(runs) + (0 if ctl.get("reuse") else 1)
+    if nh is None and hp and sim:
+        nh = round(n_exec * len(sim) * hp, 1)
+    if nh is not None:
+        L.append(f"The model server estimates the cost at about {nh} node-hours.")
+    diff = differences(brief.get("user_request") or "", runs, menu)
+    if diff:
+        L += ["", "**Different from what you asked.** " + " ".join(diff)]
+    return L + [""]
+
+
+def _prepared_run_lines(de, row) -> List[str]:
+    ctl = de.get("control") or {}
+    ps = row.get("page_summary") or {}
+    text = [str(t).strip() for t in (ps.get("text") or []) if str(t).strip()] \
+        if isinstance(ps, dict) else []
+    L: List[str] = []
+    if text:
+        for t in text:
+            L += [t, ""]
+        L.append(f"This summary of `{ctl.get('name')}` is version {ps.get('version', '?')}"
+                 + (f", written {ps['written']}" if ps.get("written") else "")
+                 + f". The run's full record is in `{DETAILS_NAME}`.")
+    else:
+        L.append(f"The prepared run is `{ctl.get('name')}`."
+                 + (f" The model server describes it as {_prepared(row['description'])}."
+                    if row.get("description") else "")
+                 + f" No short summary of it is on record. Its full record, with how it "
+                   f"compares with measurements, is in `{DETAILS_NAME}`.")
+    for item in row.get("not_in_it_words") or []:
+        L += ["", f"This run does not contain {_prepared(item).rstrip('.')}."]
+    return L + [""]
+
+
+def _cannot_lines(de) -> List[str]:
+    caveats = [str(c).strip() for c in de.get("caveats") or [] if str(c).strip()]
+    if not caveats:
+        return ["The design records no caveat.", ""]
+    return [f"- {_sentence(_prepared(c))}" for c in caveats] + [""]
+
+
+def _noted(finding: Any) -> str:
+    """A finding of the model server's check, whole: where it is, then what
+    the server says of it."""
+    if isinstance(finding, dict) and finding.get("where"):
+        return (f"- The model server has a note on {finding['where']}. "
+                f"{_sentence(finding.get('what'))}")
+    what = finding.get("what") if isinstance(finding, dict) else finding
+    return f"- The model server has a note. {_sentence(what)}"
+
+
+def _weigh_lines(brief, strategy, preview, analysis_preview, run_dir) -> List[str]:
+    from agents import analysis_preview as AV
+    from agents import design_review as DR
+    L: List[str] = []
+    fz = strategy.get("feasibility") or {}
+    verdict = str(fz.get("verdict") or "").strip().lower()
+    if verdict == "full":
+        L.append("- The Planner judges that this design can answer the question in full.")
+    elif verdict == "partial":
+        L.append(f"- The Planner judges that this design answers the question only in part. "
+                 f"{_sentence(fz.get('why'))}")
+    elif verdict == "infeasible":
+        L.append(f"- The Planner judges that this design cannot answer the question. "
+                 f"{_sentence(fz.get('why'))}")
+    else:
+        L.append("- The Planner gave no verdict on whether this design can answer the "
+                 "question.")
+    for need in strategy.get("requires") or []:
+        L.append(f"- The question would also need this, which is not available: "
+                 f"{_sentence(need)}")
+    if preview:
+        for i, r in enumerate(preview.get("rounds") or [], 1):
+            L.append(f"- The model server refused {'an earlier' if i == 1 else 'another'} "
+                     f"version of this design, and the Planner changed it before this page:")
+            L += [f"  - {_sentence(DR._finding(f, 100000))}" for f in r.get("findings") or []]
+        if preview.get("refused"):
+            L.append("- The model server refuses this design as it stands:")
+            L += [f"  - {_sentence(DR._finding(f, 100000))}" for f in preview["refused"]]
+        elif preview.get("error"):
+            L.append(f"- The design could not be built before this page. "
+                     f"{_sentence(preview['error'])}")
+        else:
+            L.append("- The model server checked the design"
+                     + (" and built every run without submitting anything."
+                        if preview.get("runs") else "."))
+            for u in ((preview.get("check") or {}).get("unusual") or []):
+                L.append(_noted(u))
+            ic = preview.get("inputs_check") or {}
+            if ic and not ic.get("pass"):
+                L.append("- The input files FAILED their check: "
+                         + _sentence("; ".join(map(str, ic.get("reasons") or []))))
+            for p in preview.get("problems") or []:
+                L.append(f"- Not shown in the details: {_sentence(p)}")
+    L += AV.weigh_lines(analysis_preview, run_dir, DR.design_fingerprint(strategy))
+    rs = brief.get("run_settings") or {}
+    for item in list(brief.get("assumptions") or []) + list(rs.get("conflicts") or []):
+        L.append(f"- Decided without you: {_sentence(item)}")
+    for item in brief.get("known_data_gaps") or []:
+        L.append(f"- Noted by Reception: {_sentence(item)}")
+    return L + [""]
+
+
+def _decision_lines(de, strategy, preview, by_hand: bool) -> List[str]:
+    runs = de.get("runs") or []
+    ctl = de.get("control") or {}
+    executes = bool(runs) or not ctl.get("reuse")
+    fz = strategy.get("feasibility") or {}
+    blocked = bool(preview and (preview.get("refused") or preview.get("error"))) or \
+        str(fz.get("verdict") or "").strip().lower() == "infeasible"
+    if blocked:
+        L = ["This design cannot run as it stands. Type a change to have it made again and "
+             "checked again, or stop. Nothing has been submitted."]
+    elif executes:
+        what = "the run" if len(runs) == 1 else "the runs"
+        L = [f"A yes submits {what}. It approves {what} and the years above. It does not "
+             f"approve an analysis plan, since that approval is not built yet. "
+             + NO_COMPUTE]
+    else:
+        L = ["A yes starts the analysis of the prepared run's existing output. No model run "
+             "is made, and the analysis itself uses paid model calls. It does not approve "
+             "an analysis plan, since that approval is not built yet. " + NO_COMPUTE]
+    L += ["", f"The design in full, with the analysis plan when one was written, is in "
+              f"`{DETAILS_NAME}`."
+              + (f" The steps to make the runs by hand are in `{BY_HAND_NAME}`."
+                 if by_hand else "")]
+    return L + [""]
+
+
+def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
+           analysis_preview=None, by_hand: bool = True) -> Optional[str]:
+    """The short design page of a whole-domain design, or None for any other
+    design, which keeps the page it had."""
+    from agents import analysis_preview as AV
+    from agents import design_review as DR
+    brief = reception.get("brief") or reception
+    de = dict(brief.get("domain_experiment") or {})
+    de.update(strategy.get("domain_experiment") or {})
+    if not de or not isinstance(strategy.get("domain_experiment"), dict):
+        return None
+    rb = strategy.get("domain_rulebook") or {}
+    menu = {c.get("id"): c for c in ((rb.get("changes") or {}).get("changes") or [])
+            if isinstance(c, dict)}
+    ctl = de.get("control") or {}
+    row = next((c for c in ((rb.get("controls") or {}).get("controls") or [])
+                if isinstance(c, dict) and c.get("name") == ctl.get("name")), {})
+    question = reception.get("user_request") or brief.get("user_request") or ""
+    L = [f"# Design review: {run_name}", ""]
+    L += _question_lines(question) + [""]
+    L += ["## What will run", ""]
+    L += _runs_lines(dict(brief, user_request=question), strategy, de, menu, row, preview,
+                     run_dir)
+    L += ["## The prepared run", ""] + _prepared_run_lines(de, row)
+    L += ["## How the answer will be read", ""]
+    L += AV.short_lines(analysis_preview, run_dir, DR.design_fingerprint(strategy),
+                        de, row)
+    L += ["## What the study cannot tell you", ""] + _cannot_lines(de)
+    L += ["## Points to weigh", ""]
+    L += _weigh_lines(brief, strategy, preview, analysis_preview, run_dir)
+    L += ["## Your decision", ""] + _decision_lines(de, strategy, preview, by_hand)
+    L += ["---", DR._PENDING, ""]
+    return "\n".join(L)
+
+
+def words(text: str) -> int:
+    """The words of a page: tokens that hold a letter or a digit."""
+    return sum(1 for t in str(text).split() if re.search(r"[A-Za-z0-9]", t))

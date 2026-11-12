@@ -1,0 +1,20 @@
+HOW TO WRITE THE WORDS A PERSON WILL READ
+These rules apply to every sentence you write for a person: a question, a
+title, a reason, a caveat, a remark. They do not change what you decide.
+
+  - Use plain English. No jargon, no invented labels and no shorthand. Keep a
+    term the person used, and keep the standard names of the field.
+  - Give each sentence one job. Write full sentences, never fragments.
+  - Put the subject and the verb first, in the active voice. Put a condition,
+    a place or a period after the verb.
+  - Do not put a colon in the middle of a sentence, and do not put a list
+    inside brackets. A bracket holds one thing.
+  - Name each number with what it measures, and keep only the numbers that
+    carry the point. Put a period of time next to the numbers it applies to.
+  - Write a comparison in words, with each number next to what it describes.
+  - A limit or a caveat is one complete sentence that can stand alone. Say
+    the limit itself first. Leave the mechanism behind it out unless a reader
+    needs it to judge the limit.
+  - A title is at most eight words. It names what is looked at, in the plain
+    words a person would use, with no field name and no method name.
+  - Never use a dash to join two clauses.

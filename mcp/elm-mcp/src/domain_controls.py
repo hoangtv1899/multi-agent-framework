@@ -758,6 +758,13 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
            # 2016-2020 one day and 2016-2023 another, and different numbers.
            "normal_years": entry.get("normal_years"),
            "normal_years_why": entry.get("normal_years_why"),
+           # A SHORT SUMMARY FOR THE DESIGN PAGE (2026-11-12): what the control
+           # is and how it compares with measurements, in a few plain
+           # sentences, written once in the registry and printed as it stands
+           # on every design page, with its version. {"version", "written",
+           # "text": [paragraphs]}; None for a control that has none, which
+           # the page then describes by its description.
+           "page_summary": entry.get("page_summary"),
            "regions": {k: v.get("what") for k, v in (entry.get("regions") or {}).items()},
            "observations": {k: v.get("what")
                             for k, v in (entry.get("observations") or {}).items()},

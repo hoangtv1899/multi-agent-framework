@@ -195,14 +195,48 @@ analysis plan written after the runs, which may read other quantities and is
 not on the page. For a control with no store the heading stays "The numbers
 the answer is read from".
 
+## The design page is short, with two files beside it
+
+`src/agents/design_page.py` (2026-11-12). A whole-domain design is decided on
+a short page, `DESIGN_REVIEW.md`: the question, what will run and its cost,
+the prepared run in a summary written once, how the answer will be read, what
+the study cannot tell, the points to weigh and the decision. The design in
+full is in `DESIGN_DETAILS.md`, and the steps to make the runs by hand are in
+`RUN_BY_HAND.md`. The page names both.
+
+Short does not mean silent. The page and the details are drawn by code from
+the same records, and no model writes either. A caveat, a finding of the
+model server, a remark of a plan's review or a thing decided without the
+person is printed whole. What the page leaves to the details is description:
+the control's set-up, each change's mechanism, the scripts.
+
+- **Where a run differs from the question's own word.** A change in the
+  server's list may say what a question's word misses (`asked_otherwise`): a
+  question about rain, and a change that multiplies rain and snow together.
+  The page prints the server's sentence where the run is described.
+- **The places and the years.** Each place an analysis reads is given with
+  its cells, its area and its rule. A daily or monthly series is given with
+  the years it covers.
+- **The prepared run's summary** is a few sentences kept in the control's
+  registry entry (`page_summary`), with a version, and printed as it stands.
+- **A no is not said to cost nothing.** It submits nothing and uses no
+  computing time; the model calls that prepared the page are already spent.
+- **Titles.** The planning step writes a short title for each analysis in the
+  same call as its plan. The question and the id stay, and a plan with no
+  title is listed by its question.
+- **The rules for the words** a person reads are in
+  `src/agents/prompts/house_style.txt`, and the Planner and the planning step
+  are sent them in full. An agent is a model call of its own and inherits no
+  style from the tool that wrote the code.
+
 ## The analysis plan may be shown before the yes (transitional)
 
 `src/agents/analysis_preview.py`, off unless `IDEAS_PLAN_BEFORE_APPROVAL=1`.
 With the switch set, the Analyzer's own planning step (step 2a, with its
 check, its review and its one rewrite: `step3_interpret.plan_and_review`)
-writes its plan from the design before the page, and the page's first part
-shows it: what is compared, the normal years, each analysis with its places,
-periods and required outputs, the other explanations, the review's remarks.
+writes its plan from the design before the page. The short page shows what
+is compared, each analysis with its places and periods, and every remark of
+the plan's review. The details file shows the plan in full.
 
 This is a look before the decision and nothing more:
 

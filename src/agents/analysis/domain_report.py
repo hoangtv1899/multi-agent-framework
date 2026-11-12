@@ -1066,11 +1066,16 @@ def _control_evaluated(rd: Path) -> bool:
 
 
 def _design_page_compares(rd: Path) -> bool:
-    try:
-        text = (rd / "DESIGN_REVIEW.md").read_text()
-    except OSError:
-        return False
-    return any(l.lstrip().startswith(AGAINST_OBSERVATIONS) for l in text.splitlines())
+    # the design page, or since 2026-11-12 its details file, which holds the
+    # control's comparison with measurements in the record's own words
+    for name in ("DESIGN_REVIEW.md", "DESIGN_DETAILS.md"):
+        try:
+            text = (rd / name).read_text()
+        except OSError:
+            continue
+        if any(l.lstrip().startswith(AGAINST_OBSERVATIONS) for l in text.splitlines()):
+            return True
+    return False
 
 
 def observations_note(analysis: Dict[str, Any], rd: Path) -> Optional[str]:

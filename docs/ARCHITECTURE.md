@@ -15,9 +15,9 @@ The recorded analysis plan, its review, its amendments and the lookups log
 - `_ask` calls the model (`client.ask`) and constructs `SimpleLLMClient`
 - Default model id: `_ask(model)` has no default; its caller sets it
 - Model id as the framework passes it:
-  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `rewrite_plan` with model=`model` = `"claude-opus-5-project"`
-  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `write_plan` with model=`model` = `"claude-opus-5-project"`
-- Prompt files: none
+  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `rewrite_plan` with model=`model` = `"claude-opus-5-5-project"`
+  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `write_plan` with model=`model` = `"claude-opus-5-5-project"`
+- Prompt files: `src/agents/prompts/house_style.txt`
 - Prompt text written in the module: `INCLUSIVE_WORDS`, `PLAN_LEAD`, `PLAN_SCOPE`, `REWRITE_ASK`
 - Records it reads: `analysis_plan.json`, `analysis_plan.v1.json`, `analysis_plan_review.json`, `domain_control_facts.json`, `planned_phase.json`, `screen_L{n}.csv`, `screen_record.json`, `suite.json`; writes: `analysis_plan.json`, `analysis_plan_review.json`, `planned_phase.json`, `screen_record.json`; names without opening: `analysis_plan_review.v1.json`, `required_outputs.json`
 - Called from: `src/agents/analysis/step3_interpret.py::plan_and_review`
@@ -27,10 +27,10 @@ The recorded analysis plan, its review, its amendments and the lookups log
 Analyzer step 2; decide what to plot, then plot it
 
 - `propose` calls the model (`client.ask`) and constructs `SimpleLLMClient`
-- Default model id: `DEFAULT_MODEL = "claude-opus-5-project"`; `propose(model)` defaults to `DEFAULT_MODEL` = `"claude-opus-5-project"`
+- Default model id: `DEFAULT_MODEL = "claude-opus-5-5-project"`; `propose(model)` defaults to `DEFAULT_MODEL` = `"claude-opus-5-5-project"`
 - Model id as the framework passes it:
-  - `src/agents/analysis/step2_investigate.py::investigate` calls `propose` with model=`model` = `"claude-opus-5-project"`
-  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `investigate` with model=`model` = `"claude-opus-5-project"`
+  - `src/agents/analysis/step2_investigate.py::investigate` calls `propose` with model=`model` = `"claude-opus-5-5-project"`
+  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `investigate` with model=`model` = `"claude-opus-5-5-project"`
 - Prompt files: none
 - Prompt text written in the module: `DOMAIN_TASK`, `SUITE_TASK_BODY`, `TASK`
 - Records it reads: `investigation.json`; writes: `.spec.json`, `investigation.json`, `investigation_plan.md`; names without opening: `required_outputs.json`
@@ -44,11 +44,11 @@ Analyzer step 3; interpret the findings, and decide whether they suffice
 - `interpret` calls the model (`client.ask`) and constructs `SimpleLLMClient`
 - `rewrite_wording` calls the model (`client.ask`)
 - `rule_plan_follows_question` calls the model (`client.ask`) and constructs `SimpleLLMClient`
-- Default model id: `DEFAULT_MODEL = "claude-opus-5-project"`; `interpret(model)` defaults to `DEFAULT_MODEL` = `"claude-opus-5-project"`; `rule_plan_follows_question(model)` defaults to `DEFAULT_MODEL` = `"claude-opus-5-project"`
+- Default model id: `DEFAULT_MODEL = "claude-opus-5-5-project"`; `interpret(model)` defaults to `DEFAULT_MODEL` = `"claude-opus-5-5-project"`; `rule_plan_follows_question(model)` defaults to `DEFAULT_MODEL` = `"claude-opus-5-5-project"`
 - Model id as the framework passes it:
-  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `interpret` with model=`model` = `"claude-opus-5-project"`
-  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `plan_and_review` with model=`model` = `"claude-opus-5-project"`
-  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `rule_plan_follows_question` with model=`model` = `"claude-opus-5-project"`
+  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `interpret` with model=`model` = `"claude-opus-5-5-project"`
+  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `plan_and_review` with model=`model` = `"claude-opus-5-5-project"`
+  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `rule_plan_follows_question` with model=`model` = `"claude-opus-5-5-project"`
   - `src/agents/analysis_preview.py::plan_before_approval` calls `plan_and_review` with model=`S2.analyzer_model(model)`
   - `src/agents/analyzer.py::Analyzer.run` calls `investigate_and_interpret` with model=`step2_investigate.analyzer_model(config.get("analysis_model"))`
 - Prompt files: none
@@ -77,10 +77,10 @@ The planner
 
 - `Planner.__init__` constructs `SimpleLLMClient`
 - `Planner.plan` calls the model (`self.llm.ask`)
-- Default model id: `Planner.__init__(model)` defaults to `"claude-opus-4-8-project"`
+- Default model id: `Planner.__init__(model)` defaults to `"claude-opus-5-5-project"`
 - Model id as the framework passes it:
-  - `workflow.py::WorkflowCoordinator.__init__` calls `Planner.__init__` with model=`planner_model` = `"claude-opus-4-8-project"`
-- Prompt files: `src/agents/prompts/planner.txt`
+  - `workflow.py::WorkflowCoordinator.__init__` calls `Planner.__init__` with model=`planner_model` = `"claude-opus-5-5-project"`
+- Prompt files: `src/agents/prompts/house_style.txt`, `src/agents/prompts/planner.txt`
 - Prompt text written in the module: `FINDINGS_NOTE`
 - Records it reads: none; writes: none; names without opening: none
 - Called from: `workflow.py::WorkflowCoordinator._plan`
@@ -355,7 +355,7 @@ Every top-level package imported by framework code (`src/`, `workflow.py`, the e
    - code: `src/agents/design_review.py::write_review`, `src/agents/design_review.py::record_decision`
    - language model: no; code only
    - reads: `DESIGN_REVIEW.md`, `analysis_preview.json`, `design_preview.json`, `domain_control_facts.json`, `reception.json`, `strategy.json`
-   - writes: `DESIGN_REVIEW.md`
+   - writes: `DESIGN_DETAILS.md`, `DESIGN_REVIEW.md`, `RUN_BY_HAND.md`
 5. **The experiment record: control, runs and their checked changes**
    - code: `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._build_domain_experiment`
    - language model: no; code only
@@ -387,7 +387,7 @@ Every top-level package imported by framework code (`src/`, `workflow.py`, the e
 10. **The numbers report, rendered from the records (job B)**
    - code: `src/agents/analysis/domain_report.py::build`
    - language model: no; code only
-   - reads: `DESIGN_REVIEW.md`, `domain_control_facts.json`, `experiment.json`, `reception.json`, `regional.json`, `strategy.json`
+   - reads: `DESIGN_DETAILS.md`, `DESIGN_REVIEW.md`, `domain_control_facts.json`, `experiment.json`, `reception.json`, `regional.json`, `strategy.json`
    - writes: `DOMAIN_REPORT.md`, `domain_report.json`
 11. **Analyzer step 0: read the records into one context (job B)**
    - code: `src/agents/analysis/step0_context.py::load`

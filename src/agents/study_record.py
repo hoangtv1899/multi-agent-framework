@@ -1092,6 +1092,8 @@ ROLES = (
     # pass it is from is read from its time (_notice_role, _index_lines)
     (NOTICE_NAME, "the notice tools/notify_study.py wrote when the study ended"),
     ("DESIGN_REVIEW.md", "the design page shown before any compute, with the decision on it"),
+    ("DESIGN_DETAILS.md", "the design in full, with the analysis plan written before the page when there is one: what the short design page leaves out"),
+    ("RUN_BY_HAND.md", "how to make the runs by hand, drawn from what the model server wrote before the design page"),
     ("PLAN_CORRECTED.md", "a note of a correction made to the plan after the decision"),
     ("ensemble_A.sbatch", "the script of job A, which builds the model's cases and runs them"),
     ("ensemble_A.log", "job A's log: each case built and run, and how it ended"),

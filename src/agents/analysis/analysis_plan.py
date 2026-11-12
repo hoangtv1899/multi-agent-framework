@@ -326,6 +326,13 @@ PLAN_PARTS: Dict[str, Dict[str, Any]] = {
         "shape": "list",
         "means": "each a planned lookup: what a script may look up, and why",
         "item": (Part("id", "name", "its id", "P1"),
+                 # A SHORT TITLE BESIDE THE QUESTION (2026-11-12): the design
+                 # page lists the analyses, and their questions run to thirty
+                 # words. The title is written by this same call. It replaces
+                 # nothing: the question stays, the id stays, and a plan with
+                 # no title is listed by its question.
+                 Part("title", "words", "a short title of at most eight words, naming "
+                      "what is looked at in plain words"),
                  Part("question", "words", "the question it answers"),
                  Part("fields", "list", "the catalog fields it reads", ["GPP"]),
                  Part("regions", "list", "the regions it reads", ["..."]),
@@ -357,7 +364,8 @@ PLAN_PARTS: Dict[str, Dict[str, Any]] = {
         "shape": "list",
         "means": "other mechanisms that could give the same pattern, each with the fields "
                  "that would tell them apart (the methods view lists candidates)",
-        "item": (Part("text", "words", "the mechanism, in words"),
+        "item": (Part("title", "words", "a short title of at most six words"),
+                 Part("text", "words", "the mechanism, in words"),
                  Part("fields", "list", "the fields that would tell it apart", ["..."]),
                  Part("analysis", "name", "the analysis that reads them", "P2"))},
     "screen": {
@@ -1143,6 +1151,15 @@ planned. A method's full contract can be read at any time with
 suite.method_contract(method_id)."""
 
 
+def house_style() -> str:
+    """The rules for the words a person will read, as every agent that writes
+    such words is given them (agents/prompts/house_style.txt). An agent of
+    the framework is a model call of its own and loads no skill of the tool
+    that wrote this code, so the rules are in its task, in full."""
+    from agents.prompts import load_prompt
+    return load_prompt("house_style").rstrip()
+
+
 def plan_task() -> str:
     """The task step 2a's model reads, rendered from PLAN_PARTS (what each key
     of the plan holds), PLAN_RULES (what the plan check refuses, in the
@@ -1160,7 +1177,7 @@ def plan_task() -> str:
         L += _wrapped(r.text() + ".", "  - ", "    ")
     L += [""] + settings_lines()
     L += [""] + output_lines()
-    L += ["", PLAN_SCOPE, "", "Return ONLY JSON:"] + reply_json(PLAN_PARTS)
+    L += ["", PLAN_SCOPE, "", house_style(), "", "Return ONLY JSON:"] + reply_json(PLAN_PARTS)
     return "\n".join(L) + "\n"
 
 

@@ -202,6 +202,11 @@ class Planner:
                        "will run this study\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━━━━━━━━━━━━━━━━━━\n"
                        + json.dumps(self.pinning, indent=1, default=str))
+        # THE WORDS A PERSON READS (2026-11-12). The Planner's reasons and
+        # caveats are printed on the design page. The rules for such words are
+        # given to it here, in full: it is a model call of its own and
+        # inherits no style from anywhere.
+        system += "\n\n" + load_prompt("house_style").rstrip()
         content = json.dumps(payload, indent=1, default=str)
         if findings:
             # the refused design without the blocks this code adds after the
