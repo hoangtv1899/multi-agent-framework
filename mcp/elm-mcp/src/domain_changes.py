@@ -273,13 +273,18 @@ class ChangeError(Exception):
 # control's, and no further: a result from one is untested until its first run
 # has been read by a person. The list says which is which, so that an
 # available change is never shown as a tested one.
+#
+# THE WORDS ARE READ BY A PERSON (2026-11-11). They are printed as they stand
+# on the page a person approves a design from, so they say what is true of the
+# change and nothing else. They used to end with an order to whoever designs
+# with it, and the person read that order on their own page. What a designer
+# does about it is a rule of the list (declare), which no page prints.
 _DEMONSTRATED = frozenset({"fire_off", "weather_scale", "weather_repeat_year"})
 DEMONSTRATED_WORDS = {
     True: "a run with this change has passed every check of its job chain in this "
           "framework",
     False: "No run with this change has been completed in this framework yet. Its "
-           "settings are checked before the model is built; its result is untested. "
-           "Tell the person before they agree, and say so in the caveats",
+           "settings are checked before the model is built; its result is untested",
 }
 
 
@@ -324,6 +329,10 @@ def declare() -> Dict[str, Any]:
             "consecutive years inside its output",
             "years are what a run simulates; the numbers are reported for the "
             "years asked about",
+            "a change marked demonstrated: false may be designed: tell the person, "
+            "before they agree, that no run with it has been completed here and "
+            "that its result is untested, and write the same in the design's "
+            "caveats",
         ],
     }
 

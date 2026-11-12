@@ -350,7 +350,14 @@ class TestAChangeThatHasNeverRunSaysSo:
         assert menu["fire_off"]["demonstrated"] is True
         assert menu["co2_ppmv"]["demonstrated"] is False
         # the words are said once, for the whole list, so it fits a tool result
-        assert "untested" in CH.declare()["demonstrated_false"]
+        said = CH.declare()
+        assert "untested" in said["demonstrated_false"]
+        # the words are printed on the person's page as they stand, so they
+        # hold no order to whoever designs with the change; that is a rule
+        for order in ("Tell the person", "say so in the caveats"):
+            assert order not in said["demonstrated_false"], order
+        assert [r for r in said["rules"] if "demonstrated: false" in r
+                and "tell the person" in r and "caveats" in r]
 
     def test_the_check_calls_it_unusual_and_still_builds(self):
         exp = {"control": {"name": "c", "reuse": True}, "years": [2031],
@@ -371,6 +378,7 @@ class TestAChangeThatHasNeverRunSaysSo:
         page = _page(_brief([2031], [2031, 2031], runs), _strategy([2031], runs))
         assert "**co2_ppmv is NOT DEMONSTRATED.** No run with this change has been completed" \
             in page
+        assert "its result is untested" in page and "Tell the person" not in page
         page = _page(_brief([2031], [2031, 2031], FIRE_OFF), _strategy([2031], FIRE_OFF))
         assert "NOT DEMONSTRATED" not in page
 
