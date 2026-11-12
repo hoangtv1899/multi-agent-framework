@@ -60,16 +60,17 @@ def test_no_evaluation_no_line():
 
 def _block():
     text = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
-    return text[text.index("THEN ASK BEFORE YOU SETTLE ANYTHING"):
-                text.index("TURN THE QUESTION INTO RUNS")]
+    return text[text.index("ASK BEFORE YOU SETTLE ANYTHING"):
+                text.index("OUTPUT: when done")]
 
 
-def test_reception_asks_before_settling_and_does_not_repeat_the_card():
-    block = _block()
-    assert "When you fetch the controls" in block and "Do not repeat the card" in block
-    assert "first `ask_user` message" in block
+def test_reception_asks_before_settling_and_does_not_describe_the_run_again():
+    block = " ".join(_block().split())
+    assert "The framework has told them what the prepared run is" in block
+    assert "Do not describe the run again" in block
+    assert "Send ONE `ask_user` message before the brief" in block
     assert "even when the question needs no run" in block
-    assert "batch mode" in block and "the design page shows the card" in block
+    assert "batch mode" in block and "the design page shows the control's whole record" in block
 
 
 def test_what_the_control_does_not_contain_is_said_from_its_facts():
@@ -91,9 +92,14 @@ def test_what_the_control_does_not_contain_is_said_from_its_facts():
 
 
 def test_reception_names_what_the_run_does_not_contain():
-    block = _block()
-    assert "`not_in_it`" in block and "`evaluation`" in block
-    assert "does not contain: its" in block and "effect cannot be read from the run" in block
+    block = " ".join(_block().split())
+    # the comparison with measurements is not shown to the model any more, so
+    # its prompt does not name the field (controls_for_the_llm)
+    assert "`not_in_it`" in block and "`evaluation`" not in block
+    assert ("that the run does not contain (`not_in_it`): its effect cannot be read from "
+            "the run") in block
+    # the card no longer says it, so the prompt says where the person reads it
+    assert "is printed on the design page, before they approve anything" in block
 
 
 def test_the_design_page_says_what_is_not_in_the_run():
@@ -106,14 +112,28 @@ ROW = {"name": "synth", "usable": True, "description": "a synthetic control, fir
        "evaluation": EVAL, "not_in_it": ["the observed fires: the run's fire is the model's own"]}
 
 
-def test_the_card_quotes_the_servers_words_and_adds_nothing():
+def test_the_card_says_what_the_run_is_and_where_the_rest_is_shown():
+    """IDENTITY ONLY (the user's decision of 2026-11-11): the comparison with
+    measurements, the baseline years and what the run lacks were a paragraph
+    of numbers ahead of any answer. They are on the design page, before the
+    yes, and the card says so, naming only what the record holds."""
     from agents.reception_llm import control_card
-    card = control_card([ROW])
-    assert card.splitlines()[1:] == [
-        "  ── The prepared run, in the model server's own words ──",
-        "  synth: a synthetic control, fire model on",
-        "  Against observations: " + EVAL["summary"],
-        "  Not in this run: the observed fires: the run's fire is the model's own"]
+    card = control_card([dict(ROW, normal_years=[2016, 2017])])
+    assert card.splitlines()[1:3] == ["  ── The prepared run ──",
+                                      "  synth: a synthetic control, fire model on"]
+    flat = " ".join(card.split())
+    assert flat.endswith("How it compares with measurements and what it does not contain are "
+                         "on the design page, before you are asked to approve anything.")
+    for gone in ("Against observations", EVAL["summary"], "Not in this run", "observed fires",
+                 "normal years", "2016", "Fire:", "Grid:"):
+        assert gone not in card, gone
+    assert max(len(x) for x in card.splitlines()) <= 98
+    # only what the record holds is promised
+    only_eval = " ".join(control_card([dict(ROW, not_in_it=[])]).split())
+    assert only_eval.endswith("How it compares with measurements is on the design page, "
+                              "before you are asked to approve anything.")
+    bare = control_card([{"name": "synth", "usable": True, "description": "a control"}])
+    assert bare.splitlines()[1:] == ["  ── The prepared run ──", "  synth: a control"]
 
 
 def _agent(revision=False):
@@ -157,19 +177,100 @@ def test_reading_the_controls_prints_the_card_once(monkeypatch, capsys):
         "describe_domain_controls": {"schema": {}, "fn": lambda **kw: rows}})
     a = R.LLMReceptionAgent(model="x", mcp_clients={})
     read = a.loop.local["describe_domain_controls"]["fn"]
-    assert read(server="elm") == rows and read(server="elm") == rows
+    for _ in range(2):
+        got = read(server="elm")["controls"]["controls"][0]
+        assert got["name"] == "synth" and got["not_in_it"] == ROW["not_in_it"]
+        # the model reads its own copy, without the comparison with measurements
+        assert got["evaluation"] == R.SHOWN_ON_THE_DESIGN_PAGE
+    assert rows["controls"]["controls"][0]["evaluation"] == EVAL    # the record is whole
     out = capsys.readouterr().out
-    assert out.count("The prepared run, in the model server's own words") == 1
-    assert "Not in this run: the observed fires" in out
+    assert out.count("── The prepared run ──") == 1
+    assert "on the design page" in out and "Not in this run" not in out
+
+
+def test_a_run_the_start_banner_introduced_gets_no_card(monkeypatch, capsys):
+    """THE RUN IS DESCRIBED ONCE (2026-11-11): the coordinator's banner says
+    what each prepared run is before the first question, and the card under
+    it said the same a few lines later."""
+    a = _agent()
+    a.introduced = {"synth"}
+    assert a._control_card(TRACE) is None
+    a.introduced = {"another"}                         # a run the banner did not name
+    assert "synth: a synthetic control" in a._control_card(TRACE)
+
+    import agents.reception_llm as R
+
+    class FakeLoop:
+        def __init__(self, **kw):
+            self.local, self.tools = kw["local_tools"], []
+
+    rows = {"server": "elm", "controls": {"controls": [ROW]}}
+    monkeypatch.setattr(R, "ToolLoopAgent", FakeLoop)
+    monkeypatch.setattr(R, "model_tools", lambda clients: {
+        "describe_domain_controls": {"schema": {}, "fn": lambda **kw: rows}})
+    b = R.LLMReceptionAgent(model="x", mcp_clients={})
+    assert b.introduced == set()                       # alone, Reception shows the card
+    b.introduced = {"synth"}
+    b.loop.local["describe_domain_controls"]["fn"](server="elm")
+    assert "The prepared run" not in capsys.readouterr().out
+
+
+def test_the_model_is_not_shown_the_runs_results_or_its_comparison():
+    """Handed the comparison with measurements and the numbers by year,
+    Reception quoted them and then judged them, against its prompt. Its copy
+    of the record has neither; a note says where the person sees them."""
+    from agents.reception_llm import (controls_for_the_llm, REPORTED_BY_THE_ANALYSIS,
+                                      SHOWN_ON_THE_DESIGN_PAGE as NOTE)
+    full = {"name": "synth", "usable": True, "description": "a control", "evaluation": EVAL,
+            "normal_years": [2031, 2032], "not_in_it": ["the observed floods"],
+            "run_names_taken": ["wet"],
+            "facts": {"start_year": 2031, "output_years": [2031, 2036],
+                      "settings": {"co2_ppmv": 400.0},
+                      "per_year": {"2031": {"runoff_mm": 123.4}},
+                      "burned_area_km2": {"model": {"2031": 5.0}}}}
+    answer = {"server": "elm", "offers_whole_domain_experiments": True,
+              "controls": {"registry": "r", "controls": [full, {"name": "bare",
+                                                                "evaluation": None,
+                                                                "facts": None}]}}
+    before = json.dumps(answer, sort_keys=True)
+    got = controls_for_the_llm(answer)
+    assert json.dumps(answer, sort_keys=True) == before          # a copy
+    row, bare = got["controls"]["controls"]
+    assert row["evaluation"] == NOTE
+    assert row["facts"]["per_year"] == REPORTED_BY_THE_ANALYSIS
+    text = json.dumps(got)
+    for gone in (EVAL["summary"], "123.4", "runoff_mm"):
+        assert gone not in text, gone
+    # everything a design is settled from is still there
+    for key in ("name", "description", "usable", "normal_years", "not_in_it",
+                "run_names_taken"):
+        assert row[key] == full[key], key
+    for key in ("start_year", "output_years", "settings", "burned_area_km2"):
+        assert row["facts"][key] == full["facts"][key], key
+    assert got["server"] == "elm" and got["controls"]["registry"] == "r"
+    # a record that holds none is not said to hold one
+    assert bare == {"name": "bare", "evaluation": None, "facts": None}
+    # an answer of another shape (a server that could not be read) is passed on
+    for other in ({"server": "elm", "offers_whole_domain_experiments": False, "why": "x"},
+                  {"error": "no server"}, None, "text"):
+        assert controls_for_the_llm(other) == other
+    # each note says who does report what was left out, and it is true: the
+    # design page prints the comparison with measurements and not the numbers
+    # by year, which are the analysis's to report
+    assert "design page" in NOTE and "Say nothing about it" in NOTE
+    assert "design page" not in REPORTED_BY_THE_ANALYSIS
+    assert "the analysis reports results" in REPORTED_BY_THE_ANALYSIS
+    from agents import design_review
+    page_code = Path(design_review.__file__).read_text()
+    assert '"evaluation"' in page_code and "per_year" not in page_code
 
 
 def test_a_revision_is_not_asked_to_confirm_again():
     """A REVIEW FINDING (2026-11-03): the revision block said do not re-ask,
     and STEP 2c said always ask, with nothing saying which wins."""
     block = " ".join(_block().split())
-    assert ("In a revision (`revision_of` in the context), the card is not shown again "
-            "and the user already confirmed the design: skip this question unless the "
-            "new change itself is unclear.") in block
+    assert ("In a revision (`revision_of` in the context) the design was already "
+            "confirmed: skip the message unless the new change itself is unclear.") in block
 
 
 def test_process_shows_the_card_for_a_question_and_not_for_a_revision(monkeypatch, capsys):
@@ -191,7 +292,7 @@ def test_process_shows_the_card_for_a_question_and_not_for_a_revision(monkeypatc
     monkeypatch.setattr(R, "model_tools", lambda clients: {
         "describe_domain_controls": {"schema": {}, "fn": lambda **kw: rows}})
     a = R.LLMReceptionAgent(model="x", mcp_clients={})
-    heading = "The prepared run, in the model server's own words"
+    heading = "── The prepared run ──"
 
     a.process("q")
     assert capsys.readouterr().out.count(heading) == 1
@@ -202,19 +303,17 @@ def test_process_shows_the_card_for_a_question_and_not_for_a_revision(monkeypatc
 
 
 # THE CONTROL'S OWN NORMAL YEARS (2026-11-10): entered in the registry as the
-# evaluation is, carried by the server's summary, said on the card and on the
-# design page, so a study's baseline does not change from one asking to the next.
+# evaluation is, carried by the server's summary and said on the design page,
+# so a study's baseline does not change from one asking to the next. The card
+# no longer prints them (2026-11-11): read before any design, "normal years"
+# was taken for a statement about the climate.
 
-def test_the_summary_and_the_card_carry_the_controls_own_normal_years():
+def test_the_summary_carries_the_controls_own_normal_years():
     import domain_controls as D
-    from agents.reception_llm import control_card
     row = D.summary({"name": "x", "description": "d", "usable": True,
                      "normal_years": [2016, 2017], "normal_years_why": "its evaluation's"}, None)
     assert row["normal_years"] == [2016, 2017] and row["normal_years_why"] == "its evaluation's"
     assert D.summary({"name": "x", "description": "d"}, None)["normal_years"] is None
-    card = control_card([dict(ROW, normal_years=[2016, 2017], normal_years_why="its evaluation's")])
-    assert "  Its normal years: 2016, 2017 (its evaluation's)" in card.splitlines()
-    assert "normal years" not in control_card([ROW])
 
 
 def test_the_design_page_says_whose_baseline_the_design_uses():

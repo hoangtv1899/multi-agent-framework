@@ -49,6 +49,25 @@ class TestTheBanner:
         assert "Not answered: another place or another model" in text
         assert "Not in valley: the observed floods: the run makes its own." in text
 
+    def test_it_says_where_the_comparison_with_measurements_is_shown(self):
+        """The banner says what a run is; its comparison with measurements is
+        on the page a design is approved from, and only a record that holds
+        one is said to have one."""
+        where = "with measurements is on the design page, before you are asked to approve"
+        assert where not in " ".join("\n".join(SB.lines(_menus())).split())
+        held = dict(CONTROL, evaluation={"summary": "made-up words", "source": "s"})
+        flat = " ".join("\n".join(SB.lines(_menus(controls=(held,)))).split())
+        assert "How it compares " + where in flat and "made-up words" not in flat
+        two = " ".join("\n".join(SB.lines(_menus(controls=(
+            held, dict(CONTROL, name="ridge"))))).split())
+        assert "How each compares " + where in two
+
+    def test_the_runs_it_described_are_named(self):
+        other = dict(CONTROL, name="ridge")
+        assert SB.run_names(_menus(controls=(CONTROL, other))) == ["valley", "ridge"]
+        assert SB.run_names(_menus(controls=())) == []
+        assert SB.run_names({"": {"problems": ["elm: no answer"]}}) == []
+
     def test_a_change_that_cannot_be_used_is_not_offered(self):
         assert "build a dam" not in "\n".join(SB.lines(_menus()))
 
@@ -141,6 +160,21 @@ class TestTheCoordinatorSaysItOnce:
         assert SB.TITLE in first and "valley (elm)" in first
         co._show_scope()
         assert capsys.readouterr().out == ""
+
+    def test_reception_is_told_which_runs_the_person_has_read_about(self, capsys):
+        """The run is described once: Reception shows no card for a run the
+        banner has just described."""
+        class Front:
+            introduced = set()
+        co = self._coordinator({"elm": _Client([CONTROL], CHANGES)})
+        co.reception = Front()
+        co._show_scope()
+        assert co.reception.introduced == {"valley"}
+        # a banner that could not be printed introduces nothing
+        co = self._coordinator({"elm": _Client([CONTROL], CHANGES, fail=True)})
+        co.reception = Front()
+        co._show_scope()
+        assert co.reception.introduced == set()
 
     def test_a_request_shows_it_before_reception_starts(self, capsys, tmp_path):
         import workflow as wf

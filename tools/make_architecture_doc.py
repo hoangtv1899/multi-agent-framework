@@ -290,8 +290,8 @@ def _str_bindings(node):
 
 def _strings_bound(node):
     """NAME -> the strings a constant holds at its top level: a string
-    (TOOL = "..."), the members of a set, list or tuple (DEFAULT_ALLOWLIST =
-    {"terrain__get_elevation", ...}), or the values of a dict (DOMAIN_MENUS).
+    (TOOL = "..."), the members of a set, list or tuple (RECEPTION_TOOLS =
+    ("list_servers", ...)), or the values of a dict (DOMAIN_MENUS).
 
     ONE LEVEL ONLY (2026-11-03). A deeper string is a description, not a name
     the code acts on: a manager's FIELD_SEMANTICS says a field comes `from`
@@ -702,13 +702,20 @@ def _tool_of(v, tools):
     return None
 
 
+def prompt_names_tool(txt, tool):
+    """Does a prompt's text name this tool? As a word, or as server__tool:
+    `_` is a word character, so there is no word boundary between `__` and
+    the name."""
+    return bool(re.search(rf"(?:\b|__){re.escape(tool)}\b", txt))
+
+
 def tools_named(f, tools):
     """MCP tool names this function names as a whole string literal, in its
     body or in a module or class constant it uses.
 
     A CONSTANT COUNTS FOR THE FUNCTION THAT USES IT (2026-11-03): sweep_menu
     holds its tool in TOOL and fetch() calls call_tool_json(TOOL, {});
-    Reception's allowlist is DEFAULT_ALLOWLIST, used by its __init__."""
+    Reception's tools are RECEPTION_TOOLS, used by reception_tools()."""
     out = set()
     mod = f.mod
     for n in ast.walk(f.node):
@@ -1276,9 +1283,7 @@ def section_mcp(tree, lines):
                         out[t].add(f"{f.mod.rel}::{f.qual} (by the pattern {name})")
         for p, txt in prompt_text.items():
             for t in tools:
-                # `__` before the name: a prompt may write server__tool, and
-                # there is no word boundary between `_` and a letter.
-                if re.search(rf"(?:\b|__){re.escape(t)}\b", txt):
+                if prompt_names_tool(txt, t):
                     out[t].add(f"{p} (prompt)")
         return out
 

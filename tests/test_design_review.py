@@ -225,6 +225,17 @@ class TestARevisionKeepsWhatWasSettled:
                                         "answer": "Over the watershed only, please."}]
         assert rev["changes"] == ["also report the elevation bands"]
 
+    def test_the_years_asked_about_go_back_too(self):
+        """Only the simulated span was carried, so a revision's Reception
+        could put it where the years asked about belong, and the start year
+        a run needs would be reported as a year asked about."""
+        import workflow as wf
+        run = _warm_run()
+        run["brief"]["run_settings"]["requested_period"] = {"yr_start": 2016, "yr_end": 2016}
+        kept = wf._revision_of(run, "x")["settled"]["run_settings"]
+        assert kept == {"requested_period": {"yr_start": 2016, "yr_end": 2016},
+                        "resolved_period": {"yr_start": 2015, "yr_end": 2015}}
+
     def test_a_second_revision_keeps_the_first_answers(self):
         import workflow as wf
         first = wf._revision_of(_warm_run(), "also report the elevation bands")

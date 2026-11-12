@@ -139,16 +139,24 @@ def _stage(text, number):
 
 def test_a_tool_held_in_a_constant_is_credited_to_its_user(text):
     """sweep_menu.fetch calls call_tool_json(TOOL, {}) with TOOL a module
-    constant; Reception's allowlist is a constant its __init__ uses."""
+    constant; Reception's tools are a tuple constant reception_tools() uses."""
     assert "`src/core/sweep_menu.py::fetch`" in _row(text, "describe_conceptual_factors")
-    assert "src/agents/reception_llm.py::LLMReceptionAgent.__init__" in _row(text, "get_elevation")
-    assert "src/agents/reception_llm.py::LLMReceptionAgent.__init__" in _row(text, "resolve_watershed")
+    for tool in ("describe_domain_controls", "describe_domain_changes"):
+        assert "src/agents/reception_llm.py::reception_tools" in _row(text, tool)
 
 
-def test_a_prompt_naming_server__tool_counts(text):
-    """reception_agentic.txt writes terrain__get_elevation; `_` is a word
-    character, so a plain word boundary never matched it."""
-    assert "reception_agentic.txt (prompt)" in _row(text, "get_elevation")
+def test_a_prompt_naming_server__tool_counts(gen, text):
+    """A prompt may write server__tool; `_` is a word character, so a plain
+    word boundary never matched it. Reception's prompt wrote two terrain
+    tools that way until its single-column instructions were removed
+    (2026-11-11); the rule is held on the generator's own function now."""
+    assert gen.prompt_names_tool("call terrain__get_elevation(lat, lon)", "get_elevation")
+    assert gen.prompt_names_tool("read `describe_domain_controls` first", "describe_domain_controls")
+    assert not gen.prompt_names_tool("do not forget_elevation here", "get_elevation")
+    # and the prompt names its tools in the page, by a plain word
+    assert "reception_agentic.txt (prompt)" in _row(text, "describe_domain_changes")
+    # a tool Reception is no longer given has no caller left in the framework
+    assert "no framework caller" in _row(text, "get_elevation")
 
 
 def test_a_description_naming_a_tool_is_not_a_caller(text):
@@ -158,7 +166,9 @@ def test_a_description_naming_a_tool_is_not_a_caller(text):
 
 
 def test_reception_stage_names_its_tools(text):
-    assert "get_elevation" in _stage(text, 1)
+    s1 = _stage(text, 1)
+    assert "describe_domain_controls" in s1 and "describe_domain_changes" in s1
+    assert "get_elevation" not in s1
 
 
 def test_records_through_a_module_loaded_by_path(text):
@@ -176,10 +186,9 @@ def test_records_through_a_loop_and_an_imported_alias(text):
     assert "`DOMAIN_REPORT.md`" in reads
 
 
-def test_carried_reception_files_are_read_and_copied(gen, tree):
-    r = gen.records_of(tree, tree.funcs["src/agents/reception_llm.py::_carry_prior_forward"])
-    assert "conus2_subsurface.json" in r["reads"]
-    assert "conus2_subsurface.json" in r["writes"]
+# test_carried_reception_files_are_read_and_copied WAS HERE. It read the
+# records of reception_llm._carry_prior_forward, which was deleted with
+# Reception's code for the studies set aside (2026-11-11).
 
 
 def test_the_mcp_sdk_is_a_third_party_package(text):

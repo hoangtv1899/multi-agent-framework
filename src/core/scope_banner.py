@@ -10,7 +10,8 @@ first reply. A question outside the scope then cost a conversation to refuse.
 The banner says it first, in three statements:
 
   1. the prepared runs questions are asked of, each with its own description
-     and the years it has output for;
+     and the years it has output for, and where its comparison with
+     measurements is shown;
   2. what a what-if run may change, with a mark on a change no run has
      completed with here;
   3. what is not answered.
@@ -69,12 +70,25 @@ def _wrap(text: str, first: str = "", rest: str = "  ") -> List[str]:
                          initial_indent=first, subsequent_indent=rest) or [first.rstrip()]
 
 
+def _runs(menus: Dict[str, Dict[str, Any]]) -> List[tuple]:
+    """(server, control) for every prepared run the banner describes."""
+    return [(s, c) for s, m in menus.items() if s for c in m.get("controls") or []
+            if isinstance(c, dict) and c.get("name")]
+
+
+def run_names(menus: Dict[str, Dict[str, Any]]) -> List[str]:
+    """The prepared runs the banner described, by name. THE RUN IS DESCRIBED
+    ONCE (2026-11-11): Reception's card said what the run is a few lines under
+    a banner that had just said it, so the coordinator hands these names to
+    Reception, which shows no card for a run named here."""
+    return [c["name"] for _, c in _runs(menus)]
+
+
 def lines(menus: Dict[str, Dict[str, Any]], developer: bool = False) -> List[str]:
     """The banner, from what read() returned."""
     problems = (menus.get("") or {}).get("problems") or []
     servers = {s: m for s, m in menus.items() if s}
-    runs = [(s, c) for s, m in servers.items() for c in m.get("controls") or []
-            if isinstance(c, dict) and c.get("name")]
+    runs = _runs(menus)
     L = [RULE, TITLE, RULE]
     if not runs:
         L += _wrap("Questions about a prepared whole-domain run, and what-if runs made from "
@@ -93,6 +107,14 @@ def lines(menus: Dict[str, Dict[str, Any]], developer: bool = False) -> List[str
                    + (f"; output for {years}" if years else "; its output years are not "
                                                            "on record"),
                    first="  ", rest="    ")
+    # where the rest of a run's record is shown: its comparison with
+    # measurements is a paragraph of numbers, printed in full on the page the
+    # person approves a design from. Said only for a record that holds one.
+    if any(isinstance(c.get("evaluation"), dict) and c["evaluation"].get("summary")
+           for _, c in runs):
+        L += _wrap(("How it compares" if len(runs) == 1 else "How each compares")
+                   + " with measurements is on the design page, before you are asked "
+                     "to approve anything.", first="  ", rest="    ")
 
     # 2. what a what-if run may change
     untested = False
@@ -123,9 +145,12 @@ def lines(menus: Dict[str, Dict[str, Any]], developer: bool = False) -> List[str
     return L + [RULE]
 
 
-def text(clients, developer: Optional[bool] = None) -> str:
-    """The banner as one string, read from the model servers now."""
+def text(clients, developer: Optional[bool] = None,
+         menus: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+    """The banner as one string, read from the model servers now, or from
+    `menus` when the caller has read them already (read())."""
     if developer is None:
         from core.supported_routes import developer_routes
         developer = developer_routes()
-    return "\n".join(lines(read(clients), developer=developer))
+    return "\n".join(lines(read(clients) if menus is None else menus,
+                           developer=developer))

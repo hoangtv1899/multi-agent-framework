@@ -1,298 +1,150 @@
 #!/usr/bin/env python3
 """
-Agentic reception agent.
+Reception: a person's question in, a brief for the Planner out.
 
-A pure-LLM reception that DRIVES the MCP tools itself (via ToolLoopAgent) to
-turn a natural-language request into a framed brief for the planner — or a
-clarification / analysis route. All "what to fetch / when to stop / what it
-means" decisions live in the LLM; this class only runs the loop and parses the
-final JSON.
+A language model with a small tool loop (ToolLoopAgent). It reads what the
+model server says about itself, its prepared runs and the changes a what-if
+run may make, puts one message to the person, and ends with a JSON brief, or
+with a plain statement that the question cannot be answered here. What to
+read, what to ask and what the answer means are the model's; this class runs
+the loop, shows the prepared run's card, and reads the final JSON.
 
-This is the Reception box of the framework. workflow.py reaches it through
-workflow.py directly; tools/run_pipeline.py uses it for the dry path.
+WHOLE-DOMAIN STUDIES ONLY (2026-11-11). Reception used to set up four kinds of
+study. Its prompt was rewritten for the one this version runs, and the code
+here that served the other three was deleted with it: the gather of a basin's
+terrain, stations, rain and subsurface, the carry-forward of a prior run for a
+coupling, and the dropping of a place from a sweep. A whole-domain study runs
+on its control's own grid and fetches nothing, so nothing took their place.
+A design brief of another kind is refused here, whatever the developer's
+switch says: nothing in the prompt can produce one, and nothing here could
+set it up.
+
+workflow.py reaches this class directly.
 """
 import json
 import re
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agents.prompts import load_prompt
 from core.model_servers import model_tools
 from agents.tool_loop import ToolLoopAgent
-from core import data_gather as gather
 
-# What the LLM may call. Deliberately tiny.
-#
-# Everything else reception fetches — the DEM grid, the water table, the three
-# observation sets, the subsurface and the rain — is fetched by CODE once
-# and period are fixed
-# (see reception_gather). Those are not decisions, so they should not cost an
-# LLM round each: with twelve tools the loop spent 100-250 s of a 167-315 s
-# reception choosing tools, and the model then summarised results truncated to
-# 12,000 characters, which is how it came to report 25 stream gauges where the
-# validator found 93.
-#
-# The model's job is the part that needs judgement: what is being asked, where,
-# and when. The subsurface and the rain are not among the LLM's tools either —
-# whichever model needs them gets them from the package, fetched by code
-# (gather_subsurface, gather_precipitation), not chosen.
-#
-# WHICH MODEL IS THE EXCEPTION, and deliberately so. It is a judgement, not a
-# fetch, and it is the one judgement that used to be made for the LLM by code
-# before the request was even read. `list_servers`, `describe_server` and
-# `describe_sweep` are LOCAL tools — the framework answers them, no server is
-# asked until one is named — so they are not in this allowlist; see
-# model_servers.model_tools.
-DEFAULT_ALLOWLIST = {
-    "terrain__resolve_watershed",
-    "terrain__get_elevation",        # fallback: a point or town, no HUC given
-}
+# WHAT THE LLM MAY CALL (2026-11-11). This version runs whole-domain studies
+# only, and Reception's prompt was rewritten for them alone. A whole-domain
+# study reads its control and its changes from the model server and fetches
+# nothing, so Reception is given no data tool, and of the framework's own
+# questions only the four its prompt uses. Before, it was also handed the
+# sweep menu and two terrain tools, which the prompt no longer mentions: a
+# tool with no instruction behind it is an invitation to call it, and a live
+# whole-domain conversation did call the sweep menu, for nothing.
+DEFAULT_ALLOWLIST: set = set()
+RECEPTION_TOOLS = ("list_servers", "describe_server", "describe_domain_controls",
+                   "describe_domain_changes")
 
 
-def _is_conceptual(brief: Dict[str, Any]) -> bool:
-    """Did reception classify this as a controlled sweep?
-
-    One reading of the field, so the gather gate and the domain drop can never
-    disagree about what this brief is.
-    """
-    return str((brief or {}).get("design_archetype") or "").strip().lower() \
-        == "conceptual"
+def reception_tools(clients) -> Dict[str, Any]:
+    """The framework's own questions Reception may ask: model_servers'
+    tools, less those its prompt does not use."""
+    every = model_tools(clients)
+    return {name: every[name] for name in RECEPTION_TOOLS if name in every}
 
 
-def _is_coupling(brief: Dict[str, Any]) -> bool:
-    return str((brief or {}).get("design_archetype") or "").strip().lower() \
-        == "coupling"
+# What a design brief of another kind is told, when the developer's switch is
+# set and core.supported_routes therefore says nothing.
+NOT_FROM_A_CONVERSATION = (
+    "Reception sets up whole-domain studies only. This request was read as {what}, "
+    "which is no longer set up from a conversation, so nothing was designed, fetched "
+    "or run")
 
 
-def _is_whole_domain(brief: Dict[str, Any]) -> bool:
-    """A whole-domain experiment: a prepared control and runs that differ from
-    it by named changes (docs/ELM_DOMAIN_EXPERIMENTS.md)."""
-    return str((brief or {}).get("design_archetype") or "").strip().lower() \
-        == "whole_domain"
+# WHAT OF A CONTROL'S RECORD THE LLM IS NOT SHOWN (2026-11-11): its comparison
+# with measurements and its results by year. Reception settles what is run; it
+# does not answer the science. Handed those numbers, it quoted them to the
+# person and then judged them (which of the run's numbers to trust more, how
+# the run's own seasons compare), in four of eight live conversations, and a
+# rule against it in the prompt did not stop it. A conclusion cannot be
+# drawn from a number that was never read, so the numbers are left out of the
+# model's copy and a note in their place says who does report them: the
+# design page prints the
+# comparison with measurements in the record's own words, before the person
+# approves anything, and the numbers by year are results, which the analysis
+# reports. The Planner's copy is trimmed in the same way
+# (planner._rulebook_for_prompt).
+SHOWN_ON_THE_DESIGN_PAGE = (
+    "on record, and not shown to you: the design page prints it for the person, in "
+    "the record's own words, before they approve anything. Say nothing about it")
+REPORTED_BY_THE_ANALYSIS = (
+    "on record, and not shown to you: the run's numbers by year are results, and "
+    "the analysis reports results. Say nothing about them")
+CONTROL_KEYS_NOT_FOR_THE_LLM = {"evaluation": SHOWN_ON_THE_DESIGN_PAGE}
+FACTS_NOT_FOR_THE_LLM = {"per_year": REPORTED_BY_THE_ANALYSIS}
 
 
-def _carry_prior_forward(brief, run_dir, prov):
-    """A coupling run's gather: the PRIOR run's, copied — not refetched.
-
-    "No new gathering beyond the prior run" (the archetype's own rule): the
-    domain, grid, observations and rain of a follow-up are by definition the
-    prior study's, and refetching them costs data-server calls to learn what
-    a file beside this one already says. So the prior run's reception blocks
-    are carried into this package, its site files (the CONUS2 subsurface, the
-    water-table raster) are copied beside this run's reception.json, and the
-    provenance says so — a reader must never mistake a carried record for a
-    fresh fetch.
-
-    THE PRIOR RUN IS RESOLVED HERE and the resolved path is written into
-    brief.coupling.prior_run_dir, which is what the Experiment Manager's
-    coupling branch reads. The LLM records only the name the user gave
-    (`prior_experiment`); names are for people, and the run directory is the
-    only address the pipeline trusts.
-
-    Returns the gather blocks (grid, observations, precipitation) or raises
-    with the reason named — a coupling with no prior is not a study.
-    """
-    import shutil
-
-    coupling = brief.get("coupling") or {}
-    ref = str(coupling.get("prior_experiment") or "").strip()
-    if not ref:
-        raise ValueError(
-            "a coupling brief names no prior_experiment — there is nothing "
-            "to drive this run with")
-    base = Path(run_dir).resolve().parent if run_dir else Path(".").resolve()
-    cand = [p for p in (Path(ref), base / ref) if p.is_dir()]
-    if not cand:
-        # the name may sit anywhere inside the user's words ("that ELM run
-        # elm_run_20260813_233645") — match run directories by substring
-        cand = sorted((p for p in base.iterdir()
-                       if p.is_dir() and p.name in ref), key=lambda p: p.name)
-    if len(cand) > 1:
-        # THE FIRST-NAMED RUN IS THE REFERENT. The LLM sometimes writes prose
-        # into prior_experiment — a live request carried "X (referenced in
-        # the canceled follow-up CANCELED_Y)" — and the substring pass then
-        # finds Y too. To a reader that reference is not ambiguous: the run
-        # it names FIRST is the target; later mentions are context. Only a
-        # tie (two names starting at the same position) stays ambiguous.
-        starts = sorted((ref.find(p.name), p) for p in cand)
-        if starts[0][0] < starts[1][0]:
-            cand = [starts[0][1]]
-    if len(cand) != 1:
-        have = ", ".join(sorted(p.name for p in base.glob("*_run_*"))[-6:])
-        raise ValueError(
-            f"could not resolve the prior run {ref!r} to exactly one "
-            f"directory under {base} (found {len(cand)}); recent runs: {have}")
-    prior = cand[0].resolve()
-    coupling["prior_run_dir"] = str(prior)
-    # THE COLUMN COUNT IS A FACT, NOT A DESIGN CHOICE: the coupled run reuses
-    # the prior's columns verbatim, and the planner copies this number so the
-    # strategy gate has an n_columns that is true by construction.
-    try:
-        pc = json.loads((prior / "columns.json").read_text())
-        pc = pc.get("columns", pc) if isinstance(pc, dict) else pc
-        coupling["n_columns_prior"] = len(pc)
-    except Exception:                                   # noqa: BLE001
-        pass
-    brief["coupling"] = coupling
-
-    rec_f = prior / "reception.json"
-    if not rec_f.is_file():
-        raise ValueError(f"the prior run {prior.name} has no reception.json — "
-                         f"it cannot anchor a follow-up")
-    rec = json.loads(rec_f.read_text())
-    rec = rec.get("reception", rec)
-
-    # THE DOMAIN IS THE PRIOR'S, unconditionally. A follow-up reuses the
-    # prior's columns verbatim, so it runs WHERE those columns are — a domain
-    # the LLM resolved on its own is not a narrower request, it is invented
-    # (observed: a loop request that named no basin got "Naches" from the
-    # model while every carried column sat in Brandywine). The prior wins;
-    # a disagreement is said out loud and recorded in the assumptions.
-    pb = rec.get("brief") or {}
-    if pb.get("domain"):
-        mine = (brief.get("domain") or {}).get("name")
-        theirs = (pb["domain"] or {}).get("name")
-        if mine and theirs and mine != theirs:
-            print(f"   ⚠️  the request's domain ({mine}) is not the prior "
-                  f"run's ({theirs}) — a follow-up runs where its columns "
-                  f"are; using the prior's")
-            brief.setdefault("assumptions", []).append(
-                f"Domain overridden: the brief said {mine!r} but the prior "
-                f"run {prior.name} is {theirs!r}; a coupling follow-up "
-                f"reuses the prior's columns, so the prior's domain wins.")
-        brief["domain"] = pb["domain"]
-
-    # THE PERIOD IS THE PRIOR'S unless the USER said otherwise. The years
-    # must match the run that produced the coupled state: an iteration that
-    # changes the forcing year compares two climates, not two starts of one
-    # (observed: an LLM-defaulted 1979 slipped into a 2010 chain). Only a
-    # period the user actually stated (source == "user") may narrow it —
-    # a model default is exactly the invented value this carry replaces.
-    rs = brief.setdefault("run_settings", {})
-    prior_period = ((pb.get("run_settings") or {})
-                    .get("resolved_period") or {})
-    mine_p = rs.get("resolved_period") or {}
-    # "USER-STATED" NEEDS YEARS TO STATE. The LLM sometimes labels an EMPTY
-    # period source="user" (observed 2026-08-25: yr_start None on a coupling
-    # follow-up that named no year), and taking the label at face value left
-    # the run with no years at all — the strategy gate then rightly stopped
-    # it. A user statement the exception can honor is one that carries an
-    # actual yr_start; an empty claim is a default in disguise.
-    mine_is_user = (str(mine_p.get("source") or "").lower() == "user"
-                    and mine_p.get("yr_start"))
-    if prior_period.get("yr_start") and not mine_is_user:
-        if mine_p.get("yr_start") and \
-                int(mine_p["yr_start"]) != int(prior_period["yr_start"]):
-            print(f"   ⚠️  the brief's period {mine_p.get('yr_start')}-"
-                  f"{mine_p.get('yr_end')} was a "
-                  f"{mine_p.get('source') or 'model'} guess — using the "
-                  f"prior run's {prior_period.get('yr_start')}-"
-                  f"{prior_period.get('yr_end')}")
-            brief.setdefault("assumptions", []).append(
-                f"Period overridden: the brief defaulted to "
-                f"{mine_p.get('yr_start')}-{mine_p.get('yr_end')} but the "
-                f"prior run {prior.name} simulated "
-                f"{prior_period.get('yr_start')}-"
-                f"{prior_period.get('yr_end')}; an iteration must hold the "
-                f"forcing years fixed, so the prior's period wins.")
-        rs["resolved_period"] = dict(prior_period, source="carried")
-
-    copied, absent = [], []
-    if run_dir:
-        for name in ("conus2_subsurface.npz", "conus2_subsurface.json",
-                     "wtd_conus2.tif"):
-            src = prior / name
-            if src.is_file():
-                shutil.copy(src, Path(run_dir) / name)
-                copied.append(name)
-            else:
-                absent.append(name)
-    if "conus2_subsurface.npz" in absent:
-        # SAID NOW, NOT AT MATERIALIZE. The coupled columns carry their own
-        # water table and flux, so of the three site files only the
-        # subsurface is required — and "no new gathering" means it is not
-        # fetched here. The run will stop at the deck build with the join's
-        # error; this line says where the file must come from.
-        print(f"   ⚠️  the prior run {prior.name} has no conus2_subsurface.npz "
-              f"— the deck build will refuse. Copy the basin's subsurface "
-              f"files beside this run's reception.json, or couple from a "
-              f"prior run that fetched them.")
-    prov.append({
-        "tool": None,
-        "args": {"design_archetype": "coupling", "prior_run": prior.name},
-        "fetched_at": datetime.now().isoformat(timespec="seconds"),
-        "ok": True, "error": None,
-        "note": (f"CARRIED FORWARD, NOT FETCHED: grid, observations and rain "
-                 f"are the prior run's ({prior.name}), copied from its "
-                 f"reception.json; site files copied beside this run's: "
-                 f"{', '.join(copied) or 'none found'}"
-                 + (f"; ABSENT from the prior: {', '.join(absent)}" if absent
-                    else "")
-                 + ". A coupling gathers nothing new — its domain IS the "
-                   "prior study's."),
-    })
-    return {
-        "grid": rec.get("grid") or {},
-        "observations": rec.get("observations") or {},
-        "precipitation": rec.get("precipitation") or {},
-    }
+def controls_for_the_llm(answer: Any) -> Any:
+    """describe_domain_controls' answer as the model reads it: every control
+    without its comparison with measurements and its results by year, each
+    replaced by a note saying who reports it, when the record holds it.
+    A copy; the answer given is not changed, and anything that is not that
+    answer's shape is returned as it is."""
+    menu = answer.get("controls") if isinstance(answer, dict) else None
+    if not (isinstance(menu, dict) and isinstance(menu.get("controls"), list)):
+        return answer
+    rows = []
+    for c in menu["controls"]:
+        if isinstance(c, dict):
+            c = dict(c)
+            for key, note in CONTROL_KEYS_NOT_FOR_THE_LLM.items():
+                if c.get(key):
+                    c[key] = note
+            if isinstance(c.get("facts"), dict):
+                c["facts"] = {k: (FACTS_NOT_FOR_THE_LLM[k]
+                                  if k in FACTS_NOT_FOR_THE_LLM and v else v)
+                              for k, v in c["facts"].items()}
+        rows.append(c)
+    return dict(answer, controls=dict(menu, controls=rows))
 
 
-def _drop_domain(brief: Dict[str, Any]) -> Dict[str, Any]:
-    """Remove a basin from a conceptual brief, returning what was removed.
-
-    RETURNED RATHER THAN DISCARDED. Setting it to null and saying nothing would
-    hide a real disagreement — the model both classified the request as a sweep
-    and resolved a watershed for it, and someone reading the run later should
-    be able to see that happened. It is also the fastest way to notice the
-    classifier is mis-reading a whole class of request.
-    """
-    dom = brief.get("domain") or {}
-    had = {k: dom.get(k) for k in ("name", "huc", "bbox") if dom.get(k)}
-    if had:
-        brief["domain"] = None
-        brief["heterogeneity"] = None
-    return had
-
-
-# THE FIRE AND THE GRID ON THE CARD (2026-11-03). A person reading the card
-# could not tell whose fire the control burns or how fine its grid is, and
-# both decide what a question can ask of it. Each line quotes the sentence the
-# model server read from the control's own files (domain_controls.setup_facts);
-# a control whose facts lack it says so rather than leaving the line out.
-def control_setup_lines(row: Dict[str, Any], prefix: str = "") -> List[str]:
-    """The fire-setup and grid lines of one control, quoted from its facts."""
-    facts = row.get("facts") or {}
-    out = []
-    for part, label in (("fire", "Fire"), ("grid", "Grid")):
-        v = facts.get(part) if isinstance(facts, dict) else None
-        if isinstance(v, dict) and v.get("sentence"):
-            out.append(f"{prefix}{label}: {v['sentence']}")
-        elif facts:
-            out.append(f"{prefix}{label}: not in the control's facts"
-                       + (f" ({v['error']})" if isinstance(v, dict) and v.get("error")
-                          else ""))
-    return out
+CARD_WIDTH = 98
 
 
 def control_card(rows: List[Dict[str, Any]]) -> str:
     """The prepared controls as the person sees them before Reception's first
-    question: what each is, how it compares with observations and what it
-    does not contain, quoted from the server's entry and nothing added."""
-    lines = ["", "  ── The prepared run, in the model server's own words ──"]
+    question: what each is, in the server's own words, and where the rest of
+    its record is shown.
+
+    IDENTITY ONLY (the user's decision of 2026-11-11). The card used to print
+    the control's whole comparison with measurements, its baseline years and
+    what it does not contain: a long paragraph of numbers about other years,
+    ahead of any answer to the question asked. That record is printed in full
+    on the design page, which the person reads before approving anything
+    (design_review), so nothing is withheld: it is shown where the decision
+    is made. The card says so, and names only what the record holds.
+
+    ONLY FOR A RUN NOT YET INTRODUCED (2026-11-11). The coordinator's start
+    banner (core/scope_banner) says what each prepared run is before the
+    first question, so a card under it said the same thing twice, a few lines
+    apart. The card is for a run the banner did not name, and for Reception
+    used without the coordinator (LLMReceptionAgent.introduced)."""
+    import textwrap
+    lines = ["", "  ── The prepared run ──"]
+    later = []
     for r in rows:
-        lines.append(f"  {r.get('name')}: {r.get('description') or 'no description'}")
-        lines += control_setup_lines(r, prefix="  ")
+        lines += textwrap.wrap(
+            " ".join(f"{r.get('name')}: {r.get('description') or 'no description'}".split()),
+            width=CARD_WIDTH, initial_indent="  ", subsequent_indent="    ")
         ev = r.get("evaluation") or {}
-        if isinstance(ev, dict) and ev.get("summary"):
-            lines.append(f"  Against observations: {ev['summary']}")
-        ny = r.get("normal_years") or []
-        if ny:
-            lines.append(f"  Its normal years: {', '.join(str(y) for y in ny)}"
-                         + (f" ({r['normal_years_why']})" if r.get("normal_years_why") else ""))
-        for item in r.get("not_in_it") or []:
-            lines.append(f"  Not in this run: {item}")
+        if isinstance(ev, dict) and ev.get("summary") and \
+                "how it compares with measurements" not in later:
+            later.append("how it compares with measurements")
+        if r.get("not_in_it") and "what it does not contain" not in later:
+            later.append("what it does not contain")
+    if later:
+        said = " and ".join(later)
+        said = said[0].upper() + said[1:]
+        lines += textwrap.wrap(
+            f"{said} {'are' if len(later) > 1 else 'is'} on the design page, before you "
+            f"are asked to approve anything.",
+            width=CARD_WIDTH, initial_indent="  ", subsequent_indent="    ")
     return "\n".join(lines)
 
 
@@ -327,15 +179,12 @@ class LLMReceptionAgent:
         # state under `constraints`, the sweep menu from describe_sweep. The
         # prompt says how to read them, once, for any model.
         self.system = load_prompt("reception_agentic")
-        # THIS VERSION RUNS WHOLE-DOMAIN STUDIES ONLY (2026-11-10,
-        # core/supported_routes). The rule is in code, in process() below and
-        # twice more downstream; this block only stops Reception from offering
-        # a way forward that the code will refuse. It is left out when the
-        # developer's switch is set, so the routes set aside read the prompt
-        # they were built against.
-        from core.supported_routes import developer_routes
-        if not developer_routes():
-            self.system += load_prompt("reception_whole_domain_only")
+        # ONE PROMPT (2026-11-11). It is written for whole-domain studies and
+        # nothing else. Until then it was the prompt of four kinds of study
+        # with a block appended that told the model to disregard three of
+        # them. The rule itself is in code (core/supported_routes), in
+        # process() below and twice more downstream; the prompt only keeps
+        # Reception from offering what the code will refuse.
         self._clients = mcp_clients or {}
         # THE MODEL IS CHOSEN BY READING, NOT BY LOOKUP (2026-08-17). There
         # used to be a third substituted block here, a MENU of models that this
@@ -356,12 +205,18 @@ class LLMReceptionAgent:
             max_rounds=max_rounds,
             verbose=verbose,
             interactive=interactive,
-            local_tools=model_tools(self._clients),
+            local_tools=reception_tools(self._clients),
         )
         self._card_shown = False
+        # the prepared runs the person has already been told about, by name:
+        # the coordinator sets it from its start banner, and no card is shown
+        # for a run named here (control_card)
+        self.introduced: set = set()
         # THE CARD IS SHOWN WHEN THE CONTROLS ARE READ (2026-10-27), not before
         # Reception's first question: on a live try it asked nothing and went
-        # straight to the design page, and the card never appeared
+        # straight to the design page, and the card never appeared. The card
+        # is made from the whole record; the model reads its own copy
+        # (controls_for_the_llm).
         dc = self.loop.local.get("describe_domain_controls")
         if dc:
             read = dc["fn"]
@@ -372,7 +227,7 @@ class LLMReceptionAgent:
                                             "result": out}])
                 if card:
                     print(card)
-                return out
+                return controls_for_the_llm(out)
             dc["fn"] = described
 
     @property
@@ -381,32 +236,21 @@ class LLMReceptionAgent:
 
     def process(self, user_request: str, context: Dict[str, Any] = None,
                 run_dir=None) -> Dict[str, Any]:
-        """LLM loop, then the deterministic gather. Returns the reception package.
+        """The conversation, then the package the coordinator saves.
 
-        Two phases, and the split is the point:
+        run_dir MAY BE A FUNCTION OF THE BRIEF (2026-08-18): `run_dir(brief)
+        -> path`. The coordinator names a study's folder for the model that
+        will run it, and the model is not known until the conversation has
+        ended. A callable is resolved here, and only on the `design` route, so
+        a question that ends any other way makes no folder. The coordinator
+        still owns the folder: it is its function that makes it.
 
-          LLM     what is being asked, WHERE (domain) and WHEN (period).
-                  Judgement, and the only part that can need a question.
-          CODE    the DEM grid, the water table, and the observation sets for
-                  that period. Not decisions, so not the model's.
-
-        run_dir: where the modelled water table's GeoTIFF is written. It is the
-        one thing reception produces that is not JSON, so it needs a directory
-        rather than a return value. Optional — without it that single fetch is
-        skipped and everything else still runs, which is what lets a caller with
-        no run directory (a dry check, a test) use this unchanged.
-
-        MAY BE A FUNCTION OF THE BRIEF (2026-08-18): `run_dir(brief) -> path`.
-        The coordinator names a run directory for the model that will run it,
-        and the model is not known until the LLM phase has ended — so the
-        directory cannot exist before this call and must exist before the
-        gather writes into it. A callable is resolved exactly between the two,
-        and only on the `design` route, so a clarification mints nothing. The
-        coordinator still owns the directory: it is its function that makes it.
-
-        Returns {route, brief, observations, grid, provenance, trace, rounds,
-        raw} — `route` carries the framework's dispatch (design / clarify /
-        analyze_existing) so the brief stays science.
+        Returns {route, brief, provenance, trace, rounds, raw, run_dir}, and
+        four empty records (observations, grid, precipitation, subsurface)
+        that the saved reception keeps the places of: a whole-domain study
+        fetches none of them, and `provenance` says so. `route` carries the
+        framework's dispatch (design, clarify, unsupported, analyze_existing,
+        resume) so the brief stays science.
         """
         # a revision continues a conversation in which the card was shown
         self._card_shown = bool((context or {}).get("revision_of"))
@@ -414,9 +258,8 @@ class LLMReceptionAgent:
         if context:
             msg += ("CONVERSATION CONTEXT (a prior experiment this session):\n"
                     + json.dumps(context, indent=2) + "\n\n")
-        msg += ("Resolve the domain and the period, then emit ONLY your final "
-                "JSON. Do NOT attempt to fetch observations — they are "
-                "collected for you once the period is fixed.")
+        msg += ("Settle what is run with the person, as your instructions say, "
+                "then emit ONLY your final JSON object.")
         out = self.loop.run(self.system, msg)
         brief = self._parse(out["content"])
         first = out["content"] or ""
@@ -443,18 +286,21 @@ class LLMReceptionAgent:
                             "asked for once more"),
                 "first_reply": first[:400]}]
         if pkg["route"]["action"] != "design":
-            return pkg                       # nothing to gather for yet
+            return pkg
         # A KIND OF STUDY THIS VERSION DOES NOT RUN STOPS HERE (2026-11-10,
-        # core/supported_routes): before a run directory is minted and before
-        # anything is fetched. A live question about a watershed with no
-        # prepared control was refused in words and then, on "proceed
-        # anyway", gathered a basin's sites and became a single-column design
+        # core/supported_routes): before a study folder is made. A live
+        # question about a watershed with no prepared control was refused in
+        # words and then, on "proceed anyway", became a single-column design
         # with a prompt to run it. The reply typed in the dialog cannot change
-        # this: the rule reads the brief, not the conversation.
-        from core.supported_routes import problem as _route_problem
-        unsupported = _route_problem(brief)
-        if unsupported:
-            pkg["route"] = {"action": "unsupported", "why": unsupported,
+        # this: the rule reads the brief, not the conversation. Since
+        # 2026-11-11 the developer's switch does not open it either: the code
+        # that set those studies up from a conversation is gone.
+        from core import supported_routes as _routes
+        kind = _routes.kind(brief)
+        if kind != "whole_domain":
+            why = _routes.problem(brief) or NOT_FROM_A_CONVERSATION.format(
+                what=_routes.WORDS.get(kind, kind))
+            pkg["route"] = {"action": "unsupported", "why": why,
                             "questions": [], "prior_run_dir": None,
                             "llm_intent": pkg["route"].get("llm_intent")}
             return pkg
@@ -462,195 +308,43 @@ class LLMReceptionAgent:
             run_dir = run_dir(brief)         # named for the model, see above
         pkg["run_dir"] = str(run_dir) if run_dir else None
 
-        prov: list = list(pkg["provenance"])   # the re-ask's record, if any
         # A PLACE GIVEN AS A NAME (2026-10-28). A live whole-domain question
-        # came back with "domain": "naches" and the gather died on dom.get.
-        # The brief's domain is a record everywhere downstream (the design
-        # page's Where line read a bare name as "no basin"), so a name
-        # becomes {"name": ...} here, once, and anything else that is not a
-        # record becomes none.
+        # came back with "domain": "naches". The brief's domain is a record
+        # everywhere downstream (the design page's Where line read a bare
+        # name as "no basin"), so a name becomes {"name": ...} here, once,
+        # and anything else that is not a record becomes none.
         if isinstance(brief.get("domain"), str):
             name = brief["domain"].strip()
             brief["domain"] = {"name": name} if name else {}
         elif brief.get("domain") is not None and not isinstance(brief["domain"], dict):
             brief["domain"] = {}
-        dom = (brief.get("domain") or {})
-        bbox = dom.get("bbox") or {}
-        period = ((brief.get("run_settings") or {}).get("resolved_period") or {})
-        y0, y1 = period.get("yr_start"), period.get("yr_end")
 
-        # ── A COUPLING REQUEST GATHERS NOTHING NEW ──────────────────────
-        # Its domain, observations and rain are the prior run's, carried
-        # forward; its site files are copied beside this run's reception.
-        # Whatever the prior LACKS stays absent and is said in provenance —
-        # a fetch here would be a data-server call to re-learn what a file
-        # on disk already says, and the coupled columns carry their own
-        # water table and flux, so the join needs only the subsurface.
-        if _is_coupling(brief):
-            try:
-                carried = _carry_prior_forward(brief, run_dir, prov)
-            except ValueError as e:
-                # A PRIOR THAT CANNOT BE RESOLVED IS A QUESTION, NOT A CRASH
-                # (2026-08-24). A live coupling request died right here with a
-                # raw traceback — the user cannot answer a stack trace, and
-                # every ValueError this gather raises is a question a person
-                # CAN answer ("which run?", "that run has no records"). The
-                # clarify route already exists for exactly this. The minted
-                # run directory is removed if empty, honouring "a
-                # clarification mints nothing" — resolution fails before any
-                # file is copied into it.
-                if run_dir:
-                    try:
-                        Path(run_dir).rmdir()
-                    except OSError:
-                        pass
-                pkg["run_dir"] = None
-                pkg["route"] = {"action": "clarify",
-                                "questions": [f"{e}. Please name the prior "
-                                              f"run directory exactly, and I "
-                                              f"will continue from it."],
-                                "prior_run_dir": None,
-                                "llm_intent": "design"}
-                return pkg
-            pkg.update(carried)
-            brief["observations_summary"] = gather.summarise(
-                pkg["observations"])
-            pkg["provenance"] = prov
-            return pkg
-
-        # ── A CONCEPTUAL REQUEST TOUCHES THE MODEL SERVER AND NOTHING ELSE ──
-        # This used to be true only by luck. The fetch below was gated on
-        # `if bbox:`, so a conceptual study avoided the data servers ONLY
-        # because the model happened to leave `domain` empty — and the prompt
-        # asking it to was the whole enforcement.
-        #
-        # "How does soil texture split rain in the Cascades?" breaks that. A
-        # model can reasonably read it as conceptual AND resolve a domain,
-        # because the user named a region. One bbox and the entire gather
-        # fires: the DEM grid, the gauges, the wells, and two calls to a
-        # university-run server that this project is asked to use sparingly.
-        #
-        # A sweep still needs coordinates — the domain file and the warm start
-        # cannot do without a point — but those live in held_fixed.lat/lon.
-        # A BASIN, with a bounding box and a boundary, is a different thing and
-        # a conceptual brief has no use for one.
-        if _is_conceptual(brief):
-            skipped = _drop_domain(brief)
-            # RECORDED, NOT MERELY ABSENT. A conceptual run ends with
-            # observations == {}; so does a site run where every fetch failed.
-            # Same bytes, opposite meanings. Without this line the Analyzer
-            # cannot tell "there was nothing to compare against, by design"
-            # from "the servers were down", and neither can a reader.
-            prov.append({
-                "tool": None,
-                "args": {"design_archetype": "conceptual"},
-                "fetched_at": None,
-                "ok": True,
-                "error": None,
-                "skipped": ("no observations, no DEM grid and no water table "
-                            "were fetched: a controlled sweep has no basin to "
-                            "fetch them for. This is a decision, not a "
-                            "failure."),
-                "domain_dropped": skipped or None,
-            })
-            pkg["provenance"] = prov
-            return pkg
-
-        # ── A WHOLE-DOMAIN EXPERIMENT FETCHES NOTHING EITHER ──
-        # Its grid is its control's, every cell of it: there is no column to
-        # place, so the DEM grid, the rain at grid points, the water table and
-        # the hydrodata calls all serve a design it does not have. Its answer
-        # is read from the model's output alone, over the regions registered
-        # for its control (describe_domain_controls); no observation enters
-        # it (2026-11-03). Recorded, as the conceptual skip is, so an empty
-        # observations block reads as a decision.
-        if _is_whole_domain(brief):
-            ctl = ((brief.get("domain_experiment") or {}).get("control") or {})
-            prov.append({
-                "tool": None,
-                "args": {"design_archetype": "whole_domain",
-                         "control": ctl.get("name")},
-                "fetched_at": None,
-                "ok": True,
-                "error": None,
-                "skipped": ("no DEM grid, rain, water table or station observations "
-                            "were fetched: a whole-domain experiment runs on its "
-                            "control's own grid and its answer is read from the "
-                            "model's output over the control's registered regions. "
-                            "This is a decision, not a failure."),
-            })
-            pkg["provenance"] = prov
-            return pkg
-
-        if bbox:
-            pkg["grid"] = gather.gather_grid(
-                self._clients, bbox, huc=str(dom.get("huc") or ""),
-                boundary=dom.get("boundary"), provenance=prov)
-            # heterogeneity is DERIVED from the grid, not written by the model:
-            # the planner stratifies on it, so it must be the same numbers the
-            # sampler will see.
-            # setdefault IS NOT ENOUGH: it only fills a MISSING key, and the
-            # schema tells the model to emit `heterogeneity: null`. A site
-            # brief that resolved a bbox and still wrote null — which happens
-            # when the request names bare coordinates rather than a basin —
-            # crashed here with "'NoneType' does not support item assignment".
-            if not isinstance(brief.get("heterogeneity"), dict):
-                brief["heterogeneity"] = {}
-            brief["heterogeneity"]["relief_m"] = pkg["grid"].get("relief_m")
-            brief["heterogeneity"]["elevation_min_m"] = pkg["grid"].get("elevation_min_m")
-            brief["heterogeneity"]["elevation_max_m"] = pkg["grid"].get("elevation_max_m")
-            brief["heterogeneity"]["n_grid_points"] = pkg["grid"].get("n_in_basin")
-
-            if isinstance(y0, int) and isinstance(y1, int):
-                # RAIN AT THE SAME POINTS, over the resolved period. Soil says
-                # what the ground is; this says what falls on it. Both are
-                # keyed by the same "lat,lon" string, so a column reads them
-                # with one lookup. Needs the period, which is why it sits here
-                # and not beside soil. Same reasoning on placement as soil: a
-                # sibling of `brief`, never inside it.
-                pkg["precipitation"] = gather.gather_precipitation(
-                    self._clients, pkg["grid"], y0, y1, provenance=prov)
-
-                bs = (f'{bbox["min_lon"]},{bbox["min_lat"]},'
-                      f'{bbox["max_lon"]},{bbox["max_lat"]}')
-                # The polygon comes from the GRID, not from the brief: when the
-                # brief carries no boundary, gather_grid is what fetched it from
-                # the HUC. Passing it here is what tags each station in- or
-                # out-of-basin; without it the observations are bbox-wide while
-                # the grid is basin-clipped, and the two disagree about where
-                # the study is.
-                pkg["observations"] = gather.gather_observations(
-                    self._clients, bs, y0, y1,
-                    boundary=pkg["grid"].get("boundary"),
-                    # WHERE THE MODELLED WATER TABLE IS WRITTEN. It used to be
-                    # `grid_points`, sampled at the 58 basin-clipped points —
-                    # but sample_columns snaps columns onto the CONUS grid and
-                    # moves them, so those were never the points anyone would
-                    # later ask about. It is a GeoTIFF beside reception.json
-                    # now, readable at any location by static_wtd.sample().
-                    run_dir=run_dir,
-                    provenance=prov)
-                brief["observations_summary"] = gather.summarise(pkg["observations"])
-
-                # THE SUBSURFACE, as a FIELD beside the water table rather than
-                # a value per column. Same reason: the columns do not exist yet,
-                # and a field answers at any point chosen later. It needs the
-                # run directory, which is why it sits here with the other file
-                # products and not beside soil.
-                #
-                # It replaces what used to be invented. A survey profile stops
-                # at about 1.5 m; everything below that was the deepest horizon
-                # copied downward. This parameterises 392 m.
-                pkg["subsurface"] = gather.gather_subsurface(
-                    self._clients, bs, run_dir=run_dir, provenance=prov)
-        pkg["provenance"] = prov
+        # A WHOLE-DOMAIN EXPERIMENT FETCHES NOTHING. Its grid is its control's,
+        # every cell of it, and its answer is read from the model's output
+        # over the regions registered for its control
+        # (describe_domain_controls); no observation enters it (2026-11-03).
+        # Recorded, so that the empty records above read as a decision.
+        ctl = ((brief.get("domain_experiment") or {}).get("control") or {})
+        pkg["provenance"] = list(pkg["provenance"]) + [{
+            "tool": None,
+            "args": {"design_archetype": "whole_domain", "control": ctl.get("name")},
+            "fetched_at": None,
+            "ok": True,
+            "error": None,
+            "skipped": ("no DEM grid, rain, water table or station observations "
+                        "were fetched: a whole-domain experiment runs on its "
+                        "control's own grid and its answer is read from the "
+                        "model's output over the control's registered regions. "
+                        "This is a decision, not a failure."),
+        }]
         return pkg
 
     def _control_card(self, trace) -> Optional[str]:
         """Shown once, when a prepared control has been described
         (2026-10-27): asked to introduce the control itself, Reception left
         out a different fact on each of four live tries, so the facts are
-        shown by code, in the server's own words."""
+        shown by code, in the server's own words. Not shown for a control the
+        person was already told about (`introduced`)."""
         if getattr(self, "_card_shown", False):
             return None
         rows: List[Dict[str, Any]] = []
@@ -658,7 +352,9 @@ class LLMReceptionAgent:
             if step.get("tool") == "describe_domain_controls":
                 res = step.get("result") or {}
                 rows = list(((res.get("controls") or {}).get("controls")) or [])
-        rows = [r for r in rows if isinstance(r, dict) and r.get("usable")]
+        told = getattr(self, "introduced", None) or set()
+        rows = [r for r in rows if isinstance(r, dict) and r.get("usable")
+                and r.get("name") not in told]
         if not rows:
             return None
         self._card_shown = True

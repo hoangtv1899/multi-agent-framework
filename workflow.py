@@ -136,7 +136,13 @@ def _drop_if_empty(d) -> None:
 # What a revision carries of the brief: the decisions a user settles. The rest
 # of the brief (framing, observations, rationale) is re-derived for the change.
 _SETTLED_KEYS = ("model", "design_archetype", "domain", "domain_experiment")
-_SETTLED_RUN_SETTINGS = ("resolved_period", "initialization", "forcing_data")
+# THE YEARS ASKED ABOUT ARE CARRIED TOO (2026-11-11). Only the simulated span
+# was, so a revision's Reception had to rebuild the years the person asked
+# about, and could copy the simulated span in their place: the start year a
+# run needs would then be reported as a year asked about. `initialization`
+# stays for a brief that holds one; `forcing_data` was listed here and never
+# matched, since it is a key of the brief, not of its run settings.
+_SETTLED_RUN_SETTINGS = ("requested_period", "resolved_period", "initialization")
 
 
 def _revision_of(result: dict, change: str) -> dict:
@@ -582,7 +588,15 @@ class WorkflowCoordinator:
 		self._scope_shown = True
 		try:
 			from core import scope_banner
-			print("\n" + scope_banner.text(getattr(self, "mcp_clients", None) or {}))
+			clients = getattr(self, "mcp_clients", None) or {}
+			menus = scope_banner.read(clients)
+			print("\n" + scope_banner.text(clients, menus=menus))
+			# THE RUN IS DESCRIBED ONCE (2026-11-11): Reception's card said
+			# what the run is a few lines under this banner, so Reception is
+			# told which runs the person has just read about.
+			front = getattr(self, "reception", None)
+			if front is not None:
+				front.introduced = set(scope_banner.run_names(menus))
 		except Exception as e:                                  # noqa: BLE001
 			print(f"\n(what this version answers could not be read: "
 				  f"{type(e).__name__}: {e})")

@@ -52,4 +52,5 @@ def fetch(clients, model: str) -> Dict[str, Any]:
 # from a call hardcoded to model="elm", before any model was chosen, on every
 # request. The menu is now fetched by model_servers.describe_sweep when the LLM
 # asks for it, for the model it named, and handed over as the server's own
-# JSON; the reading rules live in reception_agentic.txt STEP 2b, once.
+# JSON. The reading rules lived in Reception's prompt until 2026-11-11, when its
+# instructions for sweeps were removed with the other studies set aside.

@@ -65,14 +65,7 @@ class TestAStatedCountWins:
         assert not report["ok"] and report["stop"]
 
 
-class TestReceptionIsToldToExtractIt:
-
-    def test_the_prompt_carries_the_field(self):
-        """The gate can only enforce a number reception actually produced."""
-        p = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
-        assert "requested_n_columns" in p
-        assert "run_settings.requested_n_columns" in p
-
-    def test_the_prompt_forbids_inventing_one(self):
-        p = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
-        assert "Do NOT invent one" in p
+# TestReceptionIsToldToExtractIt WAS HERE (two tests that the prompt carried
+# `requested_n_columns` and forbade inventing one). Reception's instructions
+# for single-column studies were removed on 2026-11-11, and those tests with
+# them. The gate's own handling of a stated count is still tested above.

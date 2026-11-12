@@ -230,7 +230,7 @@ def test_the_prompts_name_no_change_and_no_control():
         assert "whole_domain" in text
         assert not [i for i in ids if re.search(rf"\b{i}\b", text)], name
     rec = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
-    assert "STEP 2c: SETTLE THE EXPERIMENT" in rec and '"domain_experiment": {' in rec
+    assert "STEP 3: TURN THE QUESTION INTO RUNS" in rec and '"domain_experiment": {' in rec
     pl = (ROOT / "src" / "agents" / "prompts" / "planner.txt").read_text()
     assert "THE WHOLE-DOMAIN PATH: carry the experiment, choose the analysis" in pl
 

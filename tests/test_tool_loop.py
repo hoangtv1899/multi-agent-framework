@@ -206,6 +206,94 @@ def test_a_framework_tools_answer_is_read_whole_past_the_data_cap(monkeypatch):
     assert len(_tool_content(llm)) == len(json.dumps(long))
 
 
+def _menu_tool(fn):
+    return {"read_menu": {"schema": {"type": "function", "function": {
+        "name": "read_menu", "description": "d",
+        "parameters": {"type": "object",
+                       "properties": {"server": {"type": "string"}}}}}, "fn": fn}}
+
+
+def test_a_framework_tool_is_answered_once_for_the_same_arguments(monkeypatch):
+    """A live reception read a twelve-thousand-character menu twice, and the
+    second copy was carried in every later round. The prompt asks the model
+    not to; the loop makes it so."""
+    calls = []
+
+    def read_menu(server=None):
+        calls.append(server)
+        return {"menu": "m" * 5000, "server": server}
+    scripted = [_msg(tool_calls=[("read_menu", {"server": "a"})]),
+                _msg(tool_calls=[("read_menu", {"server": "a"}),
+                                 ("read_menu", {"server": "b"})]),
+                _msg(content="done")]
+    agent, llm, _ = _make_agent(monkeypatch, scripted, local_tools=_menu_tool(read_menu))
+    out = agent.run("sys", "go")
+    assert calls == ["a", "b"]                         # the repeat reached no tool
+    again = out["trace"][1]["result"]
+    assert again["repeated"] is True and "read it above" in again["note"]
+    assert "read_menu" in again["note"] and len(json.dumps(again)) < 300
+    assert out["trace"][2]["result"]["server"] == "b"  # other arguments are answered
+    assert len(_tool_content(llm, 1)) < 300            # the menu is not carried twice
+
+
+@pytest.mark.parametrize("fails", ["raises", "says"])
+def test_a_framework_tool_that_failed_may_be_asked_again(monkeypatch, fails):
+    state = {"n": 0}
+
+    def read_menu(server=None):
+        state["n"] += 1
+        if state["n"] == 1:
+            if fails == "raises":
+                raise RuntimeError("not ready")
+            return {"error": "not ready"}
+        return {"menu": "m"}
+    scripted = [_msg(tool_calls=[("read_menu", {"server": "a"})]),
+                _msg(tool_calls=[("read_menu", {"server": "a"})]),
+                _msg(tool_calls=[("read_menu", {"server": "a"})]),
+                _msg(content="done")]
+    agent, _, _ = _make_agent(monkeypatch, scripted, local_tools=_menu_tool(read_menu))
+    out = agent.run("sys", "go")
+    assert "not ready" in out["trace"][0]["result"]["error"]
+    assert out["trace"][1]["result"] == {"menu": "m"}
+    assert out["trace"][2]["result"]["repeated"] is True and state["n"] == 2
+
+
+def test_a_statement_is_not_put_to_the_person(monkeypatch):
+    """A live Reception, once the person had confirmed, used ask_user to say
+    what it was about to do. The person saw a prompt with nothing to answer."""
+    asked = []
+    monkeypatch.setattr(tl, "_human_answer",
+                        lambda q, tty, interactive: asked.append(q) or {"answer": "yes"})
+    scripted = [_msg(tool_calls=[("ask_user", {"question": "Shall I read 2001 to 2003?"})]),
+                _msg(tool_calls=[("ask_user", {"question": "Reading 2001 to 2003, no new "
+                                                           "runs."})]),
+                _msg(content="done")]
+    agent, _, _ = _make_agent(monkeypatch, scripted, interactive=True)
+    out = agent.run("sys", "go")
+    assert asked == ["Shall I read 2001 to 2003?"]
+    told = out["trace"][1]["result"]["error"]
+    assert "asks none, so it was not shown to the person" in told
+    assert "give your final answer now" in told
+
+
+def test_the_person_may_be_asked_twice(monkeypatch):
+    """Only a framework tool's answer is fixed for a conversation."""
+    monkeypatch.setattr(tl, "_human_answer", lambda q, tty, interactive: {"answer": "yes"})
+    scripted = [_msg(tool_calls=[("ask_user", {"question": "ok?"})]),
+                _msg(tool_calls=[("ask_user", {"question": "ok?"})]),
+                _msg(content="done")]
+    agent, _, _ = _make_agent(monkeypatch, scripted, interactive=True)
+    out = agent.run("sys", "go")
+    assert [s["result"] for s in out["trace"]] == [{"answer": "yes"}, {"answer": "yes"}]
+
+
+def test_when_to_ask_is_left_to_the_prompt():
+    said = tl.ASK_USER_TOOL["function"]["description"]
+    for old in ("HUC", "watershed", "SIMULATION PERIOD", "spin-up", "observations"):
+        assert old not in said, old
+    assert "as your instructions say" in said
+
+
 def test_a_cut_is_said_and_marked_never_silent(monkeypatch, capsys):
     huge = {"menu": "x" * (tl._MAX_LOCAL_RESULT_CHARS + 500)}
     local = {"read_menu": {"schema": {"type": "function", "function": {

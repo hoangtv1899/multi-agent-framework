@@ -437,17 +437,14 @@ FACTS = {"output_years": [2015, 2021], "start_year": 2015,
          "grid": {"cells": 12, "sentence": "4 x 3 cells (columns by rows)"}}
 
 
-def test_the_card_quotes_the_fire_and_the_grid():
+def test_the_card_leaves_the_fire_and_the_grid_to_the_design_page():
+    """The card says what the run is and nothing else since 2026-11-11; the
+    fire setup and the grid are quoted on the design page (the next test)."""
     from agents.reception_llm import control_card
     card = control_card([{"name": "synth", "usable": True, "description": "d",
                           "facts": FACTS}])
-    assert card.splitlines()[2:5] == ["  synth: d",
-                                      "  Fire: the fire is ELM's own fire model",
-                                      "  Grid: 4 x 3 cells (columns by rows)"]
-    old = control_card([{"name": "synth", "usable": True, "description": "d",
-                         "facts": {"fire": {"error": "not in these facts"}}}])
-    assert "  Fire: not in the control's facts (not in these facts)" in old
-    assert "Fire" not in control_card([{"name": "s", "usable": True, "facts": None}])
+    assert card.splitlines()[1:] == ["  ── The prepared run ──", "  synth: d"]
+    assert "Fire" not in card and "Grid" not in card
 
 
 def test_the_design_page_quotes_them_too():

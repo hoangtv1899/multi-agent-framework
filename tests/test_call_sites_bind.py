@@ -139,34 +139,12 @@ def _gather_names_called_by_reception():
     return out
 
 
-def test_every_gather_call_in_reception_exists_in_data_gather():
-    from core import data_gather
-    names = _gather_names_called_by_reception()
-    assert names, "reception_llm.py no longer calls any gather.* — check the alias"
-    missing = sorted(n for n in names if not callable(getattr(data_gather, n, None)))
-    assert not missing, (
-        f"reception_llm.py calls gather.{missing} but data_gather has no such "
-        f"function — the site path will raise AttributeError after the LLM "
-        f"rounds. Restore it or stop calling it.")
-
-
-def test_gather_calls_in_reception_bind():
-    """The arguments reception passes must match the gather signature."""
-    from core import data_gather
+def test_reception_fetches_nothing():
+    """Reception called six functions of core.data_gather for a single-column
+    study, and two tests here held those calls to the functions' signatures.
+    That code was deleted on 2026-11-11: a whole-domain study runs on its
+    control's own grid. A gather call that comes back would be a study of a
+    kind this version does not run."""
+    assert _gather_names_called_by_reception() == set()
     src = (ROOT / "src" / "agents" / "reception_llm.py").read_text()
-    tree = ast.parse(src)
-    for n in ast.walk(tree):
-        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                and isinstance(n.func.value, ast.Name)
-                and n.func.value.id == "gather"):
-            continue
-        fn = getattr(data_gather, n.func.attr, None)
-        if fn is None:
-            continue                            # the test above reports it
-        kws = {k.arg: None for k in n.keywords if k.arg}
-        try:
-            inspect.signature(fn).bind(*([None] * len(n.args)), **kws)
-        except TypeError as e:
-            pytest.fail(f"reception_llm.py:{n.lineno} gather.{n.func.attr}"
-                        f"({len(n.args)} positional, {sorted(kws)}) does not "
-                        f"bind: {e}")
+    assert "data_gather" not in src

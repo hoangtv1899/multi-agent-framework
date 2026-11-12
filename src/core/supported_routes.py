@@ -24,6 +24,14 @@ A developer reaches the routes set aside by setting IDEAS_DEVELOPER_ROUTES=1
 in the environment of the process. Nothing typed into the dialog can do that.
 The test session sets it (tests/conftest.py), since most tests of those routes
 predate this rule; the tests of the rule itself remove it.
+
+RECEPTION IS NO LONGER ONE OF THE WAYS IN, SWITCH OR NO SWITCH (2026-11-11).
+Its prompt was rewritten for whole-domain studies alone and its code for the
+other kinds was deleted (the gather of a basin, the carry-forward of a prior
+run, the sweep's branch), so it refuses a design brief of another kind
+itself. With the switch, the coordinator and the gate still let such a study
+through when it arrives another way: a saved brief, a resumed study, a
+manager called directly.
 """
 import os
 from typing import Any, Dict, Optional

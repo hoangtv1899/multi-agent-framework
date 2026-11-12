@@ -248,9 +248,8 @@ def describe_sweep(clients, server: str,
 DOMAIN_MENUS = {"controls": "describe_domain_controls",
                 "changes": "describe_domain_changes"}
 _NO_DOMAIN_NOTE = ("this server runs no whole-domain experiment, or its menu could not be "
-                   "read. Do NOT name controls, changes or their meanings from memory; say "
-                   "so to the user, and record in run_settings.conflicts that the menu was "
-                   "not verified.")
+                   "read. Do NOT name controls, changes or their meanings from memory. Say "
+                   "so to the person: nothing can be designed without the menu.")
 
 
 def describe_domain(clients, server: str, what: str,
@@ -393,9 +392,9 @@ def model_tools(clients) -> Dict[str, Any]:
                         "finished whole-domain runs an experiment is built on, "
                         "each with its years, how it was shown to reproduce, its "
                         "regions and gridded observations, and FACTS read from "
-                        "its own output (per-year GPP, LAI, ET, runoff, snow; the "
-                        "model's own burned area beside the observed one; the "
-                        "settings a change may alter). Call it ONLY for a "
+                        "its own output (its years, the settings a change may "
+                        "alter, its fire, grid and configuration; the model's own "
+                        "burned area beside the observed one). Call it ONLY for a "
                         "whole_domain request, on the model you chose. A control "
                         "not listed here does not exist on this machine."),
                     "parameters": {

@@ -43,18 +43,14 @@ ASK_USER_TOOL = {
     "type": "function",
     "function": {
         "name": "ask_user",
-        "description": ("Ask the human one clarifying question and get their "
-                        "answer. Use for a decision that is THEIRS to make and "
-                        "that you cannot settle from the request + tools:\n"
-                        "  - which of several watersheds, or which HUC scale\n"
-                        "  - a vague or ambiguous location\n"
-                        "  - THE SIMULATION PERIOD, whenever the request did "
-                        "not state one. Never default it silently when this "
-                        "tool is available: the period sets compute cost, "
-                        "spin-up and which observations exist, and the user is "
-                        "the one who knows which year they mean.\n"
-                        "Always present concrete candidates and your "
-                        "recommendation, so the human can just confirm."),
+        # WHEN TO ASK IS THE PROMPT'S TO SAY (2026-11-11). This description
+        # used to list the occasions itself (which watershed, which HUC scale,
+        # the simulation period): the single-column route's, and at odds with
+        # a prompt that asks one thing before a whole-domain design.
+        "description": ("Put one message to the person and wait for their "
+                        "answer. Use it as your instructions say, for what is "
+                        "theirs to decide. Say what you would do, so that "
+                        "they can simply confirm."),
         "parameters": {"type": "object",
                        "properties": {"question": {"type": "string"}},
                        "required": ["question"]},
@@ -209,6 +205,7 @@ class ToolLoopAgent:
         messages = [{"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}]
         trace: List[Dict[str, Any]] = []
+        answered: set = set()        # framework tools already answered, with their arguments
 
         for rnd in range(1, self.max_rounds + 1):
             msg = self._create(messages).choices[0].message
@@ -236,16 +233,43 @@ class ToolLoopAgent:
                                            "so nothing was asked. Call it again with the "
                                            "question in `question`, or go on without "
                                            "asking."}
+                    elif "?" not in question:
+                        # A STATEMENT IS NOT PUT TO THE PERSON EITHER
+                        # (2026-11-11). After the person had confirmed a
+                        # design, a live Reception called ask_user with a
+                        # sentence that said what it was about to do: an
+                        # acknowledgement, shown as a prompt with nothing to
+                        # answer.
+                        result = {"error": "ask_user is for a question, and this text asks "
+                                           "none, so it was not shown to the person. If you "
+                                           "have what you need, give your final answer now; "
+                                           "if you do have a question, ask it as one."}
                     else:
                         result = _human_answer(question, self._tty, self.interactive)
                 elif fq in self.local:
-                    # NEVER RAISES INTO THE LOOP. A framework tool that threw
-                    # would end the reception; the model can do something
-                    # sensible with an error it can read.
-                    try:
-                        result = self.local[fq]["fn"](**args)
-                    except Exception as e:              # noqa: BLE001
-                        result = {"error": f"{type(e).__name__}: {e}"[:300]}
+                    # A FRAMEWORK TOOL IS ANSWERED ONCE (2026-11-11). Its answer
+                    # cannot change within one conversation. A live reception
+                    # read the list of changes twice, and the second copy,
+                    # twelve thousand characters, was carried and paid for in
+                    # every later round. The prompt asks the model not to; this
+                    # makes it so. A call that failed may be made again.
+                    key = (fq, json.dumps(args, sort_keys=True, default=str))
+                    if key in answered:
+                        result = {"repeated": True,
+                                  "note": (f"You already called {fq} with these arguments "
+                                           f"in this conversation. Its answer has not "
+                                           f"changed: read it above, and do not call it "
+                                           f"again.")}
+                    else:
+                        # NEVER RAISES INTO THE LOOP. A framework tool that
+                        # threw would end the reception; the model can do
+                        # something sensible with an error it can read.
+                        try:
+                            result = self.local[fq]["fn"](**args)
+                        except Exception as e:              # noqa: BLE001
+                            result = {"error": f"{type(e).__name__}: {e}"[:300]}
+                        if not (isinstance(result, dict) and result.get("error")):
+                            answered.add(key)
                 elif fq not in self.dispatch:
                     result = {"error": f"unknown tool {fq}"}
                 else:

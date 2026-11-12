@@ -229,6 +229,31 @@ class TestReceptionStopsBeforeItGathers:
         with pytest.raises(_Minted):
             _reception_agent(_domain_brief()).process("a question", run_dir=_mint)
 
+    @pytest.mark.parametrize("brief, what", [
+        (_site_brief(), "single model columns sampled across a basin"),
+        ({"intent": "design", "design_archetype": "conceptual", "model": "elm"},
+         "a controlled sweep of single model columns"),
+        ({"intent": "design", "design_archetype": "coupling", "model": "pflotran"},
+         "drives one model with another's output"),
+    ])
+    def test_the_developers_switch_does_not_open_them_at_reception(self, monkeypatch,
+                                                                   brief, what):
+        """Reception's prompt and code were reduced to whole-domain studies
+        (2026-11-11). The switch still reaches the kinds set aside by their
+        own ways in; a conversation is no longer one of them."""
+        monkeypatch.setenv(sr.SWITCH, "1")
+        assert sr.problem(brief) is None               # the rule itself says nothing
+        pkg = _reception_agent(brief).process("a question", run_dir=_mint)
+        assert pkg["route"]["action"] == "unsupported"
+        assert what in pkg["route"]["why"]
+        assert "no longer set up from a conversation" in pkg["route"]["why"]
+        assert pkg["observations"] == {} and pkg["grid"] == {} and "run_dir" not in pkg
+
+    def test_a_whole_domain_study_goes_on_with_the_switch_too(self, monkeypatch):
+        monkeypatch.setenv(sr.SWITCH, "1")
+        with pytest.raises(_Minted):
+            _reception_agent(_domain_brief()).process("a question", run_dir=_mint)
+
     def test_a_question_back_to_the_user_is_untouched(self, as_a_user):
         brief = {"intent": "clarification_needed", "questions": ["which year?"],
                  "design_archetype": "site"}

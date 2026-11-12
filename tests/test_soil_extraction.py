@@ -266,11 +266,14 @@ class TestWarmStartIsTheDefault:
         (`constraints.initial_state`), and reception emits `initialization`
         only when the USER stated one. So the disagreement this test guarded
         against — prompt says cold, manager warm-starts — cannot arise: the
-        prompt no longer says either."""
+        prompt no longer says either.
+
+        2026-11-11: Reception's instructions for single-column studies were
+        removed, so the prompt now says nothing at all about how a column
+        starts. That is the same guarantee, held more simply."""
         p = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
         assert "DEFAULT IS WARM" not in p and "otherwise cold" not in p
-        assert "constraints.initial_state" in p
-        assert "unless the USER stated a preference" in p
+        assert "initialization" not in p and "initial_state" not in p
 
     def test_the_code_still_warm_starts_unless_the_user_said_cold(self):
         """The behaviour the deleted test lost — through the function that
