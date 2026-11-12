@@ -605,7 +605,10 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         adir = _plan.analysis_dir(ctx)
         ok, why = _plan.plan_passed(adir)
         report["analysis_plan"] = {"passed": ok, "why": why,
-                                   "versions": _plan.plan_versions(adir)}
+                                   "versions": _plan.plan_versions(adir),
+                                   # its normal years, and whether a year it
+                                   # compares with them is one of them
+                                   "baseline": _plan.load_plan(adir).get("baseline") or {}}
         phase = _plan.load_planned_phase(adir) or None
         report["planned_phase"] = phase
         report["acceptance"] = _plan.acceptance(phase, plan_ok=ok)
@@ -1028,9 +1031,12 @@ def planned_phase_lines(report: Dict[str, Any]) -> List[str]:
          f"The planned phase was closed {ph.get('closed')} by {_plain(ph.get('by'))} "
          f"(04_analysis/planned_phase.json, after {ph.get('lookups_before')} lookup lines): "
          f"{counts}. Each analysis is judged by its required outputs, each produced, not "
-         f"estimable or unmet; its scope (what it may look up) decides nothing.", "",
-         "| analysis | status | required | produced | not estimable | unmet | reason |",
-         "|---|---|---|---|---|---|---|"]
+         f"estimable or unmet; its scope (what it may look up) decides nothing.", ""]
+    held = ((report.get("analysis_plan") or {}).get("baseline") or {}).get("inclusive")
+    if held:
+        L += [f"On the normal years: {_plain(held)}.", ""]
+    L += ["| analysis | status | required | produced | not estimable | unmet | reason |",
+          "|---|---|---|---|---|---|---|"]
     for r in rows:
         req = ("yes (" + ", ".join(r.get("required_by") or []) + ")") if r.get("required") \
             else "no"

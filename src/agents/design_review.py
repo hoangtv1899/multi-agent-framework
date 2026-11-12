@@ -843,7 +843,22 @@ def _appendix(preview, run_dir, strategy, brief):
     de.update(strategy.get("domain_experiment") or {})
     plan_an = de.get("analysis") or {}
     if an or plan_an:
-        L += ["## The numbers the answer is read from", ""]
+        # WHAT THESE NUMBERS ARE (2026-11-12). The heading said "the numbers
+        # the answer is read from". Where the control has a results store the
+        # Analyzer plans its own analysis after the runs and reads the store,
+        # by a plan that may name quantities and places this design does not:
+        # a study approved with six quantities here was answered from
+        # fifteen. The page now says what the list below is, and that the
+        # analysis plan is not on it.
+        if _has_results_store(strategy, (de.get("control") or {}).get("name")):
+            L += ["## The numbers tabulated from the runs", "",
+                  "These are the quantities and places this design names. Code tabulates "
+                  "them from the runs' output for every study. The answer itself is read "
+                  "by an analysis plan written after the runs, from the whole catalog of "
+                  "the model's output: it may read other quantities and places, and it is "
+                  "not on this page.", ""]
+        else:
+            L += ["## The numbers the answer is read from", ""]
         if de.get("years"):
             rep, how = AY.reported(brief, strategy)
             L.append(f"- years reported: {', '.join(map(str, rep))}")
@@ -1061,6 +1076,18 @@ def record_decision(run_dir, decision):
 # one that is not the design approved, is not run. A typed change makes a new
 # design in a new folder with a new page, so the folder of the design it
 # replaced never holds an approval.
+def _has_results_store(strategy, control_name) -> bool:
+    """Whether the design's control has a results store built, by the
+    server's own line about it in the rulebook the design was made under."""
+    rows = (((strategy or {}).get("domain_rulebook") or {}).get("controls") or {}) \
+        .get("controls") or []
+    for r in rows:
+        if isinstance(r, dict) and r.get("name") == control_name:
+            line = str(r.get("suite") or "").strip().lower()
+            return bool(line) and not line.startswith("not built")
+    return False
+
+
 APPROVAL_FILE = "01_inputs/design_approval.json"
 NOT_APPROVED_WORDS = ("DECLINED", "NOT APPROVED", "not run:", "revision requested")
 

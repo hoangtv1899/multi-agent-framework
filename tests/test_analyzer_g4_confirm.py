@@ -124,10 +124,16 @@ def test_every_map_is_made_before_the_call_that_takes_it(study):
         "P1": PC.COMPLETED, "P2": PC.COMPLETED, "P3": PC.COMPLETED}
 
 
-def test_a_dependency_not_made_leaves_its_dependent_unmet_and_says_why(study):
+def test_a_dependency_not_made_leaves_its_dependent_unmet_and_says_why(study, monkeypatch):
     """Its input's map is empty: the anomaly of a year the run lacks, which
     the method answers as not estimable. The overlap is not called, and the
-    record, the close and acceptance all say so."""
+    record, the close and acceptance all say so.
+
+    The plan check does not judge years in this test (2026-11-12): it would
+    name the year the run lacks when the plan is written
+    (tests/test_plan_runs_and_baseline.py), and what is tested here is what
+    follows when the data lacks a year after the plan has passed."""
+    monkeypatch.setattr(AP, "study_runs", lambda ctx: {"control": None})
     _approve(study, _deps_plan(gpp_period="2017"))
     rec = AP.produce_required(study["ctx"], study["out"])["record"]
     calls = {r["label"]: r for r in rec["calls"]}

@@ -70,6 +70,19 @@ PLAN = {
 FOLLOWS = {"follows": True, "why": "it follows", "problems": []}
 
 
+
+# THE PLAN CHECK DOES NOT JUDGE YEARS HERE (2026-11-12). The tests of this file plan an output
+# for a year the store does not hold, to exercise what the framework does when
+# the data refuses a look-up after the plan has passed. Since 2026-11-12 the
+# plan check names such a year when the plan is written
+# (tests/test_plan_runs_and_baseline.py), so here the study has no years on
+# record, which the check does not judge (analysis_plan.study_runs). The path
+# from a refusal by the data to the close is unchanged, and is what is tested.
+@pytest.fixture(autouse=True)
+def _years_not_on_record(monkeypatch):
+    monkeypatch.setattr(AP, "study_runs", lambda ctx: {"control": None})
+
+
 def _approved(study, plan=PLAN, qt="hypothesis"):
     study["ctx"].plan["experiment"]["analysis"]["question_type"] = qt
     r = Replies({"a": [plan], "b": [FOLLOWS]}).clients()

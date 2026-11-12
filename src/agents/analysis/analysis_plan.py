@@ -739,6 +739,63 @@ def _check_baseline(plan, env):
     return []
 
 
+# THE STUDY'S OWN RUNS AND YEARS (2026-11-12). The check was given the
+# catalog's fields and regions and nothing of the study, so a plan whose
+# outputs named a run the study does not have, or a year a run does not
+# simulate, passed it: found when a plan written for another study was
+# replayed against a design and came back with no problem. After a run such
+# an output is refused by the data and its analysis closed as failed; with
+# this rule it is named when the plan is written. No rule where the caller
+# gives no runs, and no year rule for a run whose years are not on record.
+def _run_years(env, run):
+    runs = env.get("runs") or {}
+    return run in runs, runs.get(run)
+
+
+def _check_runs(a, env):
+    if not env.get("runs"):
+        return []
+    out = []
+    for o in a.get("outputs") or []:
+        if not isinstance(o, dict):
+            continue
+        run = str(o.get("run") or PC.CONTROL)
+        known, years = _run_years(env, run)
+        if not known:
+            out.append(f"{a.get('id')}: output {o.get('id')!r}: no run {run!r} in this study "
+                       f"(its runs: {', '.join(sorted(env['runs']))})")
+            continue
+        y = PC._year(o.get("period"))
+        # a difference reads the run and the control in the same period
+        for who, ys in ((run, years),) + (((PC.CONTROL, _run_years(env, PC.CONTROL)[1]),)
+                                          if o.get("kind") == "difference" else ()):
+            if y is not None and ys and y not in ys:
+                out.append(f"{a.get('id')}: output {o.get('id')!r}: {y} is not a year of "
+                           f"{who} ({ys[0]} to {ys[-1]})")
+    return out
+
+
+def _check_comparisons(plan, env):
+    if not env.get("runs"):
+        return []
+    out = []
+    for c in plan.get("comparisons") or []:
+        if not isinstance(c, dict):
+            continue
+        run = str(c.get("run") or PC.CONTROL)
+        known, years = _run_years(env, run)
+        if not known:
+            out.append(f"comparison {c.get('id')}: no run {run!r} in this study (its runs: "
+                       f"{', '.join(sorted(env['runs']))})")
+            continue
+        bad = [int(y) for y in c.get("years") or [] if str(y).isdigit() and years
+               and int(y) not in years]
+        if bad:
+            out.append(f"comparison {c.get('id')}: {bad} not among the years of {run} "
+                       f"({years[0]} to {years[-1]})")
+    return out
+
+
 def _check_screen(plan, env):
     qt, rs, out = env["question_type"], env["regions"], []
     sc = plan.get("screen")
@@ -848,6 +905,12 @@ PLAN_RULES = (
              "maps are not in the suite; a normal years' mean is a period of its own: normal, "
              "normal-WY, normal-JJA, never of a month", _check_periods),
     PlanRule("outputs", "analysis", PC.RULE_WORDS, _check_outputs),
+    PlanRule("runs", "analysis", "runs: an output's run is control or a run of this study "
+             "(the catalog's runs table), and the year of its period is a year that run "
+             "has; a difference's year is a year of the run and of the control",
+             _check_runs),
+    PlanRule("comparisons", "plan", "comparisons: each names control or a run of this "
+             "study, and years that run has", _check_comparisons),
     PlanRule("baseline", "plan", "baseline: the normal years are the Planner's, given above",
              _check_baseline),
     PlanRule("screen", "plan", "screen: declared once, in this entry; it runs last for a "
@@ -1140,20 +1203,24 @@ def plan_prompt(inputs: Dict[str, Any]) -> str:
 
 
 def plan_problems(plan: Dict[str, Any], fields: Sequence[str], regions: Sequence[str],
-                  planner_years: Sequence[int], question_type: Optional[str] = None
+                  planner_years: Sequence[int], question_type: Optional[str] = None,
+                  runs: Optional[Dict[str, Optional[Sequence[int]]]] = None
                   ) -> List[str]:
     """What code finds wrong with a plan, by PLAN_RULES (the same rules the
     task states): a field, region, method or setting that does not exist, the
     screen listed as an analysis, settings not keyed by a method, a timing
     setting timing.nc does not hold, a month, normal years other than the
-    Planner's, or a screen missing or out of the order the question type sets
-    (plan section 3.5)."""
+    Planner's, a run or a year the study does not have (when `runs`, {run:
+    its years or None}, is given: study_runs), or a screen missing or out of
+    the order the question type sets (plan section 3.5)."""
     _elm()
     import domain_methods as M                                      # noqa: N812
     env = {"fields": set(fields), "regions": set(regions), "M": M,
            "planner_years": list(planner_years or []),
            "question_type": question_type or plan.get("question_type"),
-           "outputs": PC.plan_index(plan)}
+           "outputs": PC.plan_index(plan),
+           "runs": ({str(k): (sorted(int(y) for y in v) if v else None)
+                     for k, v in runs.items()} if runs else None)}
     out: List[str] = []
     for a in plan.get("analyses") or []:
         for r in PLAN_RULES:
@@ -1172,6 +1239,65 @@ def _catalog_names(ctx) -> Tuple[List[str], List[str]]:
     dirs = suite_dirs(ctx)
     man = _read_json(Path(dirs.get("control", "")) / SUITE_MANIFEST)
     return M.catalog_fields(), [r.get("name") for r in man.get("regions") or []]
+
+
+def study_runs(ctx) -> Dict[str, Optional[List[int]]]:
+    """{run: its years} of the study, for the plan check: the control with
+    the whole years its results store holds, each run with the experiment's
+    years. None for years that are not on record, which the check then does
+    not judge."""
+    de = (getattr(ctx, "plan", None) or {}).get("experiment") or {}
+    man = _read_json(Path(suite_dirs(ctx).get("control", "")) / SUITE_MANIFEST)
+    whole = [int(y) for y in ((man.get("periods") or {}).get("year") or [])
+             if str(y).isdigit()]
+    out: Dict[str, Optional[List[int]]] = {PC.CONTROL: whole or None}
+    years = [int(y) for y in de.get("years") or []] or None
+    for r in de.get("runs") or []:
+        name = (r or {}).get("run") or (r or {}).get("name")
+        if name and str(name) != PC.CONTROL:
+            out[str(name)] = years
+    return out
+
+
+# A YEAR SET AGAINST NORMAL YEARS THAT CONTAIN IT IS SAID (2026-11-12). Where
+# the Planner names no normal years the control's own stand in (see
+# planner_normal_years), and the check holds the plan to them, so a study of
+# one of those years compared it with a mean that held it, and nothing said
+# so: the anomaly method leaves a normal year out only for another year's
+# event months, never for being the year in question. Which baseline a study
+# should use is a scientific choice and is not made here: no value changes.
+# The plan now says which years are so compared, where its reader and its
+# reviewer see it, and the report repeats it.
+INCLUSIVE_WORDS = ("the normal years include {years}, {which} this plan sets against them: "
+                   "an anomaly of such a year is against a mean that contains the year "
+                   "itself, and against the other normal years alone it would be larger")
+
+
+def baseline_inclusive(plan: Dict[str, Any]) -> List[int]:
+    """The years this plan sets against normal years that contain them: a
+    year of a comparison against the normal years, of an anomaly, or of a
+    timing measure read against the normal years, that is itself a normal
+    year. [] when there is none."""
+    ny = {int(y) for y in ((plan.get("baseline") or {}).get("normal_years") or [])}
+    if not ny:
+        return []
+    _elm()
+    import domain_methods as M                                      # noqa: N812
+    years = set()
+    for c in plan.get("comparisons") or []:
+        if isinstance(c, dict) and c.get("against") == AGAINST[0]:
+            years |= {int(y) for y in c.get("years") or [] if str(y).isdigit()}
+    for a in plan.get("analyses") or []:
+        for o in (a.get("outputs") or []) if isinstance(a, dict) else []:
+            if not isinstance(o, dict):
+                continue
+            k = o.get("kind")
+            if k == "anomaly" or (k in M.TIMING_IDS
+                                  and (o.get("against") or PC.NORMAL) == PC.NORMAL):
+                y = PC._year(o.get("period"))
+                if y is not None:
+                    years.add(y)
+    return sorted(years & ny)
 
 
 def _plain_parts(plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -1221,12 +1347,18 @@ def _plan_record(ctx, inputs: Dict[str, Any], reply: str, attempt: int) -> Dict[
         plan["baseline"]["normal_years"] = planner_normal_years(ctx)
     if plan["baseline"].get("normal_years"):
         plan["baseline"]["normal_years_from"] = normal_years_from(ctx)
+    held = baseline_inclusive(plan)
+    if held:
+        plan["baseline"]["includes_compared_years"] = held
+        plan["baseline"]["inclusive"] = INCLUSIVE_WORDS.format(
+            years=", ".join(str(y) for y in held),
+            which="a year" if len(held) == 1 else "years")
     # NO DASHES IN THE MODEL'S WORDS, before the file is written and hashed
     _plain_parts(plan)
     plan["seen"] = list(SEEN) + ([SEEN_RECIPE] if inputs.get("recipe") else [])
     plan["withheld"] = list(WITHHELD)
     plan["problems"] = plan_problems(plan, fields, regions, planner_normal_years(ctx),
-                                     plan["question_type"]) + \
+                                     plan["question_type"], runs=study_runs(ctx)) + \
         ([f"the reply was not readable JSON: {spec['unreadable']}"]
          if "unreadable" in spec else [])
     return plan

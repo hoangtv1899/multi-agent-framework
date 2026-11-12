@@ -44,6 +44,18 @@ together, with and without a new simulation, led to these changes:
   (`core/resumable.py`), and a plan amendment whose settings name no method
   is refused with a reason.
 
+- **The plan check holds a plan to the study's runs and years** (2026-11-12,
+  `analysis_plan.study_runs`, the rules `runs` and `comparisons`). An output
+  or a comparison that names a run the study does not have, or a year a run
+  does not have, fails the check when the plan is written. Before, it passed,
+  and the look-up failed after the run.
+- **A year set against normal years that contain it is said** (2026-11-12,
+  `analysis_plan.baseline_inclusive`). The plan's baseline names such years
+  and says that their anomaly is against a mean that holds the year itself.
+  The plan's reviewer reads it, and the report's "Planned analyses" section
+  repeats it. No value changes: which baseline a study should use is not
+  decided by this.
+
 - **The page says what code did not check** (2026-11-10,
   `step4_report.verification_limits`). A whole-domain report now ends with a
   section "What code checked, and what it did not": the numbers and the

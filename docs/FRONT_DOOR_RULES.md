@@ -176,6 +176,25 @@ in EVERY simulated year"). The Planner's verdict is `partial`, by its
 prompt, when a change reaches years the question did not name and cannot be
 limited to them.
 
+## The Planner designs without the results
+
+`planner._rulebook_for_prompt`. The Planner's copy of a control's record
+holds neither its comparison with measurements nor, since 2026-11-12, its own
+results: the numbers by year and the model's burned area by year. A note in
+their place says the analysis reports them. The Planner's goals and choices
+are handed to the step that plans the analysis, so a design written by a
+reader of the results would not be written before them. It still reads the
+control's years, fields, settings, fire and regions.
+
+## The page says what its tabulated numbers are
+
+The second part of the design page lists the places and quantities the design
+names. Where the control has a results store, its heading is "The numbers
+tabulated from the runs", and the page says that the answer is read by an
+analysis plan written after the runs, which may read other quantities and is
+not on the page. For a control with no store the heading stays "The numbers
+the answer is read from".
+
 ## Every caveat is on the page
 
 Up to eight caveats are printed, each up to 400 characters, and any beyond

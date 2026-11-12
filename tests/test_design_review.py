@@ -353,6 +353,39 @@ class TestThePageSaysMonthsAndSeasons:
         assert dr.MONTHS_AND_SEASONS_LINE in text
         assert "needs the December before it" in dr.MONTHS_AND_SEASONS_LINE
 
+    def test_the_page_says_what_its_tabulated_numbers_are(self, tmp_path):
+        """WHAT THESE NUMBERS ARE (2026-11-12). The heading said "the numbers
+        the answer is read from". Where the control has a results store the
+        answer is read by an analysis plan written after the runs, which may
+        read other quantities: the page says so, and keeps the old heading
+        for a control with no store, whose answer is read from these."""
+        preview = {"analysis": {"fields": [{"name": "GPP", "stream": "h0",
+                                            "how": "total over the year",
+                                            "units": "gC/m^2/yr"}]}}
+        brief = {"domain_experiment": {"control": {"name": "valley", "reuse": True},
+                                       "years": [2031]}}
+
+        def page(suite):
+            strategy = {"domain_rulebook": {"controls": {"controls": [
+                {"name": "valley", "suite": suite}]}}}
+            return "\n".join(dr._appendix(preview, tmp_path, strategy, brief))
+
+        stored = page("version 1, built 2031-01-01 00:00 UTC, 0.10 GB: 3 fields")
+        assert "## The numbers tabulated from the runs" in stored
+        assert "by an analysis plan written after the runs" in " ".join(stored.split())
+        assert "it is not on this page" in " ".join(stored.split())
+        assert "## The numbers the answer is read from" not in stored
+        assert "| GPP | h0 | total over the year | gC/m^2/yr |" in stored
+        for none in ("not built", "not built (the registry names no suite_dir)", "", None):
+            plain = page(none)
+            assert "## The numbers the answer is read from" in plain, none
+            assert "The numbers tabulated from the runs" not in plain
+        # a design made under no rulebook, or of another control, keeps the old heading
+        assert "## The numbers the answer is read from" in "\n".join(
+            dr._appendix(preview, tmp_path, {}, brief))
+        assert dr._has_results_store({"domain_rulebook": {"controls": {"controls": [
+            {"name": "ridge", "suite": "version 1"}]}}}, "valley") is False
+
     def test_the_control_alone_says_months_and_seasons(self):
         reception = {"user_request": "q", "brief": {
             "design_archetype": "whole_domain", "model": "elm",

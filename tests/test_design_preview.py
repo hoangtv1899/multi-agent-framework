@@ -371,7 +371,9 @@ RULEBOOK = {
         "evaluation": {"summary": "streamflow against the gauge: KGE 0.61"},
         "observations": {"fire": "MODIS MCD64A1 burned area"},
         "regions": {"watershed": "the watershed"},
-        "facts": {"start_year": 2015,
+        "facts": {"start_year": 2015, "output_years": [2015, 2021],
+                  "requested_fields": {"h0": ["GPP"]},
+                  "per_year": {"2020": {"runoff_mm": 432.1, "gpp_gC_m2_yr": 765.4}},
                   "burned_area_km2": {"model": {"2020": 116.0}, "observed": {"2020": 286.0},
                                       "observed_source": "MODIS MCD64A1"}},
         "not_in_it": ["the observed fires: the run's fire is the model's own, lit and "
@@ -403,8 +405,42 @@ class TestThePlannersRulebook:
             assert gone not in sys_msg, gone
         assert '"not_in_it_words"' in sys_msg and "a fire that happened is not in it" \
             in sys_msg
-        assert '"model"' in sys_msg and "116" in sys_msg     # the model's own number stays
         assert '"fire_off"' in sys_msg
+
+    def test_the_prompt_holds_none_of_the_controls_own_results(self):
+        """THE PLANNER DESIGNS WITHOUT THE RESULTS (2026-11-12). Its copy kept
+        the control's numbers by year and the model's own burned area by
+        year; a test here said "the model's own number stays". The Planner's
+        choices and goals are handed to the step that plans the analysis, so
+        a design written by a reader of the results is not written before
+        them. What it designs from stays: the years, the fields, the
+        settings, the regions."""
+        from agents import planner as P
+        p = TestThePlannerSeesTheFindings._planner()
+        p.domain_rulebook = json.loads(json.dumps(RULEBOOK))
+        sent = {}
+
+        def ask(messages, system_message=None):
+            sent["system"] = system_message
+            return "{}"
+        p.llm.ask = ask
+        p.plan({"brief": {"model": "elm"}})
+        sys_msg = sent["system"]
+        for gone in ("432.1", "765.4", "runoff_mm", "gpp_gC_m2_yr", "116", '"model"'):
+            assert gone not in sys_msg, gone
+        shown = P._rulebook_for_prompt(RULEBOOK)["controls"]["controls"][0]["facts"]
+        assert shown["per_year"] == shown["burned_area_km2"] == P.RESULTS_ARE_THE_ANALYSIS
+        assert "the analysis reports" in P.RESULTS_ARE_THE_ANALYSIS
+        # what a design is made from is still there
+        assert shown["start_year"] == 2015 and shown["output_years"] == [2015, 2021]
+        assert shown["requested_fields"] == {"h0": ["GPP"]}
+        for kept in ('"output_years"', '"requested_fields"', '"regions"', '"not_in_it_words"'):
+            assert kept in sys_msg, kept
+        # a control with no such facts is not said to have them
+        bare = {"controls": {"controls": [{"name": "c", "facts": {"start_year": 2031,
+                                                                  "per_year": None}}]}}
+        assert P._rulebook_for_prompt(bare)["controls"]["controls"][0]["facts"] == \
+            {"start_year": 2031, "per_year": None}
         # the rulebook itself stays whole: strategy.json carries it for the page
         assert p.domain_rulebook == RULEBOOK
 

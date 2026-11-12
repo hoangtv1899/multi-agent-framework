@@ -84,12 +84,27 @@ def _summary_for_prompt(reception: Dict[str, Any]) -> Dict[str, Any]:
 # an observed number there. So the planner's copy has none of it, and keeps
 # `not_in_it_words`, the same items without their numbers.
 _CONTROL_KEYS_NOT_FOR_PLANNER = ("evaluation", "observations", "not_in_it")
-_FIRE_KEYS_NOT_FOR_PLANNER = ("observed", "observed_source")
+
+# NOR THE CONTROL'S OWN RESULTS (2026-11-12). The Planner's copy kept the
+# control's numbers by year (plant growth, leaf area, rain, evaporation,
+# runoff, snow, stored carbon, water closure) and the model's own burned area
+# by year. The Planner chooses where and in which quantities an answer is
+# read, judges whether the question can be answered and writes the caveats,
+# and its goals and choices are handed to the step that plans the analysis:
+# a design written by a reader of the results is not written before them.
+# It needs none of them to design: the fields a control holds, its years,
+# its settings, its fire and its regions all stay. A note in place of each
+# says who reports it.
+RESULTS_ARE_THE_ANALYSIS = (
+    "on record, and not shown to you: these are the control's results, which the "
+    "analysis reports. Design without them")
+_FACTS_NOT_FOR_PLANNER = ("per_year", "burned_area_km2")
 
 
 def _rulebook_for_prompt(rulebook: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """The rulebook as the planner is shown it: every control without its
-    comparison with observations. A copy; the rulebook given is not changed."""
+    comparison with observations and without its own results by year. A
+    copy; the rulebook given is not changed."""
     if not rulebook:
         return rulebook
     out = dict(rulebook)
@@ -102,12 +117,10 @@ def _rulebook_for_prompt(rulebook: Optional[Dict[str, Any]]) -> Optional[Dict[st
                 continue
             c = {k: v for k, v in c.items() if k not in _CONTROL_KEYS_NOT_FOR_PLANNER}
             facts = c.get("facts")
-            if isinstance(facts, dict) and isinstance(facts.get("burned_area_km2"), dict):
-                facts = dict(facts)
-                facts["burned_area_km2"] = {
-                    k: v for k, v in facts["burned_area_km2"].items()
-                    if k not in _FIRE_KEYS_NOT_FOR_PLANNER}
-                c["facts"] = facts
+            if isinstance(facts, dict):
+                c["facts"] = {k: (RESULTS_ARE_THE_ANALYSIS
+                                  if k in _FACTS_NOT_FOR_PLANNER and v else v)
+                              for k, v in facts.items()}
             rows.append(c)
         out["controls"] = dict(ctl, controls=rows)
     return out
