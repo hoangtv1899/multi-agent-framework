@@ -84,6 +84,62 @@ def test_a_number_a_withheld_claim_gave_is_not_kept_even_from_its_record():
                               {}, {})[0]["claims"] == [3]
 
 
+def _dated(rid, values, periods, **kw):
+    r = _rec(rid, values, **kw)
+    r["names"]["periods"] = [list(p) for p in periods]
+    return r
+
+
+def test_a_number_is_a_records_only_in_the_records_own_month_and_as_the_kind_printed():
+    """A live report (2026-11-11) kept a summary sentence it should have left
+    out: its number for one month was only a withheld claim's, and a kept
+    claim's record held nearly the same number for another quantity in
+    another month. Made-up numbers here."""
+    recs = {"A": _dated("A", {"difference": -0.452, "percent": -3.1}, [("month", "06")],
+                        field="SOILWATER_10CM"),
+            "B": _dated("B", {"by_band.low.sign_shares.first_negative": 0.4513},
+                        [("season", "JJA")], field=None, call="overlap"),
+            "C": _dated("C", {"difference": -7.25, "percent": -2.4}, [])}
+    claims = [{"claim": "a", "evidence": ["A"], "values": [-0.452, -3.1]},
+              {"claim": "b", "evidence": ["B"], "values": [0.4513]},
+              {"claim": "c", "evidence": ["C"], "values": [-7.25, -2.4]}]
+
+    def row(text):
+        return CT.summary_support(text, claims, recs, {}, {})[0]
+
+    # another month's record does not give it
+    got = row("Uptake was 0.45 gC/m2 lower in October.")
+    assert got["unsupported"] == ["0.45 gC/m2"] and got["claims"] == []
+    # in the record's own month it is the record's
+    assert row("Soil water was 0.45 kg/m2 lower in June.")["claims"] == [1]
+    # a month's value is not its season's, and a share is no measured quantity
+    assert row("Summer uptake was 0.45 gC/m2 lower.")["unsupported"] == ["0.45 gC/m2"]
+    # the share is still a share, said as a percent, in its own season
+    assert row("In summer 45.1 percent of the band lost uptake.")["claims"] == [2]
+    assert row("In winter 45.1 percent of the band lost uptake.")["unsupported"] == [
+        "45.1 percent"]
+    # a whole year's record is of no month, so it stands beside any
+    assert row("Summer was dry, and the year's total was 7.25 gC/m2 lower.")["claims"] == [3]
+    # a sentence that names no month and no season is read as before
+    assert row("Soil water was 0.45 kg/m2 lower.")["claims"] == [1]
+
+
+def test_a_runs_own_factor_said_as_a_percent_is_a_label_of_the_design():
+    runs = {"dry": {"changes": [{"id": "x", "params": {"precip_factor": 0.6,
+                                                         "months": [6, 7, 8]}}]}}
+    recs = {"A": _rec("A", {"difference": -0.452}, field="SOILWATER_10CM")}
+    claims = [{"claim": "a", "evidence": ["A"], "values": [-0.452]}]
+    said = "Cutting rain by 40 percent left soil water 0.452 kg/m2 lower."
+    assert CT.summary_support(said, claims, recs, runs, {})[0]["unsupported"] == []
+    assert CT.summary_support("Rain was held to 60 percent of the control's.", claims, recs,
+                              runs, {})[0]["unsupported"] == []
+    # with no such run it is a number no record gives
+    assert CT.summary_support(said, claims, recs, {}, {})[0]["unsupported"] == ["40 percent"]
+    # and no other percent is excused by the factor
+    assert CT.summary_support("Cutting rain by 25 percent left it lower.", claims, recs,
+                              runs, {})[0]["unsupported"] == ["25 percent"]
+
+
 # ── P: whose percent it is ───────────────────────────────────────────────────
 
 def test_the_percent_rule_still_strikes_a_combined_claim_but_names_whose_percent_it_is():

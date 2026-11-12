@@ -217,6 +217,87 @@ def test_a_run_of_months_stands_on_its_monthly_records_and_a_seasons_value_does_
     assert problems(text, [jja["id"]], [a]) == []               # on the season's record
 
 
+# ── T2: a season's word is not always the season's value (2026-11-11) ──────
+
+def test_a_seasons_word_names_the_season_counts_its_months_or_points_away_from_it():
+    assert CT.season_words("In summer it ran low.") == {
+        "JJA": {"outright": True, "months": None}}
+    assert CT.season_words("It ran low in each summer month, most in July.")["JJA"] == {
+        "outright": False, "months": {"words": "summer month", "months": ["06", "07", "08"],
+                                      "aggregate": False}}
+    assert CT.season_words("The mean of the summer months was low.")["JJA"]["months"][
+        "aggregate"] is True
+    assert CT.season_words("Low in the winter months.")["DJF"]["months"]["months"] == [
+        "12", "01", "02"]
+    for text in ("It stayed low after summer.", "It was low before the summer.",
+                 "Losses went on past summer."):
+        assert CT.season_words(text) == {"JJA": {"outright": False, "months": None}}
+        assert CT.seasons_named_outright(text) == set()
+    # of the season itself, whatever word stands near it
+    for text in ("It was low during and after summer.", "It was low this past summer.",
+                 "It was low since last summer.", "After summer it rose; over JJA it was low."):
+        assert CT.seasons_named_outright(text) == {"JJA"}
+    # the months and seasons a sentence's numbers may be of
+    assert CT.sentence_periods("It stayed low after summer, most in September.") == {
+        ("month", "09")}
+    assert CT.sentence_periods("Low in each summer month.") == {
+        ("season", "JJA"), ("month", "06"), ("month", "07"), ("month", "08")}
+    assert CT.sentence_periods("Low from June to August, and over the summer.") == {
+        ("season", "JJA"), ("month", "06"), ("month", "07"), ("month", "08")}
+    assert CT.sentence_periods("It was low in the high band.") is None
+
+
+def test_a_season_pointed_away_from_or_counted_by_its_months_needs_no_season_record(study):
+    """A live report (2026-11-11) lost two true claims to "it names JJA": one
+    said "after summer" on records of later months, the other "in each summer
+    month" on a record for each month. Both now trace. The season named as
+    itself, the months given as one quantity, a month with no record and a
+    season's number on monthly records all still fail."""
+    _hypothesis_study(study)
+    season = {"id": "O13", "kind": "anomaly", "field": "GPP", "period": "2016-JJA",
+              "region": REGION}
+    fig = _spec("fig_months", [{"kind": "bars", "outputs": [f"P2.O{i}" for i in range(1, 13)]}],
+                ["P2"])
+    _go(study, [fig], plan=_months_plan([season], ["2016-JJA"]))
+    plan, runs = AP.load_plan(study["out"]), CT.study_runs(study["rd"])
+    recs = CT.evidence_records(study["out"])
+    by = {x["period"]: x for x in recs.values() if x.get("call") == "anomaly"}
+    months = [by[m]["id"] for m in MONTHS]
+    summer = [by[m]["id"] for m in ("2016-06", "2016-07", "2016-08")]
+    jja = by["2016-JJA"]
+
+    def problems(text, evidence, values=()):
+        c = {"claim": text, "finding_id": "fig_months", "values": list(values), "caveats": [],
+             "evidence": evidence, "evidence_class": "observation", "expectation": None,
+             "warnings": sorted({w["code"] for i in evidence for w in recs[i]["warnings"]})}
+        return CT.check_claim(c, recs, plan, runs, [REGION])["problems"]
+
+    # pointed away from: the season is no period of the claim
+    after = "GPP in 2016 stayed one way after summer, in September and in December."
+    assert problems(after, [by["2016-09"]["id"], by["2016-12"]["id"]]) == []
+    # the months it does name still need their records
+    assert problems(after, [by["2016-09"]["id"]]) == [
+        "it names December, which none of its records names"]
+    # counted by its months: every month on a record of its own
+    each = "GPP in 2016 ran one way in each summer month."
+    assert problems(each, summer) == [] and problems(each, months) == []
+    assert problems(each, summer[:2]) == [
+        "it names summer month: none of its records names the season JJA, and as a run of "
+        "months none names August"]
+    # WRONG STATEMENTS STILL FAIL. The season named as itself:
+    assert problems("In summer 2016 GPP ran one way, and after summer too.", months) == [
+        "it names JJA, which none of its records names"]
+    assert problems("During and after summer 2016 GPP ran one way.", months) == [
+        "it names JJA, which none of its records names"]
+    # the summer months given as one quantity:
+    assert problems("The mean of the summer months of 2016 ran one way for GPP.", months) == [
+        "it names JJA, which none of its records names"]
+    # a season's value is no value of monthly records: the numbers rule holds
+    a = jja["values"]["anomaly"]
+    text = f"In each summer month of 2016, GPP was {abs(a):.3g} gC/m2 from its normal."
+    assert any("matches no value of its records" in p for p in problems(text, summer, [a]))
+
+
 def test_a_run_of_one_fields_months_is_titled_once_and_its_ticks_are_the_months():
     outs = [{"kind": "anomaly", "field": "GPP", "period": m, "region": REGION} for m in MONTHS]
     run = FS.period_run(outs)

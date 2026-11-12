@@ -311,11 +311,91 @@ def month_runs(text: str) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+# A SEASON'S WORD IS NOT ALWAYS THE SEASON'S VALUE (2026-11-11). A live report
+# lost two true claims to "it names JJA, which none of its records names".
+# One said a quantity stayed lower "after summer", with a number for September
+# and one for December, each on its record. The other said it was lower "in
+# each summer month", then gave June, July and August, each on its record.
+# The word is now read as a person reads it:
+#   - a season's word that a word of time points away from ("after summer",
+#     "before the summer", "past summer") names no period of the claim: the
+#     claim says nothing of the season itself;
+#   - a season's word that counts its months ("each summer month", "the
+#     summer months") is a run of months, held as a range of months is
+#     (month_runs): every month on a record of its own, unless its clause
+#     gives it as one quantity (AGGREGATE_WORDS).
+# Any other use of the word, and the season's code, still names the season,
+# whose own record is then required. The numbers rule is unchanged, so a
+# season's value is still never a value of monthly records.
+_SEASON_RX = re.compile(r"\b(winter|spring|summer|autumn)s?\b")
+AWAY_WORDS = ("after", "before", "past", "beyond", "since", "until", "following",
+              "preceding")
+_AWAY_RX = re.compile(r"(?:\b(?P<lead>[a-z]+)\s+)?\b(?P<away>" + "|".join(AWAY_WORDS)
+                      + r")\s+(?:the\s+)?$")
+# "during and after summer" is also of the summer; "this past summer" is the
+# summer itself
+_NOT_AWAY_AFTER = ("and", "or", "this", "the", "that", "last", "a")
+_MONTHS_NEXT = re.compile(r"\s+months?\b")
+
+
+def season_words(text: str) -> Dict[str, Dict[str, Any]]:
+    """{season: {"outright", "months"}} for each season a text names by its
+    word. `outright`: some use of the word names the season itself. `months`:
+    a use counts its months ("each summer month"), given as month_runs gives
+    a range (its words, its months, whether its clause gives it as one
+    quantity), else None. A season with neither is only pointed away from
+    ("after summer")."""
+    t = str(text or "")
+    low = t.lower()
+    out: Dict[str, Dict[str, Any]] = {}
+    for m in _SEASON_RX.finditer(low):
+        lab = _SEASON_WORDS[m.group(1)]
+        got = out.setdefault(lab, {"outright": False, "months": None})
+        nxt = _MONTHS_NEXT.match(low, m.end())
+        if nxt:
+            a = max((x.end() for x in _CLAUSE_SPLIT.finditer(low, 0, m.start())), default=0)
+            b = next((x.start() for x in _CLAUSE_SPLIT.finditer(low, nxt.end())), len(low))
+            words = set(re.findall(r"[a-z]+", low[a:b]))
+            first = SEASON_MONTHS[lab][0]
+            prev = got["months"] or {}
+            got["months"] = {
+                "words": t[m.start():nxt.end()],
+                "months": [f"{(first - 1 + k) % 12 + 1:02d}" for k in range(3)],
+                "aggregate": bool(words & set(AGGREGATE_WORDS)) or bool(prev.get("aggregate"))}
+            continue
+        away = _AWAY_RX.search(low[:m.start()])
+        if away and (away.group("lead") or "") not in _NOT_AWAY_AFTER:
+            continue
+        got["outright"] = True
+    return out
+
+
 def seasons_named_outright(text: str) -> set:
-    """The seasons a text names by word or code ("summer", "JJA"), apart from
-    any range of months that spells one."""
+    """The seasons a text names as themselves, by word or code ("summer",
+    "JJA"): not a range of months that spells one, not a word that counts its
+    months, not a word that is only pointed away from (season_words)."""
     t = _RANGE_RX.sub(" ", str(text or ""))
-    return {lab for kind, lab in named_periods(t) if kind == "season"}
+    out = set(re.findall(r"\b(DJF|MAM|JJA|SON)\b", t))
+    out |= {lab for lab, s in season_words(t).items() if s["outright"]}
+    if any(m for m in _FALL_RX.finditer(t.lower())):
+        out.add("SON")
+    return out
+
+
+def sentence_periods(text: str) -> Optional[set]:
+    """The months and seasons a sentence's numbers may be of, as named_periods
+    labels them: the months it names, the seasons it names as themselves, and
+    for a run of months ("June to August", "the summer months") the season
+    and each of its months. A season it only points away from is not among
+    them. None when the sentence names no month and no season."""
+    spans, said = month_runs(text), season_words(text)
+    out = {p for p in named_periods(text) if p[0] == "month"}
+    out |= {("season", s) for s in seasons_named_outright(text)}
+    runs = list(spans.items()) + [(lab, s["months"]) for lab, s in said.items() if s["months"]]
+    for lab, run in runs:
+        out.add(("season", lab))
+        out |= {("month", m) for m in run["months"]}
+    return out or None
 
 
 # 'FALL' IS A DECREASE MORE OFTEN THAN A SEASON (2026-11-03). "The fall in GPP"
@@ -1947,7 +2027,37 @@ def percent_attribution(text: str, records) -> Dict[str, List[str]]:
 # and labels aside) against the records of the claims the audit kept: a
 # sentence with a number none of them gives is left out of the report's
 # narrative, and the audit appendix says which and why.
+#
+# A NUMBER IS A RECORD'S ONLY IN THE RECORD'S OWN MONTH OR SEASON, AND AS THE
+# KIND OF VALUE IT IS PRINTED AS (2026-11-11). The first rule compared the
+# number alone, against every record of every kept claim, and a live report
+# kept a sentence it should have left out: it gave a quantity for one month
+# (say 0.45 gC/m2 in October) that only a withheld claim gave, and another
+# kept claim's record held nearly the same number for another quantity in
+# another month (0.452 kg/m2 in June). Two conditions now hold a match:
+#   - when the sentence names months or seasons (sentence_periods), the record
+#     is of one of them, or of none (a whole year's record);
+#   - a number printed with a measured unit is no share and no percent of a
+#     record, and with such a unit there is no falling back to any value.
+# One more label is allowed with them: a run's own multiplying factor said as
+# a percent ("rain cut by 20 percent" for a factor of 0.8), which is a
+# setting of the design and no result.
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+
+
+def _factor_percents(runs) -> set:
+    """Each run's multiplying factors in percent words: a change that
+    multiplies an input by 0.8 is "20 percent lower" and "80 percent of" it.
+    Read from the runs' own changes, every parameter whose name ends in
+    "factor"."""
+    out = set()
+    for run in (runs or {}).values():
+        for c in (run or {}).get("changes") or []:
+            for k, v in ((c or {}).get("params") or {}).items():
+                if str(k).endswith("factor") and _fin(v) and float(v) > 0 \
+                        and float(v) != 1.0:
+                    out |= {abs(1.0 - float(v)) * 100.0, float(v) * 100.0}
+    return out
 
 
 def sentences(text: str) -> List[str]:
@@ -1965,40 +2075,56 @@ def summary_support(text: str, claims: List[Dict[str, Any]],
     recs_of = [[records[i] for i in (c.get("evidence") or []) if i in records] for c in claims]
     every = [r for rs in recs_of for r in rs]
     labels = _label_numbers(every, runs or {}, plan or {}) if every else set()
+    factors = _factor_percents(runs)
     out = []
     for s in sentences(text):
         years = {int(y) for r in every for y in (r.get("names") or {}).get("years") or []} | \
             {int(y) for y in years_named(s)}
+        may = sentence_periods(s)
+
+        def fits(r):
+            """The record is of a month or season the sentence names, or of none."""
+            if may is None:
+                return True
+            ps = {tuple(q) for q in (r.get("names") or {}).get("periods") or []}
+            return not ps or bool(ps & may)
         by, bad = set(), []
         for w, unit, end in _number_words(s):
             x = float(w)
             if _is_year(w.lstrip("-"), unit, years):
                 continue
             tol = _half_unit(w) + 1e-9 * max(1.0, abs(x))
+            measured = unit in MEASURED and unit != "percent"
             # THE CLAIMS A NUMBER TIES ITS SENTENCE TO: those whose records give
             # it as the kind it is printed as (a percent at a percent's path,
             # or a share; any other number at any other path: "3.3 percent" is
-            # not the 3.27 mm of another claim), else at any path; and among
-            # them those that state it in their own values, when any does
+            # not the 3.27 mm of another claim), else at any path unless its
+            # unit is a measured one; and among them those that state it in
+            # their own values, when any does
 
             def pct(path):
                 return path.rsplit(".", 1)[-1] == "percent"
 
+            def plain(path):
+                return not pct(path) and not (measured and _SHARE_PATH.search(path))
+
             def claims_with(ok):
                 return [i for i, rs in enumerate(recs_of, 1)
-                        if any(ok(q) for _, q in _matches(x, w, rs))]
+                        if any(ok(q) and fits(r) for r, q in _matches(x, w, rs))]
             if unit == "percent":
                 tied = claims_with(pct) or [i for i, rs in enumerate(recs_of, 1)
-                                            if share_matches(x, w, rs)] or claims_with(lambda q: True)
+                                            if any(fits(r) for r, _ in share_matches(x, w, rs))] \
+                    or claims_with(lambda q: True)
             else:
-                tied = claims_with(lambda q: not pct(q)) or claims_with(lambda q: True)
+                tied = claims_with(plain) or ([] if measured else claims_with(lambda q: True))
             hit = [i for i in tied if any(_fin(v) and abs(abs(float(v)) - abs(x)) <= tol
                                           for v in claims[i - 1].get("values") or [])] or tied
             if hit:
                 by.update(hit)
-            elif not (abs(x) in labels or x in labels or any(
-                    written_as_label(s, end, x, lab) for r in every
-                    for lab in r.get("field_labels") or [])):
+            elif not (abs(x) in labels or x in labels
+                      or (unit == "percent" and any(abs(abs(x) - f) <= tol for f in factors))
+                      or any(written_as_label(s, end, x, lab) for r in every
+                             for lab in r.get("field_labels") or [])):
                 raw = re.match(r"\s*([A-Za-z%][A-Za-z0-9%/^]*)", s[end:])
                 bad.append(w + (f" {raw.group(1)}" if raw and unit else ""))
         out.append({"sentence": s, "claims": sorted(by), "unsupported": bad})
@@ -2066,16 +2192,22 @@ def check_claim(c: Dict[str, Any], records: Dict[str, Dict[str, Any]], plan: Dic
     npd = set().union(*({tuple(p) for p in r["names"]["periods"]} for r in recs))
     for y in sorted(years_named(text) - ny):
         probs.append(f"it names {y}, which none of its records names")
-    spans, outright = month_runs(text), seasons_named_outright(text)
+    spans, outright, said = month_runs(text), seasons_named_outright(text), season_words(text)
     for kind, lab in sorted(named_periods(text) - npd):
-        run = spans.get(lab) if kind == "season" else None
-        if run and lab not in outright and not run["aggregate"]:
-            # a run of months, each on a record of its own (see month_runs)
-            lack = [MONTHS[int(m) - 1] for m in run["months"] if ("month", m) not in npd]
-            if lack:
-                probs.append(f"it names {run['words']}: none of its records names the season "
-                             f"{lab}, and as a run of months none names {', '.join(lack)}")
-            continue
+        if kind == "season" and lab not in outright:
+            runs_ = [r for r in (spans.get(lab), (said.get(lab) or {}).get("months")) if r]
+            if not any(r["aggregate"] for r in runs_):
+                # a run of months, each on a record of its own (see month_runs
+                # and season_words). With no run the season is only pointed
+                # away from ("after summer") and is no period of the claim.
+                for run in runs_:
+                    lack = [MONTHS[int(m) - 1] for m in run["months"]
+                            if ("month", m) not in npd]
+                    if lack:
+                        probs.append(f"it names {run['words']}: none of its records names the "
+                                     f"season {lab}, and as a run of months none names "
+                                     f"{', '.join(lack)}")
+                continue
         word = MONTHS[int(lab) - 1] if kind == "month" else lab
         probs.append(f"it names {word}, which none of its records names")
     heads, bands = _region_heads(text, regions)
