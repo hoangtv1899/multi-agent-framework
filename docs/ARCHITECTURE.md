@@ -15,12 +15,12 @@ The recorded analysis plan, its review, its amendments and the lookups log
 - `_ask` calls the model (`client.ask`) and constructs `SimpleLLMClient`
 - Default model id: `_ask(model)` has no default; its caller sets it
 - Model id as the framework passes it:
-  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `rewrite_plan` with model=`model` = `"claude-opus-5-project"`
-  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `write_plan` with model=`model` = `"claude-opus-5-project"`
+  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `rewrite_plan` with model=`model` = `"claude-opus-5-project"`
+  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `write_plan` with model=`model` = `"claude-opus-5-project"`
 - Prompt files: none
 - Prompt text written in the module: `INCLUSIVE_WORDS`, `PLAN_LEAD`, `PLAN_SCOPE`, `REWRITE_ASK`
 - Records it reads: `analysis_plan.json`, `analysis_plan.v1.json`, `analysis_plan_review.json`, `domain_control_facts.json`, `planned_phase.json`, `screen_L{n}.csv`, `screen_record.json`, `suite.json`; writes: `analysis_plan.json`, `analysis_plan_review.json`, `planned_phase.json`, `screen_record.json`; names without opening: `analysis_plan_review.v1.json`, `required_outputs.json`
-- Called from: `src/agents/analysis/step3_interpret.py::investigate_and_interpret`
+- Called from: `src/agents/analysis/step3_interpret.py::plan_and_review`
 
 ### `src/agents/analysis/step2_investigate.py`
 
@@ -47,12 +47,14 @@ Analyzer step 3; interpret the findings, and decide whether they suffice
 - Default model id: `DEFAULT_MODEL = "claude-opus-5-project"`; `interpret(model)` defaults to `DEFAULT_MODEL` = `"claude-opus-5-project"`; `rule_plan_follows_question(model)` defaults to `DEFAULT_MODEL` = `"claude-opus-5-project"`
 - Model id as the framework passes it:
   - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `interpret` with model=`model` = `"claude-opus-5-project"`
-  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `rule_plan_follows_question` with model=`model` = `"claude-opus-5-project"`
+  - `src/agents/analysis/step3_interpret.py::investigate_and_interpret` calls `plan_and_review` with model=`model` = `"claude-opus-5-project"`
+  - `src/agents/analysis/step3_interpret.py::plan_and_review` calls `rule_plan_follows_question` with model=`model` = `"claude-opus-5-project"`
+  - `src/agents/analysis_preview.py::plan_before_approval` calls `plan_and_review` with model=`S2.analyzer_model(model)`
   - `src/agents/analyzer.py::Analyzer.run` calls `investigate_and_interpret` with model=`step2_investigate.analyzer_model(config.get("analysis_model"))`
 - Prompt files: none
 - Prompt text written in the module: `REWRITE`, `SUITE_RULES`, `TASK_BODY`, `VERDICT_ASK`
 - Records it reads: none; writes: `interpretation.json`; names without opening: none
-- Called from: `src/agents/analyzer.py::Analyzer.run`
+- Called from: `src/agents/analysis_preview.py::plan_before_approval`, `src/agents/analyzer.py::Analyzer.run`
 
 ### `src/agents/analyzer_agent.py`
 
@@ -298,6 +300,7 @@ Framework code that loads a module from a server's directory in its own process 
 | `src/agents/analysis/numbers_check.py::_registry` | imports `domain_controls` from `domain_controls` (`mcp/elm-mcp/src/domain_controls.py`) | The control's entry in the server's control registry, or {}. |
 | `src/agents/analysis/step2_investigate.py::_spec_figure` | imports `domain_methods` from `domain_methods` (`mcp/elm-mcp/src/domain_methods.py`) | One figure of a study with a suite, drawn by the framework from its specification (figure_spec): checked against the plan, its amendment appended, its extra outputs and the plan's screen called through the gated, logged `suite` under the figure's id, then drawn from the calls' own results. Returns (its outcome for the close, its finding or None, a caveat or None); a figure refused or failed is a caveat naming why. |
 | `src/agents/analysis/step2_investigate.py::suite_task` | imports `domain_methods` from `domain_methods` (`mcp/elm-mcp/src/domain_methods.py`) | Step 2b's task for a study with a suite: SUITE_TASK_BODY, the panels (figure_spec.panel_lines, which names the timing measures) and the reply template, rendered from SUITE_REPLY_PARTS and SUITE_FIGURE_PARTS. |
+| `src/agents/analysis_preview.py::resolved_changes` | imports `domain_changes` from `domain_changes` (`mcp/elm-mcp/src/domain_changes.py`) | A run's changes in the server's own words: resolve() fills the defaults and writes what the difference means and does not mean. |
 | `src/core/resumable.py::_manager_for` | imports `PFLOTRANExpManager` from `pflotran_exp_manager` (`mcp/pflotran-mcp/pflotran_exp_manager.py`) | The manager class for a backend name, or None if there is not one. BOTH MANAGERS LIVE BESIDE THEIR SERVER, under mcp/<server>-mcp/, and are imported by path: src/core/ names no model (ELM moved 2026-08-10, PFLOTRAN 2026-08-18). A new model adds one branch here. |
 | `src/core/resumable.py::_manager_for` | imports `ELMExpManager` from `elm_exp_manager` (`mcp/elm-mcp/src/elm_exp_manager.py`) | The manager class for a backend name, or None if there is not one. BOTH MANAGERS LIVE BESIDE THEIR SERVER, under mcp/<server>-mcp/, and are imported by path: src/core/ names no model (ELM moved 2026-08-10, PFLOTRAN 2026-08-18). A new model adds one branch here. |
 
@@ -351,7 +354,7 @@ Every top-level package imported by framework code (`src/`, `workflow.py`, the e
 4. **The design review page, and the person's decision**
    - code: `src/agents/design_review.py::write_review`, `src/agents/design_review.py::record_decision`
    - language model: no; code only
-   - reads: `DESIGN_REVIEW.md`, `design_preview.json`, `domain_control_facts.json`, `reception.json`, `strategy.json`
+   - reads: `DESIGN_REVIEW.md`, `analysis_preview.json`, `design_preview.json`, `domain_control_facts.json`, `reception.json`, `strategy.json`
    - writes: `DESIGN_REVIEW.md`
 5. **The experiment record: control, runs and their checked changes**
    - code: `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._build_domain_experiment`
@@ -395,7 +398,7 @@ Every top-level package imported by framework code (`src/`, `workflow.py`, the e
    - code: `src/agents/analysis/step3_interpret.py::investigate_and_interpret`, `src/agents/analysis/step3_interpret.py::audit`
    - language model: yes, `investigate_and_interpret` -> `interpret`
    - reads: `analysis_plan.json`, `analysis_plan.v1.json`, `analysis_plan_review.json`, `planned_phase.json`, `screen_record.json`
-   - writes: `*_round*_*.txt`, `.spec.json`, `analysis_plan.json`, `analysis_plan_review.json`, `interpretation.json`, `investigation.json`, `investigation_plan.md`, `planned_phase.json`
+   - writes: `*_round*_*.txt`, `.spec.json`, `analysis_plan.json`, `interpretation.json`, `investigation.json`, `investigation_plan.md`, `planned_phase.json`
 13. **Analyzer step 4: the report (job B)**
    - code: `src/agents/analysis/step4_report.py::build`, `src/agents/analysis/step4_report.py::write`
    - language model: no; code only

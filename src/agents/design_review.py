@@ -898,8 +898,10 @@ def _appendix(preview, run_dir, strategy, brief):
     return L
 
 
-def render(reception, strategy, run_name="this run", preview=None, run_dir=None):
-    """reception.json + strategy.json (+ the server's preview) -> markdown."""
+def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
+           analysis_preview=None):
+    """reception.json + strategy.json (+ the server's preview, + the analysis
+    plan written before the page, when there is one) -> markdown."""
     brief = reception.get("brief") or reception
     kind, design = _design_lines(brief, strategy, _resolved_meanings(run_dir))
     L = []
@@ -971,6 +973,13 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None)
             L.append(f"- {label}: {_trim(item, 200)}")
         L.append("")
     L.extend(_check_lines(preview))
+    # THE ANALYSIS, AS PLANNED BEFORE THE RUNS (transitional, 2026-11-12): shown
+    # so it can be read before the decision. The yes below is still of the
+    # control, the runs and the years, and the section says so in its own
+    # words (agents/analysis_preview.py). Nothing here when none was planned.
+    if analysis_preview:
+        from agents import analysis_preview as _av
+        L.extend(_av.page_lines(analysis_preview, run_dir, design_fingerprint(strategy)))
     L.append("## What happens next")
     whole = str(brief.get("design_archetype") or strategy.get("archetype") or "") \
         .lower() == "whole_domain"
@@ -1032,10 +1041,14 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None)
 _NOT_GIVEN = object()
 
 
-def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN):
+def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
+                 analysis_preview=_NOT_GIVEN):
     """Render and write DESIGN_REVIEW.md into run_dir; returns its path. The
     server's preview is read from 01_inputs/design_preview.json only when the
-    argument is left out (a study the server previews nothing for has none)."""
+    argument is left out (a study the server previews nothing for has none),
+    and the analysis preview from 01_inputs/analysis_preview.json by the same
+    rule: the coordinator always passes its own, so a page is never drawn
+    from a record left by an earlier design."""
     rd = Path(run_dir)
     if reception is None:
         reception = json.loads((rd / "reception.json").read_text())
@@ -1043,9 +1056,12 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN):
         strategy = json.loads((rd / "strategy.json").read_text())
     if preview is _NOT_GIVEN:
         preview = _load(rd, PREVIEW_FILE)
+    if analysis_preview is _NOT_GIVEN:
+        from agents import analysis_preview as _av
+        analysis_preview = _av.load(rd)
     path = rd / REVIEW_NAME
     path.write_text(render(reception, strategy, run_name=rd.name, preview=preview,
-                           run_dir=rd))
+                           run_dir=rd, analysis_preview=analysis_preview))
     return path
 
 

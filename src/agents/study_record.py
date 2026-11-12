@@ -1107,6 +1107,14 @@ ROLES = (
     ("warmstart/*", "a file of the warm start"),
     ("02_setup_plots/*", "a figure drawn while the inputs were set up"),
     ("01_inputs/design_preview.json", "the model server's check and build of the design before the design page"),
+    # THE ANALYSIS PREVIEW (transitional, 2026-11-12; agents/analysis_preview.py):
+    # named for what it is, so the plan shown before the yes is never taken for
+    # the plan the Analyzer carried out, which is 04_analysis/analysis_plan.json
+    ("01_inputs/analysis_preview.json", "the record of the analysis plan written before the design page: a preview shown on the page, which the yes did not cover and the Analyzer did not carry out"),
+    ("01_inputs/analysis_preview/*/01_inputs/domain_experiment.json", "the analysis preview's own copy of the design, each change in the model server's words, as the planning step read it before the runs"),
+    ("01_inputs/analysis_preview/*/01_inputs/domain_control_facts.json", "the analysis preview's record of where the control's output is"),
+    ("01_inputs/analysis_preview/*/04_analysis/analysis_plan.json", "the analysis plan written before the design page and shown on it: a preview, not the plan the Analyzer carried out (that one is 04_analysis/analysis_plan.json)"),
+    ("01_inputs/analysis_preview/*/04_analysis/*", "the planning step's records for the analysis preview: its review, its first version when it was rewritten, and the model's exchanges"),
     ("01_inputs/control_recipe.json", "how the control was made, read from its case"),
     ("01_inputs/source_changes.patch", "the model code's local changes, saved as a patch"),
     ("01_inputs/case_inputs.json", "one row per case the model server builds, with its inputs and settings (for a whole-domain study, one per run, the control's included)"),

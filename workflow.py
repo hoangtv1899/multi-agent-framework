@@ -930,8 +930,18 @@ class WorkflowCoordinator:
 			blocked = blocked or infeasible or bool(unsupported)
 			# The preview is passed even when there is none, so the page is never
 			# drawn from an older record left on disk (2026-11-03).
+			# THE ANALYSIS PLAN, SHOWN BEFORE THE YES (transitional, 2026-11-12;
+			# agents/analysis_preview.py). Off unless its switch is set. When
+			# on, the Analyzer's own planning step writes its plan from this
+			# design before the page, and the page shows it. The yes below is
+			# unchanged: it is of the control, the runs and the years, and the
+			# Analyzer still writes its plan after the runs. A design that
+			# cannot be approved is not planned for. Always passed to the
+			# page, None included, so a page is never drawn from a record an
+			# earlier design left on disk.
+			analysis_preview = self._analysis_preview(result, plan, run_dir, blocked)
 			review_path = write_review(run_dir, reception=result, strategy=plan,
-									   preview=preview)
+									   preview=preview, analysis_preview=analysis_preview)
 			print(f"📝 Design review: {review_path}\n")
 			# A REFUSAL IS NOT AN ERROR (2026-11-03): a design the server refused
 			# names the change that would let it run; one that could not be
@@ -1495,6 +1505,30 @@ class WorkflowCoordinator:
 			return executor.preview_design(plan, cfg)
 		except Exception as e:                                  # noqa: BLE001
 			return {"refused": [], "error": f"{type(e).__name__}: {e}", "runs": []}
+
+	def _analysis_preview(self, result: dict, plan: dict, run_dir, blocked: bool):
+		"""The record of the analysis plan written before the page, or None
+		when none is written: the switch is off, the design cannot be approved,
+		or it is no whole-domain experiment. Reading it must never stop a
+		request, so a failure is the record's own status and the page says it
+		(agents/analysis_preview.py)."""
+		try:
+			from agents import analysis_preview as AV
+			if not AV.enabled() or blocked or \
+					not isinstance((plan or {}).get("domain_experiment"), dict):
+				return None
+			print("🧭 Planning the analysis before the page (a preview: your yes will "
+				  "not cover it, and the Analyzer plans again after the runs)...")
+			rec = AV.plan_before_approval(
+				result, plan, run_dir,
+				clients=getattr(self, "_analysis_preview_clients", None))
+			print(f"   analysis preview: {rec.get('status')}"
+				  + (f" ({rec.get('why')})" if rec.get("why") else "")
+				  + f", {rec.get('elapsed_s')} s\n")
+			return rec
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   (the analysis preview could not be made: {type(e).__name__}: {e})\n")
+			return {"status": "failed", "why": f"{type(e).__name__}: {e}"[:400]}
 
 	def _review_ready(self, result: dict, plan: dict, run_dir: Path,
 					  output_dir: str):

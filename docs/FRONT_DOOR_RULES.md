@@ -195,6 +195,32 @@ analysis plan written after the runs, which may read other quantities and is
 not on the page. For a control with no store the heading stays "The numbers
 the answer is read from".
 
+## The analysis plan may be shown before the yes (transitional)
+
+`src/agents/analysis_preview.py`, off unless `IDEAS_PLAN_BEFORE_APPROVAL=1`.
+With the switch set, the Analyzer's own planning step (step 2a, with its
+check, its review and its one rewrite: `step3_interpret.plan_and_review`)
+writes its plan from the design before the page, and the page's first part
+shows it: what is compared, the normal years, each analysis with its places,
+periods and required outputs, the other explanations, the review's remarks.
+
+This is a look before the decision and nothing more:
+
+- The yes is unchanged. It approves the control, the runs and the years.
+- The Analyzer does not carry this plan out. After the runs it writes its own
+  plan in the study's `04_analysis`, as before, and that plan may differ. With
+  the switch set, a study that runs is therefore planned twice.
+- A plan that could not be written, or that did not pass its check, is shown
+  as it is and stops nothing. A design that cannot be approved is not planned
+  for.
+- The plan and its records are kept under the study's
+  `01_inputs/analysis_preview/`. No record of the Experiment Manager is
+  touched.
+
+Binding the yes to a plan, and handing that plan to the Analyzer, are not
+built. Until they are, the page must not be read as the approval of an
+analysis, and it says so wherever it shows a plan.
+
 ## Every caveat is on the page
 
 Up to eight caveats are printed, each up to 400 characters, and any beyond

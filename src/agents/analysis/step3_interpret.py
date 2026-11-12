@@ -1358,6 +1358,30 @@ def _given(clients: Optional[Dict[str, Any]], label: str) -> Dict[str, Any]:
     return {"client": c} if c is not None else {}
 
 
+def plan_and_review(ctx, out_dir, model: str = DEFAULT_MODEL,
+                    clients: Optional[Dict[str, Any]] = None):
+    """Step 2a, then step 3's review of the plan, and the one rewrite a
+    failed plan gets before any outcome is looked up, with the same check and
+    the same review (the user's decision on G part 2, 2026-11-08). Returns
+    (the review's record, whether the plan on disk passed).
+
+    ONE CALL, TWO CALLERS (2026-11-12): the Analyzer, after the runs, and the
+    analysis preview shown on the design page before them
+    (agents/analysis_preview.py). Both get the same planning, the same check
+    and the same review, because both call this."""
+    from agents.analysis import analysis_plan as _plan
+    _plan.write_plan(ctx, out_dir, model=model, **_given(clients, _plan.PLAN_LABEL))
+    plan_review = rule_plan_follows_question(ctx, out_dir, model=model,
+                                             **_given(clients, _plan.REVIEW_LABEL))
+    if (plan_review or {}).get("passed") is False and _plan.can_rewrite(out_dir)[0]:
+        _plan.rewrite_plan(ctx, out_dir, model=model,
+                           **_given(clients, _plan.REWRITE_LABEL))
+        plan_review = rule_plan_follows_question(
+            ctx, out_dir, model=model, label=_plan.REWRITE_REVIEW_LABEL,
+            **_given(clients, _plan.REWRITE_REVIEW_LABEL))
+    return plan_review, _plan.plan_passed(out_dir)[0]
+
+
 def investigate_and_interpret(ctx, out_dir, comparison=None,
                               model: str = DEFAULT_MODEL,
                               client=None, with_images: bool = True,
@@ -1396,16 +1420,7 @@ def investigate_and_interpret(ctx, out_dir, comparison=None,
     on_suite = _plan.suite_bearing(ctx)
     plan_ok = True
     if on_suite:
-        _plan.write_plan(ctx, out_dir, model=model, **_given(clients, _plan.PLAN_LABEL))
-        plan_review = rule_plan_follows_question(ctx, out_dir, model=model,
-                                                 **_given(clients, _plan.REVIEW_LABEL))
-        if (plan_review or {}).get("passed") is False and _plan.can_rewrite(out_dir)[0]:
-            _plan.rewrite_plan(ctx, out_dir, model=model,
-                               **_given(clients, _plan.REWRITE_LABEL))
-            plan_review = rule_plan_follows_question(
-                ctx, out_dir, model=model, label=_plan.REWRITE_REVIEW_LABEL,
-                **_given(clients, _plan.REWRITE_REVIEW_LABEL))
-        plan_ok = _plan.plan_passed(out_dir)[0]
+        plan_review, plan_ok = plan_and_review(ctx, out_dir, model=model, clients=clients)
         if not plan_ok:
             max_rounds = 1
 
