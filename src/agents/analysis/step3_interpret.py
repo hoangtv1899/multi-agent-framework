@@ -56,7 +56,7 @@ FILENAME = "interpretation.json"
 # stands whatever it says.
 MAX_ROUNDS = 2
 
-DEFAULT_MODEL = "claude-opus-5-project"
+DEFAULT_MODEL = "claude-opus-5-5-project"
 
 # A declared value that is a year is a date, not a measurement.
 _YEARLIKE = re.compile(r"^(19|20)\d{2}$")

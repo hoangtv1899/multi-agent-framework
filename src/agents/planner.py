@@ -129,7 +129,7 @@ def _rulebook_for_prompt(rulebook: Optional[Dict[str, Any]]) -> Optional[Dict[st
 class Planner:
     """reception.json -> planner.json."""
 
-    def __init__(self, model: str = "claude-opus-4-8-project",
+    def __init__(self, model: str = "claude-opus-5-5-project",
                  pinning: Optional[Dict[str, Any]] = None,
                  constraints: Optional[Dict[str, Any]] = None):
         """`pinning` is the model server's own `pinning` block.

@@ -71,10 +71,12 @@ PLAN_MD = "investigation_plan.md"
 
 MAX_PLOTS = 5
 
-# The gateway serves claude-opus-5-project; the rest of the framework defaults
-# to claude-opus-4-8-project. Step 2 is the most judgement-heavy call in the
-# pipeline, so it takes the stronger model rather than inheriting the default.
-DEFAULT_MODEL = "claude-opus-5-project"
+# THE ANALYZER'S DEFAULT MODEL. It was claude-opus-5-project, taken because
+# step 2 is the most judgement-heavy call. Since 2026-11-12 it is
+# claude-opus-5-5-project, by the user's decision after the two were run on
+# the same question (2026-11-09): no further comparison is wanted. The Planner
+# asks the same model (planner.py, workflow.py).
+DEFAULT_MODEL = "claude-opus-5-5-project"
 # THE ANALYZER'S MODEL IS A SETTING (the user's decision of 2026-11-09): one
 # model for every Analyzer step of a study, so that two models can be run on
 # the same question with the same guidance and checks. The study's config

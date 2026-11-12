@@ -193,7 +193,7 @@ class WorkflowCoordinator:
 
 	def __init__(self,
 				 reception_model:      str = "claude-opus-4-8-project",
-				 planner_model:        str = "claude-opus-4-8-project",
+				 planner_model:        str = "claude-opus-5-5-project",
 				 # ACCEPTED AND UNUSED. The Analyzer is the five-step box in
 				 # src/agents/analysis/, and each step picks its own model —
 				 # step 2 and step 3 have different jobs and different budgets,

@@ -362,9 +362,24 @@ def test_coverage_and_the_reports_lines_follow_what_the_plan_holds():
 def test_the_analyzers_model_is_the_configs_else_the_environments_else_the_default(
         monkeypatch):
     monkeypatch.delenv(S2.MODEL_ENV, raising=False)
-    assert S2.analyzer_model() == S2.DEFAULT_MODEL == "claude-opus-5-project"
+    assert S2.analyzer_model() == S2.DEFAULT_MODEL == "claude-opus-5-5-project"
     monkeypatch.setenv(S2.MODEL_ENV, " model-from-env ")
     assert S2.analyzer_model() == "model-from-env"
     assert S2.analyzer_model("model-from-config") == "model-from-config"
     monkeypatch.setenv(S2.MODEL_ENV, "")
     assert S2.analyzer_model(None) == S2.DEFAULT_MODEL
+
+
+def test_the_planner_and_the_analyzer_ask_the_same_model_by_default():
+    """The user's decision of 2026-11-12: the newer model for the Planner too,
+    with no further comparison. Step 3 keeps the Analyzer's default."""
+    import inspect
+    pytest.importorskip("openai")
+    import workflow as wf
+    from agents.analysis import step2_investigate as S2
+    from agents.analysis import step3_interpret as S3
+    from agents.planner import Planner
+    assert S3.DEFAULT_MODEL == S2.DEFAULT_MODEL
+    assert inspect.signature(Planner.__init__).parameters["model"].default == S2.DEFAULT_MODEL
+    assert inspect.signature(wf.WorkflowCoordinator.__init__).parameters[
+        "planner_model"].default == S2.DEFAULT_MODEL
