@@ -143,6 +143,50 @@ class TestTheRule:
         assert sr.problem(_site_brief()) is not None
 
 
+# ── the servers the front door starts ────────────────────────────────────────
+CONFIGURED = ["gauges", "terrain", "other_model", "elm", "towers"]
+
+
+class TestOnlyTheServersNeededAreStarted:
+
+    def test_a_whole_domain_study_needs_its_model_server_only(self, as_a_user):
+        assert sr.servers_to_start(CONFIGURED) == ["elm"]
+
+    def test_the_switch_starts_them_all(self, monkeypatch):
+        monkeypatch.setenv(sr.SWITCH, "1")
+        assert sr.servers_to_start(CONFIGURED) is None
+
+    def test_a_configuration_that_names_none_of_them_still_starts(self, as_a_user):
+        assert sr.servers_to_start(["gauges", "terrain"]) is None
+        assert sr.servers_to_start([]) is None
+
+    def _manager(self, tmp_path, monkeypatch, select):
+        from core import mcp_manager as MM
+        started = []
+
+        class Client:
+            def __init__(self, server_name, command, args, timeout):
+                started.append(server_name)
+        monkeypatch.setattr(MM, "MCPClient", Client)
+        cfg = tmp_path / "servers.json"
+        cfg.write_text(json.dumps({"mcp_servers": {n: {"command": "x"} for n in CONFIGURED}}))
+        return MM.MCPManager(str(cfg), select=select), started
+
+    def test_the_manager_starts_only_what_the_rule_picks(self, as_a_user, tmp_path,
+                                                         monkeypatch):
+        m, started = self._manager(tmp_path, monkeypatch, sr.servers_to_start)
+        assert started == ["elm"] and list(m.get_all_clients()) == ["elm"]
+        assert m.not_started == ["gauges", "terrain", "other_model", "towers"]
+
+    def test_with_no_rule_the_manager_starts_every_server(self, tmp_path, monkeypatch):
+        m, started = self._manager(tmp_path, monkeypatch, None)
+        assert started == CONFIGURED and m.not_started == []
+
+    def test_the_coordinator_passes_the_rule(self):
+        src = (ROOT / "workflow.py").read_text()
+        assert "MCPManager(mcp_config_file, select=servers_to_start)" in src
+
+
 # ── Reception: before a directory, before a fetch ────────────────────────────
 class _Loop:
     def __init__(self, brief):
@@ -251,6 +295,91 @@ class TestTheCoordinatorOffersNoYes:
         assert out.startswith("🛑 The planner judged this design infeasible")
         assert all(a.startswith("This design cannot run as it is") for a in asked)
         assert "not run: the planner judged the design infeasible" in _decision(tmp_path)
+
+
+# ── a question that cannot be answered ends as a statement ───────────────────
+class TestCannotAnswerIsNotAClarification:
+
+    def test_the_route_carries_the_reason(self):
+        route = LLMReceptionAgent._route({"intent": "cannot_answer",
+                                          "reason": "No pumping change exists here. "
+                                                    "A what-if on fire can be run."})
+        assert route["action"] == "unsupported" and route["questions"] == []
+        assert route["why"] == ("No pumping change exists here. A what-if on fire can "
+                                "be run")
+
+    def test_the_person_reads_a_statement(self, as_a_user, tmp_path, capsys):
+        import workflow as wf
+        co = _coordinator(None, interactive=True)
+        co.default_output_dir = str(tmp_path)
+        co._reception_context = lambda: None
+        co._plan = lambda *a, **k: pytest.fail("nothing is planned")
+
+        class Front:
+            def process(self, user_request, context=None, run_dir=None):
+                return _reception_agent({"intent": "cannot_answer",
+                                         "reason": "No pumping change exists here."}
+                                        ).process(user_request, run_dir=run_dir)
+        co.reception = Front()
+        out = wf.WorkflowCoordinator.process_request(co, "double the pumping",
+                                                     output_dir=str(tmp_path))
+        assert out.startswith("🛑 Nothing was designed or run: No pumping change exists here.")
+        assert "clarification" not in (out + capsys.readouterr().out).lower()
+
+    def test_a_question_still_open_stays_a_clarification(self):
+        route = LLMReceptionAgent._route({"intent": "clarification_needed",
+                                          "questions": ["which year?"]})
+        assert route["action"] == "clarify" and route["questions"] == ["which year?"]
+
+
+# ── an unattended run submits jobs only on a yes given at launch ─────────────
+def _control_only():
+    plan = _domain_strategy()
+    plan["domain_experiment"]["runs"] = []
+    return plan
+
+
+class TestAnUnattendedRunNeedsItsYesAtLaunch:
+
+    def test_a_design_that_would_run_the_model_stops(self, as_a_user, tmp_path):
+        co = _coordinator(_domain_strategy(), interactive=False)
+        co._execute = lambda **kw: pytest.fail("no one approved this design")
+        out = co._workflow_design_and_run(_reception(_domain_brief()), str(tmp_path), tmp_path)
+        assert out.startswith("🛑 Nothing was submitted: this design would run the model, "
+                              "and no one approved it.")
+        assert "--yes" in out and "--ask" in out
+        assert "not run: no one approved it" in _decision(tmp_path)
+        assert not (tmp_path / dr.APPROVAL_FILE).exists()
+
+    def test_with_yes_at_launch_it_runs_and_says_how(self, as_a_user, tmp_path):
+        plan = _domain_strategy()
+        co = _coordinator(plan, interactive=False)
+        co.approve_unattended = True
+        co._execute = _ran
+        co._workflow_design_and_run(_reception(_domain_brief()), str(tmp_path), tmp_path)
+        rec = json.loads((tmp_path / dr.APPROVAL_FILE).read_text())
+        assert rec["decision"] == "approved at launch (--yes), unattended"
+        assert rec["design_sha256"] == dr.design_fingerprint(plan)
+
+    def test_a_design_that_only_reads_the_control_continues(self, as_a_user, tmp_path):
+        co = _coordinator(_control_only(), interactive=False)
+        co._execute = lambda **kw: (_ for _ in ()).throw(_Ran("read"))
+        out = co._workflow_design_and_run(_reception(_domain_brief()), str(tmp_path), tmp_path)
+        assert "no one approved" not in out
+        assert "auto-continued (unattended run)" in _decision(tmp_path)
+        assert (tmp_path / dr.APPROVAL_FILE).exists()
+
+    def test_a_control_that_is_run_again_is_compute_too(self, as_a_user, tmp_path):
+        plan = _control_only()
+        plan["domain_experiment"]["control"] = {"recipe": "r", "reuse": False}
+        co = _coordinator(plan, interactive=False)
+        co._execute = lambda **kw: pytest.fail("no one approved this design")
+        out = co._workflow_design_and_run(_reception(_domain_brief()), str(tmp_path), tmp_path)
+        assert out.startswith("🛑 Nothing was submitted: this design would run the model")
+
+    def test_the_flag_reaches_the_coordinator(self):
+        src = (ROOT / "workflow.py").read_text()
+        assert "'--yes'" in src and "approve_unattended    = args.yes" in src
 
 
 # ── the gate before compute ──────────────────────────────────────────────────

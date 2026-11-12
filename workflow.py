@@ -197,7 +197,8 @@ class WorkflowCoordinator:
 				 default_output_dir:   str = "./workflow_outputs",
 				 mcp_config_file:      str = "mcp_config.json",
 				 interactive_reception: bool = False,
-				 model:                str = None):
+				 model:                str = None,
+				 approve_unattended:   bool = False):
 
 		# WHICH MODEL THIS SESSION RUNS. Validated here, at construction,
 		# rather than at _execute — that is minutes of reception and planning
@@ -218,7 +219,12 @@ class WorkflowCoordinator:
 		print("Initializing MCP Tools")
 		print("=" * 70)
 		try:
-			self.mcp_manager = MCPManager(mcp_config_file)
+			# ONLY THE SERVERS THIS VERSION'S STUDIES NEED ARE STARTED
+			# (2026-11-10, core/supported_routes.servers_to_start). The
+			# others stay configured and are not started; the developer's
+			# switch starts them all.
+			from core.supported_routes import servers_to_start
+			self.mcp_manager = MCPManager(mcp_config_file, select=servers_to_start)
 			mcp_clients      = self.mcp_manager.get_all_clients()
 			if mcp_clients:
 				print(f"✓ Loaded {len(mcp_clients)} MCP server(s)")
@@ -256,6 +262,10 @@ class WorkflowCoordinator:
 		# pipeline stops on DESIGN_REVIEW.md and asks; unattended it records
 		# the review and continues (a pause inside sbatch would hang the job).
 		self.interactive_reception = bool(interactive_reception)
+		# --yes: an unattended run may submit jobs (see the design review's
+		# unattended branch). It has no effect with a person at the terminal,
+		# who is asked.
+		self.approve_unattended = bool(approve_unattended)
 		# NO PINNING RULES YET, AND THAT IS THE POINT. This used to ask here,
 		# with a comment claiming "this is where the backend is known" — it was
 		# not. Construction happens before the request is read, so the only
@@ -562,11 +572,27 @@ class WorkflowCoordinator:
 
 		return ctx or None
 
+	def _show_scope(self) -> None:
+		"""Say what this version answers, once, before the first question
+		(core/scope_banner): the prepared runs, what a what-if run may change
+		and what is not answered, in the model server's own words. Reading it
+		must never stop a request, so a failure is said in one line."""
+		if getattr(self, "_scope_shown", False):
+			return
+		self._scope_shown = True
+		try:
+			from core import scope_banner
+			print("\n" + scope_banner.text(getattr(self, "mcp_clients", None) or {}))
+		except Exception as e:                                  # noqa: BLE001
+			print(f"\n(what this version answers could not be read: "
+				  f"{type(e).__name__}: {e})")
+
 	def process_request(self,
 						user_request: str,
 						output_dir:   Optional[str] = None,
 						revision:     Optional[dict] = None
 						) -> str:
+		self._show_scope()
 		print("\n" + "=" * 70)
 		print("COORDINATOR")
 		print("=" * 70)
@@ -726,7 +752,10 @@ class WorkflowCoordinator:
 		print("  - 'quit' or 'exit' → stop")
 		print("  - 'status'         → show context")
 		print("  - 'clear'          → clear history")
-		print("=" * 70 + "\n")
+		print("=" * 70)
+		# before the first question is typed, not after it
+		self._show_scope()
+		print()
 	
 		while True:
 			try:
@@ -1007,8 +1036,28 @@ class WorkflowCoordinator:
 				record_decision(run_dir, "accepted at the terminal")
 				approve(run_dir, plan, "accepted at the terminal")
 			else:
-				record_decision(run_dir, "auto-continued (unattended run)")
-				approve(run_dir, plan, "auto-continued (unattended run)")
+				# AN UNATTENDED RUN SUBMITS JOBS ONLY ON A YES GIVEN AT LAUNCH
+				# (2026-11-10). With nobody at the terminal a feasible design
+				# used to continue into compute whatever it was. A design that
+				# only reads a control's existing output still continues: it
+				# spends no compute. One that would run the model stops here
+				# unless the person launched it with --yes, which is their
+				# word that the design this request leads to may be run.
+				de_ = (plan or {}).get("domain_experiment")
+				computes = isinstance(de_, dict) and (
+					bool(de_.get("runs")) or not (de_.get("control") or {}).get("reuse"))
+				if computes and not getattr(self, "approve_unattended", False):
+					record_decision(run_dir, "not run: no one approved it (an "
+											 "unattended run submits jobs only with --yes)")
+					return (f"🛑 Nothing was submitted: this design would run the model, "
+							f"and no one approved it. Read {review_path}, then ask again "
+							f"with --ask to approve it at the terminal, or with --yes to "
+							f"approve at launch. The design and its records stay in "
+							f"{run_dir}.")
+				how = ("approved at launch (--yes), unattended" if computes else
+					   "auto-continued (unattended run)")
+				record_decision(run_dir, how)
+				approve(run_dir, plan, how)
 
 			# Step 2 — Execute
 			print("⚙️  STEP 2: Executing Experiments")
@@ -1681,6 +1730,14 @@ def main():
                  'conflicts (the old default)'
     )
     parser.add_argument(
+        '--yes',
+        action = 'store_true',
+        help   = ('with --request and nobody at the terminal: the design this '
+                  'request leads to may run the model. Without it an unattended '
+                  'study stops at the design page when the design would submit '
+                  'jobs; a design that only reads existing output continues')
+    )
+    parser.add_argument(
         '--ask', '-a',
         action = 'store_true',
         help   = argparse.SUPPRESS       # implied by --interactive; kept so
@@ -1757,6 +1814,7 @@ def main():
         default_output_dir    = args.output_dir,
         mcp_config_file       = args.mcp_config,
         interactive_reception = (args.interactive or args.ask) and not args.no_ask,
+        approve_unattended    = args.yes,
     )
 
     if args.request:

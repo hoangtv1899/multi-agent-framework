@@ -44,6 +44,7 @@ from pathlib import Path
 from core import analysis_years as AY
 
 REVIEW_NAME = "DESIGN_REVIEW.md"
+CAVEATS_SHOWN = 8
 _PENDING = "**Decision:** pending — the coordinator records it here."
 # How the coordinator appends a change asked for at this review to the request
 # (workflow.py), so the page can show the question and each change apart.
@@ -172,7 +173,29 @@ def question_type_line(analysis: dict) -> str:
     return f"question type: {qt or 'none recorded'} ({words})"
 
 
-def _whole_domain_lines(brief, strategy):
+# A RUN'S CHANGE IN THE RUN'S OWN WORDS (2026-11-10). The server's check,
+# written before the page, holds each change of each run with its meaning
+# resolved from the run's parameters ("in June, July, August of 2016 only").
+# The page printed the list's general words under the run ("the chosen months
+# of the chosen years"), which say less than the design does.
+RESOLVED_FILE = "01_inputs/domain_control_facts.json"
+
+
+def _resolved_meanings(run_dir):
+    """{(run name, change id): the change's meaning as the server resolved it
+    for that run}; {} when the server's check is not on disk."""
+    rec = _load(run_dir, RESOLVED_FILE) if run_dir else None
+    out = {}
+    for run in ((rec or {}).get("check") or {}).get("runs") or []:
+        if not isinstance(run, dict):
+            continue
+        for c in run.get("changes") or []:
+            if isinstance(c, dict) and c.get("id") and c.get("meaning"):
+                out[(run.get("name"), c["id"])] = str(c["meaning"])
+    return out
+
+
+def _whole_domain_lines(brief, strategy, resolved=None):
     """A control and runs of named changes (docs/ELM_DOMAIN_EXPERIMENTS.md),
     every line quoted or counted from the records: the experiment Reception
     settled, the analysis the planner chose, and the server's rulebook the
@@ -216,7 +239,12 @@ def _whole_domain_lines(brief, strategy):
                                 for c in ch) or "no change"))
         for c in ch:
             m = menu.get(c.get("id")) or {}
-            if m.get("meaning"):
+            own = (resolved or {}).get((r.get("name"), c.get("id")))
+            if own:
+                out.append(f"  - {c.get('id')} means {_trim(own, 320)}")
+                if m.get("not_meaning"):
+                    out.append(f"  - it is NOT {' '.join(str(m['not_meaning']).split())}")
+            elif m.get("meaning"):
                 # the menu's text with this run's parameters in it; the
                 # not-meaning in full, since it says what the difference must
                 # never be called
@@ -255,7 +283,8 @@ def _whole_domain_lines(brief, strategy):
         # code, for every change that does not set its years itself (the
         # server's list: one whose `alters` holds a per-year writer does).
         whole_run = sorted({c.get("id") for r in runs for c in (r.get("changes") or [])
-                            if c.get("id") and not any(
+                            if c.get("id") and not (c.get("params") or {}).get("years")
+                            and not any(
                                 isinstance(a, dict) and "years" in a
                                 for a in (menu.get(c.get("id")) or {}).get("alters") or [])})
         if whole_run and how["left_out"]:
@@ -278,8 +307,17 @@ def _whole_domain_lines(brief, strategy):
                            f"differ from studies that used those"))
     if an.get("question_type"):
         out.append("- " + question_type_line(an))
-    for cv in (de.get("caveats") or [])[:3]:
-        out.append(f"- caveat: {_trim(cv, 200)}")
+    # EVERY CAVEAT IS ON THE PAGE (2026-11-10). The first three were shown,
+    # each cut at 200 characters: the caveat that said a design changed more
+    # years than the question asked about was the third of three, and a
+    # fourth would not have been shown at all. Up to CAVEATS_SHOWN are
+    # printed, at twice the length, and any beyond that are counted.
+    cvs = [c for c in (de.get("caveats") or []) if str(c or "").strip()]
+    for cv in cvs[:CAVEATS_SHOWN]:
+        out.append(f"- caveat: {_trim(cv, 400)}")
+    if len(cvs) > CAVEATS_SHOWN:
+        out.append(f"- and {len(cvs) - CAVEATS_SHOWN} more caveat(s), in "
+                   f"`strategy.json` under domain_experiment.caveats")
     if runs:
         out.append("- each run's settings are compared with the control's before its "
                    "model is built, and each change's rule on the output is checked "
@@ -287,7 +325,7 @@ def _whole_domain_lines(brief, strategy):
     return out
 
 
-def _design_lines(brief, strategy):
+def _design_lines(brief, strategy, resolved=None):
     """The archetype-specific middle: what will actually be built."""
     arch = str(brief.get("design_archetype")
                or strategy.get("archetype") or "site").lower()
@@ -324,7 +362,7 @@ def _design_lines(brief, strategy):
                    "are carried from the prior run's record")
         return "coupling follow-up", out
     if arch == "whole_domain":
-        return "whole-domain experiment", _whole_domain_lines(brief, strategy)
+        return "whole-domain experiment", _whole_domain_lines(brief, strategy, resolved)
     # site
     sm = strategy.get("sampling") or {}
     if sm.get("approach"):
@@ -848,7 +886,7 @@ def _appendix(preview, run_dir, strategy, brief):
 def render(reception, strategy, run_name="this run", preview=None, run_dir=None):
     """reception.json + strategy.json (+ the server's preview) -> markdown."""
     brief = reception.get("brief") or reception
-    kind, design = _design_lines(brief, strategy)
+    kind, design = _design_lines(brief, strategy, _resolved_meanings(run_dir))
     L = []
     L.append(f"# Design review — {run_name}")
     L.append("")
@@ -907,8 +945,15 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None)
         L.append("## Assumed or missing — decided without you, and recorded")
         for item in (list(assumptions) + list(conflicts))[:5]:
             L.append(f"- {_trim(item, 240)}")
+        # A WHOLE-DOMAIN STUDY FETCHES NO DATA, so what Reception lists here
+        # is seldom a gap in data: live pages read "data gap: the change is
+        # demonstrated in this framework". The label says only what is known,
+        # that Reception noted it (2026-11-10).
+        label = ("noted by Reception" if (brief.get("domain_experiment")
+                                           or strategy.get("domain_experiment"))
+                 else "data gap")
         for item in gaps[:3]:
-            L.append(f"- data gap: {_trim(item, 200)}")
+            L.append(f"- {label}: {_trim(item, 200)}")
         L.append("")
     L.extend(_check_lines(preview))
     L.append("## What happens next")

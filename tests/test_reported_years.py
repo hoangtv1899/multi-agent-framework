@@ -214,6 +214,103 @@ class TestThePageSaysWhoseChoiceEachYearIs:
         assert dr._period_line(brief) == "2032–2033 (you stated it)"
 
 
+# ── every caveat, and what Reception noted ───────────────────────────────────
+class TestThePageShowsEveryCaveat:
+
+    def _with_caveats(self, n, text="a caveat about the design"):
+        st = _strategy([2031, 2032], FIRE_OFF)
+        st["domain_experiment"]["caveats"] = [f"{text} number {k}" for k in range(1, n + 1)]
+        return _page(_brief([2031, 2032], [2031, 2032], FIRE_OFF), st)
+
+    def test_a_fourth_caveat_is_on_the_page(self):
+        page = self._with_caveats(5)
+        assert all(f"- caveat: a caveat about the design number {k}" in page
+                   for k in range(1, 6))
+
+    def test_beyond_the_limit_they_are_counted_not_dropped(self):
+        page = self._with_caveats(dr.CAVEATS_SHOWN + 3)
+        assert f"number {dr.CAVEATS_SHOWN}" in page
+        assert f"number {dr.CAVEATS_SHOWN + 1}" not in page
+        assert "- and 3 more caveat(s), in `strategy.json`" in page
+
+    def test_a_long_caveat_keeps_its_second_sentence(self):
+        long = ("The change has no setting for this. " + "x" * 190
+                + " The second sentence says which years.")
+        st = _strategy([2031, 2032], FIRE_OFF)
+        st["domain_experiment"]["caveats"] = [long]
+        assert "The second sentence says which years." in \
+            _page(_brief([2031, 2032], [2031, 2032], FIRE_OFF), st)
+
+    def test_receptions_notes_are_not_called_data_gaps(self):
+        brief = _brief([2031, 2032], [2031, 2032], FIRE_OFF)
+        brief["known_data_gaps"] = ["the change is demonstrated in this framework"]
+        page = _page(brief, _strategy([2031, 2032], FIRE_OFF))
+        assert "- noted by Reception: the change is demonstrated" in page
+        assert "data gap:" not in page
+
+    def test_a_single_column_study_keeps_the_old_label(self):
+        brief = {"design_archetype": "site", "domain": {"name": "Testville"},
+                 "known_data_gaps": ["no tower in the basin"],
+                 "run_settings": {"resolved_period": {"yr_start": 2031, "yr_end": 2031,
+                                                      "source": "user"}}}
+        page = dr.render({"user_request": "q", "brief": brief}, {"archetype": "site"}, "x")
+        assert "- data gap: no tower in the basin" in page
+
+    def test_a_change_that_names_its_years_is_not_said_to_cover_every_year(self):
+        runs = [{"name": "dry", "changes": [{"id": "weather_scale", "params": {
+            "precip_factor": 0.7, "months": [6, 7, 8], "years": [2034, 2035]}}]}]
+        page = _page(_brief([2034, 2035], [2031, 2035], runs),
+                     _strategy(_years(2031, 2035), runs))
+        assert "in effect in EVERY simulated year" not in page
+        assert "- reported: the numbers are read for 2034–2035" in page
+
+
+# ── a run's change in the run's own words ────────────────────────────────────
+class TestTheRunsOwnWords:
+
+    RUNS = [{"name": "dry", "changes": [{"id": "weather_scale", "params": {
+        "precip_factor": 0.7, "months": [6, 7, 8], "years": [2032]}}]}]
+
+    def _render(self, tmp_path, with_check):
+        if with_check:
+            (tmp_path / "01_inputs").mkdir()
+            resolved = [dict(r, changes=[CH.resolve(c) for c in r["changes"]])
+                        for r in self.RUNS]
+            (tmp_path / dr.RESOLVED_FILE).write_text(json.dumps(
+                {"check": {"runs": resolved}}, default=str))
+        return dr.render({"user_request": "q", "brief": _brief([2032], [2031, 2032], self.RUNS)},
+                         _strategy([2031, 2032], self.RUNS), "x", run_dir=tmp_path)
+
+    def test_with_the_servers_check_on_disk_the_page_says_the_runs_words(self, tmp_path):
+        page = self._render(tmp_path, True)
+        assert ("  - weather_scale means the difference from the control is the response "
+                "to rain and snow multiplied by 0.7, in June, July, August of 2032 only") \
+            in page
+        assert "the chosen months of the chosen years" not in page
+        assert "  - it is NOT a consistent change of climate" in page
+
+    def test_without_it_the_lists_general_words_stand(self, tmp_path):
+        page = self._render(tmp_path, False)
+        assert "the chosen months of the chosen years" in page
+
+
+# ── run names already taken ──────────────────────────────────────────────────
+class TestRunNamesAlreadyTaken:
+
+    def test_the_cases_beside_the_controls_are_listed(self, tmp_path):
+        import domain_controls as DCT
+        for d in ("ctl", "ctl_warm", "ctl_fire_off", "ctl_Odd-Name", "other_dry"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "ctl_a_file").write_text("not a case")
+        assert DCT.run_names_taken({"case_dir": str(tmp_path / "ctl")}) == ["fire_off",
+                                                                            "warm"]
+
+    def test_a_control_whose_case_cannot_be_read_has_none(self, tmp_path):
+        import domain_controls as DCT
+        assert DCT.run_names_taken({"case_dir": str(tmp_path / "gone" / "ctl")}) == []
+        assert DCT.run_names_taken({}) == []
+
+
 # ── the table ────────────────────────────────────────────────────────────────
 class TestTheTableHoldsTheYearsReported:
 

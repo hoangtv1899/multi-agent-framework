@@ -700,6 +700,15 @@ class LLMReceptionAgent:
         that asks nothing, says so instead of printing an empty list.
         """
         raw = brief.get("intent", "parse_error")
+        # A QUESTION THAT CANNOT BE ANSWERED ENDS AS A STATEMENT (2026-11-10).
+        # Reception could only stop through a clarification, so a refusal the
+        # person had already accepted ("no pumping change exists; you asked
+        # to stop") was printed under "I need some clarification:".
+        if raw == "cannot_answer":
+            why = " ".join(str(brief.get("reason") or "the question cannot be answered "
+                               "in this version").split()).rstrip(". ")
+            return {"action": "unsupported", "why": why, "questions": [],
+                    "prior_run_dir": None, "llm_intent": raw}
         action = {"design": "design",
                   "analyze_existing": "analyze_existing",
                   "resume": "resume"}.get(raw, "clarify")

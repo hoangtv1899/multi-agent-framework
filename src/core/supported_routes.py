@@ -31,6 +31,16 @@ from typing import Any, Dict, Optional
 SWITCH = "IDEAS_DEVELOPER_ROUTES"
 SUPPORTED = ("whole_domain",)
 
+# THE SERVERS A SUPPORTED KIND OF STUDY NEEDS (2026-11-10). A whole-domain
+# study reads its control and makes its runs through one model server, and
+# fetches nothing. The front door therefore starts that server and no other.
+# It used to start every configured server, so the start screen listed eight
+# of them, another model's and six data servers among them, above a banner
+# that says only whole-domain questions are answered; and Reception spent
+# look-ups on places it would not study. Nothing is deleted: with the
+# developer's switch every configured server starts, as before.
+SERVERS = {"whole_domain": ("elm",)}
+
 # What each kind is called when a person is told it will not run.
 WORDS = {
     "site": "a study of single model columns sampled across a basin",
@@ -42,6 +52,19 @@ WORDS = {
 def developer_routes() -> bool:
     """Is the developer's switch set in this process?"""
     return os.environ.get(SWITCH, "").strip() == "1"
+
+
+def servers_to_start(configured) -> Optional[list]:
+    """The configured servers the front door starts, in the configuration's
+    order. None means every one of them: with the developer's switch set, or
+    when the configuration names none of the servers a supported study needs
+    (an unusual configuration still starts, and the scope banner then says
+    that no prepared run can be read)."""
+    if developer_routes():
+        return None
+    needed = {s for k in SUPPORTED for s in SERVERS.get(k, ())}
+    picked = [n for n in (configured or []) if n in needed]
+    return picked or None
 
 
 def _low(v: Any) -> str:

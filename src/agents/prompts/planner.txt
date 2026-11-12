@@ -234,11 +234,15 @@ analysis. How the control compares with observations was told to the
 scientist before the design, and is not in your rulebook.
 
 THE VERDICT
-  full        every change a run needs is available, and the regions,
-              variables and years the answer needs are in the control.
+  full        every change a run needs is available, the regions,
+              variables and years the answer needs are in the control, and
+              the design does what the question asks, in the years it names.
   partial     part of the question needs a change marked available: false,
               or a field the control lacks: name it in
-              `requires`, and design the part that can run.
+              `requires`, and design the part that can run. Also partial
+              when a change is in effect in years the question did not name
+              and cannot be limited to them (it has no `years` parameter and
+              the run starts earlier): say in feasibility.why which years.
   infeasible  no run on this control can answer it: say why in
               feasibility.why and name what it requires. An infeasible
               whole-domain plan is stopped before any job.
