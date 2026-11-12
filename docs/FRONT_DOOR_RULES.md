@@ -6,6 +6,27 @@ Status on 2026-11-10. Written by hand; the generated documents
 These rules are in code. A prompt asks a language model to follow them; it
 cannot make it, so none of them rests on a prompt alone.
 
+## The scope is said before the first question
+
+`src/core/scope_banner.py`. Before the first question the coordinator prints
+"WHAT THIS VERSION ANSWERS": the prepared runs with their own descriptions
+and output years, what a what-if run may change (a change no run has
+completed with is marked), and what is not answered. Every word about a run
+or a change is read from the model server's control registry and change list
+at that moment, so the banner names nothing itself and cannot go stale. It
+calls no language model. A banner that cannot be read is said in one line
+and never stops a request.
+
+## Only the servers needed are started
+
+`supported_routes.servers_to_start`, passed to `MCPManager`. A whole-domain
+study reads its control and makes its runs through one model server and
+fetches nothing, so the front door starts that server and no other. The
+other configured servers (another model's, the data servers) are not
+started; their code and their entries in the configuration file are
+untouched, and the developer's switch starts them all. A script that makes
+its own `MCPManager` with no rule starts every server, as before.
+
 ## This version runs whole-domain studies only
 
 A whole-domain study reads a prepared control, and may add runs that differ
@@ -47,9 +68,12 @@ after three empty answers the design is left unapproved. Any other text is a
 change, which goes back to Reception and gives a new design in a new folder,
 with a new page and a new prompt.
 
-An unattended run (no `--ask`) has no prompt: it continues on a feasible
-design of a supported kind and records that it did. Launching it is the
-person's decision.
+An unattended run (no `--ask`) has no prompt. A design that only reads a
+control's existing output continues and records that it did. A design that
+would run the model stops at the design page unless the run was launched
+with `--yes`, which is the person's word, given at launch, that the design
+the request leads to may be run; the approval then records "approved at
+launch".
 
 ## An approval is of one design
 
@@ -83,6 +107,40 @@ and the study record read this one function.
   when a run executes. The control read alone may cover any consecutive
   years inside its output.
 
+## What Reception reads, and how it ends
+
+- **The servers' menus are read whole.** A framework tool's answer (the
+  prepared runs, the list of changes) may be 24,000 characters; a data
+  tool's result keeps the 12,000 cap. A result that is cut all the same is
+  said on the terminal and marked `truncated` in the trace. At 12,000 the
+  list of changes had 2 characters to spare.
+- **Run names already taken.** Each control's record lists the names whose
+  case exists already (`run_names_taken`), so a run is named free the first
+  time and not refused for its name.
+- **A question that cannot be answered ends as a statement.** Reception
+  emits `cannot_answer` with a reason; the person reads "Nothing was designed
+  or run: ...", not a clarification.
+- **An empty question is never shown.** A call of the ask tool with no text
+  is answered to the model.
+
+## A change applies in the years it is given
+
+`weather_scale` takes `years`: the model years it applies in, among the
+run's years; every simulated year when absent. The anomaly file holds the
+identity in a year left out, and the year's check, which reads the file,
+holds the run to the control there. A change with no such setting is in
+effect from the run's first year, and the page says so by code ("in effect
+in EVERY simulated year"). The Planner's verdict is `partial`, by its
+prompt, when a change reaches years the question did not name and cannot be
+limited to them.
+
+## Every caveat is on the page
+
+Up to eight caveats are printed, each up to 400 characters, and any beyond
+that are counted with where to find them. What Reception lists as data gaps
+is labelled "noted by Reception" on a whole-domain page, since such a study
+fetches no data.
+
 ## A change with no completed run
 
 The server's change list marks each available change `demonstrated: true` or
@@ -93,8 +151,8 @@ the design page says "NOT DEMONSTRATED" under the run, by code.
 ## Known limits
 
 - Reception may still spend a tool call on a place it will not study.
-- The weather-scaling change has month and region selectors and no year
-  selector: a design for "the summers of two named years" scales the summers
-  of every simulated year. The page says so in a caveat written by the
-  Planner; no code checks that it does.
-- An unattended run is not asked for a yes.
+- The other changes (fire off, CO2 level, deposition year, nutrient supply)
+  have no year setting: they are in effect from the run's first year.
+- A year setting that begins in January, or ends in December, next to a year
+  left out has not been run: the first step after a year's restart carries
+  the atmosphere's last output of the job before.

@@ -24,6 +24,15 @@ together, with and without a new simulation, led to these changes:
 - **The printed summary holds to the kept claims.** When the audit struck a
   claim, a summary sentence that gives a number no kept claim's record gives
   is left out of the page; the summary as written stays in `analysis.json`.
+  Since 2026-11-11 a number counts as a record's only when the record is of a
+  month or season the sentence names, or of the whole year, and a number
+  printed with a measured unit is never a record's share or percent
+  (`claim_trace.summary_support`).
+- **A season's word is read as a person reads it** (2026-11-11,
+  `claim_trace.season_words`). "After summer" names no period of the claim.
+  "Each summer month" is a run of months, each on a record of its own. Any
+  other use of the word, and the season's code, still needs the season's
+  own record.
 - **A new run gets its results store.** The Experiment Manager builds it in
   the study tail (`_build_run_suites`), in `03_results/suite/<run>`, where
   the Analyzer reads a run's maps, series and dates.

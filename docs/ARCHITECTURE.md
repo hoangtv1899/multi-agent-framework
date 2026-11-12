@@ -350,7 +350,7 @@ Every top-level package imported by framework code (`src/`, `workflow.py`, the e
 4. **The design review page, and the person's decision**
    - code: `src/agents/design_review.py::write_review`, `src/agents/design_review.py::record_decision`
    - language model: no; code only
-   - reads: `DESIGN_REVIEW.md`, `design_preview.json`, `reception.json`, `strategy.json`
+   - reads: `DESIGN_REVIEW.md`, `design_preview.json`, `domain_control_facts.json`, `reception.json`, `strategy.json`
    - writes: `DESIGN_REVIEW.md`
 5. **The experiment record: control, runs and their checked changes**
    - code: `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._build_domain_experiment`
