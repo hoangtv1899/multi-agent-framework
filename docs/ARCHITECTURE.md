@@ -85,15 +85,15 @@ The planner
 
 ### `src/agents/reception_llm.py`
 
-Agentic reception agent.
+Reception: a person's question in, a brief for the Planner out.
 
 - `LLMReceptionAgent.__init__` constructs `ToolLoopAgent`
 - Default model id: `LLMReceptionAgent.__init__(model)` has no default; its caller sets it
 - Model id as the framework passes it:
   - `workflow.py::WorkflowCoordinator.__init__` calls `LLMReceptionAgent.__init__` with model=`reception_model` = `"claude-opus-4-8-project"`
-- Prompt files: `src/agents/prompts/reception_agentic.txt`, `src/agents/prompts/reception_whole_domain_only.txt`
+- Prompt files: `src/agents/prompts/reception_agentic.txt`
 - Prompt text written in the module: none
-- Records it reads: `columns.json`, `conus2_subsurface.json`, `reception.json`; writes: `conus2_subsurface.json`; names without opening: none
+- Records it reads: none; writes: none; names without opening: none
 - Called from: `workflow.py::WorkflowCoordinator.process_request`
 
 ### `src/agents/tool_loop.py`
@@ -185,9 +185,9 @@ Entry: `mcp/elm-mcp/main.py`, 23 tools.
 | `submit_domain_chain` | Check the input set, write the scripts and submit the chain. JOB IDS. | `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._submit_domain`, `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._submit_experiment` |
 | `cancel_domain_chain` | Cancel the queued jobs of a whole-domain chain. WHAT SLURM TOOK. | `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._cancel_queued` |
 | `check_domain_chain` | Where a whole-domain chain stands: each stage's SLURM state and check verdict. `active` is the field to branch on (true while a stage may still run; a stage SLURM no longer knows, or one an earlier failure stopped, has ended and says so under `inferred`); `failed_stage` names the first stage that ended without passing; `years_passed` the model years whose check passed; `chain_ok` that every stage ended and passed. `ok` says only that the question could be answered. | `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._poll_domain`, `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._poll_experiment` |
-| `describe_domain_controls` | The prepared whole-domain controls this machine has, and their facts. | `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._build_domain_experiment`, `src/agents/prompts/reception_agentic.txt (prompt)`, `src/agents/prompts/reception_whole_domain_only.txt (prompt)`, `src/agents/reception_llm.py::LLMReceptionAgent.__init__`, `src/agents/reception_llm.py::LLMReceptionAgent._control_card`, `src/core/model_servers.py::describe_domain`, `src/core/model_servers.py::model_tools` |
+| `describe_domain_controls` | The prepared whole-domain controls this machine has, and their facts. | `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._build_domain_experiment`, `src/agents/prompts/reception_agentic.txt (prompt)`, `src/agents/reception_llm.py::LLMReceptionAgent.__init__`, `src/agents/reception_llm.py::LLMReceptionAgent._control_card`, `src/agents/reception_llm.py::reception_tools`, `src/core/model_servers.py::describe_domain`, `src/core/model_servers.py::model_tools` |
 | `refresh_domain_control_facts` | Read one prepared control's facts from its own output, and cache them. | no framework caller |
-| `describe_domain_changes` | What a whole-domain experiment may change in its control. THE MENU. | `src/agents/prompts/reception_agentic.txt (prompt)`, `src/core/model_servers.py::describe_domain`, `src/core/model_servers.py::model_tools` |
+| `describe_domain_changes` | What a whole-domain experiment may change in its control. THE MENU. | `src/agents/prompts/reception_agentic.txt (prompt)`, `src/agents/reception_llm.py::reception_tools`, `src/core/model_servers.py::describe_domain`, `src/core/model_servers.py::model_tools` |
 | `check_domain_experiment` | Will this experiment do what it looks like it does? Ask before any job. | `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._build_domain_experiment` |
 | `build_domain_runs` | Each run's recipe, chain spec and checks, from the experiment. Submits nothing. | `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._build_domain_experiment` |
 
@@ -228,10 +228,10 @@ Entry: `mcp/terrain-mcp/main.py`, 5 tools.
 
 | tool | what it does (its docstring's first line, or its description's first sentence) | called from |
 |---|---|---|
-| `get_elevation` | Point elevation in metres (USGS 3DEP) for a lat/lon. | `src/agents/prompts/reception_agentic.txt (prompt)`, `src/agents/reception_llm.py::LLMReceptionAgent.__init__` |
+| `get_elevation` | Point elevation in metres (USGS 3DEP) for a lat/lon. | no framework caller |
 | `sample_elevation_grid` | Sample ~n elevations on a grid across a bbox. Returns points + stats. | `src/core/data_gather.py::gather_grid` |
 | `elevation_summary` | Elevation stats + equal-interval bands across a bbox (for stratification). | no framework caller |
-| `resolve_watershed` | Resolve a watershed by HUC code or name to a bbox + area (USGS WBD). | `src/agents/prompts/reception_agentic.txt (prompt)`, `src/agents/reception_llm.py::LLMReceptionAgent.__init__` |
+| `resolve_watershed` | Resolve a watershed by HUC code or name to a bbox + area (USGS WBD). | no framework caller |
 | `get_watershed_boundary` | Simplified polygon outline (lon/lat rings) of a HUC watershed (USGS WBD). | `src/core/data_gather.py::gather_grid` |
 
 ### `usgs_water`
@@ -333,9 +333,9 @@ Every top-level package imported by framework code (`src/`, `workflow.py`, the e
 1. **Reception reads the request, asks the person, gathers the place**
    - code: `src/agents/reception_llm.py::LLMReceptionAgent.__init__`, `src/agents/reception_llm.py::LLMReceptionAgent.process`, `workflow.py::_save_reception`
    - language model: yes, `LLMReceptionAgent.process` -> `LLMReceptionAgent._ask_for_the_json` -> `ToolLoopAgent._create`
-   - MCP tools named: `describe_domain_controls`, `get_elevation`, `resolve_watershed`
-   - reads: `columns.json`, `conus2_subsurface.json`, `reception.json`
-   - writes: `conus2_subsurface.json`, `reception.json`, `reception_brief.json`
+   - MCP tools named: `describe_domain_changes`, `describe_domain_controls`
+   - reads: none
+   - writes: `reception.json`, `reception_brief.json`
 2. **The Planner designs the experiment against the server's rulebook**
    - code: `workflow.py::WorkflowCoordinator._plan`, `workflow.py::WorkflowCoordinator._domain_rulebook`, `src/agents/planner.py::Planner.plan`
    - language model: yes, `WorkflowCoordinator._plan` -> `Planner.plan`

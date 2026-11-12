@@ -10,7 +10,8 @@ cannot make it, so none of them rests on a prompt alone.
 
 `src/core/scope_banner.py`. Before the first question the coordinator prints
 "WHAT THIS VERSION ANSWERS": the prepared runs with their own descriptions
-and output years, what a what-if run may change (a change no run has
+and output years, where each run's comparison with measurements is shown
+(the design page), what a what-if run may change (a change no run has
 completed with is marked), and what is not answered. Every word about a run
 or a change is read from the model server's control registry and change list
 at that moment, so the banner names nothing itself and cannot go stale. It
@@ -48,10 +49,16 @@ in the environment of the process. Nothing typed into the conversation can do
 that. The test session sets it (`tests/conftest.py`), since most tests of
 those routes predate the rule; the tests of the rule remove it.
 
-Reception's prompt gains a block that says the same
-(`prompts/reception_whole_domain_only.txt`), left out when the switch is set.
-The block only stops Reception from offering a way forward that the code
-would refuse.
+Reception is no longer one of the ways in, switch or no switch
+(2026-11-11). Its prompt (`prompts/reception_agentic.txt`) is written for
+whole-domain studies alone, and its code for the kinds set aside was deleted
+with the instructions: the gather of a basin's terrain, stations, rain and
+subsurface, the carry-forward of a prior run for a coupling, and the sweep's
+branch. A design brief of another kind is refused by Reception itself. With
+the switch, the coordinator and the gate still let such a study through when
+it arrives another way (a saved brief, a resumed study, a manager called
+directly); the managers, the samplers and the data servers of those kinds
+are unchanged.
 
 ## An infeasible design has no yes
 
@@ -109,6 +116,41 @@ and the study record read this one function.
 
 ## What Reception reads, and how it ends
 
+- **One prompt, for whole-domain studies alone** (2026-11-11). It is about a
+  third of the length it had as the prompt of four kinds of study with a
+  block appended that set three of them aside. It names no model, no control
+  and no change: those are read from the model server in the conversation.
+  `tests/test_reception_prompt.py` holds it to the code that reads its
+  output.
+- **Four framework tools and the question to the person.** Reception may
+  call `list_servers`, `describe_server`, `describe_domain_controls` and
+  `describe_domain_changes`, and `ask_user`. It is given no data tool and no
+  tool of a kind of study set aside.
+- **A framework tool is answered once.** Asked again with the same
+  arguments in one conversation, it answers with a short note that points
+  back to its first answer. A menu of twelve thousand characters is not
+  carried twice.
+- **A revision carries the years asked about** as well as the years
+  simulated, so the start year a run needs is not reported as a year asked
+  about after a change at the design page.
+- **The run is described once, and only what it is.** The start banner says
+  what each prepared run is. Reception's card says the same, and is shown
+  only for a run the banner did not name (`LLMReceptionAgent.introduced`,
+  set by the coordinator), so the person does not read it twice. How the run
+  compares with measurements, the years its anomalies are measured against
+  and what it does not contain are printed on the design page, which the
+  person reads before approving anything.
+- **Reception is not shown the run's results** (2026-11-11,
+  `reception_llm.controls_for_the_llm`). Its copy of a control's record has
+  neither the comparison with measurements nor the numbers by year; a note
+  in place of each says who reports it (the design page; the analysis).
+  Handed those numbers, it
+  quoted them and then judged them in its own words, against its prompt. It
+  still reads the run's years, settings, fire, grid, regions and what the
+  run does not contain.
+- **The cost is not Reception's to compute.** It says how many model years
+  will be simulated; the design page states the cost from the server's own
+  figure.
 - **The servers' menus are read whole.** A framework tool's answer (the
   prepared runs, the list of changes) may be 24,000 characters; a data
   tool's result keeps the 12,000 cap. A result that is cut all the same is
@@ -146,11 +188,15 @@ fetches no data.
 The server's change list marks each available change `demonstrated: true` or
 `false` (`domain_changes.py`). A change that has never completed a run in
 this framework may be designed. The server's check lists it as unusual, and
-the design page says "NOT DEMONSTRATED" under the run, by code.
+the design page says "NOT DEMONSTRATED" under the run, by code. The words
+printed there are the server's and say what is true of the change, nothing
+else; what a designer does about it is a rule of the server's list, which no
+page prints.
 
 ## Known limits
 
-- Reception may still spend a tool call on a place it will not study.
+- What a model does with a prompt is shown only by live conversations. The
+  prompt's tests hold its contract with the code, not its behaviour.
 - The other changes (fire off, CO2 level, deposition year, nutrient supply)
   have no year setting: they are in effect from the run's first year.
 - A year setting that begins in January, or ends in December, next to a year
