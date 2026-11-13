@@ -162,3 +162,141 @@ class TestTheFacts:
         assert len(json.dumps(d)) < 12000
         # whole: a run's difference from the control is computed from them
         assert row["facts"]["per_year"] == DCT.facts("synth", str(reg))["per_year"]
+
+
+# ── what the details page is given: the burned area as a table ───────────────
+def _fire(model, observed, source="a made-up satellite"):
+    fire = {"model": model, "observed": observed, "pattern": "spread over 1-2 cells"}
+    if source is not None:
+        fire["observed_source"] = source
+    return {"burned_area_km2": fire}
+
+
+def _sentence_pairs(f):
+    """The year, model and observed numbers not_in_it's sentence states."""
+    import re
+    return [(y, int(a), int(b)) for y, a, b in re.findall(r"(\d{4}) (\d+) against (\d+) km2",
+                                                        DCT.not_in_it(f)[0])]
+
+
+class TestTheFireTable:
+
+    def test_the_years_both_give_with_the_control_run_first(self):
+        f = _fire({"2041": 12.4, "2042": 7.5, "2043": 30.0},
+                  {"2040": 1.0, "2041": 3.2, "2042": 40.6})
+        t = DCT.fire_tables(f)
+        assert t == [{"about": "fires", "lead": DCT.FIRE_TABLE_LEAD,
+                      "corner": "Burned area (km2)", "columns": ["2041", "2042"],
+                      "rows": [{"label": "The control run", "values": [12, 8]},
+                               {"label": "a made-up satellite", "values": [3, 41]}]}]
+
+    def test_it_says_what_the_sentence_says(self):
+        """The same years and the same rounding to whole km2, a half rounded
+        as the sentence rounds it."""
+        f = _fire({"2041": 0.5, "2042": 1.5, "2043": 2.5, "2044": 99.49},
+                  {"2041": 10.5, "2042": 0.4, "2043": 3.5, "2044": 0.0})
+        t = DCT.fire_tables(f)[0]
+        got = list(zip(t["columns"], t["rows"][0]["values"], t["rows"][1]["values"]))
+        assert got == _sentence_pairs(f) == [("2041", 0, 10), ("2042", 2, 0), ("2043", 2, 4),
+                                             ("2044", 99, 0)]
+
+    def test_the_lead_is_plain(self):
+        lead = DCT.FIRE_TABLE_LEAD
+        assert lead.startswith("The control run's fire is the model's own")
+        assert ":" not in lead and "\u2014" not in lead and "\u2013" not in lead
+        assert "control" in lead and "the control " not in lead.replace("the control run", "")
+
+    @pytest.mark.parametrize("f", [
+        None, {}, {"burned_area_km2": {}},
+        _fire({"2041": 12.4}, {}),                      # no observed row
+        _fire({}, {"2041": 3.2}),                       # no row of the control run
+        {"burned_area_km2": {"model": {"2041": 12.4}}},
+        {"burned_area_km2": {"observed": {"2041": 3.2}, "observed_source": "x"}},
+    ])
+    def test_no_table_when_the_facts_lack_a_row(self, f):
+        assert DCT.fire_tables(f) == []
+
+    def test_no_table_when_no_year_is_in_both(self):
+        assert DCT.fire_tables(_fire({"2041": 12.4, "2042": 1.0}, {"2043": 3.2})) == []
+
+    def test_no_table_of_zeros_for_a_run_with_no_fire(self):
+        f = _fire({"2041": 0.0, "2042": 0.0}, {"2041": 3.2, "2042": 40.6})
+        assert DCT.fire_tables(f) == []
+        assert DCT.not_in_it(f)[0].startswith(DCT._FIRE_NONE)
+        # a fire of the control run in one year is a table
+        assert DCT.fire_tables(_fire({"2041": 0.0, "2042": 0.3}, {"2041": 3.2, "2042": 40.6}))
+
+    def test_a_source_the_facts_do_not_name(self):
+        for src in (None, "", "  "):
+            t = DCT.fire_tables(_fire({"2041": 12.4}, {"2041": 3.2}, source=src))
+            assert t[0]["rows"][1]["label"] == "The observation"
+
+    def test_a_year_without_a_number_is_left_out(self):
+        t = DCT.fire_tables(_fire({"2041": 12.4, "2042": None, "2043": 5.0},
+                                  {"2041": 3.2, "2042": 1.0, "2043": float("nan")}))
+        assert t[0]["columns"] == ["2041"]
+
+    def test_from_the_facts_of_a_made_up_control(self, tmp_path):
+        c, reg, _ = _control(tmp_path)
+        f = DCT.compute_facts("synth", str(reg))
+        t = DCT.fire_tables(f)[0]
+        assert t["columns"] == ["2015", "2016"]
+        assert [r["label"] for r in t["rows"]] == ["The control run", "observed burned fraction"]
+        assert t["rows"][0]["values"] == [int(f"{f['burned_area_km2']['model'][y]:.0f}")
+                                          for y in ("2015", "2016")]
+        assert list(zip(t["columns"], *[r["values"] for r in t["rows"]])) == _sentence_pairs(f)
+
+
+# ── what the details page is given: the set-up rows ──────────────────────────
+ROWS = [{"label": "Area", "words": "50 km2 of made-up land"},
+        {"label": "Grid", "words": "10 by  8 cells"},
+        {"label": "Fire", "words": "none"}]
+
+
+class TestTheSetUpRows:
+
+    def test_rows_come_through_as_entered(self):
+        rows, bad = DCT.page_setup({"page_setup": json.loads(json.dumps(ROWS))})
+        assert rows == ROWS and bad == []
+
+    def test_a_control_without_them_has_none_and_no_problem(self):
+        assert DCT.page_setup({}) == ([], []) and DCT.page_setup(None) == ([], [])
+        assert DCT.page_setup({"page_setup": []}) == ([], [])
+
+    @pytest.mark.parametrize("value", ["Area: 50 km2", {"label": "Area", "words": "x"}, 7])
+    def test_rows_that_are_not_a_list_give_none(self, value):
+        rows, bad = DCT.page_setup({"page_setup": value})
+        assert rows == [] and bad == ["page_setup is not a list of rows with a label and "
+                                      "words, so the control run's set-up is not given"]
+
+    @pytest.mark.parametrize("row", [
+        {"label": "Area"}, {"words": "50 km2"}, {"label": "Area", "words": ""},
+        {"label": " ", "words": "50 km2"}, {"label": "Area", "words": 50},
+        {"label": None, "words": "50 km2"},
+        {"label": "Area", "words": "50 km2", "source": "a person"},
+        {"Label": "Area", "words": "50 km2"}, ["Area", "50 km2"], "Area, 50 km2", None])
+    def test_a_row_of_another_form_is_left_out_by_its_place_and_the_others_kept(self, row):
+        rows, bad = DCT.page_setup({"page_setup": [ROWS[0], row, ROWS[2]]})
+        assert rows == [ROWS[0], ROWS[2]]
+        assert bad == ["page_setup row 2 is not a label and words, both written out, so it "
+                       "is left out"]
+
+    def test_a_label_given_twice_keeps_the_first(self):
+        again = {"label": "Area ", "words": "another area"}
+        rows, bad = DCT.page_setup({"page_setup": ROWS + [again]})
+        assert rows == ROWS
+        assert bad == ["page_setup row 4 repeats the label 'Area', so it is left out"]
+
+    def test_reception_and_the_planner_are_shown_neither_rows_nor_table(self, tmp_path):
+        """What Reception and the Planner read of a control (summary, through
+        describe) holds no set-up row, and no number of the table beyond the
+        facts it already gave."""
+        c, reg, _ = _control(tmp_path)
+        d = json.loads(reg.read_text())
+        d["controls"]["synth"]["page_setup"] = [{"label": "Made-up row",
+                                                 "words": "words only a page prints"}]
+        reg.write_text(json.dumps(d))
+        DCT.compute_facts("synth", str(reg))
+        text = json.dumps(DCT.describe(str(reg)))
+        assert "page_setup" not in text and "words only a page prints" not in text
+        assert DCT.FIRE_TABLE_LEAD not in text and '"tables"' not in text

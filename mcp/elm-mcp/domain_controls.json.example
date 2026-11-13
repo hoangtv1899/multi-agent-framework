@@ -43,6 +43,11 @@
     "control is and is printed on every design page. `compared` says how it compares",
     "with measurements in words, and is printed only where no figure can be drawn.",
     "",
+    "page_setup (optional): the control's set-up as rows of a table on the details page,",
+    "each {label, words} with both written out, written once by a person who knows the",
+    "run and printed as they stand. A row of another form, or one that repeats a label,",
+    "is left out and named; the others are kept. No language model reads them.",
+    "",
     "known_errors_words (optional): what the control is known to get wrong against",
     "measurements, each a short statement in words. The Planner reads them to judge",
     "which errors matter for a question. A statement that holds a digit is left out,",
@@ -104,6 +109,12 @@
         "text": ["What the control is: its place, years, grid, weather and settings."],
         "compared": ["How it compares with measurements, for a page with no figure."]
       },
+      "page_setup": [
+        {"label": "Area", "words": "5,000 km2 of land, about twice the watershed"},
+        {"label": "Grid", "words": "100 by 80 cells of about 1 km"},
+        {"label": "Years", "words": "Y0 to Y1"},
+        {"label": "Fire", "words": "the model's own fire"}
+      ],
       "known_errors_words": [
         "It holds less snow than is measured, and its snow melts earlier",
         "It makes more runoff than the river carries"

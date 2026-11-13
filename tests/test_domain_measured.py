@@ -307,3 +307,108 @@ class TestThePageRecord:
         rec = DM.page_record(dict(built["control"], suite_dir=str(bare),
                                   measured=[{"id": "x"}]))
         assert "python domain_measured.py synth builds it" in rec["problems"][0]
+
+
+# ── the set-up rows and the tables (2026-11-13) ──────────────────────────────
+import domain_controls as DCT                                       # noqa: E402
+
+SETUP = [{"label": "Area", "words": "50 km2 of made-up land"},
+         {"label": "Grid", "words": "4 by 5 cells"}]
+FIRE = {"model": {"2015": 12.4, "2016": 7.5}, "observed": {"2015": 3.2, "2016": 40.6},
+        "observed_source": "a made-up satellite"}
+
+
+@pytest.fixture(autouse=True)
+def no_real_registry(monkeypatch, tmp_path):
+    """The registry a page record finds facts in is never the machine's own."""
+    monkeypatch.setenv("IDEAS_DOMAIN_CONTROLS", str(tmp_path / "no_registry.json"))
+
+
+def _registered(b, tmp_path, facts=None, **more):
+    """The made-up control in a registry of its own, with a facts cache
+    beside it of the current format, newer than its history."""
+    entry = {k: v for k, v in b["control"].items() if k != "name"}
+    entry.update(more)
+    reg = tmp_path / "domain_controls.json"
+    reg.write_text(json.dumps({"controls": {"synth": entry}}))
+    if facts is not None:
+        d = tmp_path / DCT.FACTS_DIR
+        d.mkdir()
+        whole = {"sentence": "made up"}
+        (d / "synth.json").write_text(json.dumps(dict(
+            facts, version=DCT.FACTS_VERSION, fire=whole, grid=whole, configuration=whole)))
+    return reg
+
+
+class TestTheSetUpAndTheTables:
+    def test_the_rows_and_the_fire_table_from_facts_given_with_the_entry(self, built):
+        rec = DM.page_record(dict(built["control"], page_setup=SETUP,
+                                  facts={"burned_area_km2": FIRE}))
+        assert rec["setup"] == SETUP and rec["problems"] == []
+        assert rec["tables"] == DCT.fire_tables({"burned_area_km2": FIRE})
+        assert rec["tables"][0]["rows"][1] == {"label": "a made-up satellite",
+                                               "values": [3, 41]}
+
+    def test_the_facts_found_beside_the_registry_the_entry_came_from(self, built, tmp_path):
+        reg = _registered(built, tmp_path, facts={"burned_area_km2": FIRE})
+        entry = DCT.get("synth", str(reg))
+        rec = DM.page_record(entry)
+        assert rec["problems"] == [] and rec["tables"][0]["columns"] == ["2015", "2016"]
+
+    def test_the_facts_found_through_the_registry_the_server_uses(self, built, tmp_path,
+                                                                  monkeypatch):
+        reg = _registered(built, tmp_path, facts={"burned_area_km2": FIRE})
+        monkeypatch.setenv("IDEAS_DOMAIN_CONTROLS", str(reg))
+        rec = DM.page_record(built["control"])
+        assert rec["problems"] == [] and len(rec["tables"]) == 1
+
+    def test_facts_not_computed_are_named_and_give_no_table(self, built, tmp_path):
+        reg = _registered(built, tmp_path)
+        rec = DM.page_record(DCT.get("synth", str(reg)))
+        assert rec["tables"] == [] and rec["problems"] == [DM.NO_FACTS]
+        rec = DM.page_record(dict(built["control"], facts=None))
+        assert rec["tables"] == [] and rec["problems"] == [DM.NO_FACTS]
+
+    def test_a_control_the_registry_does_not_hold_has_no_table_and_says_nothing(self, built):
+        rec = DM.page_record(dict(built["control"], name="not_registered"))
+        assert rec["tables"] == [] and rec["problems"] == []
+
+    def test_facts_that_cannot_be_read_are_a_problem_never_an_error(self, built, monkeypatch):
+        def broke(name, override=None):
+            raise OSError("a made-up disk error")
+        monkeypatch.setattr(DCT, "facts", broke)
+        rec = DM.page_record(dict(built["control"], page_setup=SETUP))
+        assert rec["tables"] == [] and rec["setup"] == SETUP
+        assert rec["problems"] == ["the control run's facts could not be read (OSError: a "
+                                   "made-up disk error), so its burned area is not set beside "
+                                   "the observed one"]
+
+    def test_a_table_that_cannot_be_made_is_a_problem(self, built, monkeypatch):
+        def broke(f):
+            raise ValueError("made up")
+        monkeypatch.setattr(DCT, "fire_tables", broke)
+        rec = DM.page_record(dict(built["control"], facts={"burned_area_km2": FIRE}))
+        assert rec["tables"] == [] and rec["problems"] == [
+            "the burned-area table: ValueError: made up"]
+
+    def test_a_row_of_another_form_is_named_and_the_others_kept(self, built):
+        rec = DM.page_record(dict(built["control"], page_setup=SETUP + [{"label": "Fire"}]))
+        assert rec["setup"] == SETUP
+        assert rec["problems"] == ["page_setup row 3 is not a label and words, both written "
+                                   "out, so it is left out"]
+
+    def test_a_control_with_no_store_still_has_its_rows_and_table(self):
+        rec = DM.page_record({"name": "valley", "page_setup": SETUP,
+                              "facts": {"burned_area_km2": FIRE}})
+        assert rec["setup"] == SETUP and len(rec["tables"]) == 1
+        assert rec["measured"] is None and rec["maps"] is None
+        assert rec["problems"] == ["the control has no results store"]
+
+    def test_a_control_without_either_has_empty_lists(self, built):
+        rec = DM.page_record(built["control"])
+        assert rec["setup"] == [] and rec["tables"] == []
+
+    def test_the_record_is_plain_json(self, built):
+        rec = DM.page_record(dict(built["control"], page_setup=SETUP,
+                                  facts={"burned_area_km2": FIRE}))
+        assert json.loads(json.dumps(rec)) == rec

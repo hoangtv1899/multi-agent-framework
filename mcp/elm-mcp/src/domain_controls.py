@@ -14,6 +14,8 @@ because it names local paths; domain_controls.json.example shows its shape.
   setup_facts()     its fire, grid and configuration, from its case's files
                     (seconds), each with a sentence to quote
   summary(entry)    what reception and the planner are shown, kept small
+  fire_tables(f)    the burned area as a table, and page_setup(entry) the
+                    registry's set-up rows, for the details page only
 
 THE FACTS ARE MEASURED, NEVER WRITTEN BY HAND. They are what keeps a design
 honest about its control: that its fire is the model's own and burns where no
@@ -27,7 +29,7 @@ import datetime
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 FACTS_DIR = "domain_control_facts"
 # The year facts reported per control, from run_gate.year_check.
@@ -713,14 +715,21 @@ def compute_facts(name: str, override: Optional[str] = None,
 # ─────────────────────────────────────────────────────────────────────────────
 # WHAT RECEPTION AND THE PLANNER ARE SHOWN
 # ─────────────────────────────────────────────────────────────────────────────
+def _fire_years(f: Optional[Dict[str, Any]]):
+    """(the fire facts, the model's burned area by year, the observed one by
+    year, the years both give): the numbers not_in_it() says in a sentence
+    and fire_tables() sets in a table, read once for both."""
+    fire = (f or {}).get("burned_area_km2") or {}
+    m, o = fire.get("model") or {}, fire.get("observed") or {}
+    return fire, m, o, sorted(set(m) & set(o))
+
+
 def not_in_it(f: Optional[Dict[str, Any]]) -> List[str]:
     """What the control does not contain that a question may assume, in plain
     words, from its facts: the observed fires, when the facts set the model's
     burned area beside an observed one (Reception tells the user before a
     design is settled)."""
-    fire = (f or {}).get("burned_area_km2") or {}
-    m, o = fire.get("model") or {}, fire.get("observed") or {}
-    ys = sorted(set(m) & set(o))
+    fire, m, o, ys = _fire_years(f)
     if not ys:
         return []
     src = fire.get("observed_source") or "the observation"
@@ -742,12 +751,98 @@ _FIRE_NONE = "the observed fires: the run has no fire"
 
 def not_in_it_words(f: Optional[Dict[str, Any]]) -> List[str]:
     """not_in_it's items in words only, with no observed number or source."""
-    fire = (f or {}).get("burned_area_km2") or {}
-    m, o = fire.get("model") or {}, fire.get("observed") or {}
-    ys = sorted(set(m) & set(o))
+    _, m, o, ys = _fire_years(f)
     if not ys:
         return []
     return [_FIRE_MODEL_ONLY if any(m[y] for y in ys) else _FIRE_NONE]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT THE DETAILS PAGE IS GIVEN OF THE CONTROL (2026-11-13)
+# ─────────────────────────────────────────────────────────────────────────────
+# The details page printed the burned area as one sentence of year-number
+# pairs (not_in_it), and the control's set-up as long sentences read from its
+# case. The person who reads the page asked for tables. Both are given here in
+# a form a page sets as a table, through domain_measured.page_record, which
+# no language model reads: the observed numbers may travel this way.
+#
+# THE BURNED AREA AS A TABLE: the same facts, years and rounding to whole km2
+# as not_in_it's sentence, so the table and the sentence never disagree. No
+# table when the facts lack either row or a year in common, and none for a
+# control whose fire burns nothing in those years: not_in_it says that in
+# words (the run has no fire), and a row of zeros adds nothing to it.
+FIRE_TABLE_LEAD = ("The control run's fire is the model's own, lit and spread in its own "
+                   "places and years. The table sets the area it burns over the grid each "
+                   "year beside the burned area that was observed.")
+FIRE_TABLE_CORNER = "Burned area (km2)"
+CONTROL_ROW = "The control run"
+# the observed row's label when the facts do not name the source, as
+# not_in_it's sentence then says "the observation"
+UNNAMED_SOURCE = "The observation"
+
+
+def _number(v) -> bool:
+    import math
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _whole_km2(v: float) -> int:
+    """A burned area rounded as not_in_it's sentence writes it ({:.0f})."""
+    return int(f"{v:.0f}")
+
+
+def fire_tables(f: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The burned-area table of a control, [] or one table:
+    {"about": "fires", "lead", "corner", "columns": [years],
+     "rows": [{"label", "values"}]}, the control run's row first and the
+    observation's, labelled by its source as the facts name it, second."""
+    fire, m, o, ys = _fire_years(f)
+    if not isinstance(m, dict) or not isinstance(o, dict):
+        return []
+    ys = [y for y in ys if _number(m[y]) and _number(o[y])]
+    if not ys or not any(m[y] for y in ys):
+        return []
+    src = str(fire.get("observed_source") or "").strip() or UNNAMED_SOURCE
+    return [{"about": "fires", "lead": FIRE_TABLE_LEAD, "corner": FIRE_TABLE_CORNER,
+             "columns": [str(y) for y in ys],
+             "rows": [{"label": CONTROL_ROW, "values": [_whole_km2(m[y]) for y in ys]},
+                      {"label": src, "values": [_whole_km2(o[y]) for y in ys]}]}]
+
+
+# THE SET-UP ROWS (`page_setup`): a list of {"label", "words"} in the
+# registry, written once by a person who knows the run, such as {"label":
+# "Grid", "words": "100 by 80 cells of about 1 km"}. The page prints them as
+# they stand. Checked here, where they are used, as page_figures is: a row of
+# another form is left out and named, and the others are kept, so a slip in
+# one row never takes the rest off the page.
+SETUP_KEYS = ("label", "words")
+
+
+def page_setup(entry: Optional[Dict[str, Any]]) -> Tuple[List[Dict[str, str]], List[str]]:
+    """(the registry entry's `page_setup` rows as entered, a problem for each
+    row left out). A control without the key has no rows and no problem."""
+    rows = (entry or {}).get("page_setup")
+    if rows is None:
+        return [], []
+    if not isinstance(rows, list):
+        return [], ["page_setup is not a list of rows with a label and words, so the "
+                    "control run's set-up is not given"]
+    out: List[Dict[str, str]] = []
+    bad: List[str] = []
+    seen = set()
+    for k, r in enumerate(rows, 1):
+        if not (isinstance(r, dict) and set(r) == set(SETUP_KEYS)
+                and all(isinstance(r[x], str) and r[x].strip() for x in SETUP_KEYS)):
+            bad.append(f"page_setup row {k} is not a label and words, both written out, "
+                       f"so it is left out")
+            continue
+        if r["label"].strip() in seen:
+            bad.append(f"page_setup row {k} repeats the label {r['label'].strip()!r}, so it "
+                       f"is left out")
+            continue
+        seen.add(r["label"].strip())
+        out.append({"label": r["label"], "words": r["words"]})
+    return out, bad
 
 
 # THE SUITE IN ONE LINE (2026-11-04). Reception is told whether the control's

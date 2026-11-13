@@ -49,6 +49,12 @@ regulation removed).
 
 The file is `measured_month.json` in the control's store. Nothing else in the
 store is changed, and the store's own manifest lists only its netCDF files.
+
+WHAT THE PAGES ARE GIVEN (page_record). The pairs and the maps above, and
+since 2026-11-13 the control's set-up rows and its tables, which the details
+page prints as tables: the rows a person wrote once in the registry
+(`page_setup`) and the burned area by year beside the observed one, from the
+control's facts (domain_controls.page_setup, fire_tables).
 """
 import csv
 import hashlib
@@ -320,13 +326,57 @@ def mean_maps(suite, specs: Sequence[Dict[str, Any]], outline: Optional[str] = N
     return out
 
 
+# WHERE page_record FINDS THE CONTROL'S FACTS, as the rest of the server
+# does: given with the entry (dict(entry, facts=domain_controls.facts(name)),
+# the control check_domain_experiment and domain_given take), else from the
+# cache beside the registry the entry came from. A control that registry
+# does not hold has no facts to give and nothing to say about them.
+NO_FACTS = ("the control run's facts are not computed, so its burned area is not set "
+            "beside the observed one (refresh_domain_control_facts reads them)")
+
+
+def _facts(entry: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """(the control's facts or None, a problem to name or None)."""
+    import domain_controls as DCT
+    if "facts" in entry:
+        f = entry["facts"]
+        return (f, None) if isinstance(f, dict) and f else (None, NO_FACTS)
+    try:
+        f = DCT.facts(entry.get("name"), entry.get("registry"))
+    except DCT.ControlError:
+        return None, None
+    except Exception as e:                                          # noqa: BLE001
+        return None, (f"the control run's facts could not be read ({type(e).__name__}: "
+                      f"{e}), so its burned area is not set beside the observed one")
+    return (f, None) if f else (None, NO_FACTS)
+
+
 def page_record(entry: Dict[str, Any]) -> Dict[str, Any]:
     """What the design pages draw of a control: its measurements beside its
-    own values (the file in the store) and the maps its registry entry asks
-    for. Every part that cannot be given is named under `problems`."""
+    own values (the file in the store), the maps its registry entry asks
+    for, its set-up rows (`setup`, the entry's page_setup as entered there)
+    and its tables (`tables`, made from its facts: the burned area by year
+    beside the observed one). Every part that cannot be given is named under
+    `problems`.
+
+    No language model reads this record: it goes to the design pages alone
+    (agents/control_figures saves it beside the design), so it may hold
+    measured numbers, the observed burned area among them."""
+    import domain_controls as DCT
     import domain_methods as M
     rec: Dict[str, Any] = {"control": entry.get("name"), "measured": None, "maps": None,
-                           "problems": []}
+                           "setup": [], "tables": [], "problems": []}
+    # the set-up and the tables come from the registry and the facts, not
+    # from the store, so a control without a store still has them
+    rec["setup"], bad = DCT.page_setup(entry)
+    rec["problems"] += bad
+    try:
+        f, why = _facts(entry)
+        if why:
+            rec["problems"].append(why)
+        rec["tables"] = DCT.fire_tables(f)
+    except Exception as e:                                          # noqa: BLE001
+        rec["problems"].append(f"the burned-area table: {type(e).__name__}: {e}")
     sd = entry.get("suite_dir")
     if not sd or not Path(str(sd)).is_dir():
         rec["problems"].append("the control has no results store")

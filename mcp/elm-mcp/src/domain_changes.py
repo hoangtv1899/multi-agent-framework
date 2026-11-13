@@ -21,6 +21,9 @@ what each does to ELM:
                      what its changes should alter
   not_covered(...)   the short limits of one change as a run uses it, for
                      the design page; resolve() carries them
+  in_full(...)       the fuller limits of one change as a run uses it, for
+                     the details page, in the same form; resolve() carries
+                     them too
 
 A change that needs a tool this server does not have is still listed, with
 `available: false` and the tool it needs in `requires`, so a question that
@@ -64,8 +67,21 @@ DEFAULT_HOURS_PER_YEAR = 0.83
 # condition always holds. The texts are science, read by a person as they
 # stand: change one only with the same care as the long text it shortens,
 # which stays for the details page.
+#
+# WHAT A RUN DOES NOT COVER, IN FULL (2026-11-13). The details page printed
+# `not_meaning` whole too, one long text with a clause for every way the
+# change can be used. A change may now also have `in_full`, of the same form
+# as `not_covered` and read by the same code (in_full()): the long text cut
+# into the parts that hold for one use, in plain sentences. Only weather_scale
+# has them. They were written with care from its `not_meaning`, so change one
+# only with the same care. A change without them is printed on the details
+# page by its `not_meaning`.
 _ALL_NUTRIENT = ("The run supplies whatever plants demand of the nutrient, without "
                  "limit. It is not a fertiliser experiment with real amounts.")
+_WEATHER_RAIN_FULL = ("The run multiplies rain and snow by the same factor, after the model "
+                      "has split the recorded precipitation into rain and snow. The air's "
+                      "moisture, the radiation and the wind stay those of the control run. "
+                      "The air temperature is not changed in this run.")
 _CHANGES: Tuple[Dict[str, Any], ...] = (
     {"id": "fire_off",
      "summary": "switch ELM's fire model off",
@@ -287,6 +303,42 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
           "say": "The run changes air temperature, rain and snow together. Rain and snow "
                  "keep their recorded split, and the air's moisture and sunshine stay as "
                  "recorded, so it is not a full change of climate."}],
+     # The same ways in full, for the details page: rain and snow alone,
+     # warmer air alone, cooler air alone, both together. Their conditions
+     # are not_covered's, so a text holds here exactly when one holds there;
+     # rain and snow cut or added share one text, given once.
+     "in_full": [
+         {"when": [{"param": "precip_factor", "below": 1.0},
+                   {"param": "temperature_K", "is": 0.0}],
+          "say": _WEATHER_RAIN_FULL},
+         {"when": [{"param": "precip_factor", "above": 1.0},
+                   {"param": "temperature_K", "is": 0.0}],
+          "say": _WEATHER_RAIN_FULL},
+         {"when": [{"param": "temperature_K", "above": 0.0},
+                   {"param": "precip_factor", "is": 1.0}],
+          "say": "The run adds the amount to the air temperature. The model splits the "
+                 "recorded precipitation into rain and snow from the recorded temperature, "
+                 "before the amount is added, so a warmer run does not turn snow into rain. "
+                 "The air's moisture, the radiation and the wind stay those of the control "
+                 "run. The land model works out relative humidity from the temperature it "
+                 "receives, so warmer air is also drier air to it, and its leaves and its "
+                 "fire respond to that. Rain and snow are not changed in this run."},
+         {"when": [{"param": "temperature_K", "below": 0.0},
+                   {"param": "precip_factor", "is": 1.0}],
+          "say": "The run lowers the air temperature by the amount. The model splits the "
+                 "recorded precipitation into rain and snow from the recorded temperature, "
+                 "before the amount is taken off, so a cooler run does not turn rain into "
+                 "snow. The air's moisture, the radiation and the wind stay those of the "
+                 "control run. The recorded moisture can then be more than the cooled air "
+                 "can hold, so the model forms dew and frost that the recorded weather "
+                 "would not make. Rain and snow are not changed in this run."},
+         {"when": [{"param": "temperature_K", "is_not": 0.0},
+                   {"param": "precip_factor", "is_not": 1.0}],
+          "say": "The run changes the air temperature, rain and snow together. The model "
+                 "splits the recorded precipitation into rain and snow from the recorded "
+                 "temperature, before the amount is added, so the split stays as recorded. "
+                 "Rain and snow are then multiplied by the same factor. The air's moisture, "
+                 "the radiation and the wind stay those of the control run."}],
      "checks": {"settings": [], "output": [],
                 "by_writer": "settings: the run's datm_in names the anomaly streams, "
                              "every per-stream list grows by them alone, and the case "
@@ -421,10 +473,11 @@ def _published(c: Dict[str, Any]) -> Dict[str, Any]:
     (resolve) shown by their generic menu text, so no reader meets a
     placeholder that is not a parameter.
 
-    The short limits (`not_covered`) are left out (2026-11-13): the list goes
-    to the agents as a tool result with a size limit it already nearly fills,
-    and the design page reads them from the resolved runs instead."""
-    out = {k: v for k, v in c.items() if k not in ("menu_text", "not_covered")}
+    The short limits (`not_covered`) and the fuller ones (`in_full`) are left
+    out (2026-11-13): the list goes to the agents as a tool result with a
+    size limit it already nearly fills, and the design pages read them from
+    the resolved runs instead."""
+    out = {k: v for k, v in c.items() if k not in ("menu_text", "not_covered", "in_full")}
     for k, v in (c.get("menu_text") or {}).items():
         out["meaning"] = out["meaning"].replace("{" + k + "}", v)
     if c.get("available"):
@@ -617,6 +670,21 @@ def not_covered(change: Any) -> List[str]:
     An unknown change, or one of another form, gives []. A text its
     parameters cannot fill is left out rather than shown with a placeholder:
     the design page is then written without it, never stopped."""
+    return _texts_that_hold(change, "not_covered")
+
+
+def in_full(change: Any) -> List[str]:
+    """The fuller limits of one change as a run uses it, for the details
+    page: the entries of the change's `in_full`, chosen and filled as
+    not_covered() chooses and fills its own. [] for a change that has none,
+    whose `not_meaning` the page prints instead."""
+    return _texts_that_hold(change, "in_full")
+
+
+def _texts_that_hold(change: Any, key: str) -> List[str]:
+    """The texts of the change's list `key` whose conditions hold for the
+    run's parameters: one reading of the conditions for both lists, so the
+    short limits and the fuller ones never disagree on what a run uses."""
     if not isinstance(change, dict) or not isinstance(change.get("id"), str):
         return []
     c = _BY_ID.get(change["id"])
@@ -630,7 +698,7 @@ def not_covered(change: Any) -> List[str]:
         if (spec.get(k) or {}).get("kind") == "integer" and _number(v) and v == int(v):
             params[k] = int(v)
     out: List[str] = []
-    for entry in c.get("not_covered") or []:
+    for entry in c.get(key) or []:
         when = entry.get("when") or []
         if not all(_holds(w, params) for w in when):
             continue
@@ -676,8 +744,10 @@ def resolve(item: Dict[str, Any]) -> Dict[str, Any]:
     text = dict(fmt, **_text(c["id"], fmt))
     for k in ("summary", "alters", "meaning", "not_meaning", "checks", "cost"):
         out[k] = _fill(copy.deepcopy(c[k]), text)
-    # the short limits the design page prints for this run (2026-11-13)
+    # the short limits the design page prints for this run, and the fuller
+    # ones the details page prints (2026-11-13)
     out["not_covered"] = not_covered({"id": c["id"], "params": fmt})
+    out["in_full"] = in_full({"id": c["id"], "params": fmt})
     return out
 
 

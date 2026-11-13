@@ -549,6 +549,163 @@ class TestNotCovered:
         its long text, for the details page."""
         c = CH.resolve(_ws(precip_factor=0.6))
         assert set(c) == {"id", "params", "summary", "alters", "meaning", "not_meaning",
-                          "checks", "cost", "not_covered"}
+                          "checks", "cost", "not_covered", "in_full"}
         assert c["not_meaning"].startswith("a consistent change of climate: the data "
                                            "atmosphere splits rain from snow")
+
+
+# ── the fuller limits of a change, for the details page ─────────────────────
+RAIN_FULL = ("The run multiplies rain and snow by the same factor, after the model has "
+             "split the recorded precipitation into rain and snow. The air's moisture, the "
+             "radiation and the wind stay those of the control run. The air temperature is "
+             "not changed in this run.")
+WARM_FULL = ("The run adds the amount to the air temperature. The model splits the "
+             "recorded precipitation into rain and snow from the recorded temperature, "
+             "before the amount is added, so a warmer run does not turn snow into rain. The "
+             "air's moisture, the radiation and the wind stay those of the control run. The "
+             "land model works out relative humidity from the temperature it receives, so "
+             "warmer air is also drier air to it, and its leaves and its fire respond to "
+             "that. Rain and snow are not changed in this run.")
+COOL_FULL = ("The run lowers the air temperature by the amount. The model splits the "
+             "recorded precipitation into rain and snow from the recorded temperature, "
+             "before the amount is taken off, so a cooler run does not turn rain into snow. "
+             "The air's moisture, the radiation and the wind stay those of the control run. "
+             "The recorded moisture can then be more than the cooled air can hold, so the "
+             "model forms dew and frost that the recorded weather would not make. Rain and "
+             "snow are not changed in this run.")
+BOTH_FULL = ("The run changes the air temperature, rain and snow together. The model "
+             "splits the recorded precipitation into rain and snow from the recorded "
+             "temperature, before the amount is added, so the split stays as recorded. Rain "
+             "and snow are then multiplied by the same factor. The air's moisture, the "
+             "radiation and the wind stay those of the control run.")
+# which fuller text goes with which short one: the short list splits rain and
+# snow by the way they change, the fuller one does not
+FULL_OF = {CUTS: RAIN_FULL, ADDS: RAIN_FULL, WARMS: WARM_FULL, COOLS: COOL_FULL,
+           BOTH: BOTH_FULL}
+
+
+class TestInFull:
+
+    @pytest.mark.parametrize("params,text", [
+        ({"precip_factor": 0.65, "temperature_K": 0.0}, RAIN_FULL),
+        ({"precip_factor": 1.4, "temperature_K": 0.0}, RAIN_FULL),
+        ({"precip_factor": 0.0, "temperature_K": 0.0}, RAIN_FULL),
+        ({"temperature_K": 1.5, "precip_factor": 1.0}, WARM_FULL),
+        ({"temperature_K": -2.5, "precip_factor": 1.0}, COOL_FULL),
+        ({"temperature_K": 1.5, "precip_factor": 0.6}, BOTH_FULL),
+        ({"temperature_K": -2.5, "precip_factor": 1.4}, BOTH_FULL),
+    ])
+    def test_each_weather_case_has_its_one_text(self, params, text):
+        assert CH.in_full(_ws(**params)) == [text]
+
+    def test_the_weather_as_recorded_has_none(self):
+        assert CH.in_full(_ws()) == []
+        assert CH.in_full(_ws(temperature_K=0.0, precip_factor=1.0, months=[4, 5])) == []
+
+    @pytest.mark.parametrize("params,text", [
+        ({"precip_factor": 0.6}, RAIN_FULL), ({"temperature_K": 1.5}, WARM_FULL),
+        ({"temperature_K": -2.5}, COOL_FULL)])
+    def test_a_setting_left_out_takes_its_default(self, params, text):
+        assert CH.in_full(_ws(months=[6, 7], **params)) == [text]
+
+    def test_it_agrees_with_the_short_limits_on_what_a_run_uses(self):
+        """Over a grid of settings, at their bounds and within rounding of
+        them: a fuller text holds exactly when a short one does, and it is
+        the one that goes with it."""
+        for t in (-3.0, -0.5, -1e-13, 0.0, 1e-13, 0.5, 3.0):
+            for f in (0.0, 0.5, 1.0 - 1e-13, 1.0, 1.0 + 1e-13, 1.5, 4.0):
+                short, full = CH.not_covered(_ws(temperature_K=t, precip_factor=f)), \
+                    CH.in_full(_ws(temperature_K=t, precip_factor=f))
+                assert len(short) <= 1 and len(full) == len(short), (t, f)
+                assert full == [FULL_OF[s] for s in short], (t, f)
+
+    def test_a_setting_within_rounding_of_its_bound_is_the_bound(self):
+        assert CH.in_full(_ws(temperature_K=1.5, precip_factor=1.0 + 1e-13)) == [WARM_FULL]
+        assert CH.in_full(_ws(temperature_K=-1e-13, precip_factor=0.6)) == [RAIN_FULL]
+        assert CH.in_full(_ws(temperature_K=1e-13, precip_factor=1.0 - 1e-13)) == []
+
+    @pytest.mark.parametrize("change", [
+        {"id": "fire_off"}, {"id": "co2_ppmv", "params": {"ppmv": 432}},
+        {"id": "ndep_year", "params": {"year": 1777}},
+        {"id": "nutrient_supplement", "params": {"nitrogen": "ALL", "phosphorus": "ALL"}},
+        {"id": "weather_repeat_year", "params": {"map": {"2031": 2029}}},
+        {"id": "burn_footprint"}, {"id": "parameter_value"},
+        {"id": "no_such_change", "params": {"precip_factor": 0.6}},
+        None, "weather_scale", {"params": {"precip_factor": 0.6}},
+        {"id": "weather_scale", "params": {"precip_factor": "0.6"}},
+    ])
+    def test_a_change_without_them_or_of_another_form_has_none(self, change):
+        assert CH.in_full(change) == []
+
+    def test_only_weather_scale_has_them(self):
+        """The page prints `not_meaning` for every other change."""
+        assert {c["id"] for c in CH._CHANGES if c.get("in_full")} == {"weather_scale"}
+        assert [e["say"] for e in CH.get("weather_scale")["in_full"]] == [
+            RAIN_FULL, RAIN_FULL, WARM_FULL, COOL_FULL, BOTH_FULL]
+
+    def test_the_conditions_are_the_short_lists_own(self):
+        """The fuller list holds its texts under the short list's very
+        conditions, so the two cannot disagree on a setting of any value."""
+        c = CH.get("weather_scale")
+        assert [e["when"] for e in c["in_full"]] == [e["when"] for e in c["not_covered"]]
+
+    @pytest.mark.parametrize("params", [
+        {"precip_factor": "0.6"}, {"temperature_K": "1.5"}, {"precip_factor": True},
+        {"temperature_K": None, "precip_factor": 0.6}, {"temperature_K": "1", "precip_factor": "2"},
+        {"temperature_K": float("nan")}, {"precip_factor": float("inf")}])
+    def test_a_setting_of_another_kind_holds_the_same_in_both(self, params):
+        short, full = CH.not_covered(_ws(**params)), CH.in_full(_ws(**params))
+        assert full == [FULL_OF[s] for s in short], params
+
+    def test_resolve_and_the_check_carry_them(self):
+        assert CH.resolve(_ws(precip_factor=0.65))["in_full"] == [RAIN_FULL]
+        assert CH.resolve(_ws(temperature_K=-2.5, precip_factor=1.4))["in_full"] == [BOTH_FULL]
+        # the key is there for a change that has none
+        assert CH.resolve({"id": "fire_off"})["in_full"] == []
+        out = CH.check(_exp({"name": "fewer_fires", "changes": [{"id": "fire_off"}]},
+                            {"name": "warmer", "changes": [_ws(temperature_K=1.5)]}), CONTROL)
+        assert [[c["in_full"] for c in r["changes"]] for r in out["runs"]] == [
+            [[]], [[WARM_FULL]]]
+
+    def test_the_published_list_does_not_carry_them(self):
+        d = CH.declare()
+        assert all("in_full" not in c for c in d["changes"])
+        text = json.dumps(d)
+        for t in (RAIN_FULL, WARM_FULL, COOL_FULL, BOTH_FULL):
+            assert t[:60] not in text
+
+    def test_one_reading_of_the_conditions_serves_both_lists(self, monkeypatch):
+        """A made-up change with the same conditions in both lists: the same
+        entries hold in both, in the list's order, with places filled."""
+        when = [[{"param": "a", "above": 1.0}], [], [{"param": "b", "is": "X"}],
+                [{"param": "a", "below": 1.0}, {"param": "b", "is_not": "X"}]]
+        made_up = {"id": "made_up",
+                   "params": {"a": {"kind": "number", "default": 2.5},
+                              "b": {"kind": "choice", "choices": ["X", "Y"]}},
+                   "not_covered": [{"when": w, "say": f"Short {k} {{b}}."}
+                                   for k, w in enumerate(when)],
+                   "in_full": [{"when": w, "say": f"Full {k} {{b}}."}
+                               for k, w in enumerate(when)]}
+        monkeypatch.setitem(CH._BY_ID, "made_up", made_up)
+        for params in ({"b": "X"}, {"a": 0.5, "b": "Y"}, {"a": 1.0, "b": "X"}):
+            short = CH.not_covered({"id": "made_up", "params": params})
+            full = CH.in_full({"id": "made_up", "params": params})
+            assert [s.replace("Short", "Full") for s in short] == full, params
+        assert CH.in_full({"id": "made_up", "params": {"b": "X"}}) == [
+            "Full 0 X.", "Full 1 X.", "Full 2 X."]
+
+    def test_the_lists_own_form(self):
+        for c in CH._CHANGES:
+            for e in c.get("in_full") or []:
+                assert set(e) <= {"when", "say"}, (c["id"], e)
+                for w in e.get("when") or []:
+                    assert w["param"] in c["params"], (c["id"], w)
+                    assert len(w) == 2 and (set(w) - {"param"}) <= {
+                        "is", "is_not", "above", "below"}, (c["id"], w)
+
+    def test_every_text_is_plain_and_whole(self):
+        for t in (RAIN_FULL, WARM_FULL, COOL_FULL, BOTH_FULL):
+            assert t.endswith("."), t
+            assert "\u2014" not in t and "\u2013" not in t, t
+            assert ":" not in t and "(" not in t and "{" not in t, t
+            assert t == " ".join(t.split()), t
