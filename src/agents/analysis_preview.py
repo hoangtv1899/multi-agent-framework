@@ -292,6 +292,23 @@ def _years_words(years: Sequence[int]) -> str:
     return _join([str(y) for y in ys])
 
 
+def _normal_words(key: str) -> Optional[str]:
+    """A plan's key for the mean of the normal years, in words: `normal` the
+    years, `normal-WY` the water years, `normal-JJA` a season. None for any
+    other key.
+
+    A LIVE PAGE PRINTED THE KEY (2026-11-13): "the water years 2031 to 2035,
+    and normal-WY". The key is the plan's own, and a person reads the page."""
+    if key == "normal":
+        return "the mean of the normal years"
+    if key == "normal-WY":
+        return "the mean of the normal water years"
+    m = re.fullmatch(r"normal-([A-Z]{3})", key)
+    if m and m.group(1) in SEASONS:
+        return f"the mean {SEASONS[m.group(1)]} of the normal years"
+    return None
+
+
 def _grouped(periods: Sequence[Any]) -> str:
     """The short page's words for a plan's period keys (2026-11-13). Years
     that share their months, or a season, are said once ("June to August of
@@ -314,7 +331,7 @@ def _grouped(periods: Sequence[Any]) -> str:
         elif re.fullmatch(r"\d{4}", s) or re.fullmatch(r"WY\d{4}", s):
             years["wy" if s.startswith("WY") else "year"].append(int(s[-4:]))
         else:
-            rest.append(s)
+            rest.append(_normal_words(s) or s)
     same: "OrderedDict[tuple, List[int]]" = OrderedDict()
     for y, ms in by_year.items():
         same.setdefault(tuple(sorted(set(ms))), []).append(y)
@@ -370,7 +387,7 @@ def periods_words(periods: Sequence[Any], grouped: bool = False) -> str:
                 rest.append((kind,))                # where the first of its kind stood
             years[kind].append(int(s[-4:]))
         else:
-            rest.append(s)
+            rest.append(_normal_words(s) or s)
     words = []
     for y, ms in months.items():
         ms = sorted(set(ms))

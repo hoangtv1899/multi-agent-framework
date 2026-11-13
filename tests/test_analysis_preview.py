@@ -634,7 +634,15 @@ class TestThePagesSection:
             == "each month of 2031, summer 2031 and the year 2031"
         assert AV.periods_words(["2031-06", "2031-07", "2031-08"]) == \
             "June to August 2031, by month"
-        assert AV.periods_words(["WY2031", "normal"]) == "the water year 2031 and normal"
+        assert AV.periods_words(["WY2031", "normal"]) == \
+            "the water year 2031 and the mean of the normal years"
+        # the plan's keys for the mean of the normal years are said in words,
+        # in the short page's grouping too (a live page printed "normal-WY")
+        assert AV.periods_words(["WY2031", "WY2032", "WY2033", "normal-WY"], grouped=True) == \
+            "the water years 2031 to 2033, and the mean of the normal water years"
+        assert AV.periods_words(["2031-JJA", "normal-JJA"], grouped=True) == \
+            "summer of 2031, and the mean summer of the normal years"
+        assert AV.periods_words(["normal-XYZ"]) == "normal-XYZ"      # no key of the plan's
         # three or more years in a row are one span, where the first of them stood
         assert AV.periods_words(["2031", "2032", "2033", "WY2031", "WY2032", "WY2033"]) == \
             "the years 2031 to 2033 and the water years 2031 to 2033"

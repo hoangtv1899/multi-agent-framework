@@ -800,7 +800,7 @@ class TestTheWordsOfTheTable:
         assert AV.periods_words(["2033-JJA", "2033-03", "2033"], grouped=True) == \
             "March of 2033; summer of 2033; the whole year 2033"
         assert AV.periods_words(["WY2033", "WY2034", "normal"], grouped=True) == \
-            "the water years 2033 and 2034, and normal"
+            "the water years 2033 and 2034, and the mean of the normal years"
         # different months in different years are said apart
         assert AV.periods_words(["2033-06", "2034-07"], grouped=True) == \
             "June of 2033, and July of 2034"
