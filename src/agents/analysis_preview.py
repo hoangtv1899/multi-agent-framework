@@ -261,10 +261,21 @@ def _cell(text: Any) -> str:
     return " ".join(str(text if text is not None else "").split()).replace("|", "/")
 
 
+def _years_words(years: Sequence[int]) -> str:
+    """Years in words: three or more in a row as a span, else each one."""
+    ys = sorted({int(y) for y in years})
+    if len(ys) >= 3 and ys == list(range(ys[0], ys[-1] + 1)):
+        return f"{ys[0]} to {ys[-1]}"
+    return _join([str(y) for y in ys])
+
+
 def periods_words(periods: Sequence[Any]) -> str:
     """A plan's period keys in words: 2031-06 a month, 2031-JJA a season,
-    2031 a year, WY2031 a water year; anything else as it is written."""
+    2031 a year, WY2031 a water year; anything else as it is written. Three
+    or more years in a row, or water years, are one span ("the years 2031 to
+    2035"), placed where the first of them stood."""
     months, rest = OrderedDict(), []
+    years: Dict[str, List[int]] = {"year": [], "wy": []}
     for p in periods or []:
         s = str(p)
         m = re.fullmatch(r"(\d{4})-(\d{2})", s)
@@ -273,10 +284,11 @@ def periods_words(periods: Sequence[Any]) -> str:
             months.setdefault(m.group(1), []).append(int(m.group(2)))
         elif q:
             rest.append(f"{SEASONS.get(q.group(2), q.group(2))} {q.group(1)}")
-        elif re.fullmatch(r"\d{4}", s):
-            rest.append(f"the year {s}")
-        elif re.fullmatch(r"WY\d{4}", s):
-            rest.append(f"the water year {s[2:]}")
+        elif re.fullmatch(r"\d{4}", s) or re.fullmatch(r"WY\d{4}", s):
+            kind = "wy" if s.startswith("WY") else "year"
+            if not years[kind]:
+                rest.append((kind,))                # where the first of its kind stood
+            years[kind].append(int(s[-4:]))
         else:
             rest.append(s)
     words = []
@@ -288,8 +300,18 @@ def periods_words(periods: Sequence[Any]) -> str:
             words.append(f"{MONTHS[ms[0] - 1]} to {MONTHS[ms[-1] - 1]} {y}, by month")
         else:
             words.append(_join([MONTHS[m - 1] for m in ms if 1 <= m <= 12]) + f" {y}")
+    for w in rest:
+        if not isinstance(w, tuple):
+            words.append(w)
+            continue
+        name = "water year" if w[0] == "wy" else "year"
+        ys = sorted(set(years[w[0]]))
+        if len(ys) >= 3 and ys == list(range(ys[0], ys[-1] + 1)):
+            words.append(f"the {name}s {ys[0]} to {ys[-1]}")
+        else:
+            words += [f"the {name} {y}" for y in ys]
     out: List[str] = []
-    for w in words + rest:
+    for w in words:
         if w not in out:
             out.append(w)
     return _join(out)
@@ -514,9 +536,15 @@ def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Option
         who = "the prepared run" if c.get("run") in (None, "control") else f"`{c.get('run')}`"
         lead = "The plan" if not said else "It also"
         if c.get("against") == "normal years":
+            ys = sorted({int(y) for y in c.get("years") or [] if str(y).isdigit()})
+            if ys and ys == sorted({int(y) for y in ny if str(y).isdigit()}):
+                # the years asked about ARE the normal years: said once, plainly
+                said.append(f"{lead} sets each year of {_span(ys)} of {who} against the "
+                            f"mean of those same years.")
+                continue
             said.append(f"{lead} sets {_span(c.get('years'))} of {who} against the normal "
                         f"years, {_span(ny)}"
-                        + (f", which contain {_join([str(y) for y in held])}" if held else "")
+                        + (f", which contain {_years_words(held)}" if held else "")
                         + ".")
         else:
             said.append(f"{lead} compares {who} with the prepared run for "

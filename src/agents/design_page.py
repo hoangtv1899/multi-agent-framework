@@ -201,11 +201,24 @@ def _prepared_run_lines(de, row) -> List[str]:
     return L + [""]
 
 
-def _cannot_lines(de) -> List[str]:
+def _same(text: Any) -> str:
+    return " ".join(str(text or "").split()).rstrip(".").lower()
+
+
+def _cannot_lines(de, said: Sequence[str] = ()) -> List[str]:
+    """The design's caveats, each whole. A caveat that is word for word a
+    sentence already printed under "Different from what you asked" is not
+    printed a second time: the Planner copies the server's sentence, and the
+    page gives it once, in the more prominent place."""
     caveats = [str(c).strip() for c in de.get("caveats") or [] if str(c).strip()]
     if not caveats:
         return ["The design records no caveat.", ""]
-    return [f"- {_sentence(_prepared(c))}" for c in caveats] + [""]
+    told = {_same(x) for x in said}
+    kept = [c for c in caveats if _same(c) not in told]
+    L = [f"- {_sentence(_prepared(c))}" for c in kept]
+    if len(kept) < len(caveats):
+        L.append("- The difference from your question is given under \"What will run\".")
+    return L + [""]
 
 
 def _noted(finding: Any) -> str:
@@ -323,7 +336,9 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
     L += ["## How the answer will be read", ""]
     L += AV.short_lines(analysis_preview, run_dir, DR.design_fingerprint(strategy),
                         de, row)
-    L += ["## What the study cannot tell you", ""] + _cannot_lines(de)
+    L += ["## What the study cannot tell you", ""] + _cannot_lines(
+        de, differences(question, [r for r in de.get("runs") or [] if isinstance(r, dict)],
+                        menu))
     L += ["## Points to weigh", ""]
     L += _weigh_lines(brief, strategy, preview, analysis_preview, run_dir)
     L += ["## Your decision", ""] + _decision_lines(de, strategy, preview, by_hand)

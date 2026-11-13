@@ -423,6 +423,47 @@ class TestNothingADecisionRestsOnIsLeftOut:
         assert "- The normal years include 2033, a year this plan sets against them" in \
             _flat(_section(page, "Points to weigh"))
 
+    def test_years_that_are_the_normal_years_themselves_are_said_once_and_plainly(
+            self, folder):
+        """A study of the normal years: the plain sentence in place of "2032 to
+        2034 against the normal years, 2032 to 2034, which contain 2032, 2033
+        and 2034". The condition stays under Points to weigh, in the plan's
+        own words."""
+        plan = copy.deepcopy(PLAN)
+        plan["comparisons"] = [{"id": "C1", "what": "each year against the normal years",
+                                "run": "control", "against": "normal years",
+                                "years": [2032, 2033, 2034]}]
+        plan["baseline"]["includes_compared_years"] = [2032, 2033, 2034]
+        (folder / "plan" / "analysis_plan.json").write_text(json.dumps(plan))
+        page = _page(folder)
+        read = _flat(_section(page, "How the answer will be read"))
+        assert "The plan sets each year of 2032 to 2034 of the prepared run against the mean " \
+               "of those same years." in read
+        assert "which contain" not in read
+        assert "- The normal years include 2033, a year this plan sets against them" in \
+            _flat(_section(page, "Points to weigh"))
+
+    def test_the_servers_sentence_copied_into_the_caveats_is_printed_once(self, folder):
+        """The Planner copies the server's sentence on rain and snow into its
+        caveats. The page gives it once, where the run is described, and the
+        caveat list points there. Every other caveat is printed whole."""
+        said = ("The question speaks of rain. This change multiplies rain and snow together, "
+                "and the model server has no change of rain alone.")
+        st = _strategy()
+        st["domain_experiment"]["caveats"] = CAVEATS + [said]
+        page = _page(folder, strategy=st)
+        assert _flat(page).count(said) == 1
+        assert said in _flat(_section(page, "What will run"))
+        sec = _section(page, "What the study cannot tell you")
+        for c in CAVEATS:
+            assert f"- {c}" in sec
+        assert '- The difference from your question is given under "What will run".' in sec
+        # a caveat in other words is not taken for the same sentence
+        st["domain_experiment"]["caveats"] = CAVEATS + ["The run scales snow as well as rain."]
+        sec = _section(_page(folder, strategy=st), "What the study cannot tell you")
+        assert "- The run scales snow as well as rain." in sec
+        assert "is given under" not in sec
+
     def test_a_run_not_made_yet_is_a_condition(self, folder):
         assert f"- `{RUN}` is not made yet, so the plan takes its outputs to be the prepared " \
                f"run's quantities over the planned years. Each year is checked after it " \

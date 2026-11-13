@@ -601,6 +601,13 @@ class TestThePagesSection:
         assert AV.periods_words(["2031-06", "2031-07", "2031-08"]) == \
             "June to August 2031, by month"
         assert AV.periods_words(["WY2031", "normal"]) == "the water year 2031 and normal"
+        # three or more years in a row are one span, where the first of them stood
+        assert AV.periods_words(["2031", "2032", "2033", "WY2031", "WY2032", "WY2033"]) == \
+            "the years 2031 to 2033 and the water years 2031 to 2033"
+        assert AV.periods_words(["2031-JJA", "2031", "2033"]) == \
+            "summer 2031, the year 2031 and the year 2033"
+        assert AV.periods_words(["2031", "2031-JJA", "2032", "2033"]) == \
+            "the years 2031 to 2033 and summer 2031"
         outs = [{"kind": "difference", "region": "r"}, {"kind": "anomaly", "region": "r"},
                 {"kind": "difference", "region": None}, {"kind": "series"},
                 {"kind": "overlap"}, {"kind": "elevation_split"}, {"kind": "elevation_split"}]
