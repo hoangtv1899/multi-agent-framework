@@ -964,9 +964,10 @@ CHOICES = "Choices made for you"
 class TestChoicesMadeForYou:
 
     def test_in_this_order(self, folder):
+        # nutrient_supplement: a change of the list that no run has completed
         st = _strategy()
-        st["domain_experiment"]["runs"].append({"name": "more_co2", "changes": [
-            {"id": "co2_ppmv", "params": {"ppmv": 560.0}}]})
+        st["domain_experiment"]["runs"].append({"name": "fed", "changes": [
+            {"id": "nutrient_supplement", "params": {"nitrogen": "ALL", "phosphorus": "NONE"}}]})
         lines = _section(_page(folder, strategy=st, record=None), CHOICES).strip().splitlines()
         assert lines == [
             f"- {SAID}",
@@ -974,9 +975,31 @@ class TestChoicesMadeForYou:
             "- Noted by Reception: A thing Reception noted.",
             f"- The model server has a note on run {RUN}, change weather_scale. A made-up "
             f"thing to note.",
-            "- The model server has a note on the change `co2_ppmv`. "
+            "- The model server has a note on the change `nutrient_supplement`. "
             + DC.declare()["demonstrated_false"].replace("the control", "the control run")
             + "."]
+
+    def test_a_change_no_run_has_completed_is_said_once(self, folder):
+        # the server's check names it under the run that uses it, so the change
+        # list's words for it are not printed again (a live page said it twice)
+        st = _strategy()
+        st["domain_experiment"]["runs"].append({"name": "fed", "changes": [
+            {"id": "nutrient_supplement", "params": {"nitrogen": "ALL", "phosphorus": "NONE"}}]})
+        words = DC.declare()["demonstrated_false"]
+        noted = {"where": "run fed, change nutrient_supplement",       # as the check writes it
+                 "what": "not demonstrated: " + words[0].lower() + words[1:]}
+        preview = dict(PREVIEW, check=dict(PREVIEW["check"],
+                                           unusual=[UNUSUAL, noted]))
+        sec = _section(_page(folder, strategy=st, preview=preview, record=None), CHOICES)
+        assert sec.lower().count("no run with this change has been completed") == 1
+        assert "The model server has a note on run fed, change nutrient_supplement. Not " \
+               "demonstrated: no run with this change" in _flat(sec)
+        assert "has a note on the change `nutrient_supplement`" not in sec
+        # a note of the server about another matter keeps the list's words
+        other = dict(noted, what="a made-up note on this change")
+        preview = dict(PREVIEW, check=dict(PREVIEW["check"], unusual=[UNUSUAL, other]))
+        sec = _section(_page(folder, strategy=st, preview=preview, record=None), CHOICES)
+        assert "has a note on the change `nutrient_supplement`" in sec
 
     @pytest.mark.parametrize("question", [
         "What if June to August precipitation had been 30 percent lower in 2033?",

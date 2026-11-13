@@ -557,6 +557,21 @@ def _noted(finding: Any) -> str:
     return f"- The model server has a note. {_sentence(_control_run(what))}"
 
 
+def _untested_noted(preview) -> List[str]:
+    """The changes the server's check already calls not demonstrated, by the
+    id its note names ("run a, change b"), on a page that prints those notes."""
+    if not preview or _blocked(preview):
+        return []
+    out = []
+    for u in ((preview.get("check") or {}).get("unusual") or []):
+        if not isinstance(u, dict):
+            continue
+        m = re.search(r"\bchange (\S+)$", str(u.get("where") or ""))
+        if m and str(u.get("what") or "").lower().startswith("not demonstrated"):
+            out.append(m.group(1))
+    return out
+
+
 def _blocked(preview) -> bool:
     return bool(preview and (preview.get("refused") or preview.get("error")))
 
@@ -601,7 +616,11 @@ def _choice_lines(brief, strategy, preview, de, menu, question) -> List[str]:
                          + _sentence(_control_run("; ".join(map(str, ic.get("reasons") or [])))))
             for p in preview.get("problems") or []:
                 L.append(f"- Not shown in the details: {_sentence(_control_run(p))}")
-    seen = set()
+    # A CHANGE NO RUN HAS COMPLETED IS SAID ONCE (2026-11-13). The server's check
+    # names it among its notes, under the run that uses it, and a live page then
+    # said it a second time in the change list's words. The list's words are
+    # kept for a design the server's check did not reach.
+    seen = set(_untested_noted(preview))
     for r in runs:
         for c in r.get("changes") or []:
             cid = c.get("id")
