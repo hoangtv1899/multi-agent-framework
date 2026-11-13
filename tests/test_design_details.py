@@ -1087,10 +1087,10 @@ def _case(folder, kind):
         st["requires"] = ["a made-up need ZQ11"]
         return dict(strategy=st), "A made-up need ZQ11.", "short"
     if kind == "a change no run has completed":
-        de["runs"] = [{"name": "more_co2", "changes": [{"id": "co2_ppmv",
-                                                        "params": {"ppmv": 560.0}}]}]
+        de["runs"] = [{"name": "fed", "changes": [{"id": "nutrient_supplement", "params": {
+            "nitrogen": "ALL", "phosphorus": "NONE"}}]}]
         return dict(strategy=st, record=None), "The model server has a note on the change " \
-                                               "`co2_ppmv`.", "short"
+                                               "`nutrient_supplement`.", "short"
     if kind == "a run not made yet":
         return {}, "The new run does not exist yet", "details"
     if kind == "a choice made without the person":

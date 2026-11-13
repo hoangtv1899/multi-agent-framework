@@ -101,7 +101,9 @@ class TestTheServerListsTheYears:
 # ── the check ────────────────────────────────────────────────────────────────
 class TestARunsFirstYearIsOneOfThem:
 
-    def test_a_later_year_with_a_saved_state_builds(self, study):
+    def test_a_later_year_with_a_saved_state_builds(self, study, monkeypatch):
+        # the note as it was said before the first later start completed
+        monkeypatch.setattr(CH, "LATER_START_DEMONSTRATED", False)
         _save_state(study, 2016)
         chk = CH.check(_experiment([2016]), _entry())
         assert chk["ok"] and chk["wont_build"] == [], chk["wont_build"]
@@ -138,11 +140,28 @@ class TestARunsFirstYearIsOneOfThem:
                         "years": [2016]}, _entry())
         assert chk["ok"] and not [u for u in chk["unusual"] if u["where"] == "years"]
 
-    def test_once_a_later_start_has_completed_here_it_is_no_longer_said(self, study,
-                                                                        monkeypatch):
+    def test_once_a_later_start_has_completed_here_it_is_said_what_it_is(self, study):
+        # two chains started that way passed every check on 2026-11-13, and
+        # showed that such a run is not an exact continuation of the control
+        assert CH.LATER_START_DEMONSTRATED is True
         _save_state(study, 2016)
-        monkeypatch.setattr(CH, "LATER_START_DEMONSTRATED", True)
         chk = CH.check(_experiment([2016]), _entry())
+        said = [u["what"] for u in chk["unusual"] if u["where"] == "years"]
+        assert chk["ok"] and said == [CH.LATER_START_WORDS.format(year=2016)]
+        assert said[0].startswith("the run starts from the control's saved state of "
+                                  "1 January 2016. Started this way it is not an exact "
+                                  "continuation of the control.")
+        assert "its start step, the half hour before 1 January" in said[0]
+        # the start step has the weather of that half hour, which may hold rain
+        assert "no rain" not in said[0]
+        assert "is not an effect of its changes" in said[0]
+        for gone in ("untested", "not demonstrated", ":", "\u2014"):
+            assert gone not in said[0].lower(), gone
+
+    def test_from_the_controls_own_first_year_nothing_is_said(self, study):
+        """A run from the control's own first year starts as the control did."""
+        _save_state(study, 2016)
+        chk = CH.check(_experiment([2015, 2016]), _entry())
         assert chk["ok"] and not [u for u in chk["unusual"] if u["where"] == "years"]
 
     def test_only_the_years_run_are_counted_in_the_cost(self, study):
@@ -231,7 +250,8 @@ class TestThePageSaysWhereARunStarts:
         return " ".join(DP.render({"user_request": "a question", "brief": {}}, strategy,
                                   preview=preview).split())
 
-    def test_it_names_the_year_the_run_starts_from(self, study):
+    def test_it_names_the_year_the_run_starts_from(self, study, monkeypatch):
+        monkeypatch.setattr(CH, "LATER_START_DEMONSTRATED", False)
         _save_state(study, 2016)
         _with_years(study, [2016])
         m, cfg, st, p = _preview(study)

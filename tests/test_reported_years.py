@@ -351,7 +351,9 @@ class TestAChangeThatHasNeverRunSaysSo:
             else:
                 assert "demonstrated" not in c, cid
         assert menu["fire_off"]["demonstrated"] is True
-        assert menu["co2_ppmv"]["demonstrated"] is False
+        # co2_ppmv completed its first chain on 2026-11-13
+        assert menu["co2_ppmv"]["demonstrated"] is True
+        assert menu["nutrient_supplement"]["demonstrated"] is False
         # the words are said once, for the whole list, so it fits a tool result
         said = CH.declare()
         assert "untested" in said["demonstrated_false"]
@@ -366,11 +368,11 @@ class TestAChangeThatHasNeverRunSaysSo:
 
     def test_the_check_calls_it_unusual_and_still_builds(self):
         exp = {"control": {"name": "c", "reuse": True}, "years": [2031],
-               "runs": [{"name": "high", "changes": [{"id": "co2_ppmv",
-                                                      "params": {"ppmv": 500.0}}]}]}
+               "runs": [{"name": "fed", "changes": [{"id": "nutrient_supplement", "params": {
+                   "nitrogen": "ALL", "phosphorus": "NONE"}}]}]}
         out = CH.check(exp, CONTROL)
         assert out["wont_build"] == []
-        assert [u for u in out["unusual"] if u["where"] == "run high, change co2_ppmv"
+        assert [u for u in out["unusual"] if u["where"] == "run fed, change nutrient_supplement"
                 and u["what"].startswith("not demonstrated: no run with this change")]
 
     def test_a_demonstrated_change_is_not_called_unusual(self):
@@ -379,10 +381,11 @@ class TestAChangeThatHasNeverRunSaysSo:
                     if "not demonstrated" in u["what"]]
 
     def test_the_page_says_it_under_the_run(self):
-        runs = [{"name": "high", "changes": [{"id": "co2_ppmv", "params": {"ppmv": 500.0}}]}]
+        runs = [{"name": "fed", "changes": [{"id": "nutrient_supplement", "params": {
+            "nitrogen": "ALL", "phosphorus": "NONE"}}]}]
         page = _page(_brief([2031], [2031, 2031], runs), _strategy([2031], runs))
-        assert "**co2_ppmv is NOT DEMONSTRATED.** No run with this change has been completed" \
-            in page
+        assert "**nutrient_supplement is NOT DEMONSTRATED.** No run with this change has been " \
+            "completed" in page
         assert "its result is untested" in page and "Tell the person" not in page
         page = _page(_brief([2031], [2031, 2031], FIRE_OFF), _strategy([2031], FIRE_OFF))
         assert "NOT DEMONSTRATED" not in page

@@ -410,7 +410,11 @@ class ChangeError(Exception):
 # change and nothing else. They used to end with an order to whoever designs
 # with it, and the person read that order on their own page. What a designer
 # does about it is a rule of the list (declare), which no page prints.
-_DEMONSTRATED = frozenset({"fire_off", "weather_scale", "weather_repeat_year"})
+#
+# co2_ppmv JOINED THE LIST ON 2026-11-13: a run with CO2 held at another level,
+# started from the control's saved state of a later year, passed every check
+# of its job chain (jobs 795062 to 795066).
+_DEMONSTRATED = frozenset({"fire_off", "weather_scale", "weather_repeat_year", "co2_ppmv"})
 DEMONSTRATED_WORDS = {
     True: "a run with this change has passed every check of its job chain in this "
           "framework",
@@ -1164,11 +1168,36 @@ def _h1_problems(cfacts: Optional[Dict], years: Sequence[int], here: str,
                      f"complete year {gap}: those years of the run could not be checked"})
 
 
-# A RUN STARTED FROM A LATER SAVED STATE (2026-11-12). No run has started
-# from one in this framework yet, so the check says so, as it does of a change
-# with no completed run. Set to True when a chain started that way has passed
-# every check of its jobs.
-LATER_START_DEMONSTRATED = False
+# A RUN STARTED FROM A LATER SAVED STATE (2026-11-12). Until a run had started
+# from one in this framework, the check said so, as it does of a change with no
+# completed run. PROVEN 2026-11-13: two chains started from the saved states of
+# 1 January 2018 (jobs 795054 to 795058) and 1 January 2020 (jobs 795062 to
+# 795066) passed every check of their jobs. Each first day matched the saved
+# state it started from, and the weather the land model received on every day
+# of 2018, the first included, was the control's wherever the run left it
+# unchanged.
+#
+# NOT AN EXACT CONTINUATION, as the same runs showed. The saved state holds the
+# land's state alone, while the control carried its state across each 1 January
+# in the coupler's saved state too. So a run started this way differs from the
+# control by a small amount even where its changes do not act: before its
+# change began, the first run's plant growth over the watershed differed by
+# 0.006 percent or less in each month. Its first month's averages also hold the
+# start step, the half hour before 1 January, with that half hour's weather. No
+# rain or snow fell then in the 2018 run, so its January rain and snow were
+# lower than the control's by exactly one part in 1,489 (the month's steps plus
+# one); rain fell then in almost every cell of the 2020 run, whose January rain
+# was up to 2 percent higher in some cells. The check says so in place of
+# "untested", where a person and the analysis read it, in words that hold for
+# any control; the sizes measured in these runs stay here, since they are
+# theirs.
+LATER_START_DEMONSTRATED = True
+LATER_START_WORDS = (
+    "the run starts from the control's saved state of 1 January {year}. Started this way "
+    "it is not an exact continuation of the control. Its first month's averages also hold "
+    "its start step, the half hour before 1 January, and it differs slightly from the "
+    "control even where its changes do not act. So a very small difference between the "
+    "two runs is not an effect of its changes")
 
 
 def _span_words(ys) -> str:
@@ -1224,7 +1253,9 @@ def _years_problems(years, facts: Optional[Dict], reuse: bool,
                        f"for 1 January of {_span_words(starts)}: the run's first year is "
                        f"one of those, not {years[0]}")
         elif executes and starts and start is not None and years[0] != int(start) \
-                and not LATER_START_DEMONSTRATED:
+                and LATER_START_DEMONSTRATED:
+            odd.append(LATER_START_WORDS.format(year=years[0]))
+        elif executes and starts and start is not None and years[0] != int(start):
             odd.append(f"not demonstrated: the run starts from the control's saved state "
                        f"of 1 January {years[0]}, and no run started from a later saved "
                        f"state has been completed in this framework yet. Its inputs are "
