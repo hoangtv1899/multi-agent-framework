@@ -39,6 +39,15 @@ drawn here, so the Analyzer's figures can use it once its task names it:
                         another, each the figure's full width
     words from a record an output's own "title" (shared by a panel's outputs),
                         "label" and "units" are used where it gives them
+    a map of classes    a map panel's "classes": {"entries": [{"label",
+                        "area_km2"}], "title", "other", "lines": [{"label",
+                        "area_km2", "mask"}]} draws its output as classes: a
+                        cell holds 0 or a class number k, class k takes the
+                        k-th colour of an ordered scale, light to dark, and a
+                        legend entry with its label and its area, and class 0
+                        is light grey. Each of "lines" is a region's edge
+                        drawn as a line. No title, the legend outside the map,
+                        ticks in degrees (agents/places_figure.py, 2026-11-13)
 
 None of these is in the closed list step 2b is shown (PANEL_KINDS), so a
 figure the model writes is checked and drawn exactly as before.
@@ -466,6 +475,143 @@ def _draw_map(plt, ax, r, opts, ll, where):
     if outline is not None:                      # a region's edge, as a line over the map
         ax.contour(ll["lon"], ll["lat"], np.asarray(outline, dtype=float), levels=[0.5],
                    colors="k", linewidths=1.0)
+    return n
+
+
+# A MAP OF CLASSES, FOR THE DESIGN PAGES (2026-11-13; agents/places_figure.py).
+# The places the numbers are reported for are drawn as one map: each place one
+# colour, the rest of the grid light grey, the edge of a larger place a line.
+# The scale is ColorBrewer's YlGnBu, a sequential scale that reads light to
+# dark and stays apart for a reader with a colour vision deficiency; a set of
+# up to nine classes takes ColorBrewer's own colours for that many.
+CLASS_SCALES = {
+    1: ("#41b6c4",),
+    2: ("#a1dab4", "#225ea8"),
+    3: ("#edf8b1", "#7fcdbb", "#2c7fb8"),
+    4: ("#ffffcc", "#a1dab4", "#41b6c4", "#225ea8"),
+    5: ("#ffffcc", "#a1dab4", "#41b6c4", "#2c7fb8", "#253494"),
+    6: ("#ffffcc", "#c7e9b4", "#7fcdbb", "#41b6c4", "#2c7fb8", "#253494"),
+    7: ("#ffffcc", "#c7e9b4", "#7fcdbb", "#41b6c4", "#1d91c0", "#225ea8", "#0c2c84"),
+    8: ("#ffffd9", "#edf8b1", "#c7e9b4", "#7fcdbb", "#41b6c4", "#1d91c0", "#225ea8",
+        "#0c2c84"),
+    9: ("#ffffd9", "#edf8b1", "#c7e9b4", "#7fcdbb", "#41b6c4", "#1d91c0", "#225ea8",
+        "#253494", "#081d58"),
+}
+CLASS_OTHER = "#e6e6e6"                          # class 0: the cells of no class
+CLASS_SIZE = (11.0, 6.4)                         # a figure of one class map, its legend beside
+CLASS_FONT = 16
+LINE_STYLES = ("-", "--", ":")
+
+
+def class_colours(n: int) -> List[str]:
+    """n colours of the ordered scale, light to dark."""
+    if n <= 0:
+        return []
+    if n in CLASS_SCALES:
+        return list(CLASS_SCALES[n])
+    import matplotlib
+    from matplotlib import colors
+    cmap = matplotlib.colormaps["YlGnBu"]
+    return [colors.to_hex(cmap(0.08 + 0.9 * i / (n - 1))) for i in range(n)]
+
+
+def area_words(area: Any) -> str:
+    """An area as a legend gives it: whole km2, with a thousands separator,
+    a half rounded up. "" for a value that is not a number."""
+    try:
+        a = float(area)
+    except (TypeError, ValueError):
+        return ""
+    if not np.isfinite(a):
+        return ""
+    return f"{int(np.floor(a + 0.5)):,} km2"
+
+
+def _with_area(label: Any, area: Any) -> str:
+    words = area_words(area)
+    return f"{label} ({words})" if words else str(label)
+
+
+def _degrees(v: float, pos: str, neg: str) -> str:
+    """A tick in degrees: 121.2°W, 46.8°N."""
+    x = float(f"{v:.6g}")
+    if x == 0:
+        return "0°"
+    return f"{abs(x):g}°{pos if x > 0 else neg}"
+
+
+def _draw_classes(plt, ax, r, opts, ll, where):
+    """A map panel with "classes": each cell's class, light grey for 0, a
+    legend entry per class with its area, the edges of larger places as
+    lines, the legend outside the map. No title: the page's caption says what
+    the map is. Returns the number of cells in a class or inside a line."""
+    from matplotlib.colors import ListedColormap
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    from matplotlib.ticker import FuncFormatter, MaxNLocator
+    c = opts.get("classes") or {}
+    entries = [e for e in c.get("entries") or [] if isinstance(e, dict)]
+    lat = np.asarray(ll.get("lat"), dtype=float)
+    lon = np.asarray(ll.get("lon"), dtype=float)
+    try:
+        a = np.asarray(r["value"], dtype=float)
+    except (TypeError, ValueError):
+        _blank(where, f"{r['ref']} is not a grid of class numbers")
+    if a.ndim != 2 or a.shape != (lat.size, lon.size):
+        _blank(where, f"{r['ref']} is {'x'.join(map(str, a.shape))} cells, and the grid is "
+                      f"{lat.size}x{lon.size}")
+    a = np.where(np.isfinite(a), a, 0.0)
+    if np.any(a < 0) or np.any(a != np.round(a)):
+        _blank(where, f"{r['ref']} holds a value that is not a class number")
+    top = int(a.max()) if a.size else 0
+    if top > len(entries):
+        _blank(where, f"class {top} has no legend entry ({len(entries)} given)")
+    lines = []
+    for i, x in enumerate(c.get("lines") or []):
+        m = np.asarray((x or {}).get("mask") if isinstance(x, dict) else None, dtype=float)
+        if m.shape != a.shape:
+            _blank(where, f"line {i + 1} is not on the grid of {r['ref']}")
+        lines.append((x, np.where(np.isfinite(m), m, 0.0) > 0.5))
+    if isinstance(ll.get("outline"), (list, np.ndarray)):
+        m = np.asarray(ll["outline"], dtype=float)
+        if m.shape == a.shape:                   # the one outline of today's maps, unnamed
+            lines.append(({}, np.where(np.isfinite(m), m, 0.0) > 0.5))
+    covered = a > 0
+    for _, m in lines:
+        covered = covered | m
+    n = int(covered.sum())
+    if not n:
+        _blank(where, f"{r['ref']} holds no cell in a class and no region's edge")
+    colours = class_colours(len(entries))
+    ax.pcolormesh(lon, lat, a, shading="nearest", cmap=ListedColormap([CLASS_OTHER] + colours),
+                  vmin=-0.5, vmax=len(entries) + 0.5, rasterized=True)
+    handles = [Patch(facecolor=col, edgecolor="0.4", label=_with_area(e.get("label"),
+                                                                      e.get("area_km2")))
+               for col, e in zip(colours, entries)]
+    if c.get("other") and np.any(a == 0):
+        handles.append(Patch(facecolor=CLASS_OTHER, edgecolor="0.4", label=str(c["other"])))
+    for j, (x, m) in enumerate(lines):
+        style = LINE_STYLES[min(j, len(LINE_STYLES) - 1)]
+        if m.any():
+            ax.contour(lon, lat, m.astype(float), levels=[0.5], colors="k", linewidths=1.4,
+                       linestyles=style)
+        if x.get("label"):
+            handles.append(Line2D([0], [0], color="k", lw=1.4, ls=style,
+                                  label=_with_area(x["label"], x.get("area_km2"))))
+    ax.set_title("", loc="left")
+    ax.set_title("")
+    if lat.size:
+        ax.set_aspect(1.0 / max(np.cos(np.deg2rad(float(np.nanmean(lat)))), 0.05))
+    # ticks at round steps of a degree (0.1, 0.2, 0.4, 0.5, 1, ...), never 46.75
+    ax.xaxis.set_major_locator(MaxNLocator(4, steps=[1, 2, 4, 5, 10]))
+    ax.yaxis.set_major_locator(MaxNLocator(5, steps=[1, 2, 4, 5, 10]))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: _degrees(v, "E", "W")))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: _degrees(v, "N", "S")))
+    ax.tick_params(labelsize=CLASS_FONT)
+    if handles:
+        ax.legend(handles=handles, title=c.get("title") or None, loc="center left",
+                  bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=CLASS_FONT,
+                  title_fontsize=CLASS_FONT, alignment="left")
     return n
 
 
@@ -953,8 +1099,12 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
         disp = (((refs.get(SCREEN) or {}).get("value") or {}).get("display") or {})
         height = max(height, 0.42 * sum(len(x or []) for x in (disp.get("groups") or {})
                                         .values()) + 1.5)
+    # a figure of one map of classes has the room its legend needs beside it
+    classes = len(panels) == 1 and panels[0].get("kind") == "map" and \
+        isinstance(panels[0].get("classes"), dict)
     fig, axes = plt.subplots(rows, cols, squeeze=False,
-                             figsize=((STACK_WIDTH, STACK_HEIGHT * rows) if stack else
+                             figsize=(CLASS_SIZE if classes else
+                                      (STACK_WIDTH, STACK_HEIGHT * rows) if stack else
                                       (5.4 * cols if height == 4.6 else 9.0, height * rows)))
     axes = [a for row in axes for a in row]
     record, total = [], 0
@@ -987,7 +1137,9 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
             if k == "map":
                 if lat_lon is None:
                     _blank(where, "the grid's latitude and longitude were not read")
-                got = _draw_map(plt, ax, rs[0], p, lat_lon, where)
+                got = (_draw_classes(plt, ax, rs[0], p, lat_lon, where)
+                       if isinstance(p.get("classes"), dict) else
+                       _draw_map(plt, ax, rs[0], p, lat_lon, where))
             elif k == "series":
                 got = _draw_series(ax, rs, p, normal_years, where)
             elif k == "bars":
