@@ -243,8 +243,8 @@ class TestANewRun:
         page = _first_part(rd)
         flat = " ".join(page.split())
         assert AV.NOT_BUILT in flat
-        assert "It does not approve an analysis plan, since that approval is not built yet." \
-            in flat
+        assert "It does not approve an analysis plan, since the Analyzer writes its own " \
+               "plan afterwards." in flat
         assert "The plan compares `warm` with the prepared run for 2016." in flat
         assert f"| P1 | GPP in the warm run | {REGION} | the year 2016 |" in page
         assert "- `warm` is not made yet, so the plan takes its outputs to be the prepared " \

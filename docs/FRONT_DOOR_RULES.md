@@ -255,15 +255,16 @@ This is a look before the decision and nothing more:
 Binding the yes to a plan is not built. Until it is, the page must not be
 read as the approval of an analysis, and it says so wherever it shows a plan.
 
-## The plan shown may be the plan carried out (transitional)
+## The plan shown is the plan approved and carried out
 
 `src/agents/analysis_handoff.py`, off unless `IDEAS_CARRY_OUT_SHOWN_PLAN=1`,
 and only with the preview of the section above. With both switches set, a
 plan that passed its check and its review is promised to the Analyzer when
-the page is written. The page then says that the Analyzer carries out this
-plan as it stands and writes no second one, after the runs or, for a design
-that makes no new run, after the yes. It also says that the analysis stops,
-and its report says why, if the plan cannot be carried out.
+the page is written. The page then says that a yes approves this plan
+together with the runs and the years, and that the Analyzer carries it out as
+it stands and writes no second one, after the runs or, for a design that
+makes no new run, after the yes. It also says that the analysis stops, and
+its report says why, if the plan cannot be carried out.
 
 - The promise is kept in the preview's record (`handoff`), and the Analyzer
   reads that record after the runs. It does not read the switch, since the
@@ -292,13 +293,72 @@ and its report says why, if the plan cannot be carried out.
   what it finds is recorded and printed in the report. It changes nothing. An
   analysis whose year a run did not produce is closed as failed by the
   Analyzer's close of the planned phase, as before.
-- The report says, above its planned analyses, that the plan was shown before
-  the yes and carried out as it stood.
+- The report says, above its planned analyses, that the plan was shown on the
+  design page, approved with the yes and carried out as it stood.
 
-The yes is still not bound to the plan. The approval record names the control,
-the runs and the years, and the page and the report say so. A blocked or
-conditional status for an analysis that cannot be carried out, and the
-spending limit, are not built either.
+## A yes is of the analysis plan too
+
+Since stage 4 (2026-11-12), under the same two switches. Nothing changes for
+a study planned after its runs.
+
+- **The record of the yes names the plan.** `01_inputs/design_approval.json`
+  holds the design's fingerprint, as before, and beside it the hash of the
+  plan the page showed (`analysis_plan_sha256`), the plan's file and, in
+  words, what the yes covers. The plan is no part of the design's
+  fingerprint. The two are kept apart, so a difference can be named.
+- **The Analyzer is handed the plan the yes names.** A yes on record that
+  names no plan, or another plan, blocks the handoff.
+- **A design whose approved plan changed is not run.** Before anything goes
+  to the Experiment Manager, the plan on disk must still hash to what the yes
+  names (`design_review.approval_problem`). No computing is spent on a study
+  whose approved analysis can no longer be carried out as approved.
+- **No plan, no yes.** A design whose plan did not pass its check and its
+  review, or could not be written, cannot be approved, at the terminal or
+  unattended. The page says so, and the prompt takes a change or stops. A
+  change plans the design again. A study with no analysis plan at all (no
+  results store) is not held to one.
+- **A record made before stage 4** promised its plan under a yes that named
+  none. Such a study is handed its plan as it was promised then, and its
+  report says the yes was not tied to the plan.
+
+## The status of each analysis, before the yes
+
+`analysis_preview.analysis_support`. Code gives each analysis of a plan that
+is shown one of three statuses, from the plan and its check. No model writes
+it. The page's table has the status in its last column, and a line below the
+table gives the reason for each one that is not supported.
+
+- **blocked**: code's check of the plan names a problem of this analysis.
+  Such a plan did not pass.
+- **conditional**: it can be carried out, under a condition a reader must
+  know before the yes. One condition is known to code today. Every output of
+  the analysis is a map or a daily series, whose records keep no value, so
+  the analysis gives figures and no number the report may state.
+- **supported**: neither.
+
+Not built: a status for a calculation the outputs only approximate, such as a
+monthly water budget from stored water kept as a monthly mean. The plan has
+no place to say what a calculation needs of a field.
+
+## The computing a yes allows
+
+`src/core/approved_spending.py`, for every whole-domain study, with no switch.
+
+- The design page gives the model server's estimate of the cost, in
+  node-hours, and says that a yes allows that figure and no more.
+- The approval records the figure under `authorized`, apart from the design's
+  fingerprint and from the plan's hash. A cost estimate identifies neither.
+- The Experiment Manager checks it after the model server has checked the
+  design again and before anything is built or submitted. A design the server
+  now estimates above the figure is refused, with both figures, and nothing
+  is submitted. A person then approves it again on a page that gives the
+  present estimate.
+- A study with no approval on record, an approval made before this rule, or a
+  design with no estimate is held to no limit.
+
+Only computing is limited this way. The paid model calls of the analysis are
+bounded by the number of rounds the Analyzer may make, not by a figure a
+person approves.
 
 ## Every caveat is on the page
 

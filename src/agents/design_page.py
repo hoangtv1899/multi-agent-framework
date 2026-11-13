@@ -38,8 +38,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 DETAILS_NAME = "DESIGN_DETAILS.md"
 BY_HAND_NAME = "RUN_BY_HAND.md"
-NOT_BUILT = ("Your yes does not approve this plan, since approval of the analysis is not "
-             "built yet, and the Analyzer writes its plan again after the runs.")
+NOT_BUILT = ("Your yes does not approve this plan. It is shown as a preview, and the "
+             "Analyzer writes its plan again after the runs.")
 NO_COMPUTE = ("A no submits nothing, so no computing time is used. The model calls that "
               "prepared this page are already spent.")
 
@@ -283,25 +283,44 @@ def _weigh_lines(brief, strategy, preview, analysis_preview, run_dir) -> List[st
     return L + [""]
 
 
-def _decision_lines(de, strategy, preview, by_hand: bool) -> List[str]:
+def _decision_lines(de, strategy, preview, by_hand: bool, analysis_preview=None) -> List[str]:
+    from agents import analysis_handoff as AH
+    from core import approved_spending as SP
     runs = de.get("runs") or []
     ctl = de.get("control") or {}
     executes = bool(runs) or not ctl.get("reuse")
     fz = strategy.get("feasibility") or {}
     blocked = bool(preview and (preview.get("refused") or preview.get("error"))) or \
         str(fz.get("verdict") or "").strip().lower() == "infeasible"
+    no_plan = AH.unapprovable(analysis_preview)
+    # WHAT A YES APPROVES (stage 4): the plan too, where the page shows one
+    # and promises it; and the computing it allows, where the server gave an
+    # estimate, as a limit checked before any job (core/approved_spending.py)
+    covers_plan = AH.bound(analysis_preview)
+    nh = SP.estimate(preview)
+    limit = (f"It allows the {nh:g} node-hours estimated above, and no more. "
+             if executes and nh is not None else "")
     if blocked:
         L = ["This design cannot run as it stands. Type a change to have it made again and "
              "checked again, or stop. Nothing has been submitted."]
+    elif no_plan:
+        L = [f"This design cannot be approved as it stands, since {no_plan}. Type a change "
+             f"to have it planned again, or stop. Nothing has been submitted."]
     elif executes:
         what = "the run" if len(runs) == 1 else "the runs"
-        L = [f"A yes submits {what}. It approves {what} and the years above. It does not "
-             f"approve an analysis plan, since that approval is not built yet. "
-             + NO_COMPUTE]
+        L = [f"A yes submits {what}. "
+             + (f"It approves {what}, the years above and the analysis plan shown under "
+                f"\"How the answer will be read\". " if covers_plan else
+                f"It approves {what} and the years above. It does not approve an analysis "
+                f"plan, since the Analyzer writes its own plan afterwards. ")
+             + limit + NO_COMPUTE]
     else:
         L = ["A yes starts the analysis of the prepared run's existing output. No model run "
-             "is made, and the analysis itself uses paid model calls. It does not approve "
-             "an analysis plan, since that approval is not built yet. " + NO_COMPUTE]
+             "is made, and the analysis itself uses paid model calls. "
+             + ("It approves the years above and the analysis plan shown under \"How the "
+                "answer will be read\". " if covers_plan else
+                "It does not approve an analysis plan, since the Analyzer writes its own "
+                "plan afterwards. ") + NO_COMPUTE]
     L += ["", f"The design in full, with the analysis plan when one was written, is in "
               f"`{DETAILS_NAME}`."
               + (f" The steps to make the runs by hand are in `{BY_HAND_NAME}`."
@@ -341,7 +360,8 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
                         menu))
     L += ["## Points to weigh", ""]
     L += _weigh_lines(brief, strategy, preview, analysis_preview, run_dir)
-    L += ["## Your decision", ""] + _decision_lines(de, strategy, preview, by_hand)
+    L += ["## Your decision", ""] + _decision_lines(de, strategy, preview, by_hand,
+                                                    analysis_preview)
     L += ["---", DR._PENDING, ""]
     return "\n".join(L)
 

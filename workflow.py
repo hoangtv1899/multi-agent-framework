@@ -940,6 +940,15 @@ class WorkflowCoordinator:
 			# page, None included, so a page is never drawn from a record an
 			# earlier design left on disk.
 			analysis_preview = self._analysis_preview(result, plan, run_dir, blocked)
+			# A DESIGN IS APPROVED TOGETHER WITH ITS ANALYSIS PLAN (stage 4,
+			# 2026-11-12; agents/analysis_handoff.py). Where the page was to
+			# show a plan a yes would approve, and none passed or none could be
+			# written, there is nothing a yes could cover: the design has no
+			# yes, as one the server refused has none. It can be changed, which
+			# plans it again, or left.
+			from agents import analysis_handoff as _handoff
+			no_plan = None if blocked else _handoff.unapprovable(analysis_preview)
+			blocked = blocked or bool(no_plan)
 			review_path = write_review(run_dir, reception=result, strategy=plan,
 									   preview=preview, analysis_preview=analysis_preview)
 			print(f"📝 Design review: {review_path}\n")
@@ -954,9 +963,13 @@ class WorkflowCoordinator:
 					   if unsupported else
 					   "not run: the model server refused the design" if refused else
 					   "not run: the design could not be built" if unbuilt else
+					   "not run: no analysis plan a yes could approve" if no_plan else
 					   "not run: the planner judged the design infeasible")
 			judged = (f"🛑 Nothing was submitted: {unsupported}.\n   The design and "
 					  f"its records stay in {run_dir}." if unsupported else
+					  f"🛑 Nothing was submitted: this design cannot be approved, since "
+					  f"{no_plan}.\n   The design and its records stay in {run_dir}."
+					  if no_plan else
 					  f"🛑 The planner judged this design infeasible, so nothing was "
 					  f"submitted.\n   {fz.get('why') or 'no reason given'}\n   The "
 					  f"design and its records stay in {run_dir}.")
@@ -1518,10 +1531,11 @@ class WorkflowCoordinator:
 					not isinstance((plan or {}).get("domain_experiment"), dict):
 				return None
 			from agents import analysis_handoff as AH
-			print("🧭 Planning the analysis before the page (a preview: your yes will "
-				  "not cover it, and the Analyzer "
-				  + ("carries it out after the runs if it passes its check)..."
-					 if AH.enabled() else "plans again after the runs)..."))
+			print("🧭 Planning the analysis before the page"
+				  + (" (your yes will cover the plan if it passes its check, and the "
+					 "Analyzer then carries it out as it stands)..." if AH.enabled() else
+					 " (a preview: your yes will not cover it, and the Analyzer plans "
+					 "again after the runs)..."))
 			rec = AV.plan_before_approval(
 				result, plan, run_dir,
 				clients=getattr(self, "_analysis_preview_clients", None))

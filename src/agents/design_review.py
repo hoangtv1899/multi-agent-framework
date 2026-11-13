@@ -1149,13 +1149,57 @@ def design_fingerprint(strategy):
 
 
 def approve(run_dir, strategy, how):
-    """Record that the design in run_dir was approved, and which design."""
-    path = Path(run_dir) / APPROVAL_FILE
+    """Record that the design in run_dir was approved, and what the approval
+    is of.
+
+    THE DESIGN, always: a fingerprint of its control, its runs and its years.
+
+    THE ANALYSIS PLAN, when the page showed one and said a yes would approve
+    it (2026-11-12; agents/analysis_handoff.py). The record then names that
+    plan by its hash, and says in words what the yes covers. The Analyzer
+    carries out that plan and no other, and a design whose approved plan has
+    changed is not run (approval_problem).
+
+    THE COMPUTING THE YES ALLOWS, apart from both: the node-hours the page
+    gave, as a limit checked before any job (core/approved_spending.py). A
+    cost estimate is no part of what identifies a design or a plan."""
+    from agents import analysis_handoff as AH
+    from agents import analysis_preview as AV
+    from core import approved_spending as SP
+    rd = Path(run_dir)
+    rec = {"decision": how, "when": datetime.now().isoformat(timespec="seconds"),
+           "design_sha256": design_fingerprint(strategy)}
+    shown = AV.load(rd)
+    if AH.bound(shown) and shown.get("plan_sha256") and \
+            shown.get("design_sha256") == rec["design_sha256"]:
+        rec["analysis_plan_sha256"] = shown["plan_sha256"]
+        rec["analysis_plan_file"] = shown.get("plan_file")
+        rec["covers"] = "the control, the runs, the years and the analysis plan shown"
+    spend = SP.authorized(_load(rd, PREVIEW_FILE))
+    if spend:
+        rec["authorized"] = spend
+    path = rd / APPROVAL_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        "decision": how, "when": datetime.now().isoformat(timespec="seconds"),
-        "design_sha256": design_fingerprint(strategy)}, indent=1))
+    path.write_text(json.dumps(rec, indent=1))
     return path
+
+
+def approved_plan_problem(run_dir, rec=None):
+    """Why the analysis plan a yes approved is no longer that plan, or None:
+    its file is gone, or no longer hashes to what the approval names. None
+    for an approval that names no plan."""
+    rd = Path(run_dir)
+    rec = rec if isinstance(rec, dict) else _load(rd, APPROVAL_FILE)
+    want = (rec or {}).get("analysis_plan_sha256") if isinstance(rec, dict) else None
+    if not want:
+        return None
+    rel = rec.get("analysis_plan_file")
+    p = rd / rel if rel else None
+    if p is None or not p.is_file():
+        return "the analysis plan that was approved is no longer on disk"
+    if hashlib.sha256(p.read_bytes()).hexdigest() != want:
+        return "the analysis plan on disk is not the plan that was approved (its file changed)"
+    return None
 
 
 def approval_problem(run_dir, strategy, resume=False):
@@ -1179,6 +1223,11 @@ def approval_problem(run_dir, strategy, resume=False):
     if want and got and want != got:
         return (f"the design handed to the Experiment Manager is not the design that "
                 f"was approved in {rd} (its control, runs or years differ)")
+    # THE YES WAS OF A PLAN TOO (2026-11-12). No computing is spent on a study
+    # whose approved analysis can no longer be carried out as approved.
+    changed = approved_plan_problem(rd, rec)
+    if changed:
+        return f"{changed}, so the study approved in {rd} is not run"
     return None
 
 

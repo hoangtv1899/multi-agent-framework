@@ -837,6 +837,14 @@ class ELMExpManager(ExperimentManagerBase):
 			raise RefusedBeforeAnyJob("the experiment will not build: " + "; ".join(
 				f"{w['where']}: {w['what']}" for w in chk["wont_build"]),
 				findings=chk["wont_build"])
+		# THE COST THE YES ALLOWS (2026-11-12; core/approved_spending.py). With a
+		# yes on record, the server's estimate now is held to the figure that
+		# yes was given on. Before the yes there is no record, and the page is
+		# drawn from this same check.
+		from core import approved_spending
+		over = approved_spending.problem(self.run_dir, (chk.get("cost") or {}).get("node_hours"))
+		if over:
+			raise RefusedBeforeAnyJob(over, findings=[{"where": "the cost", "what": over}])
 		facts = None
 		if ctl.get("name"):
 			d = self._mcp_call(client, "describe_domain_controls", {}, budget=120)

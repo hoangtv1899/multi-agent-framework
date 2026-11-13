@@ -1132,7 +1132,7 @@ ROLES = (
     ("01_inputs/decks/*.regression", "one column's regression summary of its output"),
     ("01_inputs/decks/*", "a file of one column's PFLOTRAN run"),
     ("01_inputs/columns.json", "the frame the inputs were built on"),
-    ("01_inputs/design_approval.json", "the approval of this design: how it was given, when, and a fingerprint of the control, runs and years approved"),
+    ("01_inputs/design_approval.json", "the approval of this design: how it was given, when, and a fingerprint of the control, runs and years approved; where the page showed an analysis plan a yes would approve, that plan's hash too; and the node-hours the yes allows, kept apart from both"),
     ("01_inputs/domain_experiment.json", "the experiment as handed to the model server: control, runs, years"),
     ("01_inputs/domain_control_facts.json", "the server's facts about the control and its check of the experiment"),
     ("01_inputs/domain_runs.json", "the server's build of the runs: the control, each run, the cost and its findings"),

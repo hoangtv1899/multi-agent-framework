@@ -21,7 +21,7 @@ tests hold the page to what the user asked of it:
      change in effect in every simulated year, a year set against normal
      years that contain it, a run not made yet;
   7. the page says, where it shows a plan and where it asks, that approval of
-     the analysis is not built yet.
+     the analysis is of no plan, where none is bound to the yes.
 
 Every name, year and number here is made up, and no test reaches a model.
 """
@@ -547,20 +547,22 @@ class TestNothingADecisionRestsOnIsLeftOut:
             assert c[0].upper() + c[1:] in page or c in page, c
 
 
-# ── 7. approval of the analysis is not built yet ─────────────────────────────
-class TestApprovalOfTheAnalysisIsNotBuilt:
+# ── 7. with no plan bound to it, a yes approves no analysis ─────────────────────────────
+class TestAYesApprovesNoAnalysisHere:
 
     def test_the_page_says_so_where_it_shows_a_plan_and_where_it_asks(self, folder):
         page = _page(folder)
         assert AV.NOT_BUILT in _flat(_section(page, "How the answer will be read"))
-        assert "It does not approve an analysis plan, since that approval is not built yet." \
-            in _flat(_section(page, "Your decision"))
+        assert "It does not approve an analysis plan, since the Analyzer writes its own " \
+               "plan afterwards." in _flat(_section(page, "Your decision"))
 
     def test_it_says_so_with_no_plan_on_the_page_as_well(self, folder):
         page = _page(folder, record=None)
         assert "The analysis is planned after the runs, so no analysis plan is on this " \
                "page." in _flat(_section(page, "How the answer will be read"))
-        assert "that approval is not built yet" in _flat(_section(page, "Your decision"))
+        assert "since the Analyzer writes its own plan afterwards" in \
+            _flat(_section(page, "Your decision"))
+        assert "not built yet" not in page
 
     @pytest.mark.parametrize("words", ["approved plan", "approves this analysis",
                                        "the analyzer carries out this plan", "is bound to"])

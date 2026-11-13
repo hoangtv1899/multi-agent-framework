@@ -3,23 +3,36 @@
 The plan that was shown on the design page, handed to the Analyzer
 src/agents/analysis_handoff.py
 
-TRANSITIONAL (2026-11-12), and off unless its switch is set. With the
-analysis preview on (agents/analysis_preview.py) a person reads an analysis
-plan before the yes, and after the runs the Analyzer writes another one, which
-may differ. This module closes that gap for one case and no other: a plan
-that passed its check and its review, shown for the design that was then
-approved, is the plan the Analyzer carries out. It writes no second one.
+Off unless its switch is set (2026-11-12). With the analysis preview on
+(agents/analysis_preview.py) a person reads an analysis plan before the yes,
+and after the runs the Analyzer writes another one, which may differ. This
+module closes that gap for one case and no other: a plan that passed its
+check and its review, shown for the design that was then approved, is the
+plan the Analyzer carries out. It writes no second one.
+
+THE YES IS OF THE PLAN TOO (stage 4, 2026-11-12). A page that promises the
+plan says that a yes approves it together with the runs and the years. The
+approval then names the plan by its hash (design_review.approve), apart from
+the design's own fingerprint and apart from the cost the yes allows. After
+the runs the plan is handed over only if the yes on record names it, and a
+design whose approved plan has changed is not run at all
+(design_review.approval_problem).
+
+A DESIGN WITH NO PLAN TO APPROVE CANNOT BE APPROVED. With this switch on, a
+design whose plan did not pass its check and its review, or could not be
+written, has no yes: there is no analysis a yes could cover, and the runs of
+a study that cannot be analysed as approved are not spent (unapprovable). A
+study with no results store has no analysis plan at all and is as before.
 
 WHAT IT DOES NOT DO.
 
-  - The yes is still not bound to the plan. The approval record names the
-    control, the runs and the years (design_review.design_fingerprint), and
-    the page goes on saying so. Binding is a later stage.
-  - It gives an analysis no status of its own. A planned year that a run did
-    not produce is closed as failed by the Analyzer's own close of the planned
-    phase, as before.
   - It changes no plan. The files are copied byte for byte, and the plan's
-    hash is checked against the hash recorded when the page was written.
+    hash is checked against the hash recorded when the page was written and
+    against the hash the yes names.
+  - A planned year that a run did not produce is closed as failed by the
+    Analyzer's own close of the planned phase, as before.
+  - A record made before stage 4 promises its plan without the yes naming
+    it. Such a study is handed its plan as it was promised then.
 
 THE PROMISE IS MADE AT THE PAGE AND KEPT FROM THE RECORD. Whether a plan
 will be carried out is decided when the page is written, with the switch read
@@ -77,8 +90,18 @@ CARRIED_OUT_NO_RUN = ("After your yes the Analyzer carries out this plan as it s
                       "writes no second one. If it cannot, the analysis stops and its report "
                       "says why. Approval of the analysis is not built yet, so "
                       "the record of your yes names the years and not this plan.")
+# The words of a page whose yes approves the plan (stage 4): the two above
+# stay for a record made before, which carries its own words.
+APPROVED = ("A yes approves this plan together with the runs and the years. After the runs "
+            "the Analyzer carries the plan out as it stands and writes no second one. If it "
+            "cannot, the analysis stops and its report says why.")
+APPROVED_NO_RUN = ("A yes approves this plan together with the years. After your yes the "
+                   "Analyzer carries the plan out as it stands and writes no second one. If "
+                   "it cannot, the analysis stops and its report says why.")
 USED = ("the plan shown on the design page before the yes was carried out as it stood: "
         "the Analyzer wrote no second plan")
+NOT_NAMED = "the yes on record does not name this plan"
+NO_PLAN_TO_APPROVE = "so there is no analysis plan a yes could approve"
 NOT_PASSED = "the plan shown did not pass its check and its review"
 # why nothing passes the Analyzer's gate when the promise could not be kept
 BLOCKED = ("the plan shown on the design page was promised to the Analyzer and could not be "
@@ -98,18 +121,44 @@ def promise(passed: bool, new_runs: bool = True) -> Optional[Dict[str, Any]]:
     if not enabled():
         return None
     if passed:
-        return {"promised": True, "words": CARRIED_OUT if new_runs else CARRIED_OUT_NO_RUN}
+        # bound: a yes given on this page approves the plan (stage 4)
+        return {"promised": True, "bound": True,
+                "words": APPROVED if new_runs else APPROVED_NO_RUN}
     return {"promised": False, "why": NOT_PASSED}
 
 
 def page_words(record: Optional[Dict[str, Any]]) -> str:
     """The page's sentence for a plan the record promises to the Analyzer."""
-    return str(((record or {}).get("handoff") or {}).get("words") or CARRIED_OUT)
+    return str(((record or {}).get("handoff") or {}).get("words")
+               or (APPROVED if bound(record) else CARRIED_OUT))
 
 
 def promised(record: Optional[Dict[str, Any]]) -> bool:
     h = (record or {}).get("handoff")
     return isinstance(h, dict) and h.get("promised") is True
+
+
+def bound(record: Optional[Dict[str, Any]]) -> bool:
+    """Whether a yes given on this record's page approves the plan it shows."""
+    return promised(record) and (record or {}).get("handoff", {}).get("bound") is True
+
+
+def unapprovable(record: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Why a design cannot be approved for want of an analysis plan, or None.
+    Only where the page was written with this switch on (the record then
+    says whether it promises a plan) and a plan was needed: one that did not
+    pass, or could not be written. A study that has no analysis plan at all
+    (no results store, no whole-domain experiment) is not held to one."""
+    if not isinstance(record, dict) or not isinstance(record.get("handoff"), dict) \
+            or promised(record):
+        return None
+    status = record.get("status")
+    if status == "not passed":
+        return (f"its analysis plan did not pass its check and its review, "
+                f"{NO_PLAN_TO_APPROVE}")
+    if status == "failed":
+        return f"its analysis plan could not be written, {NO_PLAN_TO_APPROVE}"
+    return None
 
 
 def _now() -> str:
@@ -166,6 +215,10 @@ def _why_not(rd: Path, rec: Dict[str, Any], src: Optional[Path]) -> Optional[str
     if not rec.get("design_sha256") or approval.get("design_sha256") != rec["design_sha256"]:
         return ("the design that was approved is not the design this plan was written for "
                 "(its control, runs or years differ)")
+    # THE YES NAMES THE PLAN (stage 4). A page that said a yes approves the
+    # plan is kept to it: the plan handed over is the one the approval names.
+    if bound(rec) and approval.get("analysis_plan_sha256") != rec.get("plan_sha256"):
+        return NOT_NAMED
     if src is None or not (src / AP.PLAN_FILE).is_file():
         return "the plan shown is no longer on disk"
     if not rec.get("plan_sha256") or _sha(src / AP.PLAN_FILE) != rec["plan_sha256"]:
@@ -247,6 +300,9 @@ def _hand_over(ctx, out: Path, copied: List[str]) -> Optional[Dict[str, Any]]:
     approval = _read(rd / DR.APPROVAL_FILE)
     return _write(out, dict(
         base, used=True, why=USED, files=names,
+        # whether the yes was of this plan (stage 4), or only of its design
+        approved=bool(bound(rec)
+                      and approval.get("analysis_plan_sha256") == rec["plan_sha256"]),
         approval={k: approval.get(k) for k in ("decision", "when")},
         recheck=_recheck(ctx, AP.load_plan(out))))
 
@@ -295,10 +351,14 @@ def report_lines(record: Optional[Dict[str, Any]]) -> List[str]:
     if not record:
         return []
     if record.get("used"):
-        L = ["This plan was shown on the design page before the yes, and the Analyzer "
+        L = ["This plan was shown on the design page and approved with the yes, and the "
+             "Analyzer carried it out as it stood. The plan file is the one that was shown, "
+             "byte for byte, and the record of the yes names it by its hash."
+             if record.get("approved") else
+             "This plan was shown on the design page before the yes, and the Analyzer "
              "carried it out as it stood. The plan file is the one that was shown, byte for "
              "byte. The yes approved the design. It was not tied to this plan, since "
-             "approval of the analysis is not built yet."]
+             "approval of the analysis was not built when this study was approved."]
         problems = (record.get("recheck") or {}).get("problems") or []
         if problems:
             L.append("The plan was written before any run. Checked again against the runs "

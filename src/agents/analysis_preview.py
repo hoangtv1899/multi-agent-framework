@@ -20,10 +20,15 @@ WHAT IT DOES NOT DO, said on the page as well:
   - A plan that fails its check, or that could not be written, does not stop
     a design: it is shown as it is.
 
-So this stage is a look before the decision and nothing more. Binding the
-yes to the plan, and handing the approved plan to the Analyzer, are later
-stages, and until they are built and tested this page must not be read as
-the approval of an analysis.
+So with this switch alone the page is a look before the decision and nothing
+more, and it must not be read as the approval of an analysis.
+
+WITH THE HANDOFF'S SWITCH AS WELL (agents/analysis_handoff.py), a plan that
+passed is promised to the Analyzer, and since stage 4 a yes given on its page
+approves it. The record made here then says so (`handoff`), the page's words
+come from that record, and a design whose plan did not pass or could not be
+written cannot be approved at all. This module gives each analysis of a plan
+it shows a status as well, by code (analysis_support).
 
 WHERE THE PLAN IS WRITTEN. Under the study's 01_inputs/analysis_preview/, in
 a folder of its own that has the shape of a small study: the two records the
@@ -220,6 +225,16 @@ def plan_before_approval(reception: Dict[str, Any], strategy: Dict[str, Any], ru
                    model=S2.analyzer_model(model))
     except Exception as e:                                          # noqa: BLE001
         rec.update(status=FAILED, why=f"{type(e).__name__}: {e}"[:400])
+        try:
+            # no plan, so nothing is promised; the record still says whether a
+            # plan was needed for a yes (analysis_handoff.unapprovable)
+            from agents import analysis_handoff as AH
+            none = AH.promise(False)
+            if none is not None:
+                rec["handoff"] = none
+            rec["transitional"] = NOT_BOUND
+        except Exception:                                           # noqa: BLE001
+            pass
     rec["elapsed_s"] = round(time.time() - t0, 1)
     return _written(rd, rec)
 
@@ -317,6 +332,65 @@ def periods_words(periods: Sequence[Any]) -> str:
     return _join(out)
 
 
+# THE STATUS OF EACH ANALYSIS, BEFORE THE YES (stage 4, 2026-11-12; the user's
+# decision that a calculation the outputs cannot support gets an explicit
+# status, not a warning in prose). Computed by code from the plan and its
+# check, never written by a model:
+#
+#   blocked      code's check of the plan names a problem of this analysis.
+#                Such a plan did not pass, and where a yes approves the plan
+#                the design cannot be approved.
+#   conditional  it can be carried out, under a condition a reader must know
+#                before the yes. One is known to code today: every output of
+#                the analysis is a map or a daily series, whose records keep
+#                no value, so it gives figures and no number a sentence of the
+#                report may state (domain_access.series_values).
+#   supported    neither.
+#
+# What code cannot tell yet is a calculation the outputs only approximate,
+# such as a monthly water budget from stored water kept as a monthly mean:
+# the plan has no place to say what a calculation needs of a field.
+SUPPORTED, CONDITIONAL, BLOCKED = "supported", "conditional", "blocked"
+NO_NUMBER = ("it gives figures and no number the report may state, since each of its "
+             "outputs is a map or a daily series")
+
+
+def _no_number(o: Dict[str, Any]) -> bool:
+    k = o.get("kind")
+    return (k == "map" or (k == "series" and o.get("step") == "day")
+            or (k in ("anomaly", "difference") and o.get("region") is None))
+
+
+def analysis_support(plan: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """{analysis id: {"status", "why": [..]}} of a plan, in the plan's order
+    (see above). A problem of code's check belongs to the analysis whose id
+    it opens with."""
+    out: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+    analyses = [a for a in (plan or {}).get("analyses") or [] if isinstance(a, dict)]
+    problems = [str(x) for x in (plan or {}).get("problems") or [] if str(x).strip()]
+    for a in analyses:
+        aid = str(a.get("id"))
+        mine = [x for x in problems if re.match(rf"{re.escape(aid)}(?:[.:\s]|$)", x)]
+        outs = [o for o in a.get("outputs") or [] if isinstance(o, dict)]
+        if mine:
+            out[aid] = {"status": BLOCKED, "why": mine}
+        elif outs and all(_no_number(o) for o in outs):
+            out[aid] = {"status": CONDITIONAL, "why": [NO_NUMBER]}
+        else:
+            out[aid] = {"status": SUPPORTED, "why": []}
+    return out
+
+
+def support_lines(plan: Dict[str, Any]) -> List[str]:
+    """The reasons under the page's table: one line for each analysis that is
+    not supported, [] when all are."""
+    L = []
+    for aid, s in analysis_support(plan).items():
+        if s["status"] != SUPPORTED:
+            L.append(f"- {aid} is {s['status']}: {_cell('; '.join(s['why']))}.")
+    return L
+
+
 OUTPUT_WORDS = {"number": ("number", "numbers"), "map": ("map", "maps"),
                 "series": ("series", "series"),
                 "elevation_split": ("summary by elevation band", "summaries by elevation band"),
@@ -362,9 +436,14 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
     status = record.get("status")
     if status == NOT_PLANNED:
         return L + [f"No plan was written: {_cell(record.get('why'))}.", ""]
+    from agents import analysis_handoff as AH
+    no_plan = AH.unapprovable(record)
     if status == FAILED:
-        return L + [f"The plan could not be written: {_cell(record.get('why'))}. This does "
-                    f"not stop the design: the Analyzer plans after the runs, as before.", ""]
+        return L + [f"The plan could not be written: {_cell(record.get('why'))}. "
+                    + ("A design is approved together with its analysis plan, so this "
+                       "design cannot be approved as it is." if no_plan else
+                       "This does not stop the design: the Analyzer plans after the runs, "
+                       "as before."), ""]
     rd = Path(run_dir) if run_dir is not None else None
     plan: Dict[str, Any] = {}
     review: Dict[str, Any] = {}
@@ -383,8 +462,11 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
         L.append(f"- Code's check and the model review: **passed**{again}.")
     else:
         L.append(f"- Code's check and the model review: **not passed**. "
-                 f"{_cell(record.get('why'))}. This does not stop the design in this "
-                 f"version: the Analyzer plans again after the runs.")
+                 f"{_cell(record.get('why'))}. "
+                 + ("A design is approved together with its analysis plan, so this design "
+                    "cannot be approved as it is." if no_plan else
+                    "This does not stop the design in this version: the Analyzer plans "
+                    "again after the runs."))
     for c in plan.get("comparisons") or []:
         if isinstance(c, dict):
             L.append(f"- Compared: {_compared(c, ny)}.")
@@ -403,8 +485,9 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
              f"{len(fields)} quantit{'y' if len(fields) == 1 else 'ies'}"
              + (f" ({', '.join(fields)})" if fields else "") + ".")
     if analyses:
-        L += ["", "| | The question this analysis answers | Where | When | Required outputs |",
-              "|---|---|---|---|---|"]
+        sup = analysis_support(plan)
+        L += ["", "| | The question this analysis answers | Where | When | Required outputs "
+                  "| Status |", "|---|---|---|---|---|---|"]
         for a in analyses:
             when = periods_words(a.get("periods") or [])
             if a.get("steps"):
@@ -413,8 +496,10 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
             L.append(f"| {_cell(a.get('id'))} | {_cell(a.get('question'))} | "
                      f"{_cell('; '.join(str(r) for r in a.get('regions') or []) or 'each cell')}"
                      f" | {_cell(when or 'none named')} | "
-                     f"{_cell(outputs_words(a.get('outputs') or []))} |")
+                     f"{_cell(outputs_words(a.get('outputs') or []))} | "
+                     f"{(sup.get(str(a.get('id'))) or {}).get('status', SUPPORTED)} |")
         L.append("")
+        L += support_lines(plan)
     comp = [c for c in plan.get("competing") or [] if isinstance(c, dict)]
     if comp:
         L.append(f"- Other explanations it will check ({len(comp)}):")
@@ -446,15 +531,15 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
 # the plan gave none), its places and its periods; the places are given with
 # their cells and area, and a daily or monthly series with the years it
 # covers. A sentence of the plan is printed whole or left to the details.
-NOT_BUILT = ("Your yes does not approve this plan, since approval of the analysis is not "
-             "built yet, and the Analyzer writes its plan again after the runs.")
+NOT_BUILT = ("Your yes does not approve this plan. It is shown as a preview, and the "
+             "Analyzer writes its plan again after the runs.")
 
 
 def after_the_runs(record: Optional[Dict[str, Any]], words: str) -> str:
     """What the page says becomes of the plan after the runs: `words` (the
-    Analyzer plans again), or, for a plan the record promises to the
-    Analyzer, that it is carried out as it stands. Both say the yes does not
-    approve the plan."""
+    Analyzer plans again, and the yes approves no plan), or, for a plan the
+    record promises to the Analyzer, the record's own words: that a yes
+    approves it and that it is carried out as it stands."""
     from agents import analysis_handoff as AH
     return AH.page_words(record) if AH.promised(record) else words
 
@@ -513,9 +598,17 @@ def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Option
     if _other_design(record, design_sha256):
         return ["An analysis plan on record here was written for another design, so it is "
                 "not shown.", ""]
-    L = ["The Analyzer's planning step wrote this plan before any run. "
-         + after_the_runs(record, NOT_BUILT), ""]
+    from agents import analysis_handoff as AH
+    no_plan = AH.unapprovable(record)
     status = record.get("status")
+    if status == FAILED and no_plan:
+        return [f"The analysis plan could not be written. The error was "
+                f"{_cell(record.get('why'))}. A design is approved together with its "
+                f"analysis plan, so this design cannot be approved as it is.", ""]
+    L = ["The Analyzer's planning step wrote this plan before any run. "
+         + ("It did not pass its check and its review. A design is approved together with "
+            "its analysis plan, so this design cannot be approved as it is." if no_plan else
+            after_the_runs(record, NOT_BUILT)), ""]
     if status == NOT_PLANNED:
         return L + [f"No plan was written, since {_cell(record.get('why'))}.", ""]
     if status == FAILED:
@@ -557,14 +650,19 @@ def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Option
     L += [f"The plan has {len(analyses)} analys{'is' if len(analyses) == 1 else 'es'} and "
           f"reads {len(fields)} quantit{'y' if len(fields) == 1 else 'ies'}.", ""]
     if analyses:
-        L += ["| | What it looks at | Where | When |", "|---|---|---|---|"]
+        sup = analysis_support(plan)
+        L += ["| | What it looks at | Where | When | Status |", "|---|---|---|---|---|"]
         for a in analyses:
             when = [w for w in (periods_words(a.get("periods") or []),
                                 series_words(a, de, row)) if w]
             L.append(f"| {_cell(a.get('id'))} | {_cell(a.get('title') or a.get('question'))} | "
                      f"{_cell('; '.join(str(r) for r in a.get('regions') or []) or 'each cell')}"
-                     f" | {_cell('; '.join(when) or 'none named')} |")
+                     f" | {_cell('; '.join(when) or 'none named')} | "
+                     f"{(sup.get(str(a.get('id'))) or {}).get('status', SUPPORTED)} |")
         L.append("")
+        why = support_lines(plan)
+        if why:
+            L += why + [""]
     used: List[str] = []
     for a in analyses:
         used += [str(r) for r in a.get("regions") or [] if str(r) not in used]
@@ -611,8 +709,12 @@ def weigh_lines(record: Optional[Dict[str, Any]], run_dir,
     if record.get("status") == PLANNED:
         L = [f"- The analysis plan passed its check and its review{again}."]
     else:
-        L = [f"- The analysis plan did not pass its check or its review. This does not stop "
-             f"the design, since the Analyzer plans again after the runs."]
+        from agents import analysis_handoff as AH
+        L = ["- The analysis plan did not pass its check or its review. "
+             + ("A design is approved together with its analysis plan, so this design "
+                "cannot be approved as it is." if AH.unapprovable(record) else
+                "This does not stop the design, since the Analyzer plans again after the "
+                "runs.")]
         L += [f"  - {_cell(x)}" for x in plan.get("problems") or [] if str(x).strip()]
     remarks = [x for x in (review.get("model_problems") or []) if str(x).strip()]
     if remarks:

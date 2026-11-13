@@ -26,8 +26,9 @@ what it says and to what it must not do:
                     gone.
     late            a year the plan names that a run did not produce is
                     closed as failed, as before, and the plan is not changed.
-    the yes         it is still of the runs and the years. Nothing here says
-                    the analysis was approved.
+    the yes         since stage 4 it is of the plan too, and names it by its
+                    hash (tests/test_approved_plan.py). A record made before
+                    that is handed over as it was promised then.
 
 Every design goes through the coordinator's own path, as in
 tests/test_analysis_preview.py, on the synthetic suite of
@@ -142,42 +143,29 @@ class TestThePromise:
                                                                 monkeypatch):
         rd, _ = _approved(tmp_path, monkeypatch, plan=_strategy(runs=[WARM]))
         rec = _record(rd)
-        assert rec["handoff"] == {"promised": True, "words": AH.CARRIED_OUT}
-        assert rec["transitional"] == AH.CARRIED_OUT
+        assert rec["handoff"] == {"promised": True, "bound": True, "words": AH.APPROVED}
+        assert rec["transitional"] == AH.APPROVED
         page = " ".join(_first_part(rd).split())
-        assert AH.CARRIED_OUT in page and AH.CARRIED_OUT.startswith("After the runs ")
+        assert AH.APPROVED in page
+        assert "After the runs the Analyzer carries the plan out as it stands and writes " \
+               "no second one." in page
         assert "If it cannot, the analysis stops and its report says why." in page
         assert "writes its plan again" not in page
-        assert AH.CARRIED_OUT in " ".join(_details(rd).split())
+        assert AH.APPROVED in " ".join(_details(rd).split())
         assert "writes its plan again" not in _details(rd)
 
     def test_a_design_with_no_new_run_does_not_speak_of_runs_to_come(self, both, tmp_path,
                                                                     monkeypatch):
         rd, _ = _approved(tmp_path, monkeypatch)             # the prepared run alone
         rec = _record(rd)
-        assert rec["handoff"] == {"promised": True, "words": AH.CARRIED_OUT_NO_RUN}
+        assert rec["handoff"] == {"promised": True, "bound": True,
+                                  "words": AH.APPROVED_NO_RUN}
         page = " ".join(_first_part(rd).split())
-        assert "After your yes the Analyzer carries out this plan as it stands and writes " \
+        assert "After your yes the Analyzer carries the plan out as it stands and writes " \
                "no second one." in page
         assert "After the runs" not in page and "writes its plan again" not in page
         assert "If it cannot, the analysis stops and its report says why." in page
-        assert AH.CARRIED_OUT_NO_RUN in " ".join(_details(rd).split())
-
-    def test_the_page_still_says_the_yes_does_not_approve_the_analysis(self, both, tmp_path,
-                                                                      monkeypatch):
-        """THE YES IS NOT BOUND TO THE PLAN in this stage either, and the page
-        says so where it shows the plan and where it asks."""
-        rd, plan = _approved(tmp_path, monkeypatch)
-        page = " ".join(_first_part(rd).split())
-        assert "Approval of the analysis is not built yet" in page
-        assert "It does not approve an analysis plan, since that approval is not built yet." \
-            in page
-        for words in ("approved plan", "approves this analysis", "approves this plan",
-                      "is bound"):
-            assert words not in page.lower(), words
-        approval = json.loads((rd / dr.APPROVAL_FILE).read_text())
-        assert set(approval) == {"decision", "when", "design_sha256"}
-        assert approval["design_sha256"] == dr.design_fingerprint(plan)
+        assert AH.APPROVED_NO_RUN in " ".join(_details(rd).split())
 
     def test_a_plan_that_did_not_pass_is_not_promised(self, both, tmp_path, monkeypatch):
         rd, _ = _approved(tmp_path, monkeypatch,
@@ -186,7 +174,7 @@ class TestThePromise:
         assert rec["status"] == AV.NOT_PASSED
         assert rec["handoff"] == {"promised": False, "why": AH.NOT_PASSED}
         page = " ".join(_first_part(rd).split())
-        assert AV.NOT_BUILT in page and "carries out this plan" not in page
+        assert "carries the plan out" not in page and "A yes approves this plan" not in page
 
     def test_a_switch_changed_after_the_page_changes_nothing(self, both, built, tmp_path,
                                                              monkeypatch):
@@ -660,13 +648,22 @@ class TestWhatIsSaidAfterwards:
             "planned_phase": {"analyses": [self.ROW], "counts": {}},
             "analysis_plan": {"handoff": handoff} if handoff else {}}))
 
-    def test_a_plan_carried_out_as_shown_is_said_in_the_report(self):
+    def test_a_plan_approved_and_carried_out_is_said_in_the_report(self):
+        text = self._section({"used": True, "approved": True, "why": AH.USED,
+                              "recheck": {"problems": []}})
+        assert "This plan was shown on the design page and approved with the yes, and the " \
+               "Analyzer carried it out as it stood." in text
+        assert "the record of the yes names it by its hash" in text
+        assert "was not tied to this plan" not in text
+
+    def test_a_plan_carried_out_under_a_yes_that_did_not_name_it_is_said_so(self):
+        """A study approved before the yes named plans (stage 3)."""
         text = self._section({"used": True, "why": AH.USED, "recheck": {"problems": []}})
         assert "This plan was shown on the design page before the yes, and the Analyzer " \
                "carried it out as it stood." in text
-        assert "It was not tied to this plan, since approval of the analysis is not built " \
-               "yet." in text
-        assert "approved plan" not in text.lower()
+        assert "It was not tied to this plan, since approval of the analysis was not built " \
+               "when this study was approved." in text
+        assert "approved with the yes" not in text
 
     def test_a_blocked_handoff_is_said_with_its_reason(self):
         said = " ".join(AH.report_lines({"used": False, "blocked": True,
