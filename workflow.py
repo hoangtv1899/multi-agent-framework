@@ -192,7 +192,7 @@ class WorkflowCoordinator:
 	model = "elm"
 
 	def __init__(self,
-				 reception_model:      str = "claude-opus-4-8-project",
+				 reception_model:      str = "claude-opus-5-5-project",
 				 planner_model:        str = "claude-opus-5-5-project",
 				 # ACCEPTED AND UNUSED. The Analyzer is the five-step box in
 				 # src/agents/analysis/, and each step picks its own model —

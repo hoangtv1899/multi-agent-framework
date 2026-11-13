@@ -383,3 +383,15 @@ def test_the_planner_and_the_analyzer_ask_the_same_model_by_default():
     assert inspect.signature(Planner.__init__).parameters["model"].default == S2.DEFAULT_MODEL
     assert inspect.signature(wf.WorkflowCoordinator.__init__).parameters[
         "planner_model"].default == S2.DEFAULT_MODEL
+
+
+def test_reception_asks_the_same_model_by_default():
+    """The user's decision of 2026-11-12, taken after Reception met every
+    one of its acceptance questions on this model and a smaller model did
+    not. All three agents then ask one model."""
+    import inspect
+    pytest.importorskip("openai")
+    import workflow as wf
+    from agents.analysis import step2_investigate as S2
+    assert inspect.signature(wf.WorkflowCoordinator.__init__).parameters[
+        "reception_model"].default == S2.DEFAULT_MODEL == "claude-opus-5-5-project"

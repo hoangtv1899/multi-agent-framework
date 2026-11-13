@@ -92,7 +92,7 @@ Reception: a person's question in, a brief for the Planner out.
 - `LLMReceptionAgent.__init__` constructs `ToolLoopAgent`
 - Default model id: `LLMReceptionAgent.__init__(model)` has no default; its caller sets it
 - Model id as the framework passes it:
-  - `workflow.py::WorkflowCoordinator.__init__` calls `LLMReceptionAgent.__init__` with model=`reception_model` = `"claude-opus-4-8-project"`
+  - `workflow.py::WorkflowCoordinator.__init__` calls `LLMReceptionAgent.__init__` with model=`reception_model` = `"claude-opus-5-5-project"`
 - Prompt files: `src/agents/prompts/reception_agentic.txt`
 - Prompt text written in the module: none
 - Records it reads: none; writes: none; names without opening: none
