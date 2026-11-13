@@ -712,8 +712,8 @@ def _numbers_lines(rd, page_dir):
         yd = {}
     if yd.get("left_out"):
         # the years a run simulated and the question does not ask about
-        L.append(f"- simulated and NOT reported: {_years(yd['left_out'])}. A run starts "
-                 f"from the control's saved state; the question asks about "
+        L.append(f"- simulated and NOT reported: {_years(yd['left_out'])}. The design "
+                 f"simulated them; the question asks about "
                  f"{_years(yd.get('asked')) if yd.get('asked') else 'the years above'}. "
                  f"An answer is read from the years reported.")
     runs = reg.get("runs") or {}

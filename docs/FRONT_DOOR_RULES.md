@@ -100,19 +100,36 @@ before.
 
 ## The years simulated and the years reported
 
-`src/core/analysis_years.py`. A run starts from the control's saved state, so
-the years it simulates start at the control's start year. The years the
-numbers are reported for are the years the person asked about
-(`run_settings.requested_period`) and the normal years they are compared
-with, or the plan's own `analysis.years`. The design page, the regional table
-and the study record read this one function.
+`src/core/analysis_years.py`. The years the numbers are reported for are the
+years the person asked about (`run_settings.requested_period`) and the normal
+years they are compared with, or the plan's own `analysis.years`. The design
+page, the regional table and the study record read this one function.
 
 - The page's When line labels each part: the years asked about, the normal
-  years chosen by the design, and years simulated and not reported, with the
-  rule that requires them. A widened span is never called the person's.
-- The server's rule that a run's years start at the saved state applies only
-  when a run executes. The control read alone may cover any consecutive
-  years inside its output.
+  years chosen by the design, and years simulated and not reported, which are
+  the design's own span. A widened span is never called the person's.
+- The control read alone may cover any consecutive years inside its output.
+
+## Where a run starts
+
+Since 2026-11-12 the model server lists the years a run can start from, and
+nothing else decides it (`domain_controls.start_years`).
+
+- A control saves its state on every 1 January. The server reads its run
+  folder each time it is asked and lists its own first year and each later
+  year it has a saved state for, inside its output. The list is in the
+  control's description under `facts.start_years`.
+- A run simulates the years the question asks about and no others. Its first
+  year is one of the listed years, and it starts on 1 January of that year
+  from the control's saved state of that day (`domain_changes.start_from`).
+  Its case job expects that one more difference from the control's settings.
+- A first year that is not listed is refused, with the list.
+- Until 2026-11-12 every run started at the control's own first year, so a
+  question about 2018 and 2019 simulated 2015 to 2019.
+- No run started from a later saved state has been completed here yet. The
+  server's check says so in a note, which the design page prints, until
+  `domain_changes.LATER_START_DEMONSTRATED` is set after one has passed every
+  check of its jobs.
 
 ## What Reception reads, and how it ends
 
@@ -131,8 +148,8 @@ and the study record read this one function.
   back to its first answer. A menu of twelve thousand characters is not
   carried twice.
 - **A revision carries the years asked about** as well as the years
-  simulated, so the start year a run needs is not reported as a year asked
-  about after a change at the design page.
+  simulated, so a year the design adds is not reported as a year asked about
+  after a change at the design page.
 - **The run is described once, and only what it is.** The start banner says
   what each prepared run is. Reception's card says the same, and is shown
   only for a run the banner did not name (`LLMReceptionAgent.introduced`,

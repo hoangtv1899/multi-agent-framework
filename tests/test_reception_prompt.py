@@ -189,9 +189,12 @@ def test_the_rules_that_live_conversations_taught_are_in_it():
             # an unsupported study was offered after "proceed anyway"
             'never offer single model columns, another model, or to "proceed anyway"',
             "When they decline, or tell you to stop, design nothing",
-            # the start year a run needs was reported as a year asked about
+            # the start year a run needed was reported as a year asked about
             "exactly as the person stated or agreed them, never widened",
-            "Do not add the control's start year to them",
+            "Add no other year to them",
+            # every run was started in the control's first year (2026-11-12)
+            "are the years the question asks about and no others",
+            "the first one of the control's `start_years`",
             # one message, plain, and true of the design
             "Send ONE `ask_user` message before the brief",
             # an acknowledgement was put to the person as a question

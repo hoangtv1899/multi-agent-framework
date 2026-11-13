@@ -145,10 +145,13 @@ def _runs_lines(brief, strategy, de, menu, row, preview, run_dir) -> List[str]:
         if not r.get("changes"):
             L.append(f"`{name}` names no change, so it repeats the prepared run.")
     if sim:
-        start = facts.get("start_year")
-        first = (f"A run starts from the prepared run's saved state at the beginning of "
-                 f"{start}, so each new run simulates {_span(sim)}."
-                 if start is not None and min(sim) == start and how["left_out"] else
+        # WHERE A RUN STARTS (2026-11-12): from the prepared run's saved state
+        # of its own first year, whichever year that is. The page said so only
+        # of the prepared run's first year, as the reason for years simulated
+        # and not asked about, when every run had to start there.
+        first = (f"Each new run starts from the prepared run's saved state at the "
+                 f"beginning of {min(sim)} and simulates {_span(sim)}."
+                 if (de.get("control") or {}).get("reuse") else
                  f"Each new run simulates {_span(sim)}.")
         L.append(first + f" The numbers are reported for {_span(years)}"
                  + (f", the year{'' if len(years) == 1 else 's'} you asked about."

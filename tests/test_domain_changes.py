@@ -284,7 +284,7 @@ class TestTheCheck:
         (_exp({"name": "a", "changes": [{"id": "fire_off"}]}, years=range(2015, 2023)),
          "outside the reused control's output (2015-2021)"),
         (_exp({"name": "a", "changes": [{"id": "fire_off"}]}, years=(2016, 2017)),
-         "its years start at 2015"),
+         "the run's first year is one of those, not 2016"),
         (_exp({"name": "a", "changes": [{"id": "ndep_year", "params": {"year": 1800}}]}),
          "1800 is outside the control's deposition dataset (1849-2106)"),
         (_exp({"name": "a", "changes": [{"id": "fire_off"}]}, years=[]),

@@ -94,6 +94,44 @@ def get(name: str, override: Optional[str] = None) -> Dict[str, Any]:
     return dict(e, registry=reg["path"])
 
 
+# THE YEARS A RUN CAN START FROM (2026-11-12). A new run was held to the
+# control's own first year, by a rule that had no reason in the model: a
+# question about 2018 and 2019 simulated 2015 to 2019. The control saves its
+# state on every 1 January, and a run can start from any of them, so the
+# server lists the years it has a saved state for and nothing else decides.
+# Read from the control's run folder each time it is asked, never cached: the
+# list is then true of the files that are there.
+SAVED_STATE = re.compile(r"\.elm\.r\.(\d{4})-01-01-00000\.nc$")
+
+
+def saved_states(entry: Optional[Dict[str, Any]]) -> Dict[int, str]:
+    """{year: the land model's saved state of 1 January of that year}, from
+    the control's run folder."""
+    rd = Path(str((entry or {}).get("run_dir") or ""))
+    out: Dict[int, str] = {}
+    if (entry or {}).get("run_dir") and rd.is_dir():
+        for p in sorted(rd.glob("*.elm.r.*.nc")):
+            m = SAVED_STATE.search(p.name)
+            if m:
+                out[int(m.group(1))] = str(p)
+    return out
+
+
+def start_years(entry: Optional[Dict[str, Any]],
+                f: Optional[Dict[str, Any]] = None) -> List[int]:
+    """The years a new run can start from, in order: the control's own first
+    year (the state the control itself started from) and each later year
+    whose 1 January state it saved, no later than its last year of output."""
+    f = f if f is not None else ((entry or {}).get("facts") or {})
+    first = f.get("start_year")
+    last = (f.get("output_years") or [None, None])[1]
+    ys = set(saved_states(entry))
+    if first is not None:
+        ys.add(int(first))
+    return sorted(y for y in ys if (first is None or y >= int(first))
+                  and (last is None or y <= int(last)))
+
+
 def _facts_path(entry: Dict[str, Any]) -> Path:
     return Path(entry["registry"]).parent / FACTS_DIR / f"{entry['name']}.json"
 
@@ -783,6 +821,8 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
     s = f.get("settings") or {}
     out["facts"] = {
         "case": f.get("case"), "start_year": f.get("start_year"),
+        # the years a new run can start from: one with a saved state (above)
+        "start_years": start_years(entry, f),
         "forcing_years": f.get("forcing_years"), "output_years": f.get("output_years"),
         "settings": {k: s.get(k) for k in NAMELIST_SETTINGS + ("CCSM_CO2_PPMV",
                                                               "ELM_CO2_TYPE",

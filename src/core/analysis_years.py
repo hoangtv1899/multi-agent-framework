@@ -108,9 +108,9 @@ def when_line(brief: Optional[Dict[str, Any]], strategy: Optional[Dict[str, Any]
                      + ")")
     line = "; ".join(parts) if parts else _span(years)
     if how["left_out"]:
-        rule = (f"a run starts from the control's saved state at {start_year}"
-                if executes and start_year is not None and min(sim) == start_year
-                else "the design's own span")
+        # the design's choice since 2026-11-12: a run starts from the saved
+        # state of whichever year it begins in, so no rule of the model asks
+        # for a year the question does not
         line += (f". Also simulated and not reported: {_span(how['left_out'])} "
-                 f"(required: {rule})")
+                 f"(the design's own span)")
     return line

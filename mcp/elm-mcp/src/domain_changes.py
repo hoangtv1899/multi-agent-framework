@@ -170,11 +170,11 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                                   "what": "multiplies rain and snow alike, every step"},
                 "months": {"kind": "months", "default": list(range(1, 13)),
                            "what": "the months it applies in, 1-12"},
-                # THE YEARS IT APPLIES IN (2026-11-10). A run starts from the
-                # control's saved state, so it simulates years before the ones
-                # a question names; with no year setting, "less rain in the
-                # summers of 2018 and 2019" was a run with less rain in every
-                # summer from its first year. The anomaly file holds the
+                # THE YEARS IT APPLIES IN (2026-11-10). A run may simulate
+                # years before the ones a question names; with no year
+                # setting, "less rain in the summers of 2018 and 2019" was a
+                # run with less rain in every summer from its first year. The
+                # anomaly file holds the
                 # identity in a year left out, and the year's check then holds
                 # the run to the control there.
                 "years": {"kind": "years", "default": None,
@@ -749,8 +749,42 @@ def build_run(control, run: Dict[str, Any], inputs_dir, years,
                     raise ChangeError(f"run {run.get('name')}: no writer {writer!r}")
             except W.WeatherError as e:
                 raise ChangeError(f"run {run.get('name')}: {c['id']}: {e}") from None
-    return (run_recipe(control, run, written),
-            expectations(run, control_case_dir, written))
+    recipe = run_recipe(control, run, written)
+    expect = expectations(run, control_case_dir, written)
+    start_from(recipe, expect, years, control, control_entry)
+    return recipe, expect
+
+
+def start_from(recipe, expect: Dict, years, control, control_entry: Optional[Dict]) -> None:
+    """Start a run from the control's saved state of its first year, when
+    that is not the control's own first year: its start date, and the saved
+    state as the state it starts from. The run's settings then differ from
+    the control's in that one more way, which its case job expects.
+
+    The control's own first year needs nothing: the recipe is the control's,
+    which starts from the state the control started from. So does a control
+    that runs with its runs (no prepared control, so no saved state)."""
+    import domain_controls as _controls
+    if not control_entry or not years:
+        return
+    y0 = int(years[0])
+    if y0 == control.first_year:
+        return
+    state = _controls.saved_states(control_entry).get(y0)
+    if not state:
+        raise ChangeError(f"run {recipe.case}: the control has no saved state for "
+                          f"1 January {y0} to start from")
+    recipe.start = f"{y0:04d}-01-01"
+    recipe.xml = [((e[0], recipe.start) + tuple(e[2:])) if e[0] == "RUN_STARTDATE" else e
+                  for e in recipe.xml]
+    recipe.user_nl["elm"] = _set_user_nl(list(recipe.user_nl.get("elm", [])), "finidat",
+                                         f"'{state}'")
+    recipe.notes = list(recipe.notes) + [
+        f"starts on {recipe.start} from the control's saved state of that day: {state}"]
+    expect.setdefault("settings", {}).setdefault("lnd_in", {})["finidat"] = state
+    bad = recipe.check()
+    if bad:
+        raise ChangeError(f"run {recipe.case}: the recipe cannot be used: " + "; ".join(bad))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -912,17 +946,36 @@ def _h1_problems(cfacts: Optional[Dict], years: Sequence[int], here: str,
                      f"complete year {gap}: those years of the run could not be checked"})
 
 
+# A RUN STARTED FROM A LATER SAVED STATE (2026-11-12). No run has started
+# from one in this framework yet, so the check says so, as it does of a change
+# with no completed run. Set to True when a chain started that way has passed
+# every check of its jobs.
+LATER_START_DEMONSTRATED = False
+
+
+def _span_words(ys) -> str:
+    ys = sorted({int(y) for y in ys})
+    if len(ys) > 2 and ys == list(range(ys[0], ys[-1] + 1)):
+        return f"{ys[0]} to {ys[-1]}"
+    return ", ".join(str(y) for y in ys)
+
+
 def _years_problems(years, facts: Optional[Dict], reuse: bool,
-                    executes: bool = True) -> Tuple[List[str], List[str]]:
+                    executes: bool = True,
+                    start_years: Optional[List[int]] = None) -> Tuple[List[str], List[str]]:
     """What is wrong with an experiment's years.
 
-    executes  does any job run? False for a reused control read alone. The
-              rules about a run (it starts from the control's saved state, it
-              reads the control's forcing) then do not apply: the years are
-              only the span of the control's existing output that is read.
-              They were applied all the same (until 2026-11-10), so a question
-              about later years of the control was refused until it began at
-              the control's start year."""
+    executes     does any job run? False for a reused control read alone. The
+                 rules about a run (it starts from a saved state of the
+                 control, it reads the control's forcing) then do not apply:
+                 the years are only the span of the control's existing output
+                 that is read.
+    start_years  the years the control has a saved state for
+                 (domain_controls.start_years); its own first year when none
+                 is given. A run starts from the saved state of its first
+                 year, so that year is one of these and no other rule holds
+                 it (until 2026-11-12 every run started at the control's own
+                 first year)."""
     bad, odd = [], []
     if not isinstance(years, list) or not years or \
             not all(isinstance(y, int) and not isinstance(y, bool) for y in years):
@@ -946,10 +999,18 @@ def _years_problems(years, facts: Optional[Dict], reuse: bool,
             bad.append(f"years {years[0]}-{years[-1]} are outside the reused control's "
                        f"output ({o0}-{o1}): those years have nothing to compare with")
         start = facts.get("start_year")
-        if executes and start is not None and years[0] != start:
-            bad.append(f"a run starts from the control's saved state at {start}, so "
-                       f"its years start at {start}, not {years[0]} (compare later "
-                       f"years only, after running from {start})")
+        starts = sorted(start_years) if start_years else \
+            ([int(start)] if start is not None else [])
+        if executes and starts and years[0] not in starts:
+            bad.append(f"a run starts from a saved state of the control, which has one "
+                       f"for 1 January of {_span_words(starts)}: the run's first year is "
+                       f"one of those, not {years[0]}")
+        elif executes and starts and start is not None and years[0] != int(start) \
+                and not LATER_START_DEMONSTRATED:
+            odd.append(f"not demonstrated: the run starts from the control's saved state "
+                       f"of 1 January {years[0]}, and no run started from a later saved "
+                       f"state has been completed in this framework yet. Its inputs are "
+                       f"checked before the model is built; its start is untested")
     return bad, odd
 
 
@@ -1093,13 +1154,16 @@ def check(experiment: Dict[str, Any], control: Optional[Dict[str, Any]] = None
     reuse = bool((exp.get("control") or {}).get("reuse"))
     years = exp.get("years")
     runs = exp.get("runs")
+    import domain_controls as _controls
     b, o = _years_problems(years, cfacts, reuse,
-                           executes=bool(runs) or not reuse)
+                           executes=bool(runs) or not reuse,
+                           start_years=_controls.start_years(control, cfacts or {})
+                           if control else None)
     wont += [{"where": "years", "what": x} for x in b]
     odd += [{"where": "years", "what": x} for x in o]
     # THE YEARS REPORTED, when the plan names them (analysis.years): years the
-    # experiment holds. A run's years start where the control's saved state
-    # is; the years a question asks about may start later.
+    # experiment holds. A run's first year is one the control has a saved
+    # state for; the years a question asks about may still be fewer.
     ay = (exp.get("analysis") or {}).get("years") if isinstance(exp.get("analysis"), dict) \
         else None
     if ay is not None:

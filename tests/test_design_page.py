@@ -490,9 +490,9 @@ class TestNothingADecisionRestsOnIsLeftOut:
 
     def test_the_years_simulated_and_the_years_reported_are_both_said(self, folder):
         sec = _flat(_section(_page(folder), "What will run"))
-        assert "A run starts from the prepared run's saved state at the beginning of 2031, " \
-               "so each new run simulates 2031 to 2033. The numbers are reported for 2033, " \
-               "the year you asked about." in sec
+        assert "Each new run starts from the prepared run's saved state at the beginning " \
+               "of 2031 and simulates 2031 to 2033. The numbers are reported for 2033, the " \
+               "year you asked about." in sec
 
     def test_a_verdict_in_part_is_said_with_its_reason_and_what_is_missing(self, folder):
         st = _strategy(feasibility={"verdict": "partial",

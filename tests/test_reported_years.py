@@ -117,11 +117,13 @@ class TestTheServersRuleIsAboutRuns:
                "years": _years(2033, 2035)}
         assert _wont(exp) == []
 
-    def test_a_run_still_starts_at_the_saved_state(self):
+    def test_a_run_starts_from_a_year_the_control_has_a_saved_state_for(self):
+        """With no saved state listed, the control's own first year is the
+        only one (tests/test_start_years.py holds the rule with a list)."""
         exp = {"control": {"name": "c", "reuse": True}, "runs": FIRE_OFF,
                "years": _years(2033, 2035)}
-        assert any(f"a run starts from the control's saved state at {START}" in w
-                   for w in _wont(exp))
+        assert any(f"which has one for 1 January of {START}: the run's first year is one "
+                   f"of those, not 2033" in w for w in _wont(exp))
 
     def test_the_control_alone_stays_inside_its_output(self):
         exp = {"control": {"name": "c", "reuse": True}, "runs": [],
@@ -154,8 +156,7 @@ class TestThePageSaysWhoseChoiceEachYearIs:
         when = _when(page)
         assert "you stated it" not in page
         assert "2032 (the years you asked about)" in when
-        assert (f"Also simulated and not reported: 2031 (required: a run starts from the "
-                f"control's saved state at {START})") in when
+        assert "Also simulated and not reported: 2031 (the design's own span)" in when
         assert "- simulated: 2 model year(s), 2031–2032, for 1 run(s) to execute" in page
         assert ("- reported: the numbers are read for 2032; 2031 is simulated and not "
                 "reported") in page

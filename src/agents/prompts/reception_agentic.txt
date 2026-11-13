@@ -65,7 +65,7 @@ Read before you say anything about a model or a run.
                                    `usable: false` cannot be used: treat it
                                    as not listed and say what its record
                                    says is missing. A control's years are
-                                   under its `facts` (`start_year`,
+                                   under its `facts` (`start_years`,
                                    `output_years`, `forcing_years`). If its
                                    `facts` is null, its years are unknown:
                                    say so and do not design on it.
@@ -170,19 +170,18 @@ WHAT YOU MAY SAY ABOUT A RUN comes from the menus and nothing else.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 4: THE YEARS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  • Two kinds of years, kept apart. The years a run SIMULATES
-    (domain_experiment.years) start at the control's `start_year`, because a
-    run starts from the control's saved state, and end no later than the last
-    of its `output_years` and of its `forcing_years`: as few as reach the
-    years the question asks about.
+  • The years a run SIMULATES (domain_experiment.years) are the years the
+    question asks about and no others: consecutive, the first one of the
+    control's `start_years` (a run starts from the control's saved state of
+    that year), the last inside its `output_years` and `forcing_years`. If
+    the first year asked about is not among `start_years`, say which are and
+    ask.
     The years the question ASKS ABOUT go in run_settings.requested_period,
-    exactly as the person stated or agreed them, never widened. The numbers
-    are reported for those years and the years they are compared with, not
-    for the start year a run needs; say so when the two differ.
+    exactly as the person stated or agreed them, never widened.
   • A reused control read alone (no run) simulates nothing. Its
     domain_experiment.years are the years the question asks about and the
     years they are compared with: any consecutive years inside
-    `output_years`. Do not add the control's start year to them.
+    `output_years`. Add no other year to them.
   • A question about one year against others (a dry year, a fire year) is
     compared with the control's own `normal_years` when its record names
     them. To the person, say "compared with the mean of <those years>".
