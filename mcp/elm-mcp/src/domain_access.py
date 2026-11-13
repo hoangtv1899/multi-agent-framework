@@ -110,6 +110,59 @@ SHOWN_ROW = ("field", "group", "type", "period", "units", "change_units", "value
              "reference", "change", "percent", "score", "status", "mark", "n_normal",
              "near_constant", "note")
 
+# A REGION'S SERIES KEEPS ITS VALUES, EACH UNDER ITS OWN PERIOD (2026-11-12).
+# A series' values came back as an array, and the record of a call keeps an
+# array by its hash alone, as it must for a map of every cell. But a region's
+# series by year, water year, season or month is no per-cell array: it is one
+# number per period, the same number the suite gives a single-period call
+# (Suite.value reads the very file get_series reads). With only the hash on
+# record, a study whose plan asked for its yearly totals as series could draw
+# them and not state one of them: its report said the yearly amounts could not
+# be given, and no check before the runs had seen it coming.
+#
+# The record of such a series now holds each value under its label
+# ("values.WY2016") and the share of the region's area behind each, in the
+# labels' order ("covered"). Everything downstream then treats a series value
+# as it treats any other number of a record: step 3 is shown it under its
+# record, a claim may state it, the claim trace holds it to the year (and the
+# month or season) of its own label, and the numbers check makes it again
+# from the model's history (agents/analysis/claim_trace.py, suite_check.py).
+#
+# ONE RULE DECIDES: every label is one of the suite's period labels, of the
+# series' own step, each once (domain_methods.parse_period: 2015, WY2016,
+# 2015-JJA, 2015-07). A DAILY SERIES STAYS A HASH by that rule: its labels are
+# days, thousands of them, read for a figure or a timing measure and never
+# stated one by one. So does a series longer than SERIES_VALUES_KEPT.
+SERIES_VALUES_KEPT = 600                  # fifty years of months
+
+
+def series_values(value: Any) -> Optional[Dict[str, Any]]:
+    """{"values": {label: number, None where the suite holds none},
+    "covered": [share of the region's area per label, None where unknown] or
+    None} of a series whose record keeps its values, else None (see above)."""
+    if not isinstance(value, dict):
+        return None
+    labels, vals, cov = value.get("labels"), value.get("values"), value.get("covered")
+    if not isinstance(labels, (list, tuple)) or not isinstance(vals, np.ndarray) \
+            or vals.ndim != 1 or len(labels) != vals.size \
+            or not 0 < vals.size <= SERIES_VALUES_KEPT:
+        return None
+    labels = [str(x) for x in labels]
+    if len(set(labels)) != len(labels):
+        return None                       # a value could not be named by its label
+    try:
+        if any(M.parse_period(lab)[0] != value.get("step") for lab in labels):
+            return None
+    except M.MethodError:
+        return None
+
+    def num(x):
+        return float(x) if np.isfinite(x) else None
+    covered = None
+    if isinstance(cov, np.ndarray) and cov.shape == vals.shape:
+        covered = [num(x) for x in cov]
+    return {"values": {lab: num(x) for lab, x in zip(labels, vals)}, "covered": covered}
+
 
 def flat_result(call: str, value: Any) -> Optional[Dict[str, Any]]:
     """What an answered call returned, for its evidence record (package F1,
@@ -119,7 +172,9 @@ def flat_result(call: str, value: Any) -> Optional[Dict[str, Any]]:
     row that holds a value, with the row's status and marks. None for a map
     or a call that returns no dict. Nothing is cut: the claim trace reads a
     claim's numbers, periods and warnings from here, and the numbers check
-    (package F2) recomputes them."""
+    (package F2) recomputes them. A region's series by year, water year,
+    season or month keeps each value under its label and its covered shares
+    as one list (series_values, above); a daily series keeps neither."""
     if not isinstance(value, dict):
         return None
     src: Any = value
@@ -156,6 +211,12 @@ def flat_result(call: str, value: Any) -> Optional[Dict[str, Any]]:
         else:
             out[path] = scalar(x)
     walk(src, "")
+    kept = series_values(value) if call == "get_series" else None
+    if kept is not None:
+        for lab, v in kept["values"].items():
+            out[f"values.{lab}"] = v
+        if kept["covered"] is not None:
+            out["covered"] = kept["covered"]
     return out
 
 

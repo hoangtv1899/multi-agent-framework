@@ -684,8 +684,10 @@ def required_findings(out_dir, record: Dict[str, Any], plan: Dict[str, Any]
                 # ITS CITABLE VALUES ONLY (2026-11-08): the labels a result
                 # holds (its normal years, its settings) are no numbers a
                 # script made, and step 3's brief listed them as such
-                res[lab] = CT.citable(ln.get("result")) or \
-                    {"returned": "a map (no numbers of its own)"}
+                res[lab] = CT.citable(ln.get("result")) or {"returned": (
+                    "a series the record keeps by its hash alone, a daily one or one too "
+                    "long to list (no numbers of its own)" if ln.get("call") == "get_series"
+                    else "a map (no numbers of its own)")}
                 ids.append(f"L{r['line']}")
             else:
                 res[lab] = {"not made": (ln or {}).get("refused") or r.get("error") or "no call"}

@@ -89,6 +89,13 @@ FLAG = {"snow_returns": 1, "partial_record": 2, "two_peaks": 4, "runoff_falls": 
 METHOD_CALLS = ("anomaly", "difference", "screen", "overlap", "elevation_split") + \
     tuple(TIMING_KIND)
 NO_NUMBER_CALLS = ("get_map", "get_series", "get_timing")
+# A SERIES VALUE A CLAIM STATES IS MADE AGAIN (2026-11-12). The record of a
+# region's series by year, water year, season or month holds each value under
+# its label ("values.WY2016"). Such a value is the region's value for that
+# period, the number region_value makes for an anomaly, so the check makes
+# each one a claim states again from the history and compares it. A series no
+# claim states a value of logs no number the check compares, as before.
+SERIES_VALUE = "values."
 SCREEN_COLS = ("value", "reference", "change", "percent", "score", "status", "mark",
                "n_normal", "near_constant")
 ROW_VALUES = ("value", "reference", "change", "percent", "score")
@@ -1530,6 +1537,12 @@ def recompute(ctx: Context, i: int, cited_paths: Sequence[str]
     if call in TIMING_KIND:
         out, tol = timing(ctx, call, keys, logged)
         return out, tol, []
+    if call == "get_series":
+        get = _getter(ctx, keys.get("run") or "control", keys["field"], keys["region"])
+        out = {p: get(p[len(SERIES_VALUE):])[0]
+               for p in sorted(set(cited_paths)) if p.startswith(SERIES_VALUE)}
+        return out, {}, [f"{len(out)} of the series' values, each the region's value for the "
+                         f"period of its label"]
     if call == "screen":
         st = dict(DEFAULTS["screen"], **named)
         places = _row_places(logged)
@@ -1711,7 +1724,7 @@ def _key(ctx: Context, i: int, cited_paths: Sequence[str]) -> str:
             except CheckError:
                 srcs.append(None)
     blob = [ln.get("call"), ln.get("keys"), ln.get("settings"),
-            sorted(cited_paths) if ln.get("call") == "screen" else None, srcs,
+            sorted(cited_paths) if ln.get("call") in ("screen", "get_series") else None, srcs,
             ctx.plan.get("baseline"), ctx.inp.get("regions"), ctx.entry.get("elevation_band_edges"),
             ctx.stamps(sorted(runs)), sorted(_logged_variants(ln.get("result") or {}).items()),
             [ln.get("result", {}).get(f"sensitivity.{k}.variant") for k in range(8)]]
@@ -1747,13 +1760,17 @@ def check(study_dir, claims: Sequence[Dict[str, Any]], registry: Optional[Dict[s
             call = ln.get("call")
             if "sha256" not in ln or ln.get("refused") or ln.get("failed") or ln.get("support"):
                 continue
-            if call in NO_NUMBER_CALLS:
+            series_stated = call == "get_series" and any(
+                p.startswith(SERIES_VALUE) for p in cited[rid])
+            if call in NO_NUMBER_CALLS and not series_stated:
                 rec["records"][rid] = {"call": call, "compared": 0,
-                                       "note": "it logs no number (a map or a series is an "
-                                               "array the log does not keep); its arrays are "
-                                               "made again where an overlap or split uses them"}
+                                       "note": "no number of it is compared (a map or a daily "
+                                               "series is an array the log does not keep, and "
+                                               "no claim states a value of this series); its "
+                                               "arrays are made again where an overlap or "
+                                               "split uses them"}
                 continue
-            if call not in METHOD_CALLS:
+            if call not in METHOD_CALLS and not series_stated:
                 rec["not_recomputed"].append({"record": rid, "call": call,
                                               "why": "the check makes no such call again"})
                 continue

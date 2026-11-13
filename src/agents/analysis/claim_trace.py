@@ -1925,6 +1925,107 @@ def _matches(v: float, printed: Optional[str], recs) -> List[Tuple[Dict[str, Any
     return hits
 
 
+# A SERIES VALUE IS STATED WITH ITS OWN PERIOD (2026-11-12). The record of a
+# region's series by year, water year, season or month holds each value under
+# its label ("values.WY2016"; domain_access.series_values). Such a record
+# names every period it covers, so the rule "a claim names only the periods
+# its records name" cannot tell the value of one year from the value of the
+# next: "310 mm in 2018" would pass on a series whose 310 is 2017's. A number
+# a claim prints as a measurement, when its records give it only as series
+# values, is therefore held to its label: the claim names that label's year,
+# and for a month or a season label that month or season too (a winter is
+# named by the year of its January, as the suite labels it). Where several
+# labels give the number at the precision printed, naming one is enough.
+#
+# A bare whole number of one or two digits with no unit after it is not held:
+# it is a count as often as a value ("8 water years"), and before the series
+# kept their values it could match nothing of a series at all.
+SERIES_VALUE = "values."
+SERIES_RULE = ("a value taken from a series is stated with its own year, and with its month "
+               "or season when the series is by month or season (a winter by the year of "
+               "its January)")
+
+
+def series_label(rec: Dict[str, Any], path: str) -> Optional[str]:
+    """The label of a series record's value ("values.WY2016" -> "WY2016");
+    None for any other record or path."""
+    if rec.get("call") != "get_series" or not str(path).startswith(SERIES_VALUE):
+        return None
+    return str(path)[len(SERIES_VALUE):]
+
+
+def holds_series_values(rec: Dict[str, Any]) -> bool:
+    """Whether a record is of a series that keeps its values by label."""
+    return any(series_label(rec, p) for p in rec.get("values") or {})
+
+
+def months_named(text: str) -> set:
+    """The months a text names, as two digits: each month by its name, and
+    every month of a range of month names ("April to June" names May too)."""
+    t = str(text or "")
+    out = {f"{_month_number(m.group(1)):02d}" for m in _MONTH_RX.finditer(t)}
+    for m in _RANGE_RX.finditer(t):
+        a, b = _month_number(m.group("a")), _month_number(m.group("b"))
+        k = a
+        while True:
+            out.add(f"{k:02d}")
+            if k == b:
+                break
+            k = k % 12 + 1
+    return out
+
+
+def years_written(text: str) -> set:
+    """Every four-digit year a text writes with no unit straight after it.
+
+    NOT years_named (2026-11-12, found by the first live report after the
+    series kept their values). years_named leaves out a year that opens a
+    range in a length unit, so that "2000 to 2500 m" names no year. The same
+    rule reads "117 mm in water year 2017 and 25.7 mm in water year 2020" as
+    such a range, and 2017 was no year: five true claims of that report were
+    struck for not naming the year they named. Asking whether a claim names
+    the year of a value it states, the year is taken as written."""
+    t = str(text or "")
+    return {m.group(0) for m in re.finditer(r"\b(?:19|20)\d{2}\b", t)
+            if unit_after(t, m.end()) is None}
+
+
+def label_named(label: str, text: str) -> bool:
+    """Whether a text names a series label's own period."""
+    lab, t = str(label), str(text or "")
+    if re.search(rf"(?<![A-Za-z0-9]){re.escape(lab)}(?![A-Za-z0-9])", t):
+        return True                                   # the label itself, "WY2016"
+    m = re.fullmatch(r"(?:WY)?(\d{4})(?:-(\d{2}|[A-Z]{3}))?", lab)
+    if not m or m.group(1) not in years_written(t):
+        return False
+    part = m.group(2)
+    if part is None:
+        return True
+    if part.isdigit():
+        return part in months_named(t)
+    return ("season", part) in named_periods(t)
+
+
+def _a_measurement(word: str, unit: Optional[str]) -> bool:
+    """A printed number written as a measurement, not as a count: a unit
+    after it, a decimal point, or three digits or more."""
+    w = str(word).replace(",", "").lstrip("-")
+    return unit is not None or "." in w or len(w) >= 3
+
+
+def series_period_problems(word: str, unit: Optional[str], hits, text: str) -> List[str]:
+    """The problem of a printed number its records give only as series
+    values, none of whose labels the claim names; [] otherwise."""
+    labs = [(r, series_label(r, p)) for r, p in hits]
+    if not labs or not _a_measurement(word, unit) or any(lab is None for _, lab in labs):
+        return []
+    if any(label_named(lab, text) for _, lab in labs):
+        return []
+    of = ", ".join(sorted({f"{lab} ({r['id']})" for r, lab in labs})[:4])
+    return [f"the number {word}{(' ' + unit) if unit else ''} is a series' value for {of}, "
+            f"a period the claim does not name: {SERIES_RULE}"]
+
+
 def _number_words(text: str) -> List[Tuple[str, Optional[str], int]]:
     """The numbers a text prints, with the unit after each; a unit's own
     exponent ('m^2', 'm-2', 's-1') is not a number."""
@@ -2180,6 +2281,7 @@ def check_claim(c: Dict[str, Any], records: Dict[str, Dict[str, Any]], plan: Dic
         hits = _matches(x, w, recs) or (share_matches(x, w, recs) if unit == "percent" else [])
         if hits:
             matched += hits
+            probs += series_period_problems(w, unit, hits, text)
             continue
         if abs(x) in labels or x in labels or any(
                 written_as_label(text, end, x, lab) for r in recs
@@ -2824,6 +2926,9 @@ def record_brief_lines(r: Dict[str, Any], in_result: Optional[List[str]] = None
     rr = _range_rule(r)
     if rr:
         L.append(f"              {rr}")
+    if holds_series_values(r):
+        L.append(f"              a series by {r.get('step')}: one value for each period, "
+                 f"each stated with its own period")
     got = list(in_result or [])
     L.append("              its values in the finding's result: "
              + ("; ".join(got[:BRIEF_MAX_PER_RECORD]) if got else "none")
@@ -2847,6 +2952,9 @@ def finding_evidence_lines(finding: Dict[str, Any], records: Dict[str, Dict[str,
     if not recs:
         L.append("          none: no number of this finding is a value of a record, so no "
                  "claim can rest on it")
+    if any(holds_series_values(r) for r in recs[:BRIEF_MAX_RECORDS]):
+        # the rule once for the finding, not under each of its series
+        L.append(f"          of its series: {SERIES_RULE}")
     for r in recs[:BRIEF_MAX_RECORDS]:
         L += record_brief_lines(r, citable.get(r["id"]))
     if len(recs) > BRIEF_MAX_RECORDS:
