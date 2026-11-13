@@ -331,3 +331,224 @@ class TestTheCheck:
         out = CH.check(_exp({"name": "nofire", "changes": [{"id": "fire_off"}]}, reuse=False),
                        CONTROL)
         assert out["cost"]["runs_executed"] == 2 and out["cost"]["node_hours"] == 3.2
+
+
+# ── what a run does not cover, in short ──────────────────────────────────────
+# The short limits as they were written for the design page (2026-11-13),
+# copied here word for word, so that a change to one in the server's list
+# fails a test and is made on purpose.
+CUTS = ("The run cuts rain and snow only. Air temperature, humidity and sunshine "
+        "stay as recorded, so it is not a full drought.")
+ADDS = ("The run adds rain and snow only. Air temperature, humidity and sunshine "
+        "stay as recorded, so it is not a full wet spell.")
+WARMS = ("The run warms the air only. Snow does not turn into rain, and the air's "
+         "moisture and sunshine stay as recorded. Warmer air is then also drier air "
+         "to the model, and its leaves and its fire respond to that.")
+COOLS = ("The run cools the air only. Rain does not turn into snow, and the air's "
+         "moisture and sunshine stay as recorded. The cooled air can hold less "
+         "moisture than was recorded, so the model forms dew and frost that the "
+         "recorded weather would not.")
+BOTH = ("The run changes air temperature, rain and snow together. Rain and snow "
+        "keep their recorded split, and the air's moisture and sunshine stay as "
+        "recorded, so it is not a full change of climate.")
+REPEAT = ("Each repeated year is a year of the record, with its storms on the same "
+          "dates. The run is not a forecast or a climate scenario, and it holds no "
+          "drought worse than the record's.")
+FIRE = ("The run removes the model's own fire, which is unrelated in place and year "
+        "to the fires that happened. It does not show the effect of an observed fire.")
+CO2 = ("The run changes CO2 for the plants only, through photosynthesis and stomata. "
+       "CO2 does not change the weather here, so it is not a climate-change "
+       "experiment.")
+NDEP_1777 = ("The run holds nitrogen deposition at its level of 1777, as the control "
+             "run's own dataset gives it. No other input follows that year.")
+NUTRIENT = ("The run supplies whatever plants demand of the nutrient, without limit. "
+            "It is not a fertiliser experiment with real amounts.")
+WEATHER = (CUTS, ADDS, WARMS, COOLS, BOTH)
+
+
+def _ws(**params):
+    return {"id": "weather_scale", "params": params}
+
+
+class TestNotCovered:
+
+    @pytest.mark.parametrize("params,text", [
+        ({"precip_factor": 0.6, "temperature_K": 0.0}, CUTS),
+        ({"precip_factor": 1.4, "temperature_K": 0.0}, ADDS),
+        ({"temperature_K": 1.5, "precip_factor": 1.0}, WARMS),
+        ({"temperature_K": -2.5, "precip_factor": 1.0}, COOLS),
+        ({"temperature_K": 1.5, "precip_factor": 0.6}, BOTH),
+        ({"temperature_K": -2.5, "precip_factor": 1.4}, BOTH),
+    ])
+    def test_each_weather_case_has_its_one_text(self, params, text):
+        assert CH.not_covered(_ws(**params)) == [text]
+
+    def test_the_weather_as_recorded_has_none(self):
+        assert CH.not_covered(_ws()) == []
+        assert CH.not_covered(_ws(temperature_K=0.0, precip_factor=1.0, months=[4, 5])) == []
+
+    @pytest.mark.parametrize("params,text", [
+        ({"precip_factor": 0.6}, CUTS), ({"precip_factor": 1.4}, ADDS),
+        ({"temperature_K": 1.5}, WARMS), ({"temperature_K": -2.5}, COOLS)])
+    def test_a_setting_left_out_takes_its_default(self, params, text):
+        assert CH.not_covered(_ws(months=[6, 7], **params)) == [text]
+
+    def test_one_text_at_most_over_a_grid_of_settings(self):
+        """The expected text is worked out here from the signs of the two
+        settings, never from the list's own conditions: a setting at its
+        bound is neither above nor below it."""
+        for t in (-3.0, -0.5, 0.0, 0.5, 3.0):
+            for f in (0.0, 0.5, 1.0, 1.5, 4.0):
+                if t == 0 and f == 1:
+                    want = []
+                elif t == 0:
+                    want = [CUTS if f < 1 else ADDS]
+                elif f == 1:
+                    want = [WARMS if t > 0 else COOLS]
+                else:
+                    want = [BOTH]
+                assert CH.not_covered(_ws(temperature_K=t, precip_factor=f)) == want, (t, f)
+
+    def test_a_setting_within_rounding_of_its_bound_is_the_bound(self):
+        """As the meaning's words treat it (_text): a factor of 1 plus a
+        rounding error multiplies nothing."""
+        assert CH.not_covered(_ws(temperature_K=1.5, precip_factor=1.0 + 1e-13)) == [WARMS]
+        assert CH.not_covered(_ws(temperature_K=-1e-13, precip_factor=0.6)) == [CUTS]
+        assert CH.not_covered(_ws(temperature_K=1e-13, precip_factor=1.0 - 1e-13)) == []
+
+    @pytest.mark.parametrize("change,texts", [
+        ({"id": "fire_off"}, [FIRE]),
+        ({"id": "fire_off", "params": {}}, [FIRE]),
+        ({"id": "co2_ppmv", "params": {"ppmv": 432}}, [CO2]),
+        ({"id": "weather_repeat_year", "params": {"map": {"2031": 2029}}}, [REPEAT]),
+        ({"id": "ndep_year", "params": {"year": 1777}}, [NDEP_1777]),
+        ({"id": "ndep_year", "params": {"year": 1777.0}}, [NDEP_1777]),
+        ({"id": "nutrient_supplement", "params": {"nitrogen": "ALL", "phosphorus": "NONE"}},
+         [NUTRIENT]),
+        ({"id": "nutrient_supplement", "params": {"nitrogen": "NONE", "phosphorus": "ALL"}},
+         [NUTRIENT]),
+        ({"id": "nutrient_supplement", "params": {"nitrogen": "ALL", "phosphorus": "ALL"}},
+         [NUTRIENT]),
+        ({"id": "nutrient_supplement", "params": {"nitrogen": "NONE", "phosphorus": "NONE"}},
+         []),
+        ({"id": "burn_footprint"}, []),
+        ({"id": "parameter_value"}, []),
+        ({"id": "no_such_change", "params": {"year": 1777}}, []),
+    ])
+    def test_the_other_changes(self, change, texts):
+        assert CH.not_covered(change) == texts
+
+    @pytest.mark.parametrize("change,texts", [
+        (None, []), ("fire_off", []), ([], []), ({"params": {}}, []),
+        ({"id": ["fire_off"]}, []),
+        ({"id": "fire_off", "params": "nothing"}, [FIRE]),
+        # a year it cannot fill: the text is left out, never shown with {year}
+        ({"id": "ndep_year"}, []),
+        ({"id": "ndep_year", "params": {}}, []),
+        # a setting of another kind is neither above nor below a number
+        ({"id": "weather_scale", "params": {"precip_factor": "0.6"}}, []),
+        # a choice is matched as written
+        ({"id": "nutrient_supplement", "params": {"nitrogen": "all", "phosphorus": "NONE"}},
+         []),
+        # a setting not given, with no default, holds no condition on it
+        ({"id": "nutrient_supplement", "params": {}}, []),
+    ])
+    def test_a_change_of_another_form_never_raises(self, change, texts):
+        assert CH.not_covered(change) == texts
+
+    def test_every_condition_must_hold_and_the_order_is_the_lists(self, monkeypatch):
+        """On a made-up change: an entry holds when all its conditions do,
+        one with none always holds, the texts come in the list's order, and
+        a text two entries give comes once."""
+        made_up = {"id": "made_up",
+                   "params": {"a": {"kind": "number", "default": 2.5},
+                              "b": {"kind": "choice", "choices": ["X", "Y"]}},
+                   "not_covered": [
+                       {"when": [{"param": "a", "above": 1.0}, {"param": "b", "is": "X"}],
+                        "say": "First {b}."},
+                       {"when": [], "say": "Second."},
+                       {"when": [{"param": "a", "below": 1.0}], "say": "Low."},
+                       {"when": [{"param": "b", "is_not": "Y"}], "say": "First X."},
+                       {"say": "Third."},
+                       {"when": [{"param": "a", "above": 1.0, "below": 9.0}],
+                        "say": "Two tests in one condition."},
+                       {"when": [{"param": "a", "near": 2.5}], "say": "An unknown test."},
+                       {"when": [{"param": "c", "is_not": "X"}], "say": "No such setting."},
+                       {"when": [{"param": "a", "is": 1}], "say": "A true is not one."}]}
+        monkeypatch.setitem(CH._BY_ID, "made_up", made_up)
+        assert CH.not_covered({"id": "made_up", "params": {"b": "X"}}) == [
+            "First X.", "Second.", "Third."]
+        assert CH.not_covered({"id": "made_up", "params": {"a": 0.5, "b": "Y"}}) == [
+            "Second.", "Low.", "Third."]
+        assert CH.not_covered({"id": "made_up", "params": {"a": 0.5, "b": "X"}}) == [
+            "Second.", "Low.", "First X.", "Third."]
+        # true is not a number here, so it is neither 1 nor above 1
+        assert CH.not_covered({"id": "made_up", "params": {"a": True, "b": "Y"}}) == [
+            "Second.", "Third."]
+
+    def test_resolve_carries_them(self):
+        assert CH.resolve(_ws(precip_factor=0.6))["not_covered"] == [CUTS]
+        assert CH.resolve(_ws(temperature_K=-2.5, precip_factor=1.4))["not_covered"] == [BOTH]
+        assert CH.resolve({"id": "ndep_year", "params": {"year": 1777.0}})["not_covered"] == [
+            NDEP_1777]
+        assert CH.resolve({"id": "fire_off"})["not_covered"] == [FIRE]
+        # the key is there when no limit holds
+        assert CH.resolve({"id": "nutrient_supplement", "params": {
+            "nitrogen": "NONE", "phosphorus": "NONE"}})["not_covered"] == []
+
+    def test_every_run_the_check_resolves_carries_them(self):
+        out = CH.check(_exp({"name": "fewer_fires", "changes": [
+                                {"id": "fire_off"}, {"id": "co2_ppmv", "params": {"ppmv": 432}}]},
+                            {"name": "warmer", "changes": [_ws(temperature_K=1.5)]}), CONTROL)
+        assert [[c["not_covered"] for c in r["changes"]] for r in out["runs"]] == [
+            [[FIRE], [CO2]], [[WARMS]]]
+
+    def test_the_published_list_does_not_carry_them(self):
+        """The list goes to the agents as a tool result with a size limit it
+        already nearly fills (test_it_fits_a_tool_result); the design page
+        reads the short limits from the resolved runs instead."""
+        d = CH.declare()
+        assert all("not_covered" not in c for c in d["changes"])
+        assert all("not_covered" not in CH._published(c) for c in CH._CHANGES)
+        text = json.dumps(d)
+        for t in WEATHER + (REPEAT, FIRE, CO2, NUTRIENT, NDEP_1777[:40]):
+            assert t not in text
+
+    def test_which_changes_have_them(self):
+        assert {c["id"] for c in CH._CHANGES if c.get("not_covered")} == {
+            "fire_off", "co2_ppmv", "ndep_year", "nutrient_supplement",
+            "weather_repeat_year", "weather_scale"}
+        assert all(c["available"] for c in CH._CHANGES if c.get("not_covered"))
+
+    def test_the_lists_own_form(self):
+        """Each condition names one setting of its change and makes one test
+        of four; each text fills only settings of its change."""
+        for c in CH._CHANGES:
+            for e in c.get("not_covered") or []:
+                assert set(e) <= {"when", "say"}, (c["id"], e)
+                for w in e.get("when") or []:
+                    assert w["param"] in c["params"], (c["id"], w)
+                    assert len(w) == 2 and (set(w) - {"param"}) <= {
+                        "is", "is_not", "above", "below"}, (c["id"], w)
+                for name in re.findall(r"\{(\w*)\}", e["say"]):
+                    assert name in c["params"], (c["id"], name)
+
+    def test_every_text_is_short_plain_and_whole(self):
+        said = [e["say"] for c in CH._CHANGES for e in c.get("not_covered") or []]
+        said += [NDEP_1777]
+        assert len(said) >= 11
+        for t in said:
+            assert t.endswith("."), t
+            assert "\u2014" not in t and "\u2013" not in t, t
+            assert ":" not in t, t
+            assert len(t) <= 300, t
+            assert t == " ".join(t.split()), t
+
+    def test_the_long_texts_stay_beside_them(self):
+        """The short limits are a key of their own: a resolved change keeps
+        its long text, for the details page."""
+        c = CH.resolve(_ws(precip_factor=0.6))
+        assert set(c) == {"id", "params", "summary", "alters", "meaning", "not_meaning",
+                          "checks", "cost", "not_covered"}
+        assert c["not_meaning"].startswith("a consistent change of climate: the data "
+                                           "atmosphere splits rain from snow")

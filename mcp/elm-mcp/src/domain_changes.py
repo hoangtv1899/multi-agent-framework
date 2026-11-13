@@ -19,6 +19,8 @@ what each does to ELM:
   settings_differences(...)  a run's resolved namelists against the
                      control's: what differs, and whether that is exactly
                      what its changes should alter
+  not_covered(...)   the short limits of one change as a run uses it, for
+                     the design page; resolve() carries them
 
 A change that needs a tool this server does not have is still listed, with
 `available: false` and the tool it needs in `requires`, so a question that
@@ -50,6 +52,20 @@ DEFAULT_HOURS_PER_YEAR = 0.83
 # resolved namelists (CaseDocs/<file>) and their values after the change;
 # `checks.output` are rules on history fields, checked by every year's gate;
 # a writer adds its own. A param with a `default` may be left out.
+#
+# WHAT A RUN DOES NOT COVER, IN SHORT (2026-11-13). The design page printed a
+# change's `not_meaning` whole, so a run that only cuts rain showed a long
+# paragraph about temperature, and the person who reads the page found it too
+# long. Each change now also has `not_covered`: short limits, each with the
+# conditions on the run's parameters under which it holds, and the page
+# prints only those of the changes a run really uses (not_covered()). A
+# condition is {"param": name, <test>: value} with one test of is, is_not,
+# above or below; every condition of an entry must hold, and an entry with no
+# condition always holds. The texts are science, read by a person as they
+# stand: change one only with the same care as the long text it shortens,
+# which stays for the details page.
+_ALL_NUTRIENT = ("The run supplies whatever plants demand of the nutrient, without "
+                 "limit. It is not a fertiliser experiment with real amounts.")
 _CHANGES: Tuple[Dict[str, Any], ...] = (
     {"id": "fire_off",
      "summary": "switch ELM's fire model off",
@@ -62,6 +78,10 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                     "model's own, unrelated in place and year to fires that "
                     "happened: compare its burned area with the observed one "
                     "in the control's facts",
+     "not_covered": [
+         {"when": [], "say": "The run removes the model's own fire, which is unrelated in "
+                             "place and year to the fires that happened. It does not show "
+                             "the effect of an observed fire."}],
      "checks": {"settings": [{"file": "lnd_in", "key": "use_nofire", "value": True}],
                 "output": [{"stream": "h0", "field": "FAREA_BURNED", "rule": "all_zero",
                             "why": "no fire can burn with the fire model off"}]},
@@ -80,6 +100,10 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
      "not_meaning": "a climate-change experiment: CO2 alone changes here, so only its "
                     "direct effects on the land appear; the weather changes only where "
                     "another change of the same run alters it",
+     "not_covered": [
+         {"when": [], "say": "The run changes CO2 for the plants only, through "
+                             "photosynthesis and stomata. CO2 does not change the weather "
+                             "here, so it is not a climate-change experiment."}],
      "checks": {"settings": [{"file": "lnd_in", "key": "co2_ppmv", "value": "{ppmv}"}],
                 "output": []},
      "cost": "the control's: one job per model year",
@@ -95,6 +119,10 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                 "control's year",
      "not_meaning": "a change in any other forcing, or in deposition beyond what the "
                     "control's deposition dataset holds for {year}",
+     "not_covered": [
+         {"when": [], "say": "The run holds nitrogen deposition at its level of {year}, as "
+                             "the control run's own dataset gives it. No other input "
+                             "follows that year."}],
      "checks": {"settings": [{"file": "lnd_in", "key": "stream_year_first_ndep",
                               "value": "{year}"},
                              {"file": "lnd_in", "key": "stream_year_last_ndep",
@@ -116,6 +144,11 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                 "(here nitrogen {nitrogen}, phosphorus {phosphorus})",
      "not_meaning": "a fertilisation experiment with real amounts: ALL supplies "
                     "whatever plants demand, without limit",
+     # one text for either nutrient: not_covered() gives it once when both
+     # are ALL
+     "not_covered": [
+         {"when": [{"param": "nitrogen", "is": "ALL"}], "say": _ALL_NUTRIENT},
+         {"when": [{"param": "phosphorus", "is": "ALL"}], "say": _ALL_NUTRIENT}],
      "checks": {"settings": [{"file": "lnd_in", "key": "suplnitro", "value": "{nitrogen}"},
                              {"file": "lnd_in", "key": "suplphos", "value": "{phosphorus}"}],
                 "output": []},
@@ -141,6 +174,10 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                     "year's, its first model step has the record after the previous "
                     "year's recorded year (E3SM carries the atmosphere's last output "
                     "across the restart)",
+     "not_covered": [
+         {"when": [], "say": "Each repeated year is a year of the record, with its storms "
+                             "on the same dates. The run is not a forecast or a climate "
+                             "scenario, and it holds no drought worse than the record's."}],
      "checks": {"settings": [], "output": [],
                 "by_writer": "every year: the datm_in the year's run read names the "
                              "forcing streams with its recorded year and the year after, "
@@ -221,6 +258,35 @@ _CHANGES: Tuple[Dict[str, Any], ...] = (
                     "cooler run the recorded moisture can exceed saturation for the "
                     "cooled air, so dew and frost form that the recorded weather would "
                     "not make",
+     # One text for each way a run can change the weather: rain and snow
+     # alone, either way; the air alone, either way; both together. Exactly
+     # one holds unless both settings are at their identity, which resolve()
+     # refuses as a change of nothing.
+     "not_covered": [
+         {"when": [{"param": "precip_factor", "below": 1.0},
+                   {"param": "temperature_K", "is": 0.0}],
+          "say": "The run cuts rain and snow only. Air temperature, humidity and "
+                 "sunshine stay as recorded, so it is not a full drought."},
+         {"when": [{"param": "precip_factor", "above": 1.0},
+                   {"param": "temperature_K", "is": 0.0}],
+          "say": "The run adds rain and snow only. Air temperature, humidity and "
+                 "sunshine stay as recorded, so it is not a full wet spell."},
+         {"when": [{"param": "temperature_K", "above": 0.0},
+                   {"param": "precip_factor", "is": 1.0}],
+          "say": "The run warms the air only. Snow does not turn into rain, and the "
+                 "air's moisture and sunshine stay as recorded. Warmer air is then also "
+                 "drier air to the model, and its leaves and its fire respond to that."},
+         {"when": [{"param": "temperature_K", "below": 0.0},
+                   {"param": "precip_factor", "is": 1.0}],
+          "say": "The run cools the air only. Rain does not turn into snow, and the "
+                 "air's moisture and sunshine stay as recorded. The cooled air can hold "
+                 "less moisture than was recorded, so the model forms dew and frost that "
+                 "the recorded weather would not."},
+         {"when": [{"param": "temperature_K", "is_not": 0.0},
+                   {"param": "precip_factor", "is_not": 1.0}],
+          "say": "The run changes air temperature, rain and snow together. Rain and snow "
+                 "keep their recorded split, and the air's moisture and sunshine stay as "
+                 "recorded, so it is not a full change of climate."}],
      "checks": {"settings": [], "output": [],
                 "by_writer": "settings: the run's datm_in names the anomaly streams, "
                              "every per-stream list grows by them alone, and the case "
@@ -353,8 +419,12 @@ def declare() -> Dict[str, Any]:
 def _published(c: Dict[str, Any]) -> Dict[str, Any]:
     """A change as the list publishes it: words a run's parameters fill in
     (resolve) shown by their generic menu text, so no reader meets a
-    placeholder that is not a parameter."""
-    out = {k: v for k, v in c.items() if k != "menu_text"}
+    placeholder that is not a parameter.
+
+    The short limits (`not_covered`) are left out (2026-11-13): the list goes
+    to the agents as a tool result with a size limit it already nearly fills,
+    and the design page reads them from the resolved runs instead."""
+    out = {k: v for k, v in c.items() if k not in ("menu_text", "not_covered")}
     for k, v in (c.get("menu_text") or {}).items():
         out["meaning"] = out["meaning"].replace("{" + k + "}", v)
     if c.get("available"):
@@ -496,6 +566,83 @@ def _param_problems(change: Dict, params: Dict[str, Any]) -> List[str]:
     return out
 
 
+# THE TESTS A CONDITION OF `not_covered` MAKES (2026-11-13). Numbers are equal
+# within 1e-12, the margin _text writes a change's meaning with, so a short
+# limit and the meaning never disagree on whether a setting is in use; a
+# value at the bound is neither above nor below it. A value that is not a
+# number is never above or below one.
+_NEAR = 1e-12
+
+
+def _number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _is(v, want) -> bool:
+    if _number(v) and _number(want):
+        return abs(float(v) - float(want)) <= _NEAR
+    if isinstance(v, bool) != isinstance(want, bool):
+        return False
+    return v == want
+
+
+_TESTS = {"is": _is,
+          "is_not": lambda v, b: not _is(v, b),
+          "above": lambda v, b: _number(v) and _number(b) and v > b and not _is(v, b),
+          "below": lambda v, b: _number(v) and _number(b) and v < b and not _is(v, b)}
+
+
+def _holds(cond: Any, params: Dict[str, Any]) -> bool:
+    """One condition, {"param": name, <test>: value} with one test, against
+    a run's parameters. A condition of another form, or on a parameter the
+    run neither gives nor has a default for, does not hold: the page then
+    says less, never something the run was not asked to do."""
+    if not isinstance(cond, dict):
+        return False
+    tests = [t for t in cond if t != "param"]
+    if len(tests) != 1 or tests[0] not in _TESTS:
+        return False
+    name = cond.get("param")
+    if name not in params:
+        return False
+    return bool(_TESTS[tests[0]](params[name], cond[tests[0]]))
+
+
+def not_covered(change: Any) -> List[str]:
+    """The short limits of one change as a run uses it, {"id", "params"}:
+    the text of each entry of the change's `not_covered` whose conditions all
+    hold, in the list's order, its {param} places filled, and a text once
+    however many entries give it. A parameter left out takes its default.
+
+    An unknown change, or one of another form, gives []. A text its
+    parameters cannot fill is left out rather than shown with a placeholder:
+    the design page is then written without it, never stopped."""
+    if not isinstance(change, dict) or not isinstance(change.get("id"), str):
+        return []
+    c = _BY_ID.get(change["id"])
+    if c is None:
+        return []
+    given = change.get("params")
+    params = _with_defaults(c, given if isinstance(given, dict) else {})
+    spec = c.get("params") or {}
+    # a whole year reads as one ("1850", never "1850.0"), as resolve() fills it
+    for k, v in list(params.items()):
+        if (spec.get(k) or {}).get("kind") == "integer" and _number(v) and v == int(v):
+            params[k] = int(v)
+    out: List[str] = []
+    for entry in c.get("not_covered") or []:
+        when = entry.get("when") or []
+        if not all(_holds(w, params) for w in when):
+            continue
+        try:
+            text = str(entry.get("say") or "").format(**params)
+        except (KeyError, IndexError, ValueError, AttributeError, TypeError):
+            continue
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
 def resolve(item: Dict[str, Any]) -> Dict[str, Any]:
     """One change of a run, {"id", "params"}, with its text, alterations and
     checks filled in. Raises ChangeError for an unknown, unavailable or
@@ -529,6 +676,8 @@ def resolve(item: Dict[str, Any]) -> Dict[str, Any]:
     text = dict(fmt, **_text(c["id"], fmt))
     for k in ("summary", "alters", "meaning", "not_meaning", "checks", "cost"):
         out[k] = _fill(copy.deepcopy(c[k]), text)
+    # the short limits the design page prints for this run (2026-11-13)
+    out["not_covered"] = not_covered({"id": c["id"], "params": fmt})
     return out
 
 
