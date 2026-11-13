@@ -778,6 +778,17 @@ def suite_line(entry: Dict[str, Any]) -> str:
             f"season, year and water year")
 
 
+def known_errors_words(entry: Optional[Dict[str, Any]]) -> List[str]:
+    """The control's known errors against measurements as the registry says
+    them, each a statement in words: one that holds a digit is left out."""
+    out = []
+    for w in (entry or {}).get("known_errors_words") or []:
+        w = " ".join(str(w).split())
+        if w and not re.search(r"\d", w):
+            out.append(w)
+    return out
+
+
 def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """One control as reception sees it: small enough for a tool result (cut
     at 12,000 characters), so field lists are counts plus the fields the case
@@ -803,6 +814,14 @@ def summary(entry: Dict[str, Any], f: Optional[Dict[str, Any]]) -> Dict[str, Any
            # "text": [paragraphs]}; None for a control that has none, which
            # the page then describes by its description.
            "page_summary": entry.get("page_summary"),
+           # WHAT THE CONTROL IS KNOWN TO GET WRONG, IN WORDS ALONE (2026-11-13):
+           # short statements entered in the registry, such as "it holds less
+           # snow than is measured and melts it earlier". The Planner reads
+           # them to judge which errors matter for a question, and its words
+           # go on to the analysis, which reads the model's output alone. So
+           # a statement that holds a digit is left out here: no measured
+           # number can travel that way.
+           "known_errors_words": known_errors_words(entry),
            "regions": {k: v.get("what") for k, v in (entry.get("regions") or {}).items()},
            "observations": {k: v.get("what")
                             for k, v in (entry.get("observations") or {}).items()},

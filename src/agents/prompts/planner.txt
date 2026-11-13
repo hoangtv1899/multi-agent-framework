@@ -257,6 +257,22 @@ control's `not_in_it_words` (the same items without the observations'
 numbers). No caveat carries an observation's numbers: the scientist read
 those before the design, and the answer is the model's.
 
+THE LIMITS FOR THIS QUESTION are yours to judge. The page a person decides on
+prints each change's own short limit by itself. What no list can know is
+which of the control's known errors matter for THIS question. Read the
+control's `known_errors_words`, which say in words what the control is known
+to get wrong against measurements, and name in
+domain_experiment.question_limits at most two limits of the answer that
+follow from those errors and bear on what the question asks: a quantity the
+question is about, or a process its answer depends on. Each is one or two
+short plain sentences. The first says what the control gets wrong, in the
+record's words and without numbers. The second says what that could do to
+the answer, with "could" or "may", since it is your judgement and not a
+measurement. Do not repeat a change's own limit or what the run does not
+contain. Where the control lists no known error, or none bears on the
+question, the list is empty. Copy each limit into caveats too, word for
+word, so that the report carries it.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 THE COLUMN BUDGET — arithmetic, not judgement   (SITE ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -433,7 +449,8 @@ OUTPUT — this JSON, nothing else
       "normal_years": [<int>, ...],
       "question_type": "hypothesis" | "exploratory"
     },
-    "caveats": ["<each run's change not_meaning, and what the run does not contain>"]
+    "caveats": ["<each run's change not_meaning, and what the run does not contain>"],
+    "question_limits": ["<at most two: a known error of the control, and what it could do to this answer>"]
   },
 
   "validation": [

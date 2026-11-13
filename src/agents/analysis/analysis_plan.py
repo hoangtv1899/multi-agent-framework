@@ -324,7 +324,12 @@ PLAN_PARTS: Dict[str, Dict[str, Any]] = {
                  Part("why", "words", "why these years"))},
     "analyses": {
         "shape": "list",
-        "means": "each a planned lookup: what a script may look up, and why",
+        # THE ORDER IS READ BY A PERSON (2026-11-13): the design page shows the
+        # first four analyses as its table of comparisons and leaves the rest
+        # to the details, so the ones that answer the question come first.
+        "means": "each a planned lookup: what a script may look up, and why. Put first "
+                 "the analyses that answer the question most directly: the page a person "
+                 "decides on lists the first four",
         "item": (Part("id", "name", "its id", "P1"),
                  # A SHORT TITLE BESIDE THE QUESTION (2026-11-12): the design
                  # page lists the analyses, and their questions run to thirty
@@ -334,6 +339,15 @@ PLAN_PARTS: Dict[str, Dict[str, Any]] = {
                  Part("title", "words", "a short title of at most eight words, naming "
                       "what is looked at in plain words"),
                  Part("question", "words", "the question it answers"),
+                 # WHAT IT TELLS THE PERSON (2026-11-13): the design page lists
+                 # each analysis as one row, what is compared, when, how and
+                 # what it tells us. The question runs to thirty words and is
+                 # written for the analysis. This phrase is for the person who
+                 # asked, and the same call writes it. A plan without it is no
+                 # worse a plan: the page then gives the question.
+                 Part("tells", "words", "what its result tells the person who asked, as "
+                      "one phrase of at most twelve plain words that begins with How, "
+                      "Whether, When or Where"),
                  Part("fields", "list", "the catalog fields it reads", ["GPP"]),
                  Part("regions", "list", "the regions it reads", ["..."]),
                  Part("periods", "list", "the periods it reads", ["2015"]),

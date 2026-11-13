@@ -41,7 +41,12 @@
     "",
     "page_summary (optional): {version, written, text, compared}. `text` says what the",
     "control is and is printed on every design page. `compared` says how it compares",
-    "with measurements in words, and is printed only where no figure can be drawn."
+    "with measurements in words, and is printed only where no figure can be drawn.",
+    "",
+    "known_errors_words (optional): what the control is known to get wrong against",
+    "measurements, each a short statement in words. The Planner reads them to judge",
+    "which errors matter for a question. A statement that holds a digit is left out,",
+    "so no measured number reaches the Planner or the analysis."
   ],
   "controls": {
     "my_basin": {
@@ -98,7 +103,11 @@
         "version": 1, "written": "YYYY-MM-DD",
         "text": ["What the control is: its place, years, grid, weather and settings."],
         "compared": ["How it compares with measurements, for a page with no figure."]
-      }
+      },
+      "known_errors_words": [
+        "It holds less snow than is measured, and its snow melts earlier",
+        "It makes more runoff than the river carries"
+      ]
     }
   }
 }

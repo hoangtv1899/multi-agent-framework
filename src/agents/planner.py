@@ -83,7 +83,16 @@ def _summary_for_prompt(reception: Dict[str, Any]) -> Dict[str, Any]:
 # only, and a caveat copied from the text the planner was shown would carry
 # an observed number there. So the planner's copy has none of it, and keeps
 # `not_in_it_words`, the same items without their numbers.
-_CONTROL_KEYS_NOT_FOR_PLANNER = ("evaluation", "observations", "not_in_it")
+#
+# THE PAGE'S SUMMARY IS FOR THE PAGE (2026-11-13). The control's summary for
+# the design page (`page_summary`) says how the control compares with
+# measurements, with numbers, and it reached the planner whole since the day
+# it was added. It is left out of the planner's copy as the evaluation is.
+# What the planner does need of it, to judge which of the control's known
+# errors matter for a question, it reads in `known_errors_words`: the same
+# knowledge in words alone, which the server keeps free of numbers
+# (domain_controls.summary).
+_CONTROL_KEYS_NOT_FOR_PLANNER = ("evaluation", "observations", "not_in_it", "page_summary")
 
 # NOR THE CONTROL'S OWN RESULTS (2026-11-12). The Planner's copy kept the
 # control's numbers by year (plant growth, leaf area, rain, evaporation,

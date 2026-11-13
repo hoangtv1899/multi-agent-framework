@@ -76,7 +76,13 @@ SHOWN_ON_THE_DESIGN_PAGE = (
 REPORTED_BY_THE_ANALYSIS = (
     "on record, and not shown to you: the run's numbers by year are results, and "
     "the analysis reports results. Say nothing about them")
-CONTROL_KEYS_NOT_FOR_THE_LLM = {"evaluation": SHOWN_ON_THE_DESIGN_PAGE}
+# THE PAGE'S SUMMARY AND THE KNOWN ERRORS ARE THE SAME KNOWLEDGE (2026-11-13):
+# how the control compares with measurements, as the design page prints it
+# and as the Planner reads it in words. Reception settles what is run, so it
+# is shown neither.
+CONTROL_KEYS_NOT_FOR_THE_LLM = {"evaluation": SHOWN_ON_THE_DESIGN_PAGE,
+                                "page_summary": SHOWN_ON_THE_DESIGN_PAGE,
+                                "known_errors_words": SHOWN_ON_THE_DESIGN_PAGE}
 FACTS_NOT_FOR_THE_LLM = {"per_year": REPORTED_BY_THE_ANALYSIS}
 
 
