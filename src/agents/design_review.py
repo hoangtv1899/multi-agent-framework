@@ -1047,13 +1047,19 @@ _NOT_GIVEN = object()
 
 
 def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
-                 analysis_preview=_NOT_GIVEN):
+                 analysis_preview=_NOT_GIVEN, control_figures=_NOT_GIVEN):
     """Render and write DESIGN_REVIEW.md into run_dir; returns its path. The
     server's preview is read from 01_inputs/design_preview.json only when the
     argument is left out (a study the server previews nothing for has none),
     and the analysis preview from 01_inputs/analysis_preview.json by the same
     rule: the coordinator always passes its own, so a page is never drawn
-    from a record left by an earlier design."""
+    from a record left by an earlier design.
+
+    `control_figures`: what the model server holds for the control's figures
+    (agents/control_figures.fetch). Given, it is saved beside the design
+    (None removes an earlier one); left out, the saved record is read, so a
+    page can be drawn again from its records. The figures are drawn here, by
+    the Analyzer's figure tool, for a whole-domain design."""
     rd = Path(run_dir)
     if reception is None:
         reception = json.loads((rd / "reception.json").read_text())
@@ -1071,18 +1077,40 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
     from agents import design_page as _page
     brief = reception.get("brief") or reception
     by_hand = _appendix(preview, rd, strategy, brief)
+    from agents import control_figures as _cf
+    if control_figures is _NOT_GIVEN:
+        control_figures = _cf.load(rd)
+    else:
+        _cf.save(rd, control_figures)
+    figures = None
+    de = strategy.get("domain_experiment") if isinstance(strategy, dict) else None
+    if control_figures and isinstance(de, dict) and \
+            control_figures.get("control") == (de.get("control") or {}).get("name"):
+        years = _cf.asked_years(brief, strategy, control_figures)
+        figures = {"record": control_figures, "years": years,
+                   "drawn": _cf.draw(control_figures, rd, years)}
     short = _page.render(reception, strategy, run_name=rd.name, preview=preview, run_dir=rd,
-                         analysis_preview=analysis_preview, by_hand=bool(by_hand))
+                         analysis_preview=analysis_preview, by_hand=bool(by_hand),
+                         control_figures=figures)
     if short is None:
         path.write_text(render(reception, strategy, run_name=rd.name, preview=preview,
                                run_dir=rd, analysis_preview=analysis_preview))
         return path
     path.write_text(short)
+    full = render(reception, strategy, run_name=rd.name, preview=preview, run_dir=rd,
+                  analysis_preview=analysis_preview, decision=False, appendix=False)
+    # THE CONTROL RUN IN FIGURES (2026-11-12): its maps and its series beside
+    # the measurements, after the design and before the reasons for it.
+    if figures:
+        block = "\n".join(_cf.details_lines(figures["record"], figures["drawn"],
+                                            figures["years"]))
+        mark = "\n## Why this can answer it"
+        if block.strip():
+            full = (full.replace(mark, "\n" + block + mark, 1) if mark in full
+                    else full.rstrip("\n") + "\n\n" + block)
     (rd / _page.DETAILS_NAME).write_text(
         f"*The design in full, for the short page `{REVIEW_NAME}` in this folder, which is "
-        f"where the decision is recorded.*\n\n"
-        + render(reception, strategy, run_name=rd.name, preview=preview, run_dir=rd,
-                 analysis_preview=analysis_preview, decision=False, appendix=False))
+        f"where the decision is recorded.*\n\n" + full)
     if by_hand:
         (rd / _page.BY_HAND_NAME).write_text("\n".join(by_hand) + "\n")
     return path

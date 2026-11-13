@@ -11,7 +11,8 @@ things, and the page now says those and nothing else:
 
     the question
     what will run, what it costs, and where it differs from what was asked
-    the control run, in a short summary written once
+    the control run, in a short summary written once, with a figure of the
+        run beside its measurements where the model server holds them
     how the answer will be read
     what the study cannot tell
     the points to weigh, then the decision
@@ -69,11 +70,10 @@ def _sentence(text: Any) -> str:
 
 def _control_run(text: Any) -> str:
     """The server's words with the name a person reads for its control: "the
-    control run" everywhere on the page. Words that already say "the control
-    run" are left as they are."""
+    control run" everywhere on the page, at the head of a sentence too. Words
+    that already say "the control run" are left as they are."""
     s = " ".join(str(text or "").split())
-    s = re.sub(r"\bthe control's", "the control run's", s)
-    return re.sub(r"\bthe control\b(?! run\b)", "the control run", s)
+    return re.sub(r"\b([Tt])he control\b(?! run\b)", r"\1he control run", s)
 
 
 def _says(question: str, words: Sequence[str]) -> bool:
@@ -182,26 +182,46 @@ def _runs_lines(brief, strategy, de, menu, row, preview, run_dir) -> List[str]:
     return L + [""]
 
 
-def _control_run_lines(de, row) -> List[str]:
+def _control_run_lines(de, row, figures=None) -> List[str]:
+    """What the control run is, then how it compares with measurements.
+
+    THE COMPARISON IS A FIGURE WHERE THERE IS ONE (the user's review of
+    2026-11-12). The summary's paragraph of numbers was about one or two
+    years of the run, and a person who asked about other years read numbers
+    that were not about their question. Where the control's measurements can
+    be drawn (agents/control_figures), the page shows the whole record with
+    the years asked about shaded, and one sentence per quantity for those
+    years, filled in by code. The summary's `compared` paragraphs are the
+    words for a control that has no figure, and are printed only then.
+
+    WHAT THE RUN DOES NOT CONTAIN IS SAID ONCE, under "What the study cannot
+    tell you" (_cannot_lines), where the Planner's caveat says it too."""
+    from agents import control_figures as CF
     ctl = de.get("control") or {}
-    ps = row.get("page_summary") or {}
-    text = [str(t).strip() for t in (ps.get("text") or []) if str(t).strip()] \
-        if isinstance(ps, dict) else []
+    ps = row.get("page_summary") if isinstance(row.get("page_summary"), dict) else {}
+
+    def paragraphs(key):
+        return [str(t).strip() for t in (ps.get(key) or []) if str(t).strip()]
+    text, compared = paragraphs("text"), paragraphs("compared")
+    figures = figures or {}
+    fig = CF.page_lines(figures.get("record"), figures.get("drawn"), figures.get("years") or [])
     L: List[str] = []
     if text:
-        for t in text:
+        for t in text + ([] if fig else compared):
             L += [t, ""]
+        L += fig
         L.append(f"This summary of `{ctl.get('name')}` is version {ps.get('version', '?')}"
                  + (f", written {ps['written']}" if ps.get("written") else "")
-                 + f". The run's full record is in `{DETAILS_NAME}`.")
+                 + (f". The maps of the control run, the sources of the measurements and the "
+                    f"run's full record are in `{DETAILS_NAME}`." if fig else
+                    f". The run's full record is in `{DETAILS_NAME}`."))
     else:
         L.append(f"The control run is `{ctl.get('name')}`."
                  + (f" The model server describes it as {_control_run(row['description'])}."
                     if row.get("description") else "")
                  + f" No short summary of it is on record. Its full record, with how it "
                    f"compares with measurements, is in `{DETAILS_NAME}`.")
-    for item in row.get("not_in_it_words") or []:
-        L += ["", f"This run does not contain {_control_run(item).rstrip('.')}."]
+        L += ([""] + fig[:-1]) if fig else []
     return L + [""]
 
 
@@ -209,17 +229,26 @@ def _same(text: Any) -> str:
     return " ".join(str(text or "").split()).rstrip(".").lower()
 
 
-def _cannot_lines(de, said: Sequence[str] = ()) -> List[str]:
+def _cannot_lines(de, said: Sequence[str] = (), not_in_it: Sequence[str] = ()) -> List[str]:
     """The design's caveats, each whole. A caveat that is word for word a
     sentence already printed under "Different from what you asked" is not
     printed a second time: the Planner copies the server's sentence, and the
     page gives it once, in the more prominent place."""
     caveats = [str(c).strip() for c in de.get("caveats") or [] if str(c).strip()]
-    if not caveats:
+    # WHAT THE CONTROL RUN DOES NOT CONTAIN, ONCE (2026-11-12). The page said
+    # it under "The control run" and again here, in the Planner's caveat. It
+    # is said here alone: in the Planner's words where a caveat names the
+    # thing, and in the server's words where none does, so it is never lost.
+    missing = []
+    for item in not_in_it or []:
+        head = str(item).split(":")[0].strip().lower()
+        if head and not any(head in c.lower() for c in caveats):
+            missing.append(f"The control run does not contain {str(item).strip().rstrip('.')}.")
+    if not caveats and not missing:
         return ["The design records no caveat.", ""]
     told = {_same(x) for x in said}
     kept = [c for c in caveats if _same(c) not in told]
-    L = [f"- {_sentence(_control_run(c))}" for c in kept]
+    L = [f"- {_sentence(_control_run(c))}" for c in kept] + [f"- {m}" for m in missing]
     if len(kept) < len(caveats):
         L.append("- The difference from your question is given under \"What will run\".")
     return L + [""]
@@ -230,9 +259,9 @@ def _noted(finding: Any) -> str:
     the server says of it."""
     if isinstance(finding, dict) and finding.get("where"):
         return (f"- The model server has a note on {finding['where']}. "
-                f"{_sentence(finding.get('what'))}")
+                f"{_sentence(_control_run(finding.get('what')))}")
     what = finding.get("what") if isinstance(finding, dict) else finding
-    return f"- The model server has a note. {_sentence(what)}"
+    return f"- The model server has a note. {_sentence(_control_run(what))}"
 
 
 def _weigh_lines(brief, strategy, preview, analysis_preview, run_dir) -> List[str]:
@@ -333,9 +362,12 @@ def _decision_lines(de, strategy, preview, by_hand: bool, analysis_preview=None)
 
 
 def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
-           analysis_preview=None, by_hand: bool = True) -> Optional[str]:
+           analysis_preview=None, by_hand: bool = True,
+           control_figures: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """The short design page of a whole-domain design, or None for any other
-    design, which keeps the page it had."""
+    design, which keeps the page it had. `control_figures`: the control's
+    figures as design_review.write_review drew them ({"record", "drawn",
+    "years"}), or None for a page without them."""
     from agents import analysis_preview as AV
     from agents import design_review as DR
     brief = reception.get("brief") or reception
@@ -355,13 +387,13 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
     L += ["## What will run", ""]
     L += _runs_lines(dict(brief, user_request=question), strategy, de, menu, row, preview,
                      run_dir)
-    L += ["## The control run", ""] + _control_run_lines(de, row)
+    L += ["## The control run", ""] + _control_run_lines(de, row, control_figures)
     L += ["## How the answer will be read", ""]
     L += AV.short_lines(analysis_preview, run_dir, DR.design_fingerprint(strategy),
                         de, row)
     L += ["## What the study cannot tell you", ""] + _cannot_lines(
         de, differences(question, [r for r in de.get("runs") or [] if isinstance(r, dict)],
-                        menu))
+                        menu), row.get("not_in_it_words") or [])
     L += ["## Points to weigh", ""]
     L += _weigh_lines(brief, strategy, preview, analysis_preview, run_dir)
     L += ["## Your decision", ""] + _decision_lines(de, strategy, preview, by_hand,

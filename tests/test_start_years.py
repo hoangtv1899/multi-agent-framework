@@ -239,7 +239,8 @@ class TestThePageSaysWhereARunStarts:
         assert "Each new run starts from the control run's saved state at the beginning " \
                "of 2016 and simulates 2016." in page
         assert "The model server has a note on years." in page
-        assert "ot demonstrated: the run starts from the control's saved state of " \
+        # the server's note, with the name a person reads for its control
+        assert "ot demonstrated: the run starts from the control run's saved state of " \
                "1 January 2016" in page
         assert "It allows the 0.8 node-hours estimated above, and no more." in page
 

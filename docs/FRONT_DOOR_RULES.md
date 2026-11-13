@@ -236,6 +236,22 @@ the control's set-up, each change's mechanism, the scripts.
   the years it covers.
 - **The control run's summary** is a few sentences kept in the control's
   registry entry (`page_summary`), with a version, and printed as it stands.
+- **The control run beside its measurements is a figure** (2026-11-12,
+  `src/agents/control_figures.py`). The summary's numbers were about one or
+  two years of the run, so a person who asked about other years read numbers
+  that were not about their question. The model server pairs each measurement
+  with the run's own monthly values and keeps the pairs in the run's results
+  store (`mcp/elm-mcp/src/domain_measured.py`). The page shows the whole
+  record, shades the years asked about, and says the two values of each
+  quantity for those years in one sentence, filled in by code. The details
+  page adds maps of the run's mean and the source of each measurement. The
+  Analyzer's own figure tool draws all of it
+  (`src/agents/analysis/figure_spec.py`), so one tool serves the design pages
+  and the reports. A control with no measurements keeps the summary's words
+  (`compared`), and a figure that cannot be drawn never stops a page.
+- **What the control run does not contain is said once**, under "What the
+  study cannot tell you": in the Planner's caveat where one names the thing,
+  and in the server's words where none does.
 - **A no is not said to cost nothing.** It submits nothing and uses no
   computing time; the model calls that prepared the page are already spent.
 - **Titles.** The planning step writes a short title for each analysis in the

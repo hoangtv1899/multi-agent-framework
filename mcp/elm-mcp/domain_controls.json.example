@@ -24,7 +24,24 @@
     "",
     "elevation_band_edges (optional): the study's elevation band edges in m. A control",
     "without them gets an edge at every 500 m inside its own vegetated cells' elevation",
-    "range, computed the same way every time and recorded in its suite's manifest."
+    "range, computed the same way every time and recorded in its suite's manifest.",
+    "",
+    "measured (optional): measurements to set beside the control, month by month",
+    "(domain_measured). Each names a field of the suite, a region of the suite or the",
+    "points whose cells the model is read at, a table (csv: month,value, the month as",
+    "YYYY-MM) in the units the suite gives the field by month, and the words a page",
+    "prints: the panel's title, the line's label, the sentence's subject and what",
+    "follows the measured number. Two entries with one field and one region are one",
+    "panel. `python src/domain_measured.py <control>` builds measured_month.json in the",
+    "suite; the design pages draw it and say its numbers for the years asked about.",
+    "",
+    "page_figures (optional): the maps the design pages show of the control, each the",
+    "sum of its fields' year maps averaged over the years, and the region whose edge is",
+    "drawn on them.",
+    "",
+    "page_summary (optional): {version, written, text, compared}. `text` says what the",
+    "control is and is printed on every design page. `compared` says how it compares",
+    "with measurements in words, and is printed only where no figure can be drawn."
   ],
   "controls": {
     "my_basin": {
@@ -55,6 +72,32 @@
         "burned_area": {"path": "/path/to/burned_area_on_the_model_grid.nc",
                         "var": "burned_fraction_year",
                         "what": "observed burned fraction per cell and year"}
+      },
+      "measured": [
+        {"id": "snow", "field": "H2OSNO",
+         "points": [{"id": "station_a", "lat": 46.5, "lon": -121.2}],
+         "table": "/path/to/snow_month.csv", "units": "mm",
+         "title": "Snow water at one snow pillow", "label": "measured",
+         "model_words": "Snow water at the cell of the snow pillow",
+         "measured_words": "measured at the pillow",
+         "source": "the network, the station and the day the values were fetched"},
+        {"id": "river_flow", "field": "QRUNOFF", "region": "watershed",
+         "table": "/path/to/river_flow_month.csv", "units": "mm/month",
+         "title": "Runoff from the watershed and river flow at its outlet",
+         "label": "measured river flow",
+         "model_words": "Runoff generated in the watershed",
+         "measured_words": "of measured river flow at the outlet",
+         "source": "the gauge, over the area it drains"}
+      ],
+      "page_figures": {
+        "maps": [{"words": "Precipitation", "fields": ["RAIN", "SNOW"]},
+                 {"words": "Plant growth (GPP)", "fields": ["GPP"]}],
+        "outline": "watershed"
+      },
+      "page_summary": {
+        "version": 1, "written": "YYYY-MM-DD",
+        "text": ["What the control is: its place, years, grid, weather and settings."],
+        "compared": ["How it compares with measurements, for a page with no figure."]
       }
     }
   }

@@ -393,9 +393,30 @@ class TestNothingADecisionRestsOnIsLeftOut:
         st["domain_experiment"]["caveats"] = CAVEATS + [long]
         assert _flat(long) in _flat(_page(folder, strategy=st))       # never cut
 
-    def test_what_the_control_run_does_not_contain_is_said(self, folder):
-        assert "This run does not contain the observed floods: the run makes its own." in \
-            _flat(_section(_page(folder), "The control run"))
+    def test_what_the_control_run_does_not_contain_is_said_once(self, folder):
+        # under "What the study cannot tell you", in the server's words where
+        # no caveat of the Planner's names the thing
+        page = _page(folder)
+        assert "- The control run does not contain the observed floods: the run makes its " \
+               "own." in _flat(_section(page, "What the study cannot tell you"))
+        assert "floods" not in _section(page, "The control run")
+        assert page.count("the observed floods") == 1
+
+    def test_a_caveat_that_names_it_is_the_one_place_it_is_said(self, folder):
+        st = _strategy()
+        st["domain_experiment"]["caveats"] = CAVEATS + [
+            "The control does not hold the observed floods, since its floods are its own."]
+        page = _page(folder, strategy=st)
+        assert page.count("the observed floods") == 1
+        assert "- The control run does not hold the observed floods, since its floods are " \
+               "its own." in _flat(_section(page, "What the study cannot tell you"))
+
+    def test_with_no_caveat_what_the_run_does_not_contain_is_still_said(self, folder):
+        st = _strategy()
+        st["domain_experiment"]["caveats"] = []
+        sec = _flat(_section(_page(folder, strategy=st), "What the study cannot tell you"))
+        assert "The design records no caveat." not in sec
+        assert "- The control run does not contain the observed floods" in sec
 
     def test_the_servers_control_is_the_control_run_and_is_named_once(self):
         # the server says "the control"; a person reads "the control run"
@@ -407,6 +428,9 @@ class TestNothingADecisionRestsOnIsLeftOut:
         assert DP._control_run("the control run's saved state, read by the control run") \
             == "the control run's saved state, read by the control run"
         assert "prepared run" not in DP._control_run("the control")
+        # at the head of a sentence too
+        assert DP._control_run("The control holds no floods. The control's snow is its own.") \
+            == "The control run holds no floods. The control run's snow is its own."
 
     def test_every_finding_of_the_model_server_is_on_the_page_whole(self, folder):
         sec = _flat(_section(_page(folder), "Points to weigh"))

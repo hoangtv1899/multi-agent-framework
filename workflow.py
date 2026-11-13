@@ -949,8 +949,13 @@ class WorkflowCoordinator:
 			from agents import analysis_handoff as _handoff
 			no_plan = None if blocked else _handoff.unapprovable(analysis_preview)
 			blocked = blocked or bool(no_plan)
+			# THE CONTROL RUN IN FIGURES (2026-11-12; agents/control_figures.py):
+			# the run beside its measurements and maps of its mean, asked of
+			# the model server and drawn by the Analyzer's figure tool. Always
+			# passed, None included, as the two records above are.
 			review_path = write_review(run_dir, reception=result, strategy=plan,
-									   preview=preview, analysis_preview=analysis_preview)
+									   preview=preview, analysis_preview=analysis_preview,
+									   control_figures=self._control_figures(plan))
 			print(f"📝 Design review: {review_path}\n")
 			# A REFUSAL IS NOT AN ERROR (2026-11-03): a design the server refused
 			# names the change that would let it run; one that could not be
@@ -1546,6 +1551,21 @@ class WorkflowCoordinator:
 		except Exception as e:                                  # noqa: BLE001
 			print(f"   (the analysis preview could not be made: {type(e).__name__}: {e})\n")
 			return {"status": "failed", "why": f"{type(e).__name__}: {e}"[:400]}
+
+	def _control_figures(self, plan: dict):
+		"""What the model server holds for the figures of the design's control
+		run, or None: no whole-domain design, or a control with nothing to
+		draw. Reading it must never stop a request, so a failure is None and
+		the page is written without figures."""
+		try:
+			de = (plan or {}).get("domain_experiment")
+			if not isinstance(de, dict):
+				return None
+			from agents import control_figures as CF
+			return CF.fetch((de.get("control") or {}).get("name"))
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   (the control run's figures could not be read: {type(e).__name__}: {e})\n")
+			return None
 
 	def _review_ready(self, result: dict, plan: dict, run_dir: Path,
 					  output_dir: str):

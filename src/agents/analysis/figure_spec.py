@@ -20,6 +20,24 @@ never a sentence of the model's. A panel whose output the method found not
 estimable shows the method's own words; a panel with nothing to draw, or
 whose output was not made, fails the figure and names the panel, so a blank
 panel is caught by code and not only by step 3's eyes.
+
+THE DESIGN PAGES DRAW WITH THIS TOOL TOO (agents/control_figures.py, 2026-11-12):
+a control run beside its measurements, and maps of its mean. What they need is
+drawn here, so the Analyzer's figures can use it once its task names it:
+
+    a measured series   an output whose spec says "measured": true is drawn in
+                        black with markers, apart from the model's lines
+    shaded years        a series panel's "shade": [years] sets those years off
+                        on a whole-record axis
+    an outline          a region's mask under lat_lon["outline"] is drawn on
+                        every map as a line
+    a stack             a figure's "layout": "stack" puts its panels one under
+                        another, each the figure's full width
+    words from a record an output's own "title" (shared by a panel's outputs),
+                        "label" and "units" are used where it gives them
+
+None of these is in the closed list step 2b is shown (PANEL_KINDS), so a
+figure the model writes is checked and drawn exactly as before.
 """
 import re
 import textwrap
@@ -367,6 +385,14 @@ def _title(ax, refs: Sequence[str], outs: Dict[str, Dict[str, Any]]):
     field's periods (period_run) is titled once, its first and last label
     named, and its ticks name the periods."""
     os_ = [outs.get(r) or {"kind": r} for r in refs]
+    given = {str(o.get("title") or "") for o in os_}
+    if len(given) == 1 and "" not in given:      # the outputs' own title, from their record
+        # wrapped to the panel's own width: 46 characters for a panel of a
+        # row of three, more for a panel that has the figure's width
+        inches = ax.figure.get_figwidth() * ax.get_position().width
+        ax.set_title("\n".join(textwrap.wrap(next(iter(given)),
+                                             max(46, int(46 * inches / 4.0)))), loc="left")
+        return
     run = period_run(os_) if SCREEN not in refs else None
     if run:
         o = os_[0]
@@ -406,7 +432,7 @@ def _finite(a) -> int:
 def _draw_map(plt, ax, r, opts, ll, where):
     v, k = r["value"], r["kind"]
     if k == "map":
-        x, units, centred = v, str(r["out"].get("field") or ""), False
+        x, units, centred = v, str(r["out"].get("units") or r["out"].get("field") or ""), False
     else:
         pct = opts.get("value") == "percent"
         key = "percent" if pct else PC.MAP_PATH[k]
@@ -432,6 +458,10 @@ def _draw_map(plt, ax, r, opts, ll, where):
     ax.yaxis.set_major_locator(MaxNLocator(5))
     ax.set_xlabel("longitude")
     ax.set_ylabel("latitude")
+    outline = ll.get("outline") if isinstance(ll, dict) else None
+    if outline is not None:                      # a region's edge, as a line over the map
+        ax.contour(ll["lon"], ll["lat"], np.asarray(outline, dtype=float), levels=[0.5],
+                   colors="k", linewidths=1.0)
     return n
 
 
@@ -451,9 +481,32 @@ def _seasonal(labels: Sequence[str], step: str):
     return out
 
 
+MEASURED_STYLES = ({"color": "k", "lw": 1.3, "marker": "o", "ms": 2.6},
+                   {"color": "0.45", "lw": 1.2, "ls": "--"})
+SHADE_COLOUR = "#f2d9a6"
+
+
+def _year_runs(labels: Sequence[str], years) -> List[Tuple[int, int]]:
+    """(first, last) position of each unbroken run of labels in `years`."""
+    want = {int(y) for y in years or []}
+    runs, start = [], None
+    for i, lab in enumerate(labels):
+        m = re.match(r"\D*(\d{4})", str(lab))
+        inside = bool(m) and int(m.group(1)) in want
+        if inside and start is None:
+            start = i
+        if not inside and start is not None:
+            runs.append((start, i - 1))
+            start = None
+    if start is not None:
+        runs.append((start, len(labels) - 1))
+    return runs
+
+
 def _draw_series(ax, rs, opts, normal_years, where):
     years, normal = opts.get("years"), bool(opts.get("normal"))
     n, units = 0, set()
+    measured, shaded = 0, False
     for r in rs:
         v = r["value"] or {}
         labs, vals = list(v.get("labels") or []), np.asarray(v.get("values"), dtype=float)
@@ -461,11 +514,20 @@ def _draw_series(ax, rs, opts, normal_years, where):
         u = drawn_unit(r, opts)
         if u:
             units.add(u)
-        name = f"{r['ref']} {r['out'].get('field')}"
+        name = str(r["out"].get("label") or f"{r['ref']} {r['out'].get('field')}")
         if not years and not normal:
             ok = np.isfinite(vals)
             n += int(ok.sum())
-            ax.plot(np.arange(len(vals)), vals, lw=1.2, label=name)
+            if r["out"].get("measured"):         # a measurement: black, with its points
+                style = MEASURED_STYLES[min(measured, len(MEASURED_STYLES) - 1)]
+                measured += 1
+                ax.plot(np.arange(len(vals)), vals, label=name, **style)
+            else:
+                ax.plot(np.arange(len(vals)), vals, lw=1.6, label=name)
+            for a, b in _year_runs(labs, opts.get("shade")):
+                if not shaded:
+                    ax.axvspan(a - 0.5, b + 0.5, color=SHADE_COLOUR, zorder=0, lw=0)
+            shaded = shaded or bool(opts.get("shade"))
             ticks = [i for i, lab in enumerate(labs) if str(lab)[5:] in ("01-01", "01", "DJF")
                      or step in ("year", "wateryear")]
             ax.set_xticks(ticks[:: max(1, len(ticks) // 9)])
@@ -838,6 +900,9 @@ def _draw_screen(ax, r, where):
     return len(rows)
 
 
+STACK_WIDTH, STACK_HEIGHT = 11.0, 3.3
+
+
 def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
                   lat_lon=None, normal_years: Sequence[int] = ()) -> Dict[str, Any]:
     """Draw one checked figure. `refs`: each output the figure names, by
@@ -850,12 +915,16 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
     cols = 2 if len(panels) == 4 else len(panels)
     rows = 2 if len(panels) == 4 else 1
     height = 4.6
+    stack = f.get("layout") == "stack"           # one panel under another, full width
+    if stack:
+        cols, rows = 1, len(panels)
     if [p.get("kind") for p in panels] == [SCREEN]:   # a row per shown field, 13 pt each
         disp = (((refs.get(SCREEN) or {}).get("value") or {}).get("display") or {})
         height = max(height, 0.42 * sum(len(x or []) for x in (disp.get("groups") or {})
                                         .values()) + 1.5)
-    fig, axes = plt.subplots(rows, cols, figsize=(5.4 * cols if height == 4.6 else 9.0,
-                                                  height * rows), squeeze=False)
+    fig, axes = plt.subplots(rows, cols, squeeze=False,
+                             figsize=((STACK_WIDTH, STACK_HEIGHT * rows) if stack else
+                                      (5.4 * cols if height == 4.6 else 9.0, height * rows)))
     axes = [a for row in axes for a in row]
     record, total = [], 0
     legend: Dict[str, str] = {}                  # what each range drawn is, said once
