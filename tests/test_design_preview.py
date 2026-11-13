@@ -146,7 +146,9 @@ class TestThePage:
         # offers a yes, which it would not for a design the server refused
         assert "checked the design" not in path.read_text()
         assert "| yes | The run is submitted." in path.read_text()
-        assert "**Passed.**" in (path.parent / "DESIGN_DETAILS.md").read_text()
+        # (the details page, rebuilt on 2026-11-13: the server's check as a table)
+        assert "| The design against its list of changes and the control run's facts | " \
+               "passed |" in (path.parent / "DESIGN_DETAILS.md").read_text()
 
     def test_no_preview_leaves_the_page_as_it_was(self):
         page = dr.render(_reception(), {}, "x")
@@ -253,7 +255,9 @@ class TestARefusalGoesBackToThePlanner:
             (tmp_path / "DESIGN_REVIEW.md").read_text()
 
     def test_the_terminal_shows_the_decision_part(self, tmp_path, monkeypatch, capsys):
-        co = _coordinator(tmp_path, [dict(PASSED)], interactive=True)
+        # the server built the run: RUN_BY_HAND.md is written
+        built = dict(PASSED, runs=[{"name": "warm", "case": "c_warm", "changes": []}])
+        co = _coordinator(tmp_path, [built], interactive=True)
         co._plan = lambda result, run_dir, findings=None, previous=None: FIRST
         co._execute = lambda **kw: pytest.fail("declined")
         monkeypatch.setattr("builtins.input", lambda p="": "n")
@@ -261,9 +265,10 @@ class TestARefusalGoesBackToThePlanner:
         out = capsys.readouterr().out
         assert "## Choices made for you" in out and "## Your decision" in out
         # how to make the runs by hand is a file of its own since 2026-11-12, and
-        # the page, which the terminal shows whole, says where
-        by_hand = (tmp_path / "RUN_BY_HAND.md").read_text()
-        assert dr.APPENDIX_MARK in by_hand and "## The code" in by_hand
+        # the page, which the terminal shows whole, says where. What the file
+        # says is agents/run_by_hand.py's, and its own tests hold it: here,
+        # only that it is written and names the run
+        assert "warm" in (tmp_path / "RUN_BY_HAND.md").read_text()
         page = (tmp_path / "DESIGN_REVIEW.md").read_text()
         assert dr.APPENDIX_MARK not in page and "## The code" not in page
         assert dr.APPENDIX_MARK not in out and "## The code" not in out
@@ -290,7 +295,8 @@ class TestAFailedPreview:
         assert "not run: the design could not be built" in page
         assert "refused the design" not in page
         assert "The design could not be built before this page." in page
-        assert "**Not built.**" in (tmp_path / "DESIGN_DETAILS.md").read_text()
+        assert "| The design, built before this page | not built. TimeoutError: the server " \
+               "did not answer. |" in (tmp_path / "DESIGN_DETAILS.md").read_text()
 
     def test_with_a_person_an_error_is_recorded_as_not_built(self, tmp_path, monkeypatch):
         co = _coordinator(tmp_path, [dict(ERROR)], interactive=True)
@@ -334,7 +340,7 @@ class TestARefusalThenNoPreview:
         details = (tmp_path / "DESIGN_DETAILS.md").read_text()
         assert "The design could not be built before this page." in page
         assert "refuses this design" not in page
-        assert "**Not built.**" in details and "**Refused.**" not in details
+        assert "| not built. " in details and "| refused. " not in details
         assert "not run: the design could not be built" in page
 
     def test_a_preview_given_as_none_is_not_read_from_disk(self, tmp_path):

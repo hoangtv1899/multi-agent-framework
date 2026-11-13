@@ -923,10 +923,12 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
     """reception.json + strategy.json (+ the server's preview, + the analysis
     plan written before the page, when there is one) -> markdown.
 
-    THE DESIGN IN FULL. Since 2026-11-12 a whole-domain design is decided on a
-    short page (agents/design_page.py); this is what that page leaves to its
-    details file (`decision` and `appendix` False) and the whole page of any
-    other design."""
+    THE DESIGN IN FULL, for any design that is not whole-domain. Since
+    2026-11-12 a whole-domain design is decided on a short page
+    (agents/design_page.py), and since 2026-11-13 what that page leaves out
+    is drawn by agents/design_details.py, so this page is no longer written
+    for one. `decision` and `appendix` False give the page without its
+    decision line and its second part."""
     brief = reception.get("brief") or reception
     kind, design = _design_lines(brief, strategy, _resolved_meanings(run_dir))
     L = []
@@ -1071,9 +1073,66 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
 _NOT_GIVEN = object()
 
 
+def _by_hand_text(preview, rd, strategy, brief):
+    """The whole text of RUN_BY_HAND.md, or "" when there is nothing to say.
+
+    FROM agents/run_by_hand.py (interface I6, 2026-11-13), which writes the
+    page the person approved. A page that module cannot write is written
+    from _appendix, as before, so a fault there never stops the pages."""
+    try:
+        # JOIN: agents/run_by_hand.py is piece D's module and is not in this
+        # clone. The person who joins the pieces removes this guard and the
+        # fall back on _appendix for an absent module.
+        from agents import run_by_hand as _rbh
+    except ImportError:
+        _rbh = None
+    if _rbh is not None:
+        try:
+            return str(_rbh.render(preview, rd, strategy, brief) or "")
+        except Exception:                                           # noqa: BLE001
+            pass
+    old = _appendix(preview, rd, strategy, brief)
+    return "\n".join(old) + "\n" if old else ""
+
+
+def _places(rd, strategy, analysis_preview, places):
+    """The map of the places the numbers are reported for, for the details
+    page ({"record", "drawn"}), or None.
+
+    WHICH PLACES. Those the comparisons shown on the page name: with no
+    comparisons there is no map. The record (interface I3) is kept beside
+    the design as the others are: given, it is saved (None removes an
+    earlier one); left out, the saved record is read, and where none was
+    made for this design the model server is asked for one, which is saved.
+    A record made for another design is never drawn. Never raises."""
+    try:
+        # JOIN: agents/places_figure.py is piece D's module and is not in this
+        # clone. The person who joins the pieces removes this guard.
+        from agents import places_figure as _pf
+    except ImportError:
+        return None
+    try:
+        from agents import design_details as _dd
+        de = strategy.get("domain_experiment") if isinstance(strategy, dict) else None
+        name = ((de or {}).get("control") or {}).get("name") if isinstance(de, dict) else None
+        regions = _dd.plan_regions(analysis_preview, rd, design_fingerprint(strategy))
+        if places is _NOT_GIVEN:
+            places = _pf.load(rd)
+            if regions and not (places and _pf.of_design(places, name, regions)):
+                places = _pf.fetch(name, regions)
+                _pf.save(rd, places)
+        else:
+            _pf.save(rd, places)
+        if not regions or not places or not _pf.of_design(places, name, regions):
+            return None
+        return {"record": places, "drawn": _pf.draw(places, rd)}
+    except Exception:                                               # noqa: BLE001
+        return None
+
+
 def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
                  analysis_preview=_NOT_GIVEN, control_figures=_NOT_GIVEN,
-                 run_given=_NOT_GIVEN):
+                 run_given=_NOT_GIVEN, places=_NOT_GIVEN):
     """Render and write DESIGN_REVIEW.md into run_dir; returns its path. The
     server's preview is read from 01_inputs/design_preview.json only when the
     argument is left out (a study the server previews nothing for has none),
@@ -1089,7 +1148,17 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
 
     `run_given`: what the model server gives for the new runs, the inputs
     each is given beside the control run's (agents/run_figures.fetch, since
-    2026-11-13). Kept, read and drawn by the same rule."""
+    2026-11-13). Kept, read and drawn by the same rule.
+
+    `places`: the places the numbers are reported for, for the map on the
+    details page (agents/places_figure.fetch, since 2026-11-13). Kept, read
+    and drawn by the same rule; left out with none saved for this design,
+    the model server is asked for it here (_places).
+
+    THE THREE PAGES OF A WHOLE-DOMAIN DESIGN (2026-11-13): the short page
+    (agents/design_page.py), what it leaves out (agents/design_details.py)
+    and how to make the runs by hand (agents/run_by_hand.py). Any other
+    design keeps its one page (render)."""
     rd = Path(run_dir)
     if reception is None:
         reception = json.loads((rd / "reception.json").read_text())
@@ -1106,7 +1175,9 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
     # make the runs by hand. Any other design keeps its one page.
     from agents import design_page as _page
     brief = reception.get("brief") or reception
-    by_hand = _appendix(preview, rd, strategy, brief)
+    whole = isinstance(strategy.get("domain_experiment") if isinstance(strategy, dict)
+                       else None, dict)
+    by_hand = _by_hand_text(preview, rd, strategy, brief) if whole else ""
     from agents import control_figures as _cf
     if control_figures is _NOT_GIVEN:
         control_figures = _cf.load(rd)
@@ -1137,31 +1208,17 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
                                run_dir=rd, analysis_preview=analysis_preview))
         return path
     path.write_text(short)
-    full = render(reception, strategy, run_name=rd.name, preview=preview, run_dir=rd,
-                  analysis_preview=analysis_preview, decision=False, appendix=False)
-    # THE CONTROL RUN IN FIGURES (2026-11-12): its maps and its series beside
-    # the measurements, after the design and before the reasons for it.
-    if figures:
-        block = "\n".join(_cf.details_lines(figures["record"], figures["drawn"],
-                                            figures["years"]))
-        mark = "\n## Why this can answer it"
-        if block.strip():
-            full = (full.replace(mark, "\n" + block + mark, 1) if mark in full
-                    else full.rstrip("\n") + "\n\n" + block)
-    # and what the new runs are given, with why any part is not shown, after
-    # the control run's figures
-    if given:
-        names = [str(r.get("name")) for r in (de.get("runs") or []) if isinstance(r, dict)]
-        block = "\n".join(_rf.details_lines(given["record"], given["drawn"], names))
-        mark = "\n## Why this can answer it"
-        if block.strip():
-            full = (full.replace(mark, "\n" + block + mark, 1) if mark in full
-                    else full.rstrip("\n") + "\n\n" + block)
-    (rd / _page.DETAILS_NAME).write_text(
-        f"*The design in full, for the short page `{REVIEW_NAME}` in this folder, which is "
-        f"where the decision is recorded.*\n\n" + full)
+    # WHAT THE SHORT PAGE LEAVES OUT (2026-11-13): in the short page's seven
+    # sections, from the same records, with the map of the places the numbers
+    # are reported for
+    from agents import design_details as _dd
+    (rd / _page.DETAILS_NAME).write_text(_dd.render(
+        reception, strategy, run_name=rd.name, preview=preview, run_dir=rd,
+        analysis_preview=analysis_preview, by_hand=bool(by_hand), control_figures=figures,
+        run_given=given, places=_places(rd, strategy, analysis_preview, places)))
     if by_hand:
-        (rd / _page.BY_HAND_NAME).write_text("\n".join(by_hand) + "\n")
+        (rd / _page.BY_HAND_NAME).write_text(by_hand if by_hand.endswith("\n")
+                                             else by_hand + "\n")
     return path
 
 

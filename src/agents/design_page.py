@@ -12,7 +12,8 @@ REBUILT SECTION BY SECTION (2026-11-13). The hydrologist who reads the page
 asked for more figures, less text, nothing taken too literally, and every
 part very clear and concise. The page now says these things, in this order:
 
-    Your question
+    Your question, and the Planner's direct answer to whether this design
+        can answer it
     The control run: a short summary written once, with a figure of the run
         beside its measurements where the model server holds them
     The new run: a table of what it is given, and a figure of it beside the
@@ -25,9 +26,9 @@ part very clear and concise. The page now says these things, in this order:
         and what was decided or noted without the person
     Your decision: what each answer at the terminal does
 
-Everything else is kept, in two files the page names: DESIGN_DETAILS.md (the
-design and the analysis plan in full) and RUN_BY_HAND.md (how to make the
-runs by hand).
+Everything else is kept, in two files the page names: DESIGN_DETAILS.md (what
+this page leaves out, in the same seven sections; agents/design_details.py)
+and RUN_BY_HAND.md (how to make the runs by hand).
 
 SHORT, BUT NOTHING A DECISION RESTS ON IS LEFT OUT. The page is drawn from
 the same records as the details, by code, and no language model writes it. A
@@ -39,6 +40,12 @@ the details hold all of it. The Planner's caveats are the one condition left
 to the details, and only where every change of every run carries the
 server's own short limit, which says the same for the knobs used.
 tests/test_design_page.py holds the page to that.
+
+THE PLANNER'S RECORD SINCE 2026-11-13 (`caveats_by` "code"). Code puts the
+caveats together from the server's words, so a page prints the server's
+limits from the server's own records and, of the Planner's words, its limits
+for the question and its own caveats (`planner_caveats`), each as its
+judgement. A record without `caveats_by` is read as before.
 
 Only a whole-domain design has this page. Any other design keeps the page it
 had (design_review.render).
@@ -60,6 +67,15 @@ CANNOT_RUN = "This design cannot run as it stands."
 NO_LIMIT = "The design records no limit."
 NO_CHOICE = "No choice was made for you."
 JUDGEMENT = "This is the Planner's judgement."
+# THE PLANNER'S DIRECT ANSWER (2026-11-13). The short page printed the verdict
+# only where it was not "full", so a person who asked whether the design can
+# answer the question read no answer for the common case. It is now said once,
+# directly under the question, on both pages.
+ANSWER_HEAD = "**The Planner's answer.**"
+VERDICT_WORDS = {"full": "This design can answer the question in full.",
+                 "partial": "This design can answer part of the question.",
+                 "infeasible": "This design cannot answer the question."}
+NO_VERDICT = "The Planner gave no verdict on whether this design can answer the question."
 
 
 def hours_words(nh: Any) -> str:
@@ -158,6 +174,51 @@ def _question_lines(text: Any) -> List[str]:
         L.append("")
         L.append(f"**Change {i} you asked for at this page.** {ch}")
     return L
+
+
+def verdict(strategy: Dict[str, Any]) -> str:
+    """The Planner's verdict, "full", "partial" or "infeasible", or "" where
+    the record holds none of them."""
+    fz = strategy.get("feasibility") if isinstance(strategy.get("feasibility"), dict) else {}
+    v = str(fz.get("verdict") or "").strip().lower()
+    return v if v in VERDICT_WORDS else ""
+
+
+def planners_answer(strategy: Dict[str, Any]) -> str:
+    """The Planner's answer to "can this design answer my question": the
+    verdict in words, then its reason as the Planner wrote it. A reason with
+    no verdict on record is still printed, so it is never lost."""
+    fz = strategy.get("feasibility") if isinstance(strategy.get("feasibility"), dict) else {}
+    why = _sentence(_control_run(fz.get("why")))
+    return f"{ANSWER_HEAD} {VERDICT_WORDS.get(verdict(strategy), NO_VERDICT)}" + \
+        (f" {why}" if why else "")
+
+
+def caveats_by_code(de: Dict[str, Any]) -> bool:
+    """Whether code put the design's caveats together from the server's words
+    (the Planner's record since 2026-11-13). The pages then print the server's
+    limits from its own records, and never `caveats`."""
+    return de.get("caveats_by") == "code"
+
+
+def _texts(items: Any) -> List[str]:
+    out: List[str] = []
+    for q in items if isinstance(items, list) else []:
+        s = str(q.get("text") if isinstance(q, dict) else q or "").strip()
+        if s and s != "None" and s not in out:
+            out.append(s)
+    return out
+
+
+def planner_limits(de: Dict[str, Any]) -> List[str]:
+    """The Planner's own words a page prints as its judgement: its limits for
+    the question, then, for a record whose caveats code put together, its own
+    caveats (`planner_caveats`), each once."""
+    out = _texts(de.get("question_limits"))
+    if caveats_by_code(de):
+        out += [c for c in _texts(de.get("planner_caveats")) if _same(c) not in
+                {_same(x) for x in out}]
+    return out
 
 
 def _runs(de: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -413,11 +474,27 @@ def _limits_of_changes(run_dir, runs: Sequence[Dict[str, Any]]) -> Tuple[List[st
     return out, every and n > 0
 
 
+def caveats_shown(de: Dict[str, Any], run_dir, told: Sequence[str] = ()) -> List[str]:
+    """The Planner's caveats the short page prints: none for a record whose
+    caveats code put together, none where every change of every run carries
+    the server's short limit, and otherwise each caveat that is not one of
+    the Planner's limits for the question or a sentence `told` already."""
+    if caveats_by_code(de):
+        return []
+    _, every = _limits_of_changes(run_dir, _runs(de))
+    if every:
+        return []
+    caveats = [str(c).strip() for c in de.get("caveats") or [] if str(c).strip()]
+    told_set = {_same(x) for x in told} | {_same(q) for q in planner_limits(de)}
+    return [c for c in caveats if _same(c) not in told_set]
+
+
 def _not_cover_lines(strategy, de, row, run_dir, told: Sequence[str] = ()) -> List[str]:
-    """The section "What the answer will not cover", in this order: the
-    Planner's verdict where it is not "full"; the server's short limit of
-    each knob a run uses; the Planner's limits for this question; what the
-    control run does not contain, once.
+    """The section "What the answer will not cover", in this order: what
+    the question would also need; the server's short limit of each knob a
+    run uses; the Planner's limits for this question; what the control run
+    does not contain, once. The Planner's verdict is said under the question
+    since 2026-11-13 (planners_answer), and not here.
 
     THE PLANNER'S CAVEATS (2026-11-13). They repeated, at length and for every
     knob, what a run is not, and the person called them too long. Where every
@@ -425,26 +502,18 @@ def _not_cover_lines(strategy, de, row, run_dir, told: Sequence[str] = ()) -> Li
     DESIGN_DETAILS.md, which prints each one whole. Where any change lacks
     one (a record made before), they are printed here as before, so nothing
     is lost. A caveat that is word for word a sentence under "Choices made
-    for you" is not printed a second time."""
+    for you" is not printed a second time. A record whose caveats code put
+    together (caveats_by_code) has its own caveats printed with its limits
+    for the question, and the server's limits come from the server's
+    records alone."""
     runs = _runs(de)
     L: List[str] = []
-    fz = strategy.get("feasibility") or {}
-    verdict = str(fz.get("verdict") or "").strip().lower()
-    if verdict == "partial":
-        L.append(f"- The Planner judges that this design answers the question in part. "
-                 f"{_sentence(fz.get('why'))}".rstrip())
-    elif verdict not in ("full", "infeasible"):
-        L.append("- The Planner gave no verdict on whether this design can answer the "
-                 "question.")
     for need in strategy.get("requires") or []:
         L.append(f"- The question would also need something that is not available here. "
-                 f"{_sentence(need)}")
+                 f"{_sentence(_control_run(need))}")
     limits, every = _limits_of_changes(run_dir, runs)
     L += [f"- {s}" for s in limits]
-    caveats = [str(c).strip() for c in de.get("caveats") or [] if str(c).strip()]
-    mine = [str(q.get("text") if isinstance(q, dict) else q).strip()
-            for q in de.get("question_limits") or []]
-    mine = [q for q in mine if q and q != "None"]
+    mine = planner_limits(de)
     shown: List[str] = []
     if not every:
         # A LIMIT FOR THE QUESTION IS ALSO A CAVEAT (2026-11-13). The Planner
@@ -454,8 +523,7 @@ def _not_cover_lines(strategy, de, row, run_dir, told: Sequence[str] = ()) -> Li
         # printed below as the Planner's judgement, and is not printed twice:
         # a live page of a study of the control run alone gave each one two
         # times.
-        told_set = {_same(x) for x in told} | {_same(q) for q in mine}
-        shown = [c for c in caveats if _same(c) not in told_set]
+        shown = caveats_shown(de, run_dir, told)
         L += [f"- {_sentence(_control_run(c))}" for c in shown]
     L += [f"- {_sentence(_control_run(q))} {JUDGEMENT}" for q in mine]
     # WHAT THE CONTROL RUN DOES NOT CONTAIN, ONCE (2026-11-12): in the words of
@@ -509,24 +577,25 @@ def _choice_lines(brief, strategy, preview, de, menu, question) -> List[str]:
     rs = brief.get("run_settings") or {}
     for item in list(brief.get("assumptions") or []) + list(rs.get("conflicts") or []):
         if str(item).strip() and not _same_point(item, notes):
-            L.append(f"- {_sentence(item)}")
+            L.append(f"- {_sentence(_control_run(item))}")
     for item in brief.get("known_data_gaps") or []:
         if str(item).strip():
-            L.append(f"- Noted by Reception: {_sentence(item)}")
+            L.append(f"- Noted by Reception: {_sentence(_control_run(item))}")
     if preview:
         for i, r in enumerate(preview.get("rounds") or [], 1):
             L.append(f"- The model server refused {'an earlier' if i == 1 else 'another'} "
                      f"version of this design, and the Planner changed it before this page:")
-            L += [f"  - {_sentence(DR._finding(f, 100000))}" for f in r.get("findings") or []]
+            L += [f"  - {_sentence(_control_run(DR._finding(f, 100000)))}"
+                  for f in r.get("findings") or []]
         if not _blocked(preview):
             for u in ((preview.get("check") or {}).get("unusual") or []):
                 L.append(_noted(u))
             ic = preview.get("inputs_check") or {}
             if ic and not ic.get("pass"):
                 L.append("- The input files failed their check. "
-                         + _sentence("; ".join(map(str, ic.get("reasons") or []))))
+                         + _sentence(_control_run("; ".join(map(str, ic.get("reasons") or [])))))
             for p in preview.get("problems") or []:
-                L.append(f"- Not shown in the details: {_sentence(p)}")
+                L.append(f"- Not shown in the details: {_sentence(_control_run(p))}")
     seen = set()
     for r in runs:
         for c in r.get("changes") or []:
@@ -545,28 +614,32 @@ def _choice_lines(brief, strategy, preview, de, menu, question) -> List[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 def why_not(strategy, preview, analysis_preview) -> List[str]:
     """Why the design cannot run, as the page said it before 2026-11-13,
-    whole: the server refuses it, it could not be built, the Planner judges
-    it cannot answer the question, or no comparison a yes could approve was
-    planned. [] for a design that can run."""
+    whole: the server refuses it, it could not be built, or no comparison a
+    yes could approve was planned. [] for a design that can run, or one the
+    Planner judges cannot answer the question: that answer and its reason
+    are said once, under the question (planners_answer)."""
     from agents import analysis_handoff as AH
     from agents import design_review as DR
     L: List[str] = []
     if preview and preview.get("refused"):
         L.append("- The model server refuses this design as it stands:")
-        L += [f"  - {_sentence(DR._finding(f, 100000))}" for f in preview["refused"]]
+        L += [f"  - {_sentence(_control_run(DR._finding(f, 100000)))}" for f in preview["refused"]]
     elif preview and preview.get("error"):
         L.append(f"- The design could not be built before this page. "
-                 f"{_sentence(preview['error'])}")
-    fz = strategy.get("feasibility") or {}
-    if str(fz.get("verdict") or "").strip().lower() == "infeasible":
-        L.append(f"- The Planner judges that this design cannot answer the question. "
-                 f"{_sentence(fz.get('why'))}".rstrip())
+                 f"{_sentence(_control_run(preview['error']))}")
     if AH.unapprovable(analysis_preview):
         L.append("- The comparisons did not pass their check, so a yes could approve none of "
                  "them." if (analysis_preview or {}).get("status") == "not passed" else
                  "- The comparisons could not be planned before this page, so a yes could "
                  "approve none.")
     return L
+
+
+def cannot_run(strategy, preview, analysis_preview) -> bool:
+    """Whether the design has no yes: a reason of why_not, or the Planner's
+    answer that it cannot answer the question."""
+    return bool(why_not(strategy, preview, analysis_preview)) or \
+        verdict(strategy) == "infeasible"
 
 
 def _decision_lines(de, strategy, preview, by_hand: bool, analysis_preview=None) -> List[str]:
@@ -577,8 +650,9 @@ def _decision_lines(de, strategy, preview, by_hand: bool, analysis_preview=None)
     from core import approved_spending as SP
     reasons = why_not(strategy, preview, analysis_preview)
     n = _executed(de)
-    if reasons:
-        L = reasons + ["", CANNOT_RUN, "", "| You type | What happens |", "|---|---|",
+    if reasons or cannot_run(strategy, preview, analysis_preview):
+        L = reasons + ([""] if reasons else []) + [
+                CANNOT_RUN, "", "| You type | What happens |", "|---|---|",
                        "| a change, in your own words | The design is made again with your "
                        "change and checked again. |",
                        "| nothing | The request stops. Nothing has been submitted. |", ""]
@@ -635,6 +709,7 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
     runs = _runs(de)
     L = [f"# Design review: {run_name}", ""]
     L += _question_lines(question) + [""]
+    L += [planners_answer(strategy), ""]
     L += ["## The control run", ""] + _control_run_lines(de, row, control_figures)
     L += [f"## {'The new runs' if len(runs) > 1 else 'The new run'}", ""]
     L += _new_run_lines(brief, strategy, de, menu, row, preview, run_dir, run_given)

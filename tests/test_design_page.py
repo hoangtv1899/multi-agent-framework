@@ -229,11 +229,20 @@ def _section(page, heading):
     return body.split("\n## ", 1)[0]
 
 
-def _details(folder, strategy=None, preview=PREVIEW, record="default", reception=None):
+def _details(folder, strategy=None, preview=PREVIEW, record="default", reception=None,
+             given=None):
+    """DESIGN_DETAILS.md of the same design (agents/design_details.py)."""
+    from agents import design_details as DD
     strategy = strategy or _strategy()
     rec = _record(folder, strategy) if record == "default" else record
-    return dr.render(reception or _reception(), strategy, run_name="a_study", preview=preview,
-                     run_dir=folder, analysis_preview=rec, decision=False, appendix=False)
+    return DD.render(reception or _reception(), strategy, run_name="a_study", preview=preview,
+                     run_dir=folder, analysis_preview=rec, run_given=given)
+
+
+def _both(folder, **kw):
+    """The two pages together, flattened: what a decision rests on is on one
+    of them."""
+    return _flat(_page(folder, **kw)) + " " + _flat(_details(folder, **kw))
 
 
 def _plan(folder, **over):
@@ -309,9 +318,9 @@ class TestTheShape:
         assert "**Your question.** " + QUESTION in page
         assert "**Change 1 you asked for at this page.** make it 2034" in page
 
-    def test_three_files_are_written_and_the_page_names_the_other_two(self, folder,
-                                                                     monkeypatch):
-        monkeypatch.setattr(dr, "_appendix", lambda *a, **k: [dr.APPENDIX_MARK, "", "steps"])
+    def test_three_files_are_written_and_the_page_names_the_other_two(self, folder):
+        # what RUN_BY_HAND.md says is agents/run_by_hand.py's, and its own tests
+        # hold it: here, only that it is written and names the run
         (folder / "reception.json").write_text(json.dumps(_reception()))
         path = dr.write_review(folder, reception=_reception(), strategy=_strategy(),
                                preview=PREVIEW, analysis_preview=_record(folder))
@@ -320,13 +329,11 @@ class TestTheShape:
         assert "The design in full is in `DESIGN_DETAILS.md`. The steps to make the runs by " \
                "hand are in `RUN_BY_HAND.md`." in _flat(page)
         details = (folder / DP.DETAILS_NAME).read_text()
-        assert "## The design" in details and "against observations" in details
+        assert details.startswith("# Design details: ") and "## Your question" in details
         assert dr._PENDING not in details and dr.APPENDIX_MARK not in details
-        assert (folder / DP.BY_HAND_NAME).read_text().startswith(dr.APPENDIX_MARK)
+        assert RUN in (folder / DP.BY_HAND_NAME).read_text()
 
-    def test_with_nothing_to_make_by_hand_no_such_file_is_named_or_written(self, folder,
-                                                                          monkeypatch):
-        monkeypatch.setattr(dr, "_appendix", lambda *a, **k: [])
+    def test_with_nothing_to_make_by_hand_no_such_file_is_named_or_written(self, folder):
         path = dr.write_review(folder, reception=_reception(), strategy=_strategy(),
                                preview=None, analysis_preview=None)
         assert "RUN_BY_HAND.md" not in path.read_text()
@@ -884,22 +891,21 @@ class TestWhatTheAnswerWillNotCover:
         for c in CAVEATS:
             assert f"- {c}" in sec
 
-    def test_the_planners_verdict_in_part_comes_first_with_its_reason(self, folder):
+    def test_what_the_question_would_also_need_comes_first(self, folder):
         _resolved(folder, [{"name": RUN, "changes": [CHANGE]}], {"weather_scale": [CUT]})
         st = _strategy(feasibility={"verdict": "partial",
                                     "why": "the second half needs a change that is not there"},
                        requires=["a change of the made-up river's course"])
         lines = _section(_page(folder, strategy=st), COVER).strip().splitlines()
-        assert lines[0] == ("- The Planner judges that this design answers the question in "
-                            "part. The second half needs a change that is not there.")
-        assert lines[1] == ("- The question would also need something that is not available "
+        assert lines[0] == ("- The question would also need something that is not available "
                             "here. A change of the made-up river's course.")
-        assert lines[2] == f"- {CUT}"
-        # a verdict of "full" is not on the short page
-        assert "judges" not in _section(_page(folder), COVER)
-        st = _strategy(feasibility={})
-        assert "- The Planner gave no verdict on whether this design can answer the " \
-               "question." in _section(_page(folder, strategy=st), COVER)
+        assert lines[1] == f"- {CUT}"
+        # the verdict is said once, under the question, and not here
+        for st in (st, _strategy(), _strategy(feasibility={}),
+                   _strategy(feasibility={"verdict": "infeasible", "why": "no run shows it"})):
+            sec = _section(_page(folder, strategy=st), COVER)
+            assert "verdict" not in sec and "judge" not in sec and "answers the question" \
+                not in sec
 
     def test_what_the_control_run_does_not_contain_is_said_once(self, folder):
         page = _page(folder)
@@ -1026,11 +1032,12 @@ class TestChoicesMadeForYou:
         page = _page(folder)
         details = _flat(_details(folder))
         for gone, kept in (
-                ("can answer the question in full", "**Feasibility: full.**"),
-                ("checked the design", "**Passed.**"),
-                ("passed its check", "- Code's check and the model review: **passed**."),
-                ("remark", f"- The model review's remarks: - {REMARKS[0]}"),
-                ("not made yet", f"- `{RUN}` is not made yet, so the plan takes its outputs to "
+                ("checked the design", "| The design against its list of changes and the "
+                                       "control run's facts | passed |"),
+                ("passed its check", "Code checked the list and a second model reviewed it "
+                                     "against the question. Both passed."),
+                ("remark", f"The review made these remarks. - {REMARKS[0]}"),
+                ("not made yet", f"`{RUN}` is not made yet, so the list takes its outputs to "
                                  f"be the control run's quantities over the planned years. "
                                  f"Each year is checked after it runs.")):
             assert gone not in page, gone
@@ -1126,11 +1133,18 @@ class TestYourDecision:
                        "made-up wait."]
 
     def test_a_design_judged_infeasible(self, folder):
+        # the answer and its reason are said once, under the question, and the
+        # decision offers no yes
         st = _strategy(feasibility={"verdict": "infeasible", "why": "no run can show it"})
-        why = self._cannot(_page(folder, strategy=st, record=None))
-        assert why == ["- The Planner judges that this design cannot answer the question. No "
-                       "run can show it."]
-        assert "judges" not in _section(_page(folder, strategy=st, record=None), COVER)
+        page = _page(folder, strategy=st, record=None)
+        sec = _section(page, DECISION).split("\n---\n")[0].strip().splitlines()
+        assert sec[:6] == self.CANNOT[1:]
+        assert "| yes |" not in page and "| no |" not in page
+        assert _flat(page).count("No run can show it.") == 1
+        assert "**The Planner's answer.** This design cannot answer the question. No run can " \
+               "show it." in page
+        assert DP.why_not(st, PREVIEW, None) == []
+        assert DP.cannot_run(st, PREVIEW, None) and not DP.cannot_run(_strategy(), PREVIEW, None)
 
     def test_a_design_with_no_comparisons_a_yes_could_approve(self, folder):
         bad = _record(folder, status=AV.NOT_PASSED, handoff={"promised": False, "why": "x"})
@@ -1164,7 +1178,7 @@ class TestYourDecision:
         assert dr._PENDING_BEFORE not in text and "pending" not in text
 
 
-# ── the details keep what the page leaves out ────────────────────────────────
+# ── the two pages together keep what a decision rests on ────────────────────
 class TestTheDetailsKeepEverything:
 
     def test_every_caveat_whole_however_many(self, folder):
@@ -1172,9 +1186,16 @@ class TestTheDetailsKeepEverything:
         many = [f"A made-up caveat number {k}." for k in range(1, 13)] + [long]
         st = _strategy()
         st["domain_experiment"]["caveats"] = many
+        # printed on the short page where a change has no short limit of its own
+        both = _both(folder, strategy=st)
+        for c in many:
+            assert _flat(c) in both, c[:40]
+        # and on the details where every change has one
+        _resolved(folder, [{"name": RUN, "changes": [CHANGE]}], {"weather_scale": [CUT]})
         details = _flat(_details(folder, strategy=st))
         for c in many:
             assert _flat(c) in details, c[:40]
+            assert _flat(c) not in _flat(_page(folder, strategy=st)), c[:40]
 
     def test_every_finding_of_the_server_whole(self, folder):
         def long(k):
@@ -1184,15 +1205,16 @@ class TestTheDetailsKeepEverything:
                        rounds=[{"findings": [{"where": "run x", "what": long(2)}],
                                 "design": "s.json"}],
                        problems=[long(3)])
-        details = _flat(_details(folder, preview=preview))
-        for k in (1, 2, 3):
+        details = _flat(_details(folder, preview=preview)).lower()
+        for k in (1, 2):
             assert _flat(long(k)) in details, k
+        assert _flat(long(3)) in _flat(_page(folder, preview=preview)).lower()
         long = long(4)
         refused = {"refused": [{"where": "run x", "what": long + " refused"}], "runs": [],
                    "error": None}
-        assert _flat(long + " refused") in _flat(_details(folder, preview=refused))
+        assert _flat(long + " refused") in _flat(_details(folder, preview=refused)).lower()
         error = {"refused": [], "runs": [], "error": "an error " + "that goes on " * 60 + "end"}
-        assert _flat(error["error"]) in _flat(_details(folder, preview=error))
+        assert _flat(error["error"]) in _flat(_details(folder, preview=error)).lower()
 
     def test_every_remark_of_the_review_and_the_whole_plan(self, folder):
         plan = copy.deepcopy(PLAN)
@@ -1204,31 +1226,31 @@ class TestTheDetailsKeepEverything:
         details = _flat(_details(folder, record=_record(folder, status=AV.NOT_PASSED)))
         for r in REMARKS:
             assert r in details
-        for a in plan["analyses"]:
-            assert f"| {a['id']} | {a['question']} |" in details
-        assert "| Monthly change in plant growth | How much growth falls |" in details
+        assert "| 1 | Monthly change in plant growth | June to August of 2033 | the new run " \
+               "minus the control run | How much growth falls |" in details
+        assert "| 2 | LEAFX and SOILX |" in details
         for p in plan["problems"]:
-            assert p in details
+            assert f"- {DP._sentence(p)}" in details
         for c in plan["competing"]:
-            assert c["text"] in details
-        assert INCLUSIVE in details
+            assert DP._sentence(c["text"]) in details
+        assert _flat(DP._sentence(INCLUSIVE)) in details
 
     def test_the_places_with_their_cells_and_area(self, folder):
         details = _details(folder)
-        assert "| vegetated cells | 1,100 | 830 | a made-up rule |" in details
-        assert "| valley floor | 300 | 210 | below a made-up line |" in details
+        assert "| `vegetated cells` | 830 | 1,100 | a made-up rule |" in details
+        assert "| `valley floor` | 210 | 300 | below a made-up line |" in details
         details = _details(folder, record=_record(folder, regions={}))
-        assert "| vegetated cells | not on record | not on record | not on record |" in details
+        assert "| `vegetated cells` | not on record | not on record | not on record |" in details
 
     def test_the_planners_limits_and_every_remark_of_reception(self, folder):
         st = _strategy()
         st["domain_experiment"]["question_limits"] = ["A made-up limit of the question."]
         many = [f"a made-up conflict {k}" for k in range(1, 9)]
         rec = _reception(run_settings={"conflicts": many}, known_data_gaps=["g1", "g2", "g3", "g4"])
-        details = _details(folder, strategy=st, reception=rec)
-        assert "A made-up limit of the question." in details
+        both = _both(folder, strategy=st, reception=rec)
+        assert "A made-up limit of the question." in both
         for x in many + ["g1", "g2", "g3", "g4"]:
-            assert x in details
+            assert x in both.lower(), x
 
     def test_what_the_new_runs_are_given_with_what_was_not_drawn(self, folder, monkeypatch):
         from agents import run_figures as RF
@@ -1241,11 +1263,10 @@ class TestTheDetailsKeepEverything:
         page = (folder / dr.REVIEW_NAME).read_text()
         details = (folder / DP.DETAILS_NAME).read_text()
         assert "| Rain and snow |" in page and "![" not in _section(page, "The new run")
-        sec = _section(details, "What the new runs are given")
-        assert f"- Not shown: `{RUN}`: a made-up file is missing" in sec
-        assert f"- Not shown: the figure of `{RUN}` was not drawn" in sec
-        assert details.index("## What the new runs are given") < \
-            details.index("## Why this can answer it")
+        sec = _section(details, "The new run")
+        assert f"- For `{RUN}`, a made-up file is missing." in sec
+        assert f"- The figure of `{RUN}` was not drawn" in sec
+        assert "| Change | rain and snow multiplied by 0.7 in June to August of 2033 |" in sec
         assert json.loads((folder / RF.RECORD_FILE).read_text()) == given
 
 

@@ -1092,8 +1092,20 @@ ROLES = (
     # pass it is from is read from its time (_notice_role, _index_lines)
     (NOTICE_NAME, "the notice tools/notify_study.py wrote when the study ended"),
     ("DESIGN_REVIEW.md", "the design page shown before any compute, with the decision on it"),
-    ("DESIGN_DETAILS.md", "the design in full, with the analysis plan written before the page when there is one: what the short design page leaves out"),
+    ("DESIGN_DETAILS.md", "what the short design page leaves out, in its seven sections: the control run's set-up, each new run, every comparison with the places it reads, what stands behind each limit and the model server's check"),
     ("RUN_BY_HAND.md", "how to make the runs by hand, drawn from what the model server wrote before the design page"),
+    # THE DESIGN PAGES' OWN RECORDS AND FIGURES (2026-11-12 and 13): what the
+    # model server gave for the pages, kept so they can be drawn again, and
+    # the figures drawn from it
+    ("01_inputs/control_figures.json", "what the model server gave for the control run on the design pages: its set-up, its measurements, its maps and its tables"),
+    ("01_inputs/run_given.json", "what the model server gave for what each new run is given beside the control run, for the design pages"),
+    ("01_inputs/places.json", "the places the numbers are reported for, as the model server gave them for the map on DESIGN_DETAILS.md"),
+    ("design_figures/control_run_series.png", "the figure of the control run beside its measurements, month by month, on the design page"),
+    ("design_figures/control_run_maps.png", "the maps of the control run's mean, on DESIGN_DETAILS.md"),
+    ("design_figures/new_run_*_series.png", "what a new run is given beside the control run, on the design page"),
+    ("design_figures/new_run_*_map.png", "where a new run's change applies, on the design page"),
+    ("design_figures/places_reported.png", "the map of the places the numbers are reported for, on DESIGN_DETAILS.md"),
+    ("design_figures/*", "a figure drawn for the design pages"),
     ("PLAN_CORRECTED.md", "a note of a correction made to the plan after the decision"),
     ("ensemble_A.sbatch", "the script of job A, which builds the model's cases and runs them"),
     ("ensemble_A.log", "job A's log: each case built and run, and how it ended"),
