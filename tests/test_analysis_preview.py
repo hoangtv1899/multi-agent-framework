@@ -413,7 +413,12 @@ class TestAfterTheYes:
         rd = tmp_path / "design"
         rd.mkdir()
         plan = plan or _strategy(runs=[WARM])
-        clients = _clients(WARM_PLAN)
+        # the scripted plan of the design in hand. A plan of the `warm` run
+        # given for a design with no run fails its check, and the rewrite then
+        # asked for has no scripted client: with the gateway's key in the
+        # environment it was a real, paid call (found 2026-11-12; the root
+        # conftest now fails any test that reaches the gateway).
+        clients = _clients(WARM_PLAN if plan["domain_experiment"]["runs"] else PLAN_REPLY)
         co = _co(plan, clients, ran=[])
         _typed(monkeypatch, ["yes"])
         co._workflow_design_and_run(_reception(), str(tmp_path), rd)

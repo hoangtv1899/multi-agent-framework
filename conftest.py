@@ -63,6 +63,50 @@ def parked_tests():
     return out
 
 
+# NO TEST REACHES THE MODEL GATEWAY UNLESS ASKED (2026-11-12). A step that is
+# given no scripted client makes a real one, and with PNNL_API_KEY in the
+# environment its call is real and paid. One test did exactly that for a day:
+# its scripted plan failed its check, the rewrite then asked for had no
+# scripted client, and every run of the suite spent a planning call and a
+# review call, with the test passing. In a plain run the gateway's client is
+# now a stand-in: it can be built, as the agents build theirs, and any request
+# through it fails the test, even where the code under test catches the error.
+# `--runllm` leaves the real client in place.
+class GatewayReached(AssertionError):
+    pass
+
+
+@pytest.fixture(autouse=True)
+def no_model_gateway(request, monkeypatch):
+    if request.config.getoption("--runllm"):
+        yield None
+        return
+    try:
+        import agents.llm_agent as _la
+    except Exception:                                   # no openai here: nothing to guard
+        yield None
+        return
+    reached = []
+
+    class NoGateway:
+        """In the place of openai.OpenAI for one test."""
+
+        def __init__(self, *a, **k):
+            self.chat = self.completions = self
+
+        def create(self, *a, **k):
+            reached.append(str(k.get("model")))
+            raise GatewayReached(
+                "a test asked the real model gateway for a reply (model "
+                f"{k.get('model')}): give the step a scripted client, or run with --runllm")
+    monkeypatch.setattr(_la.openai, "OpenAI", NoGateway)
+    yield reached                       # the guard's own test reads it, and empties it
+    if reached:
+        pytest.fail(f"the test asked the real model gateway {len(reached)} time(s) "
+                    f"(model {', '.join(sorted(set(reached)))}): give the step a scripted "
+                    f"client, or run with --runllm")
+
+
 def pytest_addoption(parser):
     for flag, reason in _TIERS.values():
         parser.addoption(flag, action="store_true", default=False,
