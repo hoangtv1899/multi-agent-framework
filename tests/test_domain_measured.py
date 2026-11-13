@@ -384,12 +384,30 @@ class TestTheSetUpAndTheTables:
                                    "the observed one"]
 
     def test_a_table_that_cannot_be_made_is_a_problem(self, built, monkeypatch):
-        def broke(f):
+        def broke(f, entry=None):
             raise ValueError("made up")
         monkeypatch.setattr(DCT, "fire_tables", broke)
         rec = DM.page_record(dict(built["control"], facts={"burned_area_km2": FIRE}))
         assert rec["tables"] == [] and rec["problems"] == [
             "the burned-area table: ValueError: made up"]
+
+    def test_the_observed_row_takes_the_registrys_short_label(self, built):
+        obs = {"burned": {"path": "/made/up.nc", "var": "burned_fraction_year",
+                          "what": "a made-up satellite", "label": "Made-up record"}}
+        rec = DM.page_record(dict(built["control"], observations=obs,
+                                  facts={"burned_area_km2": FIRE}))
+        assert rec["tables"][0]["rows"][1] == {"label": "Made-up record", "values": [3, 41]}
+        assert rec["problems"] == []
+
+    def test_a_label_of_another_form_is_named_and_the_source_kept(self, built):
+        obs = {"burned": {"path": "/made/up.nc", "var": "burned_fraction_year",
+                          "what": "a made-up satellite", "label": ""}}
+        rec = DM.page_record(dict(built["control"], observations=obs,
+                                  facts={"burned_area_km2": FIRE}))
+        assert rec["tables"][0]["rows"][1]["label"] == "a made-up satellite"
+        assert rec["problems"] == [
+            "the label of the observation 'burned' is not a name written out, so it is left "
+            "out and the burned-area table names the observation by its source"]
 
     def test_a_row_of_another_form_is_named_and_the_others_kept(self, built):
         rec = DM.page_record(dict(built["control"], page_setup=SETUP + [{"label": "Fire"}]))

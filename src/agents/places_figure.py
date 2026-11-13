@@ -147,6 +147,15 @@ def _rest(label: str, head: str) -> str:
     return label[len(head):].lstrip(" ,;:-")
 
 
+# AN EDGE NEEDS TWO CELLS A SIDE (2026-11-13). An outline is drawn as a
+# contour, and a contour needs a grid of at least two cells each way. On a
+# grid one cell wide the classes are drawn alone, and draw() names each edge
+# it left out.
+def _too_narrow_for_edges(record: Dict[str, Any]) -> bool:
+    lat, lon = record.get("lat"), record.get("lon")
+    return isinstance(lat, list) and isinstance(lon, list) and min(len(lat), len(lon)) < 2
+
+
 def figure(record: Dict[str, Any]):
     """(the figure's specification, its output, the grid's axes) for the
     map of classes. Raises ValueError for a record whose grid does not hold
@@ -164,7 +173,7 @@ def figure(record: Dict[str, Any]):
         "kind": "map", "output": "C1",
         "classes": {"entries": words["entries"], "title": words["title"],
                     "other": OTHER if words["entries"] else "the model grid",
-                    "lines": words["lines"]}}]}
+                    "lines": [] if _too_narrow_for_edges(record) else words["lines"]}}]}
     refs = {"C1": {"ref": "C1", "kind": "map", "out": {"field": "places", "title": ALT},
                    "value": classes, "made": True, "error": None, "outcome": None,
                    "why": None, "line": None}}
@@ -184,6 +193,12 @@ def draw(record: Optional[Dict[str, Any]], run_dir) -> Dict[str, Any]:
     try:
         from agents.analysis import figure_spec as FS
         spec, refs, ll = figure(record)
+        if _too_narrow_for_edges(record):
+            for o in _outlines(record):
+                name = repr(o["label"]) if o.get("label") else "a region"
+                out["problems"].append(f"the edge of {name} is left out of the map of the "
+                                       f"places, because the grid is one cell wide and an "
+                                       f"edge needs two cells a side")
         (Path(run_dir) / FIG_DIR).mkdir(parents=True, exist_ok=True)
         got = FS.render_figure(spec, refs, Path(run_dir) / PNG, lat_lon=ll)
         if got.get("ok"):

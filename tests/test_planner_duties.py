@@ -444,6 +444,33 @@ class TestTheCarriedCaveats:
         assert got[0] == ("The difference from the control run is not deposition beyond what "
                           "the made-up dataset holds for {year}.")
 
+    def test_the_servers_words_are_put_on_one_line(self):
+        """A line break or a doubled space in the server's words would break
+        the caveat across lines of a page, or leave a gap in it."""
+        from agents import planner as PL
+        assert PL._clause("a made-up\nsky:  only\tthe light\r\n is dimmer. ") == \
+            "a made-up sky: only the light is dimmer"
+        rb = copy.deepcopy(RULEBOOK)
+        rb["changes"]["changes"][0]["not_meaning"] = "a consistent change\nof the made-up  sky"
+        rb["controls"]["controls"][0]["not_in_it_words"] = ["the made-up\n  floods",
+                                                             " the made-up   dams. "]
+        got = PL.carried_caveats(rb, _design(runs=[{"name": "dim",
+                                                     "changes": [{"id": "dim_sun"}]}]))
+        assert got == ["The difference from the control run is not a consistent change of the "
+                       "made-up sky.", "The control run does not contain the made-up floods.",
+                       DAMS]
+        assert all("\n" not in c and "  " not in c for c in got)
+
+    def test_no_rule_of_the_servers_list_asks_the_designer_for_a_caveat(self):
+        """Code writes the caveat for a change no run has completed, so the
+        list's rules no longer ask the designer to write it; a rule that did
+        would have the Planner copy the server's words again."""
+        import domain_changes as DC
+        rules = DC.declare()["rules"]
+        assert rules and not [r for r in rules if "caveat" in r.lower()]
+        # the rule that tells the person stays
+        assert any("demonstrated: false" in r and "untested" in r for r in rules)
+
     @pytest.mark.parametrize("rulebook, design", [
         (None, None), ({}, {}), (None, _design()), ({"changes": [], "controls": None}, _design()),
         (RULEBOOK, {"control": "valley", "runs": "dim"}),
@@ -489,8 +516,42 @@ class TestThePlansCaveatsArePutTogetherByCode:
         got = PL.with_carried_caveats(_design(runs=[]), RULEBOOK)
         assert got["caveats"] == [FLOODS, DAMS] and got["planner_caveats"] == []
         assert "question_limits" not in got
-        got = PL.with_carried_caveats(dict(_design(runs=[]), caveats="One of its own."), None)
+        # a control run the rulebook holds, with nothing missing and no run
+        got = PL.with_carried_caveats(dict(_design(control="bare", runs=[]),
+                                           caveats=["One of its own."]), RULEBOOK)
         assert got["caveats"] == got["planner_caveats"] == ["One of its own."]
+        assert got["caveats_by"] == "code"
+
+    @pytest.mark.parametrize("rulebook", [
+        None, {}, "not a rulebook",
+        # one that holds neither the design's control run nor a change its runs use
+        {"controls": {"controls": [{"name": "elsewhere", "not_in_it_words": ["x"]}]},
+         "changes": {"changes": [{"id": "other_knob", "not_meaning": "y"}]}}])
+    def test_no_rulebook_for_the_design_leaves_it_as_the_planner_wrote_it(self, rulebook):
+        """Code then carries none of the server's words. Marked as put
+        together by code, the design would print no limit of the server at
+        all, so a page prints the Planner's caveats as for an old record."""
+        from agents import planner as PL
+        de = dict(_design(runs=[{"name": "dim", "changes": [{"id": "dim_sun"}]}]),
+                  caveats=["One of its own.", "A copied limit of the server."],
+                  question_limits=["A made-up limit."])
+        got = PL.with_carried_caveats(de, rulebook)
+        assert got == de and got is not de
+        assert "caveats_by" not in got and "planner_caveats" not in got
+        # one put together before, with a rulebook, goes back to the Planner's own
+        once = PL.with_carried_caveats(de, RULEBOOK)
+        assert once["caveats_by"] == "code"
+        again = PL.with_carried_caveats(once, rulebook)
+        assert "caveats_by" not in again and "planner_caveats" not in again
+        assert again["caveats"] == once["planner_caveats"]
+
+    @pytest.mark.parametrize("design", [
+        _design(control="valley", runs=[]),                         # the control run alone
+        _design(control="elsewhere", runs=[{"name": "dim", "changes": [{"id": "dim_sun"}]}])])
+    def test_a_rulebook_that_holds_the_control_run_or_a_change_carries(self, design):
+        from agents import planner as PL
+        got = PL.with_carried_caveats(design, RULEBOOK)
+        assert got["caveats_by"] == "code" and got["caveats"]
 
     def test_plan_puts_them_together_for_a_whole_domain_plan_only(self, scripted):
         reply = {"archetype": "whole_domain", "domain_experiment": dict(

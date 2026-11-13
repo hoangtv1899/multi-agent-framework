@@ -9,7 +9,10 @@
     "regions: a polygon (GeoJSON, a cell belongs when its centre is inside) or a field",
     "on the model grid (a cell belongs when var op value). observations: gridded files",
     "on the model grid; one whose var is burned_fraction_year (fraction per cell and",
-    "year, with a year axis) gives the control's observed burned area.",
+    "year, with a year axis) gives the control's observed burned area. An observation's",
+    "label (optional) is a short name for it, such as \"Satellite record\", that the",
+    "details page's burned-area table gives its row; without it the row takes the",
+    "observation's what. A label that is not a name written out is left out and named.",
     "",
     "Facts are read from the run by refresh_domain_control_facts and cached beside",
     "this file, in domain_control_facts/<name>.json.",
@@ -81,7 +84,8 @@
       "observations": {
         "burned_area": {"path": "/path/to/burned_area_on_the_model_grid.nc",
                         "var": "burned_fraction_year",
-                        "what": "observed burned fraction per cell and year"}
+                        "what": "observed burned fraction per cell and year",
+                        "label": "Satellite record"}
       },
       "measured": [
         {"id": "snow", "field": "H2OSNO",

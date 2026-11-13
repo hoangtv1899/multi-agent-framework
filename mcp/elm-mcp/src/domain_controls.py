@@ -14,8 +14,8 @@ because it names local paths; domain_controls.json.example shows its shape.
   setup_facts()     its fire, grid and configuration, from its case's files
                     (seconds), each with a sentence to quote
   summary(entry)    what reception and the planner are shown, kept small
-  fire_tables(f)    the burned area as a table, and page_setup(entry) the
-                    registry's set-up rows, for the details page only
+  fire_tables(f, entry)  the burned area as a table, and page_setup(entry)
+                    the registry's set-up rows, for the details page only
 
 THE FACTS ARE MEASURED, NEVER WRITTEN BY HAND. They are what keeps a design
 honest about its control: that its fire is the model's own and burns where no
@@ -779,6 +779,12 @@ CONTROL_ROW = "The control run"
 # the observed row's label when the facts do not name the source, as
 # not_in_it's sentence then says "the observation"
 UNNAMED_SOURCE = "The observation"
+# THE OBSERVED ROW'S SHORT NAME (2026-11-13). The facts name the observation
+# by its `what`, a phrase too long for a table row. An observation's registry
+# entry may hold a `label`, a short name such as "Satellite record", and the
+# row takes it. A label that is not a name written out is left out and named,
+# as a page_setup row is, and the row keeps the source.
+OBSERVED_LABEL = "label"
 
 
 def _number(v) -> bool:
@@ -791,18 +797,48 @@ def _whole_km2(v: float) -> int:
     return int(f"{v:.0f}")
 
 
-def fire_tables(f: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def observed_label(entry: Optional[Dict[str, Any]], f: Optional[Dict[str, Any]]
+                   ) -> Tuple[Optional[str], List[str]]:
+    """(the short label of the observation the facts' burned area was made
+    from, or None, a problem for a label of another form). The observation
+    is found as compute_facts names it: a burned_fraction_year whose `what`,
+    or else its key, is the facts' observed_source."""
+    src = ((f or {}).get("burned_area_km2") or {}).get("observed_source") \
+        if isinstance(f, dict) else None
+    obs = (entry or {}).get("observations") if isinstance(entry, dict) else None
+    if not src or not isinstance(obs, dict):
+        return None, []
+    found = None
+    for on, o in obs.items():
+        if isinstance(o, dict) and o.get("var") == "burned_fraction_year" \
+                and (o.get("what") or on) == src:
+            found = (on, o)                 # the last, as compute_facts keeps the last
+    if found is None or OBSERVED_LABEL not in found[1]:
+        return None, []
+    lab = found[1][OBSERVED_LABEL]
+    if isinstance(lab, str) and lab.strip():
+        return lab.strip(), []
+    return None, [f"the label of the observation {found[0]!r} is not a name written out, so "
+                  f"it is left out and the burned-area table names the observation by its "
+                  f"source"]
+
+
+def fire_tables(f: Optional[Dict[str, Any]],
+                entry: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """The burned-area table of a control, [] or one table:
     {"about": "fires", "lead", "corner", "columns": [years],
      "rows": [{"label", "values"}]}, the control run's row first and the
-    observation's, labelled by its source as the facts name it, second."""
+    observation's second, labelled by the observation's `label` in the
+    registry `entry` where it has one, else by its source as the facts name
+    it."""
     fire, m, o, ys = _fire_years(f)
     if not isinstance(m, dict) or not isinstance(o, dict):
         return []
     ys = [y for y in ys if _number(m[y]) and _number(o[y])]
     if not ys or not any(m[y] for y in ys):
         return []
-    src = str(fire.get("observed_source") or "").strip() or UNNAMED_SOURCE
+    src = observed_label(entry, f)[0] or str(fire.get("observed_source") or "").strip() \
+        or UNNAMED_SOURCE
     return [{"about": "fires", "lead": FIRE_TABLE_LEAD, "corner": FIRE_TABLE_CORNER,
              "columns": [str(y) for y in ys],
              "rows": [{"label": CONTROL_ROW, "values": [_whole_km2(m[y]) for y in ys]},

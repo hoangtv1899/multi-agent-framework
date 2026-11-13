@@ -246,6 +246,68 @@ class TestTheFireTable:
                                           for y in ("2015", "2016")]
         assert list(zip(t["columns"], *[r["values"] for r in t["rows"]])) == _sentence_pairs(f)
 
+    def test_the_columns_are_strings_whatever_the_facts_key_them_by(self):
+        """Facts read from JSON key the years as strings, but facts handed in
+        whole may key them as numbers, and a page's table needs words."""
+        t = DCT.fire_tables(_fire({2041: 12.4, 2042: 7.5}, {2041: 3.2, 2042: 40.6}))[0]
+        assert t["columns"] == ["2041", "2042"]
+        assert all(type(c) is str for c in t["columns"])
+
+
+# ── the observed row's short name, from the registry ─────────────────────────
+def _entry(**obs):
+    """A registry entry whose burned-area observation is the one the facts of
+    _fire() were made from, with the keys given."""
+    return {"observations": {"burned": dict({"path": "/made/up.nc", "var": "burned_fraction_year",
+                                             "what": "a made-up satellite"}, **obs)}}
+
+
+class TestTheObservedRowsLabel:
+    F = _fire({"2041": 12.4, "2042": 7.5}, {"2041": 3.2, "2042": 40.6})
+
+    def test_a_label_names_the_row(self):
+        t = DCT.fire_tables(self.F, _entry(label="Made-up record"))[0]
+        assert [r["label"] for r in t["rows"]] == ["The control run", "Made-up record"]
+        assert DCT.observed_label(_entry(label=" Made-up record "), self.F) == (
+            "Made-up record", [])
+
+    def test_without_a_label_or_an_entry_the_row_keeps_the_source(self):
+        for entry in (None, {}, _entry(), {"observations": None}):
+            t = DCT.fire_tables(self.F, entry)[0]
+            assert t["rows"][1]["label"] == "a made-up satellite"
+            assert DCT.observed_label(entry, self.F) == (None, [])
+
+    def test_only_the_label_of_the_observation_the_facts_were_made_from(self):
+        """Another observation's label, or one of another variable, names
+        nothing in this table."""
+        other = {"observations": {
+            "burned": {"var": "burned_fraction_year", "what": "another made-up satellite",
+                       "label": "Wrong record"},
+            "snow": {"var": "snow_cover", "what": "a made-up satellite", "label": "Snow"}}}
+        assert DCT.fire_tables(self.F, other)[0]["rows"][1]["label"] == "a made-up satellite"
+        # an observation with no `what` is named by its key, as compute_facts names it
+        by_key = {"observations": {"a made-up satellite": {
+            "var": "burned_fraction_year", "label": "Made-up record"}}}
+        assert DCT.fire_tables(self.F, by_key)[0]["rows"][1]["label"] == "Made-up record"
+
+    @pytest.mark.parametrize("label", ["", "  ", 7, None, ["Made-up record"],
+                                       {"text": "Made-up record"}])
+    def test_a_label_of_another_form_is_left_out_and_named(self, label):
+        t = DCT.fire_tables(self.F, _entry(label=label))[0]
+        assert t["rows"][1]["label"] == "a made-up satellite"
+        assert DCT.observed_label(_entry(label=label), self.F) == (None, [
+            "the label of the observation 'burned' is not a name written out, so it is left "
+            "out and the burned-area table names the observation by its source"])
+
+    def test_from_the_facts_and_the_registry_of_a_made_up_control(self, tmp_path):
+        c, reg, _ = _control(tmp_path)
+        d = json.loads(reg.read_text())
+        d["controls"]["synth"]["observations"]["burned"]["label"] = "Made-up record"
+        reg.write_text(json.dumps(d))
+        f = DCT.compute_facts("synth", str(reg))
+        t = DCT.fire_tables(f, DCT.get("synth", str(reg)))[0]
+        assert [r["label"] for r in t["rows"]] == ["The control run", "Made-up record"]
+
 
 # ── what the details page is given: the set-up rows ──────────────────────────
 ROWS = [{"label": "Area", "words": "50 km2 of made-up land"},

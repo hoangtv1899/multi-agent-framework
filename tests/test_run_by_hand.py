@@ -231,6 +231,15 @@ class TestNothingBuilt:
     def test_a_record_with_nothing_in_it_gives_no_page(self, tmp_path):
         assert RB.render({"runs": [], "made": "x"}, tmp_path, {}, {}) == ""
 
+    @pytest.mark.parametrize("runs", [["dry_summer"], [None, 3], "dry_summer",
+                                      {"name": "dry_summer"}])
+    def test_runs_listed_but_none_a_record_gives_no_page(self, tmp_path, runs):
+        """The study makes runs, so a page that says it makes none would be
+        untrue; with no record of them there is nothing true to say."""
+        pv = _preview(tmp_path)
+        assert "This study makes no new run" in _page(tmp_path, dict(pv, runs=[]))
+        assert RB.render(dict(pv, runs=runs), tmp_path, {}, {}) == ""
+
     @pytest.mark.parametrize("over", [{"refused": [{"where": "runs", "what": "too long"}]},
                                       {"error": "run dry_summer: its scripts could not be "
                                                 "written"}])
@@ -416,6 +425,20 @@ class TestSeveralRuns:
             "### Step 5. Check each job",
             "## Step 6. The input files"]
         assert "Each new run is this recipe with its own changes of step 3." in page
+
+    @pytest.mark.parametrize("name", [None, "", "  "])
+    def test_a_run_with_no_name_is_left_unnamed(self, tmp_path, name):
+        pv = _preview(tmp_path)
+        pv["runs"][0]["name"] = name
+        page = _page(tmp_path, pv)
+        assert page.startswith("# How to make this run by hand\n")
+        pv = _preview(tmp_path, runs=("dry_summer", "warm_air"))
+        pv["runs"][1]["name"] = name
+        page = _page(tmp_path, pv)
+        heads = [ln for ln in page.splitlines() if ln.startswith("## Run")]
+        assert heads == ["## Run `dry_summer`", "## Run"]
+        assert "make the new runs without the framework" in page
+        assert "None" not in page and "``" not in page
 
     def test_each_run_has_its_own_case_and_scripts(self, tmp_path):
         page = _page(tmp_path, runs=("dry_summer", "warm_air"))
@@ -653,6 +676,16 @@ class TestTheServersWords:
         s = _section(_page(tmp_path, pv), "## Step 5.")
         assert "| each year | The year's logs end cleanly, against the control run's. |" in s
 
+    def test_an_en_dash_in_the_servers_words_does_not_reach_the_page(self, tmp_path):
+        pv = _preview(tmp_path)
+        pv["checks_in_words"]["year"] = "the logs of 2033\u20132034 end cleanly"
+        pv["inputs_check"].update({"pass": False,
+                                   "reasons": ["the grids differ in rows 1\u20133"]})
+        page = _page(tmp_path, pv)
+        assert "\u2013" not in page and "\u2014" not in page
+        assert "| each year | The logs of 2033-2034 end cleanly. |" in page
+        assert "The grids differ in rows 1-3." in page
+
     def test_a_year_the_reference_holds(self, tmp_path):
         pv = _preview(tmp_path)
         spec = tmp_path / pv["runs"][0]["chain_spec"]
@@ -747,6 +780,19 @@ class TestHelpers:
         nl = RB.namelist(["a = 'x!y' ! a comment", "! a whole comment", "b = 1,",
                           "    2", "", "c = .true."])
         assert nl == {"a": "'x!y'", "b": "1, 2", "c": ".true."}
+
+    def test_a_smoke_stage_of_one_day_says_one_day(self, tmp_path):
+        assert RB.stage_words("smoke", {"smoke_days": 1}, None, {}) == \
+            "runs 1 day from the starting state"
+        assert RB.stage_words("smoke", {}, "gate smoke --days 1", {}) == \
+            "runs 1 day from the starting state"
+        assert RB.stage_words("smoke", {"smoke_days": 2}, None, {}) == \
+            "runs 2 days from the starting state"
+        pv = _preview(tmp_path)
+        script = tmp_path / pv["runs"][0]["stage_script"]
+        script.write_text(script.read_text().replace("--days 3", "--days 1"))
+        s = _section(_page(tmp_path, pv), "## Step 4.")
+        assert "| smoke | runs 1 day from the starting state | 45 min | case |" in s
 
     def test_tolerances_as_plain_decimals(self):
         assert RB._decimal(1e-05) == "0.00001" and RB._decimal(0.001) == "0.001"

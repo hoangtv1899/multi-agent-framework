@@ -194,6 +194,19 @@ def _texts(items: Any) -> List[str]:
     return out
 
 
+def _holds_design(rulebook: Any, design: Dict[str, Any]) -> bool:
+    """Whether the rulebook holds the design's control run or a change its
+    runs use, so that code has the server's words for it."""
+    rb = _dict(rulebook)
+    name = _dict(design.get("control")).get("name")
+    if name is not None and any(isinstance(r, dict) and r.get("name") == name
+                                for r in _list(_dict(rb.get("controls")).get("controls"))):
+        return True
+    menu = {c.get("id") for c in _list(_dict(rb.get("changes")).get("changes"))
+            if isinstance(c, dict)}
+    return any(c["id"] in menu for c in _changes_used(design))
+
+
 def with_carried_caveats(design: Dict[str, Any],
                          rulebook: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """A copy of the plan's domain_experiment with its caveats put together by
@@ -204,8 +217,18 @@ def with_carried_caveats(design: Dict[str, Any],
     from, or a question limit. `caveats` holds the carried caveats, then the
     question limits, then the Planner's own, each text once. `caveats_by`
     says that code put them together. Applied to its own result it gives the
-    same result, so a design the Planner is shown again is not changed twice."""
+    same result, so a design the Planner is shown again is not changed twice.
+
+    NO RULEBOOK FOR THE DESIGN, NO `caveats_by` (2026-11-13). A missing
+    rulebook, or one that holds neither the design's control run nor any
+    change its runs use, gives code none of the server's words. Marked as
+    put together by code, the design would then show no limit of the server
+    at all, since a page prints those from the server's records. So it is
+    returned as the Planner wrote it, and a page prints its caveats as it
+    does for a record made before code carried them."""
     de = dict(design)
+    if not _holds_design(rulebook, de):
+        return dict(as_the_planner_wrote_it(de))
     pairs = _carried(rulebook, de)
     limits = _texts(de.get("question_limits"))
     known = {_same(t) for pair in pairs for t in pair if _same(t)}

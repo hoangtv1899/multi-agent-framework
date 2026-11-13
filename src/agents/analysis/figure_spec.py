@@ -532,12 +532,39 @@ def _with_area(label: Any, area: Any) -> str:
     return f"{label} ({words})" if words else str(label)
 
 
-def _degrees(v: float, pos: str, neg: str) -> str:
-    """A tick in degrees: 121.2°W, 46.8°N."""
-    x = float(f"{v:.6g}")
+def tick_decimals(values: Sequence[float]) -> int:
+    """The decimals every tick of one axis is written with: the fewest, at
+    most six, that write each tick exactly, so that no two read the same and
+    47 is not written beside 46.8 (2026-11-13)."""
+    vs = [float(v) for v in values if np.isfinite(v)]
+    for d in range(7):
+        if all(abs(round(v, d) - v) < 1e-9 for v in vs):
+            return d
+    return 6
+
+
+def _degrees(v: float, pos: str, neg: str, decimals: int = 0) -> str:
+    """A tick in degrees with the axis's decimals: 121.2°W, 47.0°N."""
+    x = round(float(v), decimals)
     if x == 0:
-        return "0°"
-    return f"{abs(x):g}°{pos if x > 0 else neg}"
+        return f"{0:.{decimals}f}°"
+    return f"{abs(x):.{decimals}f}°{pos if x > 0 else neg}"
+
+
+def _degree_ticks(pos: str, neg: str):
+    """A formatter that writes all the ticks of one axis with one number of
+    decimals. Matplotlib labels an axis's ticks together (format_ticks), and
+    a single value alone."""
+    from matplotlib.ticker import Formatter
+
+    class _Ticks(Formatter):
+        def format_ticks(self, values):
+            d = tick_decimals(values)
+            return [_degrees(v, pos, neg, d) for v in values]
+
+        def __call__(self, v, i=None):
+            return _degrees(v, pos, neg, tick_decimals([v]))
+    return _Ticks()
 
 
 def _draw_classes(plt, ax, r, opts, ll, where):
@@ -548,7 +575,7 @@ def _draw_classes(plt, ax, r, opts, ll, where):
     from matplotlib.colors import ListedColormap
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
-    from matplotlib.ticker import FuncFormatter, MaxNLocator
+    from matplotlib.ticker import MaxNLocator
     c = opts.get("classes") or {}
     entries = [e for e in c.get("entries") or [] if isinstance(e, dict)]
     lat = np.asarray(ll.get("lat"), dtype=float)
@@ -605,8 +632,8 @@ def _draw_classes(plt, ax, r, opts, ll, where):
     # ticks at round steps of a degree (0.1, 0.2, 0.4, 0.5, 1, ...), never 46.75
     ax.xaxis.set_major_locator(MaxNLocator(4, steps=[1, 2, 4, 5, 10]))
     ax.yaxis.set_major_locator(MaxNLocator(5, steps=[1, 2, 4, 5, 10]))
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: _degrees(v, "E", "W")))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: _degrees(v, "N", "S")))
+    ax.xaxis.set_major_formatter(_degree_ticks("E", "W"))
+    ax.yaxis.set_major_formatter(_degree_ticks("N", "S"))
     ax.tick_params(labelsize=CLASS_FONT)
     if handles:
         ax.legend(handles=handles, title=c.get("title") or None, loc="center left",

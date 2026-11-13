@@ -359,8 +359,10 @@ class TestAChangeThatHasNeverRunSaysSo:
         # hold no order to whoever designs with the change; that is a rule
         for order in ("Tell the person", "say so in the caveats"):
             assert order not in said["demonstrated_false"], order
+        # the rule tells the person; code writes the caveat since 2026-11-13
+        # (agents/planner.with_carried_caveats), so the rule asks for none
         assert [r for r in said["rules"] if "demonstrated: false" in r
-                and "tell the person" in r and "caveats" in r]
+                and "tell the person" in r and "caveat" not in r]
 
     def test_the_check_calls_it_unusual_and_still_builds(self):
         exp = {"control": {"name": "c", "reuse": True}, "years": [2031],

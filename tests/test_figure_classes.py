@@ -103,6 +103,38 @@ class TestTheMapOfClasses:
         assert texts[-1] == "valley (2,000 km2)" and len(texts) == 5
         plt.close(fig)
 
+    def test_two_edges_take_two_line_styles(self):
+        """Two places drawn as edges are told apart by their lines, on the
+        map and in the legend alike."""
+        valley = [[0, 1, 1, 0], [0, 1, 1, 1], [0, 0, 1, 1]]
+        ridge = [[1, 1, 0, 0], [1, 1, 0, 0], [0, 0, 0, 0]]
+        fig, ax, _ = _draw(lines=[{"label": "valley", "mask": valley},
+                                  {"label": "ridge", "mask": ridge}])
+        lines = [h for h in ax.get_legend().legend_handles if type(h).__name__ == "Line2D"]
+        assert [h.get_linestyle() for h in lines] == ["-", "--"]
+        edges = [c for c in ax.collections if type(c).__name__ != "QuadMesh"]
+        assert len(edges) == 2
+        assert edges[0].get_linestyle() != edges[1].get_linestyle()
+        plt.close(fig)
+
+    def test_the_grey_entry_only_where_a_cell_is_grey(self):
+        """'The rest of the grid' names the grey cells; a map with none has
+        no such entry."""
+        full = [[1, 1, 2, 2], [2, 3, 3, 3], [1, 1, 3, 3]]
+        fig, ax, _ = _draw(value=full)
+        leg = ax.get_legend()
+        assert [t.get_text() for t in leg.get_texts()] == ["low (10 km2)", "middle (1,500 km2)",
+                                                          "high"]
+        assert FS.CLASS_OTHER not in [to_hex(h.get_facecolor()) for h in leg.legend_handles]
+        plt.close(fig)
+        # one cell of no class, or one with no value, is grey and is named
+        for g in ([[0, 1, 2, 2], [2, 3, 3, 3], [1, 1, 3, 3]],
+                  [[np.nan, 1, 2, 2], [2, 3, 3, 3], [1, 1, 3, 3]]):
+            fig, ax, _ = _draw(value=g)
+            assert [t.get_text() for t in ax.get_legend().get_texts()][-1] == \
+                "the rest of the grid"
+            plt.close(fig)
+
     def test_todays_outline_is_drawn_as_a_line_too(self):
         mask = [[0, 1, 1, 0], [0, 1, 1, 1], [0, 0, 1, 1]]
         fig, ax, _ = _draw(ll=dict(LL, outline=mask))
@@ -156,6 +188,36 @@ class TestTheMapOfClasses:
         assert got["panels"][0]["status"] == "drawn" and got["panels"][0]["n"] == 7
         assert sizes == [FS.CLASS_SIZE]
 
+    def test_every_tick_of_an_axis_has_the_same_decimals(self):
+        """47 is never written beside 46.8: a whole degree takes the axis's
+        decimals."""
+        ll = {"lat": [46.6, 46.7, 46.8, 46.9, 47.0, 47.1], "lon": [-121.6, -121.4, -121.2, -121.0]}
+        fig, ax = plt.subplots()
+        FS._draw_classes(plt, ax, _ref([[1] * 4] * 6), _panel(entries=ENTRIES[:1]), ll,
+                         "panel 1")
+        fig.canvas.draw()
+        for labels, end in ((ax.get_yticklabels(), "°N"), (ax.get_xticklabels(), "°W")):
+            texts = [t.get_text() for t in labels if t.get_text()]
+            assert len(texts) > 2 and all(t.endswith(end) for t in texts)
+            decimals = {len(t[:-2].split(".")[1]) if "." in t else 0 for t in texts}
+            assert decimals == {1}, texts
+        assert "47.0°N" in [t.get_text() for t in ax.get_yticklabels()]
+        plt.close(fig)
+
+    @pytest.mark.parametrize("ticks,decimals", [
+        ([46.8, 47.0, 47.2], 1), ([46.5, 47.0, 47.5], 1), ([46.0, 47.0], 0),
+        ([121.25, 121.5], 2), ([46.800000000000004, 47.000000000000001], 1),
+        ([0.1234567, 0.2], 6), ([], 0), ([46.8, float("nan")], 1)])
+    def test_the_fewest_decimals_that_write_each_tick_exactly(self, ticks, decimals):
+        assert FS.tick_decimals(ticks) == decimals
+
+    @pytest.mark.parametrize("v,pos,neg,d,said", [
+        (47.0, "N", "S", 1, "47.0°N"), (-121.2, "E", "W", 1, "121.2°W"),
+        (-121.0, "E", "W", 0, "121°W"), (0.0, "E", "W", 1, "0.0°"),
+        (-1e-12, "E", "W", 1, "0.0°")])
+    def test_a_tick_in_degrees(self, v, pos, neg, d, said):
+        assert FS._degrees(v, pos, neg, d) == said
+
     def test_a_map_without_the_option_is_drawn_as_before(self, tmp_path):
         r = {"ref": "P1.O1", "kind": "map", "out": {"field": "X", "units": "mm"},
              "value": [[1.0, 2.0, 3.0, 4.0]] * 3, "made": True, "error": None,
@@ -174,6 +236,27 @@ class TestTheScale:
         lum = [_luminance(c) for c in cols]
         assert all(a > b for a, b in zip(lum, lum[1:]))
         assert all(c.lower() != FS.CLASS_OTHER for c in cols)
+
+    @pytest.mark.parametrize("n", [10, 11, 12, 20])
+    def test_ten_or_more_read_light_to_dark_and_stay_apart_from_the_grey(self, n):
+        """Past ColorBrewer's nine the colours are taken along its scale. They
+        still read light to dark, and none comes near the grey of the cells
+        of no place, on the scale and on the map alike."""
+        cols = FS.class_colours(n)
+        lum = [_luminance(c) for c in cols]
+        assert len(set(cols)) == n and all(a > b for a, b in zip(lum, lum[1:]))
+        grey = np.array(to_rgb(FS.CLASS_OTHER))
+        assert min(float(np.linalg.norm(np.array(to_rgb(c)) - grey)) for c in cols) > 0.1
+        ll = {"lat": [45.0, 45.2], "lon": [-100.0 + 0.2 * i for i in range(n + 1)]}
+        entries = [{"label": f"band {k}", "area_km2": float(k)} for k in range(1, n + 1)]
+        fig, ax = plt.subplots()
+        FS._draw_classes(plt, ax, _ref([list(range(n + 1))] * 2), _panel(entries=entries), ll,
+                         "panel 1")
+        mesh = ax.collections[0]
+        cmap, norm = mesh.get_cmap(), mesh.norm
+        assert to_hex(cmap(norm(0))) == FS.CLASS_OTHER
+        assert [to_hex(cmap(norm(k))) for k in range(1, n + 1)] == cols
+        plt.close(fig)
 
     def test_four_classes_are_the_brewer_set_of_four(self):
         assert FS.class_colours(4) == ["#ffffcc", "#a1dab4", "#41b6c4", "#225ea8"]

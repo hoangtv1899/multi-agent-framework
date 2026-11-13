@@ -198,6 +198,30 @@ class TestDraw:
                                                                        "floor (1,257 km2)"]
         plt.close(fig)
 
+    @pytest.mark.parametrize("lat,lon,classes,mask", [
+        ([40.0], LON, [[0, 1, 1, 2, 0]], [[0, 1, 1, 1, 0]]),               # one row
+        (LAT, [-110.4], [[0], [1], [2], [0]], [[0], [1], [1], [0]])])       # one column
+    def test_a_grid_one_cell_wide_draws_the_classes_and_names_the_edge(self, tmp_path, lat,
+                                                                       lon, classes, mask):
+        """A contour needs two cells a side. The classes are drawn alone and
+        the edge left out is named, never the whole map lost."""
+        rec = _rec(lat=lat, lon=lon, classes=classes,
+                   outlines=[{"label": "floor", "cells": 3, "area_km2": 1257.0, "mask": mask}])
+        drawn = PF.draw(rec, tmp_path)
+        assert drawn["png"] == PF.PNG and (tmp_path / PF.PNG).stat().st_size > 1000
+        assert drawn["problems"] == ["the edge of 'floor' is left out of the map of the places, "
+                                     "because the grid is one cell wide and an edge needs two "
+                                     "cells a side"]
+        plt, fig, ax = _drawn_axes(rec)
+        assert [type(c).__name__ for c in ax.collections] == ["QuadMesh"]
+        assert [t.get_text() for t in ax.get_legend().get_texts()] == ["low (1,235 km2)",
+                                                                       "high (22 km2)", PF.OTHER]
+        plt.close(fig)
+
+    def test_a_grid_one_cell_wide_with_no_edge_names_nothing(self, tmp_path):
+        rec = _rec(lat=[40.0], classes=[[0, 1, 1, 2, 0]], outlines=[])
+        assert PF.draw(rec, tmp_path) == {"png": PF.PNG, "problems": []}
+
     def test_nothing_to_draw_gives_no_figure(self, tmp_path):
         drawn = PF.draw(_rec(filled=[], outlines=[]), tmp_path)
         assert drawn["png"] is None

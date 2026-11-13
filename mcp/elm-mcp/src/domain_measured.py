@@ -374,8 +374,9 @@ def page_record(entry: Dict[str, Any]) -> Dict[str, Any]:
         f, why = _facts(entry)
         if why:
             rec["problems"].append(why)
-        rec["tables"] = DCT.fire_tables(f)
-    except Exception as e:                                          # noqa: BLE001
+        rec["tables"] = DCT.fire_tables(f, entry)
+        rec["problems"] += DCT.observed_label(entry, f)[1]
+    except Exception as e:                                        # noqa: BLE001
         rec["problems"].append(f"the burned-area table: {type(e).__name__}: {e}")
     sd = entry.get("suite_dir")
     if not sd or not Path(str(sd)).is_dir():

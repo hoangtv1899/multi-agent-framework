@@ -975,6 +975,12 @@ def _changed_start(run: Dict[str, Any], ctl: Dict[str, Any]) -> Optional[str]:
     return m.group(1) if m else v
 
 
+def _name(run: Dict[str, Any]) -> str:
+    """A run's name as the page prints it, or "" for a run with none."""
+    n = run.get("name")
+    return "" if n is None else str(n).strip()
+
+
 def render(preview, run_dir, strategy=None, brief=None) -> str:
     """The whole text of RUN_BY_HAND.md, or "" when the server built nothing:
     no record, a refused design or one that would not build."""
@@ -982,15 +988,21 @@ def render(preview, run_dir, strategy=None, brief=None) -> str:
     if not preview or preview.get("refused") or preview.get("error"):
         return ""
     runs = [e for e in _list(preview.get("runs")) if isinstance(e, dict)]
+    # runs listed but none of them a record: the study does make runs, and the
+    # page cannot say how, so it says nothing rather than "no new run"
+    if preview.get("runs") and not runs:
+        return ""
     ctl_recipe = _dict(_load(run_dir, preview.get("control_recipe")))
     first = (_dict(_load(run_dir, runs[0].get("recipe"))) if runs else {}) or ctl_recipe
-    names = [str(e.get("name")) for e in runs]
+    # a run with no name is left unnamed, never called "None"
+    names = [_name(e) for e in runs]
     if len(runs) == 1:
-        title = f"# How to make this run by hand: {names[0]}"
+        title = "# How to make this run by hand" + (f": {names[0]}" if names[0] else "")
         who = "the new run"
     elif runs:
         title = "# How to make these runs by hand"
-        who = f"the new runs {_join([_code(x) for x in names])}"
+        who = ("the new runs " + _join([_code(x) for x in names]) if all(names) else
+               "the new runs")
     else:
         title = "# How to make the control run by hand"
         who = None
@@ -1024,7 +1036,7 @@ def render(preview, run_dir, strategy=None, brief=None) -> str:
         for e in runs:
             head = "###" if len(runs) > 1 else "##"
             if len(runs) > 1:
-                body += [f"## Run {_code(e.get('name'))}", ""]
+                body += [f"## Run {_code(_name(e))}" if _name(e) else "## Run", ""]
             recipe = _dict(_load(run_dir, e.get("recipe")))
             starts.add(_changed_start(recipe, ctl_recipe) if recipe and ctl_recipe else None)
             body += _changes_step(changes_n, e, run_dir, ctl_recipe, head)

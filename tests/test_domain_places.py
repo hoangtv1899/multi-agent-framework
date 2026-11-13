@@ -249,6 +249,44 @@ class TestTheGrid:
         # a mask written without its count and area is counted from the file
         assert rec["filled"] == [{"label": "valley", "cells": 8, "area_km2": _area(VALLEY)}]
 
+    def test_the_cell_centres_are_kept_to_six_decimals(self, tmp_path):
+        """A store's axes may carry more digits than a map needs; the record
+        keeps DIGITS of them, so it stays small."""
+        lat = [40.12345678912, 40.22222229, 40.3]
+        lon = [-109.51234567891, -109.4, -109.3, -109.20000004]
+        sd = tmp_path / "store"
+        sd.mkdir()
+        with netCDF4.Dataset(sd / S.MASKS_FILE, "w") as d:
+            d.createDimension("lat", 3)
+            d.createDimension("lon", 4)
+            d.createVariable("lat", "f8", ("lat",))[:] = lat
+            d.createVariable("lon", "f8", ("lon",))[:] = lon
+            v = d.createVariable("mask_valley", "i1", ("lat", "lon"))
+            v[:] = VALLEY.astype(np.int8)
+        rec = DP.page_record({"name": "v", "suite_dir": str(sd)}, ["valley"])
+        assert DP.DIGITS == 6
+        assert rec["lat"] == [40.123457, 40.222222, 40.3]
+        assert rec["lon"] == [-109.512346, -109.4, -109.3, -109.2]
+
+    def test_the_stores_own_count_of_cells_is_kept(self, tmp_path):
+        """The store writes each mask's count beside it, and the catalog gives
+        the same count; a page never shows a second one counted here."""
+        sd = tmp_path / "store"
+        sd.mkdir()
+        with netCDF4.Dataset(sd / S.MASKS_FILE, "w") as d:
+            d.createDimension("lat", 3)
+            d.createDimension("lon", 4)
+            d.createVariable("lat", "f8", ("lat",))[:] = LAT
+            d.createVariable("lon", "f8", ("lon",))[:] = WEST
+            v = d.createVariable("mask_valley", "i1", ("lat", "lon"))
+            v[:] = VALLEY.astype(np.int8)
+            v.region = "valley"
+            v.n_cells = 11                      # not the 8 cells of the mask, on purpose
+            v.area_km2 = 99.5
+        rec = DP.page_record({"name": "v", "suite_dir": str(sd)}, ["valley"])
+        assert int(VALLEY.sum()) == 8
+        assert rec["filled"] == [{"label": "valley", "cells": 11, "area_km2": 99.5}]
+
     def test_the_record_is_plain_json_and_small(self, store):
         entry, _ = store
         rec = DP.page_record(entry, ["valley", "valley low", "valley high", "ridge"])

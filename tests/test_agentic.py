@@ -221,8 +221,10 @@ class TestThePlannerPromptOnTheWholeDomain:
         assert "name FAREA_BURNED among the variables" in sec
 
     def test_the_caveat_is_written_from_the_words_without_numbers(self):
+        # code writes the caveat from the control run's `not_in_it_words`
+        # since 2026-11-13 (agents/planner.with_carried_caveats), so the
+        # prompt no longer names them; it names no source of numbers either
         sec = self._section()
-        assert "`not_in_it_words`" in sec
         assert "`not_in_it`" not in sec and "`evaluation`" not in sec
 
 
