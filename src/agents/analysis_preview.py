@@ -1,34 +1,38 @@
 #!/usr/bin/env python3
 """
-The analysis plan, written before the design page and shown on it
+The comparisons, planned before the design page and shown on it
 src/agents/analysis_preview.py
 
-TRANSITIONAL (2026-11-12), and off unless its switch is set. A person
-approved a design from a page that said little about the analysis: the
-Analyzer's planning step (analysis_plan.write_plan, step 2a) runs after the
-runs, and its plan was first seen in the report. This module runs that same
-step, unchanged, before the page, from the design alone, and the page shows
-what it wrote.
+THE COMPARISONS BELONG TO THE PLANNER (2026-11-13). The Planner lists the
+comparisons before every page, and a yes given on the page covers them. The
+call that writes the list is the Analyzer's own planning step
+(analysis_plan.write_plan, step 2a), run unchanged from the design alone,
+with its check, its review and its one rewrite. This module runs it before
+the page, and the page shows what it wrote as the Planner's comparisons.
 
-WHAT IT DOES NOT DO, said on the page as well:
+ON UNLESS ITS SWITCH IS TURNED OFF. Set IDEAS_PLAN_BEFORE_APPROVAL to 0,
+false, no or off and nothing is planned before the page, which is then as it
+was before 2026-11-12. The planning is a paid model call, made for every
+design that reaches the page.
 
-  - The yes is not bound to this plan. It approves what it approved before:
-    the control, the runs and the years (design_review.design_fingerprint).
-  - The Analyzer does not carry this plan out. After the runs it writes its
-    own plan, from the same inputs, in the study's 04_analysis, as it always
-    did. That plan may differ from the one shown here.
-  - A plan that fails its check, or that could not be written, does not stop
-    a design: it is shown as it is.
+WITH THE HANDOFF ON AS WELL (agents/analysis_handoff.py, also on by default),
+a list that passed its check is promised to the Analyzer, and a yes given on
+its page approves it together with the runs and the years. The record made
+here then says so (`handoff`), the page's words come from that record, and a
+design whose list did not pass or could not be written cannot be approved at
+all. This module gives each comparison it shows a status as well, by code
+(analysis_support).
 
-So with this switch alone the page is a look before the decision and nothing
-more, and it must not be read as the approval of an analysis.
+WITH THE HANDOFF TURNED OFF, the list is a look before the decision and
+nothing more, and the page says so where it shows it.
 
-WITH THE HANDOFF'S SWITCH AS WELL (agents/analysis_handoff.py), a plan that
-passed is promised to the Analyzer, and since stage 4 a yes given on its page
-approves it. The record made here then says so (`handoff`), the page's words
-come from that record, and a design whose plan did not pass or could not be
-written cannot be approved at all. This module gives each analysis of a plan
-it shows a status as well, by code (analysis_support).
+  - The yes is not bound to the list. It approves the control run, the runs
+    and the years (design_review.design_fingerprint).
+  - The Analyzer does not carry the list out. After the runs it writes its
+    own plan, from the same inputs, in the study's 04_analysis. That plan may
+    differ from the one shown here.
+  - A list that fails its check, or that could not be written, does not stop
+    a design. It is shown as it is.
 
 WHERE THE PLAN IS WRITTEN. Under the study's 01_inputs/analysis_preview/, in
 a folder of its own that has the shape of a small study: the two records the
@@ -74,12 +78,15 @@ STEP = {"day": "daily", "month": "monthly", "season": "seasonal", "year": "yearl
         "wateryear": "water-year"}
 
 
+# The words that turn a switch off. Any other value, or none, leaves it on.
+OFF = ("0", "false", "no", "off")
+
+
 def enabled() -> bool:
-    """Whether the analysis is planned before the page. Off unless the switch
-    is set: the planning is a paid model call, made for every design that
-    reaches the page, and in this stage the Analyzer plans again after the
-    runs."""
-    return str(os.environ.get(SWITCH) or "").strip().lower() in ("1", "true", "yes", "on")
+    """Whether the Planner lists the comparisons before the page. On unless
+    the switch is set to 0, false, no or off (2026-11-13): the comparisons
+    are the Planner's, planned before every page, and a yes covers them."""
+    return str(os.environ.get(SWITCH) or "").strip().lower() not in OFF
 
 
 # ─────────────────────────────────────────────────────────────────────────────

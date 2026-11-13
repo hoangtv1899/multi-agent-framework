@@ -83,7 +83,7 @@ class TestTheYesNamesThePlan:
 
     def test_with_the_preview_alone_the_yes_names_no_plan(self, monkeypatch, study, tmp_path):
         monkeypatch.setenv(AV.SWITCH, "1")
-        monkeypatch.delenv(AH.SWITCH, raising=False)
+        monkeypatch.setenv(AH.SWITCH, "0")              # turned off: it is on by default
         rd, plan = _approved(tmp_path, monkeypatch)
         assert set(_approval(rd)) == {"decision", "when", "design_sha256"}
         page = " ".join(_first_part(rd).split())
@@ -198,7 +198,7 @@ class TestAChangedPlanIsNotRun:
     def test_an_approval_that_names_no_plan_is_held_to_its_design_alone(self, monkeypatch,
                                                                          study, tmp_path):
         monkeypatch.setenv(AV.SWITCH, "1")
-        monkeypatch.delenv(AH.SWITCH, raising=False)
+        monkeypatch.setenv(AH.SWITCH, "0")              # turned off: it is on by default
         rd, plan = _approved(tmp_path, monkeypatch)
         p = _shown(rd) / AP.PLAN_FILE
         p.write_text(p.read_text().replace("GPP", "NEE", 1))     # a preview nobody approved
@@ -278,7 +278,7 @@ class TestNoPlanNoYes:
                                                                  tmp_path):
         """LEGACY: nothing is promised, so nothing is needed for a yes."""
         monkeypatch.setenv(AV.SWITCH, "1")
-        monkeypatch.delenv(AH.SWITCH, raising=False)
+        monkeypatch.setenv(AH.SWITCH, "0")              # turned off: it is on by default
         rd, plan = _approved(tmp_path, monkeypatch,
                              clients=_clients(BAD_PLAN, rewrite=BAD_PLAN))
         assert _record(rd)["status"] == AV.NOT_PASSED and "handoff" not in _record(rd)

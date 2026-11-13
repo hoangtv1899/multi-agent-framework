@@ -3,47 +3,238 @@
 The planner
 src/agents/planner.py
 
-One LLM call, one JSON, seven keys — every one of which something reads.
+One model call turns Reception's brief into the study plan, strategy.json.
+Nothing here corrects the plan. The model server checks a design where
+compute starts being spent.
 
-PURELY LLM. It proposes; nothing here corrects it. An earlier version
-recomputed the column count and dropped station ids the planner had named,
-which made this stage half deterministic and half not — and across fourteen
-evaluation cases it corrected NOTHING: no invented station id, no column count
-changed. A guard that never fires is complexity without evidence. The column
-rule lives in the prompt, the planner applies it, and the justification makes a
-wrong one visible. Anything worth checking is checked once, by the Experiment
-Manager, at the point where compute starts being spent.
+TWO PROMPTS (2026-11-13). A whole-domain brief gets prompts/planner_domain.txt,
+a prompt of its own. Every other kind of study gets prompts/planner.txt, which
+writes a sampling strategy for single columns and never coordinates. Both end
+with prompts/house_style.txt, the rules for words a person reads.
 
-The old planner emitted ten top-level keys of which `assumptions`,
-`open_questions` and `scientific_rationale` were read by nothing, and
-`sampling_plan` was read only by a status line that reported a DIFFERENT column
-count from the one the sampler used (a plan printed "N=4" and then "N=11", and
-11 was what ran). Keys nobody consumes cannot be wrong in any way that gets
-caught, so they drift.
+A WHOLE-DOMAIN PLAN copies the control run, the new runs and the years that
+Reception settled with the person. The Planner chooses where and in which
+quantities the answer is read, judges whether the design can answer, gives
+its reason in one plain sentence and names the limits of the answer for this
+question. It is shown the model server's rulebook without measured numbers
+(_rulebook_for_prompt).
 
-What the pipeline actually needs from this stage:
-
-    n_columns          expand_sampling — how many columns to materialise
-    archetype          expand_sampling, elm_exp_manager — conceptual vs site
-    coupling           elm_exp_manager — only for cross-model runs
-    feasibility/goals  the analyzer's framing
-
-plus `validation`, which is new and is the point: reception now carries station
-COORDINATES, so the planner can name which stations to pin columns to, and the
-sampler can place them there. Previously the planner wrote a validation design
-that nothing read, and 0 of 14 Naches columns landed in the gauged catchment —
-not bad luck, but because nothing ever tried.
-
-The column count is arithmetic here, not judgement. Asked three times for the
-same brief the old planner answered 10, 12 and 14, because the prompt requested
-a justified integer and justification is not a constraint.
+THE SERVER'S OWN LIMITS ARE CARRIED BY CODE (carried_caveats). A live plan
+copied a change's long limit and lost its "not", so the caveat said the
+opposite. Code now writes those limits into the plan's caveats in the
+server's words, and keeps what the Planner wrote itself apart.
 """
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from agents.llm_agent import SimpleLLMClient
 from agents.prompts import load_prompt
+
+# The prompt each kind of brief gets (prompt_for). The calls below name them
+# in full, as load_prompt("planner"), so that tools/make_architecture_doc.py,
+# which reads only a literal name, lists both.
+PROMPT = "planner"
+DOMAIN_PROMPT = "planner_domain"
+WHOLE_DOMAIN = "whole_domain"
+
+
+def prompt_for(brief: Optional[Dict[str, Any]]) -> str:
+    """The name of the prompt a brief is planned with. A whole-domain brief
+    has a prompt of its own, and every other kind keeps planner.txt."""
+    arche = str((brief or {}).get("design_archetype") or "").strip().lower()
+    return DOMAIN_PROMPT if arche == WHOLE_DOMAIN else PROMPT
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE SERVER'S WORDS, CARRIED BY CODE (2026-11-13)
+# ─────────────────────────────────────────────────────────────────────────────
+# The prompt used to tell the Planner to copy each change's `not_meaning` into
+# its caveats. In a live study it copied "a consistent change of climate" and
+# lost the "not" in front of it, so the caveat said the opposite of the
+# server. A copy that code makes cannot drop a word. So code writes these
+# three kinds of limit, in the server's words, and the Planner is told not to.
+NOT_MEANING = "The difference from the control run is not {}."
+UNTESTED = ("No run with the change {} has been completed in this framework yet, "
+            "so its result is untested.")
+NOT_IN_IT = "The control run does not contain {}."
+# `caveats_by` says the caveats were put together here (interface I4). A page
+# then prints the server's limits from the server's records and, of the
+# Planner's words, only `question_limits` and `planner_caveats`.
+CAVEATS_BY = "code"
+
+
+def _dict(x: Any) -> Dict[str, Any]:
+    return x if isinstance(x, dict) else {}
+
+
+def _list(x: Any) -> List[Any]:
+    return x if isinstance(x, list) else []
+
+
+def _clause(text: Any) -> str:
+    """Server words set at the end of a sentence of ours. They are put on one
+    line, and a closing period is dropped because the sentence adds its own."""
+    return " ".join(str(text or "").split()).rstrip(" .")
+
+
+def _same(text: Any) -> str:
+    """The key under which two texts are one caveat. Spacing, case and a
+    closing period do not make a second caveat."""
+    return _clause(text).casefold()
+
+
+class _Unfilled(dict):
+    """A placeholder with no value stays as it is written, so a text is never
+    lost for want of one parameter."""
+
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def _filled(text: Any, change: Dict[str, Any], used: Dict[str, Any]) -> str:
+    """A change's text with its {param} places filled from the run's own
+    parameters, and from the list's defaults where the run gives none. The
+    published list leaves a text such as "deposition for {year}" unfilled,
+    since only a run names the year. A whole year reads as one, never 2000.0."""
+    spec = _dict(change.get("params"))
+    params = {k: p.get("default") for k, p in spec.items()
+              if isinstance(p, dict) and p.get("default") is not None}
+    params.update(_dict(used.get("params")))
+    for k, v in list(params.items()):
+        if _dict(spec.get(k)).get("kind") == "integer" and isinstance(v, float) \
+                and v == int(v):
+            params[k] = int(v)
+    try:
+        return str(text).format_map(_Unfilled(params))
+    except (ValueError, IndexError, KeyError, AttributeError, TypeError):
+        return str(text)
+
+
+def _changes_used(design: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every change the design's runs make, in the order the runs list them."""
+    out = []
+    for run in _list(design.get("runs")):
+        for c in _list(_dict(run).get("changes")):
+            if isinstance(c, dict) and isinstance(c.get("id"), str) and c["id"].strip():
+                out.append(c)
+    return out
+
+
+def _untested_words(rulebook: Dict[str, Any]) -> str:
+    """The list's own words for a change no run has completed."""
+    return str(_dict(rulebook.get("changes")).get("demonstrated_false") or "")
+
+
+def _carried(rulebook: Any, design: Any) -> List[Tuple[str, str]]:
+    """(the caveat, the server's text it was made from), each caveat once."""
+    rb, de = _dict(rulebook), _dict(design)
+    menu = {c["id"]: c for c in _list(_dict(rb.get("changes")).get("changes"))
+            if isinstance(c, dict) and isinstance(c.get("id"), str)}
+    used = _changes_used(de)
+    out: List[Tuple[str, str]] = []
+
+    def add(caveat: str, source: Any) -> None:
+        if caveat not in [c for c, _ in out]:
+            out.append((caveat, str(source)))
+
+    # 1. what each change's difference is not. The same change with other
+    # parameters may say another thing, and then both are said.
+    for c in used:
+        entry = _dict(menu.get(c["id"]))
+        if str(entry.get("not_meaning") or "").strip():
+            text = _filled(entry["not_meaning"], entry, c)
+            if _clause(text):
+                add(NOT_MEANING.format(_clause(text)), text)
+    # 2. a change no run has completed, once for each change
+    for cid in dict.fromkeys(c["id"] for c in used):
+        if _dict(menu.get(cid)).get("demonstrated") is False:
+            add(UNTESTED.format(cid), _untested_words(rb))
+    # 3. what the control run does not contain
+    name = _dict(de.get("control")).get("name")
+    for row in _list(_dict(rb.get("controls")).get("controls")):
+        if isinstance(row, dict) and name is not None and row.get("name") == name:
+            for item in _list(row.get("not_in_it_words")):
+                if _clause(item):
+                    add(NOT_IN_IT.format(_clause(item)), item)
+            break
+    return out
+
+
+def carried_caveats(rulebook: Optional[Dict[str, Any]],
+                    design: Optional[Dict[str, Any]]) -> List[str]:
+    """The model server's limits of a whole-domain design, in its own words.
+
+    `rulebook` is the server's rulebook ({"controls", "changes"}) and `design`
+    the plan's domain_experiment. In this order, each text once:
+
+      1. for each change the runs use, in order of first use,
+         "The difference from the control run is not <its not_meaning>."
+      2. for each such change the list marks `demonstrated` False,
+         "No run with the change <id> has been completed in this framework
+         yet, so its result is untested."
+      3. for each item of the control run's `not_in_it_words`,
+         "The control run does not contain <the item>."
+
+    Pure. A missing rulebook, an unknown change or a control run the
+    rulebook does not hold gives fewer caveats, never an error."""
+    return [c for c, _ in _carried(rulebook, design)]
+
+
+def _texts(items: Any) -> List[str]:
+    """The texts of a list the Planner wrote, as strings, empty ones left out.
+    A single string is a list of one, and an item {"text": ...} is its text."""
+    if isinstance(items, str):
+        items = [items]
+    out = []
+    for x in _list(items):
+        t = x.get("text") if isinstance(x, dict) else x
+        if t is not None and str(t).strip():
+            out.append(str(t).strip())
+    return out
+
+
+def with_carried_caveats(design: Dict[str, Any],
+                         rulebook: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """A copy of the plan's domain_experiment with its caveats put together by
+    code (interface I4).
+
+    `planner_caveats` keeps what the Planner wrote under `caveats`, less any
+    text that is already a carried caveat, the server's text one was made
+    from, or a question limit. `caveats` holds the carried caveats, then the
+    question limits, then the Planner's own, each text once. `caveats_by`
+    says that code put them together. Applied to its own result it gives the
+    same result, so a design the Planner is shown again is not changed twice."""
+    de = dict(design)
+    pairs = _carried(rulebook, de)
+    limits = _texts(de.get("question_limits"))
+    known = {_same(t) for pair in pairs for t in pair if _same(t)}
+    known |= {_same(q) for q in limits}
+    mine: List[str] = []
+    for c in _texts(de.get("caveats")):
+        if _same(c) not in known and _same(c) not in {_same(m) for m in mine}:
+            mine.append(c)
+    caveats: List[str] = []
+    for c in [c for c, _ in pairs] + limits + mine:
+        if _same(c) not in {_same(x) for x in caveats}:
+            caveats.append(c)
+    de["planner_caveats"] = mine
+    de["caveats"] = caveats
+    de["caveats_by"] = CAVEATS_BY
+    return de
+
+
+def as_the_planner_wrote_it(design: Dict[str, Any]) -> Dict[str, Any]:
+    """A plan's domain_experiment as the Planner wrote it, for the round after
+    the model server refused it. Its `caveats` are its own again, so that it
+    does not copy the carried ones back into its next design. A record made
+    before code carried the caveats is returned as it is."""
+    if not isinstance(design, dict) or design.get("caveats_by") != CAVEATS_BY:
+        return design
+    de = {k: v for k, v in design.items() if k not in ("planner_caveats", "caveats_by")}
+    de["caveats"] = list(_texts(design.get("planner_caveats")))
+    return de
+
 
 def _summary_for_prompt(reception: Dict[str, Any]) -> Dict[str, Any]:
     """What the planner is shown: the brief, plus the observation SUMMARY.
@@ -156,6 +347,8 @@ class Planner:
         """
         self.llm = SimpleLLMClient(model=model)
         self.system = load_prompt("planner")
+        # a whole-domain brief is planned with a prompt of its own (prompt_for)
+        self.system_domain = load_prompt("planner_domain")
         self.pinning = pinning
         # THE OTHER HALF OF THE SAME QUESTION, set by the caller after
         # reception has named a model — `pinning` is what a column may be
@@ -164,9 +357,9 @@ class Planner:
         # any more, because both were ELM's answers written as the framework's.
         self.constraints = constraints
         # A WHOLE-DOMAIN STUDY'S RULEBOOK, set by the caller for a whole_domain
-        # brief: the model server's prepared controls (with facts measured
-        # from their output) and its change list. Like the two above, the
-        # server's answers, never stated in planner.txt.
+        # brief: the model server's control runs (with facts measured from
+        # their output) and its change list. Like the two above, the server's
+        # answers, never stated in a prompt.
         self.domain_rulebook: Optional[Dict[str, Any]] = None
 
     # THE SERVER'S FINDINGS COME BACK HERE (2026-10-28). The model server
@@ -185,12 +378,25 @@ class Planner:
         "drop a run or a region to make a finding go away when a finding names "
         "the change that fixes it.")
 
-    def plan(self, reception: Dict[str, Any],
-             findings: Optional[list] = None,
-             previous: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def messages(self, reception: Dict[str, Any],
+                 findings: Optional[list] = None,
+                 previous: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
+        """(the system prompt, the user content) that plan() sends, built and
+        not sent, so that what a brief is asked can be read without a call."""
         payload = _summary_for_prompt(reception)
-        system = self.system
-        if self.constraints:
+        whole = prompt_for(payload.get("brief")) == DOMAIN_PROMPT
+        if whole:
+            # read from disk when this object was made without __init__
+            system = getattr(self, "system_domain", None) or load_prompt("planner_domain")
+        else:
+            system = self.system
+        # THE COLUMN BLOCKS ARE LEFT OUT OF A WHOLE-DOMAIN PROMPT (2026-11-13).
+        # The design limits and the pinning rules describe single columns, the
+        # forcing they read and the stations they may be pinned to. A
+        # whole-domain study samples no column, and its own limits are in its
+        # rulebook below, so the two blocks would only be read as limits of
+        # the wrong study. The workflow still keeps `pinning` beside the plan.
+        if self.constraints and not whole:
             system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━\nDESIGN LIMITS — what this model's studies "
                        "cannot vary, from the\nserver that will run it. This "
@@ -199,13 +405,13 @@ class Planner:
                        + json.dumps(self.constraints, indent=1, default=str))
         if self.domain_rulebook:
             system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                       "━━━━━━\nWHOLE-DOMAIN RULEBOOK: the prepared controls and "
-                       "the change list,\nfrom the server that will run this "
+                       "━━━━━━\nWHOLE-DOMAIN RULEBOOK: the control runs and the "
+                       "change list,\nfrom the server that will run this "
                        "study\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━━━━━━\n"
                        + json.dumps(_rulebook_for_prompt(self.domain_rulebook),
                                     indent=1, default=str))
-        if self.pinning:
+        if self.pinning and not whole:
             system += ("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                        "━━━━━━\nPINNING RULES — from the model server that "
                        "will run this study\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -219,18 +425,33 @@ class Planner:
         content = json.dumps(payload, indent=1, default=str)
         if findings:
             # the refused design without the blocks this code adds after the
-            # planner (they come back from the server's own answers)
+            # planner (they come back from the server's own answers), and
+            # with the caveats it wrote itself, not the ones code carried
             prior = {k: v for k, v in (previous or {}).items()
                      if k not in ("pinning", "domain_rulebook")}
+            if isinstance(prior.get("domain_experiment"), dict):
+                prior["domain_experiment"] = as_the_planner_wrote_it(
+                    prior["domain_experiment"])
             content += ("\n\n" + self.FINDINGS_NOTE
                         + "\n\nTHE DESIGN IT REFUSED:\n"
                         + json.dumps(prior, indent=1, default=str)
                         + "\n\nTHE SERVER'S FINDINGS:\n"
                         + json.dumps(list(findings), indent=1, default=str))
-        raw = self.llm.ask(
-            [{"role": "user", "content": content + "\n\nEmit ONLY the JSON."}],
-            system_message=system)
-        return self._parse(raw)
+        return system, content + "\n\nEmit ONLY the JSON."
+
+    def plan(self, reception: Dict[str, Any],
+             findings: Optional[list] = None,
+             previous: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        system, content = self.messages(reception, findings=findings, previous=previous)
+        raw = self.llm.ask([{"role": "user", "content": content}], system_message=system)
+        plan = self._parse(raw)
+        # A WHOLE-DOMAIN PLAN'S CAVEATS ARE PUT TOGETHER BY CODE (2026-11-13):
+        # the server's own limits in its words, then the Planner's limits for
+        # the question, then any caveat of its own (with_carried_caveats).
+        if isinstance(plan.get("domain_experiment"), dict):
+            plan["domain_experiment"] = with_carried_caveats(
+                plan["domain_experiment"], getattr(self, "domain_rulebook", None))
+        return plan
 
     @staticmethod
     def _parse(text: str) -> Dict[str, Any]:

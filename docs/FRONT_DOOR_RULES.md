@@ -315,22 +315,25 @@ step", and "the control run", never "the prepared run".
   are sent them in full. An agent is a model call of its own and inherits no
   style from the tool that wrote the code.
 
-## The analysis plan may be shown before the yes (transitional)
+## The Planner lists the comparisons before every page
 
-`src/agents/analysis_preview.py`, off unless `IDEAS_PLAN_BEFORE_APPROVAL=1`.
-With the switch set, the Analyzer's own planning step (step 2a, with its
-check, its review and its one rewrite: `step3_interpret.plan_and_review`)
-writes its plan from the design before the page. The short page shows the
-comparisons in a table, and the details file shows the plan in full, with
-every remark of its review.
+`src/agents/analysis_preview.py`, on unless `IDEAS_PLAN_BEFORE_APPROVAL` is
+set to `0`, `false`, `no` or `off` (since 2026-11-13; before that it was off
+unless set to `1`). The comparisons belong to the Planner. The Analyzer's own
+planning step (step 2a, with its check, its review and its one rewrite:
+`step3_interpret.plan_and_review`) writes them from the design before the
+page, unchanged. The short page shows the comparisons in a table, and the
+details file shows them in full, with every remark of their review. With the
+switch of the next section on as well, which is the default, a yes covers
+them.
 
-This is a look before the decision and nothing more:
+With the next section's switch turned off, the list is a look before the
+decision and nothing more:
 
 - The yes is unchanged. It approves the control, the runs and the years.
 - The Analyzer does not carry this plan out. After the runs it writes its own
-  plan in the study's `04_analysis`, as before, and that plan may differ. With
-  the switch set, a study that runs is therefore planned twice. The next
-  section describes the switch that changes this.
+  plan in the study's `04_analysis`, as before, and that plan may differ. A
+  study that runs is then planned twice.
 - A plan that could not be written, or that did not pass its check, is shown
   as it is and stops nothing. A design that cannot be approved is not planned
   for.
@@ -338,15 +341,16 @@ This is a look before the decision and nothing more:
   `01_inputs/analysis_preview/`. No record of the Experiment Manager is
   touched.
 
-Binding the yes to a plan is not built. Until it is, the page must not be
-read as the approval of an analysis, and it says so wherever it shows a plan.
+In this mode the page must not be read as the approval of an analysis, and
+it says so wherever it shows the list.
 
 ## The plan shown is the plan approved and carried out
 
-`src/agents/analysis_handoff.py`, off unless `IDEAS_CARRY_OUT_SHOWN_PLAN=1`,
-and only with the preview of the section above. With both switches set, a
-plan that passed its check and its review is promised to the Analyzer when
-the page is written. The short page's yes then says that the comparisons
+`src/agents/analysis_handoff.py`, on unless `IDEAS_CARRY_OUT_SHOWN_PLAN` is
+set to `0`, `false`, `no` or `off` (since 2026-11-13; before that it was off
+unless set to `1`), and only with the comparisons of the section above. With
+both switches on, a plan that passed its check and its review is promised to
+the Analyzer when the page is written. The short page's yes then says that the comparisons
 are carried out as listed. The details say that a yes approves this plan
 together with the runs and the years, and that the Analyzer carries it out as
 it stands and writes no second one, after the runs or, for a design that

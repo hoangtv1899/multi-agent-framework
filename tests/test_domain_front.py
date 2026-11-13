@@ -135,7 +135,7 @@ def test_the_rulebook_reaches_the_planner():
     p.llm, p.system, p.pinning, p.constraints = _LLM(), "PROMPT", None, None
     p.domain_rulebook = {"controls": CONTROLS, "changes": _changes()}
     p.plan({"brief": {"design_archetype": "whole_domain"}})
-    assert "WHOLE-DOMAIN RULEBOOK: the prepared controls and the change list" in p.llm.system
+    assert "WHOLE-DOMAIN RULEBOOK: the control runs and the change list" in p.llm.system
     assert '"fire_off"' in p.llm.system and '"naches"' in p.llm.system
     p.domain_rulebook = None
     p.plan({"brief": {"design_archetype": "site"}})
@@ -225,14 +225,15 @@ def test_the_prompts_name_no_change_and_no_control():
     """What can change, and which controls exist, is the server's to say: a
     prompt that names one is a capability claim nobody checks."""
     ids = [c["id"] for c in _changes()["changes"]]
-    for name in ("reception_agentic.txt", "planner.txt"):
+    for name in ("reception_agentic.txt", "planner.txt", "planner_domain.txt"):
         text = (ROOT / "src" / "agents" / "prompts" / name).read_text()
         assert "whole_domain" in text
         assert not [i for i in ids if re.search(rf"\b{i}\b", text)], name
     rec = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
     assert "STEP 3: TURN THE QUESTION INTO RUNS" in rec and '"domain_experiment": {' in rec
-    pl = (ROOT / "src" / "agents" / "prompts" / "planner.txt").read_text()
-    assert "THE WHOLE-DOMAIN PATH: carry the experiment, choose the analysis" in pl
+    # the whole-domain instructions have a prompt of their own (2026-11-13)
+    pl = (ROOT / "src" / "agents" / "prompts" / "planner_domain.txt").read_text()
+    assert "COPY THE EXPERIMENT, CHOOSE THE ANALYSIS" in pl
 
 
 def test_the_server_says_columns_have_no_carbon_cycle():

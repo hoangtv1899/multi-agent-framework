@@ -3,12 +3,14 @@
 The plan that was shown on the design page, handed to the Analyzer
 src/agents/analysis_handoff.py
 
-Off unless its switch is set (2026-11-12). With the analysis preview on
-(agents/analysis_preview.py) a person reads an analysis plan before the yes,
-and after the runs the Analyzer writes another one, which may differ. This
-module closes that gap for one case and no other: a plan that passed its
+ON UNLESS ITS SWITCH IS TURNED OFF (2026-11-13). The Planner lists the
+comparisons before every page (agents/analysis_preview.py), and a yes covers
+them. This module keeps that promise after the runs. A list that passed its
 check and its review, shown for the design that was then approved, is the
-plan the Analyzer carries out. It writes no second one.
+plan the Analyzer carries out, and it writes no second one. Set
+IDEAS_CARRY_OUT_SHOWN_PLAN to 0, false, no or off and the list shown is a
+look only, and after the runs the Analyzer writes another plan, which may
+differ.
 
 THE YES IS OF THE PLAN TOO (stage 4, 2026-11-12). A page that promises the
 plan says that a yes approves it together with the runs and the years. The
@@ -108,10 +110,16 @@ BLOCKED = ("the plan shown on the design page was promised to the Analyzer and c
            "handed to it ({why}), and the Analyzer writes no other plan in its place")
 
 
+# The words that turn the switch off. Any other value, or none, leaves it on.
+OFF = ("0", "false", "no", "off")
+
+
 def enabled() -> bool:
-    """Whether a plan shown on the page is promised to the Analyzer. Read
-    when the page is written, never after the runs."""
-    return str(os.environ.get(SWITCH) or "").strip().lower() in ("1", "true", "yes", "on")
+    """Whether the comparisons shown on the page are promised to the
+    Analyzer, so that a yes covers them. On unless the switch is set to 0,
+    false, no or off (2026-11-13). Read when the page is written, never after
+    the runs."""
+    return str(os.environ.get(SWITCH) or "").strip().lower() not in OFF
 
 
 def promise(passed: bool, new_runs: bool = True) -> Optional[Dict[str, Any]]:

@@ -189,7 +189,7 @@ class TestThePrompts:
     def test_reception_and_the_planner_say_months_and_seasons(self):
         from pathlib import Path
         root = Path(S2.__file__).resolve().parents[1] / "prompts"
-        for name in ("planner.txt", "reception_agentic.txt"):
+        for name in ("planner_domain.txt", "reception_agentic.txt"):
             text = " ".join((root / name).read_text().split())
             assert "reported by year, by month and by season" in text, name
             assert "DJF belongs to the year of its January" in text or \

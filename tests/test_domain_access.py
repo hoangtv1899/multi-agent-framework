@@ -383,10 +383,11 @@ def test_step_2b_reads_the_catalog_the_compact_methods_and_the_plan(study):
 # ── the question type ────────────────────────────────────────────────────────
 
 def test_the_question_type_is_the_planners_and_its_rule_is_written(study, monkeypatch):
-    rule = (ROOT / "src" / "agents" / "prompts" / "planner.txt").read_text()
+    # the whole-domain prompt of its own (2026-11-13), read flat
+    rule = (ROOT / "src" / "agents" / "prompts" / "planner_domain.txt").read_text()
     assert '"hypothesis" only when the question proposes a testable' in rule
-    assert 'Naming a\n                 field alone is not a hypothesis: "what happened to GPP?" is\n' \
-           '                 exploratory.' in rule
+    assert 'Naming a field alone is not a hypothesis, so "What happened to GPP?" is ' \
+           'exploratory.' in " ".join(rule.split())
     assert '"question_type": "hypothesis" | "exploratory"' in rule
     reception = (ROOT / "src" / "agents" / "prompts" / "reception_agentic.txt").read_text()
     assert "Both kinds of question are answerable" in reception

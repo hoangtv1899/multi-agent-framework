@@ -1,12 +1,14 @@
-"""The plan shown on the design page, handed to the Analyzer (transitional).
+"""The plan shown on the design page, handed to the Analyzer.
 
     pytest tests/test_analysis_handoff.py -v
 
 With the analysis preview on, a person reads an analysis plan before the yes.
 With this stage's switch on as well, a plan that passed, shown for the design
 that was then approved, is the plan the Analyzer carries out: it writes no
-second one (src/agents/analysis_handoff.py). These tests hold that stage to
-what it says and to what it must not do:
+second one (src/agents/analysis_handoff.py). Both switches are on unless
+turned off since 2026-11-13, so a test of the preview alone turns this
+stage's switch off ("0"). These tests hold that stage to what it says and to
+what it must not do:
 
     the promise     it is made when the page is written and kept in the
                     preview's record, so the page and the Analyzer agree, and
@@ -121,7 +123,7 @@ class TestThePromise:
     def test_with_the_preview_alone_nothing_is_promised_and_nothing_changes(
             self, monkeypatch, study, built, tmp_path):
         monkeypatch.setenv(AV.SWITCH, "1")
-        monkeypatch.delenv(AH.SWITCH, raising=False)
+        monkeypatch.setenv(AH.SWITCH, "0")              # turned off: it is on by default
         rd, plan = _approved(tmp_path, monkeypatch)
         assert "handoff" not in _record(rd)
         assert "These comparisons are a preview. Your yes does not approve them" in \
@@ -131,13 +133,16 @@ class TestThePromise:
         assert not out.exists() or not list(out.iterdir())      # no record, no plan
 
     @pytest.mark.parametrize("value, is_on", [("1", True), ("yes", True), ("on", True),
-                                              ("0", False), ("", False), ("no", False)])
+                                              ("", True), ("0", False), ("no", False),
+                                              ("off", False), ("false", False)])
     def test_the_switch_is_a_plain_word(self, monkeypatch, value, is_on):
         monkeypatch.setenv(AH.SWITCH, value)
         assert AH.enabled() is is_on
 
-    def test_it_is_off_unless_set(self, monkeypatch):
+    def test_it_is_on_unless_turned_off(self, monkeypatch):
         monkeypatch.delenv(AH.SWITCH, raising=False)
+        assert AH.enabled() is True and AH.promise(True)["promised"] is True
+        monkeypatch.setenv(AH.SWITCH, "off")
         assert AH.enabled() is False and AH.promise(True) is None
 
     def test_a_plan_that_passed_is_promised_and_the_page_says_so(self, both, tmp_path,
@@ -185,15 +190,15 @@ class TestThePromise:
         """The analysis is the last line of a batch job, where a switch set in
         a login shell does not exist: the Analyzer reads the record."""
         rd, plan = _approved(tmp_path, monkeypatch)
-        monkeypatch.delenv(AH.SWITCH)
-        monkeypatch.delenv(AV.SWITCH)
+        monkeypatch.setenv(AH.SWITCH, "0")              # both turned off after the page
+        monkeypatch.setenv(AV.SWITCH, "0")
         ctx, out = _after_the_runs(rd, plan, built)
         assert AH.hand_over(ctx, out)["used"] is True
 
     def test_a_switch_set_after_a_page_that_promised_nothing_changes_nothing(
             self, monkeypatch, study, built, tmp_path):
         monkeypatch.setenv(AV.SWITCH, "1")
-        monkeypatch.delenv(AH.SWITCH, raising=False)
+        monkeypatch.setenv(AH.SWITCH, "0")              # turned off: it is on by default
         rd, plan = _approved(tmp_path, monkeypatch)
         monkeypatch.setenv(AH.SWITCH, "1")
         ctx, out = _after_the_runs(rd, plan, built)
@@ -508,7 +513,7 @@ class TestTheAnalyzerStopsOnABlockedHandoff:
         def first_round(*a, **k):
             raise Stop()
         monkeypatch.setenv(AV.SWITCH, "1")
-        monkeypatch.delenv(AH.SWITCH, raising=False)
+        monkeypatch.setenv(AH.SWITCH, "0")              # turned off: it is on by default
         rd, plan = _approved(tmp_path, monkeypatch)
         _plan_changed_after_the_page(rd)                  # of no account: nothing was promised
         ctx, out = _after_the_runs(rd, plan, built)

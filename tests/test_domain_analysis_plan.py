@@ -427,8 +427,9 @@ class TestTheModelsOutputOnly:
                         "the run"]
 
     def test_the_planner_offers_no_observation_to_the_analysis(self):
-        text = (self.ROOT / "src" / "agents" / "prompts" / "planner.txt").read_text()
-        wd = text[text.index("THE WHOLE-DOMAIN PATH"):text.index("THE COLUMN BUDGET")]
+        # the whole-domain prompt is a file of its own since 2026-11-13
+        text = (self.ROOT / "src" / "agents" / "prompts" / "planner_domain.txt").read_text()
+        wd = text
         assert "controls[].observations" not in wd and "observations   " not in wd
         assert "The answer is read from the model's output alone" in wd
         assert "No caveat carries an observation's numbers" in wd

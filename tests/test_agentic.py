@@ -207,18 +207,18 @@ class TestAnUnreadableFinalReply:
 
 
 class TestThePlannerPromptOnTheWholeDomain:
-    """The planner's whole-domain section (review findings, 2026-11-03)."""
+    """The planner's whole-domain section (review findings, 2026-11-03). It
+    is a prompt of its own since 2026-11-13, planner_domain.txt."""
 
     def _section(self):
         text = (Path(__file__).resolve().parents[1] / "src" / "agents" / "prompts"
-                / "planner.txt").read_text()
-        return text[text.index("THE WHOLE-DOMAIN PATH"):
-                    text.index("THE COLUMN BUDGET")]
+                / "planner_domain.txt").read_text()
+        return " ".join(text.split())
 
     def test_burned_area_is_named_through_its_history_field(self):
         sec = self._section()
-        assert "burned_area_km2 is not a history field: it is made from" in sec
-        assert "Name FAREA_BURNED among the variables" in sec
+        assert "burned_area_km2 is not a history field. It is made from FAREA_BURNED" in sec
+        assert "name FAREA_BURNED among the variables" in sec
 
     def test_the_caveat_is_written_from_the_words_without_numbers(self):
         sec = self._section()

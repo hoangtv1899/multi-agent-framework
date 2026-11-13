@@ -930,15 +930,14 @@ class WorkflowCoordinator:
 			blocked = blocked or infeasible or bool(unsupported)
 			# The preview is passed even when there is none, so the page is never
 			# drawn from an older record left on disk (2026-11-03).
-			# THE ANALYSIS PLAN, SHOWN BEFORE THE YES (transitional, 2026-11-12;
-			# agents/analysis_preview.py). Off unless its switch is set. When
-			# on, the Analyzer's own planning step writes its plan from this
-			# design before the page, and the page shows it. The yes below is
-			# unchanged: it is of the control, the runs and the years, and the
-			# Analyzer still writes its plan after the runs. A design that
-			# cannot be approved is not planned for. Always passed to the
-			# page, None included, so a page is never drawn from a record an
-			# earlier design left on disk.
+			# THE COMPARISONS ARE THE PLANNER'S, LISTED BEFORE THE PAGE (2026-11-13;
+			# agents/analysis_preview.py). On unless its switch is turned off.
+			# The Analyzer's own planning step writes the list from this design
+			# before the page, the page shows it as the Planner's comparisons,
+			# and with the handoff on (the default) the yes below covers it. A
+			# design that cannot be approved is not planned for. Always passed
+			# to the page, None included, so a page is never drawn from a
+			# record an earlier design left on disk.
 			analysis_preview = self._analysis_preview(result, plan, run_dir, blocked)
 			# A DESIGN IS APPROVED TOGETHER WITH ITS ANALYSIS PLAN (stage 4,
 			# 2026-11-12; agents/analysis_handoff.py). Where the page was to
@@ -1529,31 +1528,31 @@ class WorkflowCoordinator:
 			return {"refused": [], "error": f"{type(e).__name__}: {e}", "runs": []}
 
 	def _analysis_preview(self, result: dict, plan: dict, run_dir, blocked: bool):
-		"""The record of the analysis plan written before the page, or None
-		when none is written: the switch is off, the design cannot be approved,
-		or it is no whole-domain experiment. Reading it must never stop a
-		request, so a failure is the record's own status and the page says it
-		(agents/analysis_preview.py)."""
+		"""The record of the comparisons the Planner lists before the page, or
+		None when none is written: the switch is turned off, the design cannot
+		be approved, or it is no whole-domain experiment. Reading it must never
+		stop a request, so a failure is the record's own status and the page
+		says it (agents/analysis_preview.py)."""
 		try:
 			from agents import analysis_preview as AV
 			if not AV.enabled() or blocked or \
 					not isinstance((plan or {}).get("domain_experiment"), dict):
 				return None
 			from agents import analysis_handoff as AH
-			print("🧭 Planning the analysis before the page"
-				  + (" (your yes will cover the plan if it passes its check, and the "
-					 "Analyzer then carries it out as it stands)..." if AH.enabled() else
-					 " (a preview: your yes will not cover it, and the Analyzer plans "
-					 "again after the runs)..."))
+			print("🧭 The Planner lists the comparisons before the page."
+				  + (" If they pass their check, your yes covers them and they are "
+					 "carried out as listed..." if AH.enabled() else
+					 " They are for you to read only. Your yes does not cover them, "
+					 "and they are chosen again after the runs..."))
 			rec = AV.plan_before_approval(
 				result, plan, run_dir,
 				clients=getattr(self, "_analysis_preview_clients", None))
-			print(f"   analysis preview: {rec.get('status')}"
+			print(f"   the comparisons: {rec.get('status')}"
 				  + (f" ({rec.get('why')})" if rec.get("why") else "")
 				  + f", {rec.get('elapsed_s')} s\n")
 			return rec
 		except Exception as e:                                  # noqa: BLE001
-			print(f"   (the analysis preview could not be made: {type(e).__name__}: {e})\n")
+			print(f"   (the comparisons could not be listed: {type(e).__name__}: {e})\n")
 			return {"status": "failed", "why": f"{type(e).__name__}: {e}"[:400]}
 
 	def _control_figures(self, plan: dict):

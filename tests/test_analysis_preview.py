@@ -2,12 +2,15 @@
 
     pytest tests/test_analysis_preview.py -v
 
-TRANSITIONAL. With its switch set, the Analyzer's own planning step writes
-its plan from a design before the page, and the page shows it. These tests
-drive the coordinator's own path (_workflow_design_and_run), as a person at
-the terminal would, and hold the stage to what it is:
+With its switch on, the Analyzer's own planning step writes its plan from a
+design before the page, and the page shows it. Since 2026-11-13 the switch is
+on unless turned off, and so is the handoff's (agents/analysis_handoff.py).
+These tests hold the plan shown with the handoff turned off, a look before
+the decision. They drive the coordinator's own path
+(_workflow_design_and_run), as a person at the terminal would, and hold the
+stage to what it is:
 
-  - off unless the switch is set, and then nothing changes;
+  - with the switch turned off, nothing changes;
   - a design of the control alone, and one with a new run;
   - a decline, a yes, a change typed at the page, an unattended run;
   - a planning call that fails, a plan that does not pass, a control with no
@@ -130,19 +133,22 @@ def _record(run_dir):
 
 @pytest.fixture
 def on(monkeypatch, study):
-    """The switch set, on the synthetic control of the `study` fixture."""
+    """The switch set, on the synthetic control of the `study` fixture. The
+    handoff is turned off: it is on by default since 2026-11-13, and these
+    tests hold the plan shown as a look only (tests/test_analysis_handoff.py
+    holds it with the handoff on)."""
+    from agents import analysis_handoff as AH
     monkeypatch.setenv(AV.SWITCH, "1")
+    monkeypatch.setenv(AH.SWITCH, "0")
 
 
-# ── off unless the switch is set ─────────────────────────────────────────────
-class TestOffUnlessTheSwitchIsSet:
+# ── off when the switch is turned off ────────────────────────────────────────
+class TestOffWhenTheSwitchIsTurnedOff:
 
-    @pytest.mark.parametrize("value", [None, "", "0", "no", "off"])
+    @pytest.mark.parametrize("value", ["0", "no", "off", "false", " OFF "])
     def test_nothing_is_planned_and_the_page_is_as_it_was(self, study, tmp_path,
                                                           monkeypatch, value):
-        monkeypatch.delenv(AV.SWITCH, raising=False)
-        if value is not None:
-            monkeypatch.setenv(AV.SWITCH, value)
+        monkeypatch.setenv(AV.SWITCH, value)
         rd = tmp_path / "design"
         rd.mkdir()
         co = _co(_strategy(), {AP.PLAN_LABEL: Never(), AP.REVIEW_LABEL: Never()})
@@ -152,9 +158,13 @@ class TestOffUnlessTheSwitchIsSet:
         assert not (rd / AV.RECORD_FILE).exists() and not (rd / AV.FOLDER).exists()
         assert AV.HEADING not in (rd / dr.REVIEW_NAME).read_text()
 
-    @pytest.mark.parametrize("value", ["1", "true", "YES", " on "])
+    @pytest.mark.parametrize("value", ["1", "true", "YES", " on ", ""])
     def test_the_switch_is_a_plain_word(self, monkeypatch, value):
         monkeypatch.setenv(AV.SWITCH, value)
+        assert AV.enabled() is True
+
+    def test_it_is_on_unless_turned_off(self, monkeypatch):
+        monkeypatch.delenv(AV.SWITCH, raising=False)
         assert AV.enabled() is True
 
 
