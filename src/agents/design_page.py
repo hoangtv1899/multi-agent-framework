@@ -442,14 +442,21 @@ def _not_cover_lines(strategy, de, row, run_dir, told: Sequence[str] = ()) -> Li
     limits, every = _limits_of_changes(run_dir, runs)
     L += [f"- {s}" for s in limits]
     caveats = [str(c).strip() for c in de.get("caveats") or [] if str(c).strip()]
-    shown: List[str] = []
-    if not every:
-        told_set = {_same(x) for x in told}
-        shown = [c for c in caveats if _same(c) not in told_set]
-        L += [f"- {_sentence(_control_run(c))}" for c in shown]
     mine = [str(q.get("text") if isinstance(q, dict) else q).strip()
             for q in de.get("question_limits") or []]
     mine = [q for q in mine if q and q != "None"]
+    shown: List[str] = []
+    if not every:
+        # A LIMIT FOR THE QUESTION IS ALSO A CAVEAT (2026-11-13). The Planner
+        # copies each of its limits into the caveats, word for word, so that
+        # the report carries it. Where the page prints the caveats (a design
+        # with no change, or an older record), such a caveat is the limit
+        # printed below as the Planner's judgement, and is not printed twice:
+        # a live page of a study of the control run alone gave each one two
+        # times.
+        told_set = {_same(x) for x in told} | {_same(q) for q in mine}
+        shown = [c for c in caveats if _same(c) not in told_set]
+        L += [f"- {_sentence(_control_run(c))}" for c in shown]
     L += [f"- {_sentence(_control_run(q))} {JUDGEMENT}" for q in mine]
     # WHAT THE CONTROL RUN DOES NOT CONTAIN, ONCE (2026-11-12): in the words of
     # a limit printed above where one names the thing, and in the server's

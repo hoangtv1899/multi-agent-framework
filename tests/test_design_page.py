@@ -195,6 +195,20 @@ def _page(folder, strategy=None, reception=None, preview=PREVIEW, record="defaul
                      run_dir=folder, analysis_preview=rec, run_given=given)
 
 
+def test_a_limit_for_the_question_copied_into_the_caveats_is_printed_once(folder):
+    # a design with no change prints its caveats, and the Planner copies each of
+    # its limits for the question into them, so that the report carries it
+    limit = "The control run holds less snow than is measured. Its melt could come early."
+    st = _strategy()
+    st["domain_experiment"]["runs"] = []
+    st["domain_experiment"]["caveats"] = ["The fire in the run is the model's own.", limit]
+    st["domain_experiment"]["question_limits"] = [limit]
+    page = _page(folder, strategy=st, record=None)
+    assert page.count("holds less snow than is measured") == 1
+    assert f"- {limit} This is the Planner's judgement." in page
+    assert "- The fire in the run is the model's own." in page
+
+
 def test_the_cost_and_the_limit_are_one_number_printed_one_way(folder):
     # the server's estimate with more figures than a person reads
     preview = copy.deepcopy(PREVIEW)
@@ -627,10 +641,37 @@ class TestHowYourQuestionWillBeAnswered:
         assert "- a problem of the whole plan" in _section(page, ANSWER)
         assert "P1" not in sec
 
+    def test_when_is_the_periods_alone_where_the_analysis_names_any(self):
+        # the lines it also draws cover other years: the How column names them
+        both = {"periods": ["2033", "2034"], "steps": ["day"],
+                "outputs": [{"id": "O1", "kind": "series", "run": "control", "field": "LEAFX",
+                             "region": "vegetated cells", "step": "day"}]}
+        st = _strategy()
+        de = st["domain_experiment"]
+        row = st["domain_rulebook"]["controls"]["controls"][0]
+        assert AV.when_words(both, de, row) == "2033 and 2034"
+        only_lines = dict(both, periods=[])
+        assert AV.when_words(only_lines, de, row) not in ("", "not named", "2033 and 2034")
+
+    def test_a_note_is_given_for_a_listed_comparison_and_always_for_a_blocked_one(self):
+        plan = copy.deepcopy(PLAN)
+        ids = [a["id"] for a in plan["analyses"]]
+        every = AV.support_sentences(plan)
+        assert every                                    # the made-up plan has one of them
+        assert AV.support_sentences(plan, ids) == every
+        status = AV.analysis_support(plan)
+        hidden = [i for i in ids if status[i]["status"] == AV.CONDITIONAL]
+        assert hidden
+        listed = [i for i in ids if i not in hidden]
+        kept = AV.support_sentences(plan, listed)
+        assert len(kept) == len(every) - len(hidden)
+        assert all("cannot be made as planned" in k for k in kept)
+
     def test_other_explanations_by_their_titles_or_left_to_the_details(self, folder):
         sec = _flat(_section(_page(folder), ANSWER))
-        assert "We will also check 2 other explanations, which are a nitrogen limit and the " \
-               "model's own fire." in sec
+        # each title is set off, so a title that is a clause is not read as the sentence
+        assert 'We will also check 2 other explanations, which are "a nitrogen limit" and ' \
+               '"the model\'s own fire".' in sec
         plan = copy.deepcopy(PLAN)
         del plan["competing"][1]["title"]
         _plan(folder, competing=plan["competing"])
@@ -638,7 +679,7 @@ class TestHowYourQuestionWillBeAnswered:
         assert "We will also check 2 other explanations, which are listed in " \
                "`DESIGN_DETAILS.md`." in sec
         _plan(folder, competing=plan["competing"][:1])
-        assert "We will also check one other explanation, which is a nitrogen limit." in \
+        assert 'We will also check one other explanation, which is "a nitrogen limit".' in \
             _flat(_section(_page(folder), ANSWER))
 
     def test_with_no_plan_the_comparisons_are_chosen_later_and_nothing_else(self, folder):
@@ -741,12 +782,16 @@ class TestTheWordsOfTheTable:
         assert AV.periods_words(["2033-03", "2033-10"], grouped=True) == \
             "March and October of 2033"
         assert AV.periods_words(["2033-JJA", "2034-JJA", "2033"], grouped=True) == \
-            "summer of 2033 and 2034; 2033"
+            "summer of 2033 and 2034, and the whole year 2033"
+        # years alone are said as they are, and three groups are set apart
+        assert AV.periods_words(["2033", "2034"], grouped=True) == "2033 and 2034"
+        assert AV.periods_words(["2033-JJA", "2033-03", "2033"], grouped=True) == \
+            "March of 2033; summer of 2033; the whole year 2033"
         assert AV.periods_words(["WY2033", "WY2034", "normal"], grouped=True) == \
-            "the water years 2033 and 2034; normal"
+            "the water years 2033 and 2034, and normal"
         # different months in different years are said apart
         assert AV.periods_words(["2033-06", "2034-07"], grouped=True) == \
-            "June of 2033; July of 2034"
+            "June of 2033, and July of 2034"
         # the details keep their own words
         assert AV.periods_words(months[:3]) == "June to August 2033, by month"
 

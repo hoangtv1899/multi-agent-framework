@@ -289,8 +289,9 @@ def _grouped(periods: Sequence[Any]) -> str:
     """The short page's words for a plan's period keys (2026-11-13). Years
     that share their months, or a season, are said once ("June to August of
     2033 and 2034", "summer of 2033 and 2034"), in the words the table of a
-    new run uses for its months. Groups are set apart with "; ", so a list of
-    years inside one is never read as two groups."""
+    new run uses for its months. Two groups are joined with ", and "; more
+    are set apart with "; ", so a list of years inside one is never read as
+    two groups."""
     by_year: "OrderedDict[int, List[int]]" = OrderedDict()
     seasons: "OrderedDict[str, List[int]]" = OrderedDict()
     years: Dict[str, List[int]] = {"year": [], "wy": []}
@@ -322,7 +323,12 @@ def _grouped(periods: Sequence[Any]) -> str:
     for q, ys in seasons.items():
         words.append(f"{SEASONS.get(q, q)} of {_years_words(ys)}")
     if years["year"]:
-        words.append(_years_words(years["year"]))
+        # A YEAR BESIDE ITS OWN SEASON (2026-11-13, a live page): "summer of
+        # 2018 and 2019; 2018 and 2019" read as the years said twice. Beside
+        # another group the years are named as what they are.
+        n = len(set(years["year"]))
+        words.append(f"the whole year{'' if n == 1 else 's'} {_years_words(years['year'])}"
+                     if words else _years_words(years["year"]))
     if years["wy"]:
         n = len(set(years["wy"]))
         words.append(f"the water year{'' if n == 1 else 's'} {_years_words(years['wy'])}")
@@ -330,7 +336,7 @@ def _grouped(periods: Sequence[Any]) -> str:
     for w in words + rest:
         if w not in out:
             out.append(w)
-    return "; ".join(out)
+    return ", and ".join(out) if len(out) == 2 else "; ".join(out)
 
 
 def periods_words(periods: Sequence[Any], grouped: bool = False) -> str:
@@ -736,10 +742,17 @@ def _series_when(a: Dict[str, Any], de: Dict[str, Any], row: Dict[str, Any]) -> 
 
 
 def when_words(a: Dict[str, Any], de: Dict[str, Any], row: Dict[str, Any]) -> str:
-    """When an analysis looks: its periods, as periods_words groups them, and
-    the years of its series. Without either, the periods its outputs name."""
-    parts = [w for w in (periods_words(a.get("periods") or [], grouped=True),
-                         _series_when(a, de, row)) if w]
+    """When an analysis looks: its periods, as periods_words groups them.
+    Without periods, the years of its series, and without either, the periods
+    its outputs name.
+
+    THE PERIODS ALONE, WHERE THERE ARE ANY (2026-11-13). A live page gave "2016
+    to 2020, and the water years 2016 to 2020; each water year of 2015 to 2023,
+    each day of 2015 to 2023 and each month of 2015 to 2023" for one row: the
+    second half is the span of the lines the comparison also draws, which the
+    How column already names. A person asked when, and the periods say it."""
+    periods = periods_words(a.get("periods") or [], grouped=True)
+    parts = [periods] if periods else [w for w in (_series_when(a, de, row),) if w]
     if not parts:
         own = [o.get("period") for o in a.get("outputs") or []
                if isinstance(o, dict) and o.get("period") is not None]
@@ -788,14 +801,21 @@ def _without_id(aid: str, problem: Any) -> str:
     return re.sub(rf"^{re.escape(aid)}(?:\.\w+)?\s*[:.]?\s*", "", str(problem)).strip()
 
 
-def support_sentences(plan: Dict[str, Any]) -> List[str]:
+def support_sentences(plan: Dict[str, Any], shown: Optional[Sequence[Any]] = None
+                      ) -> List[str]:
     """One sentence for each comparison code finds conditional or blocked,
     naming it by its title and giving the reason. [] when all are
-    supported."""
+    supported. `shown`: the ids of the comparisons the short page lists. A
+    conditional comparison the page does not list is left to the details (a
+    live page of 2026-11-13 named one that was not in its table). A blocked
+    one is always said, since a yes rests on it."""
     by_id = {str(a.get("id")): a for a in plan.get("analyses") or [] if isinstance(a, dict)}
+    listed = None if shown is None else {str(x) for x in shown}
     out = []
     for aid, s in analysis_support(plan).items():
         name = _cell(compare_words(by_id.get(aid) or {}))
+        if s["status"] == CONDITIONAL and listed is not None and aid not in listed:
+            continue
         if s["status"] == CONDITIONAL:
             out.append(f'The comparison "{name}" {CONDITIONAL_WORDS}.')
         elif s["status"] == BLOCKED:
@@ -857,7 +877,7 @@ def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Option
         if more:
             L += [f"{more} more comparison{' is' if more == 1 else 's are'} listed in "
                   f"`DESIGN_DETAILS.md`.", ""]
-        why = support_sentences(plan)
+        why = support_sentences(plan, [a.get("id") for a in shown])
         if why:
             L += [" ".join(why), ""]
     comp = [c for c in plan.get("competing") or [] if isinstance(c, dict)]
@@ -866,7 +886,8 @@ def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Option
         n = len(comp)
         L += [f"We will also check {'one other explanation' if n == 1 else f'{n} other explanations'}"
               f", which {'is' if n == 1 else 'are'} "
-              + (_join(titles) if all(titles) else "listed in `DESIGN_DETAILS.md`") + ".", ""]
+              + (_join([f'"{t}"' for t in titles]) if all(titles)
+                 else "listed in `DESIGN_DETAILS.md`") + ".", ""]
     if status == NOT_PASSED:
         ids = [str(a.get("id")) for a in analyses]
         loose = [str(x) for x in plan.get("problems") or [] if str(x).strip() and not any(
