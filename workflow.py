@@ -1517,8 +1517,11 @@ class WorkflowCoordinator:
 			if not AV.enabled() or blocked or \
 					not isinstance((plan or {}).get("domain_experiment"), dict):
 				return None
+			from agents import analysis_handoff as AH
 			print("🧭 Planning the analysis before the page (a preview: your yes will "
-				  "not cover it, and the Analyzer plans again after the runs)...")
+				  "not cover it, and the Analyzer "
+				  + ("carries it out after the runs if it passes its check)..."
+					 if AH.enabled() else "plans again after the runs)..."))
 			rec = AV.plan_before_approval(
 				result, plan, run_dir,
 				clients=getattr(self, "_analysis_preview_clients", None))

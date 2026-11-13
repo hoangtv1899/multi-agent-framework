@@ -609,6 +609,14 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
                                    # its normal years, and whether a year it
                                    # compares with them is one of them
                                    "baseline": _plan.load_plan(adir).get("baseline") or {}}
+        # WHERE THE PLAN CAME FROM, when the design page promised it to the
+        # Analyzer (transitional, 2026-11-12; agents/analysis_handoff.py):
+        # carried out as shown, or not and why. Absent for a study whose page
+        # made no promise.
+        from agents import analysis_handoff as _handoff
+        handed = _handoff.load(adir)
+        if handed:
+            report["analysis_plan"]["handoff"] = handed
         phase = _plan.load_planned_phase(adir) or None
         report["planned_phase"] = phase
         report["acceptance"] = _plan.acceptance(phase, plan_ok=ok)
@@ -786,6 +794,12 @@ def render_markdown(report: Dict[str, Any]) -> str:
     # in place of the answer; analysis.json keeps the whole record.
     if report.get("withheld_because"):
         if (report.get("analysis_plan") or {}).get("passed") is False:
+            # A PROMISED PLAN THAT COULD NOT BE HANDED OVER (transitional,
+            # 2026-11-12; agents/analysis_handoff.py): no plan was written in
+            # its place, and the page says that and not "the plan failed"
+            from agents import analysis_handoff as _handoff
+            if _handoff.blocked(report["analysis_plan"].get("handoff")):
+                return _handoff.blocked_page(report)
             return plan_withheld_markdown(report)
         if (report.get("evidence_trace") or {}).get("withheld_because"):
             from agents.analysis.claim_trace import evidence_withheld_markdown
@@ -1033,6 +1047,9 @@ def planned_phase_lines(report: Dict[str, Any]) -> List[str]:
          f"{counts}. Each analysis is judged by its required outputs, each produced, not "
          f"estimable or unmet; its scope (what it may look up) decides nothing.", ""]
     held = ((report.get("analysis_plan") or {}).get("baseline") or {}).get("inclusive")
+    from agents import analysis_handoff as _handoff
+    for line in _handoff.report_lines((report.get("analysis_plan") or {}).get("handoff")):
+        L += [_plain(line), ""]
     if held:
         L += [f"On the normal years: {_plain(held)}.", ""]
     L += ["| analysis | status | required | produced | not estimable | unmet | reason |",

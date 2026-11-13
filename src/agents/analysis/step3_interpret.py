@@ -1419,8 +1419,26 @@ def investigate_and_interpret(ctx, out_dir, comparison=None,
     plan_review = None
     on_suite = _plan.suite_bearing(ctx)
     plan_ok = True
+    handoff_blocked = False
     if on_suite:
-        plan_review, plan_ok = plan_and_review(ctx, out_dir, model=model, clients=clients)
+        # THE PLAN SHOWN ON THE DESIGN PAGE, WHEN THE PAGE PROMISED IT
+        # (transitional, 2026-11-12; agents/analysis_handoff.py): put in
+        # out_dir before the planning step, which keeps a plan and a review
+        # already on disk and so makes no call. With no promise on record
+        # nothing is done and the plan is written here, as before.
+        #
+        # A PROMISE THAT COULD NOT BE KEPT STOPS HERE (the user's decision of
+        # 2026-11-12, evening): the planning step is not called, so no second
+        # plan is written out of sight. The one round below then proposes
+        # nothing and asks no model, as for a plan that did not pass, and its
+        # reason is the handoff's (analysis_plan.plan_passed).
+        from agents import analysis_handoff as _handoff
+        handoff_blocked = _handoff.blocked(_handoff.hand_over(ctx, out_dir))
+        if handoff_blocked:
+            plan_ok = False
+        else:
+            plan_review, plan_ok = plan_and_review(ctx, out_dir, model=model,
+                                                   clients=clients)
         if not plan_ok:
             max_rounds = 1
 
@@ -1501,7 +1519,10 @@ def investigate_and_interpret(ctx, out_dir, comparison=None,
             **({"plan_review": plan_review} if plan_review is not None else {}),
             "rounds": rounds, "n_rounds": len(rounds),
             "regressed_rounds": regressed or None,
-            "stopped_because": ("the analysis plan did not pass its review, so step 3 was "
+            "stopped_because": (interpretation.get("skipped_because")
+                                + ", so step 3 was not asked"
+                                if interpretation.get("skipped") and handoff_blocked else
+                                "the analysis plan did not pass its review, so step 3 was "
                                 "not asked" if interpretation.get("skipped") else
                                 "sufficient"
                                 if interpretation["verdict"] == "sufficient"

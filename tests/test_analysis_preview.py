@@ -504,7 +504,7 @@ class TestAfterTheYes:
             role = SR.file_role(rel)
             assert "no role on record" not in role and "preview" in role, rel
         shown = SR.file_role(f"{AV.FOLDER}/design/04_analysis/{AP.PLAN_FILE}")
-        assert "not the plan the Analyzer carried out" in shown
+        assert "the plan the Analyzer carried out is 04_analysis/analysis_plan.json" in shown
         assert SR.file_role(f"04_analysis/{AP.PLAN_FILE}").startswith(
             "the recorded analysis plan (step 2a)")
 

@@ -1111,11 +1111,13 @@ ROLES = (
     ("01_inputs/design_preview.json", "the model server's check and build of the design before the design page"),
     # THE ANALYSIS PREVIEW (transitional, 2026-11-12; agents/analysis_preview.py):
     # named for what it is, so the plan shown before the yes is never taken for
-    # the plan the Analyzer carried out, which is 04_analysis/analysis_plan.json
-    ("01_inputs/analysis_preview.json", "the record of the analysis plan written before the design page: a preview shown on the page, which the yes did not cover and the Analyzer did not carry out"),
+    # the plan the Analyzer carried out, which is 04_analysis/analysis_plan.json.
+    # Whether the two are the same plan is in 04_analysis/plan_handoff.json
+    # (agents/analysis_handoff.py), when the page promised one to the Analyzer.
+    ("01_inputs/analysis_preview.json", "the record of the analysis preview: the analysis plan written before the design page and shown on it, which the yes did not cover; it says whether the page promised that plan to the Analyzer"),
     ("01_inputs/analysis_preview/*/01_inputs/domain_experiment.json", "the analysis preview's own copy of the design, each change in the model server's words, as the planning step read it before the runs"),
     ("01_inputs/analysis_preview/*/01_inputs/domain_control_facts.json", "the analysis preview's record of where the control's output is"),
-    ("01_inputs/analysis_preview/*/04_analysis/analysis_plan.json", "the analysis plan written before the design page and shown on it: a preview, not the plan the Analyzer carried out (that one is 04_analysis/analysis_plan.json)"),
+    ("01_inputs/analysis_preview/*/04_analysis/analysis_plan.json", "the analysis preview's plan, written before the design page and shown on it; the plan the Analyzer carried out is 04_analysis/analysis_plan.json, and 04_analysis/plan_handoff.json says whether it is this one"),
     ("01_inputs/analysis_preview/*/04_analysis/*", "the planning step's records for the analysis preview: its review, its first version when it was rewritten, and the model's exchanges"),
     ("01_inputs/control_recipe.json", "how the control was made, read from its case"),
     ("01_inputs/source_changes.patch", "the model code's local changes, saved as a patch"),
@@ -1193,6 +1195,7 @@ ROLES = (
     # recorded analysis plan, its review, the lookups and the checks of a
     # study with a suite were all "no role on record for this file".
     ("04_analysis/analysis_plan.json", "the recorded analysis plan (step 2a): comparisons, analyses, expectations, competing explanations and the screen, written before any lookup"),
+    ("04_analysis/plan_handoff.json", "whether the plan shown on the design page before the yes was handed to the Analyzer and carried out as it stood, or why the handoff is blocked (the Analyzer then writes no other plan); written only when the page promised that plan to the Analyzer"),
     ("04_analysis/analysis_plan.v1.json", "the first analysis plan, kept as it was: it failed its review and was rewritten once, before any lookup"),
     ("04_analysis/analysis_plan_review.json", "step 3's review of the analysis plan: what the code check and the model review found, tied to the plan's hash"),
     ("04_analysis/analysis_plan_review.v1.json", "the review of the first analysis plan, kept as it was"),

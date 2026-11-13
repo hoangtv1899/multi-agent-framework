@@ -200,6 +200,17 @@ def plan_before_approval(reception: Dict[str, Any], strategy: Dict[str, Any], ru
                                         clients=clients)
         plan = AP.load_plan(adir)
         rel = adir.relative_to(rd)
+        from agents import analysis_handoff as AH
+        # WHETHER THIS PLAN WILL BE CARRIED OUT is decided here, with the page,
+        # and kept in the record: after the runs the Analyzer reads the record
+        # and not a switch (agents/analysis_handoff.py). Absent with that
+        # switch off, and the record is then as it was.
+        kept = AH.promise(bool(ok), new_runs=bool(
+            (strategy.get("domain_experiment") or {}).get("runs")))
+        if kept is not None:
+            rec["handoff"] = kept
+            if kept.get("promised"):
+                rec["transitional"] = kept["words"]
         rec.update(status=PLANNED if ok else NOT_PASSED,
                    why=None if ok else AP.plan_passed(adir)[1],
                    plan_file=str(rel / AP.PLAN_FILE), review_file=str(rel / AP.REVIEW_FILE),
@@ -324,7 +335,8 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
         return L + ["An analysis plan on record here was written for another design, so it "
                     "is not shown.", ""]
     L += ["The Analyzer's planning step wrote this from the design above, before any run, "
-          "so that you can read it before you decide. " + NOT_BOUND, ""]
+          "so that you can read it before you decide. "
+          + after_the_runs(record, NOT_BOUND), ""]
     status = record.get("status")
     if status == NOT_PLANNED:
         return L + [f"No plan was written: {_cell(record.get('why'))}.", ""]
@@ -416,6 +428,15 @@ NOT_BUILT = ("Your yes does not approve this plan, since approval of the analysi
              "built yet, and the Analyzer writes its plan again after the runs.")
 
 
+def after_the_runs(record: Optional[Dict[str, Any]], words: str) -> str:
+    """What the page says becomes of the plan after the runs: `words` (the
+    Analyzer plans again), or, for a plan the record promises to the
+    Analyzer, that it is carried out as it stands. Both say the yes does not
+    approve the plan."""
+    from agents import analysis_handoff as AH
+    return AH.page_words(record) if AH.promised(record) else words
+
+
 def _read_plan(record: Dict[str, Any], run_dir):
     rd = Path(run_dir) if run_dir is not None else Path(".")
     try:
@@ -470,7 +491,8 @@ def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Option
     if _other_design(record, design_sha256):
         return ["An analysis plan on record here was written for another design, so it is "
                 "not shown.", ""]
-    L = ["The Analyzer's planning step wrote this plan before any run. " + NOT_BUILT, ""]
+    L = ["The Analyzer's planning step wrote this plan before any run. "
+         + after_the_runs(record, NOT_BUILT), ""]
     status = record.get("status")
     if status == NOT_PLANNED:
         return L + [f"No plan was written, since {_cell(record.get('why'))}.", ""]

@@ -1569,11 +1569,29 @@ def load_review(out_dir) -> Dict[str, Any]:
     return _read_json(Path(out_dir) / REVIEW_FILE)
 
 
-def plan_passed(out_dir) -> Tuple[bool, str]:
-    """(passed, why): the plan exists, step 3's review passed it, and the plan
-    file still hashes to what was reviewed. A failed review's why is its real
+def plan_passed(out_dir, files_only: bool = False) -> Tuple[bool, str]:
+    """(passed, why): whether the Analyzer may work from the plan in this
+    folder. The plan exists, step 3's review passed it, and the plan file
+    still hashes to what was reviewed. A failed review's why is its real
     reason (review_reason): the code check's problems first, then the model
-    review's verdict and problems."""
+    review's verdict and problems.
+
+    AND A PROMISE THAT COULD NOT BE KEPT PASSES NOTHING (transitional,
+    2026-11-12; agents/analysis_handoff.py). A study whose design page
+    promised the plan shown, and whose Analyzer could not be handed that
+    plan, has no plan to work from: no other is written in its place, and a
+    plan found in the folder is not the one promised. The reason is then the
+    handoff's. Every caller that asks whether to go on asks here (step 2's
+    proposal, the lookup gate, step 3 and the report), so none goes on. A
+    study whose page made no promise has no such record and is as before.
+
+    `files_only` asks of the plan files alone and reads no handoff: the
+    handoff's own question, of the plan shown and of its copy."""
+    if not files_only:
+        from agents import analysis_handoff as _handoff
+        blocked = _handoff.why_blocked(out_dir)
+        if blocked:
+            return False, blocked
     out = Path(out_dir)
     if not (out / PLAN_FILE).is_file():
         return False, "there is no analysis plan (step 2a has not written one)"
@@ -1586,6 +1604,11 @@ def plan_passed(out_dir) -> Tuple[bool, str]:
     if rv.get("plan_sha256") != plan_sha256(out):
         return False, "the analysis plan changed after its review"
     return True, "the analysis plan passed step 3's review"
+
+
+def plan_file_passed(out_dir) -> Tuple[bool, str]:
+    """plan_passed of the plan files alone, with no handoff read."""
+    return plan_passed(out_dir, files_only=True)
 
 
 def plan_versions(out_dir) -> List[Dict[str, Any]]:

@@ -243,7 +243,8 @@ This is a look before the decision and nothing more:
 - The yes is unchanged. It approves the control, the runs and the years.
 - The Analyzer does not carry this plan out. After the runs it writes its own
   plan in the study's `04_analysis`, as before, and that plan may differ. With
-  the switch set, a study that runs is therefore planned twice.
+  the switch set, a study that runs is therefore planned twice. The next
+  section describes the switch that changes this.
 - A plan that could not be written, or that did not pass its check, is shown
   as it is and stops nothing. A design that cannot be approved is not planned
   for.
@@ -251,9 +252,53 @@ This is a look before the decision and nothing more:
   `01_inputs/analysis_preview/`. No record of the Experiment Manager is
   touched.
 
-Binding the yes to a plan, and handing that plan to the Analyzer, are not
-built. Until they are, the page must not be read as the approval of an
-analysis, and it says so wherever it shows a plan.
+Binding the yes to a plan is not built. Until it is, the page must not be
+read as the approval of an analysis, and it says so wherever it shows a plan.
+
+## The plan shown may be the plan carried out (transitional)
+
+`src/agents/analysis_handoff.py`, off unless `IDEAS_CARRY_OUT_SHOWN_PLAN=1`,
+and only with the preview of the section above. With both switches set, a
+plan that passed its check and its review is promised to the Analyzer when
+the page is written. The page then says that the Analyzer carries out this
+plan as it stands and writes no second one, after the runs or, for a design
+that makes no new run, after the yes. It also says that the analysis stops,
+and its report says why, if the plan cannot be carried out.
+
+- The promise is kept in the preview's record (`handoff`), and the Analyzer
+  reads that record after the runs. It does not read the switch, since the
+  analysis is the last line of a batch job, where a switch set in a login
+  shell does not exist.
+- Before the Analyzer plans, the plan shown, its review, its first version
+  when it was rewritten and the model's exchanges are copied into the study's
+  `04_analysis`, byte for byte. The planning step keeps a plan and a review
+  already on disk, so it makes no model call. Its gate holds the plan to the
+  hash its review recorded.
+- The plan is used only when the design approved is the design the plan was
+  written for, the plan file still hashes to what the page's record holds, its
+  review still passes, and the study's `04_analysis` holds no other plan.
+- When any of these fails the handoff is blocked, and the Analyzer does not
+  write another plan in its place. `04_analysis/plan_handoff.json` records the
+  stop with its reason. The planning step is not called, the gate that every
+  look-up passes refuses, and `REPORT.md` is a page that says the handoff is
+  blocked, why, and what is kept. Nothing is deleted. The runs, their numbers
+  and the plan shown stay as they were.
+- A resume checks a blocked handoff again, and the analysis goes ahead only if
+  the plan shown can then be handed over unchanged. To analyse such a study
+  with another plan is a new decision, which is not built.
+- A study whose page made no promise is as before. Its Analyzer writes its
+  own plan after the runs.
+- The plan's own check is made again against the runs as they finished, and
+  what it finds is recorded and printed in the report. It changes nothing. An
+  analysis whose year a run did not produce is closed as failed by the
+  Analyzer's close of the planned phase, as before.
+- The report says, above its planned analyses, that the plan was shown before
+  the yes and carried out as it stood.
+
+The yes is still not bound to the plan. The approval record names the control,
+the runs and the years, and the page and the report say so. A blocked or
+conditional status for an analysis that cannot be carried out, and the
+spending limit, are not built either.
 
 ## Every caveat is on the page
 
