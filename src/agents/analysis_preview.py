@@ -190,7 +190,7 @@ def plan_before_approval(reception: Dict[str, Any], strategy: Dict[str, Any], ru
         from agents.analysis import step3_interpret as S3
         ctx = context(reception, strategy, rd)
         if not AP.suite_bearing(ctx):
-            rec["why"] = ("the prepared run has no results store, and the planning step "
+            rec["why"] = ("the control run has no results store, and the planning step "
                           "plans from one")
             return _written(rd, rec)
         # the places the planning step may name, with their sizes and rules,
@@ -411,8 +411,8 @@ def outputs_words(outputs: Sequence[Dict[str, Any]]) -> str:
 
 
 def _compared(c: Dict[str, Any], normal_years: Sequence[int]) -> str:
-    who = "the prepared run" if c.get("run") in (None, "control") else f"`{c.get('run')}`"
-    other = ("the prepared run" if c.get("against") == "control" else
+    who = "the control run" if c.get("run") in (None, "control") else f"`{c.get('run')}`"
+    other = ("the control run" if c.get("against") == "control" else
              f"its normal years ({_span(normal_years)})" if c.get("against") == "normal years"
              else str(c.get("against")))
     return f"{c.get('id')}: {who} against {other}, {_span(c.get('years'))}"
@@ -575,7 +575,7 @@ def series_words(a: Dict[str, Any], de: Dict[str, Any], row: Dict[str, Any]) -> 
         where = f"over {spans[0][1]}"
     else:
         where = " and ".join(
-            f"over {sp} for " + ("the prepared run" if r == "control" else f"`{r}`")
+            f"over {sp} for " + ("the control run" if r == "control" else f"`{r}`")
             for r, sp in spans)
     return f"{_join([STEP.get(s, str(s)) for s in steps])} series {where}"
 
@@ -626,7 +626,7 @@ def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Option
     for c in plan.get("comparisons") or []:
         if not isinstance(c, dict):
             continue
-        who = "the prepared run" if c.get("run") in (None, "control") else f"`{c.get('run')}`"
+        who = "the control run" if c.get("run") in (None, "control") else f"`{c.get('run')}`"
         lead = "The plan" if not said else "It also"
         if c.get("against") == "normal years":
             ys = sorted({int(y) for y in c.get("years") or [] if str(y).isdigit()})
@@ -640,7 +640,7 @@ def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Option
                         + (f", which contain {_years_words(held)}" if held else "")
                         + ".")
         else:
-            said.append(f"{lead} compares {who} with the prepared run for "
+            said.append(f"{lead} compares {who} with the control run for "
                         f"{_span(c.get('years'))}.")
     if said:
         L += [" ".join(said), ""]
@@ -732,6 +732,6 @@ def weigh_lines(record: Optional[Dict[str, Any]], run_dir,
         one = len(todo) == 1
         L.append(f"- {_join([f'`{t}`' for t in todo])} {'is' if one else 'are'} not made "
                  f"yet, so the plan takes {'its' if one else 'their'} outputs to be the "
-                 f"prepared run's quantities over the planned years. Each year is checked "
+                 f"control run's quantities over the planned years. Each year is checked "
                  f"after it runs.")
     return L

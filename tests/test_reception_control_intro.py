@@ -66,7 +66,7 @@ def _block():
 
 def test_reception_asks_before_settling_and_does_not_describe_the_run_again():
     block = " ".join(_block().split())
-    assert "The framework has told them what the prepared run is" in block
+    assert "The framework has told them what the control run is" in block
     assert "Do not describe the run again" in block
     assert "Send ONE `ask_user` message before the brief" in block
     assert "even when the question needs no run" in block
@@ -119,7 +119,7 @@ def test_the_card_says_what_the_run_is_and_where_the_rest_is_shown():
     yes, and the card says so, naming only what the record holds."""
     from agents.reception_llm import control_card
     card = control_card([dict(ROW, normal_years=[2016, 2017])])
-    assert card.splitlines()[1:3] == ["  ── The prepared run ──",
+    assert card.splitlines()[1:3] == ["  ── The control run ──",
                                       "  synth: a synthetic control, fire model on"]
     flat = " ".join(card.split())
     assert flat.endswith("How it compares with measurements and what it does not contain are "
@@ -133,7 +133,7 @@ def test_the_card_says_what_the_run_is_and_where_the_rest_is_shown():
     assert only_eval.endswith("How it compares with measurements is on the design page, "
                               "before you are asked to approve anything.")
     bare = control_card([{"name": "synth", "usable": True, "description": "a control"}])
-    assert bare.splitlines()[1:] == ["  ── The prepared run ──", "  synth: a control"]
+    assert bare.splitlines()[1:] == ["  ── The control run ──", "  synth: a control"]
 
 
 def _agent(revision=False):
@@ -184,13 +184,13 @@ def test_reading_the_controls_prints_the_card_once(monkeypatch, capsys):
         assert got["evaluation"] == R.SHOWN_ON_THE_DESIGN_PAGE
     assert rows["controls"]["controls"][0]["evaluation"] == EVAL    # the record is whole
     out = capsys.readouterr().out
-    assert out.count("── The prepared run ──") == 1
+    assert out.count("── The control run ──") == 1
     assert "on the design page" in out and "Not in this run" not in out
 
 
 def test_a_run_the_start_banner_introduced_gets_no_card(monkeypatch, capsys):
     """THE RUN IS DESCRIBED ONCE (2026-11-11): the coordinator's banner says
-    what each prepared run is before the first question, and the card under
+    what each control run is before the first question, and the card under
     it said the same a few lines later."""
     a = _agent()
     a.introduced = {"synth"}
@@ -212,7 +212,7 @@ def test_a_run_the_start_banner_introduced_gets_no_card(monkeypatch, capsys):
     assert b.introduced == set()                       # alone, Reception shows the card
     b.introduced = {"synth"}
     b.loop.local["describe_domain_controls"]["fn"](server="elm")
-    assert "The prepared run" not in capsys.readouterr().out
+    assert "The control run" not in capsys.readouterr().out
 
 
 def test_the_model_is_not_shown_the_runs_results_or_its_comparison():
@@ -292,7 +292,7 @@ def test_process_shows_the_card_for_a_question_and_not_for_a_revision(monkeypatc
     monkeypatch.setattr(R, "model_tools", lambda clients: {
         "describe_domain_controls": {"schema": {}, "fn": lambda **kw: rows}})
     a = R.LLMReceptionAgent(model="x", mcp_clients={})
-    heading = "── The prepared run ──"
+    heading = "── The control run ──"
 
     a.process("q")
     assert capsys.readouterr().out.count(heading) == 1

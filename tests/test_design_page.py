@@ -42,7 +42,7 @@ CHANGE = {"id": "weather_scale", "params": {"precip_factor": 0.7, "months": [6, 
 QUESTION = ("What if June to August rainfall had been 30 percent lower in 2033 in the "
             "valley? How would plant growth respond?")
 SUMMARY = {"version": 3, "written": "2031-02-03",
-           "text": ["The prepared run is a model run of a made-up valley for 2031 to 2036.",
+           "text": ["The control run is a model run of a made-up valley for 2031 to 2036.",
                     "Its snow is about half of what was measured."]}
 CONTROL = {
     "name": "valley", "usable": True,
@@ -180,7 +180,7 @@ class TestTheShape:
     def test_six_parts_in_this_order_and_then_the_decision_line(self, folder):
         page = _page(folder)
         heads = [ln[3:] for ln in page.splitlines() if ln.startswith("## ")]
-        assert heads == ["What will run", "The prepared run", "How the answer will be read",
+        assert heads == ["What will run", "The control run", "How the answer will be read",
                          "What the study cannot tell you", "Points to weigh", "Your decision"]
         assert page.startswith("# Design review: a_study\n\n**Your question.** " + QUESTION)
         assert page.rstrip().endswith(dr._PENDING)
@@ -239,7 +239,7 @@ class TestWhereTheRunDiffersFromTheQuestion:
             self, folder):
         page = _page(folder)
         assert self.SAID in _flat(_section(page, "What will run"))
-        assert page.index("Different from what you asked") < page.index("## The prepared run")
+        assert page.index("Different from what you asked") < page.index("## The control run")
 
     @pytest.mark.parametrize("question", [
         "What if June to August precipitation had been 30 percent lower in 2033?",
@@ -295,9 +295,9 @@ class TestThePlacesAndTheYears:
     def test_a_daily_series_is_given_with_the_years_it_covers(self, folder):
         sec = _section(_page(folder), "How the answer will be read")
         row = next(ln for ln in sec.splitlines() if ln.startswith("| P2 |"))
-        # the run's own years, and the prepared run's, which differ
+        # the run's own years, and the control run's, which differ
         assert f"daily series over 2031 to 2033 for `{RUN}` and over 2031 to 2036 for the " \
-               f"prepared run" in row
+               f"control run" in row
 
     def test_a_series_of_one_run_gives_one_span(self):
         a = {"outputs": [{"kind": "series", "run": RUN, "step": "month"}]}
@@ -333,10 +333,10 @@ class TestTheWordsOnCost:
     def test_a_design_of_the_control_alone_says_what_a_yes_starts(self, folder):
         st = _strategy(domain_experiment=dict(_strategy()["domain_experiment"], runs=[]))
         page = _page(folder, strategy=st, preview=None, record=None)
-        assert "No new run is made. The prepared run's existing output is read for 2033." in \
+        assert "No new run is made. The control run's existing output is read for 2033." in \
             _flat(_section(page, "What will run"))
         said = _flat(_section(page, "Your decision"))
-        assert "A yes starts the analysis of the prepared run's existing output." in said
+        assert "A yes starts the analysis of the control run's existing output." in said
         assert "the analysis itself uses paid model calls" in said
 
 
@@ -393,9 +393,20 @@ class TestNothingADecisionRestsOnIsLeftOut:
         st["domain_experiment"]["caveats"] = CAVEATS + [long]
         assert _flat(long) in _flat(_page(folder, strategy=st))       # never cut
 
-    def test_what_the_prepared_run_does_not_contain_is_said(self, folder):
+    def test_what_the_control_run_does_not_contain_is_said(self, folder):
         assert "This run does not contain the observed floods: the run makes its own." in \
-            _flat(_section(_page(folder), "The prepared run"))
+            _flat(_section(_page(folder), "The control run"))
+
+    def test_the_servers_control_is_the_control_run_and_is_named_once(self):
+        # the server says "the control"; a person reads "the control run"
+        assert DP._control_run("the difference from the control is a factor, with every "
+                              "other input the control's") == \
+            "the difference from the control run is a factor, with every other input " \
+            "the control run's"
+        # words that already name it are not given the word twice
+        assert DP._control_run("the control run's saved state, read by the control run") \
+            == "the control run's saved state, read by the control run"
+        assert "prepared run" not in DP._control_run("the control")
 
     def test_every_finding_of_the_model_server_is_on_the_page_whole(self, folder):
         sec = _flat(_section(_page(folder), "Points to weigh"))
@@ -418,7 +429,7 @@ class TestNothingADecisionRestsOnIsLeftOut:
 
     def test_a_year_set_against_normal_years_that_contain_it_is_said_twice(self, folder):
         page = _page(folder)
-        assert "sets 2033 of the prepared run against the normal years, 2032 to 2034, which " \
+        assert "sets 2033 of the control run against the normal years, 2032 to 2034, which " \
                "contain 2033." in _flat(_section(page, "How the answer will be read"))
         assert "- The normal years include 2033, a year this plan sets against them" in \
             _flat(_section(page, "Points to weigh"))
@@ -437,7 +448,7 @@ class TestNothingADecisionRestsOnIsLeftOut:
         (folder / "plan" / "analysis_plan.json").write_text(json.dumps(plan))
         page = _page(folder)
         read = _flat(_section(page, "How the answer will be read"))
-        assert "The plan sets each year of 2032 to 2034 of the prepared run against the mean " \
+        assert "The plan sets each year of 2032 to 2034 of the control run against the mean " \
                "of those same years." in read
         assert "which contain" not in read
         assert "- The normal years include 2033, a year this plan sets against them" in \
@@ -465,7 +476,7 @@ class TestNothingADecisionRestsOnIsLeftOut:
         assert "is given under" not in sec
 
     def test_a_run_not_made_yet_is_a_condition(self, folder):
-        assert f"- `{RUN}` is not made yet, so the plan takes its outputs to be the prepared " \
+        assert f"- `{RUN}` is not made yet, so the plan takes its outputs to be the control " \
                f"run's quantities over the planned years. Each year is checked after it " \
                f"runs." in _flat(_section(_page(folder), "Points to weigh"))
 
@@ -490,7 +501,7 @@ class TestNothingADecisionRestsOnIsLeftOut:
 
     def test_the_years_simulated_and_the_years_reported_are_both_said(self, folder):
         sec = _flat(_section(_page(folder), "What will run"))
-        assert "Each new run starts from the prepared run's saved state at the beginning " \
+        assert "Each new run starts from the control run's saved state at the beginning " \
                "of 2031 and simulates 2031 to 2033. The numbers are reported for 2033, the " \
                "year you asked about." in sec
 
@@ -570,11 +581,11 @@ class TestAYesApprovesNoAnalysisHere:
         assert words not in _flat(_page(folder)).lower()
 
 
-# ── the prepared run's summary ───────────────────────────────────────────────
-class TestThePreparedRunsSummary:
+# ── the control run's summary ───────────────────────────────────────────────
+class TestTheControlRunsSummary:
 
     def test_the_summary_is_printed_as_it_stands_with_its_version(self, folder):
-        sec = _section(_page(folder), "The prepared run")
+        sec = _section(_page(folder), "The control run")
         for t in SUMMARY["text"]:
             assert t in sec
         assert "This summary of `valley` is version 3, written 2031-02-03. The run's full " \
@@ -583,8 +594,8 @@ class TestThePreparedRunsSummary:
     def test_a_control_with_no_summary_is_named_and_points_to_its_record(self, folder):
         st = _strategy()
         del st["domain_rulebook"]["controls"]["controls"][0]["page_summary"]
-        sec = _flat(_section(_page(folder, strategy=st), "The prepared run"))
-        assert "The prepared run is `valley`. The model server describes it as the Valley " \
+        sec = _flat(_section(_page(folder, strategy=st), "The control run"))
+        assert "The control run is `valley`. The model server describes it as the Valley " \
                "control: a made-up box, weather from a made-up record." in sec
         assert "No short summary of it is on record." in sec
 

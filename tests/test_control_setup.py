@@ -443,7 +443,7 @@ def test_the_card_leaves_the_fire_and_the_grid_to_the_design_page():
     from agents.reception_llm import control_card
     card = control_card([{"name": "synth", "usable": True, "description": "d",
                           "facts": FACTS}])
-    assert card.splitlines()[1:] == ["  ── The prepared run ──", "  synth: d"]
+    assert card.splitlines()[1:] == ["  ── The control run ──", "  synth: d"]
     assert "Fire" not in card and "Grid" not in card
 
 

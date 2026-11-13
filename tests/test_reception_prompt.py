@@ -199,7 +199,8 @@ def test_the_rules_that_live_conversations_taught_are_in_it():
             "Send ONE `ask_user` message before the brief",
             # an acknowledgement was put to the person as a question
             "`ask_user` is for a question, never for telling the person something",
-            "Do not say control, whole-domain, brief or demonstrated",
+            'Say "the control run" for a control and "a what-if run" for a run with changes',
+            "Do not say whole-domain, brief or demonstrated",
             "No field name, tool name or JSON",
             'Never say "as you asked" for something you chose',
             "Check every concrete statement against the JSON you are about to emit",

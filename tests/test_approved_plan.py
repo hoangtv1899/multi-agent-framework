@@ -71,7 +71,7 @@ class TestTheYesNamesThePlan:
 
     def test_a_design_with_no_new_run_is_approved_with_its_plan_too(self, both, tmp_path,
                                                                     monkeypatch):
-        rd, _ = _approved(tmp_path, monkeypatch)             # the prepared run alone
+        rd, _ = _approved(tmp_path, monkeypatch)             # the control run alone
         assert _approval(rd)["analysis_plan_sha256"] == _record(rd)["plan_sha256"]
         page = " ".join(_first_part(rd).split())
         assert "It approves the years above and the analysis plan shown under" in page

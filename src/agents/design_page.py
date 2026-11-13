@@ -11,7 +11,7 @@ things, and the page now says those and nothing else:
 
     the question
     what will run, what it costs, and where it differs from what was asked
-    the prepared run, in a short summary written once
+    the control run, in a short summary written once
     how the answer will be read
     what the study cannot tell
     the points to weigh, then the decision
@@ -67,12 +67,13 @@ def _sentence(text: Any) -> str:
     return s if s[-1] in ".!?" else s + "."
 
 
-def _prepared(text: Any) -> str:
-    """The server's words with its name for the run a person was shown: the
-    control is "the prepared run" everywhere a person reads."""
+def _control_run(text: Any) -> str:
+    """The server's words with the name a person reads for its control: "the
+    control run" everywhere on the page. Words that already say "the control
+    run" are left as they are."""
     s = " ".join(str(text or "").split())
-    s = re.sub(r"\bthe control's\b", "the prepared run's", s)
-    return re.sub(r"\bthe control\b", "the prepared run", s)
+    s = re.sub(r"\bthe control's", "the control run's", s)
+    return re.sub(r"\bthe control\b(?! run\b)", "the control run", s)
 
 
 def _says(question: str, words: Sequence[str]) -> bool:
@@ -124,10 +125,10 @@ def _runs_lines(brief, strategy, de, menu, row, preview, run_dir) -> List[str]:
     sim = how["simulated"]
     L: List[str] = []
     if not runs:
-        L.append("No new run is made. The prepared run's existing output is read"
+        L.append("No new run is made. The control run's existing output is read"
                  + (f" for {_span(years)}." if years else "."))
         if ctl and not ctl.get("reuse"):
-            L[-1] = (f"No run with a change is made. The prepared run is made again from "
+            L[-1] = (f"No run with a change is made. The control run is made again from "
                      f"its own recipe and read for {_span(years)}.")
         return L + [""]
     L.append(f"We will make {'one new run' if len(runs) == 1 else f'{len(runs)} new runs'}.")
@@ -137,19 +138,19 @@ def _runs_lines(brief, strategy, de, menu, row, preview, run_dir) -> List[str]:
             m = menu.get(c.get("id")) or {}
             said = resolved.get((name, c.get("id"))) or \
                 (DR._with_params(m["meaning"], c.get("params")) if m.get("meaning") else None)
-            L.append(f"In `{name}`, {_prepared(said).rstrip('.')}." if said else
+            L.append(f"In `{name}`, {_control_run(said).rstrip('.')}." if said else
                      f"`{name}` makes the change `{c.get('id')}`, which the model server's "
                      f"list does not describe.")
             if m.get("demonstrated") is False:
                 L.append(_sentence((rb.get("changes") or {}).get("demonstrated_false")))
         if not r.get("changes"):
-            L.append(f"`{name}` names no change, so it repeats the prepared run.")
+            L.append(f"`{name}` names no change, so it repeats the control run.")
     if sim:
-        # WHERE A RUN STARTS (2026-11-12): from the prepared run's saved state
+        # WHERE A RUN STARTS (2026-11-12): from the control run's saved state
         # of its own first year, whichever year that is. The page said so only
-        # of the prepared run's first year, as the reason for years simulated
+        # of the control run's first year, as the reason for years simulated
         # and not asked about, when every run had to start there.
-        first = (f"Each new run starts from the prepared run's saved state at the "
+        first = (f"Each new run starts from the control run's saved state at the "
                  f"beginning of {min(sim)} and simulates {_span(sim)}."
                  if (de.get("control") or {}).get("reuse") else
                  f"Each new run simulates {_span(sim)}.")
@@ -181,7 +182,7 @@ def _runs_lines(brief, strategy, de, menu, row, preview, run_dir) -> List[str]:
     return L + [""]
 
 
-def _prepared_run_lines(de, row) -> List[str]:
+def _control_run_lines(de, row) -> List[str]:
     ctl = de.get("control") or {}
     ps = row.get("page_summary") or {}
     text = [str(t).strip() for t in (ps.get("text") or []) if str(t).strip()] \
@@ -194,13 +195,13 @@ def _prepared_run_lines(de, row) -> List[str]:
                  + (f", written {ps['written']}" if ps.get("written") else "")
                  + f". The run's full record is in `{DETAILS_NAME}`.")
     else:
-        L.append(f"The prepared run is `{ctl.get('name')}`."
-                 + (f" The model server describes it as {_prepared(row['description'])}."
+        L.append(f"The control run is `{ctl.get('name')}`."
+                 + (f" The model server describes it as {_control_run(row['description'])}."
                     if row.get("description") else "")
                  + f" No short summary of it is on record. Its full record, with how it "
                    f"compares with measurements, is in `{DETAILS_NAME}`.")
     for item in row.get("not_in_it_words") or []:
-        L += ["", f"This run does not contain {_prepared(item).rstrip('.')}."]
+        L += ["", f"This run does not contain {_control_run(item).rstrip('.')}."]
     return L + [""]
 
 
@@ -218,7 +219,7 @@ def _cannot_lines(de, said: Sequence[str] = ()) -> List[str]:
         return ["The design records no caveat.", ""]
     told = {_same(x) for x in said}
     kept = [c for c in caveats if _same(c) not in told]
-    L = [f"- {_sentence(_prepared(c))}" for c in kept]
+    L = [f"- {_sentence(_control_run(c))}" for c in kept]
     if len(kept) < len(caveats):
         L.append("- The difference from your question is given under \"What will run\".")
     return L + [""]
@@ -318,7 +319,7 @@ def _decision_lines(de, strategy, preview, by_hand: bool, analysis_preview=None)
                 f"plan, since the Analyzer writes its own plan afterwards. ")
              + limit + NO_COMPUTE]
     else:
-        L = ["A yes starts the analysis of the prepared run's existing output. No model run "
+        L = ["A yes starts the analysis of the control run's existing output. No model run "
              "is made, and the analysis itself uses paid model calls. "
              + ("It approves the years above and the analysis plan shown under \"How the "
                 "answer will be read\". " if covers_plan else
@@ -354,7 +355,7 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
     L += ["## What will run", ""]
     L += _runs_lines(dict(brief, user_request=question), strategy, de, menu, row, preview,
                      run_dir)
-    L += ["## The prepared run", ""] + _prepared_run_lines(de, row)
+    L += ["## The control run", ""] + _control_run_lines(de, row)
     L += ["## How the answer will be read", ""]
     L += AV.short_lines(analysis_preview, run_dir, DR.design_fingerprint(strategy),
                         de, row)

@@ -156,7 +156,7 @@ class TestThePromise:
 
     def test_a_design_with_no_new_run_does_not_speak_of_runs_to_come(self, both, tmp_path,
                                                                     monkeypatch):
-        rd, _ = _approved(tmp_path, monkeypatch)             # the prepared run alone
+        rd, _ = _approved(tmp_path, monkeypatch)             # the control run alone
         rec = _record(rd)
         assert rec["handoff"] == {"promised": True, "bound": True,
                                   "words": AH.APPROVED_NO_RUN}

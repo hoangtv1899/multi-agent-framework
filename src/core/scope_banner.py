@@ -4,12 +4,12 @@ What this version answers, said before the first question
 src/core/scope_banner.py
 
 A person met the scope only after asking: the start screen listed the data
-servers and nothing else, and the prepared run was introduced in Reception's
+servers and nothing else, and the control run was introduced in Reception's
 first reply. A question outside the scope then cost a conversation to refuse.
 
 The banner says it first, in three statements:
 
-  1. the prepared runs questions are asked of, each with its own description
+  1. the control runs questions are asked of, each with its own description
      and the years it has output for, and where its comparison with
      measurements is shown;
   2. what a what-if run may change, with a mark on a change no run has
@@ -71,13 +71,13 @@ def _wrap(text: str, first: str = "", rest: str = "  ") -> List[str]:
 
 
 def _runs(menus: Dict[str, Dict[str, Any]]) -> List[tuple]:
-    """(server, control) for every prepared run the banner describes."""
+    """(server, control) for every control run the banner describes."""
     return [(s, c) for s, m in menus.items() if s for c in m.get("controls") or []
             if isinstance(c, dict) and c.get("name")]
 
 
 def run_names(menus: Dict[str, Dict[str, Any]]) -> List[str]:
-    """The prepared runs the banner described, by name. THE RUN IS DESCRIBED
+    """The control runs the banner described, by name. THE RUN IS DESCRIBED
     ONCE (2026-11-11): Reception's card said what the run is a few lines under
     a banner that had just said it, so the coordinator hands these names to
     Reception, which shows no card for a run named here."""
@@ -91,15 +91,15 @@ def lines(menus: Dict[str, Dict[str, Any]], developer: bool = False) -> List[str
     runs = _runs(menus)
     L = [RULE, TITLE, RULE]
     if not runs:
-        L += _wrap("Questions about a prepared whole-domain run, and what-if runs made from "
-                   "it. No prepared run is registered on this machine, so no question can "
+        L += _wrap("Questions about a whole-domain control run, and what-if runs made from "
+                   "it. No control run is registered on this machine, so no question can "
                    "be run here.")
         L += [f"  could not be read: {p}" for p in problems]
         return L + [RULE]
 
-    # 1. the prepared runs
-    L.append("Questions about " + ("this prepared run" if len(runs) == 1 else
-                                   "these prepared runs")
+    # 1. the control runs
+    L.append("Questions about " + ("this control run" if len(runs) == 1 else
+                                   "these control runs")
              + ", and what-if runs made from " + ("it:" if len(runs) == 1 else "them:"))
     for server, c in runs:
         years = _span((c.get("facts") or {}).get("output_years"))

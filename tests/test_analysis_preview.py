@@ -180,7 +180,7 @@ class TestTheControlAlone:
         page = _first_part(rd)
         flat = " ".join(page.split())
         assert "## How the answer will be read" in page and AV.NOT_BUILT in flat
-        assert "The plan sets 2016 of the prepared run against the normal years, 2015." in flat
+        assert "The plan sets 2016 of the control run against the normal years, 2015." in flat
         assert "The plan has 1 analysis and reads 1 quantity." in flat
         assert f"| P1 | GPP in 2016 | {REGION} | the year 2016 |" in page
         assert "- The analysis plan passed its check and its review." in page
@@ -191,7 +191,7 @@ class TestTheControlAlone:
         full = _details(rd)
         assert AV.HEADING in full and AV.NOT_BOUND in " ".join(full.split())
         assert "- Code's check and the model review: **passed**." in full
-        assert "- Compared: C1: the prepared run against its normal years (2015), 2016." in full
+        assert "- Compared: C1: the control run against its normal years (2015), 2016." in full
         assert "- Read: 1 analysis, 1 required output, 1 quantity (GPP)." in full
         assert f"| P1 | GPP in 2016 | {REGION} | the year 2016 | 1 number |" in full
         assert "  - a remark of the review" in full and "  - soil water" in full
@@ -245,12 +245,12 @@ class TestANewRun:
         assert AV.NOT_BUILT in flat
         assert "It does not approve an analysis plan, since the Analyzer writes its own " \
                "plan afterwards." in flat
-        assert "The plan compares `warm` with the prepared run for 2016." in flat
+        assert "The plan compares `warm` with the control run for 2016." in flat
         assert f"| P1 | GPP in the warm run | {REGION} | the year 2016 |" in page
-        assert "- `warm` is not made yet, so the plan takes its outputs to be the prepared " \
+        assert "- `warm` is not made yet, so the plan takes its outputs to be the control " \
                "run's quantities over the planned years." in flat
         assert AV.NOT_BOUND in " ".join(_details(rd).split())
-        assert "- Compared: C1: `warm` against the prepared run, 2016." in _details(rd)
+        assert "- Compared: C1: `warm` against the control run, 2016." in _details(rd)
 
     def test_the_planning_step_reads_the_run_as_planned_and_not_made(self, on, tmp_path,
                                                                      monkeypatch):
@@ -337,9 +337,9 @@ class TestPlanningThatFails:
         _typed(monkeypatch, ["no"])
         co._workflow_design_and_run(_reception(), str(tmp_path), rd)
         assert _record(rd)["status"] == AV.NOT_PLANNED
-        assert "No plan was written, since the prepared run has no results store" in \
+        assert "No plan was written, since the control run has no results store" in \
             " ".join(_first_part(rd).split())
-        assert "No plan was written: the prepared run has no results store" in \
+        assert "No plan was written: the control run has no results store" in \
             " ".join(_details(rd).split())
 
     def test_a_design_that_cannot_be_approved_is_not_planned_for(self, on, tmp_path,
@@ -395,9 +395,9 @@ class TestARevision:
         assert a["design_sha256"] != b["design_sha256"]
         assert a["plan_file"].startswith(f"{AV.FOLDER}/a/")
         assert b["plan_file"].startswith(f"{AV.FOLDER}/b/")
-        assert "of the prepared run against the normal years" in \
+        assert "of the control run against the normal years" in \
             " ".join(_first_part(first).split())
-        assert "The plan compares `warm` with the prepared run" in \
+        assert "The plan compares `warm` with the control run" in \
             " ".join(_first_part(second).split())
         assert "`warm`" not in _first_part(first) and "`warm`" not in _details(first)
         # the first design was replaced, never approved; the second ran
@@ -474,15 +474,15 @@ class TestAfterTheYes:
         rd, plan, _ = self._approved(tmp_path, monkeypatch)
         (rd / "strategy.json").write_text(json.dumps(plan))
         dr.write_review(rd)
-        assert "The plan compares `warm` with the prepared run" in \
+        assert "The plan compares `warm` with the control run" in \
             " ".join((rd / dr.REVIEW_NAME).read_text().split())
-        assert "`warm` against the prepared run" in _details(rd)
+        assert "`warm` against the control run" in _details(rd)
         other = _strategy(runs=[WARM], years=(2015,))
         (rd / "strategy.json").write_text(json.dumps(other))
         dr.write_review(rd)
         for text in ((rd / dr.REVIEW_NAME).read_text(), _details(rd)):
             assert "was written for another design, so it is not shown" in " ".join(text.split())
-            assert "against the prepared run, 2016" not in text
+            assert "against the control run, 2016" not in text
             assert "The plan compares" not in text
         # and a page the coordinator draws with no preview shows none, whatever is on disk
         dr.write_review(rd, analysis_preview=None)

@@ -9,7 +9,7 @@ cannot make it, so none of them rests on a prompt alone.
 ## The scope is said before the first question
 
 `src/core/scope_banner.py`. Before the first question the coordinator prints
-"WHAT THIS VERSION ANSWERS": the prepared runs with their own descriptions
+"WHAT THIS VERSION ANSWERS": the control runs with their own descriptions
 and output years, where each run's comparison with measurements is shown
 (the design page), what a what-if run may change (a change no run has
 completed with is marked), and what is not answered. Every word about a run
@@ -151,7 +151,7 @@ nothing else decides it (`domain_controls.start_years`).
   simulated, so a year the design adds is not reported as a year asked about
   after a change at the design page.
 - **The run is described once, and only what it is.** The start banner says
-  what each prepared run is. Reception's card says the same, and is shown
+  what each control run is. Reception's card says the same, and is shown
   only for a run the banner did not name (`LLMReceptionAgent.introduced`,
   set by the coordinator), so the person does not read it twice. How the run
   compares with measurements, the years its anomalies are measured against
@@ -169,7 +169,7 @@ nothing else decides it (`domain_controls.start_years`).
   will be simulated; the design page states the cost from the server's own
   figure.
 - **The servers' menus are read whole.** A framework tool's answer (the
-  prepared runs, the list of changes) may be 24,000 characters; a data
+  control runs, the list of changes) may be 24,000 characters; a data
   tool's result keeps the 12,000 cap. A result that is cut all the same is
   said on the terminal and marked `truncated` in the trace. At 12,000 the
   list of changes had 2 characters to spare.
@@ -216,7 +216,7 @@ the answer is read from".
 
 `src/agents/design_page.py` (2026-11-12). A whole-domain design is decided on
 a short page, `DESIGN_REVIEW.md`: the question, what will run and its cost,
-the prepared run in a summary written once, how the answer will be read, what
+the control run in a summary written once, how the answer will be read, what
 the study cannot tell, the points to weigh and the decision. The design in
 full is in `DESIGN_DETAILS.md`, and the steps to make the runs by hand are in
 `RUN_BY_HAND.md`. The page names both.
@@ -234,7 +234,7 @@ the control's set-up, each change's mechanism, the scripts.
 - **The places and the years.** Each place an analysis reads is given with
   its cells, its area and its rule. A daily or monthly series is given with
   the years it covers.
-- **The prepared run's summary** is a few sentences kept in the control's
+- **The control run's summary** is a few sentences kept in the control's
   registry entry (`page_summary`), with a version, and printed as it stands.
 - **A no is not said to cost nothing.** It submits nothing and uses no
   computing time; the model calls that prepared the page are already spent.

@@ -24,9 +24,9 @@ from agents.llm_agent import SimpleLLMClient
 
 _MAX_TOOL_RESULT_CHARS = 12000   # cap what we feed back per tool result
 # A FRAMEWORK TOOL'S ANSWER IS A MENU THE MODEL MUST READ WHOLE (2026-11-10).
-# The servers' own descriptions (the prepared runs, the list of changes) come
+# The servers' own descriptions (the control runs, the list of changes) come
 # through the framework's tools, and at 12,000 characters the list of changes
-# had 2 characters to spare: one more change, or a second prepared run, would
+# had 2 characters to spare: one more change, or a second control run, would
 # have lost its end with no word to anyone. Those answers get a wider cap. A
 # data tool's result can be any size and keeps the narrow one. A result that
 # is cut all the same is said on the terminal and marked in the trace.

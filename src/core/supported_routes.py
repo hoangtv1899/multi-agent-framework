@@ -67,7 +67,7 @@ def servers_to_start(configured) -> Optional[list]:
     order. None means every one of them: with the developer's switch set, or
     when the configuration names none of the servers a supported study needs
     (an unusual configuration still starts, and the scope banner then says
-    that no prepared run can be read)."""
+    that no control run can be read)."""
     if developer_routes():
         return None
     needed = {s for k in SUPPORTED for s in SERVERS.get(k, ())}

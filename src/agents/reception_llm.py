@@ -3,11 +3,11 @@
 Reception: a person's question in, a brief for the Planner out.
 
 A language model with a small tool loop (ToolLoopAgent). It reads what the
-model server says about itself, its prepared runs and the changes a what-if
+model server says about itself, its control runs and the changes a what-if
 run may make, puts one message to the person, and ends with a JSON brief, or
 with a plain statement that the question cannot be answered here. What to
 read, what to ask and what the answer means are the model's; this class runs
-the loop, shows the prepared run's card, and reads the final JSON.
+the loop, shows the control run's card, and reads the final JSON.
 
 WHOLE-DOMAIN STUDIES ONLY (2026-11-11). Reception used to set up four kinds of
 study. Its prompt was rewritten for the one this version runs, and the code
@@ -121,12 +121,12 @@ def control_card(rows: List[Dict[str, Any]]) -> str:
     is made. The card says so, and names only what the record holds.
 
     ONLY FOR A RUN NOT YET INTRODUCED (2026-11-11). The coordinator's start
-    banner (core/scope_banner) says what each prepared run is before the
+    banner (core/scope_banner) says what each control run is before the
     first question, so a card under it said the same thing twice, a few lines
     apart. The card is for a run the banner did not name, and for Reception
     used without the coordinator (LLMReceptionAgent.introduced)."""
     import textwrap
-    lines = ["", "  ── The prepared run ──"]
+    lines = ["", "  ── The control run ──"]
     later = []
     for r in rows:
         lines += textwrap.wrap(
@@ -208,7 +208,7 @@ class LLMReceptionAgent:
             local_tools=reception_tools(self._clients),
         )
         self._card_shown = False
-        # the prepared runs the person has already been told about, by name:
+        # the control runs the person has already been told about, by name:
         # the coordinator sets it from its start banner, and no card is shown
         # for a run named here (control_card)
         self.introduced: set = set()

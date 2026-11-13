@@ -580,7 +580,7 @@ class WorkflowCoordinator:
 
 	def _show_scope(self) -> None:
 		"""Say what this version answers, once, before the first question
-		(core/scope_banner): the prepared runs, what a what-if run may change
+		(core/scope_banner): the control runs, what a what-if run may change
 		and what is not answered, in the model server's own words. Reading it
 		must never stop a request, so a failure is said in one line."""
 		if getattr(self, "_scope_shown", False):

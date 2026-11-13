@@ -3,7 +3,7 @@
     pytest tests/test_scope_banner.py -v
 
 The start screen listed the data servers and nothing about what could be
-asked; the prepared run was introduced only in Reception's first reply. The
+asked; the control run was introduced only in Reception's first reply. The
 banner says it first, and every word about a run or a change in it is the
 model server's own record. Every name, year and sentence here is made up. No
 test reaches a language model or a real server.
@@ -42,7 +42,7 @@ class TestTheBanner:
     def test_it_says_the_run_its_years_and_its_changes(self):
         text = "\n".join(SB.lines(_menus()))
         assert SB.TITLE in text
-        assert "Questions about this prepared run, and what-if runs made from it:" in text
+        assert "Questions about this control run, and what-if runs made from it:" in text
         assert "valley (elm): the Valley control: one case over a made-up box" in text
         assert "output for 2031–2036" in text
         assert "A what-if run can: switch the pump off; multiply the rain*." in text
@@ -80,9 +80,9 @@ class TestTheBanner:
         text = "\n".join(SB.lines(_menus(changes=CHANGES[:1])))
         assert "*" not in text
 
-    def test_no_prepared_run_is_said_plainly(self):
+    def test_no_control_run_is_said_plainly(self):
         text = " ".join(" ".join(SB.lines(_menus(controls=()))).split())   # wrapped
-        assert "No prepared run is registered on this machine" in text
+        assert "No control run is registered on this machine" in text
         assert "A what-if run can" not in text
 
     def test_a_server_that_could_not_be_read_is_named(self):
@@ -92,7 +92,7 @@ class TestTheBanner:
     def test_two_runs_are_both_listed(self):
         other = dict(CONTROL, name="ridge", description="the Ridge control")
         text = "\n".join(SB.lines(_menus(controls=(CONTROL, other))))
-        assert "these prepared runs" in text and "ridge (elm): the Ridge control" in text
+        assert "these control runs" in text and "ridge (elm): the Ridge control" in text
 
     def test_the_developers_switch_is_said(self):
         assert "developer's switch is set" in "\n".join(SB.lines(_menus(), developer=True))
@@ -142,7 +142,7 @@ class TestReadFromTheServer:
 
     def test_no_server_at_all(self):
         assert SB.read({}) == {}
-        assert "No prepared run" in " ".join(SB.text({}, developer=False).split())
+        assert "No control run" in " ".join(SB.text({}, developer=False).split())
 
 
 class TestTheCoordinatorSaysItOnce:
