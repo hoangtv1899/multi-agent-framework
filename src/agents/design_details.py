@@ -432,12 +432,7 @@ def places_figure_lines(places: Optional[Dict[str, Any]]) -> List[str]:
     if not isinstance(places, dict) or not isinstance(places.get("record"), dict):
         return []
     try:
-        # JOIN: agents/places_figure.py is piece D's module and is not in this
-        # clone. The person who joins the pieces removes this guard.
         from agents import places_figure as PF
-    except ImportError:
-        return []
-    try:
         got = PF.page_lines(places["record"], places.get("drawn"))
     except Exception:                                               # noqa: BLE001
         return []

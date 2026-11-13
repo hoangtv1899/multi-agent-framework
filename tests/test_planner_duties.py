@@ -344,29 +344,28 @@ class TestTheWholeDomainPrompt:
         assert "The list is usually empty." in wd
         assert "Code carries the model server's limits to the page and the report in its " \
                "own words." in wd
-        assert "Never copy them into your caveats or restate them." in wd
+        assert "Never copy them into your caveats or restate them in other words." in wd
         assert "A copy can lose the one word that turns a limit around." in wd
-        # the server's own rules ask the designer to write the caveat of a
-        # change no run has completed, and the prompt says code does it
-        assert "Code writes the caveat the rulebook's rules ask for on a change no run " \
-               "has completed." in wd
         # nothing left of the old order to copy them
         assert "copy each change's `not_meaning`" not in wd.lower()
         assert "written from the control's `not_in_it_words`" not in wd
 
-    def test_the_reason_is_one_plain_sentence_with_one_example_not_of_the_weather(self):
+    def test_the_reason_is_one_plain_sentence_with_a_shape_to_fill_and_no_example(self):
         wd = _flat(DOMAIN_TEXT)
         assert "feasibility.why is one sentence that the page prints directly under the " \
                "question." in wd
         assert "It names no tool, no change by its identifier, no field by its code name " \
                "and no part of the framework, because the person knows none of them." in wd
-        assert wd.count("This is the kind of sentence meant") == 1
-        example = re.search(r'This is the kind of sentence meant, for a question about '
-                            r'(\w+)\. "([^"]+)"', wd)
-        assert example and example.group(1) == "fire"
-        for weather in ("rain", "snow", "weather", "temperature", "warm", "dry", "summer"):
-            assert weather not in example.group(2).lower(), weather
-        assert "Write your own sentence for your own question." in wd
+        assert "Its only numbers are the years and the months of the design." in wd
+        # TWO SHAPES TO FILL IN, AND NO EXAMPLE (2026-11-13). An example about a
+        # change the server's list holds is copied when a question is about
+        # that change, so the prompt gives the sentence's shape with places to
+        # fill, one for a new run and one for the control run alone.
+        shapes = re.findall(r'"((?:A second run with|The control run holds) [^"]+)"', wd)
+        assert len(shapes) == 2 and all("<" in x and ">" in x for x in shapes), shapes
+        assert "This is the kind of sentence meant" not in wd
+        for named in ("fire", "rain", "snow", "weather", "temperature", "CO2", "nitrogen"):
+            assert all(named not in x for x in shapes), named
 
     def test_the_goals_are_three_plain_steps_at_most(self):
         wd = _flat(DOMAIN_TEXT)

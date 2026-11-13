@@ -462,8 +462,7 @@ def declare() -> Dict[str, Any]:
             "years asked about",
             "a change marked demonstrated: false may be designed: tell the person, "
             "before they agree, that no run with it has been completed here and "
-            "that its result is untested, and write the same in the design's "
-            "caveats",
+            "that its result is untested",
         ],
     }
 

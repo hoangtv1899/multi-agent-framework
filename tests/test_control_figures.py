@@ -292,18 +292,22 @@ class TestThePages:
         assert "The run's full record is in `DESIGN_DETAILS.md`." in without
 
     def test_the_details_show_both_figures_and_where_each_line_comes_from(self, folder):
+        # (the details page rebuilt on 2026-11-13: the maps in "The control run",
+        # and the series on the short page alone, with a table of where each
+        # measurement comes from)
         _, details = _written(folder)
-        assert details.index(f"## {CF.HEADING}") < details.index("## Why this can answer it")
-        sec = _section(details, CF.HEADING)
+        sec = _section(details, "The control run")
         assert "(design_figures/control_run_maps.png)" in sec
-        assert "(design_figures/control_run_series.png)" in sec
+        assert "control_run_series.png" not in details
         flat = _flat(sec)
         assert "Each map is the average of 2031 to 2033 over the model's grid. The line is " \
                "the edge of the region `valley floor`." in flat
-        assert "| Runoff and river flow | `RUNX`, monthly total in mm/month, over valley " \
-               "floor | river flow without the dam | a made-up estimate |" in flat
-        assert "| Snow at two made-up pillows | `SNOWX`, monthly mean in mm, over the 2 cells " \
-               "that hold the points | measured | a made-up network |" in flat
+        assert "The figure on the short page sets the control run beside these measurements." \
+            in flat
+        assert "| Runoff and river flow | a made-up estimate | `RUNX`, the monthly total in " \
+               "mm/month, over valley floor |" in flat
+        assert "| Snow at two made-up pillows | a made-up network | `SNOWX`, the monthly mean " \
+               "in mm, over the 2 cells that hold the points |" in flat
 
     def test_the_record_is_kept_and_a_page_is_drawn_again_from_it(self, folder):
         first, _ = _written(folder)
@@ -315,12 +319,12 @@ class TestThePages:
         _written(folder)
         page, details = _written(folder, record=None)
         assert not (folder / CF.RECORD_FILE).exists()
-        assert "control_run_series.png" not in page and CF.HEADING not in details
+        assert "control_run_series.png" not in page and "control_run_maps" not in details
         assert "Its snow is about half of what was measured." in page
 
     def test_another_controls_record_is_not_drawn(self, folder):
         page, details = _written(folder, record=dict(_rec(), control="another"))
-        assert "control_run_series.png" not in page and CF.HEADING not in details
+        assert "control_run_series.png" not in page and "control_run_maps" not in details
 
     def test_a_figure_that_fails_leaves_the_page_as_it_was_and_the_details_say_why(self, folder):
         rec = _rec()
@@ -330,7 +334,7 @@ class TestThePages:
         page, details = _written(folder, record=rec)
         assert "control_run_series.png" not in page
         assert "Its snow is about half of what was measured." in page
-        assert CF.HEADING not in details
+        assert "control_run_maps" not in details
 
 
 # ── from the model server to the page ────────────────────────────────────────

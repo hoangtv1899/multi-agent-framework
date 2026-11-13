@@ -157,10 +157,13 @@ class TestThePromise:
         assert "The comparisons above are carried out as listed. |" in page
         assert "preview" not in page and "Analyzer" not in page
         assert "writes its plan again" not in page
-        assert AH.APPROVED in " ".join(_details(rd).split())
-        assert "After the runs the Analyzer carries the plan out as it stands and writes " \
-               "no second one." in " ".join(_details(rd).split())
-        assert "writes its plan again" not in _details(rd)
+        # the details say it in their own words since 2026-11-13, with what
+        # happens if it cannot be done, and name no part of the framework
+        details = " ".join(_details(rd).split())
+        assert "The analysis carries out the one comparison as it is listed here once the chain " \
+               "ends. The analysis stops, and its report says why, if a comparison cannot be " \
+               "carried out as listed." in details
+        assert "Analyzer" not in details and "chosen again" not in details
 
     def test_a_design_with_no_new_run_does_not_speak_of_runs_to_come(self, both, tmp_path,
                                                                     monkeypatch):
@@ -172,9 +175,11 @@ class TestThePromise:
         assert "| yes | The analysis of the control run's existing output starts." in page
         assert "The comparisons above are carried out as listed. |" in page
         assert "after the run" not in page.lower() and "writes its plan again" not in page
-        assert AH.APPROVED_NO_RUN in " ".join(_details(rd).split())
-        assert "If it cannot, the analysis stops and its report says why." in \
-            " ".join(_details(rd).split())
+        details = " ".join(_details(rd).split())
+        assert "No model run is made after a yes. The control run's existing output is read. " \
+               "The analysis carries out the one comparison as it is listed here after your yes." \
+            in details
+        assert "once the chain" not in details and "Analyzer" not in details
 
     def test_a_plan_that_did_not_pass_is_not_promised(self, both, tmp_path, monkeypatch):
         rd, _ = _approved(tmp_path, monkeypatch,

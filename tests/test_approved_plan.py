@@ -67,7 +67,8 @@ class TestTheYesNamesThePlan:
         # keep the record's own words
         assert "| yes | The run is submitted." in page
         assert "The comparisons above are carried out as listed. |" in page
-        assert AH.APPROVED in " ".join(_details(rd).split())
+        assert "The analysis carries out the one comparison as it is listed here once the chain " \
+               "ends." in " ".join(_details(rd).split())
         for gone in ("writes its own plan afterwards", "does not approve", "preview"):
             assert gone not in page, gone
 
@@ -79,7 +80,8 @@ class TestTheYesNamesThePlan:
         assert "| yes | The analysis of the control run's existing output starts. No model " \
                "run is made, and the analysis uses paid model calls. The comparisons above " \
                "are carried out as listed. |" in page
-        assert AH.APPROVED_NO_RUN in " ".join(_details(rd).split())
+        assert "The analysis carries out the one comparison as it is listed here after your yes." \
+            in " ".join(_details(rd).split())
 
     def test_with_the_preview_alone_the_yes_names_no_plan(self, monkeypatch, study, tmp_path):
         monkeypatch.setenv(AV.SWITCH, "1")
@@ -239,7 +241,7 @@ class TestNoPlanNoYes:
         assert "This does not stop the design" not in page
         assert "| yes |" not in page and "| no |" not in page
         assert "cannot be made as planned" in page        # the analysis's own status
-        assert "cannot be approved as it is" in " ".join(_details(rd).split())
+        assert "Nothing can run until the design changes." in " ".join(_details(rd).split())
 
     def test_a_plan_that_could_not_be_written_does_too(self, both, tmp_path, monkeypatch):
         rd, said, _ = self._design(tmp_path, monkeypatch, {AP.PLAN_LABEL: Fails()}, [""])
@@ -352,8 +354,9 @@ class TestTheStatusOfEachAnalysis:
         assert f'The comparison "GPP" {AV.CONDITIONAL_WORDS}.' in " ".join(page.split())
         assert page.count("The comparison ") == 1
         details = _details(rd)
-        assert "| Required outputs | Status |" in details
-        assert f"- P2 is conditional: {AV.NO_NUMBER}." in details
+        assert "| | What we compare | When | How | What it tells us |" in details
+        assert "Comparison 2 gives figures and no number that the report may state, because " \
+               "each of its outputs is a map." in details
 
     def test_a_page_whose_analyses_are_all_supported_says_nothing_of_it(
             self, both, tmp_path, monkeypatch):
@@ -362,4 +365,5 @@ class TestTheStatusOfEachAnalysis:
         assert "| GPP | 2016 |" in page
         for gone in ("supported", "conditional", "blocked", "The comparison \""):
             assert gone not in page, gone
-        assert "| supported |" in _details(rd)
+        assert "| 1 | GPP | 2016 |" in _details(rd)
+        assert "Comparison 1" not in _details(rd)

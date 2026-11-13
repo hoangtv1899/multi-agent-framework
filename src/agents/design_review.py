@@ -1079,18 +1079,11 @@ def _by_hand_text(preview, rd, strategy, brief):
     FROM agents/run_by_hand.py (interface I6, 2026-11-13), which writes the
     page the person approved. A page that module cannot write is written
     from _appendix, as before, so a fault there never stops the pages."""
+    from agents import run_by_hand as _rbh
     try:
-        # JOIN: agents/run_by_hand.py is piece D's module and is not in this
-        # clone. The person who joins the pieces removes this guard and the
-        # fall back on _appendix for an absent module.
-        from agents import run_by_hand as _rbh
-    except ImportError:
-        _rbh = None
-    if _rbh is not None:
-        try:
-            return str(_rbh.render(preview, rd, strategy, brief) or "")
-        except Exception:                                           # noqa: BLE001
-            pass
+        return str(_rbh.render(preview, rd, strategy, brief) or "")
+    except Exception:                                               # noqa: BLE001
+        pass
     old = _appendix(preview, rd, strategy, brief)
     return "\n".join(old) + "\n" if old else ""
 
@@ -1106,12 +1099,7 @@ def _places(rd, strategy, analysis_preview, places):
     made for this design the model server is asked for one, which is saved.
     A record made for another design is never drawn. Never raises."""
     try:
-        # JOIN: agents/places_figure.py is piece D's module and is not in this
-        # clone. The person who joins the pieces removes this guard.
         from agents import places_figure as _pf
-    except ImportError:
-        return None
-    try:
         from agents import design_details as _dd
         de = strategy.get("domain_experiment") if isinstance(strategy, dict) else None
         name = ((de or {}).get("control") or {}).get("name") if isinstance(de, dict) else None

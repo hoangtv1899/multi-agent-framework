@@ -63,7 +63,10 @@ def fetch(control_name: Optional[str]) -> Optional[Dict[str, Any]]:
         return {"control": control_name, "measured": None, "maps": None,
                 "problems": [f"the model server could not give the figures' values: "
                              f"{type(e).__name__}: {e}"]}
-    if not _series(rec) and not _maps(rec):
+    # a record with nothing to draw is still kept for the set-up rows and the
+    # tables the details page prints from it (2026-11-13)
+    if not _series(rec) and not _maps(rec) and not rec.get("setup") \
+            and not rec.get("tables"):
         return None if not rec.get("problems") else rec
     return rec
 

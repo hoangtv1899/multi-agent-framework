@@ -1117,14 +1117,10 @@ class TestTheThreePages:
         assert "RUN_BY_HAND.md" not in path.read_text()
         assert "RUN_BY_HAND.md" not in (folder / DP.DETAILS_NAME).read_text()
 
-    @pytest.mark.parametrize("how", ["absent", "raises"])
-    def test_without_its_module_the_old_steps_are_written(self, folder, monkeypatch, how):
-        if how == "absent":
-            _fake_module(monkeypatch, "run_by_hand", None)
-        else:
-            mod = types.ModuleType("agents.run_by_hand")
-            mod.render = lambda *a: (_ for _ in ()).throw(RuntimeError("made up"))
-            _fake_module(monkeypatch, "run_by_hand", mod)
+    def test_a_page_the_module_cannot_write_is_written_as_before(self, folder, monkeypatch):
+        mod = types.ModuleType("agents.run_by_hand")
+        mod.render = lambda *a: (_ for _ in ()).throw(RuntimeError("made up"))
+        _fake_module(monkeypatch, "run_by_hand", mod)
         self._write(folder)
         text = (folder / DP.BY_HAND_NAME).read_text()
         assert text.startswith("\n---\n\n" + dr.APPENDIX_MARK) and RUN in text

@@ -318,9 +318,14 @@ class TestTheShape:
         assert "**Your question.** " + QUESTION in page
         assert "**Change 1 you asked for at this page.** make it 2034" in page
 
-    def test_three_files_are_written_and_the_page_names_the_other_two(self, folder):
+    def test_three_files_are_written_and_the_page_names_the_other_two(self, folder, monkeypatch):
         # what RUN_BY_HAND.md says is agents/run_by_hand.py's, and its own tests
-        # hold it: here, only that it is written and names the run
+        # hold it: here, only that it is written and names the run. The made-up
+        # record of this file holds a run's name and nothing the steps are
+        # written from, so the page's text is made up too.
+        from agents import run_by_hand
+        monkeypatch.setattr(run_by_hand, "render",
+                            lambda preview, *a: f"# How to make this run by hand: {RUN}\n")
         (folder / "reception.json").write_text(json.dumps(_reception()))
         path = dr.write_review(folder, reception=_reception(), strategy=_strategy(),
                                preview=PREVIEW, analysis_preview=_record(folder))
