@@ -645,6 +645,28 @@ class TestHowYourQuestionWillBeAnswered:
         assert "The comparison reads 13 outputs of the model." in \
             _section(_details(folder), ANSWER)
 
+    def test_a_remark_names_the_comparisons_by_the_tables_numbers(self):
+        # the list's own names of two comparisons, a range of them, a name
+        # before an output's, and dashes between years, all made up
+        numbers = {"P1": 1, "P2": 2, "P3": 3, "P10": 10}
+        said = DD.remark_words("P1\u2013P3 use the years 2031\u20132033 \u2014 P10 does "
+                               "not, and P2.O1 is a map", numbers)
+        assert said == "Comparisons 1 to 3 use the years 2031 to 2033, comparison 10 does " \
+                       "not, and P2.O1 is a map"
+        assert DD.remark_words("P10 and P1 differ", numbers) == \
+            "Comparison 10 and comparison 1 differ"
+        assert DD.remark_words("P9 is no name of the list", numbers) == \
+            "P9 is no name of the list"
+        assert DD.remark_words("nothing to change", {}) == "Nothing to change"
+
+    def test_the_reviews_remarks_are_printed_with_the_tables_numbers(self, folder):
+        first = PLAN["analyses"][0]["id"]
+        (folder / "plan" / "analysis_plan_review.json").write_text(json.dumps(dict(
+            REVIEW, model_problems=[f"{first} reads 2031\u20132033 only"])))
+        sec = _section(_details(folder), ANSWER)
+        assert "The review made this remark.\n\n- Comparison 1 reads 2031 to 2033 only." in sec
+        assert "\u2013" not in sec
+
     def test_other_explanations_a_first_look_and_the_checks(self, folder):
         sec = _section(_details(folder), ANSWER)
         assert "| Explanation | Why it could matter |\n|---|---|\n| a nitrogen limit | " \

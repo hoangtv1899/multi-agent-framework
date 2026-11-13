@@ -565,6 +565,34 @@ def _design_places(de: Dict[str, Any]) -> List[str]:
             + _table(["Place", "Why the Planner chose it"], rows))
 
 
+_DASHES = "\u2013\u2014"
+
+
+def remark_words(text: Any, numbers: Dict[str, int]) -> str:
+    """A remark of the review, or a problem code found, as the page prints
+    it: each comparison is named by its number in the page's table, and a
+    dash between two numbers or two comparisons is said as "to".
+
+    THE PAGE NUMBERS THE COMPARISONS, THE LIST NAMES THEM (2026-11-13). A live
+    page printed a remark that named two comparisons by the list's own names
+    under a table numbered 1 to 6, with dashes between years. `numbers` is
+    {the list's name of a comparison: its number in the table}. A name
+    followed by an output's name, as in "P1.O2", is left as it is, and so is
+    every other word of the remark."""
+    text = str(text)
+    names = sorted((str(n) for n in numbers), key=len, reverse=True)
+    if names:
+        one = "|".join(re.escape(n) for n in names)
+        text = re.sub(rf"\b({one})\s*[{_DASHES}-]\s*({one})\b(?!\.)",
+                      lambda m: f"comparisons {numbers[m.group(1)]} to {numbers[m.group(2)]}",
+                      text)
+        text = re.sub(rf"\b({one})\b(?!\.\w)",
+                      lambda m: f"comparison {numbers[m.group(1)]}", text)
+    text = re.sub(rf"(?<=\d)\s*[{_DASHES}]\s*(?=\d)", " to ", text)
+    text = re.sub(rf"\s*[{_DASHES}]\s*", ", ", text)
+    return text[:1].upper() + text[1:]
+
+
 def _checks_lines(plan: Dict[str, Any], review: Dict[str, Any],
                   record: Dict[str, Any]) -> List[str]:
     """Whether the list passed code's check and the review against the
@@ -580,14 +608,18 @@ def _checks_lines(plan: Dict[str, Any], review: Dict[str, Any],
         s += " The list did not pass" + (f" on its second writing" if again else "") + "."
         if review.get("follows") is False:
             s += " The review found that it does not follow from the question."
-    remarks = [str(x) for x in _list(review.get("model_problems")) if str(x).strip()]
+    numbers = {str(a.get("id")): i for i, a in
+               enumerate(_dicts((plan or {}).get("analyses")), 1) if a.get("id") is not None}
+    remarks = [remark_words(x, numbers) for x in _list(review.get("model_problems"))
+               if str(x).strip()]
     if review and not remarks:
         s += " The review made no remark."
     lists: List[str] = []
     if remarks:
         lists += [f"The review made {'this remark' if len(remarks) == 1 else 'these remarks'}.",
                   ""] + [f"- {DP._sentence(DP._control_run(x))}" for x in remarks] + [""]
-    problems = [str(x) for x in _list(plan.get("problems")) if str(x).strip()]
+    problems = [remark_words(x, numbers) for x in _list(plan.get("problems"))
+                if str(x).strip()]
     if problems:
         lists += [f"Code's check found "
                   f"{'this problem' if len(problems) == 1 else 'these problems'}.",
