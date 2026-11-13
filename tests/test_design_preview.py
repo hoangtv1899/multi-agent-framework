@@ -272,7 +272,7 @@ class TestARefusalGoesBackToThePlanner:
         page = (tmp_path / "DESIGN_REVIEW.md").read_text()
         assert dr.APPENDIX_MARK not in page and "## The code" not in page
         assert dr.APPENDIX_MARK not in out and "## The code" not in out
-        assert "The steps to make the runs by hand are in `RUN_BY_HAND.md`." in out
+        assert "The steps to make the run by hand are in `RUN_BY_HAND.md`." in out
         assert "The page's second part" not in out
 
 

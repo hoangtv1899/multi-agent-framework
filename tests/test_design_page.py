@@ -331,7 +331,7 @@ class TestTheShape:
                                preview=PREVIEW, analysis_preview=_record(folder))
         page = path.read_text()
         assert path.name == "DESIGN_REVIEW.md" and "## Your decision" in page
-        assert "The design in full is in `DESIGN_DETAILS.md`. The steps to make the runs by " \
+        assert "The design in full is in `DESIGN_DETAILS.md`. The steps to make the run by " \
                "hand are in `RUN_BY_HAND.md`." in _flat(page)
         details = (folder / DP.DETAILS_NAME).read_text()
         assert details.startswith("# Design details: ") and "## Your question" in details
@@ -591,9 +591,13 @@ class TestHowYourQuestionWillBeAnswered:
         sec = _section(_page(folder), ANSWER)
         rows = [ln for ln in sec.splitlines() if ln.startswith("| ")]
         assert rows[0] == "| What we compare | When | How | What it tells us |"
+        # the question is a model's words, and its "the control" is the name a
+        # person reads
+        assert "depart from the control, and" in PLAN["analyses"][0]["question"]
         assert rows[1] == ("| Monthly change in plant growth | June to August of 2033 | the "
-                           "new run minus the control run | "
-                           + PLAN["analyses"][0]["question"] + " |")
+                           "new run minus the control run | In which months of 2033 does plant "
+                           "growth depart from the control run, and when does the departure "
+                           "begin and end? |")
         # no title: the fields, in words; a daily series with the years it covers
         assert rows[2] == ("| LEAFX and SOILX | each day of 2031 to 2033 | the two runs as "
                            "daily lines | " + PLAN["analyses"][1]["question"] + " |")
@@ -1039,12 +1043,12 @@ class TestChoicesMadeForYou:
         for gone, kept in (
                 ("checked the design", "| The design against its list of changes and the "
                                        "control run's facts | passed |"),
-                ("passed its check", "Code checked the list and a second model reviewed it "
-                                     "against the question. Both passed."),
+                ("passed its check", "Code checked the Planner's list, and a second model read "
+                                     "it again against your question. Both passed."),
                 ("remark", f"The review made these remarks. - {REMARKS[0]}"),
-                ("not made yet", f"`{RUN}` is not made yet, so the list takes its outputs to "
-                                 f"be the control run's quantities over the planned years. "
-                                 f"Each year is checked after it runs.")):
+                ("not made yet", "The new run does not exist yet, so the list assumes that it "
+                                 "will hold the same quantities as the control run. Each year "
+                                 "is checked after it runs.")):
             assert gone not in page, gone
             assert kept in details, kept
         for r in REMARKS:
@@ -1074,7 +1078,7 @@ class TestYourDecision:
             "| a change, in your own words | The design is made again with your change, and "
             "you get a new page. Nothing is submitted. |", "",
             'An example of a change is "use other years" or "also switch the fire off".', "",
-            "The design in full is in `DESIGN_DETAILS.md`. The steps to make the runs by hand "
+            "The design in full is in `DESIGN_DETAILS.md`. The steps to make the run by hand "
             "are in `RUN_BY_HAND.md`."]
 
     def test_several_runs(self, folder):

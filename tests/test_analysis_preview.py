@@ -210,8 +210,8 @@ class TestTheControlAlone:
         flat = " ".join(full.split())
         assert "The comparisons are chosen again after your yes, and they may differ from " \
                "this list." in flat
-        assert "Code checked the list and a second model reviewed it against the question. " \
-               "Both passed." in flat
+        assert "Code checked the Planner's list, and a second model read it again against " \
+               "your question. Both passed." in flat
         assert "The comparisons set years against the normal years 2015, chosen by the " \
                "Planner." in flat
         assert "The comparison reads one output of the model. It is `GPP`." in flat
@@ -273,8 +273,8 @@ class TestANewRun:
         assert "| GPP | 2016 | the new run minus the control run | GPP in the warm run |" in page
         # that the run is not made yet is in the details since 2026-11-13
         assert "not made yet" not in flat
-        assert "`warm` is not made yet, so the list takes its outputs to be the control " \
-               "run's quantities over the planned years." in " ".join(_details(rd).split())
+        assert "The new run does not exist yet, so the list assumes that it will hold the " \
+               "same quantities as the control run." in " ".join(_details(rd).split())
         assert "The comparisons are chosen again once the chain ends, and they may differ " \
                "from this list." in " ".join(_details(rd).split())
         assert "We will compare the new run with the control run for 2016." in _details(rd)

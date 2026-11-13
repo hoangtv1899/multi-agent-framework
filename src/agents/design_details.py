@@ -21,7 +21,7 @@ figures. This module draws that page:
     What the answer will not cover: what stands behind each limit of the
         short page (each change's fuller limit, the control run's tables)
     Choices made for you: the model server's check as a table, each earlier
-        version it refused, the remarks the short page leaves out
+        version it refused, how the question is read
     Your decision: what follows a yes, and that a no uses no computing time
 
 THE TWO PAGES TOGETHER LOSE NOTHING A DECISION RESTS ON. A limit, a finding or
@@ -43,6 +43,7 @@ places, and still gets a correct page.
 Only a whole-domain design has this page. Any other design keeps the page it
 had (design_review.render).
 """
+import re
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -73,6 +74,9 @@ ORDINALS = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "
             "ninth", "tenth")
 NUMBER_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
                 "ten", "eleven", "twelve")
+# THE FIELD THE RESULTS STORE CUTS ITS ELEVATION BANDS BY, as the rule of a
+# band names it (the server's domain_analysis writes "..., TOPO below 1000 m")
+ELEVATION_FIELD = "TOPO"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,8 +154,9 @@ def _question_lines(question: Any, strategy: Dict[str, Any]) -> List[str]:
     for i, ch in enumerate(parts[1:], 1):
         L += [f"**Change {i} you asked for at the short page.** {ch}", ""]
     L += [DP.planners_answer(strategy), ""]
+    # a step that is not text is left out, never printed as Python text
     goals = [DP._sentence(DP._control_run(g)) for g in _list(strategy.get("goals"))
-             if str(g or "").strip()]
+             if isinstance(g, str) and g.strip()]
     if goals:
         L += [f"The Planner reads the question in {_steps(len(goals))}.", ""]
         L += [f"{i}. {g}" for i, g in enumerate(goals, 1)] + [""]
@@ -161,27 +166,17 @@ def _question_lines(question: Any, strategy: Dict[str, Any]) -> List[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 # THE CONTROL RUN
 # ─────────────────────────────────────────────────────────────────────────────
-def setup_rows(record: Optional[Dict[str, Any]], row: Dict[str, Any]) -> List[Tuple[str, str]]:
+def setup_rows(record: Optional[Dict[str, Any]]) -> List[Tuple[str, str]]:
     """(label, words) of the control run's set-up: the rows a person entered
-    once in the server's registry (the record's `setup`), or, for a record
-    made before them, what the control's facts say of its years, grid and
-    fire, in the server's own sentences."""
-    rows = [(str(r.get("label")).strip(), DP._control_run(str(r.get("words")).strip()))
+    once in the server's registry (the record's `setup`), or [] where none is
+    on record.
+
+    NO ROWS, NO TABLE (2026-11-13). For a record without them the table was
+    made of the server's own Grid and Fire sentences, which name files and
+    raw settings. The short page already describes the control run."""
+    return [(str(r.get("label")).strip(), DP._control_run(str(r.get("words")).strip()))
             for r in _dicts((record or {}).get("setup"))
             if str(r.get("label") or "").strip() and str(r.get("words") or "").strip()]
-    if rows:
-        return rows
-    facts = row.get("facts") if isinstance(row.get("facts"), dict) else {}
-    oy = _list(facts.get("output_years"))
-    if len(oy) >= 2:
-        rows.append(("Years", f"{oy[0]} to {oy[-1]}"
-                     + (f", from a saved state of {facts['start_year']}"
-                        if facts.get("start_year") else "")))
-    for part, label in (("grid", "Grid"), ("fire", "Fire")):
-        v = facts.get(part)
-        if isinstance(v, dict) and str(v.get("sentence") or "").strip():
-            rows.append((label, DP._control_run(v["sentence"])))
-    return rows
 
 
 def _measured_rows(record: Optional[Dict[str, Any]]) -> List[List[str]]:
@@ -210,7 +205,7 @@ def _control_lines(row: Dict[str, Any], figures: Optional[Dict[str, Any]]) -> Li
     rec = figures.get("record") if isinstance(figures.get("record"), dict) else None
     drawn = figures.get("drawn") if isinstance(figures.get("drawn"), dict) else {}
     L: List[str] = []
-    setup = setup_rows(rec, row)
+    setup = setup_rows(rec)
     if setup:
         L += _table(["", "The control run"], setup)
     if drawn.get("maps") and rec:
@@ -362,13 +357,39 @@ def plan_shown(record: Optional[Dict[str, Any]], run_dir, design_sha256: Optiona
 
 def plan_regions(record: Optional[Dict[str, Any]], run_dir,
                  design_sha256: Optional[str]) -> List[str]:
-    """The places the comparisons read, in the order they first name them.
+    """The places the comparisons read, in the order they first name them,
+    with the elevation bands a comparison splits a region by (regions_read).
     [] where the short page shows no comparisons."""
     plan, _ = plan_shown(record, run_dir, design_sha256)
-    out: List[str] = []
-    for a in _dicts((plan or {}).get("analyses")):
-        out += [str(x) for x in _list(a.get("regions")) if str(x) not in out]
-    return out
+    return regions_read(_dicts((plan or {}).get("analyses")), record)
+
+
+def _bands(region: str, sizes: Dict[str, Any]) -> List[str]:
+    """The results store's elevation bands of a region: the regions whose
+    label begins with the region's label and a comma, and whose rule names
+    the elevation field."""
+    head = f"{region}, "
+    return [str(k) for k, g in sizes.items() if str(k).startswith(head) and isinstance(g, dict)
+            and re.search(rf"\b{ELEVATION_FIELD}\b", str(g.get("rule") or ""))]
+
+
+def regions_read(analyses: Sequence[Dict[str, Any]], record: Any) -> List[str]:
+    """The places the comparisons read, in the order they first name them.
+
+    THE BANDS A COMPARISON SPLITS BY (2026-11-13). In a live study one
+    comparison split the watershed by elevation band and named the watershed
+    alone, so the table and the map showed the watershed alone. Where an
+    output is made by the method elevation_split over a region, that region's
+    bands in the record's `regions` follow it."""
+    sizes = record.get("regions") if isinstance(record, dict) and \
+        isinstance(record.get("regions"), dict) else {}
+    used: List[str] = []
+    for a in analyses:
+        used += [str(r) for r in _list(a.get("regions")) if str(r) not in used]
+        for o in _dicts(a.get("outputs")):
+            if o.get("kind") == "elevation_split" and o.get("region") is not None:
+                used += [b for b in _bands(str(o["region"]), sizes) if b not in used]
+    return used
 
 
 def _no_number_kind(a: Optional[Dict[str, Any]]) -> str:
@@ -400,12 +421,10 @@ def _status_lines(plan: Dict[str, Any], analyses: Sequence[Dict[str, Any]]) -> L
 
 
 def _places_lines(analyses, record, places) -> List[str]:
-    """The places the comparisons read, each with its cells, its area and
-    its rule as the control run's results store gives them, then the map of
-    them where one was drawn (agents/places_figure)."""
-    used: List[str] = []
-    for a in analyses:
-        used += [str(r) for r in _list(a.get("regions")) if str(r) not in used]
+    """The places the comparisons read (regions_read), each with its cells,
+    its area and its rule as the control run's results store gives them,
+    then the map of them where one was drawn (agents/places_figure)."""
+    used = regions_read(analyses, record)
     if not used:
         return []
     sizes = record.get("regions") if isinstance(record.get("regions"), dict) else {}
@@ -466,7 +485,8 @@ def _competing_lines(plan: Dict[str, Any]) -> List[str]:
     comp = _dicts(plan.get("competing"))
     if not comp:
         return []
-    rows = [[c.get("title") or DP._join([f"`{f}`" for f in _list(c.get("fields"))])
+    rows = [[DP._control_run(c.get("title")) or DP._join([f"`{f}`" for f in
+                                                          _list(c.get("fields"))])
              or "not named", DP._sentence(DP._control_run(c.get("text"))) or "not given"]
             for c in comp]
     n = len(comp)
@@ -552,8 +572,8 @@ def _checks_lines(plan: Dict[str, Any], review: Dict[str, Any],
     whole; a run the list takes as made; where the list is kept."""
     from agents import analysis_preview as AV
     again = " on the list's second writing" if int(record.get("attempts") or 1) > 1 else ""
-    s = "**Checks on this list.** Code checked the list and a second model reviewed it " \
-        "against the question."
+    s = "**Checks on this list.** Code checked the Planner's list, and a second model read " \
+        "it again against your question."
     if record.get("status") == AV.PLANNED:
         s += f" Both passed{again}."
     else:
@@ -573,11 +593,18 @@ def _checks_lines(plan: Dict[str, Any], review: Dict[str, Any],
                   f"{'this problem' if len(problems) == 1 else 'these problems'}.",
                   ""] + [f"- {DP._sentence(DP._control_run(x))}" for x in problems] + [""]
     end = []
-    later = AV.not_made_yet(plan)
-    if later:
-        end.append(later.lstrip("- ").replace("the plan takes", "the list takes"))
+    # the runs the list reads that are not made yet, as AV.not_made_yet finds
+    # them, in the person's words: "the new run" and never its name
+    later = list(dict.fromkeys(str(c.get("run")) for c in _dicts(plan.get("comparisons"))
+                               if c.get("run") not in (None, "control")))
+    if len(later) == 1:
+        end.append("The new run does not exist yet, so the list assumes that it will hold the "
+                   "same quantities as the control run. Each year is checked after it runs.")
+    elif later:
+        end.append("The new runs do not exist yet, so the list assumes that they will hold the "
+                   "same quantities as the control run. Each year is checked after it runs.")
     if record.get("plan_file"):
-        end.append(f"The list in full is `{record['plan_file']}`.")
+        end.append(f"The full list is in this study's folder, at `{record['plan_file']}`.")
     # one paragraph where there is nothing to list between its parts
     if not lists:
         return [" ".join([s] + end), ""]
@@ -612,8 +639,10 @@ def _answer_lines(brief, strategy, de, row, record, run_dir, places) -> List[str
                     "This table gives each comparison of the short page a number.")
     L += [" ".join(said), ""] if said else []
     if analyses:
+        # a comparison's title and what it tells are a model's words, which
+        # can say "the control": each is given the name a person reads
         L += _table(["", "What we compare", "When", "How", "What it tells us"],
-                    [[str(i), AV.compare_words(a), AV.when_words(a, de, row),
+                    [[str(i), DP._control_run(AV.compare_words(a)), AV.when_words(a, de, row),
                       AV.how_words(a, len(runs)),
                       DP._control_run(a.get("tells") or a.get("question"))]
                      for i, a in enumerate(analyses, 1)])
@@ -845,9 +874,13 @@ def _rounds_lines(preview: Optional[Dict[str, Any]]) -> List[str]:
 
 
 def _choice_lines(brief, strategy, preview, de, menu, question) -> List[str]:
-    """The server's check as a table, each earlier version it refused, how
-    the Planner reads the question, and Reception's remarks the short page
-    leaves out because a difference from the question makes their point."""
+    """The server's check as a table, each earlier version it refused, and
+    how the Planner reads the question.
+
+    NO REMARK OF RECEPTION (2026-11-13). The short page prints each of them,
+    less one that makes the point of the server's sentence it prints. Such a
+    remark said here was a repeat, in Reception's words and with the
+    server's identifiers."""
     runs = DP._runs(de)
     L: List[str] = []
     rows = check_rows(preview, len(runs))
@@ -863,16 +896,6 @@ def _choice_lines(brief, strategy, preview, de, menu, question) -> List[str]:
     qt = str(an.get("question_type") or "").strip().lower()
     if qt:
         L += [f"**How the question is read.** {QUESTION_TYPE.get(qt, NO_QUESTION_TYPE)}", ""]
-    notes = [n for _, n in DP._asked_otherwise(question, runs, menu)]
-    rs = brief.get("run_settings") if isinstance(brief.get("run_settings"), dict) else {}
-    same = [str(x) for x in _list(brief.get("assumptions")) + _list(rs.get("conflicts"))
-            if str(x).strip() and DP._same_point(x, notes)]
-    if same:
-        L += ["**What Reception noted.** Reception also wrote "
-              + ("this remark, which makes the point" if len(same) == 1 else
-                 "these remarks, which make the point")
-              + " of a sentence on the short page.", ""]
-        L += [f"- {DP._sentence(DP._control_run(x))}" for x in same] + [""]
     return L
 
 

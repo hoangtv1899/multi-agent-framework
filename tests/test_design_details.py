@@ -38,9 +38,9 @@ from agents import design_page as DP
 from agents import design_review as dr
 from agents import study_record as SR
 from test_control_figures import _rec as _figures_record
-from test_design_page import (CAVEATS, CHANGE, PLAN, PREVIEW, QUESTION, REMARKS, REVIEW, RUN,
-                              _flat, _given, _plan, _reception, _record, _section, _strategy,
-                              folder)  # noqa: F401
+from test_design_page import (CAVEATS, CHANGE, PLAN, PREVIEW, QUESTION, RAIN_ROW, REMARKS,
+                              REVIEW, RUN, SAID, _flat, _given, _plan, _reception, _record,
+                              _section, _strategy, folder)  # noqa: F401
 
 HEADS = ["Your question", "The control run", "The new run", "How your question will be answered",
          "What the answer will not cover", "Choices made for you", "Your decision"]
@@ -198,6 +198,34 @@ def _places_module(fetched=None, fails=False):
     return mod
 
 
+# the store's regions with elevation bands: two bands of the vegetated cells,
+# and regions that are not its bands (no comma after the label, a rule that
+# names no elevation, a band of another region)
+BANDS = {
+    "vegetated cells": {"cells": 1100, "area_km2": 830.4, "rule": "a made-up rule"},
+    "valley floor": {"cells": 300, "area_km2": 210.0, "rule": "below a made-up line"},
+    "vegetated cells, below 500 m": {"cells": 400, "area_km2": 300.0,
+                                     "rule": "a made-up rule, TOPO below 500 m"},
+    "vegetated cells, burned": {"cells": 50, "area_km2": 40.0, "rule": "a made-up rule, burned"},
+    "vegetated cellsite, below 500 m": {"cells": 5, "area_km2": 4.0,
+                                        "rule": "made up, TOPO below 500 m"},
+    "valley floor, below 500 m": {"cells": 200, "area_km2": 150.0,
+                                  "rule": "below a made-up line, TOPO below 500 m"},
+    "vegetated cells, 500 m and above": {"cells": 700, "area_km2": 530.4,
+                                         "rule": "a made-up rule, TOPO 500 m and above"}}
+
+
+def _split_analyses():
+    """The made-up list's comparisons, the first with a map split by
+    elevation band over the vegetated cells."""
+    analyses = copy.deepcopy(PLAN["analyses"])
+    analyses[0]["outputs"] += [
+        {"id": "O2", "kind": "difference", "run": RUN, "field": "LEAFX", "period": "2033-06",
+         "region": None},
+        {"id": "O3", "kind": "elevation_split", "region": "vegetated cells", "inputs": ["O2"]}]
+    return analyses
+
+
 def _places_record(regions=("vegetated cells", "valley floor"), control="valley"):
     return {"control": control, "regions": list(regions), "lat": [1.0, 2.0],
             "lon": [10.0, 11.0], "filled": [{"label": "valley floor", "cells": 3,
@@ -262,8 +290,9 @@ class TestTheShape:
         page = _details(folder, figures=_figures(record=_figures_record()))
         assert _heads(page) == HEADS
         flat = _flat(page)
-        assert "| Years | 2031 to 2036, from a saved state of 2031 |" in page
-        assert "| Fire | the fire is the model's own, lit by a made-up lightning file |" in page
+        # no set-up rows on record: no set-up table, since the short page
+        # describes the control run
+        assert "| | The control run |" not in page and "lightning file" not in page
         assert "The difference from the control run is not " in flat
         for c in CAVEATS:
             assert c in _flat(_short(folder))                    # the short page keeps them
@@ -299,6 +328,23 @@ class TestYourQuestion:
             _details(folder, strategy=st)
         st = _strategy(goals=[])
         assert "reads the question in" not in _details(folder, strategy=st)
+
+    @pytest.mark.parametrize("bad", [{"text": "a made-up reason ZQ"}, ["a made-up reason ZQ"],
+                                     ("a made-up reason ZQ",)])
+    def test_a_reason_or_a_step_of_the_wrong_shape_is_left_out(self, folder, bad):
+        # never printed as Python text, on either page (2026-11-13)
+        st = _strategy(feasibility={"verdict": "full", "why": bad},
+                       goals=[bad, "a made-up step", 7, None])
+        for page in (_short(folder, strategy=st), _details(folder, strategy=st)):
+            assert "**The Planner's answer.** This design can answer the question in full.\n" \
+                in page
+            assert "made-up reason ZQ" not in page and "{" not in page
+        assert "The Planner reads the question in one step.\n\n1. A made-up step.\n" in \
+            _details(folder, strategy=st)
+        # steps that are not a list are left out whole
+        st = _strategy(goals={"text": "a made-up step ZQ"})
+        page = _details(folder, strategy=st)
+        assert "reads the question in" not in page and "made-up step ZQ" not in page
 
     def test_changes_asked_at_the_short_page_are_kept(self, folder):
         asked = QUESTION + dr.REVISION_MARK + "make it 2034"
@@ -376,24 +422,32 @@ class TestTheControlRun:
         # how it compares in words is the short page's figure's, so not here
         assert "Against measurements" not in sec
 
-    def test_without_a_record_the_controls_facts_give_the_set_up(self, folder):
-        sec = _section(_details(folder), "The control run")
-        assert sec.strip().splitlines() == [
-            "| | The control run |", "|---|---|",
-            "| Years | 2031 to 2036, from a saved state of 2031 |",
-            "| Fire | the fire is the model's own, lit by a made-up lightning file |", "",
-            "**Against measurements.** It holds half of the measured snow. The source is a "
-            "note."]
-        # a grid the facts give in a sentence has its row
+    def test_without_set_up_rows_there_is_no_set_up_table(self, folder):
+        # the facts' own sentences name files and raw settings, and the short
+        # page already describes the control run (2026-11-13)
         st = _strategy()
         _control_row(st)["facts"]["grid"]["sentence"] = "40 by 30 made-up cells"
-        assert "| Grid | 40 by 30 made-up cells |" in _details(folder, strategy=st)
+        for figures in (None, _figures(record=_figures_record()),
+                        _figures(record=dict(_figures_record(), setup=[]))):
+            sec = _section(_details(folder, strategy=st, figures=figures), "The control run")
+            assert "| | The control run |" not in sec, figures
+            for gone in ("| Years |", "| Grid |", "| Fire |", "lightning file", "made-up cells"):
+                assert gone not in sec, (gone, figures)
+        assert _section(_details(folder, strategy=st), "The control run").strip().splitlines() \
+            == ["**Against measurements.** It holds half of the measured snow. The source is a "
+                "note."]
 
     def test_a_set_up_row_of_the_wrong_form_is_left_out(self, folder):
         rec = dict(_figures_record(), setup=[{"label": "Area"}, "x", {"label": "Grid",
                                                                       "words": "made up"}])
         sec = _section(_details(folder, figures=_figures(record=rec)), "The control run")
         assert "| Grid | made up |" in sec and "| Area |" not in sec
+
+    def test_a_bar_inside_a_table_cell_does_not_break_the_table(self, folder):
+        rec = dict(_figures_record(), setup=[{"label": "Grid", "words": "40 | 30 made-up cells"}])
+        sec = _section(_details(folder, figures=_figures(record=rec)), "The control run")
+        assert "| Grid | 40 / 30 made-up cells |" in sec
+        assert DD._cell("a | b\n c") == "a / b c"
 
     def test_figures_not_drawn_say_why_and_leave_the_tables(self, folder):
         drawn = {"series": None, "maps": None, "problems": ["the maps were not drawn: made up"]}
@@ -428,6 +482,16 @@ class TestTheNewRun:
             "| Cost | about 2.4 node-hours, as the model server estimates |"]
         assert sec.rstrip().endswith("The steps to make this run without the framework are in "
                                      "`RUN_BY_HAND.md`.")
+
+    def test_a_knob_whose_name_begins_with_capitals_keeps_them(self, full):
+        co2 = {"knob": "CO2", "change": "set to 560 ppm", "when": "every year of the run",
+               "where": "everywhere"}
+        run = dict(_given()["record"]["runs"][0], rows=[co2, dict(RAIN_ROW)])
+        sec = _section(_details(full, given=_given(run)), "The new run")
+        assert "| Change | CO2 set to 560 ppm in every year of the run and rain and snow " \
+               "multiplied by 0.7 in June to August of 2033 |" in sec
+        assert DD._lower_first("CO2") == "CO2" and DD._lower_first("Rain and snow") == \
+            "rain and snow"
 
     def test_without_the_record_the_change_is_the_servers_words(self, full):
         sec = _flat(_section(_details(full), "The new run"))
@@ -525,6 +589,42 @@ class TestHowYourQuestionWillBeAnswered:
         assert "| `valley floor` |" in sec and "![" not in sec
         assert "![" not in _section(_details(folder), ANSWER)
 
+    def test_a_blank_line_follows_the_places_figure(self, monkeypatch):
+        # the figure is the last line of its paragraph, whatever page_lines gives
+        mod = _places_module()
+        mod.page_lines = lambda record, drawn: [f"![The places]({drawn['png']})"]
+        _fake_module(monkeypatch, "places_figure", mod)
+        places = {"record": _places_record(), "drawn": {"png": "f/p.png"}}
+        assert DD.places_figure_lines(places) == ["![The places](f/p.png)", ""]
+        mod.page_lines = lambda record, drawn: [f"![The places]({drawn['png']})", ""]
+        assert DD.places_figure_lines(places) == ["![The places](f/p.png)", ""]
+
+    def test_the_elevation_bands_a_comparison_splits_by_are_places(self, folder,
+                                                                   monkeypatch):
+        # one comparison splits a region by elevation band and names the region
+        # alone: the store's bands of that region are listed and mapped as well
+        rec = _record(folder, regions=BANDS)
+        assert "500 m" not in _section(_details(folder, record=rec), ANSWER)   # no split
+        _plan(folder, analyses=_split_analyses())
+        sec = _section(_details(folder, record=rec), ANSWER)
+        rows = [ln for ln in sec.splitlines() if ln.startswith("| `")]
+        assert rows == [
+            "| `vegetated cells` | 830 | 1,100 | a made-up rule |",
+            "| `vegetated cells, below 500 m` | 300 | 400 | a made-up rule, TOPO below 500 m |",
+            "| `vegetated cells, 500 m and above` | 530 | 700 | a made-up rule, TOPO 500 m and "
+            "above |",
+            "| `valley floor` | 210 | 300 | below a made-up line |"]
+        assert DD.plan_regions(rec, folder, rec["design_sha256"]) == [
+            "vegetated cells", "vegetated cells, below 500 m", "vegetated cells, 500 m and above",
+            "valley floor"]
+        # the map is asked for with the bands, so it fills them inside the outline
+        mod = _places_module(fetched=_places_record())
+        _fake_module(monkeypatch, "places_figure", mod)
+        dr.write_review(folder, reception=_reception(), strategy=_strategy(), preview=PREVIEW,
+                        analysis_preview=rec)
+        assert mod.calls["fetch"] == [("valley", DD.plan_regions(rec, folder,
+                                                                 rec["design_sha256"]))]
+
     def test_the_normal_years_where_years_are_set_against_them(self, folder):
         sec = _flat(_section(_details(folder), ANSWER))
         assert "**The normal years.** The comparisons set years against the normal years " \
@@ -552,11 +652,35 @@ class TestHowYourQuestionWillBeAnswered:
         assert "**A first look at every quantity.** Every quantity is screened over " \
                "`vegetated cells` for 2033 before the comparisons. The report marks anything " \
                "that only this screen finds as found by screening and not as tested." in sec
-        assert "**Checks on this list.** Code checked the list and a second model reviewed it " \
-               "against the question. Both passed." in sec
+        assert "**Checks on this list.** Code checked the Planner's list, and a second model " \
+               "read it again against your question. Both passed." in sec
         assert f"The review made these remarks.\n\n- {REMARKS[0]}" in sec
-        assert f"`{RUN}` is not made yet, so the list takes its outputs" in sec
-        assert "The list in full is `plan/analysis_plan.json`." in sec
+        assert "The new run does not exist yet, so the list assumes that it will hold the same " \
+               "quantities as the control run. Each year is checked after it runs. The full " \
+               "list is in this study's folder, at `plan/analysis_plan.json`." in sec
+        assert f"`{RUN}` is not made yet" not in sec
+
+    def test_the_checks_in_one_paragraph_for_one_run_several_and_none(self, folder):
+        (folder / "plan" / "analysis_plan_review.json").write_text(
+            json.dumps(dict(REVIEW, model_problems=[])))
+        one = ("**Checks on this list.** Code checked the Planner's list, and a second model "
+               "read it again against your question. Both passed. The review made no remark. ")
+        where = "The full list is in this study's folder, at `plan/analysis_plan.json`."
+        assert one + "The new run does not exist yet, so the list assumes that it will hold " \
+                     "the same quantities as the control run. Each year is checked after it " \
+                     "runs. " + where in _section(_details(folder), ANSWER)
+        st = _strategy()
+        st["domain_experiment"]["runs"].append({"name": "no_fire", "changes": [{"id": "fire_off"}]})
+        _plan(folder, comparisons=PLAN["comparisons"] + [
+            dict(PLAN["comparisons"][0], id="C3", run="no_fire")])
+        assert one + "The new runs do not exist yet, so the list assumes that they will hold " \
+                     "the same quantities as the control run. Each year is checked after it " \
+                     "runs. " + where in _section(_details(folder, strategy=st), ANSWER)
+        # a list that reads the control run alone has no such sentence
+        st["domain_experiment"]["runs"] = []
+        _plan(folder, comparisons=[PLAN["comparisons"][1]])
+        assert one + where in _section(_details(folder, strategy=st), ANSWER)
+        assert "exist yet" not in _details(folder, strategy=st)
 
     def test_a_list_rewritten_once_and_one_that_did_not_pass(self, folder):
         (folder / "plan" / "analysis_plan_review.json").write_text(
@@ -756,20 +880,33 @@ class TestChoicesMadeForYou:
         assert "- The second version, kept as `strategy.refused_2.json`, was refused for these " \
                "reasons.\n  - One.\n  - Two." in sec
 
+    def test_the_tenth_version_is_the_last_with_a_word(self, folder):
+        rounds = [{"findings": [f"made-up reason {i}"]} for i in range(1, 12)]
+        sec = _section(_details(folder, preview=dict(PREVIEW, rounds=rounds)), CHOICES)
+        assert "- The tenth version was refused for this reason.\n  - Made-up reason 10." in sec
+        assert "- The number 11 version was refused" in sec
+        assert DD._ordinal(1) == "first" and DD._ordinal(10) == "tenth"
+        assert DD._ordinal(11) == "number 11" and DD._ordinal(0) == "number 0"
+
     def test_how_the_question_is_read(self, folder):
         assert DD.QUESTION_TYPE["exploratory"] in _section(_details(folder), CHOICES)
         st = _strategy()
         st["domain_experiment"]["analysis"]["question_type"] = "something"
         assert DD.NO_QUESTION_TYPE in _section(_details(folder, strategy=st), CHOICES)
 
-    def test_a_remark_the_short_page_leaves_out_is_here(self, folder):
+    def test_a_remark_that_repeats_the_short_page_is_on_neither_page(self, folder):
+        # the server's sentence on the short page makes its point, and the
+        # remark would say it again in Reception's words (2026-11-13)
         same = "The question says rainfall. The change multiplies rain and snow together."
         rec = _reception(run_settings={"conflicts": [same, "another made-up remark"]})
-        sec = _section(_details(folder, reception=rec), CHOICES)
-        assert f"**What Reception noted.** Reception also wrote this remark, which makes the " \
-               f"point of a sentence on the short page.\n\n- {same}" in sec
-        assert "another made-up remark" not in sec
-        assert "Another made-up remark." in _short(folder, reception=rec)
+        details, short = _details(folder, reception=rec), _short(folder, reception=rec)
+        for page in (details, short):
+            assert "says rainfall. The change" not in page
+        assert "Reception" not in details
+        assert SAID in _flat(_section(short, CHOICES))
+        # a remark that makes another point stays on the short page
+        assert "- Another made-up remark." in short
+        assert "another made-up remark" not in details.lower()
 
     def test_with_no_choice_on_the_short_page_the_check_is_said_plainly(self, folder):
         rec = _reception("What if summer precipitation had been lower in 2033?",
@@ -824,6 +961,20 @@ class TestYourDecision:
         assert sec.startswith("No model run is made after a yes. The control run's existing "
                               "output is read. The analysis carries out the two comparisons as "
                               "they are listed here after your yes.")
+
+    def test_one_new_run_and_the_control_run_made_again(self, folder):
+        # two runs are made: the new run and the control run again
+        st = _strategy()
+        st["domain_experiment"]["control"] = {"name": "valley", "reuse": False}
+        sec = _flat(_section(_details(folder, strategy=st, record=None), DECISION))
+        assert sec == ("The model server checks the design and builds the runs again from the "
+                       "same records after a yes. Each run is then submitted as a chain of jobs, "
+                       "one for each year, and each year is checked before the next one starts. "
+                       "`RUN_BY_HAND.md` lists the jobs and their checks. The comparisons are "
+                       "chosen once the chains end. A no uses no computing time, and the "
+                       "records stay on disk.")
+        assert "| yes | The runs are submitted. They may use up to 2.4 node-hours. |" in \
+            _short(folder, strategy=st, record=None)
 
     @pytest.mark.parametrize("why", ["refused", "error", "infeasible", "not passed"])
     def test_a_design_that_cannot_run(self, folder, why):
@@ -919,12 +1070,17 @@ def _case(folder, kind):
         return dict(strategy=st, record=None), "The model server has a note on the change " \
                                                "`co2_ppmv`.", "short"
     if kind == "a run not made yet":
-        return {}, f"`{RUN}` is not made yet", "details"
+        return {}, "The new run does not exist yet", "details"
     if kind == "a choice made without the person":
         return {}, "The question named no area, so the whole box is used.", "short"
     if kind == "a remark that makes a difference's point":
+        # A REPEAT, NOT A LOSS (2026-11-13). The remark makes the point of the
+        # server's sentence on the short page, in Reception's words and with the
+        # server's identifiers, so neither page prints it. What it says is kept
+        # by the server's sentence (TestChoicesMadeForYou holds that the remark
+        # is on neither page).
         same = "The question says rainfall. The change multiplies rain and snow together."
-        return dict(reception=_reception(run_settings={"conflicts": [same]})), same, "details"
+        return dict(reception=_reception(run_settings={"conflicts": [same]})), SAID, "short"
     if kind == "a gap Reception noted":
         return {}, "Noted by Reception: A thing Reception noted.", "short"
     if kind == "how the question is read":
@@ -1038,14 +1194,29 @@ class TestTheWords:
                     assert w not in low, (name, which, w)
 
     def test_never_a_bare_control(self, full):
-        # the short page's table of comparisons is agents/analysis_preview's
-        # (short_lines), and it prints a comparison's question as the list
-        # wrote it: its rows are left to that module (see the builder's notes)
+        # the table of comparisons on the short page included (2026-11-13): the
+        # made-up list's question says "the control"
         for name, short, details in _designs(full):
-            short = "\n".join(ln for ln in short.splitlines() if not ln.startswith("| "))
             for page in (short, details):
                 bare = re.findall(r"\bthe control\b(?! run)", page, re.IGNORECASE)
                 assert not bare, (name, bare)
+
+    def test_a_comparisons_own_words_never_say_a_bare_control(self, folder):
+        # a comparison's title, question and what it tells are a model's words
+        plan = copy.deepcopy(PLAN)
+        plan["analyses"][0].update(title="Growth against the control",
+                                   tells="How far the control leads")
+        plan["analyses"][1]["question"] = "Does the control grow first?"
+        plan["competing"][0]["title"] = "The control's own nitrogen"
+        _plan(folder, analyses=plan["analyses"], competing=plan["competing"])
+        short, details = _short(folder), _details(folder)
+        for page in (short, details):
+            for said in ("Growth against the control run", "How far the control run leads"):
+                assert said in page, said
+            assert not re.findall(r"\bthe control\b(?! run)", page, re.IGNORECASE)
+        assert "| Does the control run grow first? |" in details
+        assert '"The control run\'s own nitrogen"' in _flat(short)
+        assert "| The control run's own nitrogen |" in details
 
     def test_the_direct_answer_once_on_the_short_page(self, full):
         for name, short, _ in _designs(full):
@@ -1101,12 +1272,44 @@ class TestTheThreePages:
         assert (folder / DP.BY_HAND_NAME).read_text() == text
         assert seen[0][0] == PREVIEW and seen[0][1] == folder
         assert seen[0][3] == _reception()["brief"]
-        assert "The steps to make the runs by hand are in `RUN_BY_HAND.md`." in \
+        assert "The steps to make the run by hand are in `RUN_BY_HAND.md`." in \
             _flat(path.read_text())
         details = (folder / DP.DETAILS_NAME).read_text()
         assert "The steps to make this run without the framework are in `RUN_BY_HAND.md`." in \
             details
         assert "`RUN_BY_HAND.md` lists the jobs and their checks." in details
+
+    @pytest.mark.parametrize("n, short, details", [
+        (0, "How the control run was made is in `RUN_BY_HAND.md`.", None),
+        (1, "The steps to make the run by hand are in `RUN_BY_HAND.md`.",
+         "The steps to make this run without the framework are in `RUN_BY_HAND.md`."),
+        (2, "The steps to make the runs by hand are in `RUN_BY_HAND.md`.",
+         "The steps to make these runs without the framework are in `RUN_BY_HAND.md`.")])
+    def test_the_sentence_that_names_run_by_hand_follows_the_new_runs(self, folder, n, short,
+                                                                      details):
+        st = _strategy()
+        st["domain_experiment"]["runs"] = [
+            {"name": RUN, "changes": [copy.deepcopy(CHANGE)]},
+            {"name": "no_fire", "changes": [{"id": "fire_off"}]}][:n]
+        pv = PREVIEW if n else None
+        page = _flat(_short(folder, strategy=st, preview=pv, record=None))
+        assert f"The design in full is in `DESIGN_DETAILS.md`. {short}" in page
+        assert page.count("RUN_BY_HAND.md") == 1
+        got = _flat(_details(folder, strategy=st, preview=pv, record=None))
+        if details:
+            assert details in got
+        else:
+            # no new run: the details name no file of steps, and the short page
+            # says what it holds
+            assert "RUN_BY_HAND" not in got
+
+    def test_run_by_hand_ends_in_one_line_break(self, folder, monkeypatch):
+        mod = types.ModuleType("agents.run_by_hand")
+        _fake_module(monkeypatch, "run_by_hand", mod)
+        for text in ("# Made up\n\nThe steps.", "# Made up\n\nThe steps.\n"):
+            mod.render = lambda *a, text=text: text
+            self._write(folder)
+            assert (folder / DP.BY_HAND_NAME).read_text() == "# Made up\n\nThe steps.\n"
 
     def test_run_by_hand_with_nothing_to_say_writes_no_file(self, folder, monkeypatch):
         mod = types.ModuleType("agents.run_by_hand")

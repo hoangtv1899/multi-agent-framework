@@ -187,9 +187,11 @@ def verdict(strategy: Dict[str, Any]) -> str:
 def planners_answer(strategy: Dict[str, Any]) -> str:
     """The Planner's answer to "can this design answer my question": the
     verdict in words, then its reason as the Planner wrote it. A reason with
-    no verdict on record is still printed, so it is never lost."""
+    no verdict on record is still printed, so it is never lost. A reason that
+    is not text is left out, so a record of the wrong shape is never printed
+    as Python text."""
     fz = strategy.get("feasibility") if isinstance(strategy.get("feasibility"), dict) else {}
-    why = _sentence(_control_run(fz.get("why")))
+    why = _sentence(_control_run(fz.get("why"))) if isinstance(fz.get("why"), str) else ""
     return f"{ANSWER_HEAD} {VERDICT_WORDS.get(verdict(strategy), NO_VERDICT)}" + \
         (f" {why}" if why else "")
 
@@ -429,8 +431,11 @@ def _answer_lines(brief, strategy, de, row, analysis_preview, run_dir) -> List[s
         extra = [y for y in how["normal"] if y not in how["asked"]]
         if extra and runs and not normal and how["source"] == "request":
             said.append(f"The design compares them with {_span(extra)}, its normal years.")
-    return [" ".join(said), ""] + AV.short_lines(analysis_preview, run_dir, sha, de, row,
-                                                n_runs=len(runs))
+    # A COMPARISON'S WORDS ARE A MODEL'S (2026-11-13): its title, question or
+    # what it tells can say "the control", so each line, and each cell of the
+    # table, is given the name a person reads
+    return [" ".join(said), ""] + [_control_run(x) for x in AV.short_lines(
+        analysis_preview, run_dir, sha, de, row, n_runs=len(runs))]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -673,10 +678,14 @@ def _decision_lines(de, strategy, preview, by_hand: bool, analysis_preview=None)
         L = ["Type one of these at the terminal.", "", "| You type | What happens |",
              "|---|---|", f"| yes | {yes} |", f"| no | {NO_COMPUTE} |",
              f"| a change, in your own words | {CHANGE_ANSWER} |", ""]
-    L += [EXAMPLE, "",
-          f"The design in full is in `{DETAILS_NAME}`."
-          + (f" The steps to make the runs by hand are in `{BY_HAND_NAME}`." if by_hand
-             else ""), ""]
+    # WHAT RUN_BY_HAND.md HOLDS FOLLOWS THE NEW RUNS (2026-11-13): with none it
+    # says how the control run was made, so "the runs" named runs it does not hold
+    new = len(_runs(de))
+    hand = (f" How the control run was made is in `{BY_HAND_NAME}`." if not new else
+            f" The steps to make the {'run' if new == 1 else 'runs'} by hand are in "
+            f"`{BY_HAND_NAME}`.")
+    L += [EXAMPLE, "", f"The design in full is in `{DETAILS_NAME}`." + (hand if by_hand else ""),
+          ""]
     return L
 
 
