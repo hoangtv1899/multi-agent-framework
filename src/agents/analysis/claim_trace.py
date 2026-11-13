@@ -166,6 +166,20 @@ _BAND = (re.compile(r"below (-?[\d.]+) m"), re.compile(r"(-?[\d.]+)-(-?[\d.]+) m
 # Words that name the whole grid's vegetated cells.
 _ALL_CELLS = ("vegetated cells", "domain", "whole grid", "the grid", "model box",
               "whole box")
+# "THE GRID CELLS" NAMES NO REGION (2026-11-12, found by a live report). The
+# page's own words for runoff are "the water the grid cells generate", since
+# the model routes no river. Read as "the grid", they made a claim about one
+# elevation band name the region of every vegetated cell, and with it that
+# region's band of the same edges, neither of which its records named: three
+# false problems on one true claim.
+_GRID_CELLS = re.compile(r"\bthe grid(?:'s)?\s+cells?\b")
+
+
+def names_all_cells(low: str) -> bool:
+    """Whether a text (lower case) names the region of all the grid's
+    vegetated cells."""
+    rest = _GRID_CELLS.sub(" ", str(low or ""))
+    return any(w in rest for w in _ALL_CELLS)
 
 
 def _band_edges(label: str) -> Optional[Tuple[float, ...]]:
@@ -204,7 +218,7 @@ def allowed_regions(text: str, regions) -> Optional[set]:
 
     def head_named(h):
         if h == "vegetated cells":
-            return any(w in low for w in _ALL_CELLS)
+            return names_all_cells(low)
         return h.replace("_", " ").lower() in low
 
     named_heads = {h for h in heads if head_named(h)}
@@ -1840,7 +1854,7 @@ def _region_heads(text: str, regions) -> Tuple[set, set]:
     heads, bands = set(), set()
     for r in regions or []:
         h, b = _head_band(r)
-        named = (any(w in low for w in _ALL_CELLS) if h == "vegetated cells"
+        named = (names_all_cells(low) if h == "vegetated cells"
                  else _short(h).replace("_", " ").lower() in low)
         if not named:
             continue
@@ -1923,6 +1937,31 @@ def _matches(v: float, printed: Optional[str], recs) -> List[Tuple[Dict[str, Any
             if abs(abs(v) - abs(x)) <= tol + 1e-9 * max(1.0, abs(x)):
                 hits.append((r, p))
     return hits
+
+
+# A VALUE OF A THOUSAND OR MORE, AT THREE SIGNIFICANT FIGURES (2026-11-12,
+# found by a live report). The report's numbers are written to three
+# significant figures, so a runoff of 1,538.09 mm is "1,540 mm". The trace
+# holds a whole number to the unit, the convention for a count, and 1,540
+# matched no value: a true claim was struck. A printed whole number of four
+# digits or more now also states a value whose three-figure rounding it is
+# (_three_sig, the rounding the report's own tables use), and nothing looser:
+# 1,540 states 1,535 to 1,545 and not 1,548. It is read that way only after
+# the unit has found no value and the number is no label of its records, so
+# the 1,000 of "below 1000 m" is never taken for a value near it.
+def is_three_sig(printed: Optional[str], value) -> bool:
+    """Whether a printed whole number of four digits or more is `value` at
+    three significant figures."""
+    s = str(printed or "").replace(",", "").lstrip("-")
+    if not s.isdigit() or len(s) < 4 or not _fin(value) or value == 0:
+        return False
+    return _three_sig(abs(float(value))) == s
+
+
+def _matches_rounded(printed: Optional[str], recs) -> List[Tuple[Dict[str, Any], str]]:
+    """The records' values a printed whole number states at three significant
+    figures (is_three_sig)."""
+    return [(r, p) for r in recs for p, x in r["values"].items() if is_three_sig(printed, x)]
 
 
 # A SERIES VALUE IS STATED WITH ITS OWN PERIOD (2026-11-12). The record of a
@@ -2220,6 +2259,10 @@ def summary_support(text: str, claims: List[Dict[str, Any]],
                 tied = claims_with(plain) or ([] if measured else claims_with(lambda q: True))
             hit = [i for i in tied if any(_fin(v) and abs(abs(float(v)) - abs(x)) <= tol
                                           for v in claims[i - 1].get("values") or [])] or tied
+            if not hit and not (abs(x) in labels or x in labels):
+                # a thousand or more, at three significant figures (is_three_sig)
+                hit = [i for i, rs in enumerate(recs_of, 1)
+                       if any(fits(r) for r, _ in _matches_rounded(w, rs))]
             if hit:
                 by.update(hit)
             elif not (abs(x) in labels or x in labels
@@ -2286,6 +2329,11 @@ def check_claim(c: Dict[str, Any], records: Dict[str, Dict[str, Any]], plan: Dic
         if abs(x) in labels or x in labels or any(
                 written_as_label(text, end, x, lab) for r in recs
                 for lab in r.get("field_labels") or []):
+            continue
+        hits = _matches_rounded(w, recs)        # a thousand or more, at three figures
+        if hits:
+            matched += hits
+            probs += series_period_problems(w, unit, hits, text)
             continue
         probs.append(f"the number {w}{(' ' + unit) if unit else ''} matches no value of its "
                      f"records ({', '.join(r['id'] for r in recs)})")
@@ -2504,7 +2552,8 @@ def _headline_claims(headline: str, claims: List[Dict[str, Any]]) -> List[int]:
         if _is_year(w.lstrip("-"), unit, set(range(1800, 2201))):
             continue
         for i, c in enumerate(claims):
-            if any(_fin(v) and abs(abs(v) - abs(float(w))) <= _half_unit(w) + 1e-9
+            if any(_fin(v) and (abs(abs(v) - abs(float(w))) <= _half_unit(w) + 1e-9
+                                or is_three_sig(w, v))
                    for v in c.get("values") or []) and i not in hits:
                 hits.append(i)
     return hits
