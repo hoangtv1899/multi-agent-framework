@@ -179,14 +179,19 @@ class TestTheControlAlone:
         # shown, short, on the page a person reads before the prompt
         page = _first_part(rd)
         flat = " ".join(page.split())
-        assert "## How the answer will be read" in page and AV.NOT_BUILT in flat
-        assert "The plan sets 2016 of the control run against the normal years, 2015." in flat
-        assert "The plan has 1 analysis and reads 1 quantity." in flat
-        assert f"| P1 | GPP in 2016 | {REGION} | the year 2016 |" in page
-        assert "- The analysis plan passed its check and its review." in page
-        assert "- The plan's review made 1 remark." in page
-        assert "  - a remark of the review" in page
-        assert page.index("## How the answer will be read") < page.index("## Your decision")
+        # (the page rebuilt on 2026-11-13: one table in the reader's terms, a
+        # sentence that says the yes does not approve it, and the plan's
+        # bookkeeping left to the details)
+        assert "## How your question will be answered" in page
+        assert ("These comparisons are a preview. Your yes does not approve them, and they "
+                "are chosen again after your yes.") in flat
+        assert "We will compare 2016 in the control run with its normal years, 2015." in flat
+        assert "| GPP | 2016 | the departure from the mean of the normal years | GPP in 2016 |" \
+            in page
+        for gone in ("| P1 |", "passed its check", "remark", "a remark of the review"):
+            assert gone not in page, gone
+        assert page.index("## How your question will be answered") < \
+            page.index("## Your decision")
         # and in full in the details, with the words that say the yes does not cover it
         full = _details(rd)
         assert AV.HEADING in full and AV.NOT_BOUND in " ".join(full.split())
@@ -215,7 +220,8 @@ class TestTheControlAlone:
         co = _co(_strategy(), _clients(), interactive=False, ran=ran)
         co._workflow_design_and_run(_reception(), str(tmp_path), rd)
         assert len(ran) == 1 and _record(rd)["status"] == AV.PLANNED
-        assert "The plan has 1 analysis" in (rd / dr.REVIEW_NAME).read_text()
+        assert "| What we compare | When | How | What it tells us |" in \
+            (rd / dr.REVIEW_NAME).read_text()
         assert AV.HEADING in _details(rd)
         assert "auto-continued (unattended run)" in _decision(rd)
 
@@ -242,13 +248,15 @@ class TestANewRun:
         # and the page said so, where it showed the plan and where it asked
         page = _first_part(rd)
         flat = " ".join(page.split())
-        assert AV.NOT_BUILT in flat
-        assert "It does not approve an analysis plan, since the Analyzer writes its own " \
-               "plan afterwards." in flat
-        assert "The plan compares `warm` with the control run for 2016." in flat
-        assert f"| P1 | GPP in the warm run | {REGION} | the year 2016 |" in page
+        assert ("These comparisons are a preview. Your yes does not approve them, and they "
+                "are chosen again after the run.") in flat
+        assert "The comparisons above are carried out as listed." not in flat
+        assert "We will compare the new run with the control run." in flat
+        assert "| GPP | 2016 | the new run minus the control run | GPP in the warm run |" in page
+        # that the run is not made yet is in the details since 2026-11-13
+        assert "not made yet" not in flat
         assert "- `warm` is not made yet, so the plan takes its outputs to be the control " \
-               "run's quantities over the planned years." in flat
+               "run's quantities over the planned years." in " ".join(_details(rd).split())
         assert AV.NOT_BOUND in " ".join(_details(rd).split())
         assert "- Compared: C1: `warm` against the control run, 2016." in _details(rd)
 
@@ -284,9 +292,9 @@ class TestPlanningThatFails:
         assert rec["status"] == AV.FAILED
         assert rec["why"] == "RuntimeError: the gateway did not answer"
         page = " ".join(_first_part(rd).split())
-        assert ("The plan could not be written. The error was RuntimeError: the gateway did "
-                "not answer. This does not stop the design") in page
-        assert AV.NOT_BUILT in page
+        assert ("The comparisons could not be planned before this page. The error was "
+                "RuntimeError: the gateway did not answer. This does not stop the design, "
+                "since they are then chosen after your yes.") in page
         assert "The plan could not be written: RuntimeError: the gateway did not answer." \
             in " ".join(_details(rd).split())
         assert asked == [ASK] and len(ran) == 1          # the design is offered and runs
@@ -303,9 +311,11 @@ class TestPlanningThatFails:
         assert rec["status"] == AV.NOT_PASSED and rec["attempts"] == 2
         assert "did not pass step 3's review" in rec["why"]
         page = _first_part(rd)
-        assert "- The analysis plan did not pass its check or its review. This does not stop " \
-               "the design" in " ".join(page.split())
-        assert "  - P1: no catalog field 'NOPE'" in page       # each problem, whole
+        assert "These comparisons did not pass their check. This does not stop the design, " \
+               "since they are chosen again after your yes." in " ".join(page.split())
+        # each problem, whole, as the reason of the comparison it stops
+        assert 'The comparison "NOPE" cannot be made as planned. No catalog field ' \
+               "'NOPE'." in " ".join(page.split())
         full = _details(rd)
         assert "- Code's check and the model review: **not passed**." in full
         assert "- What code's check found (" in full and "NOPE" in full
@@ -320,8 +330,8 @@ class TestPlanningThatFails:
         co._workflow_design_and_run(_reception(), str(tmp_path), rd)
         rec = _record(rd)
         assert rec["status"] == AV.PLANNED and rec["attempts"] == 2
-        assert "- The analysis plan passed its check and its review on its second writing." \
-            in _first_part(rd)
+        # passing is bookkeeping, said in the details alone since 2026-11-13
+        assert "second writing" not in _first_part(rd)
         assert "**passed** on its second writing." in _details(rd)
         # the first plan and its review are kept, as after a run
         adir = (rd / rec["plan_file"]).parent
@@ -337,8 +347,9 @@ class TestPlanningThatFails:
         _typed(monkeypatch, ["no"])
         co._workflow_design_and_run(_reception(), str(tmp_path), rd)
         assert _record(rd)["status"] == AV.NOT_PLANNED
-        assert "No plan was written, since the control run has no results store" in \
-            " ".join(_first_part(rd).split())
+        assert ("The comparisons are chosen after your yes, so none is listed here. None "
+                "could be planned before this page, since the control run has no results "
+                "store to plan the comparisons from.") in " ".join(_first_part(rd).split())
         assert "No plan was written: the control run has no results store" in \
             " ".join(_details(rd).split())
 
@@ -355,7 +366,8 @@ class TestPlanningThatFails:
                          "to stop: "]
         assert not (rd / AV.RECORD_FILE).exists()
         assert AV.HEADING not in _details(rd)
-        assert "no analysis plan is on this page" in (rd / dr.REVIEW_NAME).read_text()
+        assert "The comparisons are chosen after your yes, so none is listed here." in \
+            " ".join((rd / dr.REVIEW_NAME).read_text().split())
 
     def test_whatever_goes_wrong_the_request_goes_on(self, on, tmp_path, monkeypatch):
         """Even an error outside the planning call: the page is written and
@@ -368,8 +380,8 @@ class TestPlanningThatFails:
         asked = _typed(monkeypatch, ["no"])
         co._workflow_design_and_run(_reception(), str(tmp_path), rd)
         assert asked == [ASK]
-        assert "The plan could not be written. The error was ValueError: boom." in \
-            " ".join(_first_part(rd).split())
+        assert "The comparisons could not be planned before this page. The error was " \
+               "ValueError: boom." in " ".join(_first_part(rd).split())
 
 
 # ── a change typed at the page ───────────────────────────────────────────────
@@ -395,10 +407,10 @@ class TestARevision:
         assert a["design_sha256"] != b["design_sha256"]
         assert a["plan_file"].startswith(f"{AV.FOLDER}/a/")
         assert b["plan_file"].startswith(f"{AV.FOLDER}/b/")
-        assert "of the control run against the normal years" in \
+        assert "We will compare 2016 in the control run with its normal years" in \
             " ".join(_first_part(first).split())
-        assert "The plan compares `warm` with the control run" in \
-            " ".join(_first_part(second).split())
+        assert "| GPP | 2016 | the new run minus the control run | GPP in the warm run |" in \
+            _first_part(second)
         assert "`warm`" not in _first_part(first) and "`warm`" not in _details(first)
         # the first design was replaced, never approved; the second ran
         assert "revision requested at the terminal" in _decision(first)
@@ -474,20 +486,24 @@ class TestAfterTheYes:
         rd, plan, _ = self._approved(tmp_path, monkeypatch)
         (rd / "strategy.json").write_text(json.dumps(plan))
         dr.write_review(rd)
-        assert "The plan compares `warm` with the control run" in \
-            " ".join((rd / dr.REVIEW_NAME).read_text().split())
+        assert "| GPP in the warm run |" in (rd / dr.REVIEW_NAME).read_text()
         assert "`warm` against the control run" in _details(rd)
         other = _strategy(runs=[WARM], years=(2015,))
         (rd / "strategy.json").write_text(json.dumps(other))
         dr.write_review(rd)
+        page = " ".join((rd / dr.REVIEW_NAME).read_text().split())
+        assert "The comparisons on record here were planned for another design, so they are " \
+               "not shown." in page
+        assert "was written for another design, so it is not shown" in \
+            " ".join(_details(rd).split())
         for text in ((rd / dr.REVIEW_NAME).read_text(), _details(rd)):
-            assert "was written for another design, so it is not shown" in " ".join(text.split())
             assert "against the control run, 2016" not in text
-            assert "The plan compares" not in text
+            assert "GPP in the warm run" not in text
         # and a page the coordinator draws with no preview shows none, whatever is on disk
         dr.write_review(rd, analysis_preview=None)
         assert AV.HEADING not in _details(rd)
-        assert "no analysis plan is on this page" in (rd / dr.REVIEW_NAME).read_text()
+        assert "The comparisons are chosen after the run, so none is listed here." in \
+            " ".join((rd / dr.REVIEW_NAME).read_text().split())
 
 
     def test_the_study_record_names_the_previews_files_for_what_they_are(self, on, tmp_path,

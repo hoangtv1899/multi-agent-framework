@@ -141,9 +141,11 @@ class TestThePage:
     def test_write_review_reads_the_preview_from_disk(self, study):
         m, cfg, st, p = _preview(study)
         path = dr.write_review(m.run_dir, reception=_reception(), strategy=st)
-        # the short page says it in a sentence; the details keep the server's verdict
-        assert "The model server checked the design and built every run without " \
-               "submitting anything." in path.read_text()
+        # the details keep the server's verdict; the short page, rebuilt on
+        # 2026-11-13, leaves that the server checked the design to them, and
+        # offers a yes, which it would not for a design the server refused
+        assert "checked the design" not in path.read_text()
+        assert "| yes | The run is submitted." in path.read_text()
         assert "**Passed.**" in (path.parent / "DESIGN_DETAILS.md").read_text()
 
     def test_no_preview_leaves_the_page_as_it_was(self):
@@ -257,7 +259,7 @@ class TestARefusalGoesBackToThePlanner:
         monkeypatch.setattr("builtins.input", lambda p="": "n")
         co._workflow_design_and_run(_reception(), str(tmp_path), tmp_path)
         out = capsys.readouterr().out
-        assert "## Points to weigh" in out and "The model server checked the design" in out
+        assert "## Choices made for you" in out and "## Your decision" in out
         # how to make the runs by hand is a file of its own since 2026-11-12, and
         # the page, which the terminal shows whole, says where
         by_hand = (tmp_path / "RUN_BY_HAND.md").read_text()

@@ -302,6 +302,8 @@ Framework code that loads a module from a server's directory in its own process 
 | `src/agents/analysis/step2_investigate.py::suite_task` | imports `domain_methods` from `domain_methods` (`mcp/elm-mcp/src/domain_methods.py`) | Step 2b's task for a study with a suite: SUITE_TASK_BODY, the panels (figure_spec.panel_lines, which names the timing measures) and the reply template, rendered from SUITE_REPLY_PARTS and SUITE_FIGURE_PARTS. |
 | `src/agents/analysis_preview.py::resolved_changes` | imports `domain_changes` from `domain_changes` (`mcp/elm-mcp/src/domain_changes.py`) | A run's changes in the server's own words: resolve() fills the defaults and writes what the difference means and does not mean. |
 | `src/agents/control_figures.py::fetch` | imports `domain_measured` from `domain_measured` (`mcp/elm-mcp/src/domain_measured.py`) | What the model server holds for the control's figures, or None where it holds nothing to draw. Never raises. |
+| `src/agents/run_figures.py::fetch` | imports `domain_controls` from `domain_controls` (`mcp/elm-mcp/src/domain_controls.py`) | What the model server gives for the new runs of a design, or None: no whole-domain design, a control it does not know, a server without the tool, or any error. Never raises: a page is written without the figures rather than not at all. |
+| `src/agents/run_figures.py::fetch` | imports `domain_given` from `domain_given` (`mcp/elm-mcp/src/domain_given.py`) | What the model server gives for the new runs of a design, or None: no whole-domain design, a control it does not know, a server without the tool, or any error. Never raises: a page is written without the figures rather than not at all. |
 | `src/core/resumable.py::_manager_for` | imports `PFLOTRANExpManager` from `pflotran_exp_manager` (`mcp/pflotran-mcp/pflotran_exp_manager.py`) | The manager class for a backend name, or None if there is not one. BOTH MANAGERS LIVE BESIDE THEIR SERVER, under mcp/<server>-mcp/, and are imported by path: src/core/ names no model (ELM moved 2026-08-10, PFLOTRAN 2026-08-18). A new model adds one branch here. |
 | `src/core/resumable.py::_manager_for` | imports `ELMExpManager` from `elm_exp_manager` (`mcp/elm-mcp/src/elm_exp_manager.py`) | The manager class for a backend name, or None if there is not one. BOTH MANAGERS LIVE BESIDE THEIR SERVER, under mcp/<server>-mcp/, and are imported by path: src/core/ names no model (ELM moved 2026-08-10, PFLOTRAN 2026-08-18). A new model adds one branch here. |
 
@@ -355,8 +357,8 @@ Every top-level package imported by framework code (`src/`, `workflow.py`, the e
 4. **The design review page, and the person's decision**
    - code: `src/agents/design_review.py::write_review`, `src/agents/design_review.py::record_decision`
    - language model: no; code only
-   - reads: `DESIGN_REVIEW.md`, `analysis_preview.json`, `control_figures.json`, `design_preview.json`, `domain_control_facts.json`, `reception.json`, `strategy.json`
-   - writes: `DESIGN_DETAILS.md`, `DESIGN_REVIEW.md`, `RUN_BY_HAND.md`, `control_figures.json`
+   - reads: `DESIGN_REVIEW.md`, `analysis_preview.json`, `control_figures.json`, `design_preview.json`, `domain_control_facts.json`, `reception.json`, `run_given.json`, `strategy.json`
+   - writes: `DESIGN_DETAILS.md`, `DESIGN_REVIEW.md`, `RUN_BY_HAND.md`, `control_figures.json`, `run_given.json`
 5. **The experiment record: control, runs and their checked changes**
    - code: `mcp/elm-mcp/src/elm_exp_manager.py::ELMExpManager._build_domain_experiment`
    - language model: no; code only

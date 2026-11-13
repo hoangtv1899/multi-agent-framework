@@ -44,8 +44,11 @@ from pathlib import Path
 from core import analysis_years as AY
 
 REVIEW_NAME = "DESIGN_REVIEW.md"
-CAVEATS_SHOWN = 8
-_PENDING = "**Decision:** pending — the coordinator records it here."
+# THE DECISION LINE IN PLAIN WORDS (2026-11-13): a person read "pending" and a
+# role of the framework. A page written before keeps its old line, and
+# record_decision replaces that one as well.
+_PENDING = "**Decision:** not yet made."
+_PENDING_BEFORE = "**Decision:** pending \u2014 the coordinator records it here."
 # How the coordinator appends a change asked for at this review to the request
 # (workflow.py), so the page can show the question and each change apart.
 REVISION_MARK = "\n\nRevision requested at the design review: "
@@ -186,7 +189,10 @@ def _resolved_meanings(run_dir):
     for that run}; {} when the server's check is not on disk."""
     rec = _load(run_dir, RESOLVED_FILE) if run_dir else None
     out = {}
-    for run in ((rec or {}).get("check") or {}).get("runs") or []:
+    # a record of the wrong shape is read as none, and stops no page (2026-11-13)
+    chk = rec.get("check") if isinstance(rec, dict) else None
+    runs = chk.get("runs") if isinstance(chk, dict) else None
+    for run in runs if isinstance(runs, list) else []:
         if not isinstance(run, dict):
             continue
         for c in run.get("changes") or []:
@@ -310,14 +316,20 @@ def _whole_domain_lines(brief, strategy, resolved=None):
     # EVERY CAVEAT IS ON THE PAGE (2026-11-10). The first three were shown,
     # each cut at 200 characters: the caveat that said a design changed more
     # years than the question asked about was the third of three, and a
-    # fourth would not have been shown at all. Up to CAVEATS_SHOWN are
-    # printed, at twice the length, and any beyond that are counted.
+    # fourth would not have been shown at all.
+    # EVERY ONE, WHOLE (2026-11-13). The short page leaves the caveats to this
+    # page where the server gives a short limit for every knob a run uses
+    # (agents/design_page.py), so this page is where each one is read. Up to
+    # eight were printed, each cut at 400 characters.
     cvs = [c for c in (de.get("caveats") or []) if str(c or "").strip()]
-    for cv in cvs[:CAVEATS_SHOWN]:
-        out.append(f"- caveat: {_trim(cv, 400)}")
-    if len(cvs) > CAVEATS_SHOWN:
-        out.append(f"- and {len(cvs) - CAVEATS_SHOWN} more caveat(s), in "
-                   f"`strategy.json` under domain_experiment.caveats")
+    for cv in cvs:
+        out.append(f"- caveat: {' '.join(str(cv).split())}")
+    # THE PLANNER'S LIMITS FOR THIS QUESTION (2026-11-13), short texts the
+    # short page prints, kept here with the rest of the design
+    for q in de.get("question_limits") or []:
+        q = q.get("text") if isinstance(q, dict) else q
+        if str(q or "").strip():
+            out.append(f"- the Planner's limit for this question: {' '.join(str(q).split())}")
     if runs:
         out.append("- each run's settings are compared with the control's before its "
                    "model is built, and each change's rule on the output is checked "
@@ -436,8 +448,16 @@ def _finding(f, n=400):
     return _trim(f, n)
 
 
+def _whole(text):
+    return " ".join(str(text or "").split())
+
+
 def _check_lines(preview):
-    """The server's verdict on the design, in the part the decision rests on."""
+    """The server's verdict on the design, in the part the decision rests on.
+
+    EVERY FINDING WHOLE (2026-11-13). The short page leaves the server's
+    verdict to this page, so a finding, a refusal, an error and a problem are
+    printed here as the server wrote them, never cut."""
     if not preview:
         return []
     L = ["## The model server's check"]
@@ -445,14 +465,14 @@ def _check_lines(preview):
         L.append(f"- the server refused the planner's {'first' if i == 1 else 'next'} design, "
                  f"and the planner changed it before this page (the refused design is kept "
                  f"as `{r.get('design')}`):")
-        L.extend(f"  - {_finding(f, 300)}" for f in r.get("findings") or [])
+        L.extend(f"  - {_finding(f, 10 ** 9)}" for f in r.get("findings") or [])
     if preview.get("refused"):
         L.append("**Refused.** The server will not build this design as it stands, so "
                  "nothing was built for its runs:")
-        L.extend(f"- {_finding(f)}" for f in preview["refused"])
+        L.extend(f"- {_finding(f, 10 ** 9)}" for f in preview["refused"])
         return L + [""]
     if preview.get("error"):
-        L.append(f"**Not built.** {_trim(preview['error'], 500)}")
+        L.append(f"**Not built.** {_whole(preview['error'])}")
         return L + [""]
     runs = preview.get("runs") or []
     L.append("**Passed.** The server checked this design against its change list and the "
@@ -463,7 +483,7 @@ def _check_lines(preview):
                "from what it wrote.")
     chk = preview.get("check") or {}
     for u in chk.get("unusual") or []:
-        L.append(f"- unusual: {_finding(u, 300)}")
+        L.append(f"- unusual: {_finding(u, 10 ** 9)}")
     ic = preview.get("inputs_check") or {}
     if ic:
         n = (ic.get("checks") or {}).get("active_cells")
@@ -476,7 +496,7 @@ def _check_lines(preview):
         L.append(f"- cost: about {nh} node-hours" if (runs or nh) else
                  "- cost: none, since nothing is run")
     for p in preview.get("problems") or []:
-        L.append(f"- not on this page: {_trim(p, 300)}")
+        L.append(f"- not on this page: {_whole(p)}")
     return L + [""]
 
 
@@ -965,8 +985,13 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
     assumptions = (brief.get("assumptions") or [])
     if gaps or conflicts or assumptions:
         L.append("## Assumed or missing — decided without you, and recorded")
-        for item in (list(assumptions) + list(conflicts))[:5]:
-            L.append(f"- {_trim(item, 240)}")
+        # EVERY ONE, WHOLE, ON A WHOLE-DOMAIN DESIGN'S DETAILS (2026-11-13): its
+        # short page prints a remark of Reception's only where no difference
+        # from the question makes the same point, so this page keeps them all.
+        # Any other design's page is its only page, and stays as it was.
+        whole = bool(brief.get("domain_experiment") or strategy.get("domain_experiment"))
+        for item in (list(assumptions) + list(conflicts))[:None if whole else 5]:
+            L.append(f"- {_whole(item) if whole else _trim(item, 240)}")
         # A WHOLE-DOMAIN STUDY FETCHES NO DATA, so what Reception lists here
         # is seldom a gap in data: live pages read "data gap: the change is
         # demonstrated in this framework". The label says only what is known,
@@ -974,8 +999,8 @@ def render(reception, strategy, run_name="this run", preview=None, run_dir=None,
         label = ("noted by Reception" if (brief.get("domain_experiment")
                                            or strategy.get("domain_experiment"))
                  else "data gap")
-        for item in gaps[:3]:
-            L.append(f"- {label}: {_trim(item, 200)}")
+        for item in gaps[:None if whole else 3]:
+            L.append(f"- {label}: {_whole(item) if whole else _trim(item, 200)}")
         L.append("")
     L.extend(_check_lines(preview))
     # THE ANALYSIS, AS PLANNED BEFORE THE RUNS (transitional, 2026-11-12): shown
@@ -1047,7 +1072,8 @@ _NOT_GIVEN = object()
 
 
 def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
-                 analysis_preview=_NOT_GIVEN, control_figures=_NOT_GIVEN):
+                 analysis_preview=_NOT_GIVEN, control_figures=_NOT_GIVEN,
+                 run_given=_NOT_GIVEN):
     """Render and write DESIGN_REVIEW.md into run_dir; returns its path. The
     server's preview is read from 01_inputs/design_preview.json only when the
     argument is left out (a study the server previews nothing for has none),
@@ -1059,7 +1085,11 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
     (agents/control_figures.fetch). Given, it is saved beside the design
     (None removes an earlier one); left out, the saved record is read, so a
     page can be drawn again from its records. The figures are drawn here, by
-    the Analyzer's figure tool, for a whole-domain design."""
+    the Analyzer's figure tool, for a whole-domain design.
+
+    `run_given`: what the model server gives for the new runs, the inputs
+    each is given beside the control run's (agents/run_figures.fetch, since
+    2026-11-13). Kept, read and drawn by the same rule."""
     rd = Path(run_dir)
     if reception is None:
         reception = json.loads((rd / "reception.json").read_text())
@@ -1089,9 +1119,19 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
         years = _cf.asked_years(brief, strategy, control_figures)
         figures = {"record": control_figures, "years": years,
                    "drawn": _cf.draw(control_figures, rd, years)}
+    # WHAT THE NEW RUNS ARE GIVEN (2026-11-13; agents/run_figures.py): a
+    # record made for another design (its control or its years) is not drawn
+    from agents import run_figures as _rf
+    if run_given is _NOT_GIVEN:
+        run_given = _rf.load(rd)
+    else:
+        _rf.save(rd, run_given)
+    given = None
+    if run_given and _rf.of_design(run_given, de):
+        given = {"record": run_given, "drawn": _rf.draw(run_given, rd)}
     short = _page.render(reception, strategy, run_name=rd.name, preview=preview, run_dir=rd,
                          analysis_preview=analysis_preview, by_hand=bool(by_hand),
-                         control_figures=figures)
+                         control_figures=figures, run_given=given)
     if short is None:
         path.write_text(render(reception, strategy, run_name=rd.name, preview=preview,
                                run_dir=rd, analysis_preview=analysis_preview))
@@ -1104,6 +1144,15 @@ def write_review(run_dir, reception=None, strategy=None, preview=_NOT_GIVEN,
     if figures:
         block = "\n".join(_cf.details_lines(figures["record"], figures["drawn"],
                                             figures["years"]))
+        mark = "\n## Why this can answer it"
+        if block.strip():
+            full = (full.replace(mark, "\n" + block + mark, 1) if mark in full
+                    else full.rstrip("\n") + "\n\n" + block)
+    # and what the new runs are given, with why any part is not shown, after
+    # the control run's figures
+    if given:
+        names = [str(r.get("name")) for r in (de.get("runs") or []) if isinstance(r, dict)]
+        block = "\n".join(_rf.details_lines(given["record"], given["drawn"], names))
         mark = "\n## Why this can answer it"
         if block.strip():
             full = (full.replace(mark, "\n" + block + mark, 1) if mark in full
@@ -1130,8 +1179,9 @@ def record_decision(run_dir, decision):
     if not path.is_file():
         return None
     stamp = datetime.now().isoformat(timespec="seconds")
-    text = path.read_text().replace(
-        _PENDING, f"**Decision:** {decision} at {stamp}.")
+    text = path.read_text()
+    for pending in (_PENDING, _PENDING_BEFORE):
+        text = text.replace(pending, f"**Decision:** {decision} at {stamp}.")
     path.write_text(text)
     return path
 

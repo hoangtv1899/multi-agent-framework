@@ -63,10 +63,12 @@ class TestTheYesNamesThePlan:
         # the plan is no part of the design's fingerprint: the two are kept apart
         assert got["analysis_plan_sha256"] != got["design_sha256"]
         page = " ".join(_first_part(rd).split())
-        assert "A yes approves this plan together with the runs and the years." in page
-        assert "It approves the run, the years above and the analysis plan shown under " \
-               "\"How the answer will be read\"." in page
-        for gone in ("writes its own plan afterwards", "does not approve"):
+        # the yes row of the decision table says so (2026-11-13); the details
+        # keep the record's own words
+        assert "| yes | The run is submitted." in page
+        assert "The comparisons above are carried out as listed. |" in page
+        assert AH.APPROVED in " ".join(_details(rd).split())
+        for gone in ("writes its own plan afterwards", "does not approve", "preview"):
             assert gone not in page, gone
 
     def test_a_design_with_no_new_run_is_approved_with_its_plan_too(self, both, tmp_path,
@@ -74,8 +76,10 @@ class TestTheYesNamesThePlan:
         rd, _ = _approved(tmp_path, monkeypatch)             # the control run alone
         assert _approval(rd)["analysis_plan_sha256"] == _record(rd)["plan_sha256"]
         page = " ".join(_first_part(rd).split())
-        assert "It approves the years above and the analysis plan shown under" in page
-        assert "A yes approves this plan together with the years." in page
+        assert "| yes | The analysis of the control run's existing output starts. No model " \
+               "run is made, and the analysis uses paid model calls. The comparisons above " \
+               "are carried out as listed. |" in page
+        assert AH.APPROVED_NO_RUN in " ".join(_details(rd).split())
 
     def test_with_the_preview_alone_the_yes_names_no_plan(self, monkeypatch, study, tmp_path):
         monkeypatch.setenv(AV.SWITCH, "1")
@@ -83,9 +87,8 @@ class TestTheYesNamesThePlan:
         rd, plan = _approved(tmp_path, monkeypatch)
         assert set(_approval(rd)) == {"decision", "when", "design_sha256"}
         page = " ".join(_first_part(rd).split())
-        assert "It does not approve an analysis plan, since the Analyzer writes its own " \
-               "plan afterwards." in page
-        assert AV.NOT_BUILT in page and "A yes approves this plan" not in page
+        assert "These comparisons are a preview. Your yes does not approve them" in page
+        assert "carried out as listed" not in page
 
     def test_an_unattended_study_names_its_plan_too(self, both, tmp_path):
         rd = tmp_path / "design"
@@ -228,11 +231,14 @@ class TestNoPlanNoYes:
         assert "not run: no analysis plan a yes could approve" in _decision(rd)
         assert "this design cannot be approved" in said and why in said
         page = " ".join(_first_part(rd).split())
-        assert f"This design cannot be approved as it stands, since {why}." in page
-        assert "It did not pass its check and its review. A design is approved together " \
-               "with its analysis plan" in page
-        assert "A yes submits" not in page and "A yes starts" not in page
-        assert "blocked" in page                          # the analysis's own status
+        # in the page's own words since 2026-11-13: the reason first under
+        # "Your decision", and no yes
+        assert "- The comparisons did not pass their check, so a yes could approve none of " \
+               "them. This design cannot run as it stands." in page
+        assert "These comparisons did not pass their check." in page
+        assert "This does not stop the design" not in page
+        assert "| yes |" not in page and "| no |" not in page
+        assert "cannot be made as planned" in page        # the analysis's own status
         assert "cannot be approved as it is" in " ".join(_details(rd).split())
 
     def test_a_plan_that_could_not_be_written_does_too(self, both, tmp_path, monkeypatch):
@@ -243,8 +249,10 @@ class TestNoPlanNoYes:
                                         "is no analysis plan a yes could approve")
         assert not (rd / dr.APPROVAL_FILE).exists()
         page = " ".join(_first_part(rd).split())
-        assert "The analysis plan could not be written." in page
-        assert "this design cannot be approved as it is" in page
+        assert "The comparisons could not be planned before this page." in page
+        assert "- The comparisons could not be planned before this page, so a yes could " \
+               "approve none. This design cannot run as it stands." in page
+        assert "| yes |" not in page
 
     def test_unattended_it_is_not_run_either(self, both, tmp_path, monkeypatch):
         rd, said, _ = self._design(tmp_path, monkeypatch,
@@ -337,18 +345,21 @@ class TestTheStatusOfEachAnalysis:
         rd, _ = _approved(tmp_path, monkeypatch, clients=_clients(figures))
         assert _record(rd)["status"] == AV.PLANNED
         page = _first_part(rd)
-        assert "| | What it looks at | Where | When | Status |" in page
-        rows = [ln for ln in page.splitlines() if re.match(r"\| P\d", ln)]
-        assert rows[0].endswith("| supported |") and rows[1].endswith("| conditional |")
-        assert f"- P2 is conditional: {AV.NO_NUMBER}." in page
+        # the page names a comparison by its title and gives the reason, with
+        # no status column (2026-11-13); the details keep the column
+        assert "| What we compare | When | How | What it tells us |" in page
+        assert "Status" not in page and not re.search(r"\| P\d", page)
+        assert f'The comparison "GPP" {AV.CONDITIONAL_WORDS}.' in " ".join(page.split())
+        assert page.count("The comparison ") == 1
         details = _details(rd)
         assert "| Required outputs | Status |" in details
         assert f"- P2 is conditional: {AV.NO_NUMBER}." in details
 
-    def test_a_page_whose_analyses_are_all_supported_adds_one_word_to_each_row(
+    def test_a_page_whose_analyses_are_all_supported_says_nothing_of_it(
             self, both, tmp_path, monkeypatch):
         rd, _ = _approved(tmp_path, monkeypatch)
         page = _first_part(rd)
-        rows = [ln for ln in page.splitlines() if re.match(r"\| P\d", ln)]
-        assert rows and all(r.endswith("| supported |") for r in rows)
-        assert " is conditional" not in page and " is blocked" not in page
+        assert "| GPP | 2016 |" in page
+        for gone in ("supported", "conditional", "blocked", "The comparison \""):
+            assert gone not in page, gone
+        assert "| supported |" in _details(rd)

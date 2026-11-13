@@ -953,9 +953,13 @@ class WorkflowCoordinator:
 			# the run beside its measurements and maps of its mean, asked of
 			# the model server and drawn by the Analyzer's figure tool. Always
 			# passed, None included, as the two records above are.
+			# WHAT THE NEW RUNS ARE GIVEN (2026-11-13; agents/run_figures.py): the
+			# inputs each run's changes alter beside the control run's, asked of the
+			# model server after it built the runs, and passed as the two above are.
 			review_path = write_review(run_dir, reception=result, strategy=plan,
 									   preview=preview, analysis_preview=analysis_preview,
-									   control_figures=self._control_figures(plan))
+									   control_figures=self._control_figures(plan),
+									   run_given=self._run_given(plan, run_dir))
 			print(f"📝 Design review: {review_path}\n")
 			# A REFUSAL IS NOT AN ERROR (2026-11-03): a design the server refused
 			# names the change that would let it run; one that could not be
@@ -1565,6 +1569,19 @@ class WorkflowCoordinator:
 			return CF.fetch((de.get("control") or {}).get("name"))
 		except Exception as e:                                  # noqa: BLE001
 			print(f"   (the control run's figures could not be read: {type(e).__name__}: {e})\n")
+			return None
+
+	def _run_given(self, plan: dict, run_dir):
+		"""What the model server gives for the design's new runs (a table of
+		what each is given, and the series and map of it beside the control
+		run), or None: no whole-domain design, no new run, or a server that
+		cannot give it. Reading it must never stop a request, so a failure is
+		None and the page says what each run changes in the server's words."""
+		try:
+			from agents import run_figures as RF
+			return RF.fetch(plan, run_dir)
+		except Exception as e:                                  # noqa: BLE001
+			print(f"   (what the new runs are given could not be read: {type(e).__name__}: {e})\n")
 			return None
 
 	def _review_ready(self, result: dict, plan: dict, run_dir: Path,

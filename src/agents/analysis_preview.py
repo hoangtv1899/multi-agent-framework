@@ -190,8 +190,9 @@ def plan_before_approval(reception: Dict[str, Any], strategy: Dict[str, Any], ru
         from agents.analysis import step3_interpret as S3
         ctx = context(reception, strategy, rd)
         if not AP.suite_bearing(ctx):
-            rec["why"] = ("the control run has no results store, and the planning step "
-                          "plans from one")
+            # in words the design page may print (2026-11-13): it names no
+            # step of the framework
+            rec["why"] = "the control run has no results store to plan the comparisons from"
             return _written(rd, rec)
         # the places the planning step may name, with their sizes and rules,
         # from the control's results store: the page states the mask an
@@ -284,11 +285,62 @@ def _years_words(years: Sequence[int]) -> str:
     return _join([str(y) for y in ys])
 
 
-def periods_words(periods: Sequence[Any]) -> str:
+def _grouped(periods: Sequence[Any]) -> str:
+    """The short page's words for a plan's period keys (2026-11-13). Years
+    that share their months, or a season, are said once ("June to August of
+    2033 and 2034", "summer of 2033 and 2034"), in the words the table of a
+    new run uses for its months. Groups are set apart with "; ", so a list of
+    years inside one is never read as two groups."""
+    by_year: "OrderedDict[int, List[int]]" = OrderedDict()
+    seasons: "OrderedDict[str, List[int]]" = OrderedDict()
+    years: Dict[str, List[int]] = {"year": [], "wy": []}
+    rest: List[str] = []
+    for p in periods or []:
+        s = str(p)
+        m = re.fullmatch(r"(\d{4})-(\d{2})", s)
+        q = re.fullmatch(r"(\d{4})-([A-Z]{3})", s)
+        if m and 1 <= int(m.group(2)) <= 12:
+            by_year.setdefault(int(m.group(1)), []).append(int(m.group(2)))
+        elif q:
+            seasons.setdefault(q.group(2), []).append(int(q.group(1)))
+        elif re.fullmatch(r"\d{4}", s) or re.fullmatch(r"WY\d{4}", s):
+            years["wy" if s.startswith("WY") else "year"].append(int(s[-4:]))
+        else:
+            rest.append(s)
+    same: "OrderedDict[tuple, List[int]]" = OrderedDict()
+    for y, ms in by_year.items():
+        same.setdefault(tuple(sorted(set(ms))), []).append(y)
+    words = []
+    for ms, ys in same.items():
+        of = _years_words(ys)
+        if len(ms) == 12:
+            words.append(f"each month of {of}")
+        elif len(ms) > 1 and list(ms) == list(range(ms[0], ms[-1] + 1)):
+            words.append(f"{MONTHS[ms[0] - 1]} to {MONTHS[ms[-1] - 1]} of {of}")
+        else:
+            words.append(f"{_join([MONTHS[m - 1] for m in ms])} of {of}")
+    for q, ys in seasons.items():
+        words.append(f"{SEASONS.get(q, q)} of {_years_words(ys)}")
+    if years["year"]:
+        words.append(_years_words(years["year"]))
+    if years["wy"]:
+        n = len(set(years["wy"]))
+        words.append(f"the water year{'' if n == 1 else 's'} {_years_words(years['wy'])}")
+    out: List[str] = []
+    for w in words + rest:
+        if w not in out:
+            out.append(w)
+    return "; ".join(out)
+
+
+def periods_words(periods: Sequence[Any], grouped: bool = False) -> str:
     """A plan's period keys in words: 2031-06 a month, 2031-JJA a season,
     2031 a year, WY2031 a water year; anything else as it is written. Three
     or more years in a row, or water years, are one span ("the years 2031 to
-    2035"), placed where the first of them stood."""
+    2035"), placed where the first of them stood. `grouped`: the short
+    page's words (_grouped)."""
+    if grouped:
+        return _grouped(periods)
     months, rest = OrderedDict(), []
     years: Dict[str, List[int]] = {"year": [], "wy": []}
     for p in periods or []:
@@ -486,8 +538,12 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
              + (f" ({', '.join(fields)})" if fields else "") + ".")
     if analyses:
         sup = analysis_support(plan)
+        # THE SHORT TITLE AND WHAT IT TELLS (2026-11-13): the short page lists
+        # an analysis by these and no id, so the details give them beside the
+        # id, and a reader finds here each analysis the short page names.
         L += ["", "| | The question this analysis answers | Where | When | Required outputs "
-                  "| Status |", "|---|---|---|---|---|---|"]
+                  "| Status | Short title | What it tells us |",
+              "|---|---|---|---|---|---|---|---|"]
         for a in analyses:
             when = periods_words(a.get("periods") or [])
             if a.get("steps"):
@@ -497,9 +553,11 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
                      f"{_cell('; '.join(str(r) for r in a.get('regions') or []) or 'each cell')}"
                      f" | {_cell(when or 'none named')} | "
                      f"{_cell(outputs_words(a.get('outputs') or []))} | "
-                     f"{(sup.get(str(a.get('id'))) or {}).get('status', SUPPORTED)} |")
+                     f"{(sup.get(str(a.get('id'))) or {}).get('status', SUPPORTED)} | "
+                     f"{_cell(a.get('title') or 'none')} | {_cell(a.get('tells') or 'none')} |")
         L.append("")
         L += support_lines(plan)
+        L += places_lines(analyses, record)
     comp = [c for c in plan.get("competing") or [] if isinstance(c, dict)]
     if comp:
         L.append(f"- Other explanations it will check ({len(comp)}):")
@@ -513,30 +571,98 @@ def page_lines(record: Optional[Dict[str, Any]], run_dir,
     if remarks:
         L.append(f"- The model review's remark{'s' if len(remarks) != 1 else ''}:")
         L += [f"  - {_cell(x)}" for x in remarks]
+    # EVERY PROBLEM, WHOLE (2026-11-13): the first eight were printed and the
+    # rest counted, while the short page printed each one. The short page now
+    # says only what each problem stops, and the details keep them all.
     problems = [x for x in (plan.get("problems") or []) if str(x).strip()]
     if problems:
         L.append(f"- What code's check found ({len(problems)}):")
-        L += [f"  - {_cell(x)}" for x in problems[:8]]
-        if len(problems) > 8:
-            L.append(f"  - and {len(problems) - 8} more, in the plan's file")
+        L += [f"  - {_cell(x)}" for x in problems]
+    later = not_made_yet(plan)
+    if later:
+        L.append(later)
     L += [f"- The plan in full: `{record.get('plan_file')}`.", ""]
     return L
+
+
+def places_lines(analyses: Sequence[Dict[str, Any]], record: Dict[str, Any]) -> List[str]:
+    """The places the analyses read, each with its cells, its area and its
+    rule, as the control's results store gives them (the record's
+    `regions`). In the details since 2026-11-13: the short page has no table
+    of places, and the details keep what it left."""
+    used: List[str] = []
+    for a in analyses:
+        used += [str(r) for r in a.get("regions") or [] if str(r) not in used]
+    if not used:
+        return []
+    sizes = record.get("regions") if isinstance(record.get("regions"), dict) else {}
+    L = ["", "The analyses read these places and no others.", "",
+         "| Place | Cells | Area (km2) | Rule |", "|---|---|---|---|"]
+    for r in used:
+        g = sizes.get(r) if isinstance(sizes.get(r), dict) else {}
+        cells = f"{g['cells']:,}" if isinstance(g.get("cells"), int) else "not on record"
+        area = (f"{g['area_km2']:,.0f}" if isinstance(g.get("area_km2"), (int, float))
+                else "not on record")
+        L.append(f"| {_cell(r)} | {cells} | {area} | {_cell(g.get('rule') or 'not on record')} |")
+    return L + [""]
+
+
+def not_made_yet(plan: Dict[str, Any]) -> Optional[str]:
+    """The details' line on a run whose outputs do not exist yet, or None.
+    The short page said it among its points to weigh until 2026-11-13."""
+    todo = list(dict.fromkeys(
+        str(c.get("run")) for c in plan.get("comparisons") or []
+        if isinstance(c, dict) and c.get("run") not in (None, "control")))
+    if not todo:
+        return None
+    one = len(todo) == 1
+    return (f"- {_join([f'`{t}`' for t in todo])} {'is' if one else 'are'} not made yet, so "
+            f"the plan takes {'its' if one else 'their'} outputs to be the control run's "
+            f"quantities over the planned years. Each year is checked after it runs.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # THE SHORT PAGE'S SECTION (agents/design_page.py)
 # ─────────────────────────────────────────────────────────────────────────────
 # The same plan record as page_lines above, which is the details file's
-# section. Here an analysis is listed by its short title (its question when
-# the plan gave none), its places and its periods; the places are given with
-# their cells and area, and a daily or monthly series with the years it
-# covers. A sentence of the plan is printed whole or left to the details.
-NOT_BUILT = ("Your yes does not approve this plan. It is shown as a preview, and the "
-             "Analyzer writes its plan again after the runs.")
+# section. REBUILT ON 2026-11-13 as one table in the reader's terms: what is
+# compared, when, how, and what it tells us. No id, no count of quantities,
+# no status column and no table of places, which the details keep. A
+# comparison code finds conditional or blocked gets one sentence under the
+# table that names it by its title and gives the reason. The page says "the
+# comparisons" and never names a step of the framework.
+MAIN_SHOWN = 4
+# HOW A COMPARISON IS MADE, in plain words: one entry for each kind of output
+# the plan contract knows (agents/analysis/plan_contract.KINDS), and "timing"
+# for a timing measure, which is any other kind the plan's check lets
+# through. A series is said with the runs it draws and its step (series_how).
+HOW_WORDS = {
+    "difference": "{run} minus the control run",
+    "anomaly": "the departure from the mean of the normal years",
+    "series": "{who} as {step} lines",
+    "map": "a map over the grid",
+    "elevation_split": "a split by elevation band",
+    "overlap": "one map set against another",
+    "timing": "the date it happens in each year",
+}
+PER_CELL = ", cell by cell"
+STEP_UNIT = {"day": "day", "month": "month", "season": "season", "year": "year",
+             "wateryear": "water year"}
+CONDITIONAL_WORDS = ("gives figures and no number the report may state, since each of its "
+                     "outputs is a map or a daily series")
+
+
+def _sentence(text: Any) -> str:
+    """A record's words as one sentence: a capital first, a full stop last."""
+    s = " ".join(str(text or "").split())
+    if not s:
+        return ""
+    s = s[0].upper() + s[1:]
+    return s if s[-1] in ".!?" else s + "."
 
 
 def after_the_runs(record: Optional[Dict[str, Any]], words: str) -> str:
-    """What the page says becomes of the plan after the runs: `words` (the
+    """What the details say becomes of the plan after the runs: `words` (the
     Analyzer plans again, and the yes approves no plan), or, for a plan the
     record promises to the Analyzer, the record's own words: that a yes
     approves it and that it is carried out as it stands."""
@@ -558,9 +684,41 @@ def _other_design(record, design_sha256) -> bool:
                 and record["design_sha256"] != design_sha256)
 
 
-def series_words(a: Dict[str, Any], de: Dict[str, Any], row: Dict[str, Any]) -> str:
-    """An analysis's series in words, with the years each one covers: a
-    series names no period of its own, so its span is its run's years."""
+def normal_comparisons(record: Optional[Dict[str, Any]], run_dir,
+                       design_sha256: Optional[str]) -> Optional[List[Dict[str, Any]]]:
+    """The plan's comparisons of years with the normal years, each {"run",
+    "years", "normal", "held"} (held: the years compared that the normal
+    years contain). None where no plan of this design is shown, so the page
+    says it from the design instead."""
+    if not isinstance(record, dict) or _other_design(record, design_sha256) or \
+            record.get("status") not in (PLANNED, NOT_PASSED):
+        return None
+    plan, _ = _read_plan(record, run_dir)
+    if not isinstance(plan, dict) or not plan:
+        return None
+    b = plan.get("baseline") if isinstance(plan.get("baseline"), dict) else {}
+    ny = [int(y) for y in b.get("normal_years") or [] if str(y).isdigit()]
+    held = [int(y) for y in b.get("includes_compared_years") or [] if str(y).isdigit()]
+    out = []
+    for c in plan.get("comparisons") or []:
+        if isinstance(c, dict) and c.get("against") == "normal years":
+            ys = sorted({int(y) for y in c.get("years") or [] if str(y).isdigit()})
+            out.append({"run": c.get("run") or "control", "years": ys, "normal": ny,
+                        "held": [y for y in held if y in ys]})
+    return out
+
+
+def compare_words(a: Dict[str, Any]) -> str:
+    """What an analysis compares, for the page: its title; without one, its
+    fields joined in words; without those, its question."""
+    return str(a.get("title") or "").strip() or \
+        _join([str(f) for f in a.get("fields") or []]) or str(a.get("question") or "")
+
+
+def _series_when(a: Dict[str, Any], de: Dict[str, Any], row: Dict[str, Any]) -> str:
+    """The years of an analysis's series. A series names no period of its
+    own: it covers the new runs' years, or, for a series of the control run
+    alone, the control run's whole output."""
     outs = [o for o in a.get("outputs") or [] if isinstance(o, dict)
             and o.get("kind") == "series"]
     steps = [s for s in dict.fromkeys(o.get("step") for o in outs) if s] or \
@@ -568,170 +726,162 @@ def series_words(a: Dict[str, Any], de: Dict[str, Any], row: Dict[str, Any]) -> 
     if not steps:
         return ""
     oy = (row.get("facts") or {}).get("output_years") or []
-    control = list(range(int(oy[0]), int(oy[-1]) + 1)) if oy else []
-    runs = list(dict.fromkeys(str(o.get("run") or "control") for o in outs)) or ["control"]
-    spans = [(r, _span(control if r == "control" else de.get("years"))) for r in runs]
-    if len({sp for _, sp in spans}) == 1:
-        where = f"over {spans[0][1]}"
+    runs = {str(o.get("run") or "control") for o in outs} or {"control"}
+    if runs == {"control"} and oy:
+        ys = list(range(int(oy[0]), int(oy[-1]) + 1))
     else:
-        where = " and ".join(
-            f"over {sp} for " + ("the control run" if r == "control" else f"`{r}`")
-            for r, sp in spans)
-    return f"{_join([STEP.get(s, str(s)) for s in steps])} series {where}"
+        ys = [int(y) for y in de.get("years") or [] if str(y).isdigit()]
+    of = f" of {_years_words(ys)}" if ys else ""
+    return _join([f"each {STEP_UNIT.get(str(s), str(s))}{of}" for s in steps])
+
+
+def when_words(a: Dict[str, Any], de: Dict[str, Any], row: Dict[str, Any]) -> str:
+    """When an analysis looks: its periods, as periods_words groups them, and
+    the years of its series. Without either, the periods its outputs name."""
+    parts = [w for w in (periods_words(a.get("periods") or [], grouped=True),
+                         _series_when(a, de, row)) if w]
+    if not parts:
+        own = [o.get("period") for o in a.get("outputs") or []
+               if isinstance(o, dict) and o.get("period") is not None]
+        parts = [w for w in (periods_words(own, grouped=True),) if w]
+    return "; ".join(parts) or "not named"
+
+
+def series_how(outs: Sequence[Dict[str, Any]], n_runs: int = 1) -> str:
+    """A series in plain words: the runs it draws and its step."""
+    runs = list(dict.fromkeys(str(o.get("run") or "control") for o in outs))
+    steps = [s for s in dict.fromkeys(str(o.get("step") or "") for o in outs) if s]
+    step = _join([STEP.get(s, s) for s in steps]) or "its"
+    if len(runs) == 1:
+        who = ("the control run" if runs[0] == "control" else
+               "the new run" if n_runs == 1 else f"`{runs[0]}`")
+        if len(outs) == 1:
+            return f"{who} as a {step} line"
+    else:
+        who = "the two runs" if len(runs) == 2 and "control" in runs else "the runs"
+    return HOW_WORDS["series"].format(who=who, step=step)
+
+
+def how_words(a: Dict[str, Any], n_runs: int = 1) -> str:
+    """How an analysis compares, in plain words from HOW_WORDS, one phrase
+    for each kind of its outputs, joined with "and"."""
+    from agents.analysis import plan_contract as PC
+    outs = [o for o in a.get("outputs") or [] if isinstance(o, dict)]
+    said: List[str] = []
+    for o in outs:
+        k = str(o.get("kind"))
+        if k == "series":
+            w = series_how([x for x in outs if x.get("kind") == "series"], n_runs)
+        elif k == "difference":
+            w = HOW_WORDS[k].format(run="the new run" if n_runs == 1 else f"`{o.get('run')}`")
+        else:
+            w = HOW_WORDS[k if k in PC.KINDS else "timing"]
+        if k in PC.NULL_REGION and o.get("region") is None:
+            w += PER_CELL
+        if w not in said:
+            said.append(w)
+    return _join(said) or "not named"
+
+
+def _without_id(aid: str, problem: Any) -> str:
+    """A problem of code's check without the analysis id it opens with."""
+    return re.sub(rf"^{re.escape(aid)}(?:\.\w+)?\s*[:.]?\s*", "", str(problem)).strip()
+
+
+def support_sentences(plan: Dict[str, Any]) -> List[str]:
+    """One sentence for each comparison code finds conditional or blocked,
+    naming it by its title and giving the reason. [] when all are
+    supported."""
+    by_id = {str(a.get("id")): a for a in plan.get("analyses") or [] if isinstance(a, dict)}
+    out = []
+    for aid, s in analysis_support(plan).items():
+        name = _cell(compare_words(by_id.get(aid) or {}))
+        if s["status"] == CONDITIONAL:
+            out.append(f'The comparison "{name}" {CONDITIONAL_WORDS}.')
+        elif s["status"] == BLOCKED:
+            out.append(f'The comparison "{name}" cannot be made as planned. '
+                       + " ".join(_sentence(_cell(_without_id(aid, w))) for w in s["why"]))
+    return out
+
+
+def _after(n_runs: Optional[int]) -> str:
+    """When the comparisons are chosen, where no plan is shown."""
+    return "your yes" if not n_runs else "the run" if n_runs == 1 else "the runs"
 
 
 def short_lines(record: Optional[Dict[str, Any]], run_dir, design_sha256: Optional[str],
-                de: Dict[str, Any], row: Dict[str, Any]) -> List[str]:
-    """The short page's section "How the answer will be read"."""
+                de: Dict[str, Any], row: Dict[str, Any], n_runs: Optional[int] = None
+                ) -> List[str]:
+    """The short page's section "How your question will be answered", after
+    the sentence that says what is compared with what: the table of the
+    comparisons, a sentence for each that is conditional or blocked, the
+    other explanations, and what becomes of the comparisons after the yes.
+
+    AT MOST FOUR ROWS (2026-11-13): those the plan marks `main`, or its first
+    four where it marks none. The rest are counted, and the details list
+    every one."""
+    if n_runs is None:
+        n_runs = len([r for r in de.get("runs") or [] if isinstance(r, dict)])
+    after = _after(n_runs)
     if not isinstance(record, dict):
-        an = de.get("analysis") or {}
-        fields = [str(f) for f in an.get("variables") or []]
-        places = [str(r.get("name") if isinstance(r, dict) else r)
-                  for r in an.get("regions") or []]
-        L = ["The analysis is planned after the runs, so no analysis plan is on this page."]
-        if fields:
-            L.append(f"The design names {len(fields)} quantit{'y' if len(fields) == 1 else 'ies'}"
-                     + (f" over {_join(places)}" if places else "")
-                     + " for the numbers that code tabulates from the runs. They are "
-                       "listed in `DESIGN_DETAILS.md`.")
-        return L + [""]
+        return [f"The comparisons are chosen after {after}, so none is listed here.", ""]
     if _other_design(record, design_sha256):
-        return ["An analysis plan on record here was written for another design, so it is "
+        return ["The comparisons on record here were planned for another design, so they are "
                 "not shown.", ""]
     from agents import analysis_handoff as AH
     no_plan = AH.unapprovable(record)
     status = record.get("status")
-    if status == FAILED and no_plan:
-        return [f"The analysis plan could not be written. The error was "
-                f"{_cell(record.get('why'))}. A design is approved together with its "
-                f"analysis plan, so this design cannot be approved as it is.", ""]
-    L = ["The Analyzer's planning step wrote this plan before any run. "
-         + ("It did not pass its check and its review. A design is approved together with "
-            "its analysis plan, so this design cannot be approved as it is." if no_plan else
-            after_the_runs(record, NOT_BUILT)), ""]
     if status == NOT_PLANNED:
-        return L + [f"No plan was written, since {_cell(record.get('why'))}.", ""]
+        return [f"The comparisons are chosen after {after}, so none is listed here. None "
+                f"could be planned before this page, since {_cell(record.get('why'))}.", ""]
     if status == FAILED:
-        return L + [f"The plan could not be written. The error was {_cell(record.get('why'))}. "
-                    f"This does not stop the design, since the Analyzer plans after the "
-                    f"runs as before.", ""]
+        return [f"The comparisons could not be planned before this page. The error was "
+                f"{_cell(record.get('why'))}."
+                + ("" if no_plan else f" This does not stop the design, since they are then "
+                                      f"chosen after {after}."), ""]
     plan, _ = _read_plan(record, run_dir)
-    if not plan:
-        return L + ["The plan's file could not be read, so it is not shown.", ""]
+    if not isinstance(plan, dict) or not plan:
+        return ["The list of comparisons could not be read, so none is shown here.", ""]
     analyses = [a for a in plan.get("analyses") or [] if isinstance(a, dict)]
-    b = plan.get("baseline") or {}
-    ny = b.get("normal_years") or []
-    held = b.get("includes_compared_years") or []
-    said = []
-    for c in plan.get("comparisons") or []:
-        if not isinstance(c, dict):
-            continue
-        who = "the control run" if c.get("run") in (None, "control") else f"`{c.get('run')}`"
-        lead = "The plan" if not said else "It also"
-        if c.get("against") == "normal years":
-            ys = sorted({int(y) for y in c.get("years") or [] if str(y).isdigit()})
-            if ys and ys == sorted({int(y) for y in ny if str(y).isdigit()}):
-                # the years asked about ARE the normal years: said once, plainly
-                said.append(f"{lead} sets each year of {_span(ys)} of {who} against the "
-                            f"mean of those same years.")
-                continue
-            said.append(f"{lead} sets {_span(c.get('years'))} of {who} against the normal "
-                        f"years, {_span(ny)}"
-                        + (f", which contain {_years_words(held)}" if held else "")
-                        + ".")
-        else:
-            said.append(f"{lead} compares {who} with the control run for "
-                        f"{_span(c.get('years'))}.")
-    if said:
-        L += [" ".join(said), ""]
-    fields: List[str] = []
-    for a in analyses:
-        fields += [f for f in a.get("fields") or [] if f not in fields]
-    L += [f"The plan has {len(analyses)} analys{'is' if len(analyses) == 1 else 'es'} and "
-          f"reads {len(fields)} quantit{'y' if len(fields) == 1 else 'ies'}.", ""]
+    L: List[str] = []
     if analyses:
-        sup = analysis_support(plan)
-        L += ["| | What it looks at | Where | When | Status |", "|---|---|---|---|---|"]
-        for a in analyses:
-            when = [w for w in (periods_words(a.get("periods") or []),
-                                series_words(a, de, row)) if w]
-            L.append(f"| {_cell(a.get('id'))} | {_cell(a.get('title') or a.get('question'))} | "
-                     f"{_cell('; '.join(str(r) for r in a.get('regions') or []) or 'each cell')}"
-                     f" | {_cell('; '.join(when) or 'none named')} | "
-                     f"{(sup.get(str(a.get('id'))) or {}).get('status', SUPPORTED)} |")
+        main = [a for a in analyses if a.get("main") is True]
+        shown = (main or analyses)[:MAIN_SHOWN]
+        L += ["| What we compare | When | How | What it tells us |", "|---|---|---|---|"]
+        for a in shown:
+            L.append(f"| {_cell(compare_words(a))} | {_cell(when_words(a, de, row))} | "
+                     f"{_cell(how_words(a, n_runs))} | "
+                     f"{_cell(a.get('tells') or a.get('question'))} |")
         L.append("")
-        why = support_lines(plan)
+        more = len(analyses) - len(shown)
+        if more:
+            L += [f"{more} more comparison{' is' if more == 1 else 's are'} listed in "
+                  f"`DESIGN_DETAILS.md`.", ""]
+        why = support_sentences(plan)
         if why:
-            L += why + [""]
-    used: List[str] = []
-    for a in analyses:
-        used += [str(r) for r in a.get("regions") or [] if str(r) not in used]
-    sizes = record.get("regions") or {}
-    grid = (row.get("facts") or {}).get("grid") or {}
-    if used:
-        whole = (f" The modelled area has {grid['land_cells']:,} land cells and "
-                 f"{grid['land_area_km2']:,.0f} km2."
-                 if isinstance(grid.get("land_cells"), int)
-                 and isinstance(grid.get("land_area_km2"), (int, float)) else "")
-        L += [f"The analyses read these places and no others.{whole}", "",
-              "| Place | Cells | Area (km2) | Rule |", "|---|---|---|---|"]
-        for r in used:
-            g = sizes.get(r) or {}
-            cells = f"{g['cells']:,}" if isinstance(g.get("cells"), int) else "not on record"
-            area = (f"{g['area_km2']:,.0f}" if isinstance(g.get("area_km2"), (int, float))
-                    else "not on record")
-            L.append(f"| {_cell(r)} | {cells} | {area} | {_cell(g.get('rule') or 'not on record')} |")
-        L.append("")
+            L += [" ".join(why), ""]
     comp = [c for c in plan.get("competing") or [] if isinstance(c, dict)]
     if comp:
         titles = [str(c.get("title") or "").strip() for c in comp]
         n = len(comp)
-        L.append(f"The plan also checks {n} other explanation{'' if n == 1 else 's'}"
-                 + (f". {'It is' if n == 1 else 'They are'} {_join(titles)}."
-                    if all(titles) else ", which the details list."))
-    L += [f"The plan in full is in `DESIGN_DETAILS.md`.", ""]
-    return L
-
-
-def weigh_lines(record: Optional[Dict[str, Any]], run_dir,
-                design_sha256: Optional[str]) -> List[str]:
-    """What the analysis plan adds to the page's points to weigh: whether it
-    passed, every remark of its review and every problem of its check, whole,
-    a year set against normal years that contain it, and a run whose outputs
-    do not exist yet."""
-    if not isinstance(record, dict) or _other_design(record, design_sha256) or \
-            record.get("status") not in (PLANNED, NOT_PASSED):
-        return []
-    plan, review = _read_plan(record, run_dir)
-    if not plan:
-        return []
-    again = " on its second writing" if int(record.get("attempts") or 1) > 1 else ""
-    if record.get("status") == PLANNED:
-        L = [f"- The analysis plan passed its check and its review{again}."]
+        L += [f"We will also check {'one other explanation' if n == 1 else f'{n} other explanations'}"
+              f", which {'is' if n == 1 else 'are'} "
+              + (_join(titles) if all(titles) else "listed in `DESIGN_DETAILS.md`") + ".", ""]
+    if status == NOT_PASSED:
+        ids = [str(a.get("id")) for a in analyses]
+        loose = [str(x) for x in plan.get("problems") or [] if str(x).strip() and not any(
+            re.match(rf"{re.escape(i)}(?:[.:\s]|$)", str(x)) for i in ids)]
+        L.append("These comparisons did not pass their check."
+                 + ("" if no_plan else f" This does not stop the design, since they are "
+                                       f"chosen again after {after}."))
+        L += [f"- {_cell(x)}" for x in loose] + [""]
+    elif AH.bound(record):
+        pass                            # the yes says so, in "Your decision"
+    elif AH.promised(record):
+        L += [f"These comparisons are carried out as listed after {after}.", ""]
     else:
-        from agents import analysis_handoff as AH
-        L = ["- The analysis plan did not pass its check or its review. "
-             + ("A design is approved together with its analysis plan, so this design "
-                "cannot be approved as it is." if AH.unapprovable(record) else
-                "This does not stop the design, since the Analyzer plans again after the "
-                "runs.")]
-        L += [f"  - {_cell(x)}" for x in plan.get("problems") or [] if str(x).strip()]
-    remarks = [x for x in (review.get("model_problems") or []) if str(x).strip()]
-    if remarks:
-        L.append(f"- The plan's review made {len(remarks)} remark"
-                 f"{'' if len(remarks) == 1 else 's'}.")
-        L += [f"  - {_cell(x)}" for x in remarks]
-    b = plan.get("baseline") or {}
-    if b.get("inclusive"):
-        said = _cell(b["inclusive"])
-        L.append("- " + said[0].upper() + said[1:] + ("" if said.endswith(".") else "."))
-    todo = list(dict.fromkeys(
-        str(c.get("run")) for c in plan.get("comparisons") or []
-        if isinstance(c, dict) and c.get("run") not in (None, "control")))
-    if todo:
-        one = len(todo) == 1
-        L.append(f"- {_join([f'`{t}`' for t in todo])} {'is' if one else 'are'} not made "
-                 f"yet, so the plan takes {'its' if one else 'their'} outputs to be the "
-                 f"control run's quantities over the planned years. Each year is checked "
-                 f"after it runs.")
+        # A PLAN SHOWN THAT A YES DOES NOT APPROVE (the preview's switch
+        # alone): said where it is shown, since nothing else on the page does
+        L += [f"These comparisons are a preview. Your yes does not approve them, and they are "
+              f"chosen again after {after}.", ""]
     return L

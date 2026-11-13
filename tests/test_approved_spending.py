@@ -149,11 +149,13 @@ class TestThePageSaysWhatAYesAllows:
 
     def test_a_design_with_a_run_gives_the_figure_a_yes_allows(self):
         said = self._decision([self.RUN], 4.5)
-        assert "It allows the 4.5 node-hours estimated above, and no more." in said
+        # the yes row of the decision table, since 2026-11-13
+        assert "| yes | The run is submitted. It may use up to 4.5 node-hours. |" in said
 
     def test_a_design_with_no_estimate_or_no_run_names_no_figure(self):
-        assert "It allows" not in self._decision([self.RUN], None)
-        assert "It allows" not in self._decision([], 0.0)
+        assert "| yes | The run is submitted. |" in self._decision([self.RUN], None)
+        assert "may use up to" not in self._decision([self.RUN], None)
+        assert "may use up to" not in self._decision([], 0.0)
 
 
 # ── the manager, before anything is built ────────────────────────────────────

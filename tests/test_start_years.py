@@ -236,17 +236,18 @@ class TestThePageSaysWhereARunStarts:
         _with_years(study, [2016])
         m, cfg, st, p = _preview(study)
         page = self._page([2016], p)
-        assert "Each new run starts from the control run's saved state at the beginning " \
+        # one new run: "It starts", since the page was rebuilt on 2026-11-13
+        assert "It starts from the control run's saved state at the beginning " \
                "of 2016 and simulates 2016." in page
         assert "The model server has a note on years." in page
         # the server's note, with the name a person reads for its control
         assert "ot demonstrated: the run starts from the control run's saved state of " \
                "1 January 2016" in page
-        assert "It allows the 0.8 node-hours estimated above, and no more." in page
+        assert "| yes | The run is submitted. It may use up to 0.8 node-hours. |" in page
 
     def test_from_the_controls_first_year_it_says_that_year(self, study):
         m, cfg, st, p = _preview(study)
         page = self._page([2015, 2016], p)
-        assert "Each new run starts from the control run's saved state at the beginning " \
+        assert "It starts from the control run's saved state at the beginning " \
                "of 2015 and simulates 2015 to 2016." in page
         assert "not demonstrated: the run starts" not in page

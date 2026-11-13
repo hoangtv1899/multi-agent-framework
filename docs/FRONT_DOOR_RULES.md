@@ -214,49 +214,102 @@ the answer is read from".
 
 ## The design page is short, with two files beside it
 
-`src/agents/design_page.py` (2026-11-12). A whole-domain design is decided on
-a short page, `DESIGN_REVIEW.md`: the question, what will run and its cost,
-the control run in a summary written once, how the answer will be read, what
-the study cannot tell, the points to weigh and the decision. The design in
-full is in `DESIGN_DETAILS.md`, and the steps to make the runs by hand are in
-`RUN_BY_HAND.md`. The page names both.
+`src/agents/design_page.py` (2026-11-12, rebuilt section by section on
+2026-11-13). A whole-domain design is decided on a short page,
+`DESIGN_REVIEW.md`. The hydrologist who reads it asked for more figures, less
+text and nothing taken too literally. The page has seven parts, in this
+order:
+
+1. **Your question**, and each change asked for at an earlier page.
+2. **The control run**: a summary written once, and a figure of the run
+   beside its measurements.
+3. **The new run** (or **The new runs**): what will run, where it starts and
+   its cost; a table with one row per knob a run changes (what it is, how it
+   is changed, when and where); and a figure of what each run is given
+   beside the control run.
+4. **How your question will be answered**: what is compared with what and
+   the years reported, then a table of the comparisons (what we compare,
+   when, how, and what it tells us).
+5. **What the answer will not cover.**
+6. **Choices made for you.**
+7. **Your decision**: a table of what each answer at the terminal does, and
+   the decision line, `**Decision:** not yet made.`
+
+The design in full is in `DESIGN_DETAILS.md`, and the steps to make the runs
+by hand are in `RUN_BY_HAND.md`. The page names both.
 
 Short does not mean silent. The page and the details are drawn by code from
-the same records, and no model writes either. A caveat, a finding of the
-model server, a remark of a plan's review or a thing decided without the
-person is printed whole. What the page leaves to the details is description:
-the control's set-up, each change's mechanism, the scripts.
+the same records, and no model writes either. A limit, a finding of the model
+server or a thing decided without the person is printed whole or left to the
+details, which print it whole. The page never names a step of the framework:
+it says "the comparisons", never "analysis plan", "Analyzer" or "planning
+step", and "the control run", never "the prepared run".
 
-- **Where a run differs from the question's own word.** A change in the
-  server's list may say what a question's word misses (`asked_otherwise`): a
-  question about rain, and a change that multiplies rain and snow together.
-  The page prints the server's sentence where the run is described.
-- **The places and the years.** Each place an analysis reads is given with
-  its cells, its area and its rule. A daily or monthly series is given with
-  the years it covers.
+- **What a new run is given** (`src/agents/run_figures.py`). A page written
+  before a run cannot show what the run produces. It shows what the run is
+  given. The model server works out the values (`domain_given.page_record`):
+  the table's rows from the change's parameters, a series of each changed
+  input beside the control run's, and a map of the mean change where the
+  change covers part of the grid. The record is kept beside the design
+  (`01_inputs/run_given.json`), so a page can be drawn again from it. The
+  Analyzer's figure tool draws the figures, and a series panel shades the
+  changed months or years (`shade_labels`, an option the Analyzer is not
+  shown). A run with no row in the record, an older study and a record made
+  for another design keep the server's own words for each change. A figure
+  that cannot be drawn is left out, and the details say why.
+- **The comparisons** come from the analysis plan written before the page,
+  when there is one. The table shows at most four: those the plan marks
+  `main`, or its first four. The rest are counted, and the details list
+  every one. Each row gives the analysis's title (its fields where it has
+  none), its periods or the years of its series, the kinds of its outputs in
+  plain words from one table in code, and what it tells us (`tells`, or its
+  question). A comparison code finds conditional or blocked gets one
+  sentence that names it and gives the reason. Where the yes does not
+  approve the plan shown, the page says it is a preview. With no plan, the
+  page says the comparisons are chosen after the run.
+- **What the answer will not cover**, in this order: the Planner's verdict
+  where it is not "full"; the server's short limit of each knob a run uses
+  (`not_covered`, once each); the Planner's limits for this question
+  (`question_limits`), each marked as its judgement; and what the control run
+  does not contain, said once. Where every change of every run carries its
+  short limit, the Planner's caveats are left to the details, which print
+  every one whole. Where any change lacks one, as in a record made before,
+  the caveats are printed as before.
+- **Choices made for you**, in this order: where a run does something other
+  than the question's own words (the server's `asked_otherwise` sentence: a
+  question about rain, and a change that multiplies rain and snow together);
+  what Reception decided without the person, less a remark that makes the
+  same point; what Reception noted; the notes of the server's check; and a
+  change no run has completed. The Planner's verdict of "full", that the
+  server checked the design, that the plan passed its check and its review,
+  the review's remarks and that a run is not made yet are left to the
+  details.
+- **Your decision.** A yes submits the runs and may use up to the server's
+  estimate. Where the yes also approves the plan shown, it says the
+  comparisons are carried out as listed. A no submits nothing and uses no
+  computing time; the model calls that prepared the page are already spent.
+  A change, in the person's own words, makes the design again. A design that
+  cannot run gives its reasons first and offers only a change or nothing.
+  `record_decision` replaces the decision line of a page written before
+  2026-11-13 as well.
 - **The control run's summary** is a few sentences kept in the control's
   registry entry (`page_summary`), with a version, and printed as it stands.
 - **The control run beside its measurements is a figure** (2026-11-12,
-  `src/agents/control_figures.py`). The summary's numbers were about one or
-  two years of the run, so a person who asked about other years read numbers
-  that were not about their question. The model server pairs each measurement
+  `src/agents/control_figures.py`). The model server pairs each measurement
   with the run's own monthly values and keeps the pairs in the run's results
   store (`mcp/elm-mcp/src/domain_measured.py`). The page shows the whole
   record, shades the years asked about, and says the two values of each
   quantity for those years in one sentence, filled in by code. The details
-  page adds maps of the run's mean and the source of each measurement. The
-  Analyzer's own figure tool draws all of it
-  (`src/agents/analysis/figure_spec.py`), so one tool serves the design pages
-  and the reports. A control with no measurements keeps the summary's words
-  (`compared`), and a figure that cannot be drawn never stops a page.
-- **What the control run does not contain is said once**, under "What the
-  study cannot tell you": in the Planner's caveat where one names the thing,
-  and in the server's words where none does.
-- **A no is not said to cost nothing.** It submits nothing and uses no
-  computing time; the model calls that prepared the page are already spent.
+  page adds maps of the run's mean and the source of each measurement. A
+  control with no measurements keeps the summary's words (`compared`), and a
+  figure that cannot be drawn never stops a page.
+- **The details keep everything the page leaves out**: every caveat and
+  every finding of the server whole, every remark of Reception and of the
+  plan's review, the whole plan with each analysis's title and what it
+  tells, every problem of its check, the places it reads with their cells
+  and area, and what the new runs are given, with why any part is not shown.
 - **Titles.** The planning step writes a short title for each analysis in the
-  same call as its plan. The question and the id stay, and a plan with no
-  title is listed by its question.
+  same call as its plan. The question and the id stay in the details.
 - **The rules for the words** a person reads are in
   `src/agents/prompts/house_style.txt`, and the Planner and the planning step
   are sent them in full. An agent is a model call of its own and inherits no
@@ -267,9 +320,9 @@ the control's set-up, each change's mechanism, the scripts.
 `src/agents/analysis_preview.py`, off unless `IDEAS_PLAN_BEFORE_APPROVAL=1`.
 With the switch set, the Analyzer's own planning step (step 2a, with its
 check, its review and its one rewrite: `step3_interpret.plan_and_review`)
-writes its plan from the design before the page. The short page shows what
-is compared, each analysis with its places and periods, and every remark of
-the plan's review. The details file shows the plan in full.
+writes its plan from the design before the page. The short page shows the
+comparisons in a table, and the details file shows the plan in full, with
+every remark of its review.
 
 This is a look before the decision and nothing more:
 
@@ -293,10 +346,11 @@ read as the approval of an analysis, and it says so wherever it shows a plan.
 `src/agents/analysis_handoff.py`, off unless `IDEAS_CARRY_OUT_SHOWN_PLAN=1`,
 and only with the preview of the section above. With both switches set, a
 plan that passed its check and its review is promised to the Analyzer when
-the page is written. The page then says that a yes approves this plan
+the page is written. The short page's yes then says that the comparisons
+are carried out as listed. The details say that a yes approves this plan
 together with the runs and the years, and that the Analyzer carries it out as
 it stands and writes no second one, after the runs or, for a design that
-makes no new run, after the yes. It also says that the analysis stops, and
+makes no new run, after the yes. They also say that the analysis stops, and
 its report says why, if the plan cannot be carried out.
 
 - The promise is kept in the preview's record (`handoff`), and the Analyzer
@@ -358,8 +412,10 @@ a study planned after its runs.
 
 `analysis_preview.analysis_support`. Code gives each analysis of a plan that
 is shown one of three statuses, from the plan and its check. No model writes
-it. The page's table has the status in its last column, and a line below the
-table gives the reason for each one that is not supported.
+it. The details' table has the status in its last column, and a line below
+the table gives the reason for each one that is not supported. The short page
+gives one sentence for each comparison that is not supported, naming it by
+its title (2026-11-13).
 
 - **blocked**: code's check of the plan names a problem of this analysis.
   Such a plan did not pass.
@@ -378,7 +434,7 @@ no place to say what a calculation needs of a field.
 `src/core/approved_spending.py`, for every whole-domain study, with no switch.
 
 - The design page gives the model server's estimate of the cost, in
-  node-hours, and says that a yes allows that figure and no more.
+  node-hours, and says that a yes may use up to that figure.
 - The approval records the figure under `authorized`, apart from the design's
   fingerprint and from the plan's hash. A cost estimate identifies neither.
 - The Experiment Manager checks it after the model server has checked the
@@ -395,17 +451,19 @@ person approves.
 
 ## Every caveat is on the page
 
-Up to eight caveats are printed, each up to 400 characters, and any beyond
-that are counted with where to find them. What Reception lists as data gaps
-is labelled "noted by Reception" on a whole-domain page, since such a study
-fetches no data.
+`DESIGN_DETAILS.md` prints every caveat whole (since 2026-11-13; up to eight
+were printed before, each up to 400 characters). The short page prints them
+too where any change lacks the server's short limit. What Reception lists as
+data gaps is labelled "noted by Reception" on a whole-domain page, since such
+a study fetches no data.
 
 ## A change with no completed run
 
 The server's change list marks each available change `demonstrated: true` or
 `false` (`domain_changes.py`). A change that has never completed a run in
-this framework may be designed. The server's check lists it as unusual, and
-the design page says "NOT DEMONSTRATED" under the run, by code. The words
+this framework may be designed. The server's check lists it as unusual. The
+details say "NOT DEMONSTRATED" under the run, and the short page gives the
+server's sentence under "Choices made for you", by code. The words
 printed there are the server's and say what is true of the change, nothing
 else; what a designer does about it is a rule of the server's list, which no
 page prints.

@@ -29,7 +29,11 @@ drawn here, so the Analyzer's figures can use it once its task names it:
                         black with markers, apart from the model's lines
     shaded years        a series panel's "shade": [years] sets those years off
                         on a whole-record axis
-    an outline          a region's mask under lat_lon["outline"] is drawn on
+    shaded labels       a series panel's "shade_labels": [labels] sets off each
+                        unbroken run of those labels, months ("2033-06") or
+                        years ("2033") alike, once per panel: the months a new
+                        run's change alters (agents/run_figures.py, 2026-11-13)
+    an outline         a region's mask under lat_lon["outline"] is drawn on
                         every map as a line
     a stack             a figure's "layout": "stack" puts its panels one under
                         another, each the figure's full width
@@ -503,6 +507,24 @@ def _year_runs(labels: Sequence[str], years) -> List[Tuple[int, int]]:
     return runs
 
 
+def _label_runs(labels: Sequence[str], want) -> List[Tuple[int, int]]:
+    """(first, last) position of each unbroken run of labels that are in
+    `want`, each label matched whole: the changed months of a new run are
+    set off as they are, not as the whole years that hold them."""
+    want = {str(x) for x in want or []}
+    runs, start = [], None
+    for i, lab in enumerate(labels):
+        inside = str(lab) in want
+        if inside and start is None:
+            start = i
+        if not inside and start is not None:
+            runs.append((start, i - 1))
+            start = None
+    if start is not None:
+        runs.append((start, len(labels) - 1))
+    return runs
+
+
 def _draw_series(ax, rs, opts, normal_years, where):
     years, normal = opts.get("years"), bool(opts.get("normal"))
     n, units = 0, set()
@@ -523,11 +545,20 @@ def _draw_series(ax, rs, opts, normal_years, where):
                 measured += 1
                 ax.plot(np.arange(len(vals)), vals, label=name, **style)
             else:
-                ax.plot(np.arange(len(vals)), vals, lw=1.6, label=name)
-            for a, b in _year_runs(labs, opts.get("shade")):
+                # A YEARLY SERIES IS DRAWN WITH ITS POINTS (2026-11-13): a run of
+                # one year is one value a year, and a line alone shows no single
+                # value (a new run's yearly panel, agents/run_figures.py).
+                ax.plot(np.arange(len(vals)), vals, lw=1.6, label=name,
+                        **({"marker": "o", "ms": 4} if step in ("year", "wateryear") else {}))
+            for a, b in (_year_runs(labs, opts.get("shade"))
+                         + _label_runs(labs, opts.get("shade_labels"))):
                 if not shaded:
                     ax.axvspan(a - 0.5, b + 0.5, color=SHADE_COLOUR, zorder=0, lw=0)
-            shaded = shaded or bool(opts.get("shade"))
+            if not shaded and (opts.get("shade") or opts.get("shade_labels")) and len(vals):
+                # the band of a first or last label reaches half a step past it
+                lo, hi = ax.get_xlim()
+                ax.set_xlim(min(lo, -0.5), max(hi, len(vals) - 0.5))
+            shaded = shaded or bool(opts.get("shade")) or bool(opts.get("shade_labels"))
             ticks = [i for i, lab in enumerate(labs) if str(lab)[5:] in ("01-01", "01", "DJF")
                      or step in ("year", "wateryear")]
             ax.set_xticks(ticks[:: max(1, len(ticks) // 9)])

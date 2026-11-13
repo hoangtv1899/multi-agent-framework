@@ -124,7 +124,8 @@ class TestThePromise:
         monkeypatch.delenv(AH.SWITCH, raising=False)
         rd, plan = _approved(tmp_path, monkeypatch)
         assert "handoff" not in _record(rd)
-        assert AV.NOT_BUILT in " ".join(_first_part(rd).split())
+        assert "These comparisons are a preview. Your yes does not approve them" in \
+            " ".join(_first_part(rd).split())
         ctx, out = _after_the_runs(rd, plan, built)
         assert AH.hand_over(ctx, out) is None
         assert not out.exists() or not list(out.iterdir())      # no record, no plan
@@ -146,12 +147,14 @@ class TestThePromise:
         assert rec["handoff"] == {"promised": True, "bound": True, "words": AH.APPROVED}
         assert rec["transitional"] == AH.APPROVED
         page = " ".join(_first_part(rd).split())
-        assert AH.APPROVED in page
-        assert "After the runs the Analyzer carries the plan out as it stands and writes " \
-               "no second one." in page
-        assert "If it cannot, the analysis stops and its report says why." in page
+        # the short page says it in the yes row (2026-11-13); the details keep
+        # the record's own words, with what happens if it cannot be done
+        assert "The comparisons above are carried out as listed. |" in page
+        assert "preview" not in page and "Analyzer" not in page
         assert "writes its plan again" not in page
         assert AH.APPROVED in " ".join(_details(rd).split())
+        assert "After the runs the Analyzer carries the plan out as it stands and writes " \
+               "no second one." in " ".join(_details(rd).split())
         assert "writes its plan again" not in _details(rd)
 
     def test_a_design_with_no_new_run_does_not_speak_of_runs_to_come(self, both, tmp_path,
@@ -161,11 +164,12 @@ class TestThePromise:
         assert rec["handoff"] == {"promised": True, "bound": True,
                                   "words": AH.APPROVED_NO_RUN}
         page = " ".join(_first_part(rd).split())
-        assert "After your yes the Analyzer carries the plan out as it stands and writes " \
-               "no second one." in page
-        assert "After the runs" not in page and "writes its plan again" not in page
-        assert "If it cannot, the analysis stops and its report says why." in page
+        assert "| yes | The analysis of the control run's existing output starts." in page
+        assert "The comparisons above are carried out as listed. |" in page
+        assert "after the run" not in page.lower() and "writes its plan again" not in page
         assert AH.APPROVED_NO_RUN in " ".join(_details(rd).split())
+        assert "If it cannot, the analysis stops and its report says why." in \
+            " ".join(_details(rd).split())
 
     def test_a_plan_that_did_not_pass_is_not_promised(self, both, tmp_path, monkeypatch):
         rd, _ = _approved(tmp_path, monkeypatch,

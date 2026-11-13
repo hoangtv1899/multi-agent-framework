@@ -228,11 +228,13 @@ class TestThePageShowsEveryCaveat:
         assert all(f"- caveat: a caveat about the design number {k}" in page
                    for k in range(1, 6))
 
-    def test_beyond_the_limit_they_are_counted_not_dropped(self):
-        page = self._with_caveats(dr.CAVEATS_SHOWN + 3)
-        assert f"number {dr.CAVEATS_SHOWN}" in page
-        assert f"number {dr.CAVEATS_SHOWN + 1}" not in page
-        assert "- and 3 more caveat(s), in `strategy.json`" in page
+    def test_every_one_is_printed_however_many(self):
+        # the short page leaves the caveats to this page where every knob has
+        # its short limit (2026-11-13), so none is counted in place of printed
+        page = self._with_caveats(11)
+        assert all(f"- caveat: a caveat about the design number {k}" in page
+                   for k in range(1, 12))
+        assert "more caveat(s)" not in page
 
     def test_a_long_caveat_keeps_its_second_sentence(self):
         long = ("The change has no setting for this. " + "x" * 190

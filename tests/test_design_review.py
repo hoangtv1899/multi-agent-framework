@@ -112,11 +112,11 @@ class TestTheRendererQuotesTheRecords:
         (tmp_path / "reception.json").write_text(json.dumps(reception))
         (tmp_path / "strategy.json").write_text(json.dumps(strategy))
         p = dr.write_review(tmp_path)
-        assert p.name == "DESIGN_REVIEW.md" and "pending" in p.read_text()
+        assert p.name == "DESIGN_REVIEW.md" and dr._PENDING in p.read_text()
         dr.record_decision(tmp_path, "accepted at the terminal")
         text = p.read_text()
         assert "accepted at the terminal at 20" in text
-        assert "pending" not in text
+        assert dr._PENDING not in text
 
 
 # ── the pause in the coordinator ─────────────────────────────────────

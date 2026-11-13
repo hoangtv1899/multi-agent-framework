@@ -261,7 +261,7 @@ def test_every_page_holds_the_invariants(name, reception, strategy):
     lines = page.splitlines()
     assert len(lines) <= 60, f"{name}: {len(lines)} lines is not one screen"
     assert page.count("**Decision:**") == 1
-    assert "pending" in page
+    assert dr._PENDING in page                 # "not yet made", since 2026-11-13
     assert "# Design review" in lines[0]
     assert "the authority" in page          # the records stay authoritative
     # the verdict word on the page IS the record's, never reworded
