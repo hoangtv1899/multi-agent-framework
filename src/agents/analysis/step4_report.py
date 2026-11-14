@@ -651,9 +651,19 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         # methods (numbers_check.check_evidence), and any mismatch withholds
         # the report, naming the record, the value logged and the value made
         # again.
+        # THE REPORT'S FIGURES AND TABLES (2026-11-13), drawn by code from the
+        # approved comparisons before the second reading, so that the reading
+        # also covers every record the tables print. A failure of the figures
+        # never stops the report: the page then shows the key findings.
+        rf = report_figures(ctx.run_dir, _plan.load_plan(adir), adir)
+        if rf is not None:
+            report["report_figures"] = rf
+        printed = list((rf or {}).get("printed_records") or [])
         from agents.analysis import numbers_check as _nc
         try:
-            report["evidence_numbers"] = _nc.check_evidence(ctx.run_dir, report["claims"])
+            report["evidence_numbers"] = (
+                check_evidence(ctx.run_dir, report["claims"], printed) if printed else
+                _nc.check_evidence(ctx.run_dir, report["claims"]))
         except Exception as e:                                  # noqa: BLE001
             report["evidence_numbers"] = {"pass": False, "n_compared": 0, "mismatches": [],
                                           "error": f"{type(e).__name__}: {e}"}
@@ -732,6 +742,52 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         if report["numbers_trace"].get("withheld_because"):
             report["withheld_because"] = report["numbers_trace"]["withheld_because"]
     return report
+
+
+def report_figures(study_dir, plan: Dict[str, Any], analysis_dir) -> Optional[Dict[str, Any]]:
+    """The report's figures and tables (agents.analysis.report_figures,
+    interface I1), or None where that module is not present. Never raises:
+    a failure is a record with no figure and the reason under `problems`."""
+    # JOIN: piece F's report_figures.build; without the module, no record
+    try:
+        from agents.analysis import report_figures as RF
+    except ImportError:
+        return None
+    try:
+        rec = RF.build(study_dir, plan, analysis_dir)
+    except Exception as e:                                          # noqa: BLE001
+        rec = None
+        why = f"the report's figures could not be drawn ({type(e).__name__}: {e})"
+    else:
+        why = "the report's figures returned no record"
+    if isinstance(rec, dict):
+        return rec
+    return {"figures": [], "tables": [], "printed_records": [], "not_drawn": [why],
+            "problems": [why]}
+
+
+def check_evidence(study_dir, claims, printed: List[str]) -> Dict[str, Any]:
+    """The second reading of the numbers the claims cite and, where the
+    reading takes them, of the records the report's tables print. A reading
+    that cannot take them leaves them named under `printed_not_checked`, so
+    the page says which numbers were not made again."""
+    from agents.analysis import numbers_check as NC
+    if not printed:
+        return NC.check_evidence(study_dir, claims)
+    # JOIN: piece K's `also` (interface I2); without it, the cited records only
+    import inspect
+    try:
+        takes = "also" in inspect.signature(NC.check_evidence).parameters
+    except (TypeError, ValueError):
+        takes = False
+    if takes:
+        return NC.check_evidence(study_dir, claims, also=printed)
+    rec = NC.check_evidence(study_dir, claims)
+    cited = {r for c in claims or [] for r in (c.get("evidence") or [])}
+    left = sorted({r for r in printed if r not in cited})
+    if left and isinstance(rec, dict):
+        rec = dict(rec, printed_not_checked=left)
+    return rec
 
 
 def suite_regions(ctx) -> List[str]:
@@ -845,7 +901,45 @@ def render_markdown(report: Dict[str, Any]) -> str:
 
     claims = report.get("claims") or []
     lines += [f"## What the run found ({len(claims)} audited claims)", ""]
-    for i, c in enumerate(claims, 1):
+    lines += claim_lines(report)
+
+    blocking, others = caveat_lines(report)
+    if blocking:
+        lines += ["## Caveats that bind this answer", ""] + blocking + [""]
+    if others:
+        lines += ["## Other caveats on record", ""] + others + [""]
+
+    if report.get("evidence_trace") and not report.get("withheld_because"):
+        from agents.analysis.domain_report import suite_sections
+        lines += suite_sections(report)
+    lines += planned_phase_lines(report)
+
+    withheld = report.get("withheld") or []
+    if withheld:
+        lines += [f"## Claims the audit withheld ({len(withheld)})", ""]
+        lines += withheld_lines(report) + [""]
+
+    lines += verification_limits(report)
+
+    lines += ["## Provenance", ""] + provenance_lines(report) + [
+        "", "*Values are shown to 3 significant figures; the exact "
+        "measured values are in analysis.json beside this file.*", ""]
+    if report.get("model_setup"):
+        from agents.analysis import model_setup as MS
+        lines = MS.insert_after_answer(lines, [_plain(x) for x in MS.render(
+            report["model_setup"])])
+    return with_planned_phase("\n".join(lines), report, section=False)
+
+
+# THE PARTS OF THE PAGE, NAMED (2026-11-13). A whole-domain report is written
+# as four pages (agents.analysis.report_pages), and its details page holds
+# these parts whole. They are the same functions render_markdown uses, so the
+# one page that other reports keep and the details page cannot drift apart.
+def claim_lines(report: Dict[str, Any]) -> List[str]:
+    """Each kept claim with its values, its finding, its caveats and the
+    records it rests on, numbered from 1; a blank line after each."""
+    lines: List[str] = []
+    for i, c in enumerate(report.get("claims") or [], 1):
         lines.append(f"{i}. {_plain(c.get('claim'))}")
         vals = c.get("values") or []
         tail = []
@@ -870,62 +964,49 @@ def render_markdown(report: Dict[str, Any]) -> str:
         if c.get("trace"):
             lines.append(f"   - **{c['trace']}**")
         lines.append("")
+    return lines
 
+
+def caveat_lines(report: Dict[str, Any]):
+    """(the binding caveats, every other caveat), one bullet each with its
+    identifier and its statement whole."""
     caveats = report.get("caveats") or []
-    blocking = [c for c in caveats if c.get("severity") == "blocking"]
-    others = [c for c in caveats if c.get("severity") != "blocking"]
-    if blocking:
-        lines += ["## Caveats that bind this answer", ""]
-        for c in blocking:
-            lines.append(f"- **{c.get('id')}**: {_plain(c.get('statement'))}")
-        lines.append("")
-    if others:
-        lines += ["## Other caveats on record", ""]
-        for c in others:
-            lines.append(f"- {c.get('id')} ({c.get('severity')}): "
-                         f"{_plain(c.get('statement'))}")
-        lines.append("")
+    blocking = [f"- **{c.get('id')}**: {_plain(c.get('statement'))}"
+                for c in caveats if c.get("severity") == "blocking"]
+    others = [f"- {c.get('id')} ({c.get('severity')}): {_plain(c.get('statement'))}"
+              for c in caveats if c.get("severity") != "blocking"]
+    return blocking, others
 
-    if report.get("evidence_trace") and not report.get("withheld_because"):
-        from agents.analysis.domain_report import suite_sections
-        lines += suite_sections(report)
-    lines += planned_phase_lines(report)
 
-    withheld = report.get("withheld") or []
-    if withheld:
-        lines += [f"## Claims the audit withheld ({len(withheld)})", ""]
-        for w in withheld:
-            lines.append(f"- {_plain(w.get('claim'))}")
-            lines.append(f"  struck by `{w.get('struck_by')}`: "
-                         f"{_plain(w.get('struck_because'))}")
-        lines.append("")
+def withheld_lines(report: Dict[str, Any]) -> List[str]:
+    """Each claim the audit struck, with the rule that struck it and why."""
+    lines: List[str] = []
+    for w in report.get("withheld") or []:
+        lines.append(f"- {_plain(w.get('claim'))}")
+        lines.append(f"  struck by `{w.get('struck_by')}`: "
+                     f"{_plain(w.get('struck_because'))}")
+    return lines
 
-    lines += verification_limits(report)
 
+def provenance_lines(report: Dict[str, Any]) -> List[str]:
+    """The rounds, the audit's counts, the scope of the run, the model calls
+    and, where it was written, the numbers report."""
     prov = report.get("provenance") or {}
     cost = report.get("cost") or {}
     comp = cost.get("compute") or {}
     llm = (cost.get("llm") or {}).get("analyzer") or {}
-    lines += ["## Provenance", "",
-              f"- rounds: {len(prov.get('rounds') or [])}, stopped because "
-              f"{prov.get('stopped_because')}",
-              f"- audit: {(prov.get('audit') or {}).get('n_claims')} claims made, "
-              f"{(prov.get('audit') or {}).get('n_struck')} struck",
-              (f"- {scope_line(report)}" if report.get("kind") == "whole_domain" else
-               f"- columns: {comp.get('columns_succeeded')} of "
-               f"{comp.get('columns_total')} succeeded"),
-              f"- model calls in the Analyzer: {llm.get('calls', 'not measured')}",
-              "", "*Values are shown to 3 significant figures; the exact "
-              "measured values are in analysis.json beside this file.*", ""]
+    lines = [f"- rounds: {len(prov.get('rounds') or [])}, stopped because "
+             f"{prov.get('stopped_because')}",
+             f"- audit: {(prov.get('audit') or {}).get('n_claims')} claims made, "
+             f"{(prov.get('audit') or {}).get('n_struck')} struck",
+             (f"- {scope_line(report)}" if report.get("kind") == "whole_domain" else
+              f"- columns: {comp.get('columns_succeeded')} of "
+              f"{comp.get('columns_total')} succeeded"),
+             f"- model calls in the Analyzer: {llm.get('calls', 'not measured')}"]
     if report.get("domain_report"):
-        lines[-3:-3] = [f"- the numbers by region, year, month and season, written from "
-                        f"the records "
-                        f"before this analysis: {report['domain_report']}"]
-    if report.get("model_setup"):
-        from agents.analysis import model_setup as MS
-        lines = MS.insert_after_answer(lines, [_plain(x) for x in MS.render(
-            report["model_setup"])])
-    return with_planned_phase("\n".join(lines), report, section=False)
+        lines.append(f"- the numbers by region, year, month and season, written from "
+                     f"the records before this analysis: {report['domain_report']}")
+    return lines
 
 
 # WHAT CODE CHECKED, AND WHAT IT DID NOT, ON THE LIVE PAGE (2026-11-10). Two
@@ -1158,10 +1239,23 @@ def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
     p = out_dir / FILENAME
     p.write_text(json.dumps(report, indent=2, default=str))
     # THE READER'S COPY, beside the record. Written second, never instead.
+    # A WHOLE-DOMAIN REPORT THAT IS NOT WITHHELD IS FOUR PAGES (2026-11-13,
+    # agents.analysis.report_pages): the report in the order of a paper, the
+    # screen, the planned comparisons and the details. Every other report
+    # keeps its one page; so does this one, should the four pages fail.
+    from agents.analysis import report_pages as RP
     try:
-        (out_dir / REPORT_MD).write_text(render_markdown(report))
+        if RP.applies(report):
+            RP.write_pages(report, out_dir)
+        else:
+            (out_dir / REPORT_MD).write_text(render_markdown(report))
+            _set_companions_aside(out_dir)
     except Exception as e:                                      # noqa: BLE001
-        print(f"   ⚠️  REPORT.md not written: {e}")
+        print(f"   ⚠️  the report's pages not written ({e}); its one page is written instead")
+        try:
+            (out_dir / REPORT_MD).write_text(render_markdown(report))
+        except Exception as e2:                                 # noqa: BLE001
+            print(f"   ⚠️  REPORT.md not written: {e2}")
 
     # A WITHHELD REPORT HAS NO DECK (2026-11-03): slides would present the
     # headline the trace could not support.
@@ -1184,6 +1278,21 @@ def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
         except Exception as e:                                  # noqa: BLE001
             print(f"   the earlier deck could not be set aside ({e})")
     return str(p)
+
+
+def _set_companions_aside(out_dir) -> None:
+    """The three companion pages an earlier pass wrote, moved into
+    superseded/ when this pass writes one page (a withheld report): left in
+    place they would present findings the page no longer stands behind."""
+    from agents.analysis import report_pages as RP
+    names = tuple(n for n in RP.PAGES if n != REPORT_MD)
+    if any((Path(out_dir) / n).is_file() for n in names):
+        try:
+            from agents.analysis.numbers_check import set_aside
+            for name in set_aside(out_dir, names, figures=False):
+                print(f"   moved an earlier page aside: {name}")
+        except Exception as e:                                  # noqa: BLE001
+            print(f"   the earlier pages could not be set aside ({e})")
 
 
 def summary(report: Dict[str, Any]) -> str:

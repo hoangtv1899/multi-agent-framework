@@ -1378,25 +1378,55 @@ def _screen_csv_words(r: Dict[str, Any]) -> str:
 
 def suite_sections(report: Dict[str, Any]) -> List[str]:
     """REPORT.md's sections for a study with a suite, after the claims."""
-    t = report.get("evidence_trace") or {}
-    recs = list((t.get("records") or {}).values())
-    L: List[str] = []
+    L: List[str] = ["## The maps and series the Analyzer drew", ""]
+    L += drawn_lines(report) + [""]
+    timing = timing_lines(report)
+    if timing:
+        L += ["## Timing", ""] + timing + [""]
+    L += screen_sections(report)
+    L += ["## How the claims are worded and which may lead", ""] + wording_lines(report) + [""]
+    oc = open_cause_lines(report)
+    if oc:
+        # RENAMED (the user's decision of 2026-11-09): a proposed run tests
+        # sensitivity; it settles nothing by itself
+        L += ["## Remaining uncertainty and proposed sensitivity experiments", ""] + oc + [""]
+    return L
+
+
+# THE PARTS OF suite_sections, NAMED (2026-11-13): the details page of a
+# whole-domain report (agents.analysis.report_pages) holds each part under its
+# own heading, from the same code as the one page other reports keep.
+def _suite_records(report: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return list(((report.get("evidence_trace") or {}).get("records") or {}).values())
+
+
+def drawn_lines(report: Dict[str, Any], names_only: bool = False) -> List[str]:
+    """The figures the Analyzer drew in its own step, each with the map and
+    series records it drew from; "None." when it drew none. `names_only`:
+    the file's name in place of its path, for a page beside the figures."""
+    recs = _suite_records(report)
     figs = ((report.get("figures") or {}).get("investigation") or {})
     drawn = [r for r in recs if r["call"] in ("get_map", "get_series")]
-    L += ["## The maps and series the Analyzer drew", ""]
+    L: List[str] = []
     if not figs and not drawn:
         L += ["None.", ""]
     for fid, path in figs.items():
         mine = [r for r in drawn if r.get("script") == fid]
-        L.append(f"- {fid}: {path}" + ("; from " + "; ".join(
+        shown = Path(str(path)).name if names_only else path
+        L.append(f"- {fid}: {shown}" + ("; from " + "; ".join(
             f"{r['id']} {r['call']} {r.get('field')} {r.get('period') or r.get('step') or ''}"
             f"{(' ' + r['region']) if r.get('region') else ''}".rstrip() for r in mine)
             if mine else ""))
-    L.append("")
-    timing = [r for r in recs if r.get("measure")]
+    return L
+
+
+def timing_lines(report: Dict[str, Any]) -> List[str]:
+    """The timing table with the words that say how to read it; [] for a
+    study with no timing record."""
+    timing = [r for r in _suite_records(report) if r.get("measure")]
+    L: List[str] = []
     if timing:
-        L += ["## Timing", "",
-              "Dates are days of the year. Each setting's shift is on the cells eligible at that "
+        L += ["Dates are days of the year. Each setting's shift is on the cells eligible at that "
               "setting in both the year and its baseline; beside it stand the cells eligible in "
               "one only and in neither, and the area the shift covers. The range across the "
               "settings is of the shifts on the comparable cells, those eligible under every "
@@ -1410,9 +1440,16 @@ def suite_sections(report: Dict[str, Any]) -> List[str]:
               "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for r in timing:
             L += _timing_rows(r)
-        L.append("")
+    return L
+
+
+def screen_sections(report: Dict[str, Any]) -> List[str]:
+    """Each screen with its heading, what it set against what, its scoring
+    and display rules, the link to its whole table and the rows it shows."""
+    t = report.get("evidence_trace") or {}
     sr = t.get("screen_record") or {}
-    for r in (x for x in recs if x["call"] == "screen"):
+    L: List[str] = []
+    for r in (x for x in _suite_records(report) if x["call"] == "screen"):
         label = r.get("label") or "screen"
         L += [f"## The screen ({label})", "",
               f"Record {r['id']}: year {r.get('period')}, region {r.get('region')}, against "
@@ -1435,26 +1472,34 @@ def suite_sections(report: Dict[str, Any]) -> List[str]:
                      f"{'' if x.get('score') is None else format_value(x['score'])} | "
                      f"{x.get('status') or ''} | {x.get('mark') or ''} |")
         L.append("")
+    return L
+
+
+def wording_lines(report: Dict[str, Any]) -> List[str]:
+    """The framework's fixed rules for how a claim is worded and which claim
+    may lead, with the question type and the claims the headline states."""
+    t = report.get("evidence_trace") or {}
     qt = t.get("question_type")
-    L += ["## How the claims are worded and which may lead", "",
-          f"- question type: {qt}; {t.get('headline_rule')}"]
+    L = [f"- question type: {qt}; {t.get('headline_rule')}"]
     head = t.get("headline") or {}
     if head.get("claims"):
         L.append(f"- the headline states claim{'s' if len(head['claims']) > 1 else ''} "
                  f"{', '.join(map(str, head['claims']))}")
     for cls, words in (t.get("wording") or {}).items():
         L.append(f"- {cls}: {_plain(words)}")
-    L += ["- never a real-world cause; \"validated\" is not used", ""]
-    oc = t.get("open_causes") or []
-    if oc:
-        # RENAMED (the user's decision of 2026-11-09): a proposed run tests
-        # sensitivity; it settles nothing by itself
-        L += ["## Remaining uncertainty and proposed sensitivity experiments", ""]
-        for o in oc:
-            L.append(f"- {_plain(o.get('cause') or 'an open cause')}: a run with "
-                     + "; ".join(f"{c['id']} {json.dumps(c.get('params') or {}, sort_keys=True)} "
-                                 f"({_plain(c.get('meaning'))}; it does not mean "
-                                 f"{_plain(c.get('not_meaning'))})"
-                                 for c in o.get("changes") or []))
-        L.append("")
+    L.append("- never a real-world cause; \"validated\" is not used")
+    return L
+
+
+def open_cause_lines(report: Dict[str, Any]) -> List[str]:
+    """Each open cause step 3 named, with the run that would test it as the
+    server takes it: each change's id, its settings, what it means and what
+    it does not mean. [] when step 3 named none."""
+    L: List[str] = []
+    for o in (report.get("evidence_trace") or {}).get("open_causes") or []:
+        L.append(f"- {_plain(o.get('cause') or 'an open cause')}: a run with "
+                 + "; ".join(f"{c['id']} {json.dumps(c.get('params') or {}, sort_keys=True)} "
+                             f"({_plain(c.get('meaning'))}; it does not mean "
+                             f"{_plain(c.get('not_meaning'))})"
+                             for c in o.get("changes") or []))
     return L

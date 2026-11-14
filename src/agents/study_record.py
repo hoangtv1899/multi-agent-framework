@@ -816,6 +816,11 @@ def _numbers_check_lines(rd):
 # THE ANALYZER
 # ─────────────────────────────────────────────────────────────────────
 
+COMPANIONS = (("REPORT_DETAILS.md", "everything the report leaves out"),
+              ("SCREEN.md", "the first look at every quantity"),
+              ("PLANNED_ANALYSES.md", "each approved comparison and where the report shows it"))
+
+
 def _analyzer_lines(rd, page_dir):
     L = ["## The Analyzer"]
     try:
@@ -867,6 +872,10 @@ def _analyzer_lines(rd, page_dir):
     else:
         if text is not None:
             L.append(f"Its report: {_link(report, page_dir)}.")
+            # ITS COMPANION PAGES, one line each, after the report (2026-11-13)
+            for name, what in COMPANIONS:
+                if (rd / "04_analysis" / name).is_file():
+                    L.append(f"Beside it, {what}: {_link(rd / '04_analysis' / name, page_dir)}.")
         if head:
             L.append(f"> {_one_line(head, 1200)}" + ("  " if cav else ""))
             if cav:
@@ -1197,6 +1206,13 @@ ROLES = (
     ("04_analysis/numbers_check.json", "the numbers check: the numbers of 03_results/regional.json made again from the model output by an independent reading, how the two compare, and what it did not check"),
     ("04_analysis/superseded/*", "a file of an earlier analysis, set aside when the numbers did not reproduce"),
     ("04_analysis/REPORT.md", "the Analyzer's report"),
+    # THE REPORT'S THREE COMPANION PAGES (2026-11-13, agents/analysis/
+    # report_pages.py): a whole-domain report is four pages, REPORT.md first
+    ("04_analysis/REPORT_DETAILS.md", "the details of the Analyzer's report: every finding with its records, the findings left out and why, every caveat in full, what code checked, the model set-up and provenance"),
+    ("04_analysis/SCREEN.md", "the screen of the Analyzer's report: the first look at every quantity, with how to read it"),
+    ("04_analysis/PLANNED_ANALYSES.md", "the planned comparisons of the Analyzer's report: each approved comparison in words, what became of it and where the report shows it"),
+    ("04_analysis/report_figures.json", "the record of the report's figures and tables, drawn by code from the approved comparisons"),
+    ("04_analysis/figure_over_*.png", "a figure of the Analyzer's report, drawn by code from the approved comparisons"),
     ("04_analysis/analysis.json", "the Analyzer's record: answer, audited claims, struck claims, cost"),
     ("04_analysis/analysis.pptx", "the Analyzer's slides"),
     ("04_analysis/comparison.json", "Analyzer step 1: the comparison with observations"),
