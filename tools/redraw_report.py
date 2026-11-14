@@ -6,22 +6,28 @@ model call and no job.
     source <your environment file>
     python tools/redraw_report.py RUN_DIR
 
-MEANT FOR A COPY OF A STUDY. Copy the study folder first (cp -r) and give
-the copy. A study folder is a record of what was run and said, and this tool
-replaces its report.
+MEANT FOR A COPY OF A STUDY. Copy the study folder first with `cp -a`, which
+keeps the file times a check reads (`cp -r` loses them), and give the copy. A
+study folder is a record of what was run and said, and this tool replaces its
+report.
 
-WHAT IT DOES. It rebuilds the report record (analysis.json) from the study's
-own records, as step 4 does at the end of a live run: the claim trace and
-the second reading of the numbers run again, which read the model output and
-need no model. Where the report's figures module is present, it draws the
-report's figures and tables too. Then it writes the report's pages and the
-deck. The claims, the audit's strikes and the answer are those step 3 saved
-(interpretation.json); nothing is worded again.
+WHAT IT DOES. For a study with a new run, it first makes the study's screen
+as the framework makes it now (analysis_plan.screen_study), so that the
+screen sets the new run against the control run; a study of the control run
+alone keeps its screen of the year against the normal years. It says what it
+did. Then it rebuilds the report record (analysis.json) from the study's own
+records, as step 4 does at the end of a live run: the report's figures and
+tables are drawn, and the claim trace and the second reading of the numbers
+run again, which read the model output and need no model. Then it writes the
+report's pages and the deck. The claims, the audit's strikes and the answer
+are those step 3 saved (interpretation.json); nothing is worded again.
 
 WHAT IT NEVER DOES. It asks no language model and submits no job. It does
-not touch 01_inputs, 03_results, the lookups or step 2's figures. The files
-it replaces are first moved into 04_analysis/before_<stamp>/, so the earlier
-report stays on the record beside the new one.
+not touch 01_inputs, 03_results or step 2's figures. The new screen is
+appended to the lookups, as the framework appends it, and the earlier
+screen's record is set aside, never deleted. The files it replaces are first
+moved into 04_analysis/before_<stamp>/, so the earlier report stays on the
+record beside the new one.
 """
 import argparse
 import json
@@ -68,8 +74,40 @@ def _read(p: Path):
         return None
 
 
+def make_screen(run_dir: Path) -> dict:
+    """The study's screen as the framework makes it now (A10): for a study
+    with a new run, that run against the control run in the screen's year
+    (analysis_plan.screen_study); a study of the control run alone keeps
+    its own. Never raises: {"made", "run", "said"}, where "said" is the line
+    the tool prints."""
+    from agents.analysis import analysis_plan as AP
+    adir = run_dir / "04_analysis"
+    plan = AP.load_plan(adir)
+    run = AP.screen_run(plan)
+    if run == AP.CONTROL:
+        return {"made": False, "run": run,
+                "said": "screen: kept; a study of the control run alone screens its year "
+                        "against the normal years"}
+    old = _read(adir / AP.SCREEN_FILE) or {}
+    try:
+        rec = AP.screen_study(run_dir) or {}
+    except Exception as e:                                          # noqa: BLE001
+        return {"made": False, "run": run,
+                "said": f"screen: NOT made again ({type(e).__name__}: {e}); the report shows "
+                        f"the screen on record"}
+    year = (rec.get("scope") or {}).get("year") or (rec.get("keys") or {}).get("year")
+    if old and old.get("sha256") and old.get("sha256") == rec.get("sha256"):
+        return {"made": False, "run": run,
+                "said": f"screen: kept; it already sets the new run {run} against the control "
+                        f"run in {year}"}
+    return {"made": True, "run": run,
+            "said": f"screen: made again; it sets the new run {run} against the control run in "
+                    f"{year}, and the earlier screen's record is set aside"}
+
+
 def redraw(run_dir, stamp: str = None) -> dict:
-    """Step 4 again over a study's records; {"report", "before", "pages"}."""
+    """Step 4 again over a study's records, after its screen is made as the
+    framework makes it now; {"report", "before", "pages", "screen"}."""
     from agents.analysis import step0_context, step4_report
     from agents.analysis import report_pages as RP
     run_dir = Path(run_dir).resolve()
@@ -81,6 +119,7 @@ def redraw(run_dir, stamp: str = None) -> dict:
     investigation = _read(adir / "investigation.json") or {}
     comparison = _read(adir / "comparison.json") or {}
     prev = _read(adir / "analysis.json") or {}
+    screen = make_screen(run_dir)
     ctx = step0_context.load(str(run_dir))
     stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     before = set_before(adir, stamp)
@@ -104,7 +143,8 @@ def redraw(run_dir, stamp: str = None) -> dict:
         put_back(adir, before)
         raise
     pages = [n for n in RP.PAGES if (adir / n).is_file()]
-    return {"report": report, "before": before if before.is_dir() else None, "pages": pages}
+    return {"report": report, "before": before if before.is_dir() else None, "pages": pages,
+            "screen": screen}
 
 
 def main(argv=None):
@@ -116,11 +156,15 @@ def main(argv=None):
     a = ap.parse_args(argv)
     out = redraw(a.run_dir)
     rep = out["report"]
+    print(out["screen"]["said"])
     if out["before"]:
         print(f"the earlier report kept in {out['before'].name}/")
     print(f"status {rep.get('status')}; claims kept {len(rep.get('claims') or [])}, "
           f"withheld {len(rep.get('withheld') or [])}"
           + (f"; WITHHELD: {rep['withheld_because']}" if rep.get("withheld_because") else ""))
+    rf = rep.get("report_figures") or {}
+    print(f"figures {len(rf.get('figures') or [])}, tables {len(rf.get('tables') or [])}"
+          + (f"; problems: {'; '.join(rf['problems'])}" if rf.get("problems") else ""))
     print("pages: " + ", ".join(out["pages"]))
 
 

@@ -1212,6 +1212,7 @@ ROLES = (
     ("04_analysis/SCREEN.md", "the screen of the Analyzer's report: the first look at every quantity, with how to read it"),
     ("04_analysis/PLANNED_ANALYSES.md", "the planned comparisons of the Analyzer's report: each approved comparison in words, what became of it and where the report shows it"),
     ("04_analysis/report_figures.json", "the record of the report's figures and tables, drawn by code from the approved comparisons"),
+    ("04_analysis/report_lookups.jsonl", "every call the report's figures made on the results store, each not planned: kept apart from the lookups the claims name"),
     ("04_analysis/figure_over_*.png", "a figure of the Analyzer's report, drawn by code from the approved comparisons"),
     ("04_analysis/analysis.json", "the Analyzer's record: answer, audited claims, struck claims, cost"),
     ("04_analysis/analysis.pptx", "the Analyzer's slides"),

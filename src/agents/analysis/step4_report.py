@@ -41,7 +41,7 @@ import re
 import statistics
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 FILENAME = "analysis.json"
 
@@ -655,18 +655,9 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
         # approved comparisons before the second reading, so that the reading
         # also covers every record the tables print. A failure of the figures
         # never stops the report: the page then shows the key findings.
-        rf = report_figures(ctx.run_dir, _plan.load_plan(adir), adir)
-        if rf is not None:
-            report["report_figures"] = rf
-        printed = list((rf or {}).get("printed_records") or [])
         from agents.analysis import numbers_check as _nc
-        try:
-            report["evidence_numbers"] = (
-                check_evidence(ctx.run_dir, report["claims"], printed) if printed else
-                _nc.check_evidence(ctx.run_dir, report["claims"]))
-        except Exception as e:                                  # noqa: BLE001
-            report["evidence_numbers"] = {"pass": False, "n_compared": 0, "mismatches": [],
-                                          "error": f"{type(e).__name__}: {e}"}
+        report["report_figures"], report["evidence_numbers"] = figures_and_reading(
+            ctx.run_dir, _plan.load_plan(adir), adir, report["claims"], ctx=ctx)
         if not report["evidence_numbers"].get("pass"):
             et = report["evidence_trace"]
             et["withheld_because"] = "; ".join(
@@ -744,17 +735,13 @@ def build(ctx, comparison: Dict[str, Any], investigation: Dict[str, Any],
     return report
 
 
-def report_figures(study_dir, plan: Dict[str, Any], analysis_dir) -> Optional[Dict[str, Any]]:
-    """The report's figures and tables (agents.analysis.report_figures,
-    interface I1), or None where that module is not present. Never raises:
-    a failure is a record with no figure and the reason under `problems`."""
-    # JOIN: piece F's report_figures.build; without the module, no record
+def report_figures(study_dir, plan: Dict[str, Any], analysis_dir, ctx=None) -> Dict[str, Any]:
+    """The report's figures and tables (report_figures.build, interface I1).
+    Never raises: a failure is a record with no figure and the reason under
+    `problems`, so the report is written without its figures."""
+    from agents.analysis import report_figures as RF
     try:
-        from agents.analysis import report_figures as RF
-    except ImportError:
-        return None
-    try:
-        rec = RF.build(study_dir, plan, analysis_dir)
+        rec = RF.build(study_dir, plan, analysis_dir, ctx=ctx)
     except Exception as e:                                          # noqa: BLE001
         rec = None
         why = f"the report's figures could not be drawn ({type(e).__name__}: {e})"
@@ -766,28 +753,21 @@ def report_figures(study_dir, plan: Dict[str, Any], analysis_dir) -> Optional[Di
             "problems": [why]}
 
 
-def check_evidence(study_dir, claims, printed: List[str]) -> Dict[str, Any]:
-    """The second reading of the numbers the claims cite and, where the
-    reading takes them, of the records the report's tables print. A reading
-    that cannot take them leaves them named under `printed_not_checked`, so
-    the page says which numbers were not made again."""
+def figures_and_reading(study_dir, plan: Dict[str, Any], analysis_dir, claims,
+                        ctx=None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """(the report's figures record, the second reading's record). The
+    figures come first, so the second reading makes again every record
+    their tables print (`also`) beside the records the claims cite. A
+    reading that raises is a record that did not pass, with its error."""
     from agents.analysis import numbers_check as NC
-    if not printed:
-        return NC.check_evidence(study_dir, claims)
-    # JOIN: piece K's `also` (interface I2); without it, the cited records only
-    import inspect
+    rf = report_figures(study_dir, plan, analysis_dir, ctx=ctx)
+    printed = [str(r) for r in rf.get("printed_records") or []]
     try:
-        takes = "also" in inspect.signature(NC.check_evidence).parameters
-    except (TypeError, ValueError):
-        takes = False
-    if takes:
-        return NC.check_evidence(study_dir, claims, also=printed)
-    rec = NC.check_evidence(study_dir, claims)
-    cited = {r for c in claims or [] for r in (c.get("evidence") or [])}
-    left = sorted({r for r in printed if r not in cited})
-    if left and isinstance(rec, dict):
-        rec = dict(rec, printed_not_checked=left)
-    return rec
+        rec = NC.check_evidence(study_dir, claims, also=printed)
+    except Exception as e:                                          # noqa: BLE001
+        rec = {"pass": False, "n_compared": 0, "mismatches": [],
+               "error": f"{type(e).__name__}: {e}"}
+    return rf, rec
 
 
 def suite_regions(ctx) -> List[str]:
@@ -1256,6 +1236,9 @@ def write(report: Dict[str, Any], out_dir, slides: bool = True) -> str:
             (out_dir / REPORT_MD).write_text(render_markdown(report))
         except Exception as e2:                                 # noqa: BLE001
             print(f"   ⚠️  REPORT.md not written: {e2}")
+        # THE ONE PAGE STANDS ALONE: companion pages of an earlier pass, or
+        # of this pass before it failed, would describe another report
+        _set_companions_aside(out_dir)
 
     # A WITHHELD REPORT HAS NO DECK (2026-11-03): slides would present the
     # headline the trace could not support.

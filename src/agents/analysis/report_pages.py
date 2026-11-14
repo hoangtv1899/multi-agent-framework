@@ -34,8 +34,11 @@ IT NEVER STOPS A REPORT. A page whose source is missing says so in one line.
 The record (analysis.json) is written before these pages, and step4_report
 writes the old page if this module raises.
 
-THE FIGURES ARE PIECE F'S AND THE CHECK'S SENTENCE IS PIECE K'S. Where this
-module calls their code, a guard marked "JOIN" lets it work without them.
+THE FIGURES AND THE CHECK'S SENTENCE COME FROM THEIR OWN MODULES. The
+figures and tables are report_figures' record, the names in words are
+field_words', and the sentence on the second reading of the numbers is
+numbers_check.evidence_sentence. This module places them and words nothing
+of theirs.
 """
 import json
 import re
@@ -57,9 +60,6 @@ MAX_LIMITS = 6                  # bullets under Limitations
 MAX_PER_FIGURE = 2              # findings under a figure
 MAX_NEXT = 3                    # lines under Next steps
 
-SEASONS = {"DJF": "winter", "MAM": "spring", "JJA": "summer", "SON": "autumn"}
-MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August",
-          "September", "October", "November", "December")
 QUESTION_KIND = {
     "exploratory": ("This was an exploratory question. Its findings come from looking at the "
                     "results, and none of them was set out as an expectation before the results "
@@ -78,6 +78,56 @@ NO_CAUSE = ("No run in this study isolates a cause. These results are what happe
             "within the model, not what caused what.")
 FIXED_RULES = ("*These are the framework's fixed rules for which words a finding may use, the "
                "same on every report.*")
+NO_DESIGN = "This study holds no design page."
+LATER_START = ("The new run starts from the control run's saved state of {date}, and no run that "
+               "starts this way had been completed before, so its start is untested.")
+LATER_START_NO_DATE = ("The new run starts from a later saved state of the control run, and no "
+                       "run that starts this way had been completed before, so its start is "
+                       "untested.")
+
+# THE SCREEN'S RULES IN PLAIN WORDS (2026-11-13). The server's rule text is
+# one long string with clauses, codes and brackets ("ddof 1", "the
+# catalog's", "above_normal_maximum"), and cut at its semicolons it read as
+# fragments. These sentences are fixed here, the same on every report, and a
+# test holds their key facts to the server's own rule text. The server's text
+# stays whole on the details page.
+MARK_WORDS = {"above_normal_maximum": "above the largest value of the normal years",
+              "differs_from_control": "differs from the control run"}
+STATUS_WORDS = {"near-constant normal": "the normal years hardly vary",
+                "insufficient support": "too few normal years",
+                "period absent": "the run lacks the period",
+                "no type in the field notes": "no type on record"}
+SCORING_SENTENCES = (
+    "A score is given only to a flow, such as rain or plant growth, or to a state, such as "
+    "topsoil water.",
+    "The score is the change divided by the standard deviation of the normal years for the same "
+    "period.",
+    "For a new run, the change is the new run minus the control run, and the standard deviation "
+    "is that of the control run's normal years.",
+    "A score needs at least two normal years whose values cover the whole region, and a row "
+    "without them gets no score.",
+    "A normal year that lacks the period lowers the count of normal years shown.",
+    "A row whose normal years hardly vary gets no score, so that a tiny spread cannot give a huge "
+    "score.",
+    "A change of exactly zero gets no score.",
+    "Stores, such as plant carbon, and indices held between fixed bounds are not scored yet, and "
+    "their change stays in the table.",
+    "Fire rows, the area burned and the carbon lost to fire, get no score.",
+    "For a new run, a fire row is marked when it differs from the control run.",
+    "For the control run alone, a fire row is marked when it is above the largest value of the "
+    "normal years.")
+DISPLAY_SENTENCES = (
+    "The rows are shown by process group, the groups in the model's order.",
+    "Each group shows first its three rows with the largest score in size, the largest first.",
+    "A quantity has at most one row there, its period with the largest score, and its other "
+    "periods stay in the whole table.",
+    "A tie keeps the quantity that comes first in the model's list and, within a quantity, the "
+    "period that comes first in the table.",
+    "A group without a scored row shows none.",
+    "Then come all the marked fire rows, in the table's order.",
+    "Then, for each quantity not scored yet, comes its largest change with its period.",
+    "Every score is shown with the number of normal years behind it.",
+    "A row without a score is never shown first and stays in the whole table.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -122,9 +172,28 @@ def span_words(years: Any) -> str:
     return _join([str(y) for y in ys])
 
 
+def ints(xs: Any) -> List[int]:
+    """The whole numbers of a list, each once, in order; anything that is
+    not a whole number is left out, so an odd value never stops a page."""
+    out: List[int] = []
+    for x in xs if isinstance(xs, (list, tuple, set)) else []:
+        if isinstance(x, bool):
+            continue
+        if isinstance(x, int) or (isinstance(x, str) and re.fullmatch(r"\d+", x.strip())):
+            n = int(x)
+        elif isinstance(x, float) and x.is_integer():
+            n = int(x)
+        else:
+            continue
+        if n not in out:
+            out.append(n)
+    return out
+
+
 def numbers_words(nums: Sequence[int], word: str = "comparison") -> str:
-    """"comparison 5", "comparisons 1 to 4 and 6 to 8"."""
-    ns = sorted({int(n) for n in nums})
+    """"comparison 5", "comparisons 3, 7 and 8", "comparisons 1 to 4 and 6
+    to 8": a run of three or more as a span, every other number alone."""
+    ns = sorted(ints(list(nums)))
     if not ns:
         return ""
     runs: List[List[int]] = []
@@ -133,27 +202,20 @@ def numbers_words(nums: Sequence[int], word: str = "comparison") -> str:
             runs[-1].append(n)
         else:
             runs.append([n])
-    parts = [f"{r[0]} to {r[-1]}" if len(r) > 2 else _join([str(x) for x in r])
-             for r in runs]
+    parts: List[str] = []
+    for r in runs:
+        parts += [f"{r[0]} to {r[-1]}"] if len(r) > 2 else [str(x) for x in r]
     return f"{word}{'s' if len(ns) > 1 else ''} {_join(parts)}"
 
 
 def period_words(period: Any) -> str:
     """A period as a person writes it: "September 2018", "summer 2018",
-    "water year 2018", "the year 2018"."""
+    "winter 2017 to 2018", "water year 2018", "the year 2018"."""
+    from agents.analysis import field_words as FW
     p = str(period or "")
-    m = re.fullmatch(r"(\d{4})-(\d{2})", p)
-    if m and 1 <= int(m.group(2)) <= 12:
-        return f"{MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
-    m = re.fullmatch(r"(\d{4})-([A-Z]{3})", p)
-    if m and m.group(2) in SEASONS:
-        return f"{SEASONS[m.group(2)]} {m.group(1)}"
-    m = re.fullmatch(r"WY(\d{4})", p)
-    if m:
-        return f"water year {m.group(1)}"
     if re.fullmatch(r"\d{4}", p):
         return f"the year {p}"
-    return p
+    return str(FW.period_words(p))
 
 
 def region_words(region: Any) -> str:
@@ -176,41 +238,35 @@ def region_words(region: Any) -> str:
 
 def field_name(field: Any, with_code: bool = True) -> str:
     """A model quantity's short plain name, with its code in brackets."""
-    # JOIN: piece F's names in words (interface I4); without it, the code
-    try:
-        from agents.analysis import field_words as FW
-    except ImportError:
-        return str(field)
-    try:
-        return str(FW.words(field, with_code=with_code))
-    except Exception:                                               # noqa: BLE001
-        return str(field)
+    from agents.analysis import field_words as FW
+    return str(FW.words(field, with_code=with_code))
 
 
 def units_name(units: Any) -> str:
     """A unit as a person writes it ("gC/m2" for "gC/m^2/month")."""
-    # JOIN: piece F's units in words (interface I4); without it, the powers
-    # lose their caret and nothing else changes
-    try:
-        from agents.analysis import field_words as FW
-        return str(FW.units_words(units))
-    except Exception:                                               # noqa: BLE001
-        return str(units or "").replace("^", "")
+    from agents.analysis import field_words as FW
+    return str(FW.units_words(units))
+
+
+def _dicts(xs: Any) -> List[Dict[str, Any]]:
+    """The entries of a list that are records (dicts); anything else is left
+    out, so an odd value never stops a page."""
+    return [x for x in xs if isinstance(x, dict)] if isinstance(xs, list) else []
 
 
 def identifiers(report: Dict[str, Any]) -> Set[str]:
     """The record's own names: caveats, findings, records, plan and output
     codes. None of them may show on the three short pages."""
-    ids = {str(c.get("id")) for c in report.get("caveats") or [] if c.get("id")}
-    ids |= {str(c.get("finding_id")) for c in (report.get("claims") or [])
-            + (report.get("withheld") or []) if c.get("finding_id")}
+    ph = report.get("planned_phase") if isinstance(report.get("planned_phase"), dict) else {}
+    ids = {str(c.get("id")) for c in _dicts(report.get("caveats")) if c.get("id")}
+    ids |= {str(c.get("finding_id")) for c in _dicts(report.get("claims"))
+            + _dicts(report.get("withheld")) if c.get("finding_id")}
     ids |= set(records_of(report))
-    for a in (report.get("planned_phase") or {}).get("analyses") or []:
+    for a in _dicts(ph.get("analyses")):
         ids.add(str(a.get("id")))
-        ids |= {str(o.get("id")) for o in a.get("outputs") or [] if o.get("id")}
-        ids |= {str(o.get("record")) for o in a.get("outputs") or [] if o.get("record")}
-    ids |= {str(e.get("id")) for e in (report.get("planned_phase") or {}).get("expectations")
-            or [] if e.get("id")}
+        ids |= {str(o.get("id")) for o in _dicts(a.get("outputs")) if o.get("id")}
+        ids |= {str(o.get("record")) for o in _dicts(a.get("outputs")) if o.get("record")}
+    ids |= {str(e.get("id")) for e in _dicts(ph.get("expectations")) if e.get("id")}
     return {i for i in ids if i and i != "None"}
 
 
@@ -242,7 +298,10 @@ def study_dir(report: Dict[str, Any], out_dir) -> Path:
 
 
 def records_of(report: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    return dict(((report.get("evidence_trace") or {}).get("records") or {}))
+    et = report.get("evidence_trace") if isinstance(report.get("evidence_trace"), dict) else {}
+    recs = et.get("records")
+    return {str(k): v for k, v in recs.items() if isinstance(v, dict)} \
+        if isinstance(recs, dict) else {}
 
 
 def question_type(report: Dict[str, Any], plan: Dict[str, Any]) -> Optional[str]:
@@ -267,25 +326,75 @@ def numbers_of(plan: Dict[str, Any], report: Dict[str, Any]) -> Dict[str, int]:
 
 
 def claim_comparison(c: Dict[str, Any], records: Dict[str, Dict[str, Any]],
-                     numbers: Dict[str, int]) -> Optional[int]:
-    """The comparison a kept finding answers: the one its finding names
-    ("required_p3" is the plan's analysis P3), else the first comparison
-    the records it cites were made for."""
+                     numbers: Dict[str, int], lookups: Optional[Dict[str, List[str]]] = None,
+                     figure_items: Optional[Dict[str, List[str]]] = None) -> Optional[int]:
+    """The comparison a kept finding answers, by the first route that gives
+    one: the comparison its finding names ("required_p3" is the plan's
+    analysis P3); else the smallest comparison the records it cites were
+    made for (each line of lookups.jsonl carries its plan items, and so does
+    the trace's copy of it); else the smallest of the plan items of the
+    Analyzer's own figure that the finding names (investigation.json).
+    None when no route gives one."""
+    if not isinstance(c, dict):
+        return None
     m = re.fullmatch(r"required_(p\d+)", str(c.get("finding_id") or ""), re.I)
     if m and m.group(1).upper() in numbers:
         return numbers[m.group(1).upper()]
-    got = [numbers[str(i)] for rid in c.get("evidence") or []
-           for i in (records.get(rid) or {}).get("plan_items") or [] if str(i) in numbers]
+    got = []
+    for rid in c.get("evidence") or []:
+        items = (lookups or {}).get(str(rid)) or (records.get(str(rid)) or {}).get("plan_items")
+        got += [numbers[str(i)] for i in items or [] if str(i) in numbers]
+    if not got:
+        got = [numbers[str(i)] for i in (figure_items or {}).get(str(c.get("finding_id"))) or []
+               if str(i) in numbers]
     return min(got) if got else None
+
+
+def comparison_of(report: Dict[str, Any], c: Dict[str, Any],
+                  numbers: Dict[str, int]) -> Optional[int]:
+    """claim_comparison with the study's own records, as write_pages read them."""
+    return claim_comparison(c, records_of(report), numbers, report.get("_lookups"),
+                            report.get("_figure_items"))
+
+
+def lookup_items(out_dir) -> Dict[str, List[str]]:
+    """{record name: its plan items}, from 04_analysis/lookups.jsonl, whose
+    line n is the record "Ln" (blank lines not counted, as the log's reader
+    counts them); {} when the log is missing."""
+    out: Dict[str, List[str]] = {}
+    try:
+        lines = [x for x in (Path(out_dir) / "lookups.jsonl").read_text().splitlines()
+                 if x.strip()]
+    except OSError:
+        return out
+    for k, line in enumerate(lines, 1):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and isinstance(d.get("plan_items"), list):
+            out[f"L{k}"] = [str(x) for x in d["plan_items"]]
+    return out
+
+
+def figure_items(out_dir) -> Dict[str, List[str]]:
+    """{the Analyzer's figure id: its plan items}, from investigation.json."""
+    inv = _read_json(Path(out_dir) / "investigation.json")
+    out: Dict[str, List[str]] = {}
+    for key in ("figure_outcomes", "figures"):
+        for f in inv.get(key) or []:
+            if isinstance(f, dict) and f.get("id") and isinstance(f.get("plan_items"), list):
+                out.setdefault(str(f["id"]), [str(x) for x in f["plan_items"]])
+    return out
 
 
 def used_records(report: Dict[str, Any]) -> List[str]:
     """The records the kept findings cite and the tables print, in order."""
     out: List[str] = []
-    for c in report.get("claims") or []:
-        out += [r for r in c.get("evidence") or [] if r not in out]
-    rf = report.get("report_figures") or {}
-    out += [r for r in rf.get("printed_records") or [] if r not in out]
+    for c in _dicts(report.get("claims")):
+        out += [str(r) for r in c.get("evidence") or [] if str(r) not in out]
+    rf = report.get("report_figures") if isinstance(report.get("report_figures"), dict) else {}
+    out += [str(r) for r in rf.get("printed_records") or [] if str(r) not in out]
     return out
 
 
@@ -312,7 +421,7 @@ def title_lines(report: Dict[str, Any]) -> List[str]:
     who = (f"The new run {runs[0]} against the control run" if len(runs) == 1 else
            f"The new runs {_join(runs)} against the control run" if runs else
            "The control run alone")
-    L = [f"# {q}", "", (f"Study {name}. " if name else "") + who + (f", {ys}." if ys else ".")]
+    L = [f"# {q}", "", (f"Study `{name}`. " if name else "") + who + (f", {ys}." if ys else ".")]
     return L + [""] + not_tested_lines(report)
 
 
@@ -381,9 +490,10 @@ def control_line(sd: Path, report: Dict[str, Any]) -> str:
         first = (f"The control run is {desc}." if desc else
                  f"The control run is `{name}`." if name else
                  "No description of the control run is on record.")
-    where = (f"[{DESIGN_MD}](../{DESIGN_MD})," if (sd / DESIGN_MD).is_file() else
-             f"{DESIGN_MD}, which this study does not hold,")
-    return f"{_p(first)} The design page, {where} describes it and sets it beside measurements."
+    if not (sd / DESIGN_MD).is_file():
+        return f"{_p(first)} {NO_DESIGN}"
+    return (f"{_p(first)} The design page, [{DESIGN_MD}](../{DESIGN_MD}), describes it and sets "
+            f"it beside measurements.")
 
 
 def _hours(seconds: Any) -> str:
@@ -414,7 +524,8 @@ def run_table(sd: Path, report: Dict[str, Any]) -> List[str]:
         rows = RF.rows(given, name) if RF is not None and given else []
         if not rows:
             words = "; ".join(_p(m) for m in meanings.get(name) or [] if m) or \
-                "; ".join(str(c.get("summary") or c.get("id")) for c in r.get("changes") or [])
+                "; ".join(_p(c.get("summary")) if c.get("summary") else f"the change `{c.get('id')}`"
+                          for c in _dicts(r.get("changes")))
             rows = [{"knob": "", "change": words, "when": "", "where": ""}]
         for k, row in enumerate(rows):
             cells = [f"`{name}`" if k == 0 else ""] + [
@@ -462,53 +573,114 @@ def methods_lines(sd: Path, report: Dict[str, Any]) -> List[str]:
     return L + [f"{checks} {how}", ""]
 
 
-def choose_findings(report: Dict[str, Any], rf: Dict[str, Any], numbers: Dict[str, int]
-                    ) -> Tuple[Dict[str, List[int]], List[Tuple[int, int]]]:
-    """({figure id: the kept findings shown under it, by number from 1},
-    [(comparison, finding) for a comparison no figure answers]).
+def figures_of(rf: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The figures of the report's figures record, in their order (by their
+    number, then as listed); an entry that is not a figure is left out."""
+    figs = [f for f in (rf or {}).get("figures") or [] if isinstance(f, dict)]
+    return [f for _, f in sorted(enumerate(figs), key=lambda kf: (
+        (ints([kf[1].get("number")]) or [10 ** 6])[0], kf[0]))]
 
-    A kept finding belongs to the first figure that answers its comparison.
-    A finding whose records all print in the table that follows that figure
-    says nothing the table does not, and is left out. At most two under a
-    figure, in the plan's order. A comparison that no figure answers shows
-    its first kept finding."""
+
+def tables_of(rf: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [t for t in (rf or {}).get("tables") or [] if isinstance(t, dict)]
+
+
+def _rows(t: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [r for r in t.get("rows") or [] if isinstance(r, dict)]
+
+
+def _records(row: Dict[str, Any]) -> List[str]:
+    recs = row.get("records")
+    return [str(r) for r in recs] if isinstance(recs, list) else []
+
+
+def table_records(rf: Dict[str, Any]) -> Set[str]:
+    """Every record a table of the report prints."""
+    return {r for t in tables_of(rf) for row in _rows(t) for r in _records(row)}
+
+
+def _fields(rec: Dict[str, Any]) -> Set[str]:
+    """The quantities a record reads: its own, and those of the records it
+    was made from (an overlap of two maps reads both)."""
+    out = {str(rec["field"])} if rec.get("field") else set()
+    return out | {str(x.get("field")) for x in _dicts(rec.get("inputs")) if x.get("field")}
+
+
+def _drawn(f: Dict[str, Any]) -> Set[str]:
+    """The quantities a figure's panels draw, a cell-by-cell panel's second
+    quantity ("against") with them."""
+    return {str(p.get(k)) for p in _dicts(f.get("panels")) for k in ("field", "against")
+            if p.get(k)}
+
+
+def _fit(f: Dict[str, Any], fields: Set[str]) -> int:
+    """How well a figure shows a finding's quantities: one for each it draws,
+    and one more when a panel sets two of them against each other, cell by
+    cell, as a finding on two maps does."""
+    pair = any(p.get("field") and p.get("against") and {str(p["field"]), str(p["against"])}
+               <= fields for p in _dicts(f.get("panels")))
+    return len(_drawn(f) & fields) + (1 if pair else 0)
+
+
+def choose_findings(report: Dict[str, Any], rf: Dict[str, Any], numbers: Dict[str, int]
+                    ) -> Tuple[Dict[str, List[int]], List[Tuple[Optional[int], int]]]:
+    """({figure id: the kept findings shown under it, by number from 1},
+    [(comparison, finding) for "Other comparisons"]).
+
+    A kept finding belongs to a figure that answers its comparison: the
+    one that shows most of the quantities its records read (a panel that
+    sets two of them against each other, cell by cell, counts once more),
+    the first on a tie, so the first when none draws one. A finding
+    whose records all print in a table of the report says nothing the table
+    does not, and is left out (a number appears once, in the table). At
+    most two under a figure, in the plan's order. A comparison that no
+    figure answers shows its first kept finding. A kept finding with no
+    comparison on record goes to "Other comparisons" too, so that no kept
+    finding is placed nowhere."""
     claims = report.get("claims") or []
     records = records_of(report)
-    figs = [f for f in rf.get("figures") or [] if isinstance(f, dict)]
-    table_recs: Dict[str, Set[str]] = {}
-    for t in rf.get("tables") or []:
-        if isinstance(t, dict):
-            s = table_recs.setdefault(str(t.get("follows")), set())
-            for row in t.get("rows") or []:
-                s |= set((row or {}).get("records") or [])
-    first_fig: Dict[int, str] = {}
+    figs = figures_of(rf)
+    printed = table_records(rf)
+    answering: Dict[int, List[Dict[str, Any]]] = {}
     for f in figs:
-        for n in f.get("comparisons") or []:
-            first_fig.setdefault(int(n), str(f.get("id")))
-    comp = {i: claim_comparison(c, records, numbers) for i, c in enumerate(claims, 1)}
+        for n in ints(f.get("comparisons")):
+            answering.setdefault(n, []).append(f)
+    comp = {i: comparison_of(report, c, numbers) for i, c in enumerate(claims, 1)
+            if isinstance(c, dict)}
     order = sorted(comp, key=lambda i: (comp[i] if comp[i] is not None else 10 ** 6, i))
     by_fig: Dict[str, List[int]] = {str(f.get("id")): [] for f in figs}
-    others: List[Tuple[int, int]] = []
+    others: List[Tuple[Optional[int], int]] = []
     for i in order:
         n = comp[i]
         if n is None:
+            others.append((None, i))
             continue
-        fid = first_fig.get(n)
-        if fid is None:
+        if n not in answering:
             if n not in {m for m, _ in others}:
                 others.append((n, i))
             continue
-        ev = set(claims[i - 1].get("evidence") or [])
-        if ev and ev <= table_recs.get(fid, set()):
+        ev = [str(r) for r in claims[i - 1].get("evidence") or []]
+        if ev and set(ev) <= printed:
             continue
+        fields = {x for r in ev for x in _fields(records.get(r) or {})}
+        # the figure that shows most of its quantities; the first on a tie
+        home = max(answering[n], key=lambda f: _fit(f, fields))
+        fid = str(home.get("id"))
         if len(by_fig[fid]) < MAX_PER_FIGURE:
             by_fig[fid].append(i)
     return by_fig, others
 
 
+def answers_line(f: Dict[str, Any]) -> Optional[str]:
+    """The line under a figure's caption that names the comparisons it
+    answers, or None when it answers none."""
+    comps = ints(f.get("comparisons"))
+    return f"This figure answers {numbers_words(comps)}." if comps else None
+
+
 def _table_lines(t: Dict[str, Any]) -> List[str]:
     cols = [str(c) for c in t.get("columns") or []]
-    rows = [r for r in t.get("rows") or [] if isinstance(r, dict)]
+    rows = _rows(t)
     L = [f"**Table {t.get('number')}.** {_p(t.get('caption'))}", ""]
     if not cols or not rows:
         return L + ["The table holds no row.", ""]
@@ -516,21 +688,24 @@ def _table_lines(t: Dict[str, Any]) -> List[str]:
     head = [str(t.get("corner") or "")] + cols + (["Panel"] if panel else [])
     L += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for r in rows:
-        cells = [str(c) for c in (r.get("cells") or [])] + [""] * len(cols)
+        cells = [str(c) for c in (r.get("cells") if isinstance(r.get("cells"), list) else [])]
+        cells += [""] * len(cols)
         L.append("| " + " | ".join([_p(r.get("label"))] + cells[:len(cols)]
                                    + ([str(r.get("panel") or "")] if panel else [])) + " |")
     return L + [""]
 
 
 def results_lines(report: Dict[str, Any], shown: Set[int]) -> List[str]:
-    """Section 3: a subsection per figure of the report's figures record, its
-    table, and at most two findings; the comparisons no figure answers; the
-    key findings when no figure was drawn. `shown` gains each finding shown."""
+    """Section 3: a subsection per figure of the report's figures record, in
+    its order, each with its caption, the line on the comparisons it
+    answers, the table that follows it and at most two findings; then the
+    comparisons no figure answers; the key findings when no figure was
+    drawn. `shown` gains each finding shown."""
     claims = report.get("claims") or []
     plan = report.get("_plan") or {}
     numbers = numbers_of(plan, report)
-    rf = report.get("report_figures") or {}
-    figs = [f for f in rf.get("figures") or [] if isinstance(f, dict)]
+    rf = report.get("report_figures") if isinstance(report.get("report_figures"), dict) else {}
+    figs = figures_of(rf)
     ids = identifiers(report)
     L = [f"## {SECTIONS[2]}", ""]
     if not figs:
@@ -548,16 +723,17 @@ def results_lines(report: Dict[str, Any], shown: Set[int]) -> List[str]:
             L += ["The audit kept no finding.", ""]
         return L
     by_fig, others = choose_findings(report, rf, numbers)
-    tables = [t for t in rf.get("tables") or [] if isinstance(t, dict)]
+    tables = tables_of(rf)
     k = 0
     for f in figs:
         k += 1
-        n = f.get("number") or k
+        n = (ints([f.get("number")]) or [k])[0]
         L += [f"### 3.{k} {_p(f.get('heading') or 'Figure ' + str(n))}", "",
-              f"![Figure {n}]({f.get('file')})", ""]
-        comps = [int(x) for x in f.get("comparisons") or []]
-        L += [f"**Figure {n}.** {_p(f.get('caption'))}"
-              + (f" It answers {numbers_words(comps)}." if comps else ""), ""]
+              f"![Figure {n}]({f.get('file')})", "",
+              f"**Figure {n}.** {_p(f.get('caption'))}", ""]
+        said = answers_line(f)
+        if said:
+            L += [said, ""]
         for t in tables:
             if str(t.get("follows")) == str(f.get("id")):
                 L += _table_lines(t)
@@ -575,10 +751,30 @@ def results_lines(report: Dict[str, Any], shown: Set[int]) -> List[str]:
             L.append(f"- {without_ids(claims[i - 1].get('claim'), ids)}")
             shown.add(i)
         L.append("")
-    nd = [_sentence(x) for x in rf.get("not_drawn") or []]
+    # WHAT WAS NOT DRAWN, once: a sentence a caption already says is not
+    # said again under the figures (the details page lists every one)
+    said = [_tokens(x.get("caption")) for x in figs + tables]
+    nd = [_sentence(x) for x in rf.get("not_drawn") or []
+          if not any(_within(_tokens(x), c) for c in said)]
     if nd:
         L += [" ".join(nd), ""]
     return L
+
+
+# words that carry no content of their own, for comparing a sentence with a
+# caption ("has no panel over time" and "have no panel" say the same)
+GLUE = {"the", "a", "an", "of", "in", "it", "its", "them", "they", "has", "have", "is", "are",
+        "over", "time", "and", "to", "by", "with", "so"}
+
+
+def _tokens(text: Any) -> List[str]:
+    return [w for w in re.findall(r"[a-z0-9]+", _p(text).lower()) if w not in GLUE]
+
+
+def _within(words: List[str], caption: List[str]) -> bool:
+    """Whether a caption already says a sentence: every word of the
+    sentence that carries content is a word of the caption."""
+    return bool(words) and set(words) <= set(caption)
 
 
 # ── Limitations ─────────────────────────────────────────────────────────────
@@ -627,17 +823,16 @@ def design_limits(sd: Path) -> Optional[List[str]]:
 
 
 def later_start(sd: Path) -> List[Tuple[str, str]]:
-    """(the server's note on a start from a later saved state, in the design
-    page's words; the caveat it is on record as), for each such note."""
+    """(the note on a start from a later saved state as one plain sentence,
+    the statement it is on record as), for each such note of the server's
+    check. The date is the record's own; the note whole is a caveat on the
+    details page."""
     exp = _read_json(sd / "experiment.json")
     out = []
     for u in ((exp.get("experiment") or {}).get("check") or {}).get("unusual") or []:
         if isinstance(u, dict) and re.search(r"later saved state", str(u.get("what") or "")):
-            try:
-                from agents import design_page as DP
-                text = DP._noted(u)[2:]
-            except Exception:                                       # noqa: BLE001
-                text = _sentence(u.get("what"))
+            m = re.search(r"saved state of (\d{1,2} [A-Z][a-z]+ \d{4})", str(u.get("what")))
+            text = LATER_START.format(date=m.group(1)) if m else LATER_START_NO_DATE
             out.append((text, f"{u.get('where')}: {u.get('what')}"))
     return out
 
@@ -668,20 +863,31 @@ def changed_share(sd: Path, regions: Set[str]) -> List[Tuple[str, str]]:
     return out
 
 
-def limitation_lines(sd: Path, report: Dict[str, Any]) -> List[str]:
-    """Section 4: at most six limits. The design page's limits for this
-    study in its own sentences, then what only the analysis knows, then the
-    note on a later start. Each limit once, with no identifier. The section
-    ends with how many more caveats the details page gives whole."""
+def no_mid_colon(text: Any) -> str:
+    """A limit with no colon in mid-sentence: the words after a colon start
+    a sentence of their own. The words themselves are kept."""
+    parts = re.split(r":\s+", _p(text).strip())
+    return " ".join(_sentence(x) for x in parts if x.strip())
+
+
+def limits_of(sd: Path, report: Dict[str, Any]) -> Dict[str, Any]:
+    """The limits of section 4, worked out once for both pages:
+    {"shown": [(limit, caveats it says)] at most six, "cut": the limits the
+    cap leaves out, "more": the caveats on record that no limit says}.
+
+    First the design page's limits for this study in its own sentences, then
+    what only the analysis knows, then the note on a later start. Each limit
+    once, with no identifier and no colon in mid-sentence."""
     caveats = [c for c in report.get("caveats") or [] if isinstance(c, dict)]
     records = records_of(report)
-    used = [records[r] for r in used_records(report) if r in records]
+    used = [records[r] for r in used_records(report) if isinstance(records.get(r), dict)]
     regions = {str(r.get("region")) for r in used if r.get("region")}
     fields = {str(r.get("field")) for r in used if r.get("field")}
     design = design_limits(sd)
     limits: List[Tuple[str, Set[str]]] = []     # (the limit, the caveats it says)
 
     def add(text: str, ids: Sequence[str] = ()) -> None:
+        text = no_mid_colon(text)
         for t, have in limits:
             if _norm(t) == _norm(text):
                 have.update(ids)
@@ -711,18 +917,33 @@ def limitation_lines(sd: Path, report: Dict[str, Any]) -> List[str]:
     for text, statement in later_start(sd):
         add(text, [str(c.get("id")) for c in caveats
                    if _norm(c.get("statement")) == _norm(statement)])
-    shown = limits[:MAX_LIMITS]
-    told = [_norm(t) for t, _ in shown]
-    named = {i for _, ids in shown for i in ids}
-    # a caveat is said above when a limit names it or holds its words whole
+    shown, cut = limits[:MAX_LIMITS], limits[MAX_LIMITS:]
+    told = [_norm(t) for t, _ in limits]
+    named = {i for _, ids in limits for i in ids}
+    # a caveat is said by a limit that names it or holds its words whole; one
+    # said only by a limit the cap leaves out is counted with that limit
     more = [c for c in caveats if str(c.get("id")) not in named
             and not (_norm(c.get("statement")) and any(_norm(c.get("statement")) in t
                                                         for t in told))]
+    return {"shown": shown, "cut": cut, "more": more}
+
+
+def _many(n: int, one: str, more: str) -> str:
+    return f"{n} {one if n == 1 else more}"
+
+
+def limitation_lines(sd: Path, report: Dict[str, Any],
+                     lim: Optional[Dict[str, Any]] = None) -> List[str]:
+    """Section 4: at most six limits, then how many more limits and caveats
+    the details page gives whole."""
+    lim = lim if lim is not None else limits_of(sd, report)
     L = [f"## {SECTIONS[3]}", ""]
-    L += [f"- {_p(t)}" for t, _ in shown] or ["No limit is on record for this study."]
+    L += [f"- {t}" for t, _ in lim["shown"]] or ["No limit is on record for this study."]
     L.append("")
-    L.append(f"The details page gives {len(more)} more caveat{'s' if len(more) != 1 else ''} "
-             f"on record in full." if more else
+    parts = ([_many(len(lim["cut"]), "more limit", "more limits")] if lim["cut"] else []) + \
+        ([_many(len(lim["more"]), "more caveat on record", "more caveats on record")]
+         if lim["more"] else [])
+    L.append(f"The details page gives {_join(parts)} in full." if parts else
              "The details page gives each caveat on record in full, with its name.")
     return L + [""]
 
@@ -797,52 +1018,30 @@ def next_step_lines(report: Dict[str, Any]) -> List[str]:
 
 # ── Checks and records ──────────────────────────────────────────────────────
 def check_sentence(report: Dict[str, Any]) -> str:
-    """The second reading of the numbers, in one sentence."""
+    """The second reading of the numbers, in the check's own sentence
+    (numbers_check.evidence_sentence), which says what it made again, of how
+    many records the findings cite and how many more the report prints, and
+    what it did not make again."""
+    from agents.analysis import numbers_check as NC
     en = report.get("evidence_numbers")
-    # JOIN: piece K's sentence (interface I2); without it, this one
-    try:
-        from agents.analysis import numbers_check as NC
-        if en is not None and hasattr(NC, "evidence_sentence"):
-            s = NC.evidence_sentence(en)
-            if s:
-                return _p(s) + _not_checked_words(en)
-    except Exception:                                               # noqa: BLE001
-        pass
-    if not en:
-        return "No second reading of the numbers is on record for this study."
-    if en.get("error") and not en.get("n_compared"):
-        return "The second reading of the numbers did not run to its end, so no number was " \
-               "made again."
-    w = (en.get("largest_relative_difference") or {}).get("rel_diff")
-    head = (f"A second reading of the model output, by code written apart from the analysis, "
-            f"made {_count(en.get('n_compared'))} numbers again from the "
-            f"{len(en.get('records') or {})} records the findings cite")
-    if en.get("pass"):
-        s = head + (f", with a largest relative difference of {float(w):.3g}." if w is not None
-                    else ".")
-    else:
-        s = head + (f", and {len(en.get('mismatches') or [])} of them did not match.")
-    return s + " The values the figures draw were not made again." + _not_checked_words(en)
+    rf = report.get("report_figures") if isinstance(report.get("report_figures"), dict) else {}
+    return _p(NC.evidence_sentence(en if isinstance(en, dict) else None,
+                                   figures=bool(figures_of(rf))))
 
 
 def _count(n) -> str:
     return f"{n:,}" if isinstance(n, int) else str(n)
 
 
-def _not_checked_words(en: Dict[str, Any]) -> str:
-    left = (en or {}).get("printed_not_checked") or []
-    return (f" The {len(left)} record{'s' if len(left) != 1 else ''} the report's tables print "
-            f"beyond those were not made again." if left else "")
-
-
-def checks_lines(report: Dict[str, Any], screen: bool) -> List[str]:
+def checks_lines(report: Dict[str, Any], screen: bool, sd: Optional[Path] = None) -> List[str]:
     kept, left = len(report.get("claims") or []), len(report.get("withheld") or [])
     links = [f"[{DETAILS_MD}]({DETAILS_MD}) gives every finding with its records, every "
              f"caveat in full and what code checked."]
     if screen:
         links.append(f"[{SCREEN_MD}]({SCREEN_MD}) gives the first look at every quantity.")
     links.append(f"[{PLANNED_MD}]({PLANNED_MD}) gives each approved comparison.")
-    links.append(f"[{DESIGN_MD}](../{DESIGN_MD}) is the design that was approved.")
+    links.append(f"[{DESIGN_MD}](../{DESIGN_MD}) is the design that was approved."
+                 if sd is None or (Path(sd) / DESIGN_MD).is_file() else NO_DESIGN)
     return [f"## {SECTIONS[5]}", "", check_sentence(report), "",
             f"The audit kept {kept or 'no'} finding{'s' if kept != 1 else ''} and left out "
             f"{left or 'none'}. "
@@ -850,16 +1049,38 @@ def checks_lines(report: Dict[str, Any], screen: bool) -> List[str]:
             JUDGEMENT_WORDS, ""] + [f"- {x}" for x in links] + [""]
 
 
+def _problem(report: Dict[str, Any], where: str, e: Exception) -> None:
+    """A part of a page that could not be written, kept for the details page."""
+    probs = report.get("_problems")
+    if isinstance(probs, list):
+        probs.append(f"{where}: {type(e).__name__}: {e}")
+
+
+def _section(report: Dict[str, Any], k: int, fn, *args) -> List[str]:
+    """A section of REPORT.md, or its heading and one line saying it could
+    not be written from the record: an odd value never stops the report.
+    The reason goes to the details page."""
+    try:
+        return fn(*args)
+    except Exception as e:                                          # noqa: BLE001
+        _problem(report, f"{REPORT_MD}, section {SECTIONS[k]}", e)
+        return [f"## {SECTIONS[k]}", "", "This section could not be written from the record. "
+                "The details page and analysis.json hold the record.", ""]
+
+
 def render_report(report: Dict[str, Any], sd: Path, screen: bool) -> Tuple[str, Set[int]]:
     """REPORT.md, and the kept findings it shows (by number from 1)."""
     shown: Set[int] = set()
-    L = title_lines(report)
-    L += summary_lines(report)
-    L += methods_lines(sd, report)
-    L += results_lines(report, shown)
-    L += limitation_lines(sd, report)
-    L += next_step_lines(report)
-    L += checks_lines(report, screen)
+    try:
+        L = title_lines(report)
+    except Exception:                                               # noqa: BLE001
+        L = [f"# {_p(report.get('question') or 'The report')}", ""]
+    L += _section(report, 0, summary_lines, report)
+    L += _section(report, 1, methods_lines, sd, report)
+    L += _section(report, 2, results_lines, report, shown)
+    L += _section(report, 3, limitation_lines, sd, report, report.get("_limits"))
+    L += _section(report, 4, next_step_lines, report)
+    L += _section(report, 5, checks_lines, report, screen, sd)
     return "\n".join(L).rstrip() + "\n", shown
 
 
@@ -867,14 +1088,45 @@ def render_report(report: Dict[str, Any], sd: Path, screen: bool) -> Tuple[str, 
 # SCREEN.md
 # ─────────────────────────────────────────────────────────────────────────────
 def screen_records(report: Dict[str, Any]) -> List[Dict[str, Any]]:
-    return [r for r in records_of(report).values() if r.get("call") == "screen"]
+    """Every screen the log holds, in its order."""
+    return [r for r in records_of(report).values()
+            if isinstance(r, dict) and r.get("call") == "screen"]
+
+
+def screen_record(report: Dict[str, Any]) -> Dict[str, Any]:
+    sr = (report.get("evidence_trace") or {}).get("screen_record")
+    return sr if isinstance(sr, dict) else {}
+
+
+def screen_run_of(sr: Dict[str, Any]) -> str:
+    """The run a screen's record looked at (interface I3): its scope's run;
+    a record from before the screen named its run in scope gives it in its
+    keys, or not at all, and is then read as the control run's."""
+    return str((sr.get("scope") or {}).get("run") or (sr.get("keys") or {}).get("run")
+               or "control")
+
+
+def shown_screens(report: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The screens SCREEN.md shows: the one the screen's record describes
+    (the same hash), else those of the run it names. A screen of another
+    run that a later screen replaced is listed on the details page only."""
+    recs = screen_records(report)
+    sr = screen_record(report)
+    if not sr:
+        return recs
+    same = [r for r in recs if sr.get("sha256") and r.get("sha256") == sr.get("sha256")]
+    if same:
+        return same
+    run = screen_run_of(sr)
+    return [r for r in recs if str(r.get("run") or (r.get("keys") or {}).get("run")
+                                    or "control") == run] or recs
 
 
 def screen_opening(report: Dict[str, Any], r: Dict[str, Any]) -> str:
-    """What the screen compares, from its record (interface I3). A record
-    from before the screen named its run is read as the control run's."""
-    scope = ((report.get("evidence_trace") or {}).get("screen_record") or {}).get("scope") or {}
-    run = scope.get("run") or "control"
+    """What the screen compares, from the screen's record (interface I3)."""
+    sr = screen_record(report)
+    scope = sr.get("scope") or {}
+    run = screen_run_of(sr)
     year = scope.get("year") or r.get("period")
     where = region_words(scope.get("region") or r.get("region"))
     if run != "control":
@@ -885,20 +1137,19 @@ def screen_opening(report: Dict[str, Any], r: Dict[str, Any]) -> str:
             f"every quantity and period of the control run.")
 
 
-def _rule_sentences(text: Any) -> List[str]:
-    """A rule of the server as short sentences: one per clause, split at a
-    semicolon or a full stop outside brackets."""
-    t, parts, cur, depth = _p(text), [], "", 0
-    for k, ch in enumerate(t):
-        depth += (ch == "(") - (ch == ")")
-        nxt = t[k + 1:k + 2]
-        if depth == 0 and ch in ";." and nxt == " " and (ch == ";" or t[k + 2:k + 3].isupper()):
-            parts.append(cur)
-            cur = ""
-            continue
-        cur += ch
-    parts.append(cur)
-    return [_sentence(x.strip()) for x in parts if x.strip().rstrip(".")]
+def mark_words(x: Dict[str, Any]) -> str:
+    """A screen row's mark in words ("above the largest value of the normal
+    years"); a mark the list does not hold, with its underscores as spaces."""
+    m = x.get("mark")
+    return "" if not m else MARK_WORDS.get(str(m), str(m).replace("_", " "))
+
+
+def status_words(x: Dict[str, Any]) -> str:
+    """A screen row's status in words: a marked row by its mark."""
+    st = str(x.get("status") or "")
+    if st == "marked":
+        return mark_words(x) or "marked"
+    return STATUS_WORDS.get(st, st.replace("_", " "))
 
 
 def _drop_empty(head: List[str], rows: List[List[str]]) -> List[str]:
@@ -910,17 +1161,20 @@ def _drop_empty(head: List[str], rows: List[List[str]]) -> List[str]:
 
 def render_screen(report: Dict[str, Any]) -> Optional[str]:
     """SCREEN.md, or None when no screen ran."""
-    recs = screen_records(report)
+    recs = shown_screens(report)
     if not recs:
         return None
-    sr = (report.get("evidence_trace") or {}).get("screen_record") or {}
     L = ["# The screen", "", f"*{_p(report.get('question') or '')}* Back to "
          f"[the report]({REPORT_MD}).", ""]
     for r in recs:
         L += [screen_opening(report, r), "", f"{SCORE_WORDS} {LOOKING_WORDS}", ""]
+        if r.get("planned") is False and r.get("after_close"):
+            L += ["This screen was made after the planned comparisons closed, so it is not one "
+                  "of the planned lookups.", ""]
         scored, other = [], []
-        for key, x in (r.get("rows") or {}).items():
-            if not key.startswith("display.") or not isinstance(x, dict):
+        rows = r.get("rows") if isinstance(r.get("rows"), dict) else {}
+        for key, x in rows.items():
+            if not str(key).startswith("display.") or not isinstance(x, dict):
                 continue
             cells = [field_name(x.get("field")), period_words(x.get("period")),
                      "" if x.get("change") is None else _fv(x["change"]),
@@ -929,25 +1183,23 @@ def render_screen(report: Dict[str, Any]) -> Optional[str]:
             if x.get("score") is not None:
                 scored.append([_p(x.get("group") or "")] + cells
                               + [_fv(x["score"]), "" if x.get("n_normal") is None
-                                 else str(x["n_normal"]), _p(x.get("mark") or "")])
+                                 else str(x["n_normal"]), _p(mark_words(x))])
             else:
-                other.append(cells + [_p(x.get("status") or ""), _p(x.get("mark") or "")])
+                other.append(cells + [_p(status_words(x))])
         L += ["## The rows with a score", ""]
         L += (_drop_empty(["Group", "Quantity", "Period", "Change", "Units", "Percent", "Score",
                            "Normal years", "Mark"], scored) if scored else
               ["No row has a score.", ""])
         L += ["## The rows not scored yet", ""]
-        L += (_drop_empty(["Quantity", "Period", "Change", "Units", "Percent", "Status",
-                           "Mark"], other) if other else ["Every row shown has a score.", ""])
-        c = r.get("screen_csv") or {}
-        L += ([f"The whole table, every quantity and period of the screen "
-               f"({_fv(c.get('rows'))} rows), is the file [{c['file']}]({c['file']})."]
-              if c.get("file") else ["No file of the whole table was written."]) + [""]
-    L += ["## How the rows are scored", ""]
-    L += [f"- {s}" for s in _rule_sentences(sr.get("scoring_rule"))] or ["Not on record."]
-    L += ["", "## Which rows are shown", ""]
-    disp = sr.get("display_rule") or ((recs[0].get("words") or {}).get("display_rule"))
-    L += [f"- {s}" for s in _rule_sentences(disp)] or ["Not on record."]
+        L += (_drop_empty(["Quantity", "Period", "Change", "Units", "Percent", "Status"], other)
+              if other else ["Every row shown has a score.", ""])
+        c = r.get("screen_csv") if isinstance(r.get("screen_csv"), dict) else {}
+        L += ([f"[The whole table]({c['file']}) holds every quantity and period of the screen, "
+               f"{_fv(c.get('rows'))} rows."] if c.get("file") else
+              ["No file of the whole table was written."]) + [""]
+    L += ["## How the rows are scored", ""] + [f"- {x}" for x in SCORING_SENTENCES]
+    L += ["", "## Which rows are shown", ""] + [f"- {x}" for x in DISPLAY_SENTENCES]
+    L += ["", "The details page gives the rules in the words of the model's code."]
     return "\n".join(L).rstrip() + "\n"
 
 
@@ -972,24 +1224,27 @@ def shown_in(n: int, a: Dict[str, Any], row: Dict[str, Any], report: Dict[str, A
              shown: Set[int], numbers: Dict[str, int]) -> str:
     """Where the report shows a comparison: its figure panels and its table,
     else a finding in the Results, else the details page."""
-    rf = report.get("report_figures") or {}
+    rf = report.get("report_figures") if isinstance(report.get("report_figures"), dict) else {}
     fields = {str(f) for f in a.get("fields") or []}
-    recs = {str(o.get("record")) for o in row.get("outputs") or [] if o.get("record")}
+    recs = {str(o.get("record")) for o in row.get("outputs") or []
+            if isinstance(o, dict) and o.get("record")}
     parts = []
-    for f in rf.get("figures") or []:
-        if n in [int(x) for x in f.get("comparisons") or []]:
+    for f in figures_of(rf):
+        if n in ints(f.get("comparisons")):
             num = f.get("number")
-            letters = [f"{num}{p.get('letter')}" for p in f.get("panels") or []
+            panels = [p for p in f.get("panels") or [] if isinstance(p, dict)]
+            letters = [f"{num}{p.get('letter')}" for p in panels
                        if str(p.get("field")) in fields and p.get("letter")]
-            parts.append(f"Figure {_join(letters)}" if letters else f"Figure {num}")
-    for t in rf.get("tables") or []:
-        if any(recs & set(r.get("records") or []) for r in t.get("rows") or []):
+            # every panel of the figure is the whole figure
+            whole = not letters or len(letters) == len(panels)
+            parts.append(f"Figure {num}" if whole else f"Figure {', '.join(letters)}")
+    for t in tables_of(rf):
+        if any(recs & set(_records(r)) for r in _rows(t)):
             parts.append(f"Table {t.get('number')}")
     if parts:
         return _join(parts)
-    records = records_of(report)
     claims = report.get("claims") or []
-    if any(claim_comparison(claims[i - 1], records, numbers) == n for i in shown):
+    if any(comparison_of(report, claims[i - 1], numbers) == n for i in shown):
         return "a finding in the Results"
     return "the details page"
 
@@ -1085,19 +1340,33 @@ def render_planned(report: Dict[str, Any], shown: Set[int]) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 def render_details(report: Dict[str, Any]) -> str:
     """Everything the short page leaves out, under plain headings, from the
-    same functions the one page of other reports uses."""
-    from agents.analysis import step4_report as S4
-    from agents.analysis import domain_report as DR
-    from agents.analysis import model_setup as MS
-    from agents.analysis import numbers_check as NC
-    from agents.analysis.claim_trace import headline_caveat_line
+    same functions the one page of other reports uses. Each part is written
+    on its own, so a part the record cannot give says so and the rest
+    stands."""
     L = ["# Details of the report", "", f"*{_p(report.get('question') or '')}*", "",
          f"Everything [the report]({REPORT_MD}) leaves out, from the same record, analysis.json. "
          f"Values are shown to 3 significant figures. The exact values are in analysis.json.",
          "", f"*{report.get('model') or 'model'} run, status **{report.get('status')}**, "
          f"generated {report.get('generated_at')}, "
          f"{Path(str(report.get('run_dir') or '')).name}*", ""]
-    L += ["## The headline", ""]
+    for part in (_d_headline, _d_summary, _d_findings, _d_caveats, _d_limits_left,
+                 _d_wording, _d_checks, _d_setup, _d_uncertainty, planned_record_lines,
+                 _d_drawn, report_figure_lines, _d_screens, _d_provenance):
+        try:
+            L += part(report)
+        except Exception as e:                                      # noqa: BLE001
+            _problem(report, f"{DETAILS_MD}, {part.__name__.strip('_')}", e)
+            L += [f"A part of this page ({part.__name__.strip('_').replace('_', ' ')}) could "
+                  f"not be written from the record ({type(e).__name__}: {e}).", ""]
+    probs = report.get("_problems") or []
+    if probs:
+        L += ["## Parts of the pages that could not be written", ""] + [f"- {_p(x)}" for x in probs]
+    return "\n".join(L).rstrip() + "\n"
+
+
+def _d_headline(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis.claim_trace import headline_caveat_line
+    L = ["## The headline", ""]
     if report.get("headline"):
         cl = headline_caveat_line(report)
         L += ([f"**{_p(report['headline'])}**  ", f"*{_p(cl)}*"] if cl else
@@ -1108,6 +1377,11 @@ def render_details(report: Dict[str, Any]) -> str:
     if rd.get("problems_after"):
         L += ["> Wording the readability check still flags: "
               + "; ".join(str(x) for x in rd["problems_after"][:6]), ""]
+    return L
+
+
+def _d_summary(report: Dict[str, Any]) -> List[str]:
+    L: List[str] = []
     shown = report.get("answer_kept") if "answer_kept" in report else report.get("answer")
     if shown and without_ids(shown, identifiers(report)) != _p(shown):
         L += ["## The summary as the Analyzer wrote it", "",
@@ -1120,23 +1394,54 @@ def render_details(report: Dict[str, Any]) -> str:
                      f"{_join([str(u) for u in x.get('unsupported') or []])}, which no kept "
                      f"finding's record gives.")
         L.append("")
+    return L
+
+
+def _d_findings(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis import step4_report as S4
     claims = report.get("claims") or []
-    L += [f"## Every kept finding, with its records ({len(claims)})", ""]
+    L = [f"## Every kept finding, with its records ({len(claims)})", ""]
     L += S4.claim_lines(report) or ["None.", ""]
     held = report.get("withheld") or []
     L += [f"## The findings left out, and why ({len(held)})", ""]
     L += (S4.withheld_lines(report) + [""]) if held else ["None.", ""]
+    return L
+
+
+def _d_caveats(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis import step4_report as S4
     blocking, others = S4.caveat_lines(report)
-    L += ["## Every caveat in full", ""]
+    L = ["## Every caveat in full", ""]
     if blocking:
         L += ["Caveats that bind the answer:", ""] + blocking + [""]
     if others:
         L += ["Other caveats on record:", ""] + others + [""]
     if not blocking and not others:
         L += ["None.", ""]
-    if report.get("evidence_trace"):
-        L += ["## How the claims are worded", "", FIXED_RULES, ""]
-        L += DR.wording_lines(report) + [""]
+    return L
+
+
+def _d_limits_left(report: Dict[str, Any]) -> List[str]:
+    """The limits the six-bullet cap of the report's Limitations leaves out."""
+    cut = (report.get("_limits") or {}).get("cut") or []
+    if not cut:
+        return []
+    return (["## Limits the report leaves out", "",
+             f"The report shows {MAX_LIMITS} limits. These are the others, in the same order.",
+             ""] + [f"- {t}" for t, _ in cut] + [""])
+
+
+def _d_wording(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis import domain_report as DR
+    if not report.get("evidence_trace"):
+        return []
+    return ["## How the claims are worded", "", FIXED_RULES, ""] + DR.wording_lines(report) + [""]
+
+
+def _d_checks(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis import step4_report as S4
+    from agents.analysis import numbers_check as NC
+    L: List[str] = []
     lim = S4.verification_limits(report)
     if lim:
         L += [lim[0], ""] + lim[2:]
@@ -1144,16 +1449,27 @@ def render_details(report: Dict[str, Any]) -> str:
     if "numbers_check" in report:
         L += [NC.page_line(report.get("numbers_check"), S4.NUMBERS_LEAD), ""]
     if "evidence_numbers" in report:
-        L += [NC.evidence_page_line(report.get("evidence_numbers")), ""]
-        left = (report.get("evidence_numbers") or {}).get("printed_not_checked") or []
-        if left:
-            L += [f"The records the report's tables print that were not made again: "
-                  f"{', '.join(left)}.", ""]
+        en = report.get("evidence_numbers")
+        L += [NC.evidence_page_line(en if isinstance(en, dict) else None), ""]
+        printed = (en or {}).get("printed") if isinstance(en, dict) else None
+        if printed:
+            L += [f"The records the report's tables print, made again with those the findings "
+                  f"cite: {', '.join(sorted_records(printed))}.", ""]
     if "numbers_check" not in report and "evidence_numbers" not in report:
         L += ["No numbers check is on record.", ""]
+    return L
+
+
+def _d_setup(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis import model_setup as MS
     ms = MS.render(report.get("model_setup")) if report.get("model_setup") else []
-    L += ["## The model set-up in full", ""]
-    L += ([_p(x) for x in ms[2:]] if ms else ["Not on record.", ""])
+    return ["## The model set-up in full", ""] + ([_p(x) for x in ms[2:]] if ms else
+                                                  ["Not on record.", ""])
+
+
+def _d_uncertainty(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis import domain_report as DR
+    L: List[str] = []
     oc = DR.open_cause_lines(report)
     if oc:
         L += ["## The remaining uncertainty, with the runs as the server takes them", ""] \
@@ -1161,21 +1477,61 @@ def render_details(report: Dict[str, Any]) -> str:
     timing = DR.timing_lines(report)
     if timing:
         L += ["## Timing", ""] + timing + [""]
-    L += planned_record_lines(report)
-    if report.get("evidence_trace"):
-        L += ["## The figures the Analyzer drew in its own step", ""]
-        L += DR.drawn_lines(report, names_only=True) + [""]
-    L += report_figure_lines(report)
-    for r in screen_records(report):
-        c = r.get("screen_csv") or {}
-        L += ["## The screen's record", "",
-              f"- record {r.get('id')}: year {r.get('period')}, region {r.get('region')}, "
-              f"against {(r.get('comparison') or {}).get('against')}; its findings are "
-              f"\"{r.get('label') or 'screen'}\""
-              + (f"; its whole table {c.get('file')}, {_fv(c.get('rows'))} rows, sha256 "
-                 f"{str(c.get('sha256'))[:12]}" if c.get("file") else ""), ""]
-    L += ["## Provenance", ""] + S4.provenance_lines(report) + [""]
-    return "\n".join(L).rstrip() + "\n"
+    return L
+
+
+def _d_drawn(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis import domain_report as DR
+    if not report.get("evidence_trace"):
+        return []
+    return ["## The figures the Analyzer drew in its own step", ""] \
+        + DR.drawn_lines(report, names_only=True) + [""]
+
+
+def _d_screens(report: Dict[str, Any]) -> List[str]:
+    """Every screen on record, which one SCREEN.md shows, and the screen's
+    rules as the model server states them, whole."""
+    recs = screen_records(report)
+    if not recs:
+        return []
+    shown = {str(r.get("id")) for r in shown_screens(report)}
+    L = ["## The screens on record", ""]
+    for r in recs:
+        c = r.get("screen_csv") if isinstance(r.get("screen_csv"), dict) else {}
+        made = ("planned" if r.get("planned") else "not planned") + \
+            (", made after the planned phase closed" if r.get("after_close") else "")
+        L.append(f"- record {r.get('id')}: run {r.get('run') or (r.get('keys') or {}).get('run')}, "
+                 f"year {r.get('period')}, region {r.get('region')}, against "
+                 f"{(r.get('comparison') or {}).get('against')}; {made}; its findings are "
+                 f"\"{r.get('label') or 'screen'}\""
+                 + (f"; its whole table {c.get('file')}, {_fv(c.get('rows'))} rows, sha256 "
+                    f"{str(c.get('sha256'))[:12]}" if c.get("file") else "")
+                 + ("; shown on SCREEN.md" if str(r.get("id")) in shown else
+                    "; not shown on SCREEN.md, which shows the screen the screen's record "
+                    "describes"))
+    L.append("")
+    sr = screen_record(report)
+    disp = sr.get("display_rule") or ((recs[-1].get("words") or {}).get("display_rule")
+                                      if isinstance(recs[-1].get("words"), dict) else None)
+    L += ["## The screen's rules as the model server states them", "",
+          f"Scoring rule: {_p(sr.get('scoring_rule') or 'not on record')}", "",
+          f"Display rule: {_p(disp or 'not on record')}", ""]
+    return L
+
+
+def _d_provenance(report: Dict[str, Any]) -> List[str]:
+    from agents.analysis import step4_report as S4
+    return ["## Provenance", ""] + S4.provenance_lines(report) + [""]
+
+
+def sorted_records(names: Any) -> List[str]:
+    """Record names ("L7") each once, by their number; any other name after
+    them, as written."""
+    xs = [str(x) for x in names or []]
+    def key(n: str):
+        m = re.fullmatch(r"L(\d+)", n)
+        return (0, int(m.group(1)), "") if m else (1, 0, n)
+    return sorted(dict.fromkeys(xs), key=key)
 
 
 def planned_record_lines(report: Dict[str, Any]) -> List[str]:
@@ -1205,12 +1561,17 @@ def report_figure_lines(report: Dict[str, Any]) -> List[str]:
                 "No record of the report's figures is on this study.", ""]
     rf = report.get("report_figures") or {}
     L = ["## The report's figures", ""]
-    for f in rf.get("figures") or []:
-        L.append(f"- Figure {f.get('number')}: {f.get('file')}, comparisons "
-                 f"{', '.join(str(x) for x in f.get('comparisons') or []) or 'none'}")
-    for t in rf.get("tables") or []:
-        recs = sorted({x for r in t.get("rows") or [] for x in r.get("records") or []})
-        L.append(f"- Table {t.get('number')}: records {', '.join(recs) or 'none'}")
+    for f in figures_of(rf):
+        L.append(f"- Figure {f.get('number')} ({f.get('id')}): {f.get('file')}, comparisons "
+                 f"{', '.join(str(x) for x in ints(f.get('comparisons'))) or 'none'}")
+    for t in tables_of(rf):
+        rows = _rows(t)
+        L.append(f"- Table {t.get('number')}, after "
+                 f"{'the figure ' + str(t.get('follows')) if t.get('follows') else 'no figure'}, "
+                 f"{len(rows)} row{'s' if len(rows) != 1 else ''}:")
+        for r in rows:
+            L.append(f"  - {_p(r.get('label'))}: records "
+                     f"{', '.join(sorted_records(_records(r))) or 'none'}")
     for x in rf.get("not_drawn") or []:
         L.append(f"- not drawn: {_p(x)}")
     for x in rf.get("problems") or []:
@@ -1229,22 +1590,53 @@ def applies(report: Dict[str, Any]) -> bool:
     return report.get("kind") == "whole_domain" and not report.get("withheld_because")
 
 
+def _page(report: Dict[str, Any], name: str, title: str, fn, *args):
+    """A page, or its title and one line saying it could not be written from
+    the record (the reason goes to the details page)."""
+    try:
+        return fn(*args)
+    except Exception as e:                                          # noqa: BLE001
+        _problem(report, name, e)
+        return (f"# {title}\n\nThis page could not be written from the record. "
+                f"[The report]({REPORT_MD}) and analysis.json hold the record.\n")
+
+
 def write_pages(report: Dict[str, Any], out_dir) -> Dict[str, str]:
     """REPORT.md, REPORT_DETAILS.md, PLANNED_ANALYSES.md and, when a screen
     ran, SCREEN.md into out_dir; {page name: path}. {} for a report that is
     not written this way. A SCREEN.md an earlier pass left beside a report
-    with no screen is set aside, not deleted."""
+    with no screen is set aside, not deleted.
+
+    AN ODD VALUE NEVER STOPS THE PAGES. A part or a page the record cannot
+    give says so in one line, and the details page names why. Only a file
+    that cannot be written raises, and step4_report then writes the one
+    page and sets the companion pages aside."""
     if not applies(report):
         return {}
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     sd = study_dir(report, out)
-    # THE PLAN, READ ONCE: the comparisons' numbers and titles come from it
-    rep = dict(report, _plan=_read_json(out / "analysis_plan.json"))
-    screen = render_screen(rep)
+    # THE STUDY'S RECORDS, READ ONCE: the comparisons' numbers and titles
+    # (the plan), the plan items of each logged record (the log) and of the
+    # Analyzer's own figures (step 2's record), and the limits both pages use
+    rep = dict(report, _plan=_read_json(out / "analysis_plan.json"),
+               _lookups=lookup_items(out), _figure_items=figure_items(out), _problems=[])
+    try:
+        rep["_limits"] = limits_of(sd, rep)
+    except Exception as e:                                          # noqa: BLE001
+        _problem(rep, "the limits", e)
+        rep["_limits"] = None
+    try:
+        screen = render_screen(rep)
+    except Exception as e:                                          # noqa: BLE001
+        _problem(rep, SCREEN_MD, e)
+        screen = (f"# The screen\n\nThis page could not be written from the record. "
+                  f"[The report]({REPORT_MD}) and analysis.json hold the record.\n")
     main, shown = render_report(rep, sd, screen is not None)
-    pages = {REPORT_MD: main, DETAILS_MD: render_details(rep),
-             PLANNED_MD: render_planned(rep, shown)}
+    planned = _page(rep, PLANNED_MD, "The planned comparisons", render_planned, rep, shown)
+    pages = {REPORT_MD: main,
+             DETAILS_MD: _page(rep, DETAILS_MD, "Details of the report", render_details, rep),
+             PLANNED_MD: planned}
     if screen is not None:
         pages[SCREEN_MD] = screen
     elif (out / SCREEN_MD).is_file():

@@ -240,8 +240,9 @@ def test_the_results_choose_findings_by_rule(tmp_path):
     text = p["REPORT.md"]
     res = text[text.index("## 3. Results"):text.index("## 4. Limitations")]
     assert "![Figure 1](figure_over_time.png)" in res
-    assert "**Figure 1.** The new run minus the control run. It answers comparisons 1 and 3." \
-        in res
+    # the caption, then the comparisons it answers on a line of their own
+    assert "**Figure 1.** The new run minus the control run.\n\nThis figure answers " \
+        "comparisons 1 and 3.\n" in res
     assert "**Table 1.** The same changes over the periods." in res
     assert "| Growth (GPP), gC/m2 | 1.5 (2.5 %) | 1.5 | 1b |" in res
     # comparison 1 belongs to Figure 1: its finding on L2 alone and its finding
@@ -332,7 +333,13 @@ def test_limitations_come_from_the_design_page_first_and_stop_at_six(tmp_path):
     bullets = [ln for ln in lim.splitlines() if ln.startswith("- ")]
     assert len(bullets) == RP.MAX_LIMITS
     assert bullets[0] == "- A made-up limit number 1. This is the Planner's judgement."
-    assert "The details page gives 3 more caveats on record in full." in lim
+    # the two limits the cap leaves out are counted and printed on the details
+    # page; the caveat one of them says is not counted a second time
+    assert "The details page gives 2 more limits and 2 more caveats on record in full." in lim
+    d = (adir / "REPORT_DETAILS.md").read_text()
+    left = d[d.index("## Limits the report leaves out"):]
+    assert "- A made-up structural limit of GPP numbers." in left
+    assert "- The new run starts from a later saved state of the control run" in left
 
 
 def test_the_later_start_and_the_changed_share_are_limits(tmp_path):
@@ -355,8 +362,8 @@ def test_the_later_start_and_the_changed_share_are_limits(tmp_path):
     lim = lim[lim.index("## 4."):lim.index("## 5.")]
     assert ("The new run's change applies only in the region `basin`, which covers 25 percent "
             "of the region `basin`, its vegetated land.") in lim
-    assert "- The model server has a note on years. Not demonstrated: the run starts from the " \
-           "control run's saved state of 1 January 2033" in lim
+    # the note on a later start is one plain sentence, its date the record's
+    assert "- " + RP.LATER_START.format(date="1 January 2033") + "\n" in lim
     assert "other" not in lim                       # a region no record uses
     assert "The details page gives 1 more caveat" in lim
 
@@ -376,9 +383,14 @@ def test_a_cause_is_not_quoted_when_the_audit_withheld_a_finding(tmp_path):
 
 
 def test_checks_and_records_say_what_the_second_reading_covered(tmp_path):
-    _, p = pages(tmp_path)
-    ch = p["REPORT.md"][p["REPORT.md"].index("## 6."):]
-    assert "made 40 numbers again from the 5 records the findings cite" in ch
+    from agents.analysis import numbers_check as NC
+    report, adir = make_report(tmp_path)
+    (adir.parent / "DESIGN_REVIEW.md").write_text("a made-up design page")
+    RP.write_pages(report, adir)
+    ch = (adir / "REPORT.md").read_text()
+    ch = ch[ch.index("## 6."):]
+    # the check's own sentence, unchanged; no figure was drawn
+    assert NC.evidence_sentence(report["evidence_numbers"], figures=False) in ch
     assert "The audit kept 5 findings and left out 1." in ch
     assert RP.JUDGEMENT_WORDS in ch
     for link in ("(REPORT_DETAILS.md)", "(SCREEN.md)", "(PLANNED_ANALYSES.md)",
@@ -386,21 +398,17 @@ def test_checks_and_records_say_what_the_second_reading_covered(tmp_path):
         assert link in ch
 
 
-def test_records_the_tables_print_but_the_reading_did_not_take_are_named(tmp_path):
-    report, adir = make_report(tmp_path, figures=figures_record())
-    report["evidence_numbers"]["printed_not_checked"] = ["L6"]
-    RP.write_pages(report, adir)
-    assert "The 1 record the report's tables print beyond those were not made again." in \
-        (adir / "REPORT.md").read_text()
-    assert "were not made again: L6." in (adir / "REPORT_DETAILS.md").read_text()
-
-
-def test_checks_use_the_second_readings_own_sentence_when_it_has_one(tmp_path, monkeypatch):
+def test_checks_use_the_second_readings_own_sentence(tmp_path, monkeypatch):
     from agents.analysis import numbers_check as NC
-    monkeypatch.setattr(NC, "evidence_sentence", lambda rec: "A made-up sentence of the check.",
-                        raising=False)
-    _, p = pages(tmp_path)
+    seen = []
+
+    def sentence(rec, figures=True):
+        seen.append(figures)
+        return "A made-up sentence of the check."
+    monkeypatch.setattr(NC, "evidence_sentence", sentence)
+    _, p = pages(tmp_path, figures=figures_record())
     assert "A made-up sentence of the check." in p["REPORT.md"]
+    assert seen == [True]                       # the report draws figures
 
 
 # ── SCREEN.md ───────────────────────────────────────────────────────────────
@@ -412,16 +420,20 @@ def test_the_screen_of_a_new_run_says_what_it_compares(tmp_path):
     assert RP.SCORE_WORDS in s and RP.LOOKING_WORDS in s
     scored = s[s.index("## The rows with a score"):s.index("## The rows not scored")]
     lines = scored.splitlines()
-    # the empty Mark column is left out, whole lines compared
+    # the empty Mark column is left out, whole lines compared; a quantity and
+    # a unit in the words of field_words
     assert "| Group | Quantity | Period | Change | Units | Percent | Score | Normal years |" \
         in lines
-    assert "| weather in | RAIN | July 2033 | -12.5 | mm/month | -30 | -2.25 | 4 |" in lines
-    assert "| leaves | TLAI | summer 2033 | -0.0125 | m2/m2 |  | -1.5 | 4 |" in lines
-    assert "| TOTVEGC | October 2033 | -4.5 | gC/m2 | -0.5 | not scored yet |" in \
-        s.splitlines()
-    # the rules at the end, one clause each, a bracket kept whole
-    assert "- The largest first (one per field; ties kept)." in s
-    assert s.index("## How the rows are scored") > s.index("screen_L1.csv")
+    assert (f"| weather in | {RP.field_name('RAIN')} | July 2033 | -12.5 | "
+            f"{RP.units_name('mm/month')} | -30 | -2.25 | 4 |") in lines
+    assert (f"| leaves | {RP.field_name('TLAI')} | summer 2033 | -0.0125 | "
+            f"{RP.units_name('m^2/m^2')} |  | -1.5 | 4 |") in lines
+    assert (f"| {RP.field_name('TOTVEGC')} | October 2033 | -4.5 | {RP.units_name('gC/m^2')} "
+            f"| -0.5 | not scored yet |") in s.splitlines()
+    # the rules at the end, the fixed sentences, after the link to the table
+    for x in RP.SCORING_SENTENCES + RP.DISPLAY_SENTENCES:
+        assert f"- {x}\n" in s
+    assert s.index("## How the rows are scored") > s.index("[The whole table](screen_L1.csv)")
 
 
 def test_an_older_screen_record_is_read_as_the_control_runs(tmp_path):
@@ -550,67 +562,83 @@ def test_the_old_page_still_has_its_fourteen_sections(tmp_path):
     assert "## The screen (exploratory)" in heads and heads[-1] == "## Provenance"
 
 
-# ── the wiring in step4_report.build (JOIN guards) ──────────────────────────
-def _reading(monkeypatch, takes_also):
-    """A made-up second reading in place of numbers_check.check_evidence."""
+# ── the wiring in step4_report.build ────────────────────────────────────────
+def _joined(monkeypatch, build):
+    """report_figures.build and numbers_check.check_evidence replaced by
+    made-up ones; the calls the second reading received."""
     from agents.analysis import numbers_check as NC
+    from agents.analysis import report_figures as RF
     calls = []
-    if takes_also:
-        def check_evidence(study_dir, claims, registry=None, write=True, also=()):
-            calls.append(list(also))
-            return {"pass": True, "printed": sorted(also)}
-    else:
-        def check_evidence(study_dir, claims, registry=None, write=True):
-            calls.append(None)
-            return {"pass": True}
+
+    def check_evidence(study_dir, claims, registry=None, write=True, also=()):
+        calls.append(list(also))
+        return {"pass": True, "printed": sorted(also)}
     monkeypatch.setattr(NC, "check_evidence", check_evidence)
+    monkeypatch.setattr(RF, "build", build)
     return calls
 
 
-def test_the_printed_records_go_to_the_second_reading(monkeypatch):
-    calls = _reading(monkeypatch, True)
-    claims = [{"evidence": ["L2"]}]
-    assert S4.check_evidence("s", claims, ["L2", "L9"]) == {"pass": True,
-                                                             "printed": ["L2", "L9"]}
-    assert calls == [["L2", "L9"]]
+def test_the_printed_records_go_to_the_second_reading(tmp_path, monkeypatch):
+    seen = {}
 
-
-def test_a_reading_without_also_names_the_printed_records_it_did_not_take(monkeypatch):
-    calls = _reading(monkeypatch, False)
-    rec = S4.check_evidence("s", [{"evidence": ["L2"]}], ["L2", "L9"])
-    assert rec["printed_not_checked"] == ["L9"] and calls == [None]
-    assert "printed_not_checked" not in S4.check_evidence("s", [], [])
+    def build(study_dir, plan, out_dir, ctx=None):
+        seen["ctx"] = ctx
+        return {"figures": [], "tables": [], "printed_records": ["L2", "L9"]}
+    calls = _joined(monkeypatch, build)
+    rf, rec = S4.figures_and_reading(tmp_path, {}, tmp_path, [{"evidence": ["L2"]}], ctx="c")
+    assert rf["printed_records"] == ["L2", "L9"] and seen["ctx"] == "c"
+    assert calls == [["L2", "L9"]] and rec == {"pass": True, "printed": ["L2", "L9"]}
 
 
 def test_the_figures_never_stop_the_report(tmp_path, monkeypatch):
-    import types
-    mod = types.ModuleType("agents.analysis.report_figures")
-
-    def build(study_dir, plan, out_dir):
+    def build(study_dir, plan, out_dir, ctx=None):
         raise ValueError("made-up")
-    mod.build = build
-    monkeypatch.setitem(sys.modules, "agents.analysis.report_figures", mod)
+    calls = _joined(monkeypatch, build)
+    rf, rec = S4.figures_and_reading(tmp_path, {}, tmp_path, [])
+    assert rf["figures"] == [] and "made-up" in rf["problems"][0]
+    # the second reading still runs, over the cited records alone
+    assert calls == [[]] and rec["pass"]
+
+
+def test_a_figures_build_that_returns_no_record_gives_an_empty_one(tmp_path, monkeypatch):
+    _joined(monkeypatch, lambda study_dir, plan, out_dir, ctx=None: None)
     rec = S4.report_figures(tmp_path, {}, tmp_path)
-    assert rec["figures"] == [] and "made-up" in rec["problems"][0]
-    mod.build = lambda s, p, o: {"figures": [], "tables": [], "printed_records": ["L4"]}
-    assert S4.report_figures(tmp_path, {}, tmp_path)["printed_records"] == ["L4"]
+    assert rec["figures"] == [] and rec["printed_records"] == []
+    assert rec["problems"] == ["the report's figures returned no record"]
 
 
-def test_without_the_figures_module_there_is_no_record(tmp_path, monkeypatch):
-    monkeypatch.setitem(sys.modules, "agents.analysis.report_figures", None)
-    assert S4.report_figures(tmp_path, {}, tmp_path) is None
+def test_a_second_reading_that_raises_does_not_pass(tmp_path, monkeypatch):
+    from agents.analysis import numbers_check as NC
+    _joined(monkeypatch, lambda study_dir, plan, out_dir, ctx=None: {"printed_records": []})
+
+    def boom(*a, **k):
+        raise OSError("made-up")
+    monkeypatch.setattr(NC, "check_evidence", boom)
+    _, rec = S4.figures_and_reading(tmp_path, {}, tmp_path, [])
+    assert rec["pass"] is False and rec["error"] == "OSError: made-up"
+
+
+def test_no_join_guard_is_left():
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("src/agents/analysis/report_pages.py", "src/agents/analysis/step4_report.py",
+                "tools/redraw_report.py"):
+        text = (root / rel).read_text()
+        assert "# JOIN" not in text and "inspect.signature" not in text, rel
 
 
 # ── words ───────────────────────────────────────────────────────────────────
 def test_words_in_place_of_codes():
     assert RP.period_words("2033-09") == "September 2033"
-    assert RP.period_words("2033-DJF") == "winter 2033"
+    from agents.analysis import field_words as FW
+    assert RP.period_words("2033-DJF") == FW.period_words("2033-DJF")
     assert RP.period_words("WY2033") == "water year 2033"
     assert RP.period_words("2033") == "the year 2033"
     assert RP.span_words([2033, 2034]) == "2033 and 2034"
     assert RP.span_words([2031, 2032, 2033]) == "2031 to 2033"
     assert RP.numbers_words([1, 2, 3, 4, 6, 7, 8]) == "comparisons 1 to 4 and 6 to 8"
     assert RP.numbers_words([5]) == "comparison 5"
+    assert RP.numbers_words([3, 7, 8]) == "comparisons 3, 7 and 8"
+    assert RP.numbers_words([1, 2]) == "comparisons 1 and 2"
     assert RP.region_words("watershed, vegetated") == "the watershed's vegetated land"
     assert RP.region_words("watershed, vegetated, 1000-1500 m") == \
         "the watershed's vegetated land at 1000-1500 m"
@@ -630,7 +658,7 @@ def test_no_dash_or_mid_sentence_colon_in_the_fixed_words(tmp_path):
 def test_the_study_record_names_the_three_new_pages_after_the_report(tmp_path):
     from agents import study_record as SRD
     for name in ("REPORT_DETAILS.md", "SCREEN.md", "PLANNED_ANALYSES.md", "report_figures.json",
-                 "figure_over_time.png"):
+                 "figure_over_time.png", "figure_over_time_2.png", "report_lookups.jsonl"):
         assert "no role on record" not in SRD.file_role(f"04_analysis/{name}"), name
     roles = [p for p, _ in SRD.ROLES]
     assert roles.index("04_analysis/REPORT.md") < roles.index("04_analysis/REPORT_DETAILS.md")
