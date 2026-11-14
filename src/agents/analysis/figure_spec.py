@@ -64,7 +64,9 @@ drawn here, again outside the model's list (CODE_KINDS):
                         line on the normal years' range and mean. Months are
                         ticked Jan, Apr, Jul and Oct, the year under January
     a stack of months   a stacked figure of months panels holds up to
-                        STACK_MAX_PANELS; every other figure keeps MAX_PANELS
+                        STACK_MAX_PANELS, a grid of shared maps and cells up
+                        to GRID_MAX_PANELS (two rows of four); every other
+                        figure keeps MAX_PANELS
     shared_map          a per-cell map on one scale centred on zero, shared
                         with the figure's other shared maps, with one colour
                         bar for its row, the region's edge and degree ticks
@@ -1141,6 +1143,12 @@ STACK_WIDTH, STACK_HEIGHT = 11.0, 3.3
 # zero for the maps, a bold letter per panel).
 CODE_KINDS = ("months", "shared_map", "cells")
 STACK_MAX_PANELS = 8
+# THE FIGURE OVER SPACE IS A ROW OF MAPS OVER A ROW OF CELLS, up to four years
+# each (report_figures.over_space). Held to four panels in all, a study of
+# three or four years with a lower row got no figure over space at all (found
+# 2026-11-13, round 2). A grid of only these code kinds holds two rows of four.
+GRID_KINDS = ("shared_map", "cells")
+GRID_MAX_PANELS = 2 * MAX_PANELS
 MONTH_SHADE = "0.88"
 CHANGE_COLOUR = "#2b6cb0"
 MAP_CMAP = "RdBu"
@@ -1165,11 +1173,15 @@ MAP_SCALE_PERCENTILE = 99                        # the shared scale's end, of |v
 
 def panel_limit(f: Dict[str, Any]) -> int:
     """The panels a figure may hold: STACK_MAX_PANELS for a stack of months
-    panels, MAX_PANELS for any other figure."""
+    panels, GRID_MAX_PANELS for a grid of shared maps and cells, MAX_PANELS
+    for any other figure."""
     panels = list(f.get("panels") or [])
     if f.get("layout") == "stack" and panels and \
             all(isinstance(p, dict) and p.get("kind") == "months" for p in panels):
         return STACK_MAX_PANELS
+    if f.get("layout") == "grid" and panels and \
+            all(isinstance(p, dict) and p.get("kind") in GRID_KINDS for p in panels):
+        return GRID_MAX_PANELS
     return MAX_PANELS
 
 

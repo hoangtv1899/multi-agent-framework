@@ -169,6 +169,97 @@ def test_screen_study_makes_the_new_screen_and_sets_the_old_one_aside(wet_study,
     assert AP.screen_study(wet_study["rd"]) == rec and len(AP.lookups(wet_study["out"])) == 2
 
 
+def _old_control_screen(wet_study, monkeypatch):
+    """The study as saved before the rule: its screen looked at the control."""
+    plain = AP.screen_run
+    monkeypatch.setattr(AP, "screen_run", lambda plan: "control")
+    AP.make_access(AP.access_spec(wet_study["ctx"]), script=AP.REQUIRED_SCRIPT).screen(2016,
+                                                                                      REGION)
+    monkeypatch.setattr(AP, "screen_run", plain)
+    import agents.analysis.step0_context as S0
+    monkeypatch.setattr(S0, "load", lambda d: wet_study["ctx"])
+    return (wet_study["out"] / AP.SCREEN_FILE).read_bytes()
+
+
+def test_a_screen_that_cannot_be_made_leaves_the_old_record_in_place(wet_study, monkeypatch):
+    before = _old_control_screen(wet_study, monkeypatch)
+
+    def broken(self, *a, **k):
+        raise RuntimeError("the store is unreadable")
+    monkeypatch.setattr(DAC.SuiteAccess, "screen", broken)
+    with pytest.raises(RuntimeError, match="unreadable"):
+        AP.screen_study(wet_study["rd"])
+    assert (wet_study["out"] / AP.SCREEN_FILE).read_bytes() == before
+    assert not (wet_study["out"] / "superseded").exists()
+
+
+def test_the_new_screen_is_made_while_the_old_record_is_still_in_place(wet_study, monkeypatch):
+    """The old record is moved aside only after the new screen exists: when
+    the new screen is made, the old record is still the study's."""
+    before = _old_control_screen(wet_study, monkeypatch)
+    seen = []
+    real = DAC.SuiteAccess.screen
+
+    def watched(self, *a, **k):
+        seen.append((wet_study["out"] / AP.SCREEN_FILE).read_bytes())
+        return real(self, *a, **k)
+    monkeypatch.setattr(DAC.SuiteAccess, "screen", watched)
+    rec = AP.screen_study(wet_study["rd"])
+    assert seen == [before]
+    assert rec["scope"]["run"] == NEW and rec["keys"]["run"] == NEW
+    line = AP.lookups(wet_study["out"])[-1]
+    assert rec["sha256"] == line["sha256"] and rec["script"] == AP.REQUIRED_SCRIPT
+
+
+def test_an_old_record_that_names_its_run_only_in_its_keys_is_kept(wet_study, monkeypatch):
+    """A screen record written before scope.run (I3) names the run screened
+    only in its keys: a screen of the chosen run is kept, and none is made."""
+    AP.produce_required(wet_study["ctx"], wet_study["out"])
+    p = wet_study["out"] / AP.SCREEN_FILE
+    old = json.loads(p.read_text())
+    old["scope"].pop("run")
+    assert old["keys"]["run"] == NEW
+    p.write_text(json.dumps(old))
+    import agents.analysis.step0_context as S0
+    monkeypatch.setattr(S0, "load", lambda d: wet_study["ctx"])
+    n = len(AP.lookups(wet_study["out"]))
+    assert AP.screen_study(wet_study["rd"]) == old
+    assert len(AP.lookups(wet_study["out"])) == n
+    assert not (wet_study["out"] / "superseded").exists()
+    # with neither, it is the control run's, and the new run's screen is made
+    old["keys"].pop("run")
+    p.write_text(json.dumps(old))
+    assert AP.screen_study(wet_study["rd"])["scope"]["run"] == NEW
+    assert len(AP.lookups(wet_study["out"])) == n + 1
+
+
+# ── the plan's screen year is a year of the run it screens ──────────────────
+
+def _screened(year, comparisons):
+    plan = {"question": "What did the wet run change?", "comparisons": comparisons,
+            "screen": {"when": "first", "region": REGION, "year": year, "why": "w"},
+            "analyses": []}
+    return AP._check_screen(plan, {"question_type": "exploratory", "regions": {REGION},
+                                   "runs": {"control": [2014, 2015, 2016, 2017],
+                                            NEW: [2016, 2017]}})
+
+
+def test_a_screen_year_the_new_run_does_not_have_is_refused():
+    assert _screened(2016, [_cmp(NEW)]) == []
+    got = _screened(2015, [_cmp(NEW)])
+    assert got == [f"screen: year 2015 is not a year of {NEW} (2016 to 2017), the new run the "
+                   f"screen looks at"]
+    assert len(got[0].split(". ")) == 1 and "\u2014" not in got[0]
+    # the control alone screens a year against the normal years: no such rule
+    assert _screened(2015, [_cmp("control")]) == []
+    # with no runs given, or a run whose years are not on record, no rule
+    plan = {"comparisons": [_cmp(NEW)], "screen": {"when": "first", "region": REGION,
+                                                   "year": 2015}}
+    assert AP._check_screen(plan, {"question_type": "exploratory", "regions": {REGION}}) == []
+    assert AP._check_screen(plan, {"question_type": "exploratory", "regions": {REGION},
+                                   "runs": {"control": None, NEW: None}}) == []
+
+
 # ── a study of the control run alone ────────────────────────────────────────
 
 def test_the_control_alone_still_screens_its_year_against_the_normal_years(built, wet_suite,

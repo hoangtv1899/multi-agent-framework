@@ -1646,35 +1646,91 @@ LEAD = "A second reading of the model output, by code written apart from the ana
 NOT_MADE = "so the numbers in this report were not made again"
 
 
+def _made_again(r: Any) -> bool:
+    """Whether a record of the check's "records" had a number made again."""
+    return isinstance(r, dict) and isinstance(r.get("compared"), int) and r["compared"] > 0
+
+
+# WHAT THE SENTENCE COUNTS (round 2 of the rebuild, 2026-11-13). The review
+# found three ways the first sentence said more than the check did: an error
+# after some numbers were compared was told as "found 0 that did not
+# reproduce"; every printed record was counted among those "made again",
+# though one whose call the check does not make again had none made; and a
+# pass with nothing compared read as a pass. Now an error is said first,
+# whatever was compared; a printed record counts as made again only when a
+# number of it was, and the others are counted apart; a reading that
+# compared nothing says so; and a printed record's numbers that were not
+# made again are not said to be numbers "no finding states", since a table
+# may print them.
 def evidence_sentence(rec: Optional[Dict[str, Any]], figures: bool = True) -> str:
     """The second reading of the numbers in plain sentences, for the
     report's "Checks and records" section: what it made again and from how
     many records, its largest relative difference, and what it did not make
-    again; or that it did not pass, did not run, or is not on record."""
+    again; or that it stopped, did not pass, or is not on record."""
     if not rec:
         return f"No second reading of the model output is on record, {NOT_MADE}."
+    n = rec.get("n_compared") if isinstance(rec.get("n_compared"), int) else 0
+    numbers = _many(n, "number", "numbers")
+    if rec.get("error"):
+        if not n:
+            return f"{LEAD} stopped before it compared any number, so the report is withheld."
+        return (f"{LEAD} stopped before it finished, after it had made {numbers} again, so the "
+                f"report is withheld.")
+    records = rec.get("records") if isinstance(rec.get("records"), dict) else {}
     cited = [str(r) for r in rec.get("cited") or []]
-    more = [r for r in rec.get("printed") or [] if r not in set(cited)]
-    of = _many(len(cited), "record the findings cite", "records the findings cite")
-    if more:
-        of += f" and the {_count(len(more))} more the report prints"
-    if not rec.get("pass") and rec.get("error") and not rec.get("n_compared"):
-        return f"{LEAD} stopped before it compared any number, {NOT_MADE}."
-    made = f"{LEAD} made {_many(rec.get('n_compared') or 0, 'number', 'numbers')} again " \
-        f"from the {of}"
+    printed = [str(r) for r in rec.get("printed") or []]
+    more = [r for r in printed if r not in set(cited)]
+    made = [r for r in more if _made_again(records.get(r))]
+    unmade = [r for r in more if r not in set(made)]
+    src = []
+    if cited:
+        src.append("the " + _many(len(cited), "record the findings cite",
+                                  "records the findings cite"))
+    if made:
+        src.append(f"the {_count(len(made))} more the report prints" if cited else
+                   "the " + _many(len(made), "record the report prints",
+                                  "records the report prints"))
+    head = (f"{LEAD} made {numbers} again from {' and '.join(src)}" if n and src else
+            f"{LEAD} made {numbers} again" if n else f"{LEAD} made no numbers again")
+    figs = " The values the figures draw were not made again." if figures else ""
     if not rec.get("pass"):
-        n = len(rec.get("mismatches") or [])
-        return f"{made}, and found {_count(n)} that did not reproduce, so the report is withheld."
+        bad = [m for m in rec.get("mismatches") or [] if isinstance(m, dict)]
+        k = sum(1 for m in bad if m.get("path"))
+        found = ([f"{_many(k, 'number', 'numbers')} that did not reproduce"] if k else []) + \
+            ([_many(len(bad) - k, "record", "records") + " it could not make again"]
+             if len(bad) > k else [])
+        return (f"{head}, and found {' and '.join(found)}, so the report is withheld."
+                if found else f"{head}, and did not pass, so the report is withheld.")
+    if not n:
+        why = ("the findings cite no record and the report prints none" if not cited and not more
+               else "no record the findings cite or the report prints holds a number it makes "
+                    "again")
+        return f"{head}, because {why}.{figs}"
     w = (rec.get("largest_relative_difference") or {}).get("rel_diff")
-    out = made + (f", with a largest relative difference of {float(w):.3g}." if w is not None
+    out = head + (f", with a largest relative difference of {float(w):.3g}." if w is not None
                   else ".")
-    left = sum(int(x.get("n") or 1) for x in rec.get("not_recomputed") or [])
-    if left:
-        out += (f" It did not make again {_many(left, 'other number', 'other numbers')} of "
-                f"these records, which no finding states.")
-    if figures:
-        out += " The values the figures draw were not made again."
-    return out
+    if unmade:
+        out += (" It made no number again of " + _many(len(unmade), "more record",
+                                                       "more records")
+                + " the report prints.")
+    left_cited = left_printed = 0
+    for x in rec.get("not_recomputed") or []:
+        rid = str((x or {}).get("record"))
+        if rid in unmade:
+            continue                               # said above, as a record
+        k = int((x or {}).get("n") or 1)
+        if rid in printed:
+            left_printed += k
+        else:
+            left_cited += k
+    if left_cited:
+        out += (f" It did not make again {_many(left_cited, 'other number', 'other numbers')} "
+                f"of the records the findings cite, which no finding states.")
+    if left_printed:
+        out += (f" It did not make again "
+                f"{_many(left_printed, 'other number', 'other numbers')} of the records the "
+                f"report prints.")
+    return out + figs
 
 
 if __name__ == "__main__":

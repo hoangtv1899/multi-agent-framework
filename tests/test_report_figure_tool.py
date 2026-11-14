@@ -124,6 +124,12 @@ def test_any_other_figure_keeps_four():
     assert FS.panel_limit({"layout": "stack", "panels": [{"kind": "series"}] * 5}) == 4
     assert FS.panel_limit({"layout": "grid", "panels": [{"kind": "months"}] * 5}) == 4
     assert FS.panel_limit({"panels": [{"kind": "months"}] * 2}) == 4
+    # a row of maps over a row of cells holds two rows of four; a grid with a
+    # kind the model may use keeps four, and so do maps and cells not in a grid
+    grid = [{"kind": "shared_map"}] * 4 + [{"kind": "cells"}] * 4
+    assert FS.panel_limit({"layout": "grid", "panels": grid}) == 8
+    assert FS.panel_limit({"layout": "grid", "panels": grid[:3] + [{"kind": "map"}]}) == 4
+    assert FS.panel_limit({"layout": "stack", "panels": grid}) == 4
 
 
 def test_month_ticks_are_jan_apr_jul_oct_with_the_year_under_january():

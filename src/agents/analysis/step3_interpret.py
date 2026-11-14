@@ -811,14 +811,26 @@ _BANNED = (
 )
 
 
+_SCI_FORM = re.compile(r"-?(\d+)(?:\.(\d+))?[eE]([-+]?\d+)")
+
+
+# A MEASURED VALUE BELOW 1e-4 HAS ITS OWN PRECISION (round 2 of the report
+# rebuild, 2026-11-13). Python writes such a float in e-notation ("6.2e-05"),
+# and the measured side was then read as having no decimals, so same_number
+# held a written number to within 0.5 of it: "0.3" passed as 6.2e-05. A
+# float's e-notation now counts as a written number's does, its mantissa's
+# digits less its exponent (6.2e-05 has 6 decimals), and never below none: a
+# large float such as 1.5e+16 is a whole number, as it was.
 def _decimals(x) -> int:
     """Digits after the point as written; an integral value has none. A
     number written in scientific notation counts its mantissa's digits less
-    its exponent: "3.8e-3" has 4, as 0.0038 does."""
+    its exponent: "3.8e-3" has 4, as 0.0038 does; a measured float Python
+    writes in e-notation counts the same way, never below none."""
     t = x if isinstance(x, str) else repr(float(x))
-    sci = re.fullmatch(r"-?(\d+)(?:\.(\d+))?[eE]([-+]?\d+)", t) if isinstance(x, str) else None
+    sci = _SCI_FORM.fullmatch(t)
     if sci:
-        return len((sci.group(2) or "").rstrip("0")) - int(sci.group(3))
+        n = len((sci.group(2) or "").rstrip("0")) - int(sci.group(3))
+        return n if isinstance(x, str) else max(0, n)
     if "e" in t or "." not in t:
         return 0
     frac = t.split(".")[1].rstrip("0")

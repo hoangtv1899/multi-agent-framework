@@ -93,6 +93,84 @@ def test_the_wrong_form_of_a_season_word_is_still_struck(text, periods, why):
     assert any("names MAM" in p or "names DJF" in p for p in probs), (why, probs)
 
 
+def test_a_number_in_another_sentence_does_not_strike_the_season_word():
+    """The rule looks at the sentence that names the season: a measured
+    number in the next sentence is that sentence's own, and the season word
+    still stands; the same number in the season's sentence still strikes."""
+    recs = _months("2031-07", "2031-09", *SPRING)          # L1 is July, -0.25
+    two = ("Plant growth stayed lower from September through the next spring. "
+           "In July 2031 it was 0.25 gC/m2 lower.")
+    assert _problems(two, recs, [-0.25]) == []
+    one = "Plant growth stayed 0.25 gC/m2 lower from September through the next spring."
+    assert any("names MAM" in p for p in _problems(one, recs, [-0.25]))
+
+
+def _by_month(rid, years):
+    """A record by month (step "month") that names its years, with no month
+    label of its own."""
+    r = _rec(rid, None, {"mean": 1.5})
+    nm = CT._names({"period": None, "step": "month"}, {"years": list(years)})
+    r.update(step="month", names={"years": sorted(nm["years"]), "periods": sorted(nm["periods"])})
+    return r
+
+
+def test_a_record_by_month_holds_every_month_of_its_years():
+    assert _problems("In spring 2032 plant growth was lower.", [_by_month("L1", [2032])]) == []
+    probs = _problems("In spring 2032 plant growth was lower.", [_by_month("L1", [2031])])
+    assert any("names MAM" in p for p in probs), probs
+
+
+def test_a_derived_record_holds_the_months_of_its_inputs():
+    """An overlap or a split holds the periods of the records it was made
+    from: each month of the season among them makes the word stand."""
+    def derived(periods):
+        r = _rec("L4", None, {"r": 0.5})
+        r.update(call="overlap", method="overlap",
+                 inputs=[{"id": f"L{i}", "period": p} for i, p in enumerate(periods, 1)])
+        # its names, as claim_trace.evidence_records gives a derived record
+        nms = [CT._names({"period": p, "step": None}, {}) for p in periods]
+        r["names"] = {"years": sorted(set().union(*(n["years"] for n in nms))),
+                      "periods": sorted(set().union(*(n["periods"] for n in nms)))}
+        return r
+    assert _problems("In spring 2032 plant growth was lower.", [derived(SPRING)]) == []
+    probs = _problems("In spring 2032 plant growth was lower.", [derived(SPRING[:2])])
+    assert any("names MAM" in p for p in probs), probs
+
+
+@pytest.mark.parametrize("text,long", [
+    ("It rose by 3.81234 \u00d7 10\u207b\u00b3 in 2031.", True),
+    ("It rose by 3.8123 \u00d7 10\u207b\u00b3 in 2031.", False),
+    ("It rose by 3.81234e-3 in 2031.", True),
+    ("It rose by 0.00381 in 2031.", True),
+    ("It rose by 0.0038 in 2031.", False),
+], ids=["a five-decimal mantissa", "a four-decimal mantissa", "e-notation",
+        "a plain five-decimal number", "a plain four-decimal number"])
+def test_the_readability_gate_counts_a_mantissas_decimals(text, long):
+    probs = S3.readability_problems(text, set(), "claim 1")
+    assert any("has too many digits" in p for p in probs) is long, probs
+
+
+def test_a_small_measured_value_is_held_at_its_own_precision():
+    """A measured value below 1e-4 is written by Python in e-notation; it was
+    read as having no decimals, so any written number within 0.5 of it
+    passed. A wrong small number is now flagged and a right one kept."""
+    assert S3._decimals(6.2e-05) == 6 and S3._decimals(1.25e-07) == 9
+    assert S3._decimals(1.5e16) == 0 and S3._decimals(296.0) == 0
+    assert S3._decimals("3.8e-3") == 4 and S3._decimals("3e5") == -5     # as written
+    assert not S3.same_number("0.3", 6.2e-05)
+    assert not S3.same_number("0.0002", 6.2e-05)
+    for right in ("0.000062", "0.0001", "6.2e-5", "0.00006"):
+        assert S3.same_number(right, 6.2e-05), right
+    assert S3.number_problems("It fell by 0.000062 mm in 2031.", [-6.2e-05], "claim 1") == []
+    assert S3.number_problems("It fell by 6.2 \u00d7 10\u207b\u2075 mm in 2031.", [-6.2e-05],
+                              "claim 1") == []
+    for wrong in ("0.3 mm", "0.0002 mm", "8.5e-5 mm"):
+        bad = S3.number_problems(f"It fell by {wrong} in 2031.", [-6.2e-05], "claim 1")
+        assert len(bad) == 1 and wrong in bad[0], (wrong, bad)
+    # a larger value keeps the precision it always had
+    assert S3.same_number("296", 296.3) and not S3.same_number("0.3", 0.011)
+
+
 def test_a_season_held_by_its_own_record_is_named_as_before():
     r = _rec("L1", "2032-MAM", {"difference": -1.5})
     assert _problems("In spring 2032 plant growth was 1.5 gC/m2 lower.", [r], [-1.5]) == []

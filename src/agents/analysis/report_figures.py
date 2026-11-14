@@ -497,8 +497,8 @@ def over_time(acc, plan, facts, notes, groups, out: Path, number: int,
     records."""
     run, region, years = facts["run"], facts["region"], facts["years"]
     if not region or not years or not facts["fields"]:
-        rec["not_drawn"].append("No figure over time was drawn, because the approved plan names "
-                                "no region, year or quantity to draw it for.")
+        rec["not_drawn"].append("No figure over time was drawn, because the approved comparisons "
+                                "name no region, year or quantity to draw it for.")
         return []
     altered = facts.get("altered")
     weather = [f for f in facts["fields"] if (notes.get(f) or {}).get("group") == WEATHER]
@@ -518,14 +518,21 @@ def over_time(acc, plan, facts, notes, groups, out: Path, number: int,
         kept = [f for f in got if (notes.get(f) or {}).get("group") == WEATHER]
     parts = parts_of(ordered(list(got), notes, groups, kept), notes)
     if not parts:
-        rec["not_drawn"].append("No figure over time was drawn, because no quantity of the plan "
-                                "has a month to draw.")
+        rec["not_drawn"].append("No figure over time was drawn, because no quantity the approved "
+                                "comparisons name has a month to draw.")
         return []
     shade = facts["shade"]
     shaded = sorted(set((shade or {}).get("labels") or []) & set(labels))
+    # the change's months may all fall outside the years drawn (a design
+    # record of other years): then nothing is shaded, and both the caption
+    # and the record say why, so that no shading is never read as no change
+    outside = bool(run and (shade or {}).get("labels") and not shaded)
     if run and shade is None:
         rec["not_drawn"].append("No month is shaded over time, because the study's records do "
                                 "not say which months the change alters.")
+    if outside:
+        rec["not_drawn"].append(f"No month is shaded over time, because the months the change "
+                                f"alters fall outside {FW.years_words(years)}.")
     # each quantity left out is named under the figure of its own part
     names = [p for p, _ in parts]
     by_part: Dict[str, Dict[str, List[str]]] = {}
@@ -563,6 +570,8 @@ def over_time(acc, plan, facts, notes, groups, out: Path, number: int,
                 cap += " The shaded months are those with the change."
             elif shade and shade.get("every"):
                 cap += " The change holds in every month, so no month is shaded."
+            elif outside:
+                cap += " The months of the change fall outside these years, so no month is shaded."
             if last:
                 for why, fs in (by_part.get(part) or {}).items():
                     cap += " " + no_panel_sentence(fs, why)
@@ -734,7 +743,7 @@ def over_space(acc, plan, facts, out: Path, number: int, rec) -> Optional[Dict[s
     first = analyses(plan)[0] if analyses(plan) else {}
     main = next((str(f) for f in _list(first.get("fields")) if f), None)
     if not main or not region or not years:
-        rec["not_drawn"].append("No figure over space was drawn, because the plan's first "
+        rec["not_drawn"].append("No figure over space was drawn, because the first approved "
                                 "comparison names no quantity, region or year.")
         return None
     w = FW.words(main, with_code=False)
@@ -768,9 +777,11 @@ def over_space(acc, plan, facts, out: Path, number: int, rec) -> Optional[Dict[s
     u = _with_span(_units(acc, cache, CONTROL, main, region, upper[0][1]), upper[0][1])
     scale = (f"{FW.capital(w)}, new run minus control run" if run
              else f"{FW.capital(w)}, minus the normal years' mean") + (f" ({u})" if u else "")
-    # a row of maps over a row of cells; maps alone, two to a row from three on
-    lower_due = bool(run)
-    cols = len(upper) if lower_due or len(upper) <= 2 else 2
+    # a row of maps over a row of cells; maps alone, two to a row from three
+    # on. The columns are set once the lower row is known: a new run may have
+    # none (a change the same in every cell, with no overlap to use instead)
+    lower, lower_words, numbers = _lower_row(acc, plan, facts, main, upper, mask, cache, rec)
+    cols = len(upper) if lower or len(upper) <= 2 else 2
     spec = {"id": "report_over_space", "layout": "grid", "columns": cols,
             "letters": True, "panels": []}
     refs: Dict[str, Dict[str, Any]] = {}
@@ -781,7 +792,6 @@ def over_space(acc, plan, facts, out: Path, number: int, rec) -> Optional[Dict[s
                               "scale_label": _wrap(scale, 28)}, a)
         spec["panels"].append({"kind": "shared_map", "output": f"U{i}"})
         panels.append({"field": main, "words": w, "period": p, "kind": "map"})
-    lower, lower_words, numbers = _lower_row(acc, plan, facts, main, upper, mask, cache, rec)
     for i, (x_, y_, c_, labels) in enumerate(lower, 1):
         refs[f"C{i}"] = _ref(f"C{i}", "cells", labels, {"x": x_, "y": y_, "c": c_})
         spec["panels"].append({"kind": "cells", "output": f"C{i}"})
@@ -895,8 +905,8 @@ def _lower_row(acc, plan, facts, main, upper, mask, cache, rec):
     pairs = overlap_pairs(plan, main)[:len(upper)]
     if not pairs:
         rec["not_drawn"].append(f"The figure over space has no lower row, because the change is "
-                                f"the same in every cell and the plan sets no other map against "
-                                f"{w}.")
+                                f"the same in every cell and no approved comparison sets another "
+                                f"map against {w}.")
         return [], "", []
     out, numbers, xs = [], [], []
     for pr in pairs:
@@ -929,11 +939,10 @@ def _lower_row(acc, plan, facts, main, upper, mask, cache, rec):
     what = (f"the change in {xw}" if x0.get("kind") == "difference" else
             f"the departure of {xw} from the normal years" if x0.get("kind") == "anomaly" else
             f"the {'control' if str(x0.get('run') or CONTROL) == CONTROL else 'new'} run's {xw}")
+    # the comparisons this row answers go to the figure's "comparisons" list,
+    # which the page states under the caption; a caption names no plan
     words = (f"The cells of {FW.region_words(region)}, the change in {w} against {what} over "
-             f"{_span(str(x0.get('period')))}, as the plan's comparison"
-             f"{'s' if len(set(numbers)) > 1 else ''} "
-             f"{FW.join(str(n) for n in dict.fromkeys(numbers))} set{'' if len(set(numbers)) > 1 else 's'} "
-             f"them, coloured by the control run's air temperature.")
+             f"{_span(str(x0.get('period')))}, coloured by the control run's air temperature.")
     return out, words, numbers
 
 
@@ -1014,9 +1023,10 @@ def period_table(lookups: Sequence[Dict[str, Any]], run: Optional[str], region: 
             u = FW.units_words(res.get("change_units") or res.get("units"))
             cells.append(t if one or not u else f"{t} {u}")
         u = next(iter(units)) if one else ""
+        # a row's records by their line, not by the column they fill
         rows.append({"label": FW.capital(FW.words(f)) + (f", {u}" if u else ""),
                      "cells": cells, "panel": panel_of[f],
-                     "records": [f"L{h[0]}" for h in hits if h]})
+                     "records": [f"L{i}" for i in sorted(h[0] for h in hits if h)]})
     if not rows:
         return None
     if left:
@@ -1093,10 +1103,12 @@ def elevation_table(lookups: Sequence[Dict[str, Any]], region: str,
         cells = [_fmt(area) if _number(area) else ""]
         cells += [_fmt(res.get(f"parts.{b}.mean")) if _number(res.get(f"parts.{b}.mean"))
                   else "" for _, res, _ in splits]
+        # no "panel": a band is no panel of the figure over space, whose
+        # panels are years and cells; the row's records by their line
         rows.append({"label": FW.capital(FW.band_words(b)), "cells": cells,
-                     "records": [f"L{i}" for i, res, _ in splits
-                                 if _number(res.get(f"parts.{b}.mean"))
-                                 or _number(res.get(f"parts.{b}.area_km2"))]})
+                     "records": [f"L{i}" for i in sorted(
+                         i for i, res, _ in splits if _number(res.get(f"parts.{b}.mean"))
+                         or _number(res.get(f"parts.{b}.area_km2")))]})
     what = {"difference": "the new run minus the control run",
             "anomaly": "the departure from the normal years' mean"}.get(
                 splits[0][2].get("call"), "the map")

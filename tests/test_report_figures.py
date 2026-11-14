@@ -10,6 +10,7 @@ through the server's SuiteAccess, to hold the module's own gate and log: no
 line is written to lookups.jsonl. Every number, name and path is made up.
 """
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -221,6 +222,19 @@ def test_the_panels_follow_the_change_then_the_catalog_and_split_above_eight(tmp
     assert over[1]["comparisons"] == [1]
 
 
+def test_the_quantity_the_run_changes_comes_before_its_catalog_place():
+    """A changed quantity leads even where the catalog's order of groups puts
+    another group first; the rest keep the catalog's order, and a field the
+    catalog does not hold comes last, in the plan's order."""
+    notes = {"LEAFX": {"group": "leaves"}, "WARMX": {"group": "weather in"},
+             "WETX": {"group": "weather in"}, "SOILX": {"group": "soil"}}
+    groups = ["leaves", "soil", "weather in"]
+    assert RF.ordered(["WETX", "SOILX", "NEWX", "LEAFX", "WARMX"], notes, groups) == \
+        ["LEAFX", "SOILX", "WARMX", "WETX", "NEWX"]
+    assert RF.ordered(["WETX", "SOILX", "NEWX", "LEAFX", "WARMX"], notes, groups,
+                      changed=["WETX"]) == ["WETX", "LEAFX", "SOILX", "WARMX", "NEWX"]
+
+
 def test_eight_panels_stay_one_figure(tmp_path):
     rd = study(tmp_path, CUT, panels_changed=SUMMER)
     plan = what_if_plan()
@@ -280,6 +294,29 @@ def test_a_change_in_every_month_shades_nothing_and_says_so(tmp_path, drawn):
     # the run changes no weather: rain, snow and air temperature have no panel
     fields = [p["field"] for f in over for p in f["panels"]]
     assert not {"RAIN", "SNOW", "TBOT"} & set(fields)
+
+
+def test_months_of_the_change_outside_the_years_drawn_are_said(tmp_path, drawn):
+    """A design record whose changed months all fall in other years: nothing
+    is shaded, and the caption and the record both say why."""
+    later = [f"2036-{m:02d}" for m in (6, 7, 8)]
+    rd = study(tmp_path, CUT, panels_changed=later)
+    rec = _build(rd, what_if_plan(), world())
+    spec, _ = drawn["report_over_time"]
+    assert all("shade_labels" not in p for p in spec["panels"])
+    over = [f for f in rec["figures"] if f["id"].startswith("over_time")]
+    assert over and all(
+        "The months of the change fall outside these years, so no month is shaded." in
+        f["caption"] for f in over)
+    assert all("shaded months are" not in f["caption"] for f in over)
+    assert "No month is shaded over time, because the months the change alters fall outside " \
+           "2033 and 2034." in rec["not_drawn"]
+    # some of them inside the years drawn: those are shaded, and nothing is said
+    rd2 = study(tmp_path / "part", CUT, panels_changed=later + SUMMER[:3])
+    rec2 = _build(rd2, what_if_plan(), world())
+    spec, _ = drawn["report_over_time"]
+    assert spec["panels"][0]["shade_labels"] == SUMMER[:3]
+    assert not any("fall outside" in s for s in rec2["not_drawn"])
 
 
 def test_months_the_records_do_not_give_are_not_shaded_and_it_is_said(tmp_path, drawn):
@@ -368,6 +405,58 @@ def test_a_change_the_same_in_every_cell_is_no_lower_row(tmp_path):
     assert [p["kind"] for p in space["panels"]] == ["map", "map"]
     assert any("has no lower row, because the change is the same in every cell" in s
                for s in rec["not_drawn"])
+
+
+def _four_years(acc, plan):
+    """The made-up maps of both runs for the four years 2031 to 2034: a
+    change in every cell over the whole year, and the summer's rain cut of
+    world() in its summers."""
+    plan["comparisons"][0]["years"] = [2031, 2032, 2033, 2034]
+    for y in (2031, 2032):
+        for f in FIELDS:
+            base = acc.maps.setdefault(("control", f, str(y)), _gradient())
+            acc.maps[(RUN, f, str(y))] = base + 0.5 + 0.01 * _gradient()
+            summer = acc.maps[("control", f, f"{y}-JJA")]
+            cut = {"RAIN": -0.3 * summer, "SNOW": -0.3 * summer, "GPP": -0.05 * _gradient()}
+            acc.maps[(RUN, f, f"{y}-JJA")] = summer + np.where(MASK, cut.get(f, 0.0), 0.0)
+    return acc, plan
+
+
+def test_four_maps_with_no_lower_row_sit_two_to_a_row(tmp_path, drawn):
+    """A new run whose change is the same in every cell, with no overlap of
+    the plan to use instead, has no lower row: its four maps sit two to a
+    row, as a control run's do. With a lower row they stay in one row."""
+    rd = study(tmp_path, CO2)
+    acc, plan = _four_years(world("every"), what_if_plan())
+    rec = _build(rd, plan, acc)
+    space = rec["figures"][-1]
+    assert [p["kind"] for p in space["panels"]] == ["map"] * 4
+    spec, _ = drawn["report_over_space"]
+    assert spec["columns"] == 2
+    pair = {"id": "P4", "fields": ["GPP", "FPG"], "regions": [REGION], "periods": ["2033"],
+            "outputs": [_out({"id": "O1", "kind": "difference", "field": "GPP", "period": "2033",
+                              "region": None}),
+                        {"id": "O2", "kind": "map", "run": "control", "field": "FPG",
+                         "period": "2033"},
+                        {"id": "O3", "kind": "overlap", "region": REGION,
+                         "inputs": ["O2", "O1"]}]}
+    acc, plan = _four_years(world("every"), what_if_plan(extra_analyses=[pair]))
+    rec = _build(study(tmp_path / "pair", CO2), plan, acc)
+    assert rec["problems"] == []
+    assert [p["kind"] for p in rec["figures"][-1]["panels"]] == ["map"] * 4 + ["cells"]
+    spec, _ = drawn["report_over_space"]
+    assert spec["columns"] == 4
+    # four summers of a rain cut: four maps over four rows of cells, all drawn
+    acc, plan = _four_years(world(), what_if_plan())
+    rd = study(tmp_path / "cut", CUT, panels_changed=[f"{y}-{m:02d}" for y in range(2031, 2035)
+                                                      for m in (6, 7, 8)])
+    rec = _build(rd, plan, acc)
+    assert rec["problems"] == []
+    space = rec["figures"][-1]
+    assert [p["kind"] for p in space["panels"]] == ["map"] * 4 + ["cells"] * 4
+    assert [p["letter"] for p in space["panels"]] == list("abcdefgh")
+    spec, _ = drawn["report_over_space"]
+    assert spec["columns"] == 4 and (rd / "04_analysis" / space["file"]).is_file()
 
 
 def test_more_than_four_years_map_the_first_four_and_say_so(tmp_path):
@@ -483,6 +572,49 @@ def test_the_period_table_keeps_six_periods_with_the_most_records(tmp_path):
     assert any("so autumn 2034 and year 2034 are not in it" in s for s in rec["not_drawn"])
 
 
+def test_seasons_stand_in_time_order_whatever_the_order_they_were_logged(tmp_path):
+    lines = [_diff("GPP", p, -1.0 - k) for k, p in
+             enumerate(["2033-SON", "2033-JJA", "2033-DJF", "2033-MAM"])]      # L1 to L4
+    rd = study(tmp_path, CUT, panels_changed=SUMMER, lookups=lines)
+    t = _build(rd, what_if_plan(), world())["tables"][0]
+    assert t["columns"] == ["Winter 2032 to 2033", "Spring 2033", "Summer 2033", "Autumn 2033"]
+    row = t["rows"][0]
+    assert row["cells"] == [format_value(v) for v in (-3.0, -4.0, -2.0, -1.0)]
+    assert row["records"] == ["L1", "L2", "L3", "L4"]        # by line, not by column
+
+
+def test_a_difference_from_another_run_than_the_control_is_not_printed(tmp_path):
+    other = _diff("GPP", "2033-JJA", -9.0)
+    other["keys"]["control"] = "a_third_run"                           # L1
+    lines = [other, _diff("NPP", "2033-JJA", -0.5)]                    # L2
+    rd = study(tmp_path, CUT, panels_changed=SUMMER, lookups=lines)
+    rec = _build(rd, what_if_plan(), world())
+    rows = {r["label"]: r for r in rec["tables"][0]["rows"]}
+    assert set(rows) == {"Net plant growth (NPP), gC/m2"}
+    assert rec["printed_records"] == ["L2"]
+
+
+def test_a_split_of_a_map_logged_after_it_is_named_and_not_printed(tmp_path):
+    split = {"call": "elevation_split", "planned": True, "keys": {"region": REGION, "x": "h-later"},
+             "result": {"parts.below 1000 m.mean": 7.0, "parts.below 1000 m.area_km2": 5.0}}
+    lines = [split,                                                     # L1: before its map
+             {"call": "difference", "planned": True, "arrays": {"difference": "h-later"},
+              "keys": {"run": RUN, "control": "control", "field": "GPP", "period": "2033-JJA",
+                       "region": None},
+              "result": {"change_units": "gC/m^2/season"}},             # L2: the map
+             dict(split, result={"parts.below 1000 m.mean": -1.5,
+                                 "parts.below 1000 m.area_km2": 5.0})]  # L3: after it
+    rd = study(tmp_path, CUT, panels_changed=SUMMER, lookups=lines)
+    rec = _build(rd, what_if_plan(), world())
+    t = [x for x in rec["tables"] if x["id"] == "elevation"][0]
+    assert [r["cells"] for r in t["rows"]] == [[format_value(5.0), format_value(-1.5)]]
+    assert [r["records"] for r in t["rows"]] == [["L3"]]
+    assert rec["printed_records"] == ["L3"]
+    assert [s for s in rec["not_drawn"] if "the map it splits is not on the record" in s] == \
+        ["One elevation split is not in the table by elevation, because the map it splits is "
+         "not on the record."]
+
+
 def test_the_elevation_table_names_each_split_by_the_map_it_splits(tmp_path):
     lines = [{"call": "difference", "planned": True, "arrays": {"difference": "h-made-up"},
               "keys": {"run": RUN, "control": "control", "field": "GPP", "period": "2033-JJA",
@@ -504,6 +636,7 @@ def test_the_elevation_table_names_each_split_by_the_map_it_splits(tmp_path):
     assert [r["label"] for r in t["rows"]] == ["Below 1000 m", "1000 to 1500 m"]
     assert t["rows"][0]["cells"] == [format_value(56.78), format_value(-1.234)]
     assert t["rows"][0]["records"] == ["L2"]
+    assert all("panel" not in r for r in t["rows"])      # a band is no panel of a figure
     assert "L2" in rec["printed_records"] and "L3" not in rec["printed_records"]
     assert t["caption"].startswith("Plant growth (GPP), the new run minus the control run, in "
                                    "each elevation band")
@@ -522,6 +655,45 @@ def test_the_record_is_written_beside_the_figures(tmp_path):
         assert set(f) >= {"id", "file", "number", "heading", "caption", "comparisons", "panels"}
         for p in f["panels"]:
             assert set(p) >= {"letter", "field", "words"}
+
+
+FRAMEWORK_WORDS = re.compile(r"\bplan(?:s|ned|'s)?\b|\bcomparisons?\b", re.I)
+
+
+def test_no_caption_or_heading_names_the_plan_or_a_comparison(tmp_path):
+    """The comparisons a figure answers are in its "comparisons" list, which
+    the page states under the caption; a caption or a heading names neither
+    the plan nor a comparison, and no sentence of what was not drawn names
+    the plan. Every kind of figure and table, and every lower row."""
+    pair = {"id": "P4", "fields": ["GPP", "FPG"], "regions": [REGION], "periods": ["2033"],
+            "outputs": [_out({"id": "O1", "kind": "difference", "field": "GPP", "period": "2033",
+                              "region": None}),
+                        {"id": "O2", "kind": "map", "run": "control", "field": "FPG",
+                         "period": "2033"},
+                        {"id": "O3", "kind": "overlap", "region": REGION,
+                         "inputs": ["O2", "O1"]}]}
+    lines = [_diff("GPP", "2033-JJA", -1.2, -4.5),
+             {"call": "anomaly", "planned": True,
+              "keys": {"run": "control", "field": "SNOW", "period": "WY2033", "region": REGION},
+              "result": {"anomaly": 1.5, "percent": 2.5, "change_units": "mm/water year"}}]
+    cases = [(CUT, SUMMER, what_if_plan(), world()),                        # cells against rain
+             (CO2, None, what_if_plan(extra_analyses=[pair]), world("every")),  # the overlap
+             (CO2, None, what_if_plan(), world("every")),                   # no lower row
+             ([], None, control_plan(), world("none")),                     # the control alone
+             (CUT, None, {"analyses": [{"id": "P1", "fields": []}]}, world())]  # nothing to draw
+    seen = 0
+    for k, (changes, changed, plan, acc) in enumerate(cases):
+        rd = study(tmp_path / str(k), changes, panels_changed=changed, lookups=lines)
+        rec = _build(rd, plan, acc)
+        texts = [f["caption"] for f in rec["figures"]] + [f["heading"] for f in rec["figures"]]
+        texts += [t["caption"] for t in rec["tables"]] + [c for t in rec["tables"]
+                                                          for c in t["columns"]]
+        for x in texts:
+            assert not FRAMEWORK_WORDS.search(x), (k, x)
+        for x in rec["not_drawn"]:
+            assert not re.search(r"\bplan(?:s|ned|'s)?\b", x, re.I), (k, x)
+        seen += len(texts) + len(rec["not_drawn"])
+    assert seen > 20
 
 
 def test_a_rebuild_removes_its_own_old_figures_and_nothing_else(tmp_path):

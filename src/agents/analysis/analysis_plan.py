@@ -690,9 +690,12 @@ def screen_study(study_dir) -> Dict[str, Any]:
     and screen_record.json), and its record returned. For drawing a saved
     study's report again, ON A COPY: a study whose screen already looks at
     the chosen run keeps it and makes none; one whose screen looked at
-    another run has its record moved to 04_analysis/superseded/<time>/ and
-    the new screen appended to its log, made by the gate's rules as they
-    stand, so after the close of a planned phase it is not planned."""
+    another run gets the new screen appended to its log, made by the gate's
+    rules as they stand (so after the close of a planned phase it is not
+    planned), and only once that screen is made is the old record moved to
+    04_analysis/superseded/<time>/ and the new one written in its place. A
+    screen that cannot be made raises and leaves the old record where it
+    was."""
     from agents.analysis import step0_context
     ctx = step0_context.load(str(study_dir))
     out = analysis_dir(ctx)
@@ -703,6 +706,8 @@ def screen_study(study_dir) -> Dict[str, Any]:
     chosen = screen_run(plan)
     p = out / SCREEN_FILE
     old = _read_json(p) if p.is_file() else {}
+    # a record written before the run was named in its scope reads its run
+    # from its keys, and one that names neither is the control run's (I3)
     had = (old.get("scope") or {}).get("run") or (old.get("keys") or {}).get("run") or CONTROL
     if old and str(had) == chosen:
         return old
@@ -710,11 +715,26 @@ def screen_study(study_dir) -> Dict[str, Any]:
     if spec is None:
         raise PlanNotApproved("the study's results stores are not found, so its screen cannot "
                               "be made")
-    if old:
-        dest = out / "superseded" / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        dest.mkdir(parents=True, exist_ok=True)
-        p.replace(dest / SCREEN_FILE)
+    held = len(lookups(out))
     make_access(spec, script=REQUIRED_SCRIPT).screen(int(sc["year"]), sc["region"], run=chosen)
+    if not old:
+        return _read_json(p)                    # the log wrote the record, as it does first
+    # THE NEW SCREEN FIRST, THE OLD RECORD ASIDE AFTER (round 2, 2026-11-13):
+    # with the old record in place the log keeps the new screen's record in
+    # its line; it is written as the study's record only now that it exists
+    new = lookups(out)[held:]
+    line = new[-1] if new else {}
+    sr = line.get("screen_record")
+    if not (line.get("call") == "screen" and "sha256" in line and isinstance(sr, dict)
+            and line.get("plan_items") == ["screen"]
+            and str((line.get("keys") or {}).get("run") or CONTROL) == chosen):
+        raise PlanNotApproved(f"the screen of {chosen} was not logged as the plan's screen, so "
+                              f"the study keeps its old screen")
+    dest = out / "superseded" / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    dest.mkdir(parents=True, exist_ok=True)
+    p.replace(dest / SCREEN_FILE)
+    p.write_text(json.dumps(LookupLog(out, script=line.get("script")).screen_file(line, sr),
+                            indent=1, default=str))
     return _read_json(p)
 
 
@@ -891,6 +911,18 @@ def _check_screen(plan, env):
         out.append(f"screen: no region {sc.get('region')!r}")
     if not str(sc.get("year")).isdigit():
         out.append(f"screen: year {sc.get('year')!r} is not a year")
+    # THE SCREEN'S YEAR IS A YEAR OF THE RUN IT SCREENS (round 2, 2026-11-13).
+    # A study with a new run screens that run (screen_run), so a year the run
+    # does not simulate passed here and failed only when the screen was made.
+    # Named now, as _check_comparisons names a comparison's year, in one
+    # sentence the model can act on. The control run alone screens a year
+    # against its normal years, and keeps the rule it had.
+    run = screen_run(plan)
+    known, years = _run_years(env, run)
+    if run != CONTROL and known and years and str(sc.get("year")).isdigit() \
+            and int(sc["year"]) not in years:
+        out.append(f"screen: year {int(sc['year'])} is not a year of {run} ({years[0]} to "
+                   f"{years[-1]}), the new run the screen looks at")
     return out
 
 
@@ -2332,15 +2364,18 @@ class LookupLog:
                                      run=str((line.get("keys") or {}).get("run") or CONTROL)))
             p = self.out_dir / SCREEN_FILE
             if line.get("plan_items") == ["screen"] and "sha256" in line and not p.is_file():
-                p.write_text(json.dumps(
-                    {"at": line["at"], "script": self.script,
-                     "question_type": load_plan(self.out_dir).get("question_type"),
-                     "label": line.get("label"), "keys": line.get("keys"),
-                     "sha256": line.get("sha256"), **sr}, indent=1, default=str))
+                p.write_text(json.dumps(self.screen_file(line, sr), indent=1, default=str))
                 line["screen_record"] = SCREEN_FILE
             else:
                 line["screen_record"] = sr
         self._append(self.path, line)
+
+    def screen_file(self, line: Dict[str, Any], sr: Dict[str, Any]) -> Dict[str, Any]:
+        """What SCREEN_FILE holds for a screen's line and its record."""
+        return {"at": line.get("at"), "script": self.script,
+                "question_type": load_plan(self.out_dir).get("question_type"),
+                "label": line.get("label"), "keys": line.get("keys"),
+                "sha256": line.get("sha256"), **sr}
 
 
 # ─────────────────────────────────────────────────────────────────────
