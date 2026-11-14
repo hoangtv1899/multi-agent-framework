@@ -64,8 +64,23 @@ _YEARLIKE = re.compile(r"^(19|20)\d{2}$")
 _NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d+(?:\.\d+)?")
 
 
+def _sci(text: str):
+    """(the text with each number in scientific notation blanked, [(start,
+    end, word)] of those numbers): claim_trace.sci_numbers, one reading of
+    "3.8 × 10⁻³" for the trace and this audit (2026-11-13)."""
+    from agents.analysis.claim_trace import sci_numbers
+    t = str(text or "")
+    sci = sci_numbers(t)
+    for a, b, _ in sci:
+        t = t[:a] + " " * (b - a) + t[b:]
+    return t, sci
+
+
 def _numbers(text: str) -> List[str]:
-    return _NUMBER.findall(str(text))
+    """The numbers a text writes, as written; one in scientific notation as
+    the number it is ("3.8e-3" is "0.0038")."""
+    t, sci = _sci(str(text))
+    return [str(float(w)) for _, _, w in sci] + _NUMBER.findall(t)
 
 
 def _flatten_numbers(obj) -> set:
@@ -797,8 +812,13 @@ _BANNED = (
 
 
 def _decimals(x) -> int:
-    """Digits after the point as written; an integral value has none."""
+    """Digits after the point as written; an integral value has none. A
+    number written in scientific notation counts its mantissa's digits less
+    its exponent: "3.8e-3" has 4, as 0.0038 does."""
     t = x if isinstance(x, str) else repr(float(x))
+    sci = re.fullmatch(r"-?(\d+)(?:\.(\d+))?[eE]([-+]?\d+)", t) if isinstance(x, str) else None
+    if sci:
+        return len((sci.group(2) or "").rstrip("0")) - int(sci.group(3))
     if "e" in t or "." not in t:
         return 0
     frac = t.split(".")[1].rstrip("0")
@@ -825,7 +845,26 @@ def number_problems(text: str, values, where: str, any_claim: bool = False):
         except (TypeError, ValueError):
             continue
     problems = []
-    for group, unit in _NUMBERS_WITH_UNIT.findall(str(text or "")):
+    src = str(text or "")
+    t, sci = _sci(src)
+    # a number in scientific notation is a measurement, never a label: held
+    # like a decimal figure when a unit follows it
+    for a, b, w in sci:
+        u = re.match(rf"\s*({_UNIT})(?![A-Za-z0-9])", src[b:])
+        if not u:
+            continue
+        percent = u.group(1) in ("percent", "%")
+        cands = vals + ([v * 100.0 for v in vals] if percent else [])
+        if any(same_number(w, v) for v in cands):
+            continue
+        shown = ", ".join(f"{v:g}" for v in vals) or "none"
+        problems.append(
+            f"{where}: \"{src[a:b]} {u.group(1)}\" is not "
+            + ("among the values of any claim; the headline and the answer state only what "
+               "a claim states" if any_claim else
+               f"one of this claim's values ({shown}); state the measured value, rounded to "
+               f"2 or 3 significant figures"))
+    for group, unit in _NUMBERS_WITH_UNIT.findall(t):
         percent = unit in ("percent", "%")
         for num in re.findall(_NUM, group):
             if not percent and "." not in num:
@@ -893,7 +932,10 @@ def readability_problems(text: str, glossed: set, where: str,
     for w in JARGON:
         if re.search(rf"\b{re.escape(w)}\b", t, re.I):
             problems.append(f"{where}: \"{w}\" is jargon; say what it means")
-    for num in _LONG_NUMBER.findall(t):
+    plain, sci = _sci(t)
+    # a number in scientific notation is too long by its mantissa's digits
+    longs = [t[a:b] for a, b, w in sci if re.search(r"\.\d{5,}", w.lower().split("e")[0])]
+    for num in longs + _LONG_NUMBER.findall(plain):
         problems.append(f"{where}: {num} has too many digits for a sentence; "
                         f"round to 2 or 3 significant figures (the exact value "
                         f"belongs in `values`)")

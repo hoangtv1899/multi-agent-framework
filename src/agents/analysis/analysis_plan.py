@@ -147,6 +147,30 @@ CONTRACT_READS_FILE = "contract_reads.jsonl"
 SCREENING_LABEL = "found by screening, not tested"
 EXPLORATORY_LABEL = "exploratory"
 SCREEN_WHEN = {"hypothesis": "last", "exploratory": "first"}
+CONTROL = PC.CONTROL
+
+
+# THE SCREEN ONLY WHERE IT IS NEEDED (the user's decision of 2026-11-13:
+# "yeah please do screen where it's necessary only"). The plan's screen entry names a region
+# and a year, and the screen was called with no run, so the server took its
+# default, the control run, and set the control's year against its normal
+# years. In a what-if study that screen showed the weather of that year, not
+# the change asked about. Now code chooses the run, here and only here: a
+# study with a new run screens that run against the control run in the
+# screen's year (with several, the run of the plan's first comparison whose
+# run is not the control run); a study of the control run alone screens the
+# year against the normal years, as before. The plan's screen entry, its
+# words and when the screen runs are unchanged, so the model's prompt is too.
+def screen_run(plan: Optional[Dict[str, Any]]) -> str:
+    """The run a study's screen looks at: the run of the plan's first
+    comparison whose run is not the control run, else "control"."""
+    for c in (plan or {}).get("comparisons") or []:
+        run = str((c or {}).get("run") or "").strip() if isinstance(c, dict) else ""
+        if run and run != CONTROL:
+            return run
+    return CONTROL
+
+
 SERIES_STEPS = ("day", "month", "season", "year", "wateryear")
 ARRAY_METHODS = ("overlap", "elevation_split")    # take maps already looked up
 SCOPE_KEYS = ("fields", "regions", "periods", "methods", "steps")
@@ -609,7 +633,7 @@ def produce_required(ctx, out_dir, round_no: int = 1) -> Dict[str, Any]:
     if plan.get("question_type") == "exploratory" and not (out / SCREEN_FILE).is_file() \
             and sc.get("region") and str(sc.get("year")).isdigit():
         try:
-            values["screen"] = acc.screen(int(sc["year"]), sc["region"])
+            values["screen"] = acc.screen(int(sc["year"]), sc["region"], run=screen_run(plan))
             rows.append({"label": "screen", "line": _lines(out / LOOKUPS_FILE), "ok": True})
         except Exception as e:                                      # noqa: BLE001
             rows.append({"label": "screen", "line": _lines(out / LOOKUPS_FILE), "ok": False,
@@ -658,6 +682,40 @@ def produce_required(ctx, out_dir, round_no: int = 1) -> Dict[str, Any]:
         pickle.dump(values, f)
     rec_p.write_text(json.dumps(record, indent=1, default=str))
     return {"values": values, "record": record}
+
+
+def screen_study(study_dir) -> Dict[str, Any]:
+    """The study's screen made as the framework makes it now (screen_run,
+    through the gate and the log, which write the screen's line, its table
+    and screen_record.json), and its record returned. For drawing a saved
+    study's report again, ON A COPY: a study whose screen already looks at
+    the chosen run keeps it and makes none; one whose screen looked at
+    another run has its record moved to 04_analysis/superseded/<time>/ and
+    the new screen appended to its log, made by the gate's rules as they
+    stand, so after the close of a planned phase it is not planned."""
+    from agents.analysis import step0_context
+    ctx = step0_context.load(str(study_dir))
+    out = analysis_dir(ctx)
+    plan = load_plan(out)
+    sc = plan.get("screen") or {}
+    if not (sc.get("region") and str(sc.get("year")).isdigit()):
+        raise PlanNotApproved("the plan declares no screen (a region and a year) to make")
+    chosen = screen_run(plan)
+    p = out / SCREEN_FILE
+    old = _read_json(p) if p.is_file() else {}
+    had = (old.get("scope") or {}).get("run") or (old.get("keys") or {}).get("run") or CONTROL
+    if old and str(had) == chosen:
+        return old
+    spec = access_spec(ctx)
+    if spec is None:
+        raise PlanNotApproved("the study's results stores are not found, so its screen cannot "
+                              "be made")
+    if old:
+        dest = out / "superseded" / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        dest.mkdir(parents=True, exist_ok=True)
+        p.replace(dest / SCREEN_FILE)
+    make_access(spec, script=REQUIRED_SCRIPT).screen(int(sc["year"]), sc["region"], run=chosen)
+    return _read_json(p)
 
 
 def required_attempt(record: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -2157,7 +2215,18 @@ def check_lookup(out_dir, ask: Dict[str, Any], amendment: Optional[str] = None
     items = scope_items(plan, load_amendments(out))
     marks: Optional[Dict[str, Any]] = None
     sc = plan.get("screen") or {}
-    if call == "screen" and sc and \
+    # THE SCREEN'S RUN IS CODE'S (screen_run): in a study with a new run, a
+    # screen of the control run against its normal years is refused, and only
+    # a screen of the chosen run is the plan's screen
+    run = str((ask.get("keys") or {}).get("run") or CONTROL)
+    chosen = screen_run(plan)
+    if call == "screen" and run == CONTROL and chosen != CONTROL:
+        raise PlanNotApproved(
+            f"this study has a new run, {chosen}, so its screen sets that run against the "
+            f"control run in the screen's year (suite.screen(year, region) does so). A screen "
+            f"of the control run against its normal years says nothing about the change asked "
+            f"about, so it is not made")
+    if call == "screen" and sc and run == chosen and \
             (sc.get("region") is None or lk["region"] == sc.get("region")) and \
             (not str(sc.get("year")).isdigit() or int(lk["year"]) == int(sc["year"])):
         screen_item = {"methods": ["screen"], "fields": [], "regions": [lk["region"]],
@@ -2257,6 +2326,10 @@ class LookupLog:
             line["screen_csv"] = self._screen_csv(tab)
         sr = line.pop("screen_record", None)
         if sr is not None:
+            # the run screened, beside what it was set against (A10): the
+            # page that shows the screen says so first
+            sr = dict(sr, scope=dict(sr.get("scope") or {},
+                                     run=str((line.get("keys") or {}).get("run") or CONTROL)))
             p = self.out_dir / SCREEN_FILE
             if line.get("plan_items") == ["screen"] and "sha256" in line and not p.is_file():
                 p.write_text(json.dumps(
@@ -2344,12 +2417,25 @@ def make_access(spec: Dict[str, Any], script: Optional[str] = None,
     ams = load_amendments(out)
     if amendment and not any(a.get("id") == amendment for a in ams):
         raise PlanNotApproved(f"no amendment {amendment!r} in {AMENDMENTS_FILE}")
-    return DA.SuiteAccess(spec["suites"],
-                          gate=lambda ask: check_lookup(out, ask, amendment=amendment),
-                          log=LookupLog(out, script=script, amendment=amendment),
-                          normal_years=spec.get("normal_years") or (),
-                          named=named_settings(load_plan(out), amendments=ams),
-                          study_dir=spec.get("study_dir"))
+    plan = load_plan(out)
+    acc = DA.SuiteAccess(spec["suites"],
+                         gate=lambda ask: check_lookup(out, ask, amendment=amendment),
+                         log=LookupLog(out, script=script, amendment=amendment),
+                         normal_years=spec.get("normal_years") or (),
+                         named=named_settings(plan, amendments=ams),
+                         study_dir=spec.get("study_dir"))
+    # a script's suite.screen(year, region) screens the study's run
+    # (screen_run), as the framework's own call does; the server's default,
+    # the control run, would be refused by the gate in a study with a new run
+    chosen = screen_run(plan)
+    if chosen != CONTROL:
+        server = acc.screen
+
+        def screen(year, region, run=chosen, normal_years=None, settings=None):
+            return server(year, region, run=run, normal_years=normal_years, settings=settings)
+        screen.__doc__ = server.__doc__
+        acc.screen = screen
+    return acc
 
 
 def draw_map(suite, x, out_path=None, ax=None, units: str = "", cmap: str = "viridis",

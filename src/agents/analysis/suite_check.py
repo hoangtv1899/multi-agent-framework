@@ -1731,11 +1731,25 @@ def _key(ctx: Context, i: int, cited_paths: Sequence[str]) -> str:
     return json.dumps(blob, sort_keys=True, default=str)
 
 
+def _line_no(rid: str) -> int:
+    return int(rid[1:]) if rid[1:].isdigit() else 0
+
+
+# WHAT THE REPORT PRINTS IS MADE AGAIN TOO (2026-11-13). The report's tables
+# print values of planned records that no finding cites, and the check made
+# again only the records the claims cite. `also` names the records a page
+# prints: each is made again in full (every number of it the check can make,
+# every row of a screen, every value of a series) by the same code, and a
+# mismatch in one of them withholds the report as a cited record's does. A
+# record named both ways is made again once. A printed name that is no
+# answered lookup of the log is a mismatch, since nothing else holds it.
 def check(study_dir, claims: Sequence[Dict[str, Any]], registry: Optional[Dict[str, Any]] = None,
-          write: bool = True) -> Dict[str, Any]:
-    """Every number of each record the claims cite, made again from the
-    model output and compared. Writes 04_analysis/evidence_numbers_check.json."""
+          write: bool = True, also: Sequence[str] = ()) -> Dict[str, Any]:
+    """Every number of each record the claims cite, and of each record the
+    report prints (`also`, record names), made again from the model output
+    and compared. Writes 04_analysis/evidence_numbers_check.json."""
     rd = Path(study_dir)
+    printed = sorted({str(x) for x in also or ()}, key=lambda r: (_line_no(r), r))
     rec: Dict[str, Any] = {
         "kind": "suite_numbers_check", "checked_at": datetime.now().isoformat(timespec="seconds"),
         "log": f"04_analysis/{LOOKUPS}", "pass": False, "n_compared": 0, "n_mismatched": 0,
@@ -1746,12 +1760,30 @@ def check(study_dir, claims: Sequence[Dict[str, Any]], registry: Optional[Dict[s
                               "scale + absolute; counts, statuses, marks, reason codes and flags "
                               "equal; dates and shifts in days within 1e-9 of a day"},
         "method": METHOD}
+    if printed:
+        rec["printed"] = printed
     try:
         ctx = Context(rd, registry)
         cited = _cited(claims, ctx.lines)
         rec["cited"] = sorted(cited, key=lambda r: int(r[1:]) if r[1:].isdigit() else 0)
+        # the paths each record is made again for: a cited record's stated
+        # values; a printed record's every number besides
+        want = {rid: list(paths) for rid, paths in cited.items()}
+        for rid in printed:
+            ok = rid.startswith("L") and rid[1:].isdigit() and 1 <= int(rid[1:]) <= len(ctx.lines)
+            ln = ctx.lines[int(rid[1:]) - 1] if ok else {}
+            if not ok or "sha256" not in ln or ln.get("refused") or ln.get("failed") or \
+                    ln.get("support"):
+                rec["mismatches"].append({
+                    "record": rid, "call": ln.get("call"), "where": _where(ln) if ln else None,
+                    "path": None, "logged": "its numbers", "recomputed": None,
+                    "why": "the report prints this record, and it is no answered lookup of "
+                           "the log"})
+                continue
+            want[rid] = list(dict.fromkeys(want.get(rid, []) + [
+                p for p, v in (ln.get("result") or {}).items() if _num(v) or isinstance(v, bool)]))
         worst = None
-        for rid in rec["cited"]:
+        for rid in sorted(want, key=lambda r: (_line_no(r), r)):
             if not (rid.startswith("L") and rid[1:].isdigit()) or \
                     not 1 <= int(rid[1:]) <= len(ctx.lines):
                 continue                       # the claim trace fails a record that is not there
@@ -1761,7 +1793,7 @@ def check(study_dir, claims: Sequence[Dict[str, Any]], registry: Optional[Dict[s
             if "sha256" not in ln or ln.get("refused") or ln.get("failed") or ln.get("support"):
                 continue
             series_stated = call == "get_series" and any(
-                p.startswith(SERIES_VALUE) for p in cited[rid])
+                p.startswith(SERIES_VALUE) for p in want[rid])
             if call in NO_NUMBER_CALLS and not series_stated:
                 rec["records"][rid] = {"call": call, "compared": 0,
                                        "note": "no number of it is compared (a map or a daily "
@@ -1777,9 +1809,9 @@ def check(study_dir, claims: Sequence[Dict[str, Any]], registry: Optional[Dict[s
             where = _where(ln)
             t0 = datetime.now()
             try:
-                k = _key(ctx, i, cited[rid])
+                k = _key(ctx, i, want[rid])
                 if k not in _CACHE:
-                    _CACHE[k] = recompute(ctx, i, cited[rid])
+                    _CACHE[k] = recompute(ctx, i, want[rid])
                     for r in ctx._runs.values():
                         r.forget()
                     ctx.memo = {mk: mv for mk, mv in ctx.memo.items() if mk[3] is not None}
@@ -1805,7 +1837,7 @@ def check(study_dir, claims: Sequence[Dict[str, Any]], registry: Optional[Dict[s
                                               "why": "numbers of the record the check does not "
                                                      "make again (a value the claims cite is "
                                                      "always made again)"})
-                stated = [p for p in cited[rid] if p in left]
+                stated = [p for p in cited.get(rid) or [] if p in left]
                 for p in stated:
                     rec["mismatches"].append({
                         "record": rid, "call": call, "where": where, "path": p,

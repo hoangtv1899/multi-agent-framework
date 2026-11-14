@@ -1555,11 +1555,13 @@ EVIDENCE_REL = f"04_analysis/{EVIDENCE_JSON}"
 
 
 def check_evidence(study_dir, claims, registry: Optional[Dict[str, Any]] = None,
-                   write: bool = True) -> Dict[str, Any]:
-    """Every number of every lookup the claims cite, made again from the model
-    output and compared (suite_check.check); written to EVIDENCE_REL."""
+                   write: bool = True, also: Sequence[str] = ()) -> Dict[str, Any]:
+    """Every number of every lookup the claims cite, and of every lookup the
+    report prints (`also`, record names such as "L7"), made again from the
+    model output and compared (suite_check.check); written to EVIDENCE_REL,
+    whose record names the printed ones under "printed"."""
     from agents.analysis import suite_check as SC
-    return SC.check(study_dir, claims, registry=registry, write=write)
+    return SC.check(study_dir, claims, registry=registry, write=write, also=also)
 
 
 def _rid(row: Dict[str, Any]) -> str:
@@ -1627,6 +1629,52 @@ def evidence_page_line(rec: Optional[Dict[str, Any]]) -> str:
             f"model output by an independent reading before this page was written, the largest "
             f"relative difference {f'{float(w):.3g}' if w is not None else 'none'} "
             f"({EVIDENCE_REL})." + tail)
+
+
+def _many(n, one: str, more: str) -> str:
+    return f"{_count(n)} {one if n == 1 else more}"
+
+
+# ONE PLAIN SENTENCE FOR THE REPORT (2026-11-13). The report's "Checks and
+# records" section says what the second reading covered in words a reader
+# keeps: how many numbers, of how many records the findings cite and how many
+# more the report prints, the largest difference, and what was not made
+# again. No bold label, no file name and no record name: the details page
+# keeps evidence_page_line. `figures` says the report draws figures, whose
+# values are read from the results store and are not made again.
+LEAD = "A second reading of the model output, by code written apart from the analysis,"
+NOT_MADE = "so the numbers in this report were not made again"
+
+
+def evidence_sentence(rec: Optional[Dict[str, Any]], figures: bool = True) -> str:
+    """The second reading of the numbers in plain sentences, for the
+    report's "Checks and records" section: what it made again and from how
+    many records, its largest relative difference, and what it did not make
+    again; or that it did not pass, did not run, or is not on record."""
+    if not rec:
+        return f"No second reading of the model output is on record, {NOT_MADE}."
+    cited = [str(r) for r in rec.get("cited") or []]
+    more = [r for r in rec.get("printed") or [] if r not in set(cited)]
+    of = _many(len(cited), "record the findings cite", "records the findings cite")
+    if more:
+        of += f" and the {_count(len(more))} more the report prints"
+    if not rec.get("pass") and rec.get("error") and not rec.get("n_compared"):
+        return f"{LEAD} stopped before it compared any number, {NOT_MADE}."
+    made = f"{LEAD} made {_many(rec.get('n_compared') or 0, 'number', 'numbers')} again " \
+        f"from the {of}"
+    if not rec.get("pass"):
+        n = len(rec.get("mismatches") or [])
+        return f"{made}, and found {_count(n)} that did not reproduce, so the report is withheld."
+    w = (rec.get("largest_relative_difference") or {}).get("rel_diff")
+    out = made + (f", with a largest relative difference of {float(w):.3g}." if w is not None
+                  else ".")
+    left = sum(int(x.get("n") or 1) for x in rec.get("not_recomputed") or [])
+    if left:
+        out += (f" It did not make again {_many(left, 'other number', 'other numbers')} of "
+                f"these records, which no finding states.")
+    if figures:
+        out += " The values the figures draw were not made again."
+    return out
 
 
 if __name__ == "__main__":

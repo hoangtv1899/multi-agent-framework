@@ -202,8 +202,11 @@ def test_a_run_of_months_stands_on_its_monthly_records_and_a_seasons_value_does_
     assert problems(run, [by["2016-06"]["id"], by["2016-07"]["id"]]) == [
         "it names June to August: none of its records names the season JJA, and as a run of "
         "months none names August"]
-    # the season named outright still needs the season's record
-    assert problems("In summer 2016 GPP ran one way, from June to August.", months) == [
+    # the season named outright needs the season's record, or (2026-11-13) a
+    # record for each of its months in the year it names
+    assert problems("In summer 2016 GPP ran one way, from June to August.", months) == []
+    assert problems("In summer 2016 GPP ran one way.",
+                    [by[m]["id"] for m in MONTHS if m != "2016-07"]) == [
         "it names JJA, which none of its records names"]
     assert problems("Over JJA 2016 GPP ran one way.", months) == [
         "it names JJA, which none of its records names"]
@@ -284,11 +287,14 @@ def test_a_season_pointed_away_from_or_counted_by_its_months_needs_no_season_rec
     assert problems(each, summer[:2]) == [
         "it names summer month: none of its records names the season JJA, and as a run of "
         "months none names August"]
-    # WRONG STATEMENTS STILL FAIL. The season named as itself:
-    assert problems("In summer 2016 GPP ran one way, and after summer too.", months) == [
+    # WRONG STATEMENTS STILL FAIL. The season named as itself, with one of its
+    # months unrecorded (on every month of it, it is named: 2026-11-13):
+    no_july = [by[m]["id"] for m in MONTHS if m != "2016-07"]
+    assert problems("In summer 2016 GPP ran one way, and after summer too.", no_july) == [
         "it names JJA, which none of its records names"]
-    assert problems("During and after summer 2016 GPP ran one way.", months) == [
+    assert problems("During and after summer 2016 GPP ran one way.", no_july) == [
         "it names JJA, which none of its records names"]
+    assert problems("During and after summer 2016 GPP ran one way.", months) == []
     # the summer months given as one quantity:
     assert problems("The mean of the summer months of 2016 ran one way for GPP.", months) == [
         "it names JJA, which none of its records names"]

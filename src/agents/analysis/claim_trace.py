@@ -359,12 +359,19 @@ def season_words(text: str) -> Dict[str, Dict[str, Any]]:
     a range (its words, its months, whether its clause gives it as one
     quantity), else None. A season with neither is only pointed away from
     ("after summer")."""
+    return {lab: {k: v for k, v in s.items() if k != "at"}
+            for lab, s in _season_uses(text).items()}
+
+
+def _season_uses(text: str) -> Dict[str, Dict[str, Any]]:
+    """season_words, with "at": where each use that names the season itself
+    starts."""
     t = str(text or "")
     low = t.lower()
     out: Dict[str, Dict[str, Any]] = {}
     for m in _SEASON_RX.finditer(low):
         lab = _SEASON_WORDS[m.group(1)]
-        got = out.setdefault(lab, {"outright": False, "months": None})
+        got = out.setdefault(lab, {"outright": False, "months": None, "at": []})
         nxt = _MONTHS_NEXT.match(low, m.end())
         if nxt:
             a = max((x.end() for x in _CLAUSE_SPLIT.finditer(low, 0, m.start())), default=0)
@@ -381,7 +388,82 @@ def season_words(text: str) -> Dict[str, Dict[str, Any]]:
         if away and (away.group("lead") or "") not in _NOT_AWAY_AFTER:
             continue
         got["outright"] = True
+        got["at"].append(m.start())
     return out
+
+
+# A SEASON'S WORD OVER A RECORD FOR EACH OF ITS MONTHS (2026-11-13). A live
+# report said a quantity stayed lower "through the next spring" on monthly
+# records, and the trace struck it: "spring" names MAM and no record was a
+# MAM record. The word now counts
+# as named when the claim's records hold every month of the season in the
+# year meant: winter is the December before with January and February, as
+# the suite labels it. The year meant is each year the sentence names; a
+# sentence that names none may mean any year the records hold whole. The
+# rule holds only where nothing can pass under the season's name:
+#   - its sentence prints no number but a year, so no month's value is read
+#     as the season's (the numbers rule matches a number to any record of
+#     the claim, whatever its period);
+#   - its clause does not give the season as one quantity (AGGREGATE_WORDS:
+#     "the spring total");
+#   - the claim does not name the season by its code ("MAM"), which is the
+#     season's own value.
+# Records that hold only some of the season's months, or its months in
+# another year than the one meant, still fail.
+_SENTENCE_START = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+
+
+def _months_held(rec: Dict[str, Any]) -> set:
+    """(year, month) of each whole month a record holds: its own period
+    ("2031-05"), its series' month labels, the months a day series holds
+    whole, each month of each year of a record by month (step "month"), and
+    the periods of a derived record's inputs."""
+    out, days = set(), {}
+    labs = [rec.get("period")] + _labels(dict(rec.get("words") or {}, **(rec.get("values") or {})))
+    labs += [x.get("period") for x in rec.get("inputs") or [] if isinstance(x, dict)]
+    for lab in labs:
+        t = str(lab or "")
+        d = _DAY_LABEL.match(t)
+        if d:
+            days.setdefault((int(d.group(1)), int(d.group(2))), set()).add(int(d.group(3)))
+            continue
+        m = re.fullmatch(r"(\d{4})-(\d{2})", t)
+        if m and 1 <= int(m.group(2)) <= 12:
+            out.add((int(m.group(1)), int(m.group(2))))
+    out |= _whole_months(days)
+    if rec.get("step") == "month":
+        out |= {(int(y), mm) for y in (rec.get("names") or {}).get("years") or []
+                for mm in range(1, 13)}
+    return out
+
+
+def season_from_months(lab: str, text: str, recs) -> bool:
+    """Whether every use of a season's word in a claim names a season its
+    records hold month by month, by the rule above."""
+    t = str(text or "")
+    said = _season_uses(t).get(lab) or {}
+    if not said.get("outright") or re.search(rf"\b{lab}\b", t):
+        return False
+    held = set().union(*(_months_held(r) for r in recs)) if recs else set()
+    whole = {y + 1 for y, _ in held} | {y for y, _ in held}
+    whole = {y for y in whole if all((y + dy, mm) in held for dy, mm in _SEASON_OF[lab])}
+    if not whole:
+        return False
+    starts = [0] + [m.end() for m in _SENTENCE_START.finditer(t)]
+    for at in said["at"]:
+        a = max(s for s in starts if s <= at)
+        b = min([s for s in starts if s > at] + [len(t)])
+        sen = t[a:b]
+        years = {int(y) for y in years_named(sen)}
+        if any(not _is_year(w.lstrip("-"), u, years) for w, u, _ in _number_words(sen)):
+            return False
+        c0 = max((x.end() for x in _CLAUSE_SPLIT.finditer(t, a, at)), default=a)
+        c1 = next((x.start() for x in _CLAUSE_SPLIT.finditer(t, at, b)), b)
+        if set(re.findall(r"[a-z]+", t[c0:c1].lower())) & set(AGGREGATE_WORDS):
+            return False
+        if not (years <= whole if years else whole):
+            return False
+    return True
 
 
 def seasons_named_outright(text: str) -> set:
@@ -861,9 +943,42 @@ def trace(claims: List[Dict[str, Any]], headline: Optional[str],
 
 def _half_unit(word: str) -> float:
     """Half a unit of the last digit as written, a whole number to the unit:
-    '40' 0.5, '8.2' 0.05 (the convention of step 3's same_number)."""
+    '40' 0.5, '8.2' 0.05 (the convention of step 3's same_number); a number
+    in scientific notation (sci_numbers) to its mantissa's last digit, so
+    '3.8e-3' is 5e-5."""
     s = word.replace(",", "").lstrip("-")
-    return 0.5 * 10.0 ** -(len(s.split(".")[1]) if "." in s else 0)
+    mant, _, exp = s.lower().partition("e")
+    return 0.5 * 10.0 ** (int(exp or 0) - (len(mant.split(".")[1]) if "." in mant else 0))
+
+
+# A NUMBER IN SCIENTIFIC NOTATION IS ONE NUMBER (2026-11-13). A live report
+# gave a small change in this form. The trace read its mantissa and the 10 as
+# two numbers, neither a value of its records, and struck a true claim. Now
+# "3.8 × 10⁻³", "3.8 x 10^-3", "3.8×10-3" and "3.8e-3" are each read as one
+# number, 0.0038, at the precision its mantissa is written to, wherever a
+# claim's numbers are read: here (_number_words) and in step 3's audit
+# (step3_interpret). Such a number that is not its record's value at that
+# precision still fails, as any other number does.
+_SUPERSCRIPT = str.maketrans("\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079"
+                             "\u207b\u207a\u2212", "0123456789-+-")
+SCI_NUMBER = re.compile(
+    r"(?<![A-Za-z0-9_.])(?P<mant>-?\d+(?:\.\d+)?)"
+    r"(?:\s*[\u00d7xX\u00b7]\s*10\s*(?:\^\s*(?P<pow>[-+\u2212]?\d+)"
+    r"|(?P<sup>[\u207b\u207a]?[\u2070\u00b9\u00b2\u00b3\u2074-\u2079]+)"
+    r"|(?P<neg>[-\u2212]\d+))"
+    r"|[eE](?P<e>[-+\u2212]?\d+))(?![A-Za-z0-9])")
+
+
+def sci_numbers(text: str) -> List[Tuple[int, int, str]]:
+    """(start, end, word) of each number a text writes in scientific
+    notation, the word in one spelling float() reads with the mantissa as
+    written: "3.8e-3" for "3.8 × 10⁻³"."""
+    out = []
+    for m in SCI_NUMBER.finditer(str(text or "")):
+        exp = next(g for g in (m.group("pow"), m.group("sup"), m.group("neg"), m.group("e"))
+                   if g is not None)
+        out.append((m.start(), m.end(), f"{m.group('mant')}e{int(exp.translate(_SUPERSCRIPT))}"))
+    return out
 
 
 def trace_headline(headline: Optional[str], claims: List[Dict[str, Any]],
@@ -1829,6 +1944,7 @@ def study_runs(study_dir) -> Dict[str, Dict[str, Any]]:
     p = Path(str(study_dir)) / "experiment.json"
     e = json.loads(p.read_text()) if p.is_file() else {}
     chain = (e.get("chain") or {}).get("runs") or {}
+    held = ((e.get("control_facts") or {}).get("settings") or {})
     out = {}
     for r in (e.get("experiment") or {}).get("runs") or []:
         name = str((r or {}).get("run") or (r or {}).get("name") or "")
@@ -1838,11 +1954,54 @@ def study_runs(study_dir) -> Dict[str, Dict[str, Any]]:
               if s.get("check_pass") is not None]
         ok = bool(st) and all(s.get("check_pass") is True for s in st) and \
             any(s.get("stage") == "case" for s in st)
-        out[name] = {"changes": [c for c in r.get("changes") or [] if isinstance(c, dict)],
+        changes = [c for c in r.get("changes") or [] if isinstance(c, dict)]
+        out[name] = {"changes": changes,
                      "verified": ok,
                      "why": ("the server's checks of the case, the smoke run and every year "
                              "passed" if ok else "the server's checks do not confirm that "
-                             "nothing else differs (a stage unchecked, failed or missing)")}
+                             "nothing else differs (a stage unchecked, failed or missing)"),
+                     "control_settings": control_settings(changes, held)}
+    return out
+
+
+# THE CONTROL RUN'S OWN SETTING IS A FACT OF THE DESIGN (2026-11-13). A live
+# report gave a run's CO2 level beside the control run's own. The run's level
+# counted, as a setting of the run its record reads (_label_numbers), but the
+# control's level was in no record and the true claim was struck. The control
+# run's value of each setting a new run changes now counts the same way: the
+# settings a change sets are the server's own list (domain_changes: the keys
+# it alters and the keys its checks read), and their values are the control's
+# facts in the study's experiment record. Only those settings, only numbers,
+# and only for a claim whose records read that run.
+_SETTING_NUMBER = re.compile(r"\s*'?\"?(-?\d+(?:\.\d+)?)\"?'?\s*")
+
+
+def change_settings(change_id: str) -> List[str]:
+    """The settings a change of the server's list sets, by name: the keys it
+    alters and the keys its checks read; [] for a change not on the list."""
+    try:
+        _elm_modules()
+        import domain_changes as DCH                                # noqa: N812
+        c = DCH.get(str(change_id))
+    except Exception:                                               # noqa: BLE001
+        return []
+    keys = [a.get("key") or a.get("xml") for a in c.get("alters") or []]
+    keys += [s.get("key") for s in (c.get("checks") or {}).get("settings") or []]
+    return [str(k) for k in dict.fromkeys(keys) if k]
+
+
+def control_settings(changes, held: Dict[str, Any]) -> Dict[str, float]:
+    """{setting: the control run's value} for each numeric setting the
+    changes set (change_settings), from the control's facts (`held`, the
+    experiment record's control_facts.settings)."""
+    out: Dict[str, float] = {}
+    for c in changes or []:
+        for k in change_settings((c or {}).get("id")):
+            v = (held or {}).get(k)
+            if _fin(v):
+                out[k] = float(v)
+            elif isinstance(v, str) and _SETTING_NUMBER.fullmatch(v):
+                out[k] = float(_SETTING_NUMBER.fullmatch(v).group(1))
     return out
 
 
@@ -1869,7 +2028,8 @@ def _region_heads(text: str, regions) -> Tuple[set, set]:
 def _label_numbers(recs, runs, plan) -> set:
     """Numbers a claim may print as labels, not values: its records' keys and
     settings, years and counts of the comparison, the settings of the runs its
-    records read (the '2 K' of a warming), and the band edges of regions."""
+    records read (the '2 K' of a warming) with the control run's own value of
+    each (study_runs' control_settings), and the band edges of regions."""
     out = set()
 
     def add(x):
@@ -1892,6 +2052,7 @@ def _label_numbers(recs, runs, plan) -> set:
                 add(v)
         for run in {r.get("run"), (r.get("keys") or {}).get("run")} - {None, "control"}:
             add([c.get("params") for c in (runs.get(run) or {}).get("changes") or []])
+            add((runs.get(run) or {}).get("control_settings"))
         add([part for kind, part in _split_parts(r) if kind != "other_regions"])  # band edges
     return out
 
@@ -2067,11 +2228,18 @@ def series_period_problems(word: str, unit: Optional[str], hits, text: str) -> L
 
 def _number_words(text: str) -> List[Tuple[str, Optional[str], int]]:
     """The numbers a text prints, with the unit after each; a unit's own
-    exponent ('m^2', 'm-2', 's-1') is not a number."""
-    t = re.sub(r"\^-?\d+|(?<=[A-Za-z])-\d+\b", lambda m: " " * len(m.group(0)),
-               str(text or ""))
-    return [(m.group(0).replace(",", ""), unit_after(t, m.end()), m.end())
+    exponent ('m^2', 'm-2', 's-1') is not a number, and a number in
+    scientific notation is one number (sci_numbers), read before a unit's
+    exponent is set aside, since '10^-4' and 'e-4' look like one."""
+    t = str(text or "")
+    sci = sci_numbers(t)
+    for a, b, _ in sci:
+        t = t[:a] + " " * (b - a) + t[b:]
+    t = re.sub(r"\^-?\d+|(?<=[A-Za-z])-\d+\b", lambda m: " " * len(m.group(0)), t)
+    out = [(w, unit_after(t, b), b) for _, b, w in sci]
+    out += [(m.group(0).replace(",", ""), unit_after(t, m.end()), m.end())
             for m in _NUMBER.finditer(t)]
+    return sorted(out, key=lambda x: x[2])
 
 
 # A PERCENT ONLY WHERE THE FIELD'S NOTES ALLOW ONE, judged by one helper for
@@ -2358,6 +2526,8 @@ def check_claim(c: Dict[str, Any], records: Dict[str, Dict[str, Any]], plan: Dic
                                      f"season {lab}, and as a run of months none names "
                                      f"{', '.join(lack)}")
                 continue
+        if kind == "season" and season_from_months(lab, text, recs):
+            continue                    # its word, over a record for each of its months
         word = MONTHS[int(lab) - 1] if kind == "month" else lab
         probs.append(f"it names {word}, which none of its records names")
     heads, bands = _region_heads(text, regions)
