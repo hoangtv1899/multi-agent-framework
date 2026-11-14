@@ -51,6 +51,32 @@ drawn here, so the Analyzer's figures can use it once its task names it:
 
 None of these is in the closed list step 2b is shown (PANEL_KINDS), so a
 figure the model writes is checked and drawn exactly as before.
+
+THE REPORT'S OWN FIGURES DRAW WITH THIS TOOL TOO (agents/analysis/
+report_figures.py, the report rebuild of 2026-11-13). Code, not the model,
+draws the two figures a whole-domain report leads with. What they need is
+drawn here, again outside the model's list (CODE_KINDS):
+
+    months              one quantity month by month: bars of the new run minus
+                        the control run on a zero line, the months of the
+                        change shaded ("shade_labels"); or, with "normal":
+                        {"low", "high", "mean"}, the control run's months as a
+                        line on the normal years' range and mean. Months are
+                        ticked Jan, Apr, Jul and Oct, the year under January
+    a stack of months   a stacked figure of months panels holds up to
+                        STACK_MAX_PANELS; every other figure keeps MAX_PANELS
+    shared_map          a per-cell map on one scale centred on zero, shared
+                        with the figure's other shared maps, with one colour
+                        bar for its row, the region's edge and degree ticks
+    cells               one dot per cell, one map across, another up, coloured
+                        by a third, all the figure's cells panels on one scale
+    a grid              a figure's "layout": "grid" with "columns": n lays its
+                        panels n to a row, one colour bar per row
+    letters             a figure's "letters": true sets a bold letter on each
+                        panel, in the corner where the least is drawn
+    words               a months panel's axis is named in words with its unit
+                        (agents/analysis/field_words.py) unless its output
+                        gives a "label"
 """
 import re
 import textwrap
@@ -1107,6 +1133,328 @@ def _draw_screen(ax, r, where):
 STACK_WIDTH, STACK_HEIGHT = 11.0, 3.3
 
 
+# ── the report's figures, drawn by code (2026-11-13) ────────────────────────
+# The panels below are never offered to the model: check_figure refuses any
+# kind outside PANEL_KINDS, and panel_lines lists PANEL_KINDS only. Their look
+# is the one the user approved in the hand-drawn targets of the report review
+# (month bars in one blue on light grey months, a red to blue scale centred on
+# zero for the maps, a bold letter per panel).
+CODE_KINDS = ("months", "shared_map", "cells")
+STACK_MAX_PANELS = 8
+MONTH_SHADE = "0.88"
+CHANGE_COLOUR = "#2b6cb0"
+MAP_CMAP = "RdBu"
+CELLS_CMAP = "viridis"
+MONTHS_WIDTH, MONTHS_HEIGHT = 12.0, 1.8          # inches: the stack, and each panel in it
+GRID_WIDTH, GRID_HEIGHT = 5.6, 5.4               # inches: each panel of a grid
+LETTERS = "abcdefghijklmnopqrstuvwxyz"
+LETTER_FONT = 18
+LETTER_GID = "panel-letter"
+LETTER_BOX = 0.32                                # inches a letter keeps clear, each way
+# where a letter may go, in the order it is tried: (name, x, y, ha, va)
+LETTER_SPOTS = (("upper left", 0.015, 0.97, "left", "top"),
+                ("center left", 0.015, 0.5, "left", "center"),
+                ("lower left", 0.015, 0.03, "left", "bottom"),
+                ("upper right", 0.985, 0.97, "right", "top"),
+                ("center right", 0.985, 0.5, "right", "center"),
+                ("lower right", 0.985, 0.03, "right", "bottom"))
+MONTH_LABEL = re.compile(r"^\d{4}-\d{2}$")
+TICK_MONTHS = {"01": "Jan", "04": "Apr", "07": "Jul", "10": "Oct"}
+MAP_SCALE_PERCENTILE = 99                        # the shared scale's end, of |value|
+
+
+def panel_limit(f: Dict[str, Any]) -> int:
+    """The panels a figure may hold: STACK_MAX_PANELS for a stack of months
+    panels, MAX_PANELS for any other figure."""
+    panels = list(f.get("panels") or [])
+    if f.get("layout") == "stack" and panels and \
+            all(isinstance(p, dict) and p.get("kind") == "months" for p in panels):
+        return STACK_MAX_PANELS
+    return MAX_PANELS
+
+
+def month_ticks(labels: Sequence[str]) -> Tuple[List[int], List[str]]:
+    """The ticks of a month axis: Jan, Apr, Jul and Oct, the year under each
+    January (and under the first tick when no January is drawn)."""
+    at = [i for i, lab in enumerate(labels) if str(lab)[5:7] in TICK_MONTHS]
+    text = [TICK_MONTHS[str(labels[i])[5:7]] + (f"\n{str(labels[i])[:4]}"
+                                                if str(labels[i])[5:7] == "01" else "")
+            for i in at]
+    if at and not any(str(labels[i])[5:7] == "01" for i in at):
+        text[0] += f"\n{str(labels[at[0]])[:4]}"
+    return at, text
+
+
+def axis_words(field: Any, units: Any, width: int = 11) -> str:
+    """A months panel's axis name: the quantity in words, wrapped, and its
+    unit in brackets on its own line ("Plant\\ngrowth\\n(gC/m2)")."""
+    from agents.analysis import field_words as FW
+    name = FW.capital(FW.words(field, with_code=False))
+    u = FW.units_words(units)
+    return "\n".join(textwrap.wrap(name, width, break_long_words=False, break_on_hyphens=False)
+                     + ([f"({u})"] if u else []))
+
+
+def _points_of_bars(x: np.ndarray, h: np.ndarray, half: float) -> np.ndarray:
+    """Points over every drawn bar, from zero to its end, for placing a letter
+    where no bar is."""
+    pts = []
+    for xi, hi in zip(x, h):
+        if np.isfinite(hi):
+            ys = np.linspace(0.0, hi, 12)
+            for dx in (-half, 0.0, half):
+                pts += [(xi + dx, y) for y in ys]
+    return np.asarray(pts, dtype=float).reshape(-1, 2)
+
+
+def _draw_months(ax, r, opts, where):
+    """A months panel: the new run minus the control run as bars on a zero
+    line, the months of the change shaded; or, with "normal", the control
+    run's months as a line on the normal years' range and mean."""
+    v = r["value"] or {}
+    labs = [str(x) for x in v.get("labels") or []]
+    try:
+        vals = np.asarray(v.get("values") if v.get("values") is not None else [], dtype=float)
+    except (TypeError, ValueError):
+        _blank(where, f"{r['ref']} holds values that are not numbers")
+    if not labs or vals.ndim != 1 or vals.size != len(labs):
+        _blank(where, f"{r['ref']} holds {vals.size} values for {len(labs)} months")
+    if not all(MONTH_LABEL.match(x) for x in labs):
+        _blank(where, f"{r['ref']} is not labelled by month")
+    n = int(np.isfinite(vals).sum())
+    if not n:
+        _blank(where, f"{r['ref']} holds no month with a value")
+    x = np.arange(len(labs), dtype=float)
+    for a, b in _label_runs(labs, opts.get("shade_labels")):
+        ax.axvspan(a - 0.5, b + 0.5, color=MONTH_SHADE, zorder=0, lw=0)
+    rng = opts.get("normal")
+    if isinstance(rng, dict):
+        lo, hi, mean = (np.asarray(rng.get(k), dtype=float) for k in ("low", "high", "mean"))
+        if not lo.shape == hi.shape == mean.shape == vals.shape:
+            _blank(where, f"{r['ref']}: the normal years' range is not given for every month")
+        ax.fill_between(x, lo, hi, color=RANGE_FACE, lw=0, zorder=1)
+        ax.plot(x, mean, color="0.3", ls="--", lw=1.2, zorder=2)
+        ax.plot(x, vals, color=CHANGE_COLOUR, lw=1.8, marker="o", ms=3, zorder=3)
+        band = [(xi, y) for xi, a, b in zip(x, lo, hi) if np.isfinite(a) and np.isfinite(b)
+                for y in np.linspace(a, b, 8)]
+        line = [(xi, y) for xi, y in zip(x, vals) if np.isfinite(y)]
+        ax._report_points = np.asarray(band + line, dtype=float).reshape(-1, 2)
+    else:
+        ok = np.isfinite(vals)
+        ax.bar(x[ok], vals[ok], color=CHANGE_COLOUR, width=0.7, zorder=2)
+        ax.axhline(0, color="k", lw=0.8, zorder=2.5)
+        ax._report_points = _points_of_bars(x, vals, 0.35)
+    ax.set_xlim(-0.6, len(labs) - 0.4)
+    ax._report_zero = not isinstance(rng, dict)  # the zero line is drawn across the panel
+    at, text = month_ticks(labs)
+    ax.set_xticks(at)
+    ax.set_xticklabels(text)
+    out = r.get("out") or {}
+    ax.set_ylabel(out.get("label") or axis_words(out.get("field"), out.get("units")),
+                  rotation=0, ha="right", va="center", labelpad=8, fontsize=14)
+    ax.tick_params(axis="y", labelsize=12)
+    return n
+
+
+def _lon_east(lon) -> np.ndarray:
+    """Longitudes west of Greenwich as negative degrees, for ticks in °W."""
+    a = np.asarray(lon, dtype=float)
+    return np.where(a > 180.0, a - 360.0, a)
+
+
+def _region_cells(ll, shape) -> Optional[np.ndarray]:
+    m = ll.get("outline") if isinstance(ll, dict) else None
+    if m is None:
+        return None
+    m = np.asarray(m, dtype=float)
+    return (np.where(np.isfinite(m), m, 0.0) > 0.5) if m.shape == tuple(shape) else None
+
+
+def shared_scales(panels: Sequence[Dict[str, Any]], refs: Dict[str, Dict[str, Any]],
+                  lat_lon=None) -> Dict[str, Any]:
+    """The one scale of a figure's shared maps (MAP_SCALE_PERCENTILE of the
+    size of their values inside the region's edge, or over every cell where
+    no edge is given) and the limits its cells panels share (x, y and colour)."""
+    out: Dict[str, Any] = {"map": 1.0, "x": None, "y": None, "c": None}
+    sizes, xs, ys, cs = [], [], [], []
+    for p in panels:
+        refs_ = [refs.get(n) for n in panel_refs(p)]
+        r = refs_[0] if refs_ else None
+        if not r or not r.get("made"):
+            continue
+        if p.get("kind") == "shared_map":
+            try:
+                a = np.asarray(r.get("value"), dtype=float)
+            except (TypeError, ValueError):
+                continue
+            inside = _region_cells(lat_lon, a.shape)
+            v = a[inside] if inside is not None else a.ravel()
+            sizes.append(np.abs(v[np.isfinite(v)]))
+        elif p.get("kind") == "cells":
+            v = r.get("value") or {}
+            try:
+                x, y, c = (np.asarray(v.get(k), dtype=float) for k in ("x", "y", "c"))
+            except (TypeError, ValueError):
+                continue
+            if not x.shape == y.shape == c.shape:
+                continue
+            ok = np.isfinite(x) & np.isfinite(y) & np.isfinite(c)
+            xs.append(x[ok])
+            ys.append(y[ok])
+            cs.append(c[ok])
+    size = np.concatenate(sizes) if sizes else np.array([])
+    if size.size:
+        lim = float(np.nanpercentile(size, MAP_SCALE_PERCENTILE))
+        out["map"] = lim if np.isfinite(lim) and lim > 0 else (float(size.max()) or 1.0)
+    for key, got in (("x", xs), ("y", ys), ("c", cs)):
+        a = np.concatenate(got) if got else np.array([])
+        if a.size:
+            lo, hi = float(a.min()), float(a.max())
+            if key == "y":
+                lo, hi = min(lo, 0.0), max(hi, 0.0)    # the zero line is always in view
+            pad = 0.0 if key == "c" else 0.04 * ((hi - lo) or abs(hi) or 1.0)
+            out[key] = (lo - pad, hi + pad) if hi > lo or pad else (lo - 0.5, hi + 0.5)
+    return out
+
+
+def _draw_shared_map(plt, ax, r, opts, ll, where, lim: float):
+    """A per-cell map on the figure's one scale, centred on zero, with the
+    region's edge, degree ticks and the panel's title (a period in words)."""
+    from matplotlib.ticker import FixedLocator, MaxNLocator
+    if not isinstance(ll, dict) or ll.get("lat") is None or ll.get("lon") is None:
+        _blank(where, "the grid's latitude and longitude were not read")
+    lat = np.asarray(ll["lat"], dtype=float)
+    lon = _lon_east(ll["lon"])
+    try:
+        a = np.asarray(r["value"], dtype=float)
+    except (TypeError, ValueError):
+        _blank(where, f"{r['ref']} is not a map")
+    if a.ndim != 2 or a.shape != (lat.size, lon.size):
+        _blank(where, f"{r['ref']} is {'x'.join(map(str, a.shape))} cells, and the grid is "
+                      f"{lat.size}x{lon.size}")
+    n = _finite(a)
+    if not n:
+        _blank(where, f"{r['ref']} holds no cell with a value")
+    m = ax.pcolormesh(lon, lat, a, shading="nearest", cmap=MAP_CMAP, vmin=-lim, vmax=lim,
+                      rasterized=True)
+    inside = _region_cells(ll, a.shape)
+    if inside is not None and inside.any():
+        ax.contour(lon, lat, inside.astype(float), levels=[0.5], colors="k", linewidths=1.0)
+    keep = inside if inside is not None and inside.any() else np.isfinite(a)
+    jj, ii = np.nonzero(keep)
+    ax._report_points = np.column_stack([lon[ii], lat[jj]]) if jj.size else np.zeros((0, 2))
+    if lat.size:
+        ax.set_aspect(1.0 / max(np.cos(np.deg2rad(float(np.nanmean(lat)))), 0.05))
+    # round degrees, none at a panel's edge, where a row's next map starts
+    for axis, (lo, hi), n in ((ax.xaxis, ax.get_xlim(), 4), (ax.yaxis, ax.get_ylim(), 5)):
+        span = hi - lo
+        ticks = [t for t in MaxNLocator(n, steps=[1, 2, 4, 5, 10]).tick_values(lo, hi)
+                 if lo + 0.04 * span <= t <= hi - 0.04 * span]
+        axis.set_major_locator(FixedLocator(ticks))
+    ax.xaxis.set_major_formatter(_degree_ticks("E", "W"))
+    ax.yaxis.set_major_formatter(_degree_ticks("N", "S"))
+    out = r.get("out") or {}
+    if out.get("title"):
+        ax.set_title(str(out["title"]), fontsize=16)
+    ax._report_mappable = (m, out.get("scale_label") or "")
+    return n
+
+
+def _draw_cells(ax, r, opts, where, shared: Dict[str, Any]):
+    """One dot per cell: one map across, another up, coloured by a third, on
+    the limits every cells panel of the figure shares, with a zero line."""
+    v = r["value"] or {}
+    try:
+        x, y, c = (np.asarray(v.get(k), dtype=float) for k in ("x", "y", "c"))
+    except (TypeError, ValueError):
+        _blank(where, f"{r['ref']} holds values that are not numbers")
+    if not x.shape == y.shape == c.shape or x.ndim != 1:
+        _blank(where, f"{r['ref']} does not give each cell all three values")
+    ok = np.isfinite(x) & np.isfinite(y) & np.isfinite(c)
+    if not ok.any():
+        _blank(where, f"{r['ref']} holds no cell with all three values")
+    clim = shared.get("c") or (float(c[ok].min()), float(c[ok].max()))
+    sc = ax.scatter(x[ok], y[ok], c=c[ok], cmap=CELLS_CMAP, vmin=clim[0], vmax=clim[1], s=6,
+                    alpha=0.7, linewidths=0, rasterized=True, zorder=2)
+    ax.axhline(0, color="k", lw=0.8, zorder=1)
+    if shared.get("x"):
+        ax.set_xlim(*shared["x"])
+    if shared.get("y"):
+        ax.set_ylim(*shared["y"])
+    out = r.get("out") or {}
+    ax.set_xlabel(out.get("x_label") or "")
+    ax.set_ylabel(out.get("y_label") or "")
+    ax._report_points = np.column_stack([x[ok], y[ok]])
+    ax._report_zero = True
+    ax._report_mappable = (sc, out.get("c_label") or "")
+    return int(ok.sum())
+
+
+def place_letter(ax, letter: str) -> str:
+    """A bold letter in the spot of LETTER_SPOTS that covers the fewest drawn
+    points (the panel's own record of where it drew), the first such spot
+    on a tie. Returns the spot's name."""
+    pts = getattr(ax, "_report_points", None)
+    pts = np.asarray(pts if pts is not None else np.zeros((0, 2)), dtype=float).reshape(-1, 2)
+    (x0, x1), (y0, y1) = ax.get_xlim(), ax.get_ylim()
+    fx = (pts[:, 0] - x0) / ((x1 - x0) or 1.0)
+    fy = (pts[:, 1] - y0) / ((y1 - y0) or 1.0)
+    if getattr(ax, "_report_zero", False) and y1 != y0:
+        zy = (0.0 - y0) / (y1 - y0)                 # the zero line, across the panel
+        line = np.linspace(0.0, 1.0, 60)
+        fx, fy = np.concatenate([fx, line]), np.concatenate([fy, np.full(line.size, zy)])
+    bb = ax.get_window_extent()
+    dpi = ax.figure.dpi
+    bw = min(0.3, LETTER_BOX / max(bb.width / dpi, 1e-6))
+    bh = min(0.45, LETTER_BOX / max(bb.height / dpi, 1e-6))
+    best, spot = None, LETTER_SPOTS[0]
+    for s in LETTER_SPOTS:
+        _, x, y, ha, va = s
+        xa = (x, x + bw) if ha == "left" else (x - bw, x)
+        ya = (y - bh, y) if va == "top" else (y, y + bh) if va == "bottom" else \
+            (y - bh / 2, y + bh / 2)
+        k = int(np.sum((fx >= xa[0]) & (fx <= xa[1]) & (fy >= ya[0]) & (fy <= ya[1])))
+        if best is None or k < best:
+            best, spot = k, s
+    name, x, y, ha, va = spot
+    t = ax.text(x, y, letter, transform=ax.transAxes, fontsize=LETTER_FONT, fontweight="bold",
+                ha=ha, va=va, zorder=6)
+    t.set_gid(LETTER_GID)
+    return name
+
+
+def _row_colourbars(fig, axes, panels, cols: int):
+    """One colour bar per row of a grid, for the row's shared maps or cells;
+    rows in a row of the same kind share one bar (their scale is one)."""
+    groups: List[Tuple[str, List[Any], Any]] = []
+    for start in range(0, len(panels), cols):
+        row = list(axes[start:min(start + cols, len(panels))])
+        got = [(p.get("kind"), getattr(a, "_report_mappable", None))
+               for p, a in zip(panels[start:start + cols], row)]
+        got = [(k, m) for k, m in got if m is not None]
+        if not got:
+            continue
+        kind, mappable = got[0]
+        if groups and groups[-1][0] == kind:
+            groups[-1][1].extend(row)
+        else:
+            groups.append((kind, row, mappable))
+    for _, row, (m, label) in groups:
+        cb = fig.colorbar(m, ax=row, shrink=0.9, pad=0.02)
+        cb.set_label(label, fontsize=15)
+        cb.ax.tick_params(labelsize=14)
+
+
+def _inner_labels_off(axes, panels, cols: int):
+    """In a grid row, a panel after the first of the same kind shares its
+    neighbour's scale: its value ticks and axis name are not repeated."""
+    for i, (p, ax) in enumerate(zip(panels, axes)):
+        first = panels[i - i % cols]
+        if i % cols and p.get("kind") == first.get("kind") and p.get("kind") in CODE_KINDS:
+            ax.tick_params(labelleft=False)
+            ax.set_ylabel("")
+
+
 def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
                   lat_lon=None, normal_years: Sequence[int] = ()) -> Dict[str, Any]:
     """Draw one checked figure. `refs`: each output the figure names, by
@@ -1116,12 +1464,23 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
     "n"}; a panel that cannot be drawn fails the whole figure, naming it."""
     plt = _plt()
     panels = list(f.get("panels") or [])
+    if any(isinstance(p, dict) and p.get("kind") in CODE_KINDS for p in panels) and \
+            len(panels) > panel_limit(f):
+        # the report's own figures keep to their limit as the model's do (check_figure)
+        return {"ok": False, "error": f"{len(panels)} panels; this figure holds at most "
+                                      f"{panel_limit(f)}", "figure": None, "panels": [], "n": 0}
     cols = 2 if len(panels) == 4 else len(panels)
     rows = 2 if len(panels) == 4 else 1
     height = 4.6
     stack = f.get("layout") == "stack"           # one panel under another, full width
     if stack:
         cols, rows = 1, len(panels)
+    grid = f.get("layout") == "grid"             # n panels to a row, a colour bar per row
+    if grid:
+        cols = max(1, int(f.get("columns") or len(panels) or 1))
+        rows = max(1, -(-len(panels) // cols))
+    months = stack and bool(panels) and all(p.get("kind") == "months" for p in panels)
+    shared = shared_scales(panels, refs, lat_lon) if grid else {}
     if [p.get("kind") for p in panels] == [SCREEN]:   # a row per shown field, 13 pt each
         disp = (((refs.get(SCREEN) or {}).get("value") or {}).get("display") or {})
         height = max(height, 0.42 * sum(len(x or []) for x in (disp.get("groups") or {})
@@ -1129,10 +1488,15 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
     # a figure of one map of classes has the room its legend needs beside it
     classes = len(panels) == 1 and panels[0].get("kind") == "map" and \
         isinstance(panels[0].get("classes"), dict)
-    fig, axes = plt.subplots(rows, cols, squeeze=False,
-                             figsize=(CLASS_SIZE if classes else
-                                      (STACK_WIDTH, STACK_HEIGHT * rows) if stack else
-                                      (5.4 * cols if height == 4.6 else 9.0, height * rows)))
+    if grid:
+        fig, axes = plt.subplots(rows, cols, squeeze=False, layout="constrained",
+                                 figsize=(GRID_WIDTH * cols + 1.6, GRID_HEIGHT * rows))
+    else:
+        fig, axes = plt.subplots(rows, cols, squeeze=False,
+                                 figsize=(CLASS_SIZE if classes else
+                                          (MONTHS_WIDTH, MONTHS_HEIGHT * rows + 1.0) if months
+                                          else (STACK_WIDTH, STACK_HEIGHT * rows) if stack else
+                                          (5.4 * cols if height == 4.6 else 9.0, height * rows)))
     axes = [a for row in axes for a in row]
     record, total = [], 0
     legend: Dict[str, str] = {}                  # what each range drawn is, said once
@@ -1149,7 +1513,8 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
                                   f"{(r or {}).get('error') or 'no call made it'}")
                 rs.append(r)
             outs = {r["ref"]: r["out"] for r in rs}
-            _title(ax, names, outs)
+            if p.get("kind") not in CODE_KINDS:     # the report's panels name their own axes
+                _title(ax, names, outs)
             gone = [r for r in rs if r["outcome"] == PC.NOT_ESTIMABLE]
             row = {"panel": i, "kind": p.get("kind"), "outputs": names,
                    "records": [f"L{r['line']}" for r in rs if r.get("line")],
@@ -1175,6 +1540,13 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
                 got = _draw_overlap(ax, rs[0], p, where)
             elif k == "timing":
                 got = _draw_timing(ax, rs[0], where)
+            elif k == "months":
+                got = _draw_months(ax, rs[0], p, where)
+            elif k == "shared_map":
+                got = _draw_shared_map(plt, ax, rs[0], p, lat_lon, where,
+                                       float(shared.get("map") or 1.0))
+            elif k == "cells":
+                got = _draw_cells(ax, rs[0], p, where, shared)
             else:
                 try:
                     got = _draw_screen(ax, rs[0], where)
@@ -1193,11 +1565,24 @@ def render_figure(f: Dict[str, Any], refs: Dict[str, Dict[str, Any]], out_path,
                                **({"not_estimable": [r["ref"] for r in gone]} if gone else {})))
         for ax in axes[len(panels):]:
             ax.axis("off")
-        fig.tight_layout()
+        if grid:                                 # laid out by matplotlib's constrained layout
+            _inner_labels_off(axes, panels, cols)
+            _row_colourbars(fig, axes, panels, cols)
+        elif months:                             # one month axis, named once, at the foot
+            for ax in axes[:len(panels) - 1]:
+                ax.tick_params(labelbottom=False)
+            fig.align_ylabels(axes[:len(panels)])
+            fig.tight_layout(h_pad=0.4)
+        else:
+            fig.tight_layout()
         if any(t.get_gid() in (BAR_LABEL_H, BAR_LABEL_V) for a in axes for t in a.texts):
             _fit_labels(fig)                     # a figure without bars is laid out as before
             fig.tight_layout()
             _fit_labels(fig)
+        if f.get("letters") and len(panels) > 1:
+            fig.canvas.draw()                    # the panels' final sizes, for the letters
+            for i, ax in enumerate(axes[:len(panels)]):
+                place_letter(ax, LETTERS[i % len(LETTERS)])
         _figure_legend(fig, legend)
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
     except FigureFailed as e:
