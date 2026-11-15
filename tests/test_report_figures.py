@@ -759,6 +759,28 @@ def test_a_plan_that_maps_only_the_main_change_gets_todays_record(tmp_path):
            in rec["not_drawn"]
 
 
+def test_the_second_map_follows_the_plan_order_not_the_order_of_use():
+    """A map's place in the plan decides, not where a split or an overlap
+    first takes it: P4 lists transpiration before the water stress index,
+    and P5 sets the water stress index against a map before it splits
+    transpiration, each by a reference to P4's output."""
+    p4 = {"id": "P4", "fields": ["QVEGT", "BTRAN"], "regions": [REGION],
+          "periods": ["2033-JJA"],
+          "outputs": [{"id": "O1", "kind": "difference", "run": RUN, "field": "QVEGT",
+                       "period": "2033-JJA", "region": None},
+                      {"id": "O2", "kind": "difference", "run": RUN, "field": "BTRAN",
+                       "period": "2033-JJA", "region": None}]}
+    p5 = {"id": "P5", "fields": ["FPG"], "regions": [REGION], "periods": ["2033-JJA"],
+          "outputs": [{"id": "O1", "kind": "map", "run": "control", "field": "FPG",
+                       "period": "2033-JJA"},
+                      {"id": "O2", "kind": "overlap", "region": REGION, "inputs": ["P4.O2", "O1"]},
+                      {"id": "O3", "kind": "elevation_split", "region": REGION,
+                       "inputs": ["P4.O1"]}]}
+    got = RF.mapped_changes(what_if_plan(extra_analyses=[p4, p5]), RUN)
+    assert "QVEGT" in got and "BTRAN" in got and "FPG" not in got
+    assert got.index("QVEGT") < got.index("BTRAN"), got
+
+
 def test_a_third_mapped_change_is_named_and_not_drawn(tmp_path):
     rd = study(tmp_path, CUT, panels_changed=SUMMER)
     plan = what_if_plan(extra_analyses=[mapping("P4", "QVEGT"), mapping("P5", "TLAI")])

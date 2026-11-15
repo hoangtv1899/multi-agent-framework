@@ -757,35 +757,39 @@ that would settle it, from the server's list below.
 # "cannot be stated" because a figure of its own had failed, while the
 # report's own figure and table showed it. Step 3 now sees them (the brief's
 # last part, report_view_lines, and their images) and writes one short
-# finding for each approved comparison beside them, and a Summary of at most
-# five sentences, which the wording gate holds.
+# claim for each approved comparison beside them, one for each part of a
+# question of several parts, and a Summary of at most five sentences that
+# answers each part first, which the wording gate holds (revised 2026-11-15
+# after a cold review of the text).
 MAX_SUMMARY_SENTENCES = 5
 SUITE_FINDINGS = """
 THE REPORT'S FIGURES AND TABLES COME FIRST. Code has drawn them from the
 approved comparisons. They are listed above under "THE REPORT'S OWN FIGURES
 AND TABLES" and attached as the images whose names begin "figure_over". They
-show each quantity month by month and print each comparison's numbers by
-period. The reader sees them first and reads your findings under them, so in
-this study:
-  - Write one finding for each approved comparison that has results. Where
-    a comparison asks about more than one part of the question, such as
-    plant growth and plant water use, write one finding for each part. Cite
+show each quantity month by month, map the main quantities in each cell and
+print each comparison's numbers. The reader sees them first and reads your
+claims under them, so in this study:
+  - A part of the question is a separate thing it asks about, such as plant
+    growth or plant water use. Most questions have one part.
+  - Write one claim for each approved comparison that has results, and where
+    a comparison answers more than one part, one claim for each part. Cite
     the comparison's own finding (required_p1 for P1, and so on) where it
     holds what you state.
-  - A finding is at most 30 words and states at most two numbers.
-  - Your first-ranked finding answers the question with its key number, or
-    with each part's key number when the question has two parts. Each
-    other finding says what the figures and tables cannot: when a change
-    begins, peaks or ends, where it is largest, how two quantities go
-    together, or whether it lasts. It does not repeat a number a table
-    prints.
+  - A claim is at most 30 words and states at most two numbers. A part's key
+    number is one number, such as its change over a whole year or season.
+  - Rank first one claim for each part, in the question's order, each giving
+    that part's key number. Only these claims may repeat a number a table
+    prints. Every other claim says what the figures and tables cannot: when
+    a change begins, peaks or ends, where it is largest, how two quantities
+    go together, or whether it lasts.
   - A figure of yours that failed does not make a result impossible to
     state. The report's own figures and tables show every approved
     comparison, so write that a result cannot be stated only when no record
-    holds it.
-  - The `answer` is the report's Summary: at most five sentences. Its first
-    sentences answer each part of the question, each with that part's key
-    number. The rest of the `answer` rule above holds.
+    holds it. When no record holds a part, the Summary says so plainly.
+  - The `answer` is the report's Summary. In place of the "2 to 4 further
+    sentences" above, it is at most five sentences: first one for each part,
+    with that part's key number, then why as far as the numbers show it,
+    then what it does not show. The other `answer` rules above hold.
 """
 
 

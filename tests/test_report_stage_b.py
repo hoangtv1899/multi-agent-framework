@@ -41,21 +41,25 @@ def test_the_suite_task_asks_for_short_findings_beside_the_report():
     task = S3.suite_task()
     assert task.startswith(S3.TASK_BODY + S3.SUITE_RULES + S3.SUITE_FINDINGS)
     flat = " ".join(task.split())
-    for words in ("Write one finding for each approved comparison that has results",
-                  "Where a comparison asks about more than one part of the question, such as "
-                  "plant growth and plant water use, write one finding for each part",
+    for words in ("A part of the question is a separate thing it asks about, such as plant "
+                  "growth or plant water use. Most questions have one part.",
+                  "Write one claim for each approved comparison that has results, and where a "
+                  "comparison answers more than one part, one claim for each part.",
                   "Cite the comparison's own finding (required_p1 for P1, and so on)",
-                  "A finding is at most 30 words and states at most two numbers",
-                  "Your first-ranked finding answers the question with its key number, or with "
-                  "each part's key number when the question has two parts",
-                  "It does not repeat a number a table prints",
-                  "write that a result cannot be stated only when no record holds it",
-                  "at most five sentences. Its first sentences answer each part of the "
-                  "question, each with that part's key number"):
+                  "A claim is at most 30 words and states at most two numbers. A part's key "
+                  "number is one number",
+                  "Rank first one claim for each part, in the question's order, each giving that "
+                  "part's key number. Only these claims may repeat a number a table prints.",
+                  "write that a result cannot be stated only when no record holds it. When no "
+                  "record holds a part, the Summary says so plainly.",
+                  "In place of the \"2 to 4 further sentences\" above, it is at most five "
+                  "sentences: first one for each part, with that part's key number, then why as "
+                  "far as the numbers show it, then what it does not show."):
         assert words in flat, words
     assert S3.REPORT_VIEW_HEAD in flat
-    assert "at most five plain sentences: the answer to each part of the question with its key " \
-           "number" in " ".join(" ".join(CT.claims_reply_lines()).split())
+    assert "at most five plain sentences: one for each part of the question with its key " \
+           "number, then why, then what it does not show" in \
+        " ".join(" ".join(CT.claims_reply_lines()).split())
 
 
 def test_the_brief_shows_the_reports_figures_and_tables():
