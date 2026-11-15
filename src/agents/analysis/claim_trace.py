@@ -865,6 +865,28 @@ def years_named(text: str) -> set:
     return out
 
 
+# A WINTER IS NAMED BY ITS TWO YEARS (stage B of the report rebuild,
+# 2026-11-14). The report's tables write the suite's season 2032-DJF as
+# "winter 2031 to 2032" (field_words.period_words), and step 3, which now
+# reads those tables, wrote its findings the same way. The live check struck
+# two of them for naming the first year, which no record names. The first
+# year of that phrase is the December the winter starts in, which the
+# winter's record holds, so it is no year of its own when the second year is
+# one the records name. The season itself is checked as before.
+_WINTER_SPAN = re.compile(r"\bwinter\s+(?:of\s+)?((?:19|20)\d{2})\s+(?:to|and)\s+"
+                          r"((?:19|20)\d{2})\b", re.I)
+
+
+def winter_first_years(text: str) -> Dict[str, str]:
+    """{first year: second year} of each winter a text names by its two
+    years ("winter 2018 to 2019"), the second year the one after the first."""
+    out: Dict[str, str] = {}
+    for m in _WINTER_SPAN.finditer(str(text or "")):
+        if int(m.group(2)) == int(m.group(1)) + 1:
+            out[m.group(1)] = m.group(2)
+    return out
+
+
 def _is_year_value(v, text: str, years: set) -> bool:
     """A claim value is a date when it is one of the table's years and the
     claim's text prints it with no unit after it."""
@@ -2511,7 +2533,10 @@ def check_claim(c: Dict[str, Any], records: Dict[str, Dict[str, Any]], plan: Dic
     # THE PERIODS AND REGIONS IT NAMES: only those its records name
     ny = set().union(*(set(r["names"]["years"]) for r in recs))
     npd = set().union(*({tuple(p) for p in r["names"]["periods"]} for r in recs))
+    started = winter_first_years(text)
     for y in sorted(years_named(text) - ny):
+        if started.get(y) in ny:
+            continue                    # the December a named winter starts in
         probs.append(f"it names {y}, which none of its records names")
     spans, outright, said = month_runs(text), seasons_named_outright(text), season_words(text)
     for kind, lab in sorted(named_periods(text) - npd):

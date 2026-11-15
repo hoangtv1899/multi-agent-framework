@@ -704,9 +704,10 @@ def choose_findings(report: Dict[str, Any], rf: Dict[str, Any], numbers: Dict[st
     # word, and the reader met it twice, the second time under a figure. When
     # every content word of a finding, its codes in brackets aside, is a word
     # of the Summary, the finding stays on the details page.
-    summary = _tokens(_codes_out(summary_text(report)))
+    said = _codes_out(summary_text(report))
+    summary, summary_numbers = _tokens(said), set(_numbers_in(said))
     for i in order:
-        if _within(_tokens(_codes_out(claims[i - 1].get("claim"))), summary):
+        if said_by_summary(claims[i - 1].get("claim"), summary, summary_numbers):
             continue
         n = comp[i]
         if n is None:
@@ -832,6 +833,40 @@ def _codes_out(text: Any) -> str:
     """A sentence without the model's codes in brackets ("(QDRAI)"), which a
     finding gives and the Summary may leave out."""
     return re.sub(r"\s*\([A-Z][A-Z0-9_]*\)", "", _p(text))
+
+
+_TEXT_NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?")
+_YEAR = re.compile(r"(?:19|20)\d{2}")
+SUMMARY_WORD_SHARE = 0.75
+
+
+def _numbers_in(text: Any) -> List[str]:
+    """The numbers a sentence prints, as written, without thousands commas."""
+    return [n.replace(",", "") for n in _TEXT_NUMBER.findall(str(text or ""))]
+
+
+# A FINDING THE SUMMARY ALREADY SAYS, IN OTHER WORDS (stage B of the report
+# rebuild, 2026-11-14). The live check gave a finding under a figure that
+# repeated the Summary's first sentence with two words more, so the test of
+# every word missed it. A finding is also said when the Summary prints every
+# number it states, at least one of them no year, and three quarters of its
+# words. A finding with a number of its own, or with years alone, still
+# needs every word in the Summary to be left out.
+def said_by_summary(claim: Any, summary: List[str], summary_numbers: Set[str]) -> bool:
+    """Whether the Summary already says a finding: every word of it, its
+    codes in brackets aside, is a word of the Summary; or the Summary prints
+    each number it states, one at least no year, and SUMMARY_WORD_SHARE of
+    its words."""
+    text = _codes_out(claim)
+    words = _tokens(text)
+    if _within(words, summary):
+        return True
+    nums = _numbers_in(text)
+    if not [n for n in nums if not _YEAR.fullmatch(n.lstrip("-"))] or \
+            not set(nums) <= summary_numbers:
+        return False
+    have = set(summary)
+    return sum(1 for w in words if w in have) >= SUMMARY_WORD_SHARE * len(words)
 
 
 def _within(words: List[str], caption: List[str]) -> bool:

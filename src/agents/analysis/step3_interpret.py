@@ -1075,8 +1075,9 @@ def check_readability(spec: Dict[str, Any], headline: bool = True):
     n = len(_sentences(spec.get("answer"))) if not headline else 0
     if n > MAX_SUMMARY_SENTENCES:
         problems.append(f"answer: {n} sentences; the report's Summary holds at most "
-                        f"{MAX_SUMMARY_SENTENCES}. Join sentences that say one thing, keeping "
-                        f"every number")
+                        f"{MAX_SUMMARY_SENTENCES}. Drop the sentence it needs least, such as one "
+                        f"that repeats a limit the report lists under Limitations, or join two "
+                        f"short ones; keep each sentence within 30 words")
     for i, c in enumerate(claims, 1):
         problems += readability_problems(c.get("claim"), glossed,
                                          f"claim {i}")

@@ -82,8 +82,10 @@ def test_the_summary_holds_at_most_five_sentences():
     assert held == []
     held = [p for p in S3.check_readability({"answer": six, "claims": []}, headline=False)
             if "Summary" in p]
-    assert held == ["answer: 6 sentences; the report's Summary holds at most 5. Join sentences "
-                    "that say one thing, keeping every number"]
+    assert held == ["answer: 6 sentences; the report's Summary holds at most 5. Drop the "
+                    "sentence it needs least, such as one that repeats a limit the report lists "
+                    "under Limitations, or join two short ones; keep each sentence within 30 "
+                    "words"]
     # a study without a suite writes a headline and keeps its own rules
     other = S3.check_readability({"headline": "Growth fell.", "answer": six, "claims": []},
                                  headline=True)
@@ -128,6 +130,24 @@ def test_step_3_sees_the_report_before_it_writes(tmp_path, monkeypatch):
     assert labels == ["figure: figure_over_time"]
 
 
+# ── a winter named by its two years, as the tables name it ──────────────────
+def test_a_winter_named_by_its_two_years_is_its_season():
+    from test_report_rebuild_trace import _problems, _rec
+    djf = [_rec("L1", "2032-DJF", {"difference": -0.75, "percent": -1.5})]
+    assert CT.winter_first_years("in winter 2031 to 2032 and winter 2033 to 2035") == \
+        {"2031": "2032"}
+    assert _problems("Plant growth was lower in winter 2031 to 2032.", djf) == []
+    # another winter, or a year alone, still fails
+    other = _problems("Plant growth was lower in winter 2030 to 2031.", djf)
+    assert "it names 2030, which none of its records names" in other
+    assert "it names 2031, which none of its records names" in other
+    assert "it names 2031, which none of its records names" in \
+        _problems("Plant growth was lower in 2031.", djf)
+    # a winter phrase over a record of another season still lacks its season
+    jja = [_rec("L1", "2032-JJA", {"difference": -0.75, "percent": -1.5})]
+    assert _problems("Plant growth was lower in winter 2031 to 2032.", jja)
+
+
 # ── which findings the Results show ─────────────────────────────────────────
 TABLE = {"figures": [], "tables": [{"number": 1, "columns": ["Summer 2031"], "rows": [
     {"label": "Growth", "cells": ["-4.25 (-1.5 %)"], "records": ["L2"]},
@@ -146,6 +166,25 @@ def test_a_finding_is_left_out_only_when_the_tables_print_its_numbers():
     assert RP.repeats_table({"evidence": ["L4"], "values": [1295.3]}, by)
     assert RP._prints("9.7e-05", 9.71e-05) and not RP._prints("9.7e-05", 9.8e-05)
     assert RP._prints("1295", 1295.3) and not RP._prints("1295", 1296.0)
+
+
+def test_a_finding_the_summary_says_in_other_words_is_left_out():
+    summary = ("In the model, runoff made on the land peaked at 1,250 mm in water year 2033 "
+               "and fell to 610 mm in 2035. Runoff here is not streamflow at a gauge.")
+    words, nums = RP._tokens(summary), set(RP._numbers_in(summary))
+    assert nums == {"1250", "2033", "610", "2035"}
+    # the Summary's numbers and nearly all its words: said
+    assert RP.said_by_summary("Total runoff (QRUNOFF) made on the land peaked at 1,250 mm in "
+                              "water year 2033 and fell to 610 mm in 2035. This is not "
+                              "streamflow at a gauge.", words, nums)
+    # a number of its own: not said
+    assert not RP.said_by_summary("Runoff made on the land peaked at 1,250 mm in water year "
+                                  "2033, against 980 mm in 2034.", words, nums)
+    # years alone, with words of its own: not said
+    assert not RP.said_by_summary("In water year 2033 the snow stayed later than in 2035, and "
+                                  "half the runoff left later.", words, nums)
+    # every word of it in the Summary: said, as before
+    assert RP.said_by_summary("Runoff here is not streamflow at a gauge.", words, nums)
 
 
 def test_a_finding_in_words_on_the_tables_records_stays(tmp_path):
