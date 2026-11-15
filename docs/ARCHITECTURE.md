@@ -52,7 +52,7 @@ Analyzer step 3; interpret the findings, and decide whether they suffice
   - `src/agents/analysis_preview.py::plan_before_approval` calls `plan_and_review` with model=`S2.analyzer_model(model)`
   - `src/agents/analyzer.py::Analyzer.run` calls `investigate_and_interpret` with model=`step2_investigate.analyzer_model(config.get("analysis_model"))`
 - Prompt files: none
-- Prompt text written in the module: `REWRITE`, `SUITE_RULES`, `TASK_BODY`, `VERDICT_ASK`
+- Prompt text written in the module: `REWRITE`, `SUITE_FINDINGS`, `SUITE_RULES`, `TASK_BODY`, `VERDICT_ASK`
 - Records it reads: none; writes: `interpretation.json`; names without opening: none
 - Called from: `src/agents/analysis_preview.py::plan_before_approval`, `src/agents/analyzer.py::Analyzer.run`
 

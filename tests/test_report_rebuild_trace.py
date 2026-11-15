@@ -263,6 +263,9 @@ def test_step_3s_audit_reads_scientific_notation():
 
 
 # ── the texts the model is shown, byte for byte as at fdb7f07 ───────────────
+# Stage B of the report rebuild (2026-11-14) changed two of them on purpose:
+# suite_task gained SUITE_FINDINGS, and the reply template's answer is at most
+# five sentences. Every other text is as at fdb7f07.
 
 def _sha(x):
     return hashlib.sha256(("\n".join(x) if isinstance(x, list) else x).encode()).hexdigest()
@@ -284,7 +287,7 @@ SHOWN = {
     "step 3's task": (lambda: S3.TASK,
                       "27b226f277eb9cdb76cb5f9f1d018d27ed6dbc38b768d06943b4a1c5d8c206b6"),
     "suite_task": (lambda: S3.suite_task(),
-                   "3c651e18af203b39fc2155c28bba4a76a81a4f9267ee70cb853a57df74bdf31e"),
+                   "c3e3fc355bafbf59c492e8e2c20d8cd76a97970ff8f8e8fc77245a1aaa536c76"),
     "SUITE_RULES": (lambda: S3.SUITE_RULES,
                     "8054184823b16a9f5b55cfead20a1451686ffb81903f495941b86a288fc08460"),
     "REWRITE": (lambda: S3.REWRITE,
@@ -294,7 +297,7 @@ SHOWN = {
     "PLAN_REVIEW_ASK": (lambda: S3.PLAN_REVIEW_ASK,
                         "faa8bbfacdfa67fb4dd9aeb3f50cc2fc839270259fb8840a7c29477217f06c8a"),
     "claims_reply_lines": (lambda: CT.claims_reply_lines(),
-                           "72f5efe6b782c14d6c71584161a3763822f64931f8058072ffd13de761b27d5e"),
+                           "20ce5d51aaa1e9a041528a6076ccaebf60e1095e15e37aac67c237b83965728b"),
     "class_lines": (lambda: CT.class_lines(),
                     "4eb6c91cfddcd2f0ac1fd111e729677007782287305b98daa17f60dd545c2b42"),
     "run_lines": (lambda: CT.run_lines(),

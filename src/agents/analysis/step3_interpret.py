@@ -749,15 +749,113 @@ that would settle it, from the server's list below.
 """
 
 
+# THE REPORT'S FIGURES AND TABLES COME FIRST (stage B of the report rebuild,
+# 2026-11-14). The report now opens its Results with figures and tables that
+# code draws from the approved comparisons, and prints the findings under
+# them. A finding that repeats a table's number says nothing new, and a
+# saved study's step 3, which never saw those figures, wrote that a result
+# "cannot be stated" because a figure of its own had failed, while the
+# report's own figure and table showed it. Step 3 now sees them (the brief's
+# last part, report_view_lines, and their images) and writes one short
+# finding for each approved comparison beside them, and a Summary of at most
+# five sentences, which the wording gate holds.
+MAX_SUMMARY_SENTENCES = 5
+SUITE_FINDINGS = """
+THE REPORT'S FIGURES AND TABLES COME FIRST. Code has drawn them from the
+approved comparisons. They are listed above under "THE REPORT'S OWN FIGURES
+AND TABLES" and attached as the images whose names begin "figure_over". They
+show each quantity month by month and print each comparison's numbers by
+period. The reader sees them first and reads your findings under them, so in
+this study:
+  - Write one finding for each approved comparison that has results. Cite
+    the comparison's own finding (required_p1 for P1, and so on) where it
+    holds what you state.
+  - A finding is at most 30 words and states at most two numbers.
+  - Your first-ranked finding answers the question with its key number. Each
+    other finding says what the figures and tables cannot: when a change
+    begins, peaks or ends, where it is largest, how two quantities go
+    together, or whether it lasts. It does not repeat a number a table
+    prints.
+  - A figure of yours that failed does not make a result impossible to
+    state. The report's own figures and tables show every approved
+    comparison, so write that a result cannot be stated only when no record
+    holds it.
+  - The `answer` is the report's Summary: at most five sentences, the first
+    answering the question with its key number. The rest of the `answer`
+    rule above holds.
+"""
+
+
 def suite_task() -> str:
-    """Step 3's task for a study with a suite: TASK_BODY, SUITE_RULES, the
-    evidence classes, the warning codes and the reply template, the last
-    three rendered from claim_trace (CLASS_NEEDS and CLASS_WORDING, WARNINGS,
-    CLAIM_PARTS and REPLY_PARTS)."""
+    """Step 3's task for a study with a suite: TASK_BODY, SUITE_RULES,
+    SUITE_FINDINGS, the evidence classes, the warning codes and the reply
+    template, the last three rendered from claim_trace (CLASS_NEEDS and
+    CLASS_WORDING, WARNINGS, CLAIM_PARTS and REPLY_PARTS)."""
     from agents.analysis import claim_trace as _ct
-    return (TASK_BODY + SUITE_RULES + "\n"
+    return (TASK_BODY + SUITE_RULES + SUITE_FINDINGS + "\n"
             + "\n".join(_ct.class_lines() + [""] + _ct.warning_lines() + [""]
                         + _ct.run_lines() + [""] + _ct.claims_reply_lines()) + "\n")
+
+
+REPORT_VIEW_HEAD = "THE REPORT'S OWN FIGURES AND TABLES"
+
+
+def report_view(ctx) -> Dict[str, Any]:
+    """The report's figures and tables, drawn by code from the approved
+    comparisons before the findings are written (report_figures, through
+    step4_report.report_figures), so that step 3 sees what the reader sees
+    first. Step 4 draws them again for the pages. Never raises: a failure is
+    a record with no figure and its reason under "problems"."""
+    try:
+        from agents.analysis import analysis_plan as _ap
+        from agents.analysis import step4_report as _s4
+        adir = _ap.analysis_dir(ctx)
+        rec = _s4.report_figures(ctx.run_dir, _ap.load_plan(adir), adir, ctx=ctx)
+        return rec if isinstance(rec, dict) else {}
+    except Exception as e:                                          # noqa: BLE001
+        return {"figures": [], "tables": [], "printed_records": [], "not_drawn": [],
+                "problems": [f"the report's figures were not drawn ({type(e).__name__}: {e})"]}
+
+
+def report_view_lines(rf: Dict[str, Any], plan: Optional[Dict[str, Any]]) -> List[str]:
+    """The brief's last part: each of the report's figures with the
+    comparisons it answers (by the plan's codes, P1 for the first) and its
+    caption, each table with its rows as printed, and what was not drawn."""
+    ids = [str(a.get("id")) for a in ((plan or {}).get("analyses") or [])
+           if isinstance(a, dict)]
+
+    def codes(ns) -> str:
+        out = [ids[n - 1] if isinstance(n, int) and 0 < n <= len(ids) else str(n)
+               for n in (ns if isinstance(ns, list) else [])]
+        return ", ".join(out)
+
+    rf = rf if isinstance(rf, dict) else {}
+    figs = [f for f in rf.get("figures") or [] if isinstance(f, dict)]
+    tables = [t for t in rf.get("tables") or [] if isinstance(t, dict)]
+    L = [f"{REPORT_VIEW_HEAD}. Code drew them from the approved comparisons before you "
+         f"answer. The reader sees them first, and your findings sit under them. Each figure "
+         f"is attached as an image of the same name."]
+    for f in figs:
+        name = Path(str(f.get("file") or "")).stem
+        answers = codes(f.get("comparisons"))
+        L.append(f"  Figure {f.get('number')} ({name})"
+                 + (f", for comparisons {answers}" if answers else "") + f": {f.get('caption')}")
+    for t in tables:
+        L.append(f"  Table {t.get('number')}: {t.get('caption')}")
+        L.append("    | " + " | ".join([str(t.get("corner") or "")]
+                                       + [str(c) for c in t.get("columns") or []]) + " |")
+        for r in t.get("rows") or []:
+            if isinstance(r, dict):
+                cells = [str(c) for c in (r.get("cells") if isinstance(r.get("cells"), list)
+                                          else [])]
+                L.append("    | " + " | ".join([str(r.get("label"))] + cells) + " |")
+    for x in rf.get("not_drawn") or []:
+        L.append(f"  Not drawn: {x}")
+    if not figs and not tables:
+        why = "; ".join(str(p) for p in rf.get("problems") or [])
+        L.append("  None could be drawn" + (f" ({why})" if why else "")
+                 + ", so the report shows your findings in their place.")
+    return L
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -972,6 +1070,13 @@ def check_readability(spec: Dict[str, Any], headline: bool = True):
                                     max_words=MAX_HEADLINE_WORDS,
                                     needs_number=not cannot) if headline else []
     problems += readability_problems(spec.get("answer"), glossed, "answer")
+    # A STUDY WITH A SUITE: ITS ANSWER IS THE REPORT'S SUMMARY, at most five
+    # sentences (stage B of the report rebuild, 2026-11-14; SUITE_FINDINGS)
+    n = len(_sentences(spec.get("answer"))) if not headline else 0
+    if n > MAX_SUMMARY_SENTENCES:
+        problems.append(f"answer: {n} sentences; the report's Summary holds at most "
+                        f"{MAX_SUMMARY_SENTENCES}. Join sentences that say one thing, keeping "
+                        f"every number")
     for i, c in enumerate(claims, 1):
         problems += readability_problems(c.get("claim"), glossed,
                                          f"claim {i}")
@@ -1192,13 +1297,21 @@ def interpret(ctx, comparison, investigation, out_dir,
     # expectation, warnings and headline (fix 1 of G part 2, 2026-11-08)
     records = suite_records(ctx)
     task = suite_task() if records is not None else TASK
+    shown: List[str] = []
     if records is not None:
         # WHAT THE RECIPE'S OUTPUTS ARE FOR (analysis_recipes, 2026-11-09): only
         # for the parts the plan carried out, after the task
         from agents.analysis import analysis_plan as _plan, analysis_recipes as _ar
-        said = _ar.report_lines((ctx.plan or {}).get("question"),
-                                _plan.load_plan(_plan.analysis_dir(ctx)))
+        approved = _plan.load_plan(_plan.analysis_dir(ctx))
+        said = _ar.report_lines((ctx.plan or {}).get("question"), approved)
         task += ("\n" + "\n".join(said) + "\n") if said else ""
+        # THE REPORT'S OWN FIGURES AND TABLES, at the end of the brief and as
+        # images (stage B of the report rebuild, 2026-11-14; SUITE_FINDINGS)
+        rf = report_view(ctx)
+        brief += "\n\n" + "\n".join(report_view_lines(rf, approved))
+        adir = Path(_plan.analysis_dir(ctx))
+        shown = [str(adir / f["file"]) for f in rf.get("figures") or []
+                 if isinstance(f, dict) and f.get("file") and (adir / str(f["file"])).is_file()]
 
     # THE EVIDENCE IS BOTH STEPS'. Step 2's figures answer the user's question;
     # step 1's put the model beside an observation, which nothing step 2 draws
@@ -1212,6 +1325,7 @@ def interpret(ctx, comparison, investigation, out_dir,
     figures = list(investigation.get("figures") or [])
     figures += [p for p in (comparison.get("figures") or {}).values()
                 if isinstance(p, str) and Path(p).is_file()]
+    figures += shown
     content = _content(brief, figures, with_images, task)
     reply = client.ask([{"role": "user", "content": content}])
     # A REPLY THAT CANNOT BE READ IS SAVED FIRST (2026-11-08), cut off at its

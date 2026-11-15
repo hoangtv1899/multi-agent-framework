@@ -606,6 +606,47 @@ def table_records(rf: Dict[str, Any]) -> Set[str]:
     return {r for t in tables_of(rf) for row in _rows(t) for r in _records(row)}
 
 
+# A NUMBER APPEARS ONCE, IN THE TABLE (stage B of the report rebuild,
+# 2026-11-14). A finding was left out of the Results when every record it
+# cites prints in a table. Step 3's findings now say what the tables cannot,
+# such as when a change peaks, and still cite the tables' records, so the
+# rule reads the numbers instead: a finding is left out when it states at
+# least one number and the tables print each one, at the table's own
+# precision, in a row of a record it cites.
+_CELL_NUMBER = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
+
+
+def numbers_by_record(rf: Dict[str, Any]) -> Dict[str, List[str]]:
+    """{record name: the numbers, as printed, of the table rows it fills}."""
+    out: Dict[str, List[str]] = {}
+    for t in tables_of(rf):
+        for row in _rows(t):
+            cells = row.get("cells") if isinstance(row.get("cells"), list) else []
+            nums = [m for c in cells for m in _CELL_NUMBER.findall(str(c).replace(",", ""))]
+            for r in _records(row):
+                out.setdefault(r, []).extend(nums)
+    return out
+
+
+def _prints(shown: str, v: float) -> bool:
+    """Whether a number as a table prints it ("-7.98", "9.7e-05", "1295")
+    is `v` at its own precision, its sign included."""
+    m = re.fullmatch(r"-?\d+(?:\.(\d+))?(?:[eE]([-+]?\d+))?", shown)
+    if not m:
+        return False
+    places = len(m.group(1) or "") - int(m.group(2) or 0)
+    return abs(float(shown) - v) <= 0.5 * 10.0 ** (-places) + 1e-12 * max(1.0, abs(v))
+
+
+def repeats_table(c: Dict[str, Any], by_record: Dict[str, List[str]]) -> bool:
+    """Whether a finding states only numbers the tables print in the rows of
+    the records it cites: at least one number, and each one printed."""
+    vals = [float(v) for v in (c.get("values") if isinstance(c.get("values"), list) else [])
+            if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    shown = [s for r in c.get("evidence") or [] for s in by_record.get(str(r), [])]
+    return bool(vals) and bool(shown) and all(any(_prints(s, v) for s in shown) for v in vals)
+
+
 def _fields(rec: Dict[str, Any]) -> Set[str]:
     """The quantities a record reads: its own, and those of the records it
     was made from (an overlap of two maps reads both)."""
@@ -638,8 +679,9 @@ def choose_findings(report: Dict[str, Any], rf: Dict[str, Any], numbers: Dict[st
     one that shows most of the quantities its records read (a panel that
     sets two of them against each other, cell by cell, counts once more),
     the first on a tie, so the first when none draws one. A finding
-    whose records all print in a table of the report says nothing the table
-    does not, and is left out (a number appears once, in the table). At
+    whose every number a table prints, in the rows of the records it cites,
+    says nothing the table does not, and is left out (a number appears once,
+    in the table; repeats_table). A finding the Summary says is left out. At
     most two under a figure, in the plan's order. A comparison that no
     figure answers shows its first kept finding. A kept finding with no
     comparison on record goes to "Other comparisons" too, so that no kept
@@ -647,7 +689,7 @@ def choose_findings(report: Dict[str, Any], rf: Dict[str, Any], numbers: Dict[st
     claims = report.get("claims") or []
     records = records_of(report)
     figs = figures_of(rf)
-    printed = table_records(rf)
+    by_record = numbers_by_record(rf)
     answering: Dict[int, List[Dict[str, Any]]] = {}
     for f in figs:
         for n in ints(f.get("comparisons")):
@@ -675,7 +717,7 @@ def choose_findings(report: Dict[str, Any], rf: Dict[str, Any], numbers: Dict[st
                 others.append((n, i))
             continue
         ev = [str(r) for r in claims[i - 1].get("evidence") or []]
-        if ev and set(ev) <= printed:
+        if repeats_table(claims[i - 1], by_record):
             continue
         fields = {x for r in ev for x in _fields(records.get(r) or {})}
         # the figure that shows most of its quantities; the first on a tie
