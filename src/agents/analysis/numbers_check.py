@@ -1614,7 +1614,8 @@ def evidence_withheld_lines(rec: Optional[Dict[str, Any]]) -> List[str]:
 
 def evidence_page_line(rec: Optional[Dict[str, Any]]) -> str:
     """The sentence a study's REPORT.md prints near its top about the check of
-    the numbers its claims cite."""
+    the numbers its claims cite and, where a report's tables print more
+    records, of those too."""
     if not rec:
         return (f"**Numbers check: none on record.** The numbers the claims cite were not made "
                 f"a second time ({EVIDENCE_REL} is missing).")
@@ -1622,13 +1623,46 @@ def evidence_page_line(rec: Optional[Dict[str, Any]]) -> str:
         return f"**Numbers check: did not pass.** {evidence_reason(rec)} ({EVIDENCE_REL})."
     w = (rec.get("largest_relative_difference") or {}).get("rel_diff")
     left = rec.get("not_recomputed") or []
-    tail = (f" Not made again: {sum(int(x.get('n') or 1) for x in left)} number(s) of the "
-            f"cited records that no claim states (listed in {EVIDENCE_REL})." if left else "")
-    return (f"**Numbers check: passed.** {_count(rec.get('n_compared'))} numbers of the "
-            f"{len(rec.get('records') or {})} lookups the claims cite were made again from the "
-            f"model output by an independent reading before this page was written, the largest "
-            f"relative difference {f'{float(w):.3g}' if w is not None else 'none'} "
-            f"({EVIDENCE_REL})." + tail)
+    made_how = (f" were made again from the model output by an independent reading before this "
+                f"page was written, the largest relative difference "
+                f"{f'{float(w):.3g}' if w is not None else 'none'} ({EVIDENCE_REL}).")
+    cited = [str(r) for r in rec.get("cited") or []]
+    printed = [str(r) for r in rec.get("printed") or []]
+    more = [r for r in printed if r not in set(cited)]
+    if not more:
+        tail = (f" Not made again: {sum(int(x.get('n') or 1) for x in left)} number(s) of the "
+                f"cited records that no claim states (listed in {EVIDENCE_REL})." if left else "")
+        return (f"**Numbers check: passed.** {_count(rec.get('n_compared'))} numbers of the "
+                f"{len(rec.get('records') or {})} lookups the claims cite" + made_how + tail)
+    # THE TABLES' RECORDS COUNTED APART (2026-11-14). A report whose tables
+    # print records the claims do not cite has them made again too, and this
+    # line said all of them were "lookups the claims cite". The count now says
+    # how many of each; a printed record of which no number was made again is
+    # named; and a number not made again is counted with the records it
+    # belongs to, as evidence_sentence counts them.
+    records = rec.get("records") if isinstance(rec.get("records"), dict) else {}
+    unmade = [r for r in more if not made_again(records.get(r))]
+    made = len(more) - len(unmade)
+    of = [f"the {len(cited)} lookups the claims cite"] if cited else []
+    if made:
+        of.append(f"the {made} more the report's tables print" if cited else
+                  f"the {made} lookups the report's tables print")
+    n_cited = n_printed = 0
+    for x in left:
+        if not isinstance(x, dict) or str(x.get("record")) in unmade:
+            continue
+        if str(x.get("record")) in printed:
+            n_printed += int(x.get("n") or 1)
+        else:
+            n_cited += int(x.get("n") or 1)
+    nots = ([f"{n_cited} number(s) of the cited records that no claim states"] if n_cited else []) \
+        + ([f"{n_printed} number(s) of the records the tables print"] if n_printed else [])
+    return (f"**Numbers check: passed.** {_count(rec.get('n_compared'))} numbers of "
+            f"{' and '.join(of) or 'no lookup'}" + made_how
+            + (f" No number was made again of {_many(len(unmade), 'record', 'records')} the "
+               f"tables print: {', '.join(unmade)}." if unmade else "")
+            + (f" Not made again: {' and '.join(nots)} (listed in {EVIDENCE_REL})." if nots
+               else ""))
 
 
 def _many(n, one: str, more: str) -> str:
@@ -1646,7 +1680,7 @@ LEAD = "A second reading of the model output, by code written apart from the ana
 NOT_MADE = "so the numbers in this report were not made again"
 
 
-def _made_again(r: Any) -> bool:
+def made_again(r: Any) -> bool:
     """Whether a record of the check's "records" had a number made again."""
     return isinstance(r, dict) and isinstance(r.get("compared"), int) and r["compared"] > 0
 
@@ -1680,7 +1714,7 @@ def evidence_sentence(rec: Optional[Dict[str, Any]], figures: bool = True) -> st
     cited = [str(r) for r in rec.get("cited") or []]
     printed = [str(r) for r in rec.get("printed") or []]
     more = [r for r in printed if r not in set(cited)]
-    made = [r for r in more if _made_again(records.get(r))]
+    made = [r for r in more if made_again(records.get(r))]
     unmade = [r for r in more if r not in set(made)]
     src = []
     if cited:

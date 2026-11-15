@@ -1017,9 +1017,15 @@ def verification_limits(report: Dict[str, Any]) -> List[str]:
         return []
     kept, held = len(report.get("claims") or []), len(report.get("withheld") or [])
     en = report.get("evidence_numbers") or {}
+    # the reading also makes again the records a report's tables print beyond
+    # those the claims cite (report rebuild, 2026-11-14), and says so
+    cited = {str(r) for r in en.get("cited") or []}
+    of = "the records the claims cite" + (
+        " and the tables print" if any(str(r) not in cited for r in en.get("printed") or [])
+        else "")
     L = [LIMITS_HEADING, "", "Checked by code:", ""]
     if en.get("n_compared"):
-        L.append(f"- the numbers of the records the claims cite: {en['n_compared']:,} "
+        L.append(f"- the numbers of {of}: {en['n_compared']:,} "
                  f"numbers made again from the model output by an independent reading"
                  + (", with no mismatch" if en.get("pass") else
                     ", WITH MISMATCHES, listed above"))
@@ -1034,9 +1040,8 @@ def verification_limits(report: Dict[str, Any]) -> List[str]:
              f"{', '.join(map(str, ranked))} above "
              f"{'uses' if len(ranked) == 1 else 'use'} such a word."
              if ranked else "No kept claim above uses such a word."),
-          "- **Figures and plotted series.** What a figure draws beyond the records the "
-          "claims cite, a plotted series among it, was not made again by the independent "
-          "reading.",
+          f"- **Figures and plotted series.** What a figure draws beyond {of}, a plotted "
+          f"series among it, was not made again by the independent reading.",
           "- **Interpretation.** Whether the answer follows from its claims is for a "
           "reader to judge; no code judges it.", ""]
     return L

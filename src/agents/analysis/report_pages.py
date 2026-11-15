@@ -451,6 +451,13 @@ def not_tested_lines(report: Dict[str, Any]) -> List[str]:
     return L
 
 
+def summary_text(report: Dict[str, Any]) -> str:
+    """The Analyzer's answer as the Summary shows it: the audited answer
+    where the record holds one, else the answer."""
+    text = report.get("answer_kept") if "answer_kept" in report else report.get("answer")
+    return str(text or "")
+
+
 def summary_lines(report: Dict[str, Any]) -> List[str]:
     L = [f"## {SECTIONS[0]}", ""]
     if report.get("status") == "inconclusive" and report.get("headline"):
@@ -650,7 +657,15 @@ def choose_findings(report: Dict[str, Any], rf: Dict[str, Any], numbers: Dict[st
     order = sorted(comp, key=lambda i: (comp[i] if comp[i] is not None else 10 ** 6, i))
     by_fig: Dict[str, List[int]] = {str(f.get("id")): [] for f in figs}
     others: List[Tuple[Optional[int], int]] = []
+    # A FINDING THE SUMMARY ALREADY SAYS is not said again below it
+    # (2026-11-14): R2's Summary holds one of its findings nearly word for
+    # word, and the reader met it twice, the second time under a figure. When
+    # every content word of a finding, its codes in brackets aside, is a word
+    # of the Summary, the finding stays on the details page.
+    summary = _tokens(_codes_out(summary_text(report)))
     for i in order:
+        if _within(_tokens(_codes_out(claims[i - 1].get("claim"))), summary):
+            continue
         n = comp[i]
         if n is None:
             others.append((None, i))
@@ -769,6 +784,12 @@ GLUE = {"the", "a", "an", "of", "in", "it", "its", "them", "they", "has", "have"
 
 def _tokens(text: Any) -> List[str]:
     return [w for w in re.findall(r"[a-z0-9]+", _p(text).lower()) if w not in GLUE]
+
+
+def _codes_out(text: Any) -> str:
+    """A sentence without the model's codes in brackets ("(QDRAI)"), which a
+    finding gives and the Summary may leave out."""
+    return re.sub(r"\s*\([A-Z][A-Z0-9_]*\)", "", _p(text))
 
 
 def _within(words: List[str], caption: List[str]) -> bool:
@@ -1453,8 +1474,18 @@ def _d_checks(report: Dict[str, Any]) -> List[str]:
         L += [NC.evidence_page_line(en if isinstance(en, dict) else None), ""]
         printed = (en or {}).get("printed") if isinstance(en, dict) else None
         if printed:
-            L += [f"The records the report's tables print, made again with those the findings "
-                  f"cite: {', '.join(sorted_records(printed))}.", ""]
+            # each printed record by whether a number of it was made again,
+            # as the check's own sentence counts them (2026-11-14)
+            recs = en.get("records") if isinstance(en.get("records"), dict) else {}
+            names = sorted_records(printed)
+            made = [r for r in names if NC.made_again(recs.get(r))]
+            unmade = [r for r in names if r not in set(made)]
+            if made:
+                L += [f"The records the report's tables print whose numbers were made again: "
+                      f"{', '.join(made)}.", ""]
+            if unmade:
+                L += [f"The records the report's tables print of which no number was made "
+                      f"again: {', '.join(unmade)}.", ""]
     if "numbers_check" not in report and "evidence_numbers" not in report:
         L += ["No numbers check is on record.", ""]
     return L
