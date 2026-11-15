@@ -1592,9 +1592,9 @@ REPLY_PARTS = (
               "first of them that traces and that the question type allows"),
     # THE ANSWER IS THE REPORT'S SUMMARY, at most five sentences (stage B of
     # the report rebuild, 2026-11-14; step3_interpret.SUITE_FINDINGS)
-    ReplyPart("answer", '"<at most five plain sentences: the answer to the question with its '
-              'key number, then what was found, why, what it does not show; or saying plainly '
-              'that this experiment cannot answer it and why>"', "the answer"),
+    ReplyPart("answer", '"<at most five plain sentences: the answer to each part of the '
+              'question with its key number, then what was found, why, what it does not show; '
+              'or saying plainly that this experiment cannot answer it and why>"', "the answer"),
     ReplyPart("verdict", '"sufficient" | "insufficient"', "the verdict"),
     ReplyPart("feedback", '"<if insufficient: what step 2 should do differently; empty if '
               'sufficient>"', "what step 2 should do differently"),

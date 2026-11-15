@@ -42,16 +42,20 @@ def test_the_suite_task_asks_for_short_findings_beside_the_report():
     assert task.startswith(S3.TASK_BODY + S3.SUITE_RULES + S3.SUITE_FINDINGS)
     flat = " ".join(task.split())
     for words in ("Write one finding for each approved comparison that has results",
+                  "Where a comparison asks about more than one part of the question, such as "
+                  "plant growth and plant water use, write one finding for each part",
                   "Cite the comparison's own finding (required_p1 for P1, and so on)",
                   "A finding is at most 30 words and states at most two numbers",
-                  "Your first-ranked finding answers the question with its key number",
+                  "Your first-ranked finding answers the question with its key number, or with "
+                  "each part's key number when the question has two parts",
                   "It does not repeat a number a table prints",
                   "write that a result cannot be stated only when no record holds it",
-                  "at most five sentences, the first answering the question with its key "
-                  "number"):
+                  "at most five sentences. Its first sentences answer each part of the "
+                  "question, each with that part's key number"):
         assert words in flat, words
     assert S3.REPORT_VIEW_HEAD in flat
-    assert "at most five plain sentences" in " ".join(" ".join(CT.claims_reply_lines()).split())
+    assert "at most five plain sentences: the answer to each part of the question with its key " \
+           "number" in " ".join(" ".join(CT.claims_reply_lines()).split())
 
 
 def test_the_brief_shows_the_reports_figures_and_tables():

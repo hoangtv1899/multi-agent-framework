@@ -767,11 +767,14 @@ AND TABLES" and attached as the images whose names begin "figure_over". They
 show each quantity month by month and print each comparison's numbers by
 period. The reader sees them first and reads your findings under them, so in
 this study:
-  - Write one finding for each approved comparison that has results. Cite
+  - Write one finding for each approved comparison that has results. Where
+    a comparison asks about more than one part of the question, such as
+    plant growth and plant water use, write one finding for each part. Cite
     the comparison's own finding (required_p1 for P1, and so on) where it
     holds what you state.
   - A finding is at most 30 words and states at most two numbers.
-  - Your first-ranked finding answers the question with its key number. Each
+  - Your first-ranked finding answers the question with its key number, or
+    with each part's key number when the question has two parts. Each
     other finding says what the figures and tables cannot: when a change
     begins, peaks or ends, where it is largest, how two quantities go
     together, or whether it lasts. It does not repeat a number a table
@@ -780,9 +783,9 @@ this study:
     state. The report's own figures and tables show every approved
     comparison, so write that a result cannot be stated only when no record
     holds it.
-  - The `answer` is the report's Summary: at most five sentences, the first
-    answering the question with its key number. The rest of the `answer`
-    rule above holds.
+  - The `answer` is the report's Summary: at most five sentences. Its first
+    sentences answer each part of the question, each with that part's key
+    number. The rest of the `answer` rule above holds.
 """
 
 
