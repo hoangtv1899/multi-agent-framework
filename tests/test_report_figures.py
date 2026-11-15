@@ -643,6 +643,248 @@ def test_the_elevation_table_names_each_split_by_the_map_it_splits(tmp_path):
     assert any("the map it splits is not on the record" in s for s in rec["not_drawn"])
 
 
+# ── a second figure over space ──────────────────────────────────────────────
+
+def mapping(pid, field, against=None, kind="difference", period="2033-JJA", split=True):
+    """A made-up analysis that maps one quantity's change in each cell (a
+    "difference", or an "anomaly" for the control run alone), splits it by
+    elevation band and, with `against`, sets it against the control run's
+    map of another quantity, cell by cell."""
+    outs = [{"id": "O1", "kind": kind, "run": RUN if kind == "difference" else "control",
+             "field": field, "period": period, "region": None}]
+    if split:
+        outs.append({"id": "O2", "kind": "elevation_split", "region": REGION, "inputs": ["O1"]})
+    if against:
+        outs += [{"id": "O3", "kind": "map", "run": "control", "field": against,
+                  "period": period},
+                 {"id": "O4", "kind": "overlap", "region": REGION, "inputs": ["O1", "O3"]}]
+    return {"id": pid, "fields": [field] + ([against] if against else []), "regions": [REGION],
+            "periods": [period], "outputs": outs}
+
+
+def _water_use(acc):
+    """world()'s new run with a made-up summer change of transpiration that
+    differs from cell to cell."""
+    for y in YEARS:
+        p = f"{y}-JJA"
+        acc.maps[(RUN, "QVEGT", p)] = acc.maps[("control", "QVEGT", p)] + \
+            np.where(MASK, -0.02 * _gradient(), 0.0)
+    return acc
+
+
+def _spaces(rec):
+    return [f for f in rec["figures"] if f["id"].startswith("over_space")]
+
+
+def test_a_plan_that_maps_two_changes_gets_two_figures_over_space(tmp_path, drawn):
+    rd = study(tmp_path, CUT, panels_changed=SUMMER)
+    rec = _build(rd, what_if_plan(extra_analyses=[mapping("P4", "QVEGT")]), _water_use(world()))
+    assert rec["problems"] == []
+    assert [f["id"] for f in rec["figures"]] == ["over_time", "over_time_2", "over_space",
+                                                 "over_space_2"]
+    first, second = _spaces(rec)
+    assert (first["file"], second["file"]) == ("figure_over_space.png", "figure_over_space_2.png")
+    assert (first["number"], second["number"]) == (3, 4)
+    assert (first["heading"], second["heading"]) == ("Plant growth in each cell",
+                                                     "Transpiration in each cell")
+    assert [p["field"] for p in second["panels"]] == ["QVEGT"] * 4
+    assert [p["kind"] for p in second["panels"]] == ["map", "map", "cells", "cells"]
+    assert [p["letter"] for p in second["panels"]] == ["a", "b", "c", "d"]   # its own letters
+    assert second["caption"].startswith("(a, b) Each cell's transpiration over June to August "
+                                        "in 2033 and 2034, the new run minus the control run.")
+    assert "(c, d) The cells of the basin's vegetated land, the same change against the change "\
+           "in rain and snowfall" in second["caption"]
+    # the first answers every elevation split, as it did alone; the second the
+    # comparisons that map or split its own quantity (not P2's regional one)
+    assert first["comparisons"] == [3, 4] and second["comparisons"] == [4]
+    assert all((rd / "04_analysis" / f["file"]).is_file() for f in (first, second))
+    spec, refs = drawn["report_over_space_2"]
+    assert spec["layout"] == "grid" and spec["columns"] == 2
+    assert np.allclose(refs["U1"]["value"][MASK], (-0.02 * _gradient())[MASK])
+    assert np.allclose(refs["C1"]["value"]["y"], (-0.02 * _gradient())[MASK])
+    assert not any("not mapped" in s for s in rec["not_drawn"])
+
+
+def test_a_plan_that_maps_only_the_main_change_gets_todays_record(tmp_path):
+    """Maps that are no change of another quantity draw no second figure: a
+    run's own state (a "map"), a change over a region, a change with no
+    period and a change no split or overlap takes. The record is the one
+    the module gave before a second figure was drawn."""
+    pair = mapping("P4", "GPP", against="FPG", period="2033", split=False)
+    others = {"id": "P5", "fields": ["TLAI", "QVEGT", "BTRAN", "NPP"], "regions": [REGION],
+              "periods": ["2033"],
+              "outputs": [_out({"id": "O1", "kind": "difference", "field": "TLAI",
+                                "period": "2033", "region": None}),
+                          _out({"id": "O2", "kind": "difference", "field": "QVEGT",
+                                "period": "2033"}),
+                          {"id": "O3", "kind": "map", "run": "control", "field": "BTRAN",
+                           "period": "2033"},
+                          {"id": "O4", "kind": "overlap", "region": REGION,
+                           "inputs": ["O2", "O3"]},
+                          _out({"id": "O5", "kind": "difference", "field": "NPP",
+                                "region": None}),
+                          {"id": "O6", "kind": "elevation_split", "region": REGION,
+                           "inputs": ["O5"]}]}
+    rd = study(tmp_path, CO2)
+    rec = _build(rd, what_if_plan(extra_analyses=[pair, others]), world("every"))
+    assert rec["problems"] == [] and rec["tables"] == []
+    assert [f["id"] for f in rec["figures"]] == ["over_time", "over_space"]
+    words = "plant growth"
+    assert rec["figures"][-1] == {
+        "id": "over_space", "file": "figure_over_space.png", "number": 2,
+        "heading": "Plant growth in each cell",
+        "caption": "(a, b) Each cell's plant growth over the whole year in 2033 and 2034, the "
+                   "new run minus the control run. The line is the edge of the basin's "
+                   "vegetated land. (c) The cells of the basin's vegetated land, the change in "
+                   "plant growth against the control run's nitrogen limitation index over the "
+                   "whole year, coloured by the control run's air temperature.",
+        "comparisons": [3, 4, 5],
+        "panels": [{"field": "GPP", "words": words, "period": "2033", "kind": "map",
+                    "letter": "a"},
+                   {"field": "GPP", "words": words, "period": "2034", "kind": "map",
+                    "letter": "b"},
+                   {"field": "GPP", "words": words, "against": "FPG", "kind": "cells",
+                    "letter": "c"}]}
+    assert rec["not_drawn"] == [
+        "Air temperature (TBOT) has no panel over time, because the new run does not change it.",
+        "Snowfall (SNOW) has no panel over time, because the new run does not change it.",
+        "Rain (RAIN) has no panel over time, because the new run does not change it.",
+        "Aquifer recharge (QCHARGE) has no panel over time, because the two runs hold the same "
+        "value of it in every month."]
+    assert not (rd / "04_analysis" / "figure_over_space_2.png").exists()
+    # with no lower row, the one figure's sentence still names it as before
+    rec = _build(study(tmp_path / "alone", CO2), what_if_plan(), world("every"))
+    assert "The figure over space has no lower row, because the change is the same in every "\
+           "cell and no approved comparison sets another map against plant growth." \
+           in rec["not_drawn"]
+
+
+def test_a_third_mapped_change_is_named_and_not_drawn(tmp_path):
+    rd = study(tmp_path, CUT, panels_changed=SUMMER)
+    plan = what_if_plan(extra_analyses=[mapping("P4", "QVEGT"), mapping("P5", "TLAI")])
+    rec = _build(rd, plan, _water_use(world()))
+    assert rec["problems"] == []
+    assert [f["id"] for f in _spaces(rec)] == ["over_space", "over_space_2"]
+    assert {p["field"] for f in _spaces(rec) for p in f["panels"]} == {"GPP", "QVEGT"}
+    assert "Leaf area index (TLAI) is not mapped, because the report maps at most two "\
+           "quantities." in rec["not_drawn"]
+    assert sorted(p.name for p in (rd / "04_analysis").glob("figure_over_space*")) == \
+        ["figure_over_space.png", "figure_over_space_2.png"]
+
+
+def test_a_study_of_the_control_run_alone_maps_a_second_departure(tmp_path, drawn):
+    plan = control_plan()
+    # rain's departure, split and set against the control run's own leaf
+    # area, which is a state and no departure
+    plan["analyses"] += [mapping("P2", "RAIN", against="TLAI", kind="anomaly",
+                                 period="WY2033")]
+    rd = study(tmp_path, [])
+    (rd / "01_inputs" / "run_given.json").unlink()
+    rec = _build(rd, plan, world("none"))
+    assert rec["problems"] == []
+    first, second = _spaces(rec)
+    assert (second["id"], second["file"], second["number"]) == \
+        ("over_space_2", "figure_over_space_2.png", first["number"] + 1)
+    assert second["heading"] == "Rain in each cell"
+    assert [(p["period"], p["letter"]) for p in second["panels"]] == [("WY2033", "a"),
+                                                                       ("WY2034", "b")]
+    assert second["caption"].startswith("(a, b) Each cell's rain over each water year (October "
+                                        "to September) of 2033 and 2034, minus the mean of the "
+                                        "normal years 2031 to 2034.")
+    assert second["comparisons"] == [2]
+    assert [s for s in rec["not_drawn"] if "no lower row" in s] == [
+        "The figures over space have no lower row, because a study of the control run alone "
+        "has no change to set the cells against."]
+    assert not any("not mapped" in s for s in rec["not_drawn"])
+    _, refs = drawn["report_over_space_2"]
+    assert refs["U1"]["out"]["field"] == "RAIN"
+
+
+def test_a_uniform_change_uses_the_second_quantitys_own_overlap_pair(tmp_path, drawn):
+    plan = what_if_plan(extra_analyses=[
+        mapping("P4", "GPP", against="FPG", period="2033", split=False),
+        mapping("P5", "QVEGT", against="BTRAN", period="2033")])
+    rec = _build(study(tmp_path, CO2), plan, world("every"))
+    assert rec["problems"] == []
+    first, second = _spaces(rec)
+    assert [p["against"] for p in first["panels"] if p["kind"] == "cells"] == ["FPG"]
+    assert [p["against"] for p in second["panels"] if p["kind"] == "cells"] == ["BTRAN"]
+    assert "(c) The cells of the basin's vegetated land, the change in transpiration against "\
+           "the control run's water stress index over the whole year" in second["caption"]
+    assert first["comparisons"] == [3, 4, 5] and second["comparisons"] == [5]
+    _, refs = drawn["report_over_space_2"]
+    i = FIELDS.index("BTRAN")
+    assert np.allclose(refs["C1"]["value"]["x"], _gradient(10.0 + i)[MASK])   # BTRAN, across
+    assert refs["C1"]["out"]["y_label"].startswith("Transpiration, new run minus")
+
+
+def _map_line(field, h, units):
+    """The made-up log line of a map of a change, found by its hash."""
+    return {"call": "difference", "planned": True, "arrays": {"difference": h},
+            "keys": {"run": RUN, "control": "control", "field": field, "period": "2033-JJA",
+                     "region": None},
+            "result": {"change_units": units}}
+
+
+def _split_line(h, mean):
+    return {"call": "elevation_split", "planned": True, "keys": {"region": REGION, "x": h},
+            "result": {"parts.below 1000 m.mean": mean, "parts.below 1000 m.area_km2": 5.0}}
+
+
+SPLIT_LINES = [_diff("GPP", "2033-JJA", -1.2, -4.5),                       # L1: by period
+               _map_line("GPP", "h-g", "gC/m^2/season"),                    # L2
+               _map_line("QVEGT", "h-q", "mm/season"),                      # L3
+               _map_line("TLAI", "h-t", "1"),                               # L4
+               _split_line("h-q", -0.25),                                   # L5: transpiration
+               _split_line("h-g", -1.5),                                    # L6: plant growth
+               _split_line("h-t", -0.01)]                                   # L7: no figure
+
+
+def test_the_elevation_tables_split_by_quantity_each_after_its_own_figure(tmp_path):
+    rd = study(tmp_path, CUT, panels_changed=SUMMER, lookups=SPLIT_LINES)
+    rec = _build(rd, what_if_plan(extra_analyses=[mapping("P4", "QVEGT")]), _water_use(world()))
+    assert rec["problems"] == []
+    assert [(t["id"], t["number"], t["follows"]) for t in rec["tables"]] == [
+        ("periods", 1, "over_time_2"), ("elevation", 2, "over_space"),
+        ("elevation_2", 3, "over_space_2")]
+    first, second = rec["tables"][1:]
+    # plant growth's split, and leaf area's, a quantity with no figure of its own
+    assert first["columns"] == ["Area, km2", "Plant growth (GPP), summer 2033, gC/m2",
+                                "Leaf area index (TLAI), summer 2033"]
+    assert [r["records"] for r in first["rows"]] == [["L6", "L7"]]
+    assert second["columns"] == ["Area, km2", "Summer 2033, mm"]
+    assert [r["cells"] for r in second["rows"]] == [[format_value(5.0), format_value(-0.25)]]
+    assert [r["records"] for r in second["rows"]] == [["L5"]]
+    assert second["caption"].startswith("Transpiration (QVEGT), the new run minus the control "
+                                        "run, in each elevation band")
+    assert rec["printed_records"] == ["L1", "L5", "L6", "L7"]
+    # with no second figure, every split stays in the one table after the first
+    rec = _build(study(tmp_path / "one", CUT, panels_changed=SUMMER, lookups=SPLIT_LINES),
+                 what_if_plan(), _water_use(world()))
+    assert [(t["id"], t["number"], t["follows"]) for t in rec["tables"]] == [
+        ("periods", 1, "over_time_2"), ("elevation", 2, "over_space")]
+    assert [r["records"] for r in rec["tables"][1]["rows"]] == [["L5", "L6", "L7"]]
+
+
+def test_the_report_page_places_figure_4_and_its_table_in_order(tmp_path):
+    from agents.analysis import report_pages as RP
+    from test_report_pages import make_report
+    rd = study(tmp_path, CUT, panels_changed=SUMMER, lookups=SPLIT_LINES)
+    rec = _build(rd, what_if_plan(extra_analyses=[mapping("P4", "QVEGT")]), _water_use(world()))
+    report, adir = make_report(tmp_path / "page", figures=rec)
+    written = RP.write_pages(report, adir)
+    text = Path(written["REPORT.md"]).read_text()
+    marks = ["### 3.3 Plant growth in each cell", "**Figure 3.**", "**Table 2.**",
+             "### 3.4 Transpiration in each cell", "![Figure 4](figure_over_space_2.png)",
+             "**Figure 4.**", "This figure answers comparison 4.", "**Table 3.**", "## 4."]
+    at = [text.index(m) for m in marks]
+    assert at == sorted(at)
+    assert text.count("**Table 3.**") == 1 and "**Table 4.**" not in text
+    details = Path(written["REPORT_DETAILS.md"]).read_text()
+    assert "- Figure 4 (over_space_2): figure_over_space_2.png, comparisons 4" in details
+    assert "- Table 3, after the figure over_space_2, 1 row:" in details
+
+
 # ── the record, and what is never done ──────────────────────────────────────
 
 def test_the_record_is_written_beside_the_figures(tmp_path):
@@ -680,7 +922,11 @@ def test_no_caption_or_heading_names_the_plan_or_a_comparison(tmp_path):
              (CO2, None, what_if_plan(extra_analyses=[pair]), world("every")),  # the overlap
              (CO2, None, what_if_plan(), world("every")),                   # no lower row
              ([], None, control_plan(), world("none")),                     # the control alone
-             (CUT, None, {"analyses": [{"id": "P1", "fields": []}]}, world())]  # nothing to draw
+             (CUT, None, {"analyses": [{"id": "P1", "fields": []}]}, world()),  # nothing to draw
+             (CUT, SUMMER, what_if_plan(extra_analyses=[                    # three mapped
+                 mapping("P4", "QVEGT"), mapping("P5", "TLAI")]), _water_use(world())),
+             (CO2, None, what_if_plan(extra_analyses=[                      # two, no lower row
+                 mapping("P4", "QVEGT", period="2033")]), world("every"))]
     seen = 0
     for k, (changes, changed, plan, acc) in enumerate(cases):
         rd = study(tmp_path / str(k), changes, panels_changed=changed, lookups=lines)

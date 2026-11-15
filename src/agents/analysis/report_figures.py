@@ -57,11 +57,29 @@ plan's own "overlap" outputs; and is left out otherwise. A study of the
 control run alone maps the departure from the normal years' mean, with no
 lower row.
 
+A SECOND FIGURE OVER SPACE (2026-11-14). A CO2 study asked how plant growth
+and plant water use would differ. Its approved plan mapped the change in
+transpiration as well as in growth: it split that change by elevation band
+and set it against the control run's summer water stress, cell by cell. The
+report mapped growth alone, so the water-use half of the answer had no
+figure. So a second figure over space maps the first quantity, in the plan's
+order, other than the first figure's, whose change the plan maps
+(mapped_changes): the field of a "difference" (an "anomaly" for a study of
+the control run alone), with no region and with a period, that an
+"elevation_split" or an "overlap" takes as an input. A "map" input, a run's
+own state such as the control run's water stress, is what a change is set
+against, not a change. The second figure is drawn as the first, by the same
+function (_space_figure), with its own lower row. The report maps at most
+two quantities (MAX_SPACE_FIGURES); a further one is named under not_drawn.
+
 TABLE 1 holds the planned period records of Figure 1's quantities over its
 region (differences, or anomalies for the control run alone): seasons in
 time order, then whole years, at most six periods, those with the most
-records first. TABLE 2 holds the planned elevation splits over that region:
-a row per band with its area, a column per split.
+records first. THE TABLES BY ELEVATION hold the planned elevation splits over
+that region, a row per band with its area and a column per split. Each figure
+over space is followed by the table of its own quantity's splits; a split of
+a quantity with no figure of its own stays in the first table. Tables are
+numbered in the order they stand.
 
 Every sentence here (a heading, a caption, a reason something is not drawn)
 says what is drawn, never what it shows.
@@ -90,6 +108,9 @@ PERIODS, ELEVATION = "periods", "elevation"
 PNG_PATTERN = "figure_over_*.png"                # what an earlier build drew, removed first
 MAX_MAP_YEARS = 4
 MAX_PERIODS = 6
+# the figures over space a report holds, the first quantity's and one more,
+# in words for the sentence that names a quantity left unmapped
+MAX_SPACE_FIGURES, MAX_SPACE_WORDS = 2, "two"
 # the inputs a run may change that the store holds, each a sum of its fields
 # (rain and snow are both water, so their change is one amount)
 INPUTS = (("RAIN", "SNOW"), ("TBOT",), ("FSDS",))
@@ -593,7 +614,7 @@ def over_time(acc, plan, facts, notes, groups, out: Path, number: int,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FIGURE 2, OVER SPACE
+# THE FIGURES OVER SPACE: FIGURE 2, AND A SECOND OF ANOTHER MAPPED QUANTITY
 # ─────────────────────────────────────────────────────────────────────────────
 def _period(kind: str, year: int) -> str:
     return {"year": str(year), "wateryear": f"WY{year}"}.get(kind, f"{year}-{kind}")
@@ -685,31 +706,79 @@ def _input_of(x: Any, own: Dict[str, Dict[str, Any]], index: Dict[str, Dict[str,
     return own.get(x) if "." not in x else index.get(x)
 
 
-def overlap_pairs(plan: Dict[str, Any], main: str) -> List[Dict[str, Any]]:
-    """The plan's "overlap" outputs that set the main quantity's map against
-    another map: [{"number" (its comparison), "y" (the main quantity's
-    output), "x" (the other), "region"}], in the plan's order."""
+def _taking_inputs(plan: Dict[str, Any], kinds: Sequence[str]
+                   ) -> List[Tuple[int, Dict[str, Any], List[Any]]]:
+    """The plan's outputs of these kinds, in its order, each with its
+    comparison's number and its inputs as the outputs they name ("O1" of
+    its own analysis, "P3.O1" of another; None for one that names nothing)."""
     from agents.analysis import plan_contract as PC
     index = PC.plan_index(plan)
     out = []
     for i, a in enumerate(analyses(plan), 1):
         own = {str(o.get("id")): o for o in _list(a.get("outputs")) if isinstance(o, dict)}
         for o in own.values():
-            if o.get("kind") != "overlap":
-                continue
-            ins = [_input_of(x, own, index) for x in _list(o.get("inputs"))]
-            if len(ins) != 2 or not all(isinstance(x, dict) for x in ins):
-                continue
-            if not all(x.get("kind") in ("difference", "anomaly", "map") and
-                       x.get("region") is None and x.get("field") and x.get("period")
-                       for x in ins):
-                continue
-            fields = [str(x.get("field")) for x in ins]
-            if main not in fields:
-                continue
-            y = fields.index(main)
-            out.append({"number": i, "y": ins[y], "x": ins[1 - y], "region": o.get("region")})
+            if o.get("kind") in kinds:
+                out.append((i, o, [_input_of(x, own, index) for x in _list(o.get("inputs"))]))
     return out
+
+
+def overlap_pairs(plan: Dict[str, Any], main: str) -> List[Dict[str, Any]]:
+    """The plan's "overlap" outputs that set the main quantity's map against
+    another map: [{"number" (its comparison), "y" (the main quantity's
+    output), "x" (the other), "region"}], in the plan's order."""
+    out = []
+    for i, o, ins in _taking_inputs(plan, ("overlap",)):
+        if len(ins) != 2 or not all(isinstance(x, dict) for x in ins):
+            continue
+        if not all(x.get("kind") in ("difference", "anomaly", "map") and
+                   x.get("region") is None and x.get("field") and x.get("period")
+                   for x in ins):
+            continue
+        fields = [str(x.get("field")) for x in ins]
+        if main not in fields:
+            continue
+        y = fields.index(main)
+        out.append({"number": i, "y": ins[y], "x": ins[1 - y], "region": o.get("region")})
+    return out
+
+
+def _change_map(x: Any, kind: str) -> bool:
+    """Whether an input is a map of a change: of this kind ("difference" or
+    "anomaly"), over every cell (no region) and over a period."""
+    return isinstance(x, dict) and x.get("kind") == kind and x.get("region") is None and \
+        bool(x.get("field")) and bool(x.get("period"))
+
+
+def mapped_changes(plan: Dict[str, Any], run: Optional[str]) -> List[str]:
+    """The quantities whose change the approved comparisons map, in the
+    plan's order: the field of each input of kind "difference" (a study with
+    a new run) or "anomaly" (a study of the control run alone), with no
+    region and with a period, that an "elevation_split" or an "overlap"
+    output takes. An input of kind "map", a run's own state, is what a
+    change is set against and is not one."""
+    kind = "difference" if run else "anomaly"
+    # the plan's order is where each map stands in it (its analysis, then
+    # its place there), not where it is first used: a reference to another
+    # analysis's output ("P3.O1") is that same output, so its place is found
+    # by the output itself
+    place = {id(o): n for n, o in enumerate(o for a in analyses(plan)
+                                            for o in _list(a.get("outputs"))
+                                            if isinstance(o, dict))}
+    used: Dict[int, Dict[str, Any]] = {}
+    for _, _, ins in _taking_inputs(plan, ("elevation_split", "overlap")):
+        for x in ins:
+            if _change_map(x, kind):
+                used.setdefault(id(x), x)
+    maps = sorted(used.values(), key=lambda x: place.get(id(x), len(place)))
+    return list(dict.fromkeys(str(x["field"]) for x in maps))
+
+
+def _splitting(plan: Dict[str, Any], region: str, field: str) -> List[int]:
+    """The comparisons' numbers whose elevation split over the region splits
+    a map of this quantity."""
+    return [i for i, o, ins in _taking_inputs(plan, ("elevation_split",))
+            if o.get("region") == region and
+            any(isinstance(x, dict) and str(x.get("field")) == field for x in ins)]
 
 
 def _change_words(o: Dict[str, Any]) -> str:
@@ -737,25 +806,52 @@ def _air(acc, cache, region, period) -> Tuple[np.ndarray, str]:
     return _celsius(t, _units(acc, cache, CONTROL, AIR, region, period))
 
 
-def over_space(acc, plan, facts, out: Path, number: int, rec) -> Optional[Dict[str, Any]]:
-    """Figure 2: drawn, and its record, or None."""
+def over_space(acc, plan, facts, out: Path, number: int, rec) -> List[Dict[str, Any]]:
+    """The figures over space, drawn, and their records: Figure 2, of the
+    first quantity of the plan's first comparison, then one of the first
+    other quantity whose change the plan maps (mapped_changes), if any."""
     run, region, years = facts["run"], facts["region"], facts["years"]
     first = analyses(plan)[0] if analyses(plan) else {}
     main = next((str(f) for f in _list(first.get("fields")) if f), None)
     if not main or not region or not years:
         rec["not_drawn"].append("No figure over space was drawn, because the first approved "
                                 "comparison names no quantity, region or year.")
-        return None
+        return []
+    others = [f for f in mapped_changes(plan, run) if f != main]
+    fields = [main] + others[:MAX_SPACE_FIGURES - 1]
+    ll = acc.lat_lon()
+    mask = np.asarray(acc.region_mask(region), dtype=bool)
+    cache: Dict[Any, str] = {}
+    figures: List[Dict[str, Any]] = []
+    for k, field in enumerate(fields):
+        fig = _space_figure(acc, plan, facts, out, number + len(figures), rec, field, k,
+                            len(fields) == 1, ll, mask, cache)
+        if fig:
+            figures.append(fig)
+    left = others[MAX_SPACE_FIGURES - 1:]
+    if left:
+        rec["not_drawn"].append(f"{FW.capital(FW.join(FW.words(f) for f in left))} "
+                                f"{'is' if len(left) == 1 else 'are'} not mapped, because the "
+                                f"report maps at most {MAX_SPACE_WORDS} quantities.")
+    return figures
+
+
+def _space_figure(acc, plan, facts, out: Path, number: int, rec, main: str, k: int,
+                  alone: bool, ll, mask, cache) -> Optional[Dict[str, Any]]:
+    """One figure over space, of one quantity (`main`), drawn, and its
+    record, or None: the report's k-th from 0, "over_space" then
+    "over_space_2". `alone` when it is the report's only one: its sentences
+    of what is not drawn then name it "the figure over space", as before a
+    second was drawn; with two, each names its own quantity."""
+    run, region, years = facts["run"], facts["region"], facts["years"]
     w = FW.words(main, with_code=False)
+    name = None if alone else f"the figure of {w} in each cell"
     mapped, more = list(years[:MAX_MAP_YEARS]), list(years[MAX_MAP_YEARS:])
     if more:
         rec["not_drawn"].append(f"The map of {w} in {FW.years_words(more)} is not drawn, "
                                 f"because a figure over space holds at most {MAX_MAP_YEARS} "
                                 f"years.")
     kind = map_kind(plan, run, facts["shade"])
-    cache: Dict[Any, str] = {}
-    ll = acc.lat_lon()
-    mask = np.asarray(acc.region_mask(region), dtype=bool)
     upper = []
     for y in mapped:
         p = _period(kind, y)
@@ -780,9 +876,11 @@ def over_space(acc, plan, facts, out: Path, number: int, rec) -> Optional[Dict[s
     # a row of maps over a row of cells; maps alone, two to a row from three
     # on. The columns are set once the lower row is known: a new run may have
     # none (a change the same in every cell, with no overlap to use instead)
-    lower, lower_words, numbers = _lower_row(acc, plan, facts, main, upper, mask, cache, rec)
+    lower, lower_words, numbers = _lower_row(acc, plan, facts, main, upper, mask, cache, rec,
+                                             name)
     cols = len(upper) if lower or len(upper) <= 2 else 2
-    spec = {"id": "report_over_space", "layout": "grid", "columns": cols,
+    fid = OVER_SPACE if k == 0 else f"{OVER_SPACE}_{k + 1}"
+    spec = {"id": f"report_{fid}", "layout": "grid", "columns": cols,
             "letters": True, "panels": []}
     refs: Dict[str, Dict[str, Any]] = {}
     panels: List[Dict[str, Any]] = []
@@ -797,11 +895,13 @@ def over_space(acc, plan, facts, out: Path, number: int, rec) -> Optional[Dict[s
         spec["panels"].append({"kind": "cells", "output": f"C{i}"})
         panels.append({"field": main, "words": w, "against": labels["against"],
                        "kind": "cells"})
-    png = f"figure_{OVER_SPACE}.png"
+    png = f"figure_{fid}.png"
     done = FS.render_figure(spec, refs, out / png,
                             lat_lon={"lat": ll["lat"], "lon": ll["lon"], "outline": mask})
     if not done.get("ok"):
-        rec["problems"].append(f"the figure over space was not drawn: {done.get('error')}")
+        rec["problems"].append(f"the figure over space was not drawn: {done.get('error')}"
+                               if name is None else
+                               f"{name} was not drawn ({done.get('error')})")
         return None
     several = len(panels) > 1
     for i, p in enumerate(panels):
@@ -822,12 +922,17 @@ def over_space(acc, plan, facts, out: Path, number: int, rec) -> Optional[Dict[s
                f"{FW.years_words(facts['normal_years'])}. The line is the edge of {rw}.")
     if lower:
         cap += f" {tag('cells')}{lower_words}"
-    answers = _answers(plan, lambda o: (o.get("field") == main and o.get("region") is None and
-                                        o.get("kind") in ("difference", "anomaly", "map"))
-                       or (o.get("kind") == "elevation_split" and o.get("region") == region))
-    return {"id": OVER_SPACE, "file": png, "number": number,
+    maps = _answers(plan, lambda o: o.get("field") == main and o.get("region") is None and
+                    o.get("kind") in ("difference", "anomaly", "map"))
+    # THE FIRST FIGURE ANSWERS EVERY ELEVATION SPLIT over the region, as it
+    # did when it was the only figure over space; the second answers only the
+    # splits of its own quantity (2026-11-14)
+    splits = (_answers(plan, lambda o: o.get("kind") == "elevation_split" and
+                       o.get("region") == region) if k == 0 else
+              _splitting(plan, region, main))
+    return {"id": fid, "file": png, "number": number,
             "heading": f"{FW.capital(w)} in each cell", "caption": cap,
-            "comparisons": sorted(set(answers) | set(numbers)), "panels": panels}
+            "comparisons": sorted(set(maps) | set(splits) | set(numbers)), "panels": panels}
 
 
 def _input_change(acc, run, group, upper, mask):
@@ -856,16 +961,23 @@ def _input_change(acc, run, group, upper, mask):
     return per_year, [f for f in group if f in changed], varies
 
 
-def _lower_row(acc, plan, facts, main, upper, mask, cache, rec):
-    """The lower row of Figure 2: [(x, y, colour, labels)], the caption's
-    words for it, and the comparisons it draws. Against the input the run
-    changes where that change differs from cell to cell; else against the
-    pair of the plan's own overlap; else none."""
+def _lower_row(acc, plan, facts, main, upper, mask, cache, rec, name=None):
+    """The lower row of a figure over space, of its quantity `main`:
+    [(x, y, colour, labels)], the caption's words for it, and the
+    comparisons it draws. Against the input the run changes where that
+    change differs from cell to cell; else against the pair of the plan's
+    own overlap for `main`; else none. `name` is the figure's name in a
+    sentence when the report has two figures over space ("the figure of
+    transpiration in each cell"), None when it has one."""
     run, region = facts["run"], facts["region"]
     w = FW.words(main, with_code=False)
     if not run:
-        rec["not_drawn"].append("The figure over space has no lower row, because a study of the "
-                                "control run alone has no change to set the cells against.")
+        # one reason for both figures over space, so said once for both
+        s = ("The figure over space has no lower row" if name is None else
+             "The figures over space have no lower row") + \
+            ", because a study of the control run alone has no change to set the cells against."
+        if s not in rec["not_drawn"]:
+            rec["not_drawn"].append(s)
         return [], "", []
     altered = facts.get("altered")
     for group in INPUTS:
@@ -884,9 +996,10 @@ def _lower_row(acc, plan, facts, main, upper, mask, cache, rec):
             try:
                 temp, tu = _air(acc, cache, region, p)
             except Exception as e:                                  # noqa: BLE001
-                rec["not_drawn"].append(f"The lower panel of {FW.period_words(p)} is not drawn, "
-                                        f"because the results store gives no air temperature "
-                                        f"for it ({_reason(e)}).")
+                rec["not_drawn"].append(f"The lower panel of {FW.period_words(p)}"
+                                        + (f" in {name}" if name else "")
+                                        + f" is not drawn, because the results store gives no "
+                                        f"air temperature for it ({_reason(e)}).")
                 continue
             sel = mask & np.isfinite(t) & np.isfinite(a) & np.isfinite(temp)
             u_x = _with_span(_units(acc, cache, CONTROL, used[0], region, p), p)
@@ -904,9 +1017,9 @@ def _lower_row(acc, plan, facts, main, upper, mask, cache, rec):
         return out, words, []
     pairs = overlap_pairs(plan, main)[:len(upper)]
     if not pairs:
-        rec["not_drawn"].append(f"The figure over space has no lower row, because the change is "
-                                f"the same in every cell and no approved comparison sets another "
-                                f"map against {w}.")
+        rec["not_drawn"].append(f"{FW.capital(name or 'the figure over space')} has no lower "
+                                f"row, because the change is the same in every cell and no "
+                                f"approved comparison sets another map against {w}.")
         return [], "", []
     out, numbers, xs = [], [], []
     for pr in pairs:
@@ -917,8 +1030,10 @@ def _lower_row(acc, plan, facts, main, upper, mask, cache, rec):
             m = mask if reg == region else np.asarray(acc.region_mask(reg), dtype=bool)
             temp, tu = _air(acc, cache, reg, py)
         except Exception as e:                                      # noqa: BLE001
-            rec["not_drawn"].append(f"A lower panel over space is not drawn, because the results "
-                                    f"store gives no map for it ({_reason(e)}).")
+            rec["not_drawn"].append((f"A lower panel of {name}" if name else
+                                     "A lower panel over space")
+                                    + f" is not drawn, because the results store gives no map "
+                                    f"for it ({_reason(e)}).")
             continue
         sel = m & np.isfinite(xm) & np.isfinite(ym) & np.isfinite(temp)
         u_y = _with_span(_units(acc, cache, CONTROL, main, reg, py), py)
@@ -1057,10 +1172,11 @@ def _maps_by_hash(lookups: Sequence[Dict[str, Any]]) -> Dict[str, Tuple[int, Dic
     return out
 
 
-def elevation_table(lookups: Sequence[Dict[str, Any]], region: str,
-                    rec) -> Optional[Dict[str, Any]]:
-    """Table 2: the planned elevation splits over the region, a row per band
-    with its area, a column per split, named by the map it splits."""
+def elevation_splits(lookups: Sequence[Dict[str, Any]], region: str,
+                     rec) -> List[Tuple[int, Dict[str, Any], Dict[str, Any]]]:
+    """The planned elevation splits over the region, [(line, result, the log
+    line of the map it splits)], in the log's order. A split whose map is not
+    on the record is named once, under not_drawn."""
     by_hash = _maps_by_hash(lookups)
     splits = []
     for i, ln in enumerate(lookups, 1):
@@ -1076,6 +1192,18 @@ def elevation_table(lookups: Sequence[Dict[str, Any]], region: str,
                                     "because the map it splits is not on the record.")
             continue
         splits.append((i, res, hit[1]))
+    return splits
+
+
+def split_field(split: Tuple[int, Dict[str, Any], Dict[str, Any]]) -> str:
+    """The quantity of the map a split splits."""
+    return str((split[2].get("keys") or {}).get("field"))
+
+
+def elevation_table(splits: Sequence[Tuple[int, Dict[str, Any], Dict[str, Any]]], region: str,
+                    tid: str = ELEVATION) -> Optional[Dict[str, Any]]:
+    """A table by elevation: these splits over the region, a row per band
+    with its area, a column per split, named by the map it splits."""
     if not splits:
         return None
     bands: List[str] = []
@@ -1086,8 +1214,7 @@ def elevation_table(lookups: Sequence[Dict[str, Any]], region: str,
                 bands.append(m.group(1))
     if not bands:
         return None
-    fields = list(dict.fromkeys(str((src.get("keys") or {}).get("field"))
-                                for _, _, src in splits))
+    fields = list(dict.fromkeys(split_field(x) for x in splits))
     one_field = len(fields) == 1
     columns = ["Area, km2"]
     for _, _, src in splits:
@@ -1117,7 +1244,7 @@ def elevation_table(lookups: Sequence[Dict[str, Any]], region: str,
                f"mean over the band's cells, with each band's area." if one_field else
                f"Each map, {what}, in each elevation band of {rw}, the mean over the band's "
                f"cells, with each band's area.")
-    return {"id": ELEVATION, "caption": caption, "corner": "Elevation band", "columns": columns,
+    return {"id": tid, "caption": caption, "corner": "Elevation band", "columns": columns,
             "rows": rows}
 
 
@@ -1162,7 +1289,7 @@ def _build(study_dir: Path, plan: Dict[str, Any], out: Path, ctx, suites, access
         return rec
     notes, groups = catalog()
     figures = over_time(acc, plan, facts, notes, groups, out, 1, rec)
-    space = over_space(acc, plan, facts, out, len(figures) + 1, rec)
+    spaces = over_space(acc, plan, facts, out, len(figures) + 1, rec)
     lookups = AP.lookups(out)
     panel_of = {p["field"]: f"{fig['number']}{p['letter']}" for fig in figures
                 for p in fig["panels"]}
@@ -1172,12 +1299,24 @@ def _build(study_dir: Path, plan: Dict[str, Any], out: Path, ctx, suites, access
     if t1:
         tables.append(dict(t1, number=len(tables) + 1,
                            follows=figures[-1]["id"] if figures else None))
-    t2 = elevation_table(lookups, facts["region"], rec) if facts["region"] else None
-    if t2:
-        tables.append(dict(t2, number=len(tables) + 1,
-                           follows=OVER_SPACE if space else
-                           (figures[-1]["id"] if figures else None)))
-    rec["figures"] = figures + ([space] if space else [])
+    # EACH FIGURE OVER SPACE IS FOLLOWED BY THE SPLITS OF ITS OWN QUANTITY
+    # (2026-11-14): those of the second figure's quantity make a table after
+    # it; every other split stays in the first table, after the first figure
+    # over space, so a quantity with no figure of its own keeps its splits
+    # there. Tables are numbered in the order they stand.
+    splits = elevation_splits(lookups, facts["region"], rec) if facts["region"] else []
+    second = next((f for f in spaces if f["id"] != OVER_SPACE), None)
+    q2 = str(second["panels"][0]["field"]) if second else None
+    first_after = OVER_SPACE if any(f["id"] == OVER_SPACE for f in spaces) else \
+        (figures[-1]["id"] if figures else None)
+    for tid, group, after in (
+            (ELEVATION, [x for x in splits if split_field(x) != q2], first_after),
+            (f"{ELEVATION}_2", [x for x in splits if split_field(x) == q2],
+             second["id"] if second else None)):
+        t = elevation_table(group, facts["region"], tid)
+        if t:
+            tables.append(dict(t, number=len(tables) + 1, follows=after))
+    rec["figures"] = figures + spaces
     rec["tables"] = tables
     names = {n for t in tables for r in t["rows"] for n in r["records"]}
     rec["printed_records"] = sorted(names, key=lambda n: int(n[1:]))
