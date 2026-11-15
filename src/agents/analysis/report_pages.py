@@ -76,6 +76,14 @@ SUPPORT_WORDS = ("A comparison that is complete has produced its numbers. Whethe
                  "an expectation is said only by the findings that test it.")
 NO_CAUSE = ("No run in this study isolates a cause. These results are what happened together "
             "within the model, not what caused what.")
+# ONE RUN, ONE CHANGE (2026-11-15). A cold read of a CO2 study's report
+# found NO_CAUSE false for it: a new run that differs from the control run by
+# one change isolates that change, so in the model the differences are its
+# response, while the steps inside the model stay unseparated.
+ONE_CHANGE = ("The new run differs from the control run by one change, so in the model the "
+              "differences between them are its response to that change{later}. Which step "
+              "inside the model produced each difference is not separated.")
+LATER_START_ASIDE = ", apart from any effect of its later start"
 FIXED_RULES = ("*These are the framework's fixed rules for which words a finding may use, the "
                "same on every report.*")
 NO_DESIGN = "This study holds no design page."
@@ -1083,6 +1091,17 @@ def open_words(cause: str) -> str:
     return f"Left open by this study. {_sentence(c)}"
 
 
+def cause_words(report: Dict[str, Any]) -> str:
+    """What the runs can say of cause: ONE_CHANGE for one new run with one
+    change, NO_CAUSE for any other study."""
+    runs = _runs(report)
+    if len(runs) != 1 or len(_dicts(runs[0].get("changes"))) != 1:
+        return NO_CAUSE
+    later = any(re.search(r"later saved state", str(c.get("statement") or ""))
+                for c in _dicts(report.get("caveats")))
+    return ONE_CHANGE.format(later=LATER_START_ASIDE if later else "")
+
+
 def next_step_lines(report: Dict[str, Any]) -> List[str]:
     """Section 5: the question the study leaves open, then the run that would
     answer it, in words; at most three lines."""
@@ -1110,7 +1129,7 @@ def next_step_lines(report: Dict[str, Any]) -> List[str]:
     if not causes:
         L.append("- No open question was recorded." + (
             "" if any(c.get("evidence_class") == RV.CAUSAL_CLASS
-                      for c in report.get("claims") or []) else " " + NO_CAUSE))
+                      for c in report.get("claims") or []) else " " + cause_words(report)))
     return [f"## {SECTIONS[4]}", ""] + L[:MAX_NEXT] + [""]
 
 

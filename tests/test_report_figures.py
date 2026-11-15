@@ -271,7 +271,7 @@ def test_the_months_of_a_seasonal_change_are_shaded(tmp_path, drawn):
     rec = _build(rd, what_if_plan(), world())
     spec, _ = drawn["report_over_time"]
     assert all(p["shade_labels"] == SUMMER for p in spec["panels"])
-    assert "The shaded months are those with the change." in rec["figures"][0]["caption"]
+    assert "The shaded months are those the new run changes." in rec["figures"][0]["caption"]
 
 
 def test_the_months_come_from_the_change_where_the_page_drew_none(tmp_path, drawn):
@@ -288,7 +288,7 @@ def test_a_change_in_every_month_shades_nothing_and_says_so(tmp_path, drawn):
         if fid.startswith("report_over_time"):
             assert all("shade_labels" not in p for p in spec["panels"])
     over = [f for f in rec["figures"] if f["id"].startswith("over_time")]
-    assert all("The change holds in every month, so no month is shaded." in f["caption"]
+    assert all("The new run's change applies in every month, so no month is shaded." in f["caption"]
                for f in over)
     assert all("shaded months are" not in f["caption"] for f in over)
     # the run changes no weather: rain, snow and air temperature have no panel

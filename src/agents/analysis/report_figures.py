@@ -588,9 +588,11 @@ def over_time(acc, plan, facts, notes, groups, out: Path, number: int,
             cap = (f"The new run minus the control run over {rw}, for each month of {yw}. "
                    f"{panel_sentence(panels)}")
             if shaded:
-                cap += " The shaded months are those with the change."
+                # THE RUN'S CHANGE, NOT THE RESPONSE (2026-11-15): "the change holds
+                # in every month" was read as the response holding every month
+                cap += " The shaded months are those the new run changes."
             elif shade and shade.get("every"):
-                cap += " The change holds in every month, so no month is shaded."
+                cap += " The new run's change applies in every month, so no month is shaded."
             elif outside:
                 cap += " The months of the change fall outside these years, so no month is shaded."
             if last:
@@ -1145,7 +1147,8 @@ def period_table(lookups: Sequence[Dict[str, Any]], run: Optional[str], region: 
     if not rows:
         return None
     if left:
-        rec["not_drawn"].append(f"The table by period holds the {MAX_PERIODS} periods with the "
+        # named by its number: with two maps the line stands after Table 3
+        rec["not_drawn"].append(f"Table 1 holds the {MAX_PERIODS} periods with the "
                                 f"most records, so "
                                 f"{FW.join(_column_words(p)[:1].lower() + _column_words(p)[1:] for p in left)} "
                                 f"{'is' if len(left) == 1 else 'are'} not in it.")

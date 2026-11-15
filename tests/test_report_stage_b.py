@@ -211,3 +211,23 @@ def test_a_finding_in_words_on_the_tables_records_stays(tmp_path):
     assert 5 not in placed()                     # its number prints in Table 1
     report["claims"][4]["values"] = []           # the same records, said in words
     assert 5 in placed()
+
+
+# ── what the runs can say of cause ──────────────────────────────────────────
+def test_one_run_with_one_change_isolates_it_in_the_model():
+    one = {"model_setup": {"runs": [{"run": "control"},
+                                    {"run": "wet", "changes": [{"id": "weather_scale"}]}]},
+           "caveats": []}
+    assert RP.cause_words(one) == RP.ONE_CHANGE.format(later="")
+    assert "in the model the differences between them are its response to that change. " \
+        in RP.cause_words(one)
+    later = dict(one, caveats=[{"id": "u1", "statement": "years: the run starts from the "
+                                "control's saved state of 1 January 2032, a later saved state"}])
+    assert "its response to that change, apart from any effect of its later start. " \
+        in RP.cause_words(later)
+    two = {"model_setup": {"runs": [{"run": "wet", "changes": [{"id": "a"}, {"id": "b"}]}]}}
+    assert RP.cause_words(two) == RP.NO_CAUSE
+    both = {"model_setup": {"runs": [{"run": "wet", "changes": [{"id": "a"}]},
+                                     {"run": "dry", "changes": [{"id": "b"}]}]}}
+    assert RP.cause_words(both) == RP.NO_CAUSE
+    assert RP.cause_words({"model_setup": {"runs": [{"run": "control"}]}}) == RP.NO_CAUSE
