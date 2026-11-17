@@ -71,6 +71,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+import machine_settings as MS
+
 LOCALE = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
 RECIPE_FILE, CHAIN_FILE, STATUS_FILE = "domain_recipe.json", "chain.json", "STATUS.log"
 CASE_SCRIPT, STAGE_SCRIPT = "create_case.sh", "run_stage.sh"
@@ -107,12 +109,20 @@ _CREATE_LONG = ("--case", "--compset", "--res", "--machine", "--compiler", "--mu
 _XML_OPTS = {"subgroup", "append"}
 # The gate this server ships, run by every model stage.
 RUN_GATE = Path(__file__).resolve().parent / "run_gate.py"
-# MPI tasks per node, for the job's node count (Compy: 40 cores per node).
-TASKS_PER_NODE = 40
+# MPI tasks per node, the queue option and the extra job lines come from the
+# recipe's machine (machine_settings.MACHINES).
 
 
 class DomainCaseError(Exception):
     """A recipe, a case or a chain cannot be used, and the message says why."""
+
+
+def _machine(recipe: "Recipe") -> Dict:
+    """The batch settings of the recipe's machine, or a DomainCaseError."""
+    try:
+        return MS.settings(recipe.mach)
+    except MS.MachineError as e:
+        raise DomainCaseError(str(e)) from None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -655,9 +665,10 @@ class Reference:
     gate_years: List[int] = field(default_factory=list)
 
 
-def _nodes(recipe: Recipe, per_node: int = TASKS_PER_NODE) -> int:
+def _nodes(recipe: Recipe, per_node: Optional[int] = None) -> int:
     """Nodes for the job, from the recipe's task counts (CIME: a negative
-    count is a number of nodes)."""
+    count is a number of nodes) and its machine's tasks per node."""
+    per_node = per_node or _machine(recipe)["tasks_per_node"]
     n = 1
     for e in recipe.xml:
         if re.fullmatch(r"NTASKS(_[A-Z]+)?", e[0]):
@@ -766,15 +777,21 @@ def write_stage_script(recipe: Recipe, record_dir, *, smoke_days: int = 5,
             + "\n          esac")
     smoke_extra = by_year.get(recipe.first_year, "")
     src_mod = Path(__file__).resolve().parent
+    mset = _machine(recipe)
+    # The machine's own job lines (Perlmutter: the CPU constraint), so the
+    # script asks for the right nodes when a person submits it by hand too.
+    machine_lines = "".join(f"#SBATCH {h}\n" for h in mset["header"])
+    usage_queue = ("-p <partition>" if mset["queue_option"] == "-p"
+                   else f"{mset['queue_option']} <qos>")
     text = f"""#!/bin/bash
 #SBATCH --account={recipe.project}
 #SBATCH --nodes={_nodes(recipe)}
 #SBATCH --exclusive
-#SBATCH --output={rd}/logs/%x.%j.out
+{machine_lines}#SBATCH --output={rd}/logs/%x.%j.out
 # One stage of case {recipe.case}'s chain, as its own SLURM job. Written by
 # domain_case.write_stage_script. Every stage appends to STATUS.log; a non-zero
 # exit cancels the stages queued after it (afterok + --kill-on-invalid-dep=yes).
-#   usage: sbatch -J <name> -p <partition> -t <wall> run_stage.sh <stage> [job ids]
+#   usage: sbatch -J <name> {usage_queue} -t <wall> run_stage.sh <stage> [job ids]
 set -uo pipefail
 export {" ".join(f"{k}={v}" for k, v in LOCALE.items())}
 STAGE=$1; shift
@@ -875,7 +892,8 @@ def forcing_problems(recipe: Recipe, years: Sequence[int]) -> List[str]:
 
 
 def plan_chain(recipe: Recipe, years: Sequence[int], *, tag: Optional[str] = None,
-               with_case: bool = True, smoke: bool = True, partition: str = "short",
+               with_case: bool = True, smoke: bool = True,
+               partition: Optional[str] = None,
                case_wall: str = "01:00:00", smoke_wall: str = "00:45:00",
                year_wall: str = "01:55:00", report_wall: str = "00:10:00",
                allow_forcing_cycle: bool = False) -> List[Job]:
@@ -883,8 +901,10 @@ def plan_chain(recipe: Recipe, years: Sequence[int], *, tag: Optional[str] = Non
 
     years must be consecutive, inside 1-9999 and inside the forcing's years
     (unless allow_forcing_cycle), and, unless the case is new, may start after
-    the recipe's first year (a chain re-armed after a failed year).
+    the recipe's first year (a chain re-armed after a failed year). partition
+    is the queue (on Perlmutter, the QOS); none given, the machine's default.
     """
+    partition = partition or _machine(recipe)["default_queue"]
     ys = [int(y) for y in years]
     if not ys:
         raise DomainCaseError("a chain needs at least one model year")
@@ -994,7 +1014,7 @@ def read_chain(record_dir) -> Dict:
 
 
 def submit_chain(jobs: List[Job], record_dir, run: Callable = None,
-                 after_job: Optional[str] = None) -> Dict:
+                 after_job: Optional[str] = None, machine: Optional[str] = None) -> Dict:
     """sbatch the chain in order. A record of this arming (a segment of
     chain.json, kept beside any earlier ones).
 
@@ -1008,6 +1028,9 @@ def submit_chain(jobs: List[Job], record_dir, run: Callable = None,
     after_job: a job outside this chain the first job must also wait for
     (afterok), such as the case job of the control a run of an experiment
     compares its settings with.
+
+    machine: the machine the jobs run on (the recipe's MACH), which decides how
+    sbatch is told the queue; none given, the machine this process runs on.
     """
     run = run or _run
     rd = Path(record_dir)
@@ -1046,7 +1069,8 @@ def submit_chain(jobs: List[Job], record_dir, run: Callable = None,
         return seg
     try:
         for j in jobs:
-            argv = ["sbatch", "--parsable", "-p", j.partition, "-t", j.walltime, "-J", j.name]
+            argv = ["sbatch", "--parsable", *MS.queue_args(machine, j.partition),
+                    "-t", j.walltime, "-J", j.name]
             extra: List[str] = []
             if j.stage == "report":
                 ids = list(by_stage.values())

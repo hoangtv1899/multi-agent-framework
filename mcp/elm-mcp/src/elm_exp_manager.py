@@ -475,7 +475,8 @@ class ELMExpManager(ExperimentManagerBase):
 		chain = {"years": years, "smoke_days": int(dc.get("smoke_days", 5)),
 				 "smoke": bool(dc.get("smoke", True)),
 				 "with_case": bool(dc.get("with_case", True)),
-				 "partition": str(dc.get("partition") or cfg.get("queue") or "short"),
+				 "partition": str(dc.get("partition") or cfg.get("queue")
+								   or DC.MS.default_queue(r.mach)),
 				 "tag": dc.get("tag") or r.case, "reference": dc.get("reference"),
 				 "walls": dc.get("walls") or {}}
 		if chain["with_case"] and r.case_dir.exists():
@@ -509,6 +510,7 @@ class ELMExpManager(ExperimentManagerBase):
 		"""The chain through the server, then job B on every one of its jobs."""
 		if self._is_experiment_rows(experiments):
 			return self._submit_experiment(experiments, config)
+		self._job_b_batch(config, before_any_job=True)
 		client = self._domain_client(config)
 		email = self._notify_email(config)
 		out = self._mcp_call(client, "submit_domain_chain",
@@ -1068,6 +1070,7 @@ class ELMExpManager(ExperimentManagerBase):
 			self._attach_runs(experiments)
 			print("   nothing to run: the experiment reads the reused control alone")
 			return experiments
+		self._job_b_batch(config, before_any_job=True)
 		client = self._domain_client(config)
 		email = self._notify_email(config)
 		jobs: List[Dict[str, str]] = []
@@ -1791,6 +1794,27 @@ class ELMExpManager(ExperimentManagerBase):
 					   log=out.get("log_path"), via="mcp", scope="study",
 					   notify=email or None)
 
+	def _job_b_batch(self, config: Dict[str, Any],
+					 before_any_job: bool = False) -> Dict[str, Any]:
+		"""Job B's queue, account and extra job lines on the machine this runs
+		on (machine_settings): the queue and account the config names, else
+		IDEAS_SLURM_QUEUE and IDEAS_SLURM_ACCOUNT, else the machine's defaults.
+
+		Called first with before_any_job, so a study that could not get its
+		finalize job (Perlmutter with no account named) is refused before its
+		chains are queued, not after they have run unattended for hours."""
+		MS = self._sibling_module("domain_case").MS
+		try:
+			mach = MS.current()
+			return {"queue": MS.queue_args(mach, config.get("queue")
+										  or os.environ.get("IDEAS_SLURM_QUEUE")),
+					"account": MS.account(config.get("account"), mach),
+					"lines": MS.header_lines(mach)}
+		except MS.MachineError as e:
+			why = f"job B cannot be submitted on this machine: {e}"
+			raise RuntimeError(why + ("; nothing was submitted" if before_any_job
+									   else "")) from None
+
 	def _submit_job_b(self, job_a: str, config: Dict[str, Any],
 					  email: str = "") -> Optional[str]:
 		"""JOB B — the analysis, held until A ends. Returns its id, or None.
@@ -1831,6 +1855,12 @@ class ELMExpManager(ExperimentManagerBase):
 			print(f"   ⚠️  {self.run_dir} is on {fs}, a node-local filesystem — "
 				  f"job B not submitted. Put the run directory on $PSCRATCH.")
 			return None
+		try:
+			batch = self._job_b_batch(config)
+		except RuntimeError as e:
+			print(f"   ⚠️  job B not submitted ({e}); A is running, so analyse by hand")
+			return None
+		machine_lines = "".join(f"{line}\n" for line in batch["lines"])
 		fw = framework_dir()
 		sb = self.run_dir / "ensemble_B.sbatch"
 		mail = (f"#SBATCH --mail-user={email}\n#SBATCH --mail-type=END,FAIL"
@@ -1838,9 +1868,9 @@ class ELMExpManager(ExperimentManagerBase):
 		sb.write_text(f"""#!/bin/bash
 #SBATCH -J elm_B
 #SBATCH -N 1
-#SBATCH -p {config.get("queue") or os.environ.get("IDEAS_SLURM_QUEUE", "short")}
-#SBATCH -A {config.get("account") or os.environ.get("IDEAS_SLURM_ACCOUNT", "e3sm")}
-#SBATCH -t {config.get("analysis_walltime", "00:30:00")}
+#SBATCH {batch["queue"][0]} {batch["queue"][1]}
+#SBATCH -A {batch["account"]}
+{machine_lines}#SBATCH -t {config.get("analysis_walltime", "00:30:00")}
 #SBATCH -o {self.run_dir}/ensemble_B.log
 {mail}
 cd {fw}

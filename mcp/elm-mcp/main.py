@@ -95,16 +95,45 @@ from typing import Any, Dict, List, Optional
 # FRAMEWORK is resolved below, once this server's own src/ is importable, by
 # src/framework_path.py, the single place that knows where the framework is.
 
-os.environ.setdefault("PSCRATCH", "/compyfs/tran289")
-os.environ.setdefault("E3SM_SRC_DIR", "/qfs/people/tran289/E3SM")
+# This server's own library, first: a name that exists both here and in the
+# framework must resolve HERE; the ELM code is migrating into this directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+# The machine this server runs on decides the defaults below. A machine the
+# table does not hold stops the server here, by name, rather than submitting
+# jobs with another machine's settings.
+import machine_settings                                         # noqa: E402
+_MACHINE = machine_settings.settings()
+_ON_COMPY = machine_settings.current() == "compy"
+# The column route (run_elm_ensemble, build_elm_cases) writes job scripts with
+# Compy's srun options (Intel MPI's --mpi=pmi2, job steps with --exclusive) and
+# has only ever run on Compy. Elsewhere it refuses, by name.
+_COLUMN_ROUTE_COMPY_ONLY = ("the column route (run_elm_ensemble, build_elm_cases) is set up "
+                            "for Compy only: its job scripts carry Compy's srun options. "
+                            "Whole-domain runs work on this machine.")
+
+
+def _default_env(name: str, value: Optional[str]) -> None:
+    """Set name to value when it is unset or empty. Empty counts as unset:
+    .mcp.json passes an empty value when the shell sets none."""
+    if value and not (os.environ.get(name) or "").strip():
+        os.environ[name] = value
+
+
+if _ON_COMPY:
+    # Compy's folders, where every earlier run was made. Another machine takes
+    # them from its own environment (env.sh.example names them).
+    os.environ.setdefault("PSCRATCH", "/compyfs/tran289")
+    os.environ.setdefault("E3SM_SRC_DIR", "/qfs/people/tran289/E3SM")
 # CIME's python assumes a UTF-8 locale and dies on the C locale. Set here
 # rather than per-subprocess so a tool added later cannot forget it —
 # src/core/elm_wrapper.py learned this the hard way.
 os.environ.setdefault("LC_ALL", "en_US.utf8")
 os.environ.setdefault("LANG",   "en_US.utf8")
-# SLURM defaults for the jobs this server submits.
-os.environ.setdefault("IDEAS_SLURM_ACCOUNT", "e3sm")
-os.environ.setdefault("IDEAS_SLURM_QUEUE",   "short")
+# SLURM defaults for the jobs this server submits, from the machine's row:
+# on Compy the account e3sm and the queue short, on Perlmutter the QOS
+# regular and no account (IDEAS_SLURM_ACCOUNT must name it).
+_default_env("IDEAS_SLURM_ACCOUNT", _MACHINE["default_account"])
+_default_env("IDEAS_SLURM_QUEUE", _MACHINE["default_queue"])
 
 # A WORKING python3 ON PATH, which is not the same thing as an interpreter.
 # CIME's create_newcase is `#!/usr/bin/env python3` and tools/submit_cases.sh
@@ -122,17 +151,16 @@ os.environ["PATH"] = (str(Path(sys.executable).parent) + os.pathsep
 # the case, and modulecmd finds nothing without MODULEPATH — a variable the
 # login shell sets and no MCP client forwards. Symptom, on job 770825: "ERROR:
 # No module path defined", ~30 s into a build that had already passed
-# create_newcase. Compy's five module trees; export MODULEPATH before starting
-# the server on any other machine.
-os.environ.setdefault("MODULESHOME", "/share/apps/modules")
-os.environ.setdefault("MODULEPATH", ":".join(
-    f"/share/apps/modules/modulefiles/{d}" for d in (
-        "environment", "development/mpi", "development/mlib",
-        "development/compilers", "development/tools")))
+# create_newcase. Compy's five module trees, on Compy only; on any other
+# machine MODULEPATH and MODULESHOME come from the shell that starts the server
+# (.mcp.json passes them on).
+if _ON_COMPY:
+    _default_env("MODULESHOME", "/share/apps/modules")
+    _default_env("MODULEPATH", ":".join(
+        f"/share/apps/modules/modulefiles/{d}" for d in (
+            "environment", "development/mpi", "development/mlib",
+            "development/compilers", "development/tools")))
 
-# This server's own library, first: a name that exists both here and in the
-# framework must resolve HERE; the ELM code is migrating into this directory.
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 # The framework's own modules. This server is a thin front for them rather than
 # a reimplementation — the case build is ELMExperimentBuilder either way.
 # framework_path honours IDEAS_FRAMEWORK_DIR and refuses a directory that does
@@ -269,14 +297,21 @@ def _requirements() -> dict:
                             "real checkout."}
         return {"path": str(p), "present": Path(p).is_dir()}
     def _file(p): return {"path": str(p), "present": Path(p).is_file()}
+    def _env_dir(var, sub=None):
+        # Compy's folders are defaults on Compy only, so elsewhere an unset
+        # variable is reported as missing, not looked up and crashed on.
+        v = (os.environ.get(var) or "").strip()
+        if not v:
+            return {"path": "", "present": False, "error": f"{var} is not set"}
+        return _dir(Path(v) / sub if sub else v)
 
     reqs = {
         "framework":     _dir(FRAMEWORK),
         "build_job":     _file(BUILD_JOB),
         "ensemble_ab":   _file(ENSEMBLE_AB),
-        "e3sm_source":   _dir(os.environ["E3SM_SRC_DIR"]),
-        "cime":          _dir(Path(os.environ["E3SM_SRC_DIR"]) / "cime"),
-        "scratch":       _dir(os.environ["PSCRATCH"]),
+        "e3sm_source":   _env_dir("E3SM_SRC_DIR"),
+        "cime":          _env_dir("E3SM_SRC_DIR", "cime"),
+        "scratch":       _env_dir("PSCRATCH"),
     }
     for name in ("sbatch", "squeue", "sacct"):
         reqs[name] = {"path": shutil.which(name) or "",
@@ -1307,6 +1342,8 @@ def run_elm_ensemble(run_dir:  str,
     Replaces run_elm_study, which ended by running the framework's
     `workflow.py --finalize` — the server's job executing the client's code.
     """
+    if not _ON_COMPY:
+        return json.dumps({"error": _COLUMN_ROUTE_COMPY_ONLY})
     rd = Path(run_dir).resolve()
     src = rd / "01_inputs" / CASE_INPUTS
     if not src.is_file():
@@ -1430,6 +1467,8 @@ def build_elm_cases(run_dir:  str,
     is the case that must not be cut off, and an unused reservation costs
     nothing.
     """
+    if not _ON_COMPY:
+        return json.dumps({"error": _COLUMN_ROUTE_COMPY_ONLY})
     rd = Path(run_dir).resolve()
     src = rd / "01_inputs" / CASE_INPUTS
     if not src.is_file():
@@ -1978,7 +2017,8 @@ def _domain_write(recipe, spec, rec, expect=None):
     return DC.plan_chain(recipe, spec.get("years") or [recipe.first_year],
                          tag=spec.get("tag"), with_case=bool(spec.get("with_case", True)),
                          smoke=bool(spec.get("smoke", True)),
-                         partition=str(spec.get("partition", "short")),
+                         partition=(str(spec["partition"]) if spec.get("partition")
+                                    else None),
                          allow_forcing_cycle=bool(spec.get("allow_forcing_cycle", False)),
                          **{k: v for k, v in walls.items() if k in DC.WALL_KEYS})
 
@@ -2123,7 +2163,7 @@ def submit_domain_chain(run_dir: str, run: str = "", after_job: str = "") -> str
             return json.dumps({"ok": False, "error": "the input set fails its check",
                                "reasons": pair["reasons"]})
         jobs = _domain_write(recipe, spec, rec, expect)
-        out = DC.submit_chain(jobs, rec, after_job=after_job or None)
+        out = DC.submit_chain(jobs, rec, after_job=after_job or None, machine=recipe.mach)
     except Exception as e:                                      # noqa: BLE001
         return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
     out["job_ids"] = [j["job_id"] for j in out.get("jobs", [])]
