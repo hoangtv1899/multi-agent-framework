@@ -18,6 +18,7 @@ their flag is given, so plain `pytest` stays fast, offline and deterministic:
                            #   (paths the whole-domain workflow does not use)
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -105,6 +106,21 @@ def no_model_gateway(request, monkeypatch):
         pytest.fail(f"the test asked the real model gateway {len(reached)} time(s) "
                     f"(model {', '.join(sorted(set(reached)))}): give the step a scripted "
                     f"client, or run with --runllm")
+
+
+def pytest_configure(config):
+    """Every test runs as Compy unless the test itself says otherwise.
+
+    The tests are written for Compy's batch settings, the compy row of
+    mcp/elm-mcp/src/machine_settings.py. On Perlmutter NERSC_HOST is set and
+    env_nersc.sh names an account and a queue, which would reach every test,
+    and the ELM server some tests load once per module, as Perlmutter's
+    settings. Set here, before any import or fixture, the whole session runs
+    as Compy on any machine. A test of another machine sets IDEAS_MACHINE or
+    NERSC_HOST itself, as tests/test_machine_settings.py does."""
+    for k in ("NERSC_HOST", "IDEAS_SLURM_ACCOUNT", "IDEAS_SLURM_QUEUE"):
+        os.environ.pop(k, None)
+    os.environ["IDEAS_MACHINE"] = "compy"
 
 
 def pytest_addoption(parser):
